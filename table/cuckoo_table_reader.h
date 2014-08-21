@@ -46,6 +46,7 @@ class CuckooTableReader: public TableReader {
     override;
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
+  void Prepare(const Slice& target) override;
 
   // Report an approximation of how much memory has been used.
   size_t ApproximateMemoryUsage() const override;
@@ -53,7 +54,6 @@ class CuckooTableReader: public TableReader {
   // Following methods are not implemented for Cuckoo Table Reader
   uint64_t ApproximateOffsetOf(const Slice& key) override { return 0; }
   void SetupForCompaction() override {}
-  void Prepare(const Slice& target) override {}
   // End of methods not implemented.
 
  private:

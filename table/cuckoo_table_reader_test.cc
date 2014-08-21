@@ -33,6 +33,8 @@ using GFLAGS::SetUsageMessage;
 DEFINE_string(file_dir, "", "Directory where the files will be created"
     " for benchmark. Added for using tmpfs.");
 DEFINE_bool(enable_perf, false, "Run Benchmark Tests too.");
+DEFINE_bool(write, false,
+    "Should write new values to file in performance tests?");
 
 namespace rocksdb {
 
@@ -103,7 +105,7 @@ class CuckooReaderTest {
   }
 
   void CreateCuckooFileAndCheckReader() {
-    unique_ptr<WritableFile> writable_file;
+    std::unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
     CuckooTableBuilder builder(
         writable_file.get(), 0.9, kNumHashFunc, 100, GetSliceHash);
@@ -119,7 +121,7 @@ class CuckooReaderTest {
     ASSERT_OK(writable_file->Close());
 
     // Check reader now.
-    unique_ptr<RandomAccessFile> read_file;
+    std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     CuckooTableReader reader(
         options,
@@ -144,7 +146,7 @@ class CuckooReaderTest {
   }
 
   void CheckIterator() {
-    unique_ptr<RandomAccessFile> read_file;
+    std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
     CuckooTableReader reader(
         options,
@@ -273,7 +275,7 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
     AddHashLookups(user_keys[i], 0, kNumHashFunc);
   }
   CreateCuckooFileAndCheckReader();
-  unique_ptr<RandomAccessFile> read_file;
+  std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
   CuckooTableReader reader(
       options,
@@ -356,24 +358,38 @@ bool CheckValue(void* cnt_ptr, const ParsedInternalKey& k, const Slice& v) {
   return false;
 }
 
+void GetKeys(uint64_t num, std::vector<std::string>* keys) {
+  IterKey k;
+  k.SetInternalKey("", 0, kTypeValue);
+  std::string internal_key_suffix = k.GetKey().ToString();
+  ASSERT_EQ(8, internal_key_suffix.size());
+  for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
+    std::string new_key(reinterpret_cast<char*>(&key_idx), sizeof(key_idx));
+    new_key += internal_key_suffix;
+    keys->push_back(new_key);
+  }
+}
+
+std::string GetFileName(uint64_t num, double hash_ratio) {
+  if (FLAGS_file_dir.empty()) {
+    FLAGS_file_dir = test::TmpDir();
+  }
+  return FLAGS_file_dir + "/cuckoo_read_benchmark" +
+    std::to_string(num/1000000) + "Mratio" +
+    std::to_string(static_cast<int>(100*hash_ratio));
+}
+
 // Create last level file as we are interested in measuring performance of
 // last level file only.
-void BM_CuckooRead(uint64_t num, uint32_t key_length,
-    uint32_t value_length, uint64_t num_reads, double hash_ratio) {
-  assert(value_length <= key_length);
-  assert(8 <= key_length);
-  std::vector<std::string> keys;
+void WriteFile(const std::vector<std::string>& keys,
+    const uint64_t num, double hash_ratio) {
   Options options;
   options.allow_mmap_reads = true;
   Env* env = options.env;
   EnvOptions env_options = EnvOptions(options);
-  uint64_t file_size;
-  if (FLAGS_file_dir.empty()) {
-    FLAGS_file_dir = test::TmpDir();
-  }
-  std::string fname = FLAGS_file_dir + "/cuckoo_read_benchmark";
+  std::string fname = GetFileName(num, hash_ratio);
 
-  unique_ptr<WritableFile> writable_file;
+  std::unique_ptr<WritableFile> writable_file;
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   CuckooTableBuilder builder(
       writable_file.get(), hash_ratio,
@@ -381,28 +397,49 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.
-    std::string new_key(reinterpret_cast<char*>(&key_idx), sizeof(key_idx));
-    new_key = std::string(key_length - new_key.size(), 'k') + new_key;
-    ParsedInternalKey ikey(new_key, 0, kTypeValue);
-    std::string full_key;
-    AppendInternalKey(&full_key, ikey);
-    builder.Add(Slice(full_key), Slice(&full_key[0], value_length));
+    builder.Add(Slice(keys[key_idx]), Slice(&keys[key_idx][0], 4));
     ASSERT_EQ(builder.NumEntries(), key_idx + 1);
     ASSERT_OK(builder.status());
-    keys.push_back(full_key);
   }
   ASSERT_OK(builder.Finish());
   ASSERT_EQ(num, builder.NumEntries());
-  file_size = builder.FileSize();
   ASSERT_OK(writable_file->Close());
-  unique_ptr<RandomAccessFile> read_file;
+
+  uint64_t file_size;
+  env->GetFileSize(fname, &file_size);
+  std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
 
   CuckooTableReader reader(
-      options,
-      std::move(read_file),
-      file_size,
-      GetSliceMurmurHash);
+      options, std::move(read_file), file_size, GetSliceMurmurHash);
+  ASSERT_OK(reader.status());
+  ReadOptions r_options;
+  for (const auto& key : keys) {
+    int cnt = 0;
+    ASSERT_OK(reader.Get(r_options, Slice(key), &cnt, CheckValue, nullptr));
+    if (cnt != 1) {
+      fprintf(stderr, "%lu not found.\n",
+          *reinterpret_cast<const uint64_t*>(key.data()));
+      ASSERT_EQ(1, cnt);
+    }
+  }
+}
+
+void ReadKeys(const std::vector<std::string>& keys, uint64_t num,
+    double hash_ratio, uint32_t batch_size) {
+  Options options;
+  options.allow_mmap_reads = true;
+  Env* env = options.env;
+  EnvOptions env_options = EnvOptions(options);
+  std::string fname = GetFileName(num, hash_ratio);
+
+  uint64_t file_size;
+  env->GetFileSize(fname, &file_size);
+  std::unique_ptr<RandomAccessFile> read_file;
+  ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
+
+  CuckooTableReader reader(
+      options, std::move(read_file), file_size, GetSliceMurmurHash);
   ASSERT_OK(reader.status());
   const UserCollectedProperties user_props =
     reader.GetTableProperties()->user_collected_properties;
@@ -411,39 +448,53 @@ void BM_CuckooRead(uint64_t num, uint32_t key_length,
   fprintf(stderr, "With %" PRIu64 " items and hash table ratio %f, number of"
       " hash functions used: %u.\n", num, hash_ratio, num_hash_fun);
   ReadOptions r_options;
-  for (auto& key : keys) {
-    int cnt = 0;
-    ASSERT_OK(reader.Get(r_options, Slice(key), &cnt, CheckValue, nullptr));
-    ASSERT_EQ(1, cnt);
-  }
-  // Shuffle Keys.
-  std::random_shuffle(keys.begin(), keys.end());
 
-  uint64_t time_now = env->NowMicros();
-  reader.NewIterator(ReadOptions(), nullptr);
-  fprintf(stderr, "Time taken for preparing iterator for %" PRIu64 " items: %" PRIu64 " ms.\n",
-      num, (env->NowMicros() - time_now)/1000);
-  time_now = env->NowMicros();
-  for (uint64_t i = 0; i < num_reads; ++i) {
-    reader.Get(r_options, Slice(keys[i % num]), nullptr, DoNothing, nullptr);
+  uint64_t start_time = env->NowMicros();
+  if (batch_size > 0) {
+    for (uint64_t i = 0; i < num; i += batch_size) {
+      for (uint64_t j = i; j < i+batch_size && j < num; ++j) {
+        reader.Prepare(Slice(keys[j]));
+      }
+      for (uint64_t j = i; j < i+batch_size && j < num; ++j) {
+        reader.Get(r_options, Slice(keys[j]), nullptr, DoNothing, nullptr);
+      }
+    }
+  } else {
+    for (uint64_t i = 0; i < num; i++) {
+      reader.Get(r_options, Slice(keys[i]), nullptr, DoNothing, nullptr);
+    }
   }
-  fprintf(stderr, "Time taken per op is %.3fus\n",
-      (env->NowMicros() - time_now)*1.0/num_reads);
+  float time_per_op = (env->NowMicros() - start_time) * 1.0 / num;
+  fprintf(stderr,
+      "Time taken per op is %.3fus (%.1f Mqps) with batch size of %u\n",
+      time_per_op, 1.0 / time_per_op, batch_size);
 }
 }  // namespace.
 
-TEST(CuckooReaderTest, Performance) {
-  // In all these tests, num_reads = 10*num_items.
+TEST(CuckooReaderTest, TestReadPerformance) {
+  uint64_t num = 1000*1000*100;
   if (!FLAGS_enable_perf) {
     return;
   }
-  BM_CuckooRead(100000, 8, 4, 1000000, 0.9);
-  BM_CuckooRead(1000000, 8, 4, 10000000, 0.9);
-  BM_CuckooRead(1000000, 8, 4, 10000000, 0.7);
-  BM_CuckooRead(10000000, 8, 4, 100000000, 0.9);
-  BM_CuckooRead(10000000, 8, 4, 100000000, 0.7);
+#ifndef NDEBUG
+  fprintf(stdout,
+      "WARNING: Not compiled with DNDEBUG. Performance tests may be slow.\n");
+#endif
+  std::vector<std::string> keys;
+  GetKeys(num, &keys);
+  for (double hash_ratio : std::vector<double>({0.5, 0.6, 0.75, 0.9})) {
+    if (FLAGS_write || !Env::Default()->FileExists(
+          GetFileName(num, hash_ratio))) {
+      WriteFile(keys, num, hash_ratio);
+    }
+    ReadKeys(keys, num, hash_ratio, 0);
+    ReadKeys(keys, num, hash_ratio, 10);
+    ReadKeys(keys, num, hash_ratio, 25);
+    ReadKeys(keys, num, hash_ratio, 50);
+    ReadKeys(keys, num, hash_ratio, 100);
+    fprintf(stderr, "\n");
+  }
 }
-
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

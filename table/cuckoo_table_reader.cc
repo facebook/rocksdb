@@ -96,8 +96,7 @@ Status CuckooTableReader::Get(
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_fun_; ++hash_cnt) {
     uint64_t hash_val = get_slice_hash_(ikey.user_key, hash_cnt, num_buckets_);
     assert(hash_val < num_buckets_);
-    uint64_t offset = hash_val * bucket_length_;
-    const char* bucket = &file_data_.data()[offset];
+    const char* bucket = &file_data_.data()[hash_val * bucket_length_];
     if (unused_key_.compare(0, key_length_, bucket, key_length_) == 0) {
       return Status::OK();
     }
@@ -119,6 +118,15 @@ Status CuckooTableReader::Get(
     }
   }
   return Status::OK();
+}
+
+void CuckooTableReader::Prepare(const Slice& key) {
+  // Prefetching first location also helps improve Get performance.
+  for (uint32_t hash_cnt = 0; hash_cnt < num_hash_fun_; ++hash_cnt) {
+    uint64_t hash_val = get_slice_hash_(ExtractUserKey(key),
+        hash_cnt, num_buckets_);
+    PREFETCH(&file_data_.data()[hash_val * bucket_length_], 0, 3);
+  }
 }
 
 class CuckooTableIterator : public Iterator {
