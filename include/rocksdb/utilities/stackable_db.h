@@ -143,6 +143,16 @@ class StackableDB : public DB {
         output_level, output_path_id);
   }
 
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::string& column_family_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return db_->CompactFiles(
+        compact_options, column_family_name, input_file_numbers,
+        output_level, output_path_id);
+  }
+
   using DB::ScheduleCompactFiles;
   virtual Status ScheduleCompactFiles(
       std::string* job_id,
@@ -154,6 +164,18 @@ class StackableDB : public DB {
         job_id, compact_options, column_family,
         input_file_numbers, output_level, output_path_id);
   }
+
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      const std::string& column_family_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return db_->ScheduleCompactFiles(
+        job_id, compact_options, column_family_name,
+        input_file_numbers, output_level, output_path_id);
+  }
+
 
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {

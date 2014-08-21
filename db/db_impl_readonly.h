@@ -80,9 +80,18 @@ class DBImplReadOnly : public DBImpl {
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
       const std::vector<uint64_t>& input_file_numbers,
-      const int output_level, const int output_path_id = -1) {
+      const int output_level, const int output_path_id = -1) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::string& cf_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
 
   using DBImpl::ScheduleCompactFiles;
   virtual Status ScheduleCompactFiles(
@@ -90,7 +99,16 @@ class DBImplReadOnly : public DBImpl {
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
       const std::vector<uint64_t>& input_file_numbers,
-      const int output_level, const int output_path_id = -1) {
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      const std::string& cf_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 

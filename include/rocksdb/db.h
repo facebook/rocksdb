@@ -75,7 +75,7 @@ struct LiveFileMetaData {
 // A structure that describes a compaction job.
 struct CompactionJob {
   DB* db;
-  ColumnFamilyHandle* cf_handle;
+  std::string column_family_name;
   int output_level;
   int output_path_id;
   std::vector<uint64_t> input_file_numbers;
@@ -393,6 +393,12 @@ class DB {
 
   virtual Status CompactFiles(
       const CompactionOptions& compact_options,
+      const std::string& cf_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) = 0;
+
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
       const std::vector<uint64_t>& input_file_numbers,
       const int output_level, const int output_path_id = -1) {
     return CompactFiles(compact_options, DefaultColumnFamily(),
@@ -417,6 +423,23 @@ class DB {
       ColumnFamilyHandle* column_family,
       const std::vector<uint64_t>& input_file_numbers,
       const int output_level, const int output_path_id = -1) = 0;
+
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      const std::string& cf_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) = 0;
+
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) {
+    return ScheduleCompactFiles(
+        job_id, compact_options, DefaultColumnFamily(),
+        input_file_numbers, output_level, output_path_id);
+  }
 
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;

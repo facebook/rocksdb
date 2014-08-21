@@ -116,11 +116,24 @@ class DBImpl : public DB {
       const std::vector<uint64_t>& input_file_numbers,
       const int output_level, const int output_path_id = -1);
 
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::string& cf_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1);
+
   using DB::ScheduleCompactFiles;
   virtual Status ScheduleCompactFiles(
       std::string* job_id,
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1);
+
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      const std::string& cf_name,
       const std::vector<uint64_t>& input_file_numbers,
       const int output_level, const int output_path_id = -1);
 
@@ -430,6 +443,11 @@ class DBImpl : public DB {
 
   static void BGWorkCompactFiles(void* compaction_job);
 
+  Status CompactFilesImpl(
+      const CompactionOptions& compact_options, ColumnFamilyData* cfd,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id);
+
   void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);
   static void BGWorkFlush(void* db);
@@ -479,6 +497,7 @@ class DBImpl : public DB {
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
   void NotifyOnBackgroundCompactFilesCompleted(
       const std::string& job_id, const Status& s);
+  ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
 #ifdef ROCKSDB_LITE
   void PurgeObsoleteWALFiles() {

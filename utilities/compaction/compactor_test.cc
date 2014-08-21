@@ -31,37 +31,24 @@ class EnvCompactor : public EventListener, public EnvWrapper {
     return s;
   }
 
-  Status OpenDB(
-      const DBOptions& db_options, const std::string& name,
-      const std::vector<ColumnFamilyDescriptor>& column_families) {
-    Status s = DB::Open(db_options, name, column_families, &handles_, &db_);
-    if (!s.ok()) {
-      assert(db_ == nullptr);
-      return s;
+  void ListenTo(DB* db) {
+    assert(db);
+    if (db_) {
+      UnListen();
     }
+    db_ = db;
     db_->AddListener(this);
     refs_ = 0;
-    return s;
   }
 
-  void CloseDB() {
+  void UnListen() {
     // wait until all external compaction jobs are done before
     // closing the db.
     while (RefCount() > 0) {
       SleepForMicroseconds(100);
     }
     db_->RemoveListener(this);
-    for (auto handle : handles_) {
-      delete handle;
-    }
-    handles_.clear();
-    delete db_;
-  }
-
-  DB* GetDB() {return db_;}
-
-  std::vector<ColumnFamilyHandle*>& GetColumnFamilyHandles() {
-    return handles_;
+    db_ = nullptr;
   }
 
  protected:
@@ -69,17 +56,7 @@ class EnvCompactor : public EventListener, public EnvWrapper {
   void Unref() { refs_--; }
   int RefCount() { return refs_.load(); }
 
-  ColumnFamilyHandle* GetColumnFamilyHandle(const std::string& cf_name) {
-    for (auto handle : handles_) {
-      if (handle->GetName() == cf_name) {
-        return handle;
-      }
-    }
-    return nullptr;
-  }
-
   DB* db_;
-  std::vector<ColumnFamilyHandle*> handles_;
   std::atomic_int refs_;
 };
 
@@ -121,6 +98,12 @@ class EnvFullCompactor : public EnvCompactor {
     db->GetDatabaseMetaData(&meta);
     std::vector<uint64_t> input_file_numbers;
 
+    CompactionJob* job = new CompactionJob();
+    job->db = db;
+    job->output_path_id = 0;  // set output_path_id = 0 for now
+    job->column_family_name = cf_name;
+    job->compact_options = CompactionOptions();
+
     int last_level_with_files = 0;
     for (auto c : meta.column_families) {
       for (auto l : c.levels) {
@@ -134,12 +117,6 @@ class EnvFullCompactor : public EnvCompactor {
         }
       }
     }
-
-    CompactionJob* job = new CompactionJob();
-    job->db = db;
-    job->output_path_id = 0;  // set output_path_id = 0 for now
-    job->cf_handle = GetColumnFamilyHandle(cf_name);
-    job->compact_options = CompactionOptions();
 
     // set output_level
     job->output_level = last_level_with_files;
@@ -185,17 +162,10 @@ class EnvFullCompactor : public EnvCompactor {
       CompactionJob* job = compactor->PickCompaction(carg->db, carg->cf_name);
       if (job != nullptr) {
         Status s;
-        if (job->cf_handle != nullptr) {
-          s = job->db->CompactFiles(
-              job->compact_options, job->cf_handle,
-              job->input_file_numbers, job->output_level,
-              job->output_path_id);
-        } else {
-          s = job->db->CompactFiles(
-              job->compact_options,
-              job->input_file_numbers, job->output_level,
-              job->output_path_id);
-        }
+        s = job->db->CompactFiles(
+            job->compact_options, job->column_family_name,
+            job->input_file_numbers, job->output_level,
+            job->output_path_id);
         if (s.ok()) {
           force = false;
         }
@@ -244,9 +214,9 @@ TEST(CompactorTEST, PureExternalCompaction) {
 
   EnvFullCompactor compactor(options.env);
 
-  ASSERT_OK(compactor.OpenDB(options, dbname_));
-
-  DB* db = compactor.GetDB();
+  DB* db;
+  ASSERT_OK(DB::Open(options, dbname_, &db);
+  comparator.ListenTo(db);
 
   WriteOptions wopts;
   for (int i = 0; i < 100; ++i) {
@@ -263,7 +233,8 @@ TEST(CompactorTEST, PureExternalCompaction) {
     ASSERT_EQ(std::string(45000, 'x'), value);
   }
 
-  compactor.CloseDB();
+  compactor.UnListen();
+  delete db;
 }
 
 }  // namespace rocksdb

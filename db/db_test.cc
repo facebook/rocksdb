@@ -6786,11 +6786,28 @@ class ModelDB: public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::string& cf_name,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::ScheduleCompactFiles;
   virtual Status ScheduleCompactFiles(
       std::string* job_id,
       const CompactionOptions& compact_options,
       ColumnFamilyHandle* column_family,
+      const std::vector<uint64_t>& input_file_numbers,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
+  virtual Status ScheduleCompactFiles(
+      std::string* job_id,
+      const CompactionOptions& compact_options,
+      const std::string& column_family_name,
       const std::vector<uint64_t>& input_file_numbers,
       const int output_level, const int output_path_id = -1) override {
     return Status::NotSupported("Not supported operation.");

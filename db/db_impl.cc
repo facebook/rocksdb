@@ -1729,10 +1729,46 @@ Status DBImpl::CompactFiles(
     ColumnFamilyHandle* column_family,
     const std::vector<uint64_t>& input_file_numbers,
     const int output_level, const int output_path_id) {
+  MutexLock l(&mutex_);
+
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
+  return CompactFilesImpl(compact_options, cfd, input_file_numbers,
+                          output_level, output_path_id);
+}
 
+ColumnFamilyData* DBImpl::GetColumnFamilyDataByName(
+    const std::string& cf_name) {
+  mutex_.AssertHeld();
+  for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->GetName() == cf_name) {
+      return cfd;
+    }
+  }
+  return nullptr;
+}
+
+Status DBImpl::CompactFiles(
+    const CompactionOptions& compact_options,
+    const std::string& cf_name,
+    const std::vector<uint64_t>& input_file_numbers,
+    const int output_level, const int output_path_id) {
   MutexLock l(&mutex_);
+
+  auto cfd = GetColumnFamilyDataByName(cf_name);
+  if (cfd == nullptr) {
+    return Status::InvalidArgument("Specified column family does not exist.");
+  }
+  return CompactFilesImpl(compact_options, cfd, input_file_numbers,
+                          output_level, output_path_id);
+}
+
+Status DBImpl::CompactFilesImpl(
+    const CompactionOptions& compact_options, ColumnFamilyData* cfd,
+    const std::vector<uint64_t>& input_file_numbers,
+    const int output_level, const int output_path_id) {
+  mutex_.AssertHeld();
+
   if (shutting_down_.Acquire_Load()) {
     return Status::ShutdownInProgress();
   }
@@ -1810,13 +1846,25 @@ Status DBImpl::ScheduleCompactFiles(
     ColumnFamilyHandle* column_family,
     const std::vector<uint64_t>& input_file_numbers,
     const int output_level, const int output_path_id) {
+  return ScheduleCompactFiles(
+      job_id, compact_options,
+      column_family->GetName(), input_file_numbers,
+      output_level, output_path_id);
+}
+
+Status DBImpl::ScheduleCompactFiles(
+    std::string* job_id,
+    const CompactionOptions& compact_options,
+    const std::string& column_family_name,
+    const std::vector<uint64_t>& input_file_numbers,
+    const int output_level, const int output_path_id) {
   CompactionJob* job = new CompactionJob();
   job->db = this;
   job->id = env_->GenerateUniqueId();
   if (job_id != nullptr) {
     *job_id = job->id;
   }
-  job->cf_handle = column_family;
+  job->column_family_name = column_family_name;
   job->input_file_numbers = input_file_numbers;
   job->output_level = output_level;
   job->output_path_id = output_path_id;
@@ -1830,7 +1878,7 @@ void DBImpl::BGWorkCompactFiles(void* job) {
   CompactionJob* compact_job = reinterpret_cast<CompactionJob*>(job);
   Status s = compact_job->db->CompactFiles(
       compact_job->compact_options,
-      compact_job->cf_handle,
+      compact_job->column_family_name,
       compact_job->input_file_numbers,
       compact_job->output_level,
       compact_job->output_path_id);
