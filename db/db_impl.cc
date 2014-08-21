@@ -4835,6 +4835,12 @@ void DBImpl::GetDatabaseMetaData(DatabaseMetaData* db_meta) {
   versions_->GetDatabaseMetaData(db_meta, &mutex_);
 }
 
+Status DBImpl::GetColumnFamilyMetaData(
+    ColumnFamilyMetaData* cf_meta, const std::string& name) {
+  return versions_->GetColumnFamilyMetaData(
+      cf_meta, name, &mutex_);
+}
+
 Status DBImpl::AddListener(EventListener* listener) {
   MutexLock l(&listener_mutex_);
   if (shutting_down_.Acquire_Load()) {

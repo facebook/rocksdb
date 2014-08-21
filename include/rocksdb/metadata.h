@@ -37,6 +37,7 @@ struct DatabaseMetaData {
 
 // The metadata that describes a column family.
 struct ColumnFamilyMetaData {
+  ColumnFamilyMetaData() : size(0), compensated_size(0), name("") {}
   ColumnFamilyMetaData(const std::string& name,
                        uint64_t size, uint64_t compensated_size,
                        const std::vector<LevelMetaData>&& levels) :
@@ -45,16 +46,16 @@ struct ColumnFamilyMetaData {
 
   // The size of this column family in bytes, which is equal to the sum of
   // the file size of its "levels".
-  const uint64_t size;
+  uint64_t size;
   // The compensated size of this column family in bytes, which is equal to
   // the sum of the compensated_size of its "levels".
   // The compensated_size of each file is computed by giving 2X
   // average-value size to each deletion entry.
-  const uint64_t compensated_size;
+  uint64_t compensated_size;
   // The name of the column family.
-  const std::string name;
+  std::string name;
   // The metadata of all levels in this column family.
-  const std::vector<LevelMetaData> levels;
+  std::vector<LevelMetaData> levels;
 };
 
 // The metadata that describes a level.

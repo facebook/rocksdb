@@ -159,6 +159,12 @@ class DBImpl : public DB {
 
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) override;
 
+  // Obtains the meta data of the specified column family of the DB.
+  // Status::NotFound() will be returned if the current DB does not have
+  // any column family match the specified name.
+  virtual Status GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* metadata, const std::string& cf_name) override;
+
   using DB::AddListener;
   virtual Status AddListener(EventListener* listener) override;
 

@@ -483,6 +483,10 @@ class VersionSet {
   void GetDatabaseMetaData(DatabaseMetaData* metadata,
                            port::Mutex* mutex);
 
+  Status GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* cf_meta,
+      const std::string& name, port::Mutex* mutex);
+
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
@@ -510,6 +514,10 @@ class VersionSet {
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
                                        VersionEdit* edit);
+
+  void GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* cf_meta,
+      ColumnFamilyData* cfd, Version* current);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 

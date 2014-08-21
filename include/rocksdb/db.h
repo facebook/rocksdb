@@ -527,6 +527,14 @@ class DB {
   // Returns the meta data of database describing the current state of the DB.
   virtual void GetDatabaseMetaData(DatabaseMetaData* metadata) {}
 
+  // Obtains the meta data of the specified column family of the DB.
+  // Status::NotFound() will be returned if the current DB does not have
+  // any column family match the specified name.
+  virtual Status GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* metadata, const std::string& cf_name) {
+    return Status::OK();
+  }
+
   // Adds the specified listener to hear special events of the current DB.
   //
   // Note that it is the caller's responsibility to properly manage
