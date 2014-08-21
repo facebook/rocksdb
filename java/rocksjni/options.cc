@@ -16,6 +16,7 @@
 #include "include/org_rocksdb_ReadOptions.h"
 #include "include/org_rocksdb_ComparatorOptions.h"
 
+#include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -25,7 +26,6 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/comparator.h"
-#include "comparatorjnicallback.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -1794,7 +1794,8 @@ void Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
  */
 jboolean Java_org_rocksdb_ComparatorOptions_useAdaptiveMutex(
     JNIEnv * env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)->use_adaptive_mutex;
+  return reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+    ->use_adaptive_mutex;
 }
 
 /*
@@ -1804,8 +1805,8 @@ jboolean Java_org_rocksdb_ComparatorOptions_useAdaptiveMutex(
  */
 void Java_org_rocksdb_ComparatorOptions_setUseAdaptiveMutex(
     JNIEnv * env, jobject jobj, jlong jhandle, jboolean juse_adaptive_mutex) {
-  reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)->use_adaptive_mutex =
-      static_cast<bool>(juse_adaptive_mutex);
+  reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+    ->use_adaptive_mutex = static_cast<bool>(juse_adaptive_mutex);
 }
 
 /*

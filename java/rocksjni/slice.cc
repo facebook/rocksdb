@@ -17,7 +17,7 @@
 #include "rocksdb/slice.h"
 #include "rocksjni/portal.h"
 
-//<editor-fold desc="org.rocksdb.AbstractSlice>
+// <editor-fold desc="org.rocksdb.AbstractSlice>
 
 /*
  * Class:     org_rocksdb_AbstractSlice
@@ -73,7 +73,8 @@ jstring Java_org_rocksdb_AbstractSlice_toString0(
 jint Java_org_rocksdb_AbstractSlice_compare0(
     JNIEnv* env, jobject jobj, jlong handle, jlong otherHandle) {
   const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  const rocksdb::Slice* otherSlice = reinterpret_cast<rocksdb::Slice*>(otherHandle);
+  const rocksdb::Slice* otherSlice =
+    reinterpret_cast<rocksdb::Slice*>(otherHandle);
   return slice->compare(*otherSlice);
 }
 
@@ -85,7 +86,8 @@ jint Java_org_rocksdb_AbstractSlice_compare0(
 jboolean Java_org_rocksdb_AbstractSlice_startsWith0(
     JNIEnv* env, jobject jobj, jlong handle, jlong otherHandle) {
   const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  const rocksdb::Slice* otherSlice = reinterpret_cast<rocksdb::Slice*>(otherHandle);
+  const rocksdb::Slice* otherSlice =
+    reinterpret_cast<rocksdb::Slice*>(otherHandle);
   return slice->starts_with(*otherSlice);
 }
 
@@ -99,9 +101,9 @@ void Java_org_rocksdb_AbstractSlice_disposeInternal(
   delete reinterpret_cast<rocksdb::Slice*>(handle);
 }
 
-//</editor-fold>
+// </editor-fold>
 
-//<editor-fold desc="org.rocksdb.Slice>
+// <editor-fold desc="org.rocksdb.Slice>
 
 /*
  * Class:     org_rocksdb_Slice
@@ -113,13 +115,11 @@ void Java_org_rocksdb_Slice_createNewSlice0(
 
   const jsize dataSize = env->GetArrayLength(data);
   const int len = dataSize - offset;
-  //jbyte ptrData[len];
   jbyte* ptrData = new jbyte[len];
   env->GetByteArrayRegion(data, offset, len, ptrData);
 
   const rocksdb::Slice* slice = new rocksdb::Slice((const char*)ptrData, len);
   rocksdb::AbstractSliceJni::setHandle(env, jobj, slice);
-
 }
 
 /*
@@ -135,14 +135,15 @@ void Java_org_rocksdb_Slice_createNewSlice1(
   jboolean isCopy;
   jbyte* ptrData = env->GetByteArrayElements(data, &isCopy);
   const char* buf = new char[len];
-  memcpy((void*)buf, ptrData, len);
+  memcpy(const_cast<char*>(buf), ptrData, len);
 
-  const rocksdb::Slice* slice = new rocksdb::Slice(buf, env->GetArrayLength(data));
+  const rocksdb::Slice* slice =
+    new rocksdb::Slice(buf, env->GetArrayLength(data));
   rocksdb::AbstractSliceJni::setHandle(env, jobj, slice);
 
   env->ReleaseByteArrayElements(data, ptrData, JNI_ABORT);
 
-  //NOTE: buf will be deleted in the org.rocksdb.Slice#dispose method
+  // NOTE: buf will be deleted in the org.rocksdb.Slice#dispose method
 }
 
 /*
@@ -155,7 +156,8 @@ jbyteArray Java_org_rocksdb_Slice_data0(
   const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
   const int len = slice->size();
   const jbyteArray data = env->NewByteArray(len);
-  env->SetByteArrayRegion(data, 0, len, (jbyte*)slice->data());
+  env->SetByteArrayRegion(data, 0, len,
+    reinterpret_cast<jbyte*>(const_cast<char*>(slice->data())));
   return data;
 }
 
@@ -170,9 +172,9 @@ void Java_org_rocksdb_Slice_disposeInternalBuf(
     delete [] slice->data_;
 }
 
-//</editor-fold>
+// </editor-fold>
 
-//<editor-fold desc="org.rocksdb.DirectSlice>
+// <editor-fold desc="org.rocksdb.DirectSlice>
 
 /*
  * Class:     org_rocksdb_DirectSlice
@@ -181,7 +183,8 @@ void Java_org_rocksdb_Slice_disposeInternalBuf(
  */
 void Java_org_rocksdb_DirectSlice_createNewDirectSlice0(
     JNIEnv* env, jobject jobj, jobject data, jint length) {
-  const char* ptrData = (char*)env->GetDirectBufferAddress(data);
+  const char* ptrData =
+    reinterpret_cast<char*>(env->GetDirectBufferAddress(data));
   const rocksdb::Slice* slice = new rocksdb::Slice(ptrData, length);
   rocksdb::AbstractSliceJni::setHandle(env, jobj, slice);
 }
@@ -193,7 +196,8 @@ void Java_org_rocksdb_DirectSlice_createNewDirectSlice0(
  */
 void Java_org_rocksdb_DirectSlice_createNewDirectSlice1(
     JNIEnv* env, jobject jobj, jobject data) {
-  const char* ptrData = (char*)env->GetDirectBufferAddress(data);
+  const char* ptrData =
+    reinterpret_cast<char*>(env->GetDirectBufferAddress(data));
   const rocksdb::Slice* slice = new rocksdb::Slice(ptrData);
   rocksdb::AbstractSliceJni::setHandle(env, jobj, slice);
 }
@@ -206,7 +210,8 @@ void Java_org_rocksdb_DirectSlice_createNewDirectSlice1(
 jobject Java_org_rocksdb_DirectSlice_data0(
     JNIEnv* env, jobject jobj, jlong handle) {
   const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  return env->NewDirectByteBuffer((void*)slice->data(), slice->size());
+  return env->NewDirectByteBuffer(const_cast<char*>(slice->data()),
+    slice->size());
 }
 
 /*
@@ -228,6 +233,7 @@ jbyte Java_org_rocksdb_DirectSlice_get0(
 void Java_org_rocksdb_DirectSlice_clear0(
     JNIEnv* env, jobject jobj, jlong handle) {
   rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  delete [] slice->data_;
   slice->clear();
 }
 
@@ -242,4 +248,4 @@ void Java_org_rocksdb_DirectSlice_removePrefix0(
   slice->remove_prefix(length);
 }
 
-//</editor-fold>
+// </editor-fold>

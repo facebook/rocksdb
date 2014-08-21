@@ -18,7 +18,7 @@
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 
-//<editor-fold desc="org.rocksdb.ComparatorOptions">
+// <editor-fold desc="org.rocksdb.ComparatorOptions">
 
 void Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
     JNIEnv* env, jobject jobj, jstring jpath, jboolean jshare_table_files,
@@ -37,10 +37,9 @@ void Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
 
   rocksdb::BackupableDBOptionsJni::setHandle(env, jobj, bopt);
 }
+// </editor-fold>
 
-//</editor-fold>
-
-//<editor-fold desc="org.rocksdb.AbstractComparator>
+// <editor-fold desc="org.rocksdb.AbstractComparator>
 
 /*
  * Class:     org_rocksdb_AbstractComparator
@@ -51,10 +50,9 @@ void Java_org_rocksdb_AbstractComparator_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
   delete reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(handle);
 }
+// </editor-fold>
 
-//</editor-fold>
-
-//<editor-fold desc="org.rocksdb.Comparator>
+// <editor-fold desc="org.rocksdb.Comparator>
 
 /*
  * Class:     org_rocksdb_Comparator
@@ -63,14 +61,15 @@ void Java_org_rocksdb_AbstractComparator_disposeInternal(
  */
 void Java_org_rocksdb_Comparator_createNewComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
-  const rocksdb::ComparatorJniCallbackOptions* copt = reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  const rocksdb::ComparatorJniCallback* c = new rocksdb::ComparatorJniCallback(env, jobj, copt);
+  const rocksdb::ComparatorJniCallbackOptions* copt =
+    reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
+  const rocksdb::ComparatorJniCallback* c =
+    new rocksdb::ComparatorJniCallback(env, jobj, copt);
   rocksdb::AbstractComparatorJni::setHandle(env, jobj, c);
 }
+// </editor-fold>
 
-//</editor-fold>
-
-//<editor-fold desc="org.rocksdb.DirectComparator>
+// <editor-fold desc="org.rocksdb.DirectComparator>
 
 /*
  * Class:     org_rocksdb_DirectComparator
@@ -79,10 +78,10 @@ void Java_org_rocksdb_Comparator_createNewComparator0(
  */
 void Java_org_rocksdb_DirectComparator_createNewDirectComparator0(
     JNIEnv* env, jobject jobj, jlong copt_handle) {
-  const rocksdb::ComparatorJniCallbackOptions* copt = reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
-  const rocksdb::DirectComparatorJniCallback* c = new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
+  const rocksdb::ComparatorJniCallbackOptions* copt =
+    reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(copt_handle);
+  const rocksdb::DirectComparatorJniCallback* c =
+    new rocksdb::DirectComparatorJniCallback(env, jobj, copt);
   rocksdb::AbstractComparatorJni::setHandle(env, jobj, c);
 }
-
-//</editor-fold>
-
+// </editor-fold>

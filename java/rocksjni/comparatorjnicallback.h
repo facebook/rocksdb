@@ -10,6 +10,7 @@
 #define JAVA_ROCKSJNI_COMPARATORJNICALLBACK_H_
 
 #include <jni.h>
+#include <string>
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
 #include "port/port.h"
@@ -43,15 +44,18 @@ struct ComparatorJniCallbackOptions {
  * introduce locking in regions of those methods via mutex_.
  */
 class BaseComparatorJniCallback : public Comparator {
-  public:
-    BaseComparatorJniCallback(JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt);
+ public:
+    BaseComparatorJniCallback(
+      JNIEnv* env, jobject jComparator,
+      const ComparatorJniCallbackOptions* copt);
     virtual ~BaseComparatorJniCallback();
     virtual const char* Name() const;
     virtual int Compare(const Slice& a, const Slice& b) const;
-    virtual void FindShortestSeparator(std::string* start, const Slice& limit) const;
+    virtual void FindShortestSeparator(
+      std::string* start, const Slice& limit) const;
     virtual void FindShortSuccessor(std::string* key) const;
 
-  private:
+ private:
     port::Mutex* mutex_;
     JavaVM* m_jvm;
     jobject m_jComparator;
@@ -61,20 +65,24 @@ class BaseComparatorJniCallback : public Comparator {
     jmethodID m_jFindShortSuccessorMethodId;
     JNIEnv* getJniEnv() const;
 
-  protected:
+ protected:
     jobject m_jSliceA;
     jobject m_jSliceB;
     jobject m_jSliceLimit;
 };
 
 class ComparatorJniCallback : public BaseComparatorJniCallback {
-    public:
-      ComparatorJniCallback(JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt);
+ public:
+      ComparatorJniCallback(
+        JNIEnv* env, jobject jComparator,
+        const ComparatorJniCallbackOptions* copt);
 };
 
 class DirectComparatorJniCallback : public BaseComparatorJniCallback {
-    public:
-      DirectComparatorJniCallback(JNIEnv* env, jobject jComparator, const ComparatorJniCallbackOptions* copt);
+ public:
+      DirectComparatorJniCallback(
+        JNIEnv* env, jobject jComparator,
+        const ComparatorJniCallbackOptions* copt);
 };
 }  // namespace rocksdb
 

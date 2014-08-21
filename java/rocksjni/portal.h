@@ -12,6 +12,8 @@
 
 #include <jni.h>
 #include <limits>
+#include <string>
+
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/status.h"
@@ -364,7 +366,7 @@ class ColumnFamilyHandleJni {
 };
 
 class ComparatorOptionsJni {
-  public:
+ public:
     // Get the java class id of org.rocksdb.ComparatorOptions.
     static jclass getJClass(JNIEnv* env) {
       jclass jclazz = env->FindClass("org/rocksdb/ComparatorOptions");
@@ -383,7 +385,8 @@ class ComparatorOptionsJni {
 
     // Pass the ComparatorJniCallbackOptions pointer to the java side.
     static void setHandle(
-        JNIEnv* env, jobject jobj, const rocksdb::ComparatorJniCallbackOptions* op) {
+      JNIEnv* env, jobject jobj,
+      const rocksdb::ComparatorJniCallbackOptions* op) {
       env->SetLongField(
           jobj, getHandleFieldID(env),
           reinterpret_cast<jlong>(op));
@@ -418,37 +421,41 @@ class AbstractComparatorJni {
 
   // Get the java method `compare` of org.rocksdb.Comparator.
   static jmethodID getCompareMethodId(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
-        getJClass(env), "compare", "(Lorg/rocksdb/AbstractSlice;Lorg/rocksdb/AbstractSlice;)I");
+    static jmethodID mid = env->GetMethodID(getJClass(env),
+      "compare",
+      "(Lorg/rocksdb/AbstractSlice;Lorg/rocksdb/AbstractSlice;)I");
     assert(mid != nullptr);
     return mid;
   }
 
   // Get the java method `findShortestSeparator` of org.rocksdb.Comparator.
   static jmethodID getFindShortestSeparatorMethodId(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
-        getJClass(env), "findShortestSeparator", "(Ljava/lang/String;Lorg/rocksdb/AbstractSlice;)Ljava/lang/String;");
+    static jmethodID mid = env->GetMethodID(getJClass(env),
+      "findShortestSeparator",
+      "(Ljava/lang/String;Lorg/rocksdb/AbstractSlice;)Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
 
   // Get the java method `findShortSuccessor` of org.rocksdb.Comparator.
   static jmethodID getFindShortSuccessorMethodId(JNIEnv* env) {
-    static jmethodID mid = env->GetMethodID(
-        getJClass(env), "findShortSuccessor", "(Ljava/lang/String;)Ljava/lang/String;");
+    static jmethodID mid = env->GetMethodID(getJClass(env),
+      "findShortSuccessor",
+      "(Ljava/lang/String;)Ljava/lang/String;");
     assert(mid != nullptr);
     return mid;
   }
 
   // Get the pointer to ComparatorJniCallback.
-  static rocksdb::BaseComparatorJniCallback* getHandle(JNIEnv* env, jobject jobj) {
+  static rocksdb::BaseComparatorJniCallback* getHandle(
+    JNIEnv* env, jobject jobj) {
     return reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(
         env->GetLongField(jobj, getHandleFieldID(env)));
   }
 
   // Pass the ComparatorJniCallback pointer to the java side.
   static void setHandle(
-      JNIEnv* env, jobject jobj, const rocksdb::BaseComparatorJniCallback* op) {
+    JNIEnv* env, jobject jobj, const rocksdb::BaseComparatorJniCallback* op) {
     env->SetLongField(
         jobj, getHandleFieldID(env),
         reinterpret_cast<jlong>(op));
@@ -585,8 +592,7 @@ class ListJni {
 };
 
 class JniUtil {
-  public:
-
+ public:
     /**
      * Copies a jstring to a std::string
      * and releases the original jstring
