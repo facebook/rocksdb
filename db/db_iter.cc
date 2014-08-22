@@ -194,9 +194,8 @@ void DBIter::Next() {
 // NOTE: In between, saved_key_ can point to a user key that has
 //       a delete marker
 inline void DBIter::FindNextUserEntry(bool skipping) {
-  PERF_TIMER_AUTO(find_next_user_entry_time);
+  PERF_TIMER_GUARD(find_next_user_entry_time);
   FindNextUserEntryInternal(skipping);
-  PERF_TIMER_STOP(find_next_user_entry_time);
 }
 
 // Actual implementation of DBIter::FindNextUserEntry()
@@ -557,9 +556,12 @@ void DBIter::Seek(const Slice& target) {
   saved_key_.Clear();
   // now savved_key is used to store internal key.
   saved_key_.SetInternalKey(target, sequence_);
-  PERF_TIMER_AUTO(seek_internal_seek_time);
-  iter_->Seek(saved_key_.GetKey());
-  PERF_TIMER_STOP(seek_internal_seek_time);
+
+  {
+    PERF_TIMER_GUARD(seek_internal_seek_time);
+    iter_->Seek(saved_key_.GetKey());
+  }
+
   if (iter_->Valid()) {
     direction_ = kForward;
     ClearSavedValue();
@@ -577,9 +579,12 @@ void DBIter::SeekToFirst() {
   }
   direction_ = kForward;
   ClearSavedValue();
-  PERF_TIMER_AUTO(seek_internal_seek_time);
-  iter_->SeekToFirst();
-  PERF_TIMER_STOP(seek_internal_seek_time);
+
+  {
+    PERF_TIMER_GUARD(seek_internal_seek_time);
+    iter_->SeekToFirst();
+  }
+
   if (iter_->Valid()) {
     FindNextUserEntry(false /* not skipping */);
   } else {
@@ -595,9 +600,11 @@ void DBIter::SeekToLast() {
   }
   direction_ = kReverse;
   ClearSavedValue();
-  PERF_TIMER_AUTO(seek_internal_seek_time);
-  iter_->SeekToLast();
-  PERF_TIMER_STOP(seek_internal_seek_time);
+
+  {
+    PERF_TIMER_GUARD(seek_internal_seek_time);
+    iter_->SeekToLast();
+  }
 
   PrevInternal();
 }

@@ -211,10 +211,13 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
                   const ReadOptions& options, const BlockHandle& handle,
                   Slice* contents,  /* result of reading */ char* buf) {
   size_t n = static_cast<size_t>(handle.size());
+  Status s;
 
-  PERF_TIMER_AUTO(block_read_time);
-  Status s = file->Read(handle.offset(), n + kBlockTrailerSize, contents, buf);
-  PERF_TIMER_MEASURE(block_read_time);
+  {
+    PERF_TIMER_GUARD(block_read_time);
+    s = file->Read(handle.offset(), n + kBlockTrailerSize, contents, buf);
+  }
+
   PERF_COUNTER_ADD(block_read_count, 1);
   PERF_COUNTER_ADD(block_read_byte, n + kBlockTrailerSize);
 
@@ -228,6 +231,7 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
   // Check the crc of the type and the block contents
   const char* data = contents->data();  // Pointer to where Read put the data
   if (options.verify_checksums) {
+    PERF_TIMER_GUARD(block_checksum_time);
     uint32_t value = DecodeFixed32(data + n + 1);
     uint32_t actual = 0;
     switch (footer.checksum()) {
@@ -247,7 +251,6 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
     if (!s.ok()) {
       return s;
     }
-    PERF_TIMER_STOP(block_checksum_time);
   }
   return s;
 }
@@ -265,7 +268,7 @@ Status DecompressBlock(BlockContents* result, size_t block_size,
   result->cachable = false;
   result->heap_allocated = false;
 
-  PERF_TIMER_AUTO(block_decompress_time);
+  PERF_TIMER_GUARD(block_decompress_time);
   rocksdb::CompressionType compression_type =
       static_cast<rocksdb::CompressionType>(data[n]);
   // If the caller has requested that the block not be uncompressed
@@ -295,7 +298,6 @@ Status DecompressBlock(BlockContents* result, size_t block_size,
   } else {
     s = UncompressBlockContents(data, n, result);
   }
-  PERF_TIMER_STOP(block_decompress_time);
   return s;
 }
 

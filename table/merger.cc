@@ -116,12 +116,12 @@ class MergingIterator : public Iterator {
     // Invalidate the heap.
     use_heap_ = false;
     IteratorWrapper* first_child = nullptr;
-    PERF_TIMER_DECLARE();
 
     for (auto& child : children_) {
-      PERF_TIMER_START(seek_child_seek_time);
-      child.Seek(target);
-      PERF_TIMER_STOP(seek_child_seek_time);
+      {
+        PERF_TIMER_GUARD(seek_child_seek_time);
+        child.Seek(target);
+      }
       PERF_COUNTER_ADD(seek_child_seek_count, 1);
 
       if (child.Valid()) {
@@ -134,24 +134,21 @@ class MergingIterator : public Iterator {
           } else {
             // We have more than one children with valid keys. Initialize
             // the heap and put the first child into the heap.
-            PERF_TIMER_START(seek_min_heap_time);
+            PERF_TIMER_GUARD(seek_min_heap_time);
             ClearHeaps();
             minHeap_.push(first_child);
-            PERF_TIMER_STOP(seek_min_heap_time);
           }
         }
         if (use_heap_) {
-          PERF_TIMER_START(seek_min_heap_time);
+          PERF_TIMER_GUARD(seek_min_heap_time);
           minHeap_.push(&child);
-          PERF_TIMER_STOP(seek_min_heap_time);
         }
       }
     }
     if (use_heap_) {
       // If heap is valid, need to put the smallest key to curent_.
-      PERF_TIMER_START(seek_min_heap_time);
+      PERF_TIMER_GUARD(seek_min_heap_time);
       FindSmallest();
-      PERF_TIMER_STOP(seek_min_heap_time);
     } else {
       // The heap is not valid, then the current_ iterator is the first
       // one, or null if there is no first child.
