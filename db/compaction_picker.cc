@@ -173,9 +173,12 @@ void CompactionPicker::GetRange(const std::vector<FileMetaData*>& inputs1,
 }
 
 bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
+  assert(c != nullptr);
   // If inputs are empty then there is nothing to expand.
-  if (!c || c->inputs_[0].empty()) {
-    return true;
+  if (c->inputs_[0].empty()) {
+    assert(c->inputs_[1].empty());
+    // This isn't good compaction
+    return false;
   }
 
   // GetOverlappingInputs will always do the right thing for level-0.
@@ -427,7 +430,7 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
     level = version->compaction_level_[i];
     if ((version->compaction_score_[i] >= 1)) {
       c = PickCompactionBySize(version, level, version->compaction_score_[i]);
-      if (ExpandWhileOverlapping(c) == false) {
+      if (c == nullptr || ExpandWhileOverlapping(c) == false) {
         delete c;
         c = nullptr;
       } else {
