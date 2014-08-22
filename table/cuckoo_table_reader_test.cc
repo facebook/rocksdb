@@ -362,7 +362,7 @@ void GetKeys(uint64_t num, std::vector<std::string>* keys) {
   IterKey k;
   k.SetInternalKey("", 0, kTypeValue);
   std::string internal_key_suffix = k.GetKey().ToString();
-  ASSERT_EQ(8, internal_key_suffix.size());
+  ASSERT_EQ(static_cast<size_t>(8), internal_key_suffix.size());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     std::string new_key(reinterpret_cast<char*>(&key_idx), sizeof(key_idx));
     new_key += internal_key_suffix;
@@ -418,7 +418,7 @@ void WriteFile(const std::vector<std::string>& keys,
     int cnt = 0;
     ASSERT_OK(reader.Get(r_options, Slice(key), &cnt, CheckValue, nullptr));
     if (cnt != 1) {
-      fprintf(stderr, "%lu not found.\n",
+      fprintf(stderr, "%" PRIx64 " not found.\n",
           *reinterpret_cast<const uint64_t*>(key.data()));
       ASSERT_EQ(1, cnt);
     }
