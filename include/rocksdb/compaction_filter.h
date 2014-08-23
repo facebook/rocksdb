@@ -9,6 +9,7 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
 #define STORAGE_ROCKSDB_INCLUDE_COMPACTION_FILTER_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
