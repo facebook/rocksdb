@@ -62,9 +62,11 @@ class FlushBlockBySizePolicy : public FlushBlockPolicy {
 };
 
 FlushBlockPolicy* FlushBlockBySizePolicyFactory::NewFlushBlockPolicy(
-    const Options& options, const BlockBuilder& data_block_builder) const {
+    const BlockBasedTableOptions& table_options,
+    const BlockBuilder& data_block_builder) const {
   return new FlushBlockBySizePolicy(
-      options.block_size, options.block_size_deviation, data_block_builder);
+      table_options.block_size, table_options.block_size_deviation,
+      data_block_builder);
 }
 
 }  // namespace rocksdb

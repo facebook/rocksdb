@@ -289,27 +289,6 @@ void Java_org_rocksdb_Options_setUseFsync(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    dbStatsLogInterval
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_dbStatsLogInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->db_stats_log_interval;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setDbStatsLogInterval
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setDbStatsLogInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint db_stats_log_interval) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->db_stats_log_interval =
-      static_cast<int>(db_stats_log_interval);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    dbLogDir
  * Signature: (J)Ljava/lang/String
  */

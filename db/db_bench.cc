@@ -239,10 +239,11 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
 
-DEFINE_int32(block_size, rocksdb::Options().block_size,
+DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
              "Number of bytes in a block.");
 
-DEFINE_int32(block_restart_interval, rocksdb::Options().block_restart_interval,
+DEFINE_int32(block_restart_interval,
+             rocksdb::BlockBasedTableOptions().block_restart_interval,
              "Number of keys between restart points "
              "for delta encoding of keys.");
 
@@ -844,9 +845,9 @@ class Duration {
 
 class Benchmark {
  private:
-  shared_ptr<Cache> cache_;
-  shared_ptr<Cache> compressed_cache_;
-  const FilterPolicy* filter_policy_;
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<Cache> compressed_cache_;
+  std::shared_ptr<const FilterPolicy> filter_policy_;
   const SliceTransform* prefix_extractor_;
   struct DBWithColumnFamilies {
     std::vector<ColumnFamilyHandle*> cfh;
@@ -1107,7 +1108,6 @@ class Benchmark {
 
   ~Benchmark() {
     delete db_.db;
-    delete filter_policy_;
     delete prefix_extractor_;
   }
 
@@ -1509,7 +1509,7 @@ class Benchmark {
 
   void Compress(ThreadState *thread) {
     RandomGenerator gen;
-    Slice input = gen.Generate(Options().block_size);
+    Slice input = gen.Generate(FLAGS_block_size);
     int64_t bytes = 0;
     int64_t produced = 0;
     bool ok = true;
@@ -1559,7 +1559,7 @@ class Benchmark {
 
   void Uncompress(ThreadState *thread) {
     RandomGenerator gen;
-    Slice input = gen.Generate(Options().block_size);
+    Slice input = gen.Generate(FLAGS_block_size);
     std::string compressed;
 
     bool ok;
@@ -1639,11 +1639,6 @@ class Benchmark {
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.create_missing_column_families = FLAGS_num_column_families > 1;
-    options.block_cache = cache_;
-    options.block_cache_compressed = compressed_cache_;
-    if (cache_ == nullptr) {
-      options.no_block_cache = true;
-    }
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
@@ -1651,9 +1646,6 @@ class Benchmark {
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
-    options.block_size = FLAGS_block_size;
-    options.block_restart_interval = FLAGS_block_restart_interval;
-    options.filter_policy = filter_policy_;
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -1745,6 +1737,14 @@ class Benchmark {
       } else {
         block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
       }
+      if (cache_ == nullptr) {
+        block_based_options.no_block_cache = true;
+      }
+      block_based_options.block_cache = cache_;
+      block_based_options.block_cache_compressed = compressed_cache_;
+      block_based_options.block_size = FLAGS_block_size;
+      block_based_options.block_restart_interval = FLAGS_block_restart_interval;
+      block_based_options.filter_policy = filter_policy_;
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
     }

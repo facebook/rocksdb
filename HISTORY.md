@@ -20,6 +20,10 @@
 * Statistics APIs now take uint32_t as type instead of Tickers. Also make two access functions getTickerCount and histogramData const
 * Add DB property rocksdb.estimate-num-keys, estimated number of live keys in DB.
 * Add DB::GetIntProperty(), which returns DB properties that are integer as uint64_t.
+* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
+* Move BlockBasedTable related options to BlockBasedTableOptions from Options. Change corresponding JNI interface. Options affected include:
+  no_block_cache, block_cache, block_cache_compressed, block_size, block_size_deviation, block_restart_interval, filter_policy, whole_key_filtering. filter_policy is changed to shared_ptr from a raw pointer.
+* Remove deprecated options: disable_seek_compaction and db_stats_log_interval
 
 ## 3.3.0 (7/10/2014)
 ### New Features

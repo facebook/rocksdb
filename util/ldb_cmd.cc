@@ -219,10 +219,11 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
 
   map<string, string>::const_iterator itr;
 
+  BlockBasedTableOptions table_options;
   int bits;
   if (ParseIntOption(option_map_, ARG_BLOOM_BITS, bits, exec_state_)) {
     if (bits > 0) {
-      opt.filter_policy = NewBloomFilterPolicy(bits);
+      table_options.filter_policy.reset(NewBloomFilterPolicy(bits));
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_BLOOM_BITS +
                       " must be > 0.");
@@ -232,7 +233,8 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   int block_size;
   if (ParseIntOption(option_map_, ARG_BLOCK_SIZE, block_size, exec_state_)) {
     if (block_size > 0) {
-      opt.block_size = block_size;
+      table_options.block_size = block_size;
+      opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_BLOCK_SIZE +
                       " must be > 0.");

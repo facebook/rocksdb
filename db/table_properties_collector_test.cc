@@ -257,7 +257,7 @@ void TestInternalKeyPropertiesCollector(
     // SanitizeOptions().
     options.info_log = std::make_shared<DumbLogger>();
     options = SanitizeOptions("db",            // just a place holder
-                              &pikc, nullptr,  // don't care filter policy
+                              &pikc,
                               options);
     options.comparator = comparator;
   } else {

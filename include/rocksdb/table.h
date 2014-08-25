@@ -84,6 +84,46 @@ struct BlockBasedTableOptions {
   // protected with this checksum type. Old table files will still be readable,
   // even though they have different checksum type.
   ChecksumType checksum = kCRC32c;
+
+  // Disable block cache. If this is set to true,
+  // then no block cache should be used, and the block_cache should
+  // point to a nullptr object.
+  bool no_block_cache = false;
+
+  // If non-NULL use the specified cache for blocks.
+  // If NULL, rocksdb will automatically create and use an 8MB internal cache.
+  std::shared_ptr<Cache> block_cache = nullptr;
+
+  // If non-NULL use the specified cache for compressed blocks.
+  // If NULL, rocksdb will not use a compressed block cache.
+  std::shared_ptr<Cache> block_cache_compressed = nullptr;
+
+  // Approximate size of user data packed per block.  Note that the
+  // block size specified here corresponds to uncompressed data.  The
+  // actual size of the unit read from disk may be smaller if
+  // compression is enabled.  This parameter can be changed dynamically.
+  size_t block_size = 4 * 1024;
+
+  // This is used to close a block before it reaches the configured
+  // 'block_size'. If the percentage of free space in the current block is less
+  // than this specified number and adding a new record to the block will
+  // exceed the configured block size, then this block will be closed and the
+  // new record will be written to the next block.
+  int block_size_deviation = 10;
+
+  // Number of keys between restart points for delta encoding of keys.
+  // This parameter can be changed dynamically.  Most clients should
+  // leave this parameter alone.
+  int block_restart_interval = 16;
+
+  // If non-nullptr, use the specified filter policy to reduce disk reads.
+  // Many applications will benefit from passing the result of
+  // NewBloomFilterPolicy() here.
+  std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+
+  // If true, place whole keys in the filter (not just prefixes).
+  // This must generally be true for gets to be efficient.
+  bool whole_key_filtering = true;
 };
 
 // Table Properties that are specific to block-based table properties.

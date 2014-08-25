@@ -335,6 +335,7 @@ int main(int argc, char** argv) {
   rocksdb_cache_t* cache;
   rocksdb_env_t* env;
   rocksdb_options_t* options;
+  rocksdb_block_based_table_options_t* table_options;
   rocksdb_readoptions_t* roptions;
   rocksdb_writeoptions_t* woptions;
   char* err = NULL;
@@ -353,14 +354,15 @@ int main(int argc, char** argv) {
   options = rocksdb_options_create();
   rocksdb_options_set_comparator(options, cmp);
   rocksdb_options_set_error_if_exists(options, 1);
-  rocksdb_options_set_cache(options, cache);
   rocksdb_options_set_env(options, env);
   rocksdb_options_set_info_log(options, NULL);
   rocksdb_options_set_write_buffer_size(options, 100000);
   rocksdb_options_set_paranoid_checks(options, 1);
   rocksdb_options_set_max_open_files(options, 10);
-  rocksdb_options_set_block_size(options, 1024);
-  rocksdb_options_set_block_restart_interval(options, 8);
+  table_options = rocksdb_block_based_options_create();
+  rocksdb_block_based_options_set_block_cache(table_options, cache);
+  rocksdb_options_set_block_based_table_factory(options, table_options);
+
   rocksdb_options_set_compression(options, rocksdb_no_compression);
   rocksdb_options_set_compression_options(options, -14, -1, 0);
   int compression_levels[] = {rocksdb_no_compression, rocksdb_no_compression,
@@ -540,10 +542,13 @@ int main(int argc, char** argv) {
       policy = rocksdb_filterpolicy_create_bloom(10);
     }
 
+    table_options = rocksdb_block_based_options_create();
+    rocksdb_block_based_options_set_filter_policy(table_options, policy);
+
     // Create new database
     rocksdb_close(db);
     rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_filter_policy(options, policy);
+    rocksdb_options_set_block_based_table_factory(options, table_options);
     db = rocksdb_open(options, dbname, &err);
     CheckNoError(err);
     rocksdb_put(db, woptions, "foo", 3, "foovalue", 8, &err);
@@ -565,8 +570,9 @@ int main(int argc, char** argv) {
       CheckGet(db, roptions, "foo", "foovalue");
       CheckGet(db, roptions, "bar", "barvalue");
     }
-    rocksdb_options_set_filter_policy(options, NULL);
-    rocksdb_filterpolicy_destroy(policy);
+    // Reset the policy
+    rocksdb_block_based_options_set_filter_policy(table_options, NULL);
+    rocksdb_options_set_block_based_table_factory(options, table_options);
   }
 
   StartPhase("compaction_filter");
@@ -757,9 +763,7 @@ int main(int argc, char** argv) {
   StartPhase("prefix");
   {
     // Create new database
-    rocksdb_filterpolicy_t* policy = rocksdb_filterpolicy_create_bloom(10);
     rocksdb_options_set_allow_mmap_reads(options, 1);
-    rocksdb_options_set_filter_policy(options, policy);
     rocksdb_options_set_prefix_extractor(options, rocksdb_slicetransform_create_fixed_prefix(3));
     rocksdb_options_set_hash_skip_list_rep(options, 5000, 4, 4);
     rocksdb_options_set_plain_table_factory(options, 4, 10, 0.75, 16);
@@ -796,13 +800,13 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
-    rocksdb_filterpolicy_destroy(policy);
   }
 
 
   StartPhase("cleanup");
   rocksdb_close(db);
   rocksdb_options_destroy(options);
+  rocksdb_block_based_options_destroy(table_options);
   rocksdb_readoptions_destroy(roptions);
   rocksdb_writeoptions_destroy(woptions);
   rocksdb_cache_destroy(cache);

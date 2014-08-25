@@ -246,10 +246,9 @@ struct DBImpl::CompactionState {
 
 Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
-                        const InternalFilterPolicy* ipolicy,
                         const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
-  auto cf_options = SanitizeOptions(icmp, ipolicy, ColumnFamilyOptions(src));
+  auto cf_options = SanitizeOptions(icmp, ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 
@@ -3608,7 +3607,7 @@ bool DBImpl::KeyMayExist(const ReadOptions& options,
   roptions.read_tier = kBlockCacheTier; // read from block cache only
   auto s = GetImpl(roptions, column_family, key, value, value_found);
 
-  // If options.block_cache != nullptr and the index block of the table didn't
+  // If block_cache is enabled and the index block of the table didn't
   // not present in block_cache, the return value will be Status::Incomplete.
   // In this case, key may still exist in the table.
   return s.ok() || s.IsIncomplete();
@@ -4795,10 +4794,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   for (auto cf : column_families) {
     max_write_buffer_size =
         std::max(max_write_buffer_size, cf.options.write_buffer_size);
-    if (cf.options.block_cache != nullptr && cf.options.no_block_cache) {
-      return Status::InvalidArgument(
-          "no_block_cache is true while block_cache is not nullptr");
-    }
   }
 
   DBImpl* impl = new DBImpl(db_options, dbname);
@@ -4928,9 +4923,7 @@ Snapshot::~Snapshot() {
 
 Status DestroyDB(const std::string& dbname, const Options& options) {
   const InternalKeyComparator comparator(options.comparator);
-  const InternalFilterPolicy filter_policy(options.filter_policy);
-  const Options& soptions(SanitizeOptions(
-    dbname, &comparator, &filter_policy, options));
+  const Options& soptions(SanitizeOptions(dbname, &comparator, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
   std::vector<std::string> archiveFiles;

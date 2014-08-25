@@ -21,6 +21,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
 #include "util/hash.h"
 
 namespace rocksdb {
@@ -36,6 +37,7 @@ class FilterPolicy;
 class FilterBlockBuilder {
  public:
   explicit FilterBlockBuilder(const Options& opt,
+                              const BlockBasedTableOptions& table_opt,
                               const Comparator* internal_comparator);
 
   void StartBlock(uint64_t block_offset);
@@ -70,6 +72,7 @@ class FilterBlockReader {
  // REQUIRES: "contents" and *policy must stay live while *this is live.
   FilterBlockReader(
     const Options& opt,
+    const BlockBasedTableOptions& table_opt,
     const Slice& contents,
     bool delete_contents_after_use = false);
   bool KeyMayMatch(uint64_t block_offset, const Slice& key);

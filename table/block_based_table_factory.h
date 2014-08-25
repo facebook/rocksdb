@@ -16,6 +16,7 @@
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
+#include "db/dbformat.h"
 
 namespace rocksdb {
 

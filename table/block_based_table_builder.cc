@@ -385,7 +385,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 };
 
 struct BlockBasedTableBuilder::Rep {
-  Options options;
+  const Options options;
+  const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   WritableFile* file;
   uint64_t offset = 0;
@@ -397,7 +398,6 @@ struct BlockBasedTableBuilder::Rep {
 
   std::string last_key;
   CompressionType compression_type;
-  ChecksumType checksum_type;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
@@ -413,31 +413,32 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<TablePropertiesCollector>>
       table_properties_collectors;
 
-  Rep(const Options& opt, const InternalKeyComparator& icomparator,
-      WritableFile* f, FlushBlockPolicyFactory* flush_block_policy_factory,
-      CompressionType compression_type, IndexType index_block_type,
-      ChecksumType checksum_type)
+  Rep(const Options& opt, const BlockBasedTableOptions& table_opt,
+      const InternalKeyComparator& icomparator,
+      WritableFile* f, CompressionType compression_type)
       : options(opt),
+        table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
-        data_block(options, &internal_comparator),
+        data_block(table_options.block_restart_interval, &internal_comparator),
         internal_prefix_transform(options.prefix_extractor.get()),
-        index_builder(CreateIndexBuilder(index_block_type, &internal_comparator,
-                                         &this->internal_prefix_transform)),
+        index_builder(CreateIndexBuilder(
+              table_options.index_type, &internal_comparator,
+              &this->internal_prefix_transform)),
         compression_type(compression_type),
-        checksum_type(checksum_type),
-        filter_block(opt.filter_policy == nullptr
-                         ? nullptr
-                         : new FilterBlockBuilder(opt, &internal_comparator)),
-        flush_block_policy(flush_block_policy_factory->NewFlushBlockPolicy(
-            options, data_block)) {
+        filter_block(table_options.filter_policy == nullptr ?
+            nullptr :
+            new FilterBlockBuilder(opt, table_options, &internal_comparator)),
+        flush_block_policy(
+            table_options.flush_block_policy_factory->NewFlushBlockPolicy(
+              table_options, data_block)) {
     for (auto& collector_factories :
          options.table_properties_collector_factories) {
       table_properties_collectors.emplace_back(
           collector_factories->CreateTablePropertiesCollector());
     }
     table_properties_collectors.emplace_back(
-        new BlockBasedTablePropertiesCollector(index_block_type));
+        new BlockBasedTablePropertiesCollector(table_options.index_type));
   }
 };
 
@@ -445,16 +446,14 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const Options& options, const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator, WritableFile* file,
     CompressionType compression_type)
-    : rep_(new Rep(options, internal_comparator, file,
-                   table_options.flush_block_policy_factory.get(),
-                   compression_type, table_options.index_type,
-                   table_options.checksum)) {
+    : rep_(new Rep(options, table_options, internal_comparator,
+                   file, compression_type)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
-  if (options.block_cache_compressed.get() != nullptr) {
+  if (table_options.block_cache_compressed.get() != nullptr) {
     BlockBasedTable::GenerateCachePrefix(
-        options.block_cache_compressed.get(), file,
+        table_options.block_cache_compressed.get(), file,
         &rep_->compressed_cache_key_prefix[0],
         &rep_->compressed_cache_key_prefix_size);
   }
@@ -566,7 +565,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
     char* trailer_without_type = trailer + 1;
-    switch (r->checksum_type) {
+    switch (r->table_options.checksum) {
       case kNoChecksum:
         // we don't support no checksum yet
         assert(false);
@@ -612,7 +611,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
                                                   const CompressionType type,
                                                   const BlockHandle* handle) {
   Rep* r = rep_;
-  Cache* block_cache_compressed = r->options.block_cache_compressed.get();
+  Cache* block_cache_compressed = r->table_options.block_cache_compressed.get();
 
   if (type != kNoCompression && block_cache_compressed != nullptr) {
 
@@ -701,7 +700,7 @@ Status BlockBasedTableBuilder::Finish() {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
       std::string key = BlockBasedTable::kFilterBlockPrefix;
-      key.append(r->options.filter_policy->Name());
+      key.append(r->table_options.filter_policy->Name());
       meta_index_builder.Add(key, filter_block_handle);
     }
 
@@ -709,8 +708,8 @@ Status BlockBasedTableBuilder::Finish() {
     {
       PropertyBlockBuilder property_block_builder;
       std::vector<std::string> failed_user_prop_collectors;
-      r->props.filter_policy_name = r->options.filter_policy != nullptr ?
-          r->options.filter_policy->Name() : "";
+      r->props.filter_policy_name = r->table_options.filter_policy != nullptr ?
+          r->table_options.filter_policy->Name() : "";
       r->props.index_size =
           r->index_builder->EstimatedSize() + kBlockTrailerSize;
 
@@ -750,12 +749,12 @@ Status BlockBasedTableBuilder::Finish() {
     // TODO(icanadi) at some point in the future, when we're absolutely sure
     // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
     // number and always write new table files with new magic number
-    bool legacy = (r->checksum_type == kCRC32c);
+    bool legacy = (r->table_options.checksum == kCRC32c);
     Footer footer(legacy ? kLegacyBlockBasedTableMagicNumber
                          : kBlockBasedTableMagicNumber);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
-    footer.set_checksum(r->checksum_type);
+    footer.set_checksum(r->table_options.checksum);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
     r->status = r->file->Append(footer_encoding);

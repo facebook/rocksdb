@@ -41,7 +41,6 @@ int main() {
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/statistics.h"
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -154,7 +153,7 @@ DEFINE_int32(level0_stop_writes_trigger,
              rocksdb::Options().level0_stop_writes_trigger,
              "Number of files in level-0 that will trigger put stop.");
 
-DEFINE_int32(block_size, rocksdb::Options().block_size,
+DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
              "Number of bytes in a block.");
 
 DEFINE_int32(max_background_compactions,
@@ -780,7 +779,6 @@ class StressTest {
     }
     column_families_.clear();
     delete db_;
-    delete filter_policy_;
   }
 
   bool Run() {
@@ -1550,8 +1548,13 @@ class StressTest {
 
   void Open() {
     assert(db_ == nullptr);
-    options_.block_cache = cache_;
-    options_.block_cache_compressed = compressed_cache_;
+    BlockBasedTableOptions block_based_options;
+    block_based_options.block_cache = cache_;
+    block_based_options.block_cache_compressed = compressed_cache_;
+    block_based_options.block_size = FLAGS_block_size;
+    block_based_options.filter_policy = filter_policy_;
+    options_.table_factory.reset(
+        NewBlockBasedTableFactory(block_based_options));
     options_.write_buffer_size = FLAGS_write_buffer_size;
     options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options_.min_write_buffer_number_to_merge =
@@ -1560,8 +1563,6 @@ class StressTest {
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
         static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
-    options_.block_size = FLAGS_block_size;
-    options_.filter_policy = filter_policy_;
     options_.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
     options_.max_open_files = FLAGS_open_files;
     options_.statistics = dbstats;
@@ -1718,9 +1719,9 @@ class StressTest {
   }
 
  private:
-  shared_ptr<Cache> cache_;
-  shared_ptr<Cache> compressed_cache_;
-  const FilterPolicy* filter_policy_;
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<Cache> compressed_cache_;
+  std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;

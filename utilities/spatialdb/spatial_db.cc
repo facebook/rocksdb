@@ -16,6 +16,7 @@
 #include <unordered_set>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/table.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
 #include "util/coding.h"
@@ -564,7 +565,9 @@ Options GetRocksDBOptionsFromOptions(const SpatialDBOptions& options) {
       rocksdb_options.compression_per_level[i] = kLZ4Compression;
     }
   }
-  rocksdb_options.block_cache = NewLRUCache(options.cache_size);
+  BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(options.cache_size);
+  rocksdb_options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   if (options.bulk_load) {
     rocksdb_options.PrepareForBulkLoad();
   }

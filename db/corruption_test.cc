@@ -45,7 +45,9 @@ class CorruptionTest {
 
     db_ = nullptr;
     options_.create_if_missing = true;
-    options_.block_size_deviation = 0; // make unit test pass for now
+    BlockBasedTableOptions table_options;
+    table_options.block_size_deviation = 0;  // make unit test pass for now
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen();
     options_.create_if_missing = false;
   }
@@ -60,9 +62,11 @@ class CorruptionTest {
     db_ = nullptr;
     Options opt = (options ? *options : options_);
     opt.env = &env_;
-    opt.block_cache = tiny_cache_;
-    opt.block_size_deviation = 0;
     opt.arena_block_size = 4096;
+    BlockBasedTableOptions table_options;
+    table_options.block_cache = tiny_cache_;
+    table_options.block_size_deviation = 0;
+    opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return DB::Open(opt, dbname_, &db_);
   }
 

@@ -194,6 +194,7 @@ class Constructor {
   // been added so far.  Returns the keys in sorted order in "*keys"
   // and stores the key/value pairs in "*kvmap"
   void Finish(const Options& options,
+              const BlockBasedTableOptions& table_options,
               const InternalKeyComparator& internal_comparator,
               std::vector<std::string>* keys, KVMap* kvmap) {
     last_internal_key_ = &internal_comparator;
@@ -205,12 +206,13 @@ class Constructor {
       keys->push_back(it->first);
     }
     data_.clear();
-    Status s = FinishImpl(options, internal_comparator, *kvmap);
+    Status s = FinishImpl(options, table_options, internal_comparator, *kvmap);
     ASSERT_TRUE(s.ok()) << s.ToString();
   }
 
   // Construct the data structure from the data in "data"
   virtual Status FinishImpl(const Options& options,
+                            const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& data) = 0;
 
@@ -237,11 +239,13 @@ class BlockConstructor: public Constructor {
     delete block_;
   }
   virtual Status FinishImpl(const Options& options,
+                            const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& data) {
     delete block_;
     block_ = nullptr;
-    BlockBuilder builder(options, &internal_comparator);
+    BlockBuilder builder(table_options.block_restart_interval,
+                         &internal_comparator);
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -319,6 +323,7 @@ class TableConstructor: public Constructor {
   ~TableConstructor() { Reset(); }
 
   virtual Status FinishImpl(const Options& options,
+                            const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& data) {
     Reset();
@@ -417,6 +422,7 @@ class MemTableConstructor: public Constructor {
     delete memtable_->Unref();
   }
   virtual Status FinishImpl(const Options& options,
+                            const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& data) {
     delete memtable_->Unref();
@@ -455,6 +461,7 @@ class DBConstructor: public Constructor {
     delete db_;
   }
   virtual Status FinishImpl(const Options& options,
+                            const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& data) {
     delete db_;
@@ -670,12 +677,9 @@ class Harness {
     delete constructor_;
     constructor_ = nullptr;
     options_ = Options();
-
-    options_.block_restart_interval = args.restart_interval;
     options_.compression = args.compression;
     // Use shorter block size for tests to exercise block boundary
     // conditions more.
-    options_.block_size = 256;
     if (args.reverse_compare) {
       options_.comparator = &reverse_key_comparator;
     }
@@ -685,12 +689,14 @@ class Harness {
 
     support_prev_ = true;
     only_support_prefix_seek_ = false;
-    BlockBasedTableOptions table_options;
     switch (args.type) {
       case BLOCK_BASED_TABLE_TEST:
-        table_options.flush_block_policy_factory.reset(
+        table_options_.flush_block_policy_factory.reset(
             new FlushBlockBySizePolicyFactory());
-        options_.table_factory.reset(new BlockBasedTableFactory(table_options));
+        table_options_.block_size = 256;
+        table_options_.block_restart_interval = args.restart_interval;
+        options_.table_factory.reset(
+            new BlockBasedTableFactory(table_options_));
         constructor_ = new TableConstructor(options_.comparator);
         break;
       case PLAIN_TABLE_SEMI_FIXED_PREFIX:
@@ -733,12 +739,21 @@ class Harness {
             new InternalKeyComparator(options_.comparator));
         break;
       case BLOCK_TEST:
+        table_options_.block_size = 256;
+        options_.table_factory.reset(
+            new BlockBasedTableFactory(table_options_));
         constructor_ = new BlockConstructor(options_.comparator);
         break;
       case MEMTABLE_TEST:
+        table_options_.block_size = 256;
+        options_.table_factory.reset(
+            new BlockBasedTableFactory(table_options_));
         constructor_ = new MemTableConstructor(options_.comparator);
         break;
       case DB_TEST:
+        table_options_.block_size = 256;
+        options_.table_factory.reset(
+            new BlockBasedTableFactory(table_options_));
         constructor_ = new DBConstructor(options_.comparator);
         break;
     }
@@ -755,7 +770,8 @@ class Harness {
   void Test(Random* rnd) {
     std::vector<std::string> keys;
     KVMap data;
-    constructor_->Finish(options_, *internal_comparator_, &keys, &data);
+    constructor_->Finish(options_, table_options_, *internal_comparator_,
+                         &keys, &data);
 
     TestForwardScan(keys, data);
     if (support_prev_) {
@@ -924,6 +940,7 @@ class Harness {
 
  private:
   Options options_ = Options();
+  BlockBasedTableOptions table_options_ = BlockBasedTableOptions();
   Constructor* constructor_;
   bool support_prev_;
   bool only_support_prefix_seek_;
@@ -1018,10 +1035,12 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   KVMap kvmap;
   Options options;
   options.compression = kNoCompression;
-  options.block_restart_interval = 1;
+  BlockBasedTableOptions table_options;
+  table_options.block_restart_interval = 1;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
-           &kvmap);
+  c.Finish(options, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
   auto& props = *c.table_reader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
@@ -1035,7 +1054,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
-  BlockBuilder block_builder(options, options.comparator);
+  BlockBuilder block_builder(1, options.comparator);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }
@@ -1044,16 +1063,17 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
 }
 
 TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
-  TableConstructor c(BytewiseComparator());
+  TableConstructor c(BytewiseComparator(), true);
   c.Add("a1", "val1");
   std::vector<std::string> keys;
   KVMap kvmap;
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   Options options;
-  std::unique_ptr<const FilterPolicy> filter_policy(NewBloomFilterPolicy(10));
-  options.filter_policy = filter_policy.get();
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
-           &kvmap);
+  c.Finish(options, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   auto& props = *c.table_reader()->GetTableProperties();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
 }
@@ -1094,18 +1114,17 @@ TEST(TableTest, HashIndexTest) {
   std::vector<std::string> keys;
   KVMap kvmap;
   Options options;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
   BlockBasedTableOptions table_options;
   table_options.index_type = BlockBasedTableOptions::kHashSearch;
   table_options.hash_index_allow_collision = true;
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
-
-  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
-  options.block_cache = NewLRUCache(1024);
-  options.block_size = 1700;
+  table_options.block_size = 1700;
+  table_options.block_cache = NewLRUCache(1024);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
-  c.Finish(options, *comparator, &keys, &kvmap);
+  c.Finish(options, table_options, *comparator, &keys, &kvmap);
   auto reader = c.table_reader();
 
   auto props = c.table_reader()->GetTableProperties();
@@ -1209,10 +1228,12 @@ TEST(BlockBasedTableTest, IndexSizeStat) {
     KVMap kvmap;
     Options options;
     options.compression = kNoCompression;
-    options.block_restart_interval = 1;
+    BlockBasedTableOptions table_options;
+    table_options.block_restart_interval = 1;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
-             &kvmap);
+    c.Finish(options, table_options,
+             GetPlainInternalComparator(options.comparator), &ks, &kvmap);
     auto index_size = c.table_reader()->GetTableProperties()->index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
@@ -1224,8 +1245,10 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   TableConstructor c(BytewiseComparator());
   Options options;
   options.compression = kNoCompression;
-  options.block_restart_interval = 1;
-  options.block_size = 1000;
+  BlockBasedTableOptions table_options;
+  table_options.block_restart_interval = 1;
+  table_options.block_size = 1000;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   for (int i = 0; i < 10; ++i) {
     // the key/val are slightly smaller than block size, so that each block
@@ -1235,8 +1258,8 @@ TEST(BlockBasedTableTest, NumBlockStat) {
 
   std::vector<std::string> ks;
   KVMap kvmap;
-  c.Finish(options, GetPlainInternalComparator(options.comparator), &ks,
-           &kvmap);
+  c.Finish(options, table_options,
+           GetPlainInternalComparator(options.comparator), &ks, &kvmap);
   ASSERT_EQ(kvmap.size(),
             c.table_reader()->GetTableProperties()->num_data_blocks);
 }
@@ -1300,20 +1323,19 @@ TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
-  options.block_cache = NewLRUCache(1024);
-  std::unique_ptr<const FilterPolicy> filter_policy(NewBloomFilterPolicy(10));
-  options.filter_policy = filter_policy.get();
   BlockBasedTableOptions table_options;
   // Intentionally commented out: table_options.cache_index_and_filter_blocks =
   // true;
+  table_options.block_cache = NewLRUCache(1024);
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
   KVMap kvmap;
 
-  TableConstructor c(BytewiseComparator());
+  TableConstructor c(BytewiseComparator(), true);
   c.Add("key", "value");
-  c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
-           &kvmap);
+  c.Finish(options, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
   // preloading filter/index blocks is enabled.
   auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
@@ -1343,10 +1365,10 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
-  options.block_cache = NewLRUCache(1024);
 
   // Enable the cache for index/filter blocks
   BlockBasedTableOptions table_options;
+  table_options.block_cache = NewLRUCache(1024);
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
@@ -1354,8 +1376,8 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
 
   TableConstructor c(BytewiseComparator());
   c.Add("key", "value");
-  c.Finish(options, GetPlainInternalComparator(options.comparator), &keys,
-           &kvmap);
+  c.Finish(options, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   // preloading filter/index blocks is prohibited.
   auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
@@ -1404,9 +1426,12 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   iter.reset();
 
   // -- PART 2: Open without block cache
-  options.block_cache.reset();
+  table_options.no_block_cache = true;
+  table_options.block_cache.reset();
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
   options.statistics = CreateDBStatistics();  // reset the stats
   c.Reopen(options);
+  table_options.no_block_cache = false;
 
   {
     iter.reset(c.NewIterator());
@@ -1420,7 +1445,8 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   // -- PART 3: Open with very small block cache
   // In this test, no block will ever get hit since the block cache is
   // too small to fit even one entry.
-  options.block_cache = NewLRUCache(1);
+  table_options.block_cache = NewLRUCache(1);
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
   c.Reopen(options);
   {
     BlockCachePropertiesSnapshot props(options.statistics.get());
@@ -1458,11 +1484,12 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   Options opt;
   unique_ptr<InternalKeyComparator> ikc;
   ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
-  opt.block_size = 1024;
   opt.compression = kNoCompression;
-  opt.block_cache =
-      NewLRUCache(16 * 1024 * 1024);  // big enough so we don't ever
-                                      // lose cached values.
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  // big enough so we don't ever lose cached values.
+  table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+  opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   TableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
@@ -1474,7 +1501,7 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
   KVMap kvmap;
-  c.Finish(opt, *ikc, &keys, &kvmap);
+  c.Finish(opt, table_options, *ikc, &keys, &kvmap);
 
   unique_ptr<Iterator> iter(c.NewIterator());
   iter->SeekToFirst();
@@ -1492,7 +1519,8 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   }
 
   // rerun with different block cache
-  opt.block_cache = NewLRUCache(16 * 1024 * 1024);
+  table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+  opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_OK(c.Reopen(opt));
   table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
   for (const std::string& key : keys) {
@@ -1551,9 +1579,10 @@ TEST(GeneralTableTest, ApproximateOffsetOfPlain) {
   KVMap kvmap;
   Options options;
   test::PlainInternalKeyComparator internal_comparator(options.comparator);
-  options.block_size = 1024;
   options.compression = kNoCompression;
-  c.Finish(options, internal_comparator, &keys, &kvmap);
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  c.Finish(options, table_options, internal_comparator, &keys, &kvmap);
 
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"),       0,      0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"),       0,      0));
@@ -1580,9 +1609,10 @@ static void DoCompressionTest(CompressionType comp) {
   KVMap kvmap;
   Options options;
   test::PlainInternalKeyComparator ikc(options.comparator);
-  options.block_size = 1024;
   options.compression = comp;
-  c.Finish(options, ikc, &keys, &kvmap);
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  c.Finish(options, table_options, ikc, &keys, &kvmap);
 
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("abc"),       0,      0));
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("k01"),       0,      0));

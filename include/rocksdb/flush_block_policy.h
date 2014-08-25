@@ -6,6 +6,7 @@
 #pragma once
 
 #include <string>
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 
@@ -37,7 +38,8 @@ class FlushBlockPolicyFactory {
   // Callers must delete the result after any database that is using the
   // result has been closed.
   virtual FlushBlockPolicy* NewFlushBlockPolicy(
-      const Options& options, const BlockBuilder& data_block_builder) const = 0;
+      const BlockBasedTableOptions& table_options,
+      const BlockBuilder& data_block_builder) const = 0;
 
   virtual ~FlushBlockPolicyFactory() { }
 };
@@ -51,7 +53,7 @@ class FlushBlockBySizePolicyFactory : public FlushBlockPolicyFactory {
   }
 
   virtual FlushBlockPolicy* NewFlushBlockPolicy(
-      const Options& options,
+      const BlockBasedTableOptions& table_options,
       const BlockBuilder& data_block_builder) const override;
 };
 

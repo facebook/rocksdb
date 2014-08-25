@@ -22,10 +22,11 @@ static const size_t kFilterBaseLg = 11;
 static const size_t kFilterBase = 1 << kFilterBaseLg;
 
 FilterBlockBuilder::FilterBlockBuilder(const Options& opt,
+                                       const BlockBasedTableOptions& table_opt,
                                        const Comparator* internal_comparator)
-    : policy_(opt.filter_policy),
+    : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(opt.prefix_extractor.get()),
-      whole_key_filtering_(opt.whole_key_filtering),
+      whole_key_filtering_(table_opt.whole_key_filtering),
       comparator_(internal_comparator) {}
 
 void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
@@ -131,10 +132,11 @@ void FilterBlockBuilder::GenerateFilter() {
 }
 
 FilterBlockReader::FilterBlockReader(
-    const Options& opt, const Slice& contents, bool delete_contents_after_use)
-    : policy_(opt.filter_policy),
+    const Options& opt, const BlockBasedTableOptions& table_opt,
+    const Slice& contents, bool delete_contents_after_use)
+    : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(opt.prefix_extractor.get()),
-      whole_key_filtering_(opt.whole_key_filtering),
+      whole_key_filtering_(table_opt.whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),
       num_(0),

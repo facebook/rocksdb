@@ -746,9 +746,10 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.filter_policy = nullptr;
-  default_cf.no_block_cache = true;
   default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   one.compaction_style = kCompactionStyleUniversal;
   // trigger compaction if there are >= 4 files

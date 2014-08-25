@@ -57,8 +57,7 @@ class Repairer {
       : dbname_(dbname),
         env_(options.env),
         icmp_(options.comparator),
-        ipolicy_(options.filter_policy),
-        options_(SanitizeOptions(dbname, &icmp_, &ipolicy_, options)),
+        options_(SanitizeOptions(dbname, &icmp_, options)),
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
             // once.
@@ -109,7 +108,6 @@ class Repairer {
   std::string const dbname_;
   Env* const env_;
   InternalKeyComparator const icmp_;
-  InternalFilterPolicy const ipolicy_;
   Options const options_;
   std::shared_ptr<Cache> raw_table_cache_;
   TableCache* table_cache_;

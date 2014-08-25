@@ -669,7 +669,6 @@ class DBImpl : public DB {
 // it is not equal to src.info_log.
 extern Options SanitizeOptions(const std::string& db,
                                const InternalKeyComparator* icmp,
-                               const InternalFilterPolicy* ipolicy,
                                const Options& src);
 extern DBOptions SanitizeOptions(const std::string& db, const DBOptions& src);
 

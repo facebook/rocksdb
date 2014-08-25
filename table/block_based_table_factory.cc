@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "rocksdb/flush_block_policy.h"
+#include "rocksdb/cache.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
 #include "port/port.h"
@@ -27,6 +28,19 @@ BlockBasedTableFactory::BlockBasedTableFactory(
   if (table_options_.flush_block_policy_factory == nullptr) {
     table_options_.flush_block_policy_factory.reset(
         new FlushBlockBySizePolicyFactory());
+  }
+  if (table_options_.no_block_cache) {
+    table_options_.block_cache.reset();
+  } else if (table_options_.block_cache == nullptr) {
+    table_options_.block_cache = NewLRUCache(8 << 20);
+  }
+  if (table_options_.block_size_deviation < 0 ||
+      table_options_.block_size_deviation > 100) {
+    table_options_.block_size_deviation = 0;
+  }
+  if (table_options_.filter_policy) {
+    auto* p = new InternalFilterPolicy(table_options_.filter_policy);
+    table_options_.filter_policy.reset(p);
   }
 }
 
@@ -43,6 +57,7 @@ Status BlockBasedTableFactory::NewTableReader(
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const Options& options, const InternalKeyComparator& internal_comparator,
     WritableFile* file, CompressionType compression_type) const {
+
   auto table_builder = new BlockBasedTableBuilder(
       options, table_options_, internal_comparator, file, compression_type);
 

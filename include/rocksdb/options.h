@@ -206,34 +206,6 @@ struct ColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge;
 
-  // Control over blocks (user data is stored in a set of blocks, and
-  // a block is the unit of reading from disk).
-
-  // If non-NULL use the specified cache for blocks.
-  // If NULL, rocksdb will automatically create and use an 8MB internal cache.
-  // Default: nullptr
-  std::shared_ptr<Cache> block_cache;
-
-  // If non-NULL use the specified cache for compressed blocks.
-  // If NULL, rocksdb will not use a compressed block cache.
-  // Default: nullptr
-  std::shared_ptr<Cache> block_cache_compressed;
-
-  // Approximate size of user data packed per block.  Note that the
-  // block size specified here corresponds to uncompressed data.  The
-  // actual size of the unit read from disk may be smaller if
-  // compression is enabled.  This parameter can be changed dynamically.
-  //
-  // Default: 4K
-  size_t block_size;
-
-  // Number of keys between restart points for delta encoding of keys.
-  // This parameter can be changed dynamically.  Most clients should
-  // leave this parameter alone.
-  //
-  // Default: 16
-  int block_restart_interval;
-
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
@@ -267,13 +239,6 @@ struct ColumnFamilyOptions {
   // different options for compression algorithms
   CompressionOptions compression_opts;
 
-  // If non-nullptr, use the specified filter policy to reduce disk reads.
-  // Many applications will benefit from passing the result of
-  // NewBloomFilterPolicy() here.
-  //
-  // Default: nullptr
-  const FilterPolicy* filter_policy;
-
   // If non-nullptr, use the specified function to determine the
   // prefixes for keys.  These prefixes will be placed in the filter.
   // Depending on the workload, this can reduce the number of read-IOP
@@ -289,12 +254,6 @@ struct ColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<const SliceTransform> prefix_extractor;
-
-  // If true, place whole keys in the filter (not just prefixes).
-  // This must generally be true for gets to be efficient.
-  //
-  // Default: true
-  bool whole_key_filtering;
 
   // Number of levels for this database
   int num_levels;
@@ -375,18 +334,6 @@ struct ColumnFamilyOptions {
   // stop building a single file in a level->level+1 compaction.
   int max_grandparent_overlap_factor;
 
-  // We decided to remove seek compaction from RocksDB because:
-  // 1) It makes more sense for spinning disk workloads, while RocksDB is
-  // primarily designed for flash and memory,
-  // 2) It added some complexity to the important code-paths,
-  // 3) None of our internal customers were really using it.
-  //
-  // Since we removed seek compaction, this option is now obsolete.
-  // We left it here for backwards compatiblity (otherwise it would break the
-  // build), but we'll remove it at some point.
-  // Default: true
-  bool disable_seek_compaction;
-
   // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
   // soft_rate_limit. This is ignored when == 0.0.
   // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
@@ -403,12 +350,6 @@ struct ColumnFamilyOptions {
   // there is no limit.
   // Default: 1000
   unsigned int rate_limit_delay_max_milliseconds;
-
-  // Disable block cache. If this is set to true,
-  // then no block cache should be used, and the block_cache should
-  // point to a nullptr object.
-  // Default: false
-  bool no_block_cache;
 
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/10 of
@@ -432,14 +373,6 @@ struct ColumnFamilyOptions {
   // Purge duplicate/deleted keys when a memtable is flushed to storage.
   // Default: true
   bool purge_redundant_kvs_while_flush;
-
-  // This is used to close a block before it reaches the configured
-  // 'block_size'. If the percentage of free space in the current block is less
-  // than this specified number and adding a new record to the block will
-  // exceed the configured block size, then this block will be closed and the
-  // new record will be written to the next block.
-  // Default is 10.
-  int block_size_deviation;
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
@@ -683,9 +616,6 @@ struct DBOptions {
   // filesystem like ext3 that can lose files after a reboot.
   // Default: false
   bool use_fsync;
-
-  // This options is not used!!
-  int db_stats_log_interval;
 
   // A list of paths where SST files can be put into, with its target size.
   // Newer data is placed into paths specified earlier in the vector while

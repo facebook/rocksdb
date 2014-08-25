@@ -76,7 +76,7 @@ TEST(BlockTest, SimpleTest) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(options, ic.get());
+  BlockBuilder builder(16, ic.get());
   int num_records = 100000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);

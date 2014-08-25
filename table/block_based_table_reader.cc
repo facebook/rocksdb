@@ -334,11 +334,16 @@ class HashIndexReader : public IndexReader {
 
 struct BlockBasedTable::Rep {
   Rep(const EnvOptions& storage_options,
+      const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& internal_comparator)
-      : soptions(storage_options), internal_comparator(internal_comparator) {}
+      : soptions(storage_options), table_options(table_opt),
+        filter_policy(table_opt.filter_policy.get()),
+        internal_comparator(internal_comparator) {}
 
   Options options;
   const EnvOptions& soptions;
+  const BlockBasedTableOptions& table_options;
+  const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
   unique_ptr<RandomAccessFile> file;
@@ -398,13 +403,13 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   assert(kMaxCacheKeyPrefixSize >= 10);
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
-  if (rep->options.block_cache != nullptr) {
-    GenerateCachePrefix(rep->options.block_cache.get(), rep->file.get(),
+  if (rep->table_options.block_cache != nullptr) {
+    GenerateCachePrefix(rep->table_options.block_cache.get(), rep->file.get(),
                         &rep->cache_key_prefix[0],
                         &rep->cache_key_prefix_size);
   }
-  if (rep->options.block_cache_compressed != nullptr) {
-    GenerateCachePrefix(rep->options.block_cache_compressed.get(),
+  if (rep->table_options.block_cache_compressed != nullptr) {
+    GenerateCachePrefix(rep->table_options.block_cache_compressed.get(),
                         rep->file.get(), &rep->compressed_cache_key_prefix[0],
                         &rep->compressed_cache_key_prefix_size);
   }
@@ -452,7 +457,8 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
 
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
-  Rep* rep = new BlockBasedTable::Rep(soptions, internal_comparator);
+  Rep* rep = new BlockBasedTable::Rep(
+      soptions, table_options, internal_comparator);
   rep->options = options;
   rep->file = std::move(file);
   rep->footer = footer;
@@ -493,7 +499,8 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
   }
 
   // Will use block cache for index/filter blocks access?
-  if (options.block_cache && table_options.cache_index_and_filter_blocks) {
+  if (table_options.block_cache &&
+      table_options.cache_index_and_filter_blocks) {
     // Hack: Call NewIndexIterator() to implicitly add index to the block_cache
     unique_ptr<Iterator> iter(new_table->NewIndexIterator(ReadOptions()));
     s = iter->status();
@@ -501,7 +508,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     if (s.ok()) {
       // Hack: Call GetFilter() to implicitly add filter to the block_cache
       auto filter_entry = new_table->GetFilter();
-      filter_entry.Release(options.block_cache.get());
+      filter_entry.Release(table_options.block_cache.get());
     }
   } else {
     // If we don't use block cache for index/filter blocks access, we'll
@@ -515,9 +522,9 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
       rep->index_reader.reset(index_reader);
 
       // Set filter block
-      if (rep->options.filter_policy) {
+      if (rep->filter_policy) {
         std::string key = kFilterBlockPrefix;
-        key.append(rep->options.filter_policy->Name());
+        key.append(rep->filter_policy->Name());
         BlockHandle handle;
         if (FindMetaBlock(meta_iter.get(), key, &handle).ok()) {
           rep->filter.reset(ReadFilter(handle, rep));
@@ -745,7 +752,7 @@ FilterBlockReader* BlockBasedTable::ReadFilter(const BlockHandle& filter_handle,
   }
 
   return new FilterBlockReader(
-       rep->options, block.data, block.heap_allocated);
+       rep->options, rep->table_options, block.data, block.heap_allocated);
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
@@ -755,13 +762,13 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     return {rep_->filter.get(), nullptr /* cache handle */};
   }
 
-  if (rep_->options.filter_policy == nullptr /* do not use filter at all */ ||
-      rep_->options.block_cache == nullptr /* no block cache at all */) {
+  Cache* block_cache = rep_->table_options.block_cache.get();
+  if (rep_->filter_policy == nullptr /* do not use filter */ ||
+      block_cache == nullptr /* no block cache at all */) {
     return {nullptr /* filter */, nullptr /* cache handle */};
   }
 
   // Fetching from the cache
-  Cache* block_cache = rep_->options.block_cache.get();
   char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   auto key = GetCacheKey(
       rep_->cache_key_prefix,
@@ -790,7 +797,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
     if (s.ok()) {
       std::string filter_block_key = kFilterBlockPrefix;
-      filter_block_key.append(rep_->options.filter_policy->Name());
+      filter_block_key.append(rep_->filter_policy->Name());
       BlockHandle handle;
       if (FindMetaBlock(iter.get(), filter_block_key, &handle).ok()) {
         filter = ReadFilter(handle, rep_, &filter_size);
@@ -815,7 +822,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
   }
 
   bool no_io = read_options.read_tier == kBlockCacheTier;
-  Cache* block_cache = rep_->options.block_cache.get();
+  Cache* block_cache = rep_->table_options.block_cache.get();
   char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
                          rep_->footer.index_handle(), cache_key);
@@ -874,9 +881,9 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
     const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter) {
   const bool no_io = (ro.read_tier == kBlockCacheTier);
-  Cache* block_cache = rep->options.block_cache.get();
-  Cache* block_cache_compressed = rep->options.
-                                    block_cache_compressed.get();
+  Cache* block_cache = rep->table_options.block_cache.get();
+  Cache* block_cache_compressed =
+      rep->table_options.block_cache_compressed.get();
   CachableEntry<Block> block;
 
   BlockHandle handle;
@@ -992,8 +999,8 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
 
 // This will be broken if the user specifies an unusual implementation
 // of Options.comparator, or if the user specifies an unusual
-// definition of prefixes in Options.filter_policy.  In particular, we
-// require the following three properties:
+// definition of prefixes in BlockBasedTableOptions.filter_policy.
+// In particular, we require the following three properties:
 //
 // 1) key.starts_with(prefix(key))
 // 2) Compare(prefix(key), key) <= 0.
@@ -1003,7 +1010,7 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
 //
 // REQUIRES: this method shouldn't be called while the DB lock is held.
 bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
-  if (!rep_->options.filter_policy) {
+  if (!rep_->filter_policy) {
     return true;
   }
 
@@ -1057,7 +1064,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
     may_match =
       filter_entry.value == nullptr ||
       filter_entry.value->PrefixMayMatch(handle.offset(), internal_prefix);
-    filter_entry.Release(rep_->options.block_cache.get());
+    filter_entry.Release(rep_->table_options.block_cache.get());
   }
 
   Statistics* statistics = rep_->options.statistics.get();
@@ -1135,7 +1142,7 @@ Status BlockBasedTable::Get(
     }
   }
 
-  filter_entry.Release(rep_->options.block_cache.get());
+  filter_entry.Release(rep_->table_options.block_cache.get());
   if (s.ok()) {
     s = iiter.status();
   }
@@ -1154,7 +1161,7 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
   Slice input = iiter->value();
   Status s = handle.DecodeFrom(&input);
   assert(s.ok());
-  Cache* block_cache = rep_->options.block_cache.get();
+  Cache* block_cache = rep_->table_options.block_cache.get();
   assert(block_cache != nullptr);
 
   char cache_key_storage[kMaxCacheKeyPrefixSize + kMaxVarint64Length];

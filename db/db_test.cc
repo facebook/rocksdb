@@ -102,6 +102,11 @@ class AtomicCounter {
     count_ = 0;
   }
 };
+
+struct OptionsOverride {
+  std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+};
+
 }  // namespace anon
 
 static std::string Key(int i) {
@@ -304,9 +309,6 @@ class SpecialEnv : public EnvWrapper {
 };
 
 class DBTest {
- private:
-  const FilterPolicy* filter_policy_;
-
  protected:
   // Sequence of option configurations to try
   enum OptionConfig {
@@ -360,9 +362,9 @@ class DBTest {
     kSkipFIFOCompaction = 128,
   };
 
+
   DBTest() : option_config_(kDefault),
              env_(new SpecialEnv(Env::Default())) {
-    filter_policy_ = NewBloomFilterPolicy(10);
     dbname_ = test::TmpDir() + "/db_test";
     ASSERT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
@@ -378,7 +380,6 @@ class DBTest {
     options.db_paths.emplace_back(dbname_ + "_4", 0);
     ASSERT_OK(DestroyDB(dbname_, options));
     delete env_;
-    delete filter_policy_;
   }
 
   // Switch to a fresh database with the next option configuration to
@@ -446,14 +447,19 @@ class DBTest {
   }
 
   // Return the current option configuration.
-  Options CurrentOptions() {
+  Options CurrentOptions(
+      const anon::OptionsOverride& options_override = anon::OptionsOverride()) {
     Options options;
-    return CurrentOptions(options);
+    return CurrentOptions(options, options_override);
   }
 
-  Options CurrentOptions(const Options& defaultOptions) {
+  Options CurrentOptions(
+      const Options& defaultOptions,
+      const anon::OptionsOverride& options_override = anon::OptionsOverride()) {
     // this redudant copy is to minimize code change w/o having lint error.
     Options options = defaultOptions;
+    BlockBasedTableOptions table_options;
+    bool set_block_based_table_factory = true;
     switch (option_config_) {
       case kHashSkipList:
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -465,18 +471,20 @@ class DBTest {
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
+        set_block_based_table_factory = false;
         break;
       case kPlainTableAllBytesPrefix:
         options.table_factory.reset(new PlainTableFactory());
         options.prefix_extractor.reset(NewNoopTransform());
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
+        set_block_based_table_factory = false;
         break;
       case kMergePut:
         options.merge_operator = MergeOperators::CreatePutOperator();
         break;
       case kFilter:
-        options.filter_policy = filter_policy_;
+        table_options.filter_policy.reset(NewBloomFilterPolicy(10));
         break;
       case kUncompressed:
         options.compression = kNoCompression;
@@ -521,15 +529,13 @@ class DBTest {
         break;
       case kCompressedBlockCache:
         options.allow_mmap_writes = true;
-        options.block_cache_compressed = NewLRUCache(8*1024*1024);
+        table_options.block_cache_compressed = NewLRUCache(8*1024*1024);
         break;
       case kInfiniteMaxOpenFiles:
         options.max_open_files = -1;
         break;
       case kxxHashChecksum: {
-        BlockBasedTableOptions table_options;
         table_options.checksum = kxxHash;
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       }
       case kFIFOCompaction: {
@@ -537,21 +543,24 @@ class DBTest {
         break;
       }
       case kBlockBasedTableWithPrefixHashIndex: {
-        BlockBasedTableOptions table_options;
         table_options.index_type = BlockBasedTableOptions::kHashSearch;
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
         break;
       }
       case kBlockBasedTableWithWholeKeyHashIndex: {
-        BlockBasedTableOptions table_options;
         table_options.index_type = BlockBasedTableOptions::kHashSearch;
-        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         options.prefix_extractor.reset(NewNoopTransform());
         break;
       }
       default:
         break;
+    }
+
+    if (options_override.filter_policy) {
+      table_options.filter_policy = options_override.filter_policy;
+    }
+    if (set_block_based_table_factory) {
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     }
     return options;
   }
@@ -652,7 +661,6 @@ class DBTest {
       opts.create_if_missing = true;
     }
     last_options_ = opts;
-
     return DB::Open(opts, dbname_, &db_);
   }
 
@@ -1168,12 +1176,11 @@ TEST(DBTest, ReadOnlyDB) {
 // created its index/filter blocks are added to block cache.
 TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   Options options = CurrentOptions();
-  std::unique_ptr<const FilterPolicy> filter_policy(NewBloomFilterPolicy(20));
-  options.filter_policy = filter_policy.get();
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.cache_index_and_filter_blocks = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   CreateAndReopenWithCF({"pikachu"}, &options);
 
@@ -1459,8 +1466,9 @@ TEST(DBTest, KeyMayExist) {
   do {
     ReadOptions ropts;
     std::string value;
-    Options options = CurrentOptions();
-    options.filter_policy = NewBloomFilterPolicy(20);
+    anon::OptionsOverride options_override;
+    options_override.filter_policy.reset(NewBloomFilterPolicy(20));
+    Options options = CurrentOptions(options_override);
     options.statistics = rocksdb::CreateDBStatistics();
     CreateAndReopenWithCF({"pikachu"}, &options);
 
@@ -1510,8 +1518,6 @@ TEST(DBTest, KeyMayExist) {
     ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "c", &value));
     ASSERT_EQ(numopen, TestGetTickerCount(options, NO_FILE_OPENS));
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
-
-    delete options.filter_policy;
 
     // KeyMayExist function only checks data in block caches, which is not used
     // by plain table format.
@@ -1587,8 +1593,9 @@ TEST(DBTest, NonBlockingIteration) {
 // Tests Writebatch consistency and proper delete behaviour
 TEST(DBTest, FilterDeletes) {
   do {
-    Options options = CurrentOptions();
-    options.filter_policy = NewBloomFilterPolicy(20);
+    anon::OptionsOverride options_override;
+    options_override.filter_policy.reset(NewBloomFilterPolicy(20));
+    Options options = CurrentOptions(options_override);
     options.filter_deletes = true;
     CreateAndReopenWithCF({"pikachu"}, &options);
     WriteBatch batch;
@@ -1618,8 +1625,6 @@ TEST(DBTest, FilterDeletes) {
     dbfull()->Write(WriteOptions(), &batch);
     ASSERT_EQ(AllEntriesFor("c", 1), "[ DEL, d ]");  // Delete issued
     batch.Clear();
-
-    delete options.filter_policy;
   } while (ChangeCompactOptions());
 }
 
@@ -3333,32 +3338,37 @@ TEST(DBTest, CompressedCache) {
   // Iteration 4: both block cache and compressed cache, but DB is not
   // compressed
   for (int iter = 0; iter < 4; iter++) {
-    Options options = CurrentOptions();
+    Options options;
     options.write_buffer_size = 64*1024;        // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
 
+    BlockBasedTableOptions table_options;
     switch (iter) {
       case 0:
         // only uncompressed block cache
-        options.block_cache = NewLRUCache(8*1024);
-        options.block_cache_compressed = nullptr;
+        table_options.block_cache = NewLRUCache(8*1024);
+        table_options.block_cache_compressed = nullptr;
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       case 1:
         // no block cache, only compressed cache
-        options.no_block_cache = true;
-        options.block_cache = nullptr;
-        options.block_cache_compressed = NewLRUCache(8*1024);
+        table_options.no_block_cache = true;
+        table_options.block_cache = nullptr;
+        table_options.block_cache_compressed = NewLRUCache(8*1024);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       case 2:
         // both compressed and uncompressed block cache
-        options.block_cache = NewLRUCache(1024);
-        options.block_cache_compressed = NewLRUCache(8*1024);
+        table_options.block_cache = NewLRUCache(1024);
+        table_options.block_cache_compressed = NewLRUCache(8*1024);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         break;
       case 3:
         // both block cache and compressed cache, but DB is not compressed
         // also, make block cache sizes bigger, to trigger block cache hits
-        options.block_cache = NewLRUCache(1024 * 1024);
-        options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+        table_options.block_cache = NewLRUCache(1024 * 1024);
+        table_options.block_cache_compressed = NewLRUCache(8 * 1024 * 1024);
+        options.table_factory.reset(NewBlockBasedTableFactory(table_options));
         options.compression = kNoCompression;
         break;
       default:
@@ -3367,9 +3377,11 @@ TEST(DBTest, CompressedCache) {
     CreateAndReopenWithCF({"pikachu"}, &options);
     // default column family doesn't have block cache
     Options no_block_cache_opts;
-    no_block_cache_opts.no_block_cache = true;
     no_block_cache_opts.statistics = options.statistics;
-    options = CurrentOptions(options);
+    BlockBasedTableOptions table_options_no_bc;
+    table_options_no_bc.no_block_cache = true;
+    no_block_cache_opts.table_factory.reset(
+        NewBlockBasedTableFactory(table_options_no_bc));
     ReopenWithColumnFamilies({"default", "pikachu"},
                              {&no_block_cache_opts, &options});
 
@@ -5229,7 +5241,6 @@ TEST(DBTest, CustomComparator) {
     new_options = CurrentOptions();
     new_options.create_if_missing = true;
     new_options.comparator = &cmp;
-    new_options.filter_policy = nullptr;     // Cannot use bloom filters
     new_options.write_buffer_size = 1000;  // Compact more often
     new_options = CurrentOptions(new_options);
     DestroyAndReopen(&new_options);
@@ -5637,11 +5648,16 @@ TEST(DBTest, FilesDeletedAfterCompaction) {
 
 TEST(DBTest, BloomFilter) {
   do {
-    env_->count_random_reads_ = true;
     Options options = CurrentOptions();
+    env_->count_random_reads_ = true;
     options.env = env_;
-    options.no_block_cache = true;
-    options.filter_policy = NewBloomFilterPolicy(10);
+    // ChangeCompactOptions() only changes compaction style, which does not
+    // trigger reset of table_factory
+    BlockBasedTableOptions table_options;
+    table_options.no_block_cache = true;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     // Populate multiple layers
@@ -5679,7 +5695,6 @@ TEST(DBTest, BloomFilter) {
 
     env_->delay_sstable_sync_.Release_Store(nullptr);
     Close();
-    delete options.filter_policy;
   } while (ChangeCompactOptions());
 }
 
@@ -7145,14 +7160,17 @@ TEST(DBTest, PrefixScan) {
   env_->count_random_reads_ = true;
   Options options = CurrentOptions();
   options.env = env_;
-  options.no_block_cache = true;
-  options.filter_policy = NewBloomFilterPolicy(10);
   options.prefix_extractor.reset(NewFixedPrefixTransform(8));
-  options.whole_key_filtering = false;
   options.disable_auto_compactions = true;
   options.max_background_compactions = 2;
   options.create_if_missing = true;
   options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  table_options.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   // 11 RAND I/Os
   DestroyAndReopen(&options);
@@ -7171,7 +7189,6 @@ TEST(DBTest, PrefixScan) {
   ASSERT_EQ(count, 2);
   ASSERT_EQ(env_->random_read_counter_.Read(), 2);
   Close();
-  delete options.filter_policy;
 }
 
 TEST(DBTest, TailingIteratorSingle) {

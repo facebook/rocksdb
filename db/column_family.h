@@ -113,7 +113,6 @@ struct SuperVersion {
 };
 
 extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
-                                           const InternalFilterPolicy* ipolicy,
                                            const ColumnFamilyOptions& src);
 
 class ColumnFamilySet;
@@ -272,7 +271,6 @@ class ColumnFamilyData {
   bool dropped_;               // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
-  const InternalFilterPolicy internal_filter_policy_;
 
   Options const options_;
 

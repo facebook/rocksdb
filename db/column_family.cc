@@ -50,11 +50,9 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
 uint32_t ColumnFamilyHandleImpl::GetID() const { return cfd()->GetID(); }
 
 ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
-                                    const InternalFilterPolicy* ipolicy,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
   result.comparator = icmp;
-  result.filter_policy = (src.filter_policy != nullptr) ? ipolicy : nullptr;
 #ifdef OS_MACOSX
   // TODO(icanadi) make write_buffer_size uint64_t instead of size_t
   ClipToRange(&result.write_buffer_size, ((size_t)64) << 10, ((size_t)1) << 30);
@@ -70,13 +68,7 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
   result.min_write_buffer_number_to_merge =
       std::min(result.min_write_buffer_number_to_merge,
                result.max_write_buffer_number - 1);
-  if (result.block_cache == nullptr && !result.no_block_cache) {
-    result.block_cache = NewLRUCache(8 << 20);
-  }
   result.compression_per_level = src.compression_per_level;
-  if (result.block_size_deviation < 0 || result.block_size_deviation > 100) {
-    result.block_size_deviation = 0;
-  }
   if (result.max_mem_compaction_level >= result.num_levels) {
     result.max_mem_compaction_level = result.num_levels - 1;
   }
@@ -195,9 +187,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       refs_(0),
       dropped_(false),
       internal_comparator_(options.comparator),
-      internal_filter_policy_(options.filter_policy),
-      options_(*db_options, SanitizeOptions(&internal_comparator_,
-                                            &internal_filter_policy_, options)),
+      options_(*db_options, SanitizeOptions(&internal_comparator_, options)),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge),
       super_version_(nullptr),

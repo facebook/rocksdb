@@ -17,7 +17,6 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
-#include "rocksdb/filter_policy.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/slice.h"
@@ -39,14 +38,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
-      block_cache(nullptr),
-      block_cache_compressed(nullptr),
-      block_size(4096),
-      block_restart_interval(16),
       compression(kSnappyCompression),
-      filter_policy(nullptr),
       prefix_extractor(nullptr),
-      whole_key_filtering(true),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(20),
@@ -60,15 +53,12 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       expanded_compaction_factor(25),
       source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
-      disable_seek_compaction(true),
       soft_rate_limit(0.0),
       hard_rate_limit(0.0),
       rate_limit_delay_max_milliseconds(1000),
-      no_block_cache(false),
       arena_block_size(0),
       disable_auto_compactions(false),
       purge_redundant_kvs_while_flush(true),
-      block_size_deviation(10),
       compaction_style(kCompactionStyleLevel),
       verify_checksums_in_compaction(true),
       filter_deletes(false),
@@ -98,16 +88,10 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
-      block_cache(options.block_cache),
-      block_cache_compressed(options.block_cache_compressed),
-      block_size(options.block_size),
-      block_restart_interval(options.block_restart_interval),
       compression(options.compression),
       compression_per_level(options.compression_per_level),
       compression_opts(options.compression_opts),
-      filter_policy(options.filter_policy),
       prefix_extractor(options.prefix_extractor),
-      whole_key_filtering(options.whole_key_filtering),
       num_levels(options.num_levels),
       level0_file_num_compaction_trigger(
           options.level0_file_num_compaction_trigger),
@@ -123,16 +107,13 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       expanded_compaction_factor(options.expanded_compaction_factor),
       source_compaction_factor(options.source_compaction_factor),
       max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
-      disable_seek_compaction(options.disable_seek_compaction),
       soft_rate_limit(options.soft_rate_limit),
       hard_rate_limit(options.hard_rate_limit),
       rate_limit_delay_max_milliseconds(
           options.rate_limit_delay_max_milliseconds),
-      no_block_cache(options.no_block_cache),
       arena_block_size(options.arena_block_size),
       disable_auto_compactions(options.disable_auto_compactions),
       purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
-      block_size_deviation(options.block_size_deviation),
       compaction_style(options.compaction_style),
       verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
@@ -175,7 +156,6 @@ DBOptions::DBOptions()
       statistics(nullptr),
       disableDataSync(false),
       use_fsync(false),
-      db_stats_log_interval(1800),
       db_log_dir(""),
       wal_dir(""),
       delete_obsolete_files_period_micros(6 * 60 * 60 * 1000000UL),
@@ -216,7 +196,6 @@ DBOptions::DBOptions(const Options& options)
       statistics(options.statistics),
       disableDataSync(options.disableDataSync),
       use_fsync(options.use_fsync),
-      db_stats_log_interval(options.db_stats_log_interval),
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
       wal_dir(options.wal_dir),
@@ -328,19 +307,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   Log(log, "           Options.table_factory: %s", table_factory->Name());
   Log(log, "       Options.write_buffer_size: %zd", write_buffer_size);
   Log(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
-    Log(log,"             Options.block_cache: %p", block_cache.get());
-    Log(log,"  Options.block_cache_compressed: %p",
-        block_cache_compressed.get());
-    if (block_cache) {
-      Log(log,"        Options.block_cache_size: %zd",
-          block_cache->GetCapacity());
-    }
-    if (block_cache_compressed) {
-      Log(log,"Options.block_cache_compressed_size: %zd",
-          block_cache_compressed->GetCapacity());
-    }
-    Log(log,"              Options.block_size: %zd", block_size);
-    Log(log,"  Options.block_restart_interval: %d", block_restart_interval);
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
           Log(log,"       Options.compression[%d]: %d",
@@ -349,11 +315,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     } else {
       Log(log,"         Options.compression: %d", compression);
     }
-    Log(log,"         Options.filter_policy: %s",
-        filter_policy == nullptr ? "nullptr" : filter_policy->Name());
     Log(log,"      Options.prefix_extractor: %s",
         prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
-    Log(log,"   Options.whole_key_filtering: %d", whole_key_filtering);
     Log(log,"            Options.num_levels: %d", num_levels);
     Log(log,"       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);
@@ -393,8 +356,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         source_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"                         Options.no_block_cache: %d",
-        no_block_cache);
     Log(log,"                       Options.arena_block_size: %zu",
         arena_block_size);
     Log(log,"                      Options.soft_rate_limit: %.2f",
@@ -407,8 +368,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         disable_auto_compactions);
     Log(log,"         Options.purge_redundant_kvs_while_flush: %d",
         purge_redundant_kvs_while_flush);
-    Log(log,"                    Options.block_size_deviation: %d",
-        block_size_deviation);
     Log(log,"                          Options.filter_deletes: %d",
         filter_deletes);
     Log(log, "          Options.verify_checksums_in_compaction: %d",

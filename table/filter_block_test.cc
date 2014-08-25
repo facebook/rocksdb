@@ -45,26 +45,26 @@ class TestHashFilter : public FilterPolicy {
 
 class FilterBlockTest {
  public:
-  TestHashFilter policy_;
   Options options_;
+  BlockBasedTableOptions table_options_;
 
   FilterBlockTest() {
     options_ = Options();
-    options_.filter_policy = &policy_;
+    table_options_.filter_policy.reset(new TestHashFilter());
   }
 };
 
 TEST(FilterBlockTest, EmptyBuilder) {
-  FilterBlockBuilder builder(options_, options_.comparator);
+  FilterBlockBuilder builder(options_, table_options_, options_.comparator);
   Slice block = builder.Finish();
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block));
-  FilterBlockReader reader(options_, block);
+  FilterBlockReader reader(options_, table_options_, block);
   ASSERT_TRUE(reader.KeyMayMatch(0, "foo"));
   ASSERT_TRUE(reader.KeyMayMatch(100000, "foo"));
 }
 
 TEST(FilterBlockTest, SingleChunk) {
-  FilterBlockBuilder builder(options_, options_.comparator);
+  FilterBlockBuilder builder(options_, table_options_, options_.comparator);
   builder.StartBlock(100);
   builder.AddKey("foo");
   builder.AddKey("bar");
@@ -74,7 +74,7 @@ TEST(FilterBlockTest, SingleChunk) {
   builder.StartBlock(300);
   builder.AddKey("hello");
   Slice block = builder.Finish();
-  FilterBlockReader reader(options_, block);
+  FilterBlockReader reader(options_, table_options_, block);
   ASSERT_TRUE(reader.KeyMayMatch(100, "foo"));
   ASSERT_TRUE(reader.KeyMayMatch(100, "bar"));
   ASSERT_TRUE(reader.KeyMayMatch(100, "box"));
@@ -85,7 +85,7 @@ TEST(FilterBlockTest, SingleChunk) {
 }
 
 TEST(FilterBlockTest, MultiChunk) {
-  FilterBlockBuilder builder(options_, options_.comparator);
+  FilterBlockBuilder builder(options_, table_options_, options_.comparator);
 
   // First filter
   builder.StartBlock(0);
@@ -105,7 +105,7 @@ TEST(FilterBlockTest, MultiChunk) {
   builder.AddKey("hello");
 
   Slice block = builder.Finish();
-  FilterBlockReader reader(options_, block);
+  FilterBlockReader reader(options_, table_options_, block);
 
   // Check first filter
   ASSERT_TRUE(reader.KeyMayMatch(0, "foo"));
