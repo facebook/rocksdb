@@ -82,7 +82,6 @@ class MemTable {
   //        Calling ~Iterator of the iterator will destroy all the states but
   //        those allocated in arena.
   Iterator* NewIterator(const ReadOptions& options,
-                        bool enforce_total_order = false,
                         Arena* arena = nullptr);
 
   // Add an entry into memtable that maps key to value at the

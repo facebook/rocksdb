@@ -187,6 +187,10 @@ void PlainTableReader::SetupForCompaction() {
 
 Iterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                         Arena* arena) {
+  if (options.total_order_seek && !IsTotalOrderMode()) {
+    return NewErrorIterator(
+        Status::InvalidArgument("total_order_seek not supported"), arena);
+  }
   if (arena == nullptr) {
     return new PlainTableIterator(this, prefix_extractor_ != nullptr);
   } else {

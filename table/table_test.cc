@@ -382,7 +382,7 @@ class TableConstructor: public Constructor {
         sink_->contents().size(), &table_reader_);
   }
 
-  virtual TableReader* table_reader() {
+  virtual TableReader* GetTableReader() {
     return table_reader_.get();
   }
 
@@ -1042,7 +1042,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.Finish(options, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
-  auto& props = *c.table_reader()->GetTableProperties();
+  auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ(kvmap.size(), props.num_entries);
 
   auto raw_key_size = kvmap.size() * 2ul;
@@ -1074,8 +1074,91 @@ TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
 
   c.Finish(options, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
-  auto& props = *c.table_reader()->GetTableProperties();
+  auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
+}
+
+TEST(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
+  BlockBasedTableOptions table_options;
+  for (int i = 0; i < 4; ++i) {
+    Options options;
+    // Make each key/value an individual block
+    table_options.block_size = 64;
+    switch (i) {
+    case 0:
+      // Binary search index
+      table_options.index_type = BlockBasedTableOptions::kBinarySearch;
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      break;
+    case 1:
+      // Hash search index
+      table_options.index_type = BlockBasedTableOptions::kHashSearch;
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+      break;
+    case 2:
+      // Hash search index with hash_index_allow_collision
+      table_options.index_type = BlockBasedTableOptions::kHashSearch;
+      table_options.hash_index_allow_collision = true;
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+      break;
+    case 3:
+    default:
+      // Hash search index with filter policy
+      table_options.index_type = BlockBasedTableOptions::kHashSearch;
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      options.prefix_extractor.reset(NewFixedPrefixTransform(4));
+      break;
+    }
+
+    TableConstructor c(BytewiseComparator(), true);
+    c.Add("aaaa1", std::string('a', 56));
+    c.Add("bbaa1", std::string('a', 56));
+    c.Add("cccc1", std::string('a', 56));
+    c.Add("bbbb1", std::string('a', 56));
+    c.Add("baaa1", std::string('a', 56));
+    c.Add("abbb1", std::string('a', 56));
+    c.Add("cccc2", std::string('a', 56));
+    std::vector<std::string> keys;
+    KVMap kvmap;
+    c.Finish(options, table_options,
+             GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+    auto props = c.GetTableReader()->GetTableProperties();
+    ASSERT_EQ(7u, props->num_data_blocks);
+    auto* reader = c.GetTableReader();
+    ReadOptions ro;
+    ro.total_order_seek = true;
+    std::unique_ptr<Iterator> iter(reader->NewIterator(ro));
+
+    iter->Seek(InternalKey("b", 0, kTypeValue).Encode());
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("baaa1", ExtractUserKey(iter->key()).ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bbaa1", ExtractUserKey(iter->key()).ToString());
+
+    iter->Seek(InternalKey("bb", 0, kTypeValue).Encode());
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bbaa1", ExtractUserKey(iter->key()).ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bbbb1", ExtractUserKey(iter->key()).ToString());
+
+    iter->Seek(InternalKey("bbb", 0, kTypeValue).Encode());
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bbbb1", ExtractUserKey(iter->key()).ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("cccc1", ExtractUserKey(iter->key()).ToString());
+  }
 }
 
 static std::string RandomString(Random* rnd, int len) {
@@ -1125,9 +1208,9 @@ TEST(TableTest, HashIndexTest) {
   std::unique_ptr<InternalKeyComparator> comparator(
       new InternalKeyComparator(BytewiseComparator()));
   c.Finish(options, table_options, *comparator, &keys, &kvmap);
-  auto reader = c.table_reader();
+  auto reader = c.GetTableReader();
 
-  auto props = c.table_reader()->GetTableProperties();
+  auto props = reader->GetTableProperties();
   ASSERT_EQ(5u, props->num_data_blocks);
 
   std::unique_ptr<Iterator> hash_iter(reader->NewIterator(ReadOptions()));
@@ -1234,7 +1317,7 @@ TEST(BlockBasedTableTest, IndexSizeStat) {
 
     c.Finish(options, table_options,
              GetPlainInternalComparator(options.comparator), &ks, &kvmap);
-    auto index_size = c.table_reader()->GetTableProperties()->index_size;
+    auto index_size = c.GetTableReader()->GetTableProperties()->index_size;
     ASSERT_GT(index_size, last_index_size);
     last_index_size = index_size;
   }
@@ -1261,7 +1344,7 @@ TEST(BlockBasedTableTest, NumBlockStat) {
   c.Finish(options, table_options,
            GetPlainInternalComparator(options.comparator), &ks, &kvmap);
   ASSERT_EQ(kvmap.size(),
-            c.table_reader()->GetTableProperties()->num_data_blocks);
+            c.GetTableReader()->GetTableProperties()->num_data_blocks);
 }
 
 // A simple tool that takes the snapshot of block cache statistics.
@@ -1338,7 +1421,7 @@ TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
 
   // preloading filter/index blocks is enabled.
-  auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  auto reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   ASSERT_TRUE(reader->TEST_filter_block_preloaded());
   ASSERT_TRUE(reader->TEST_index_reader_preloaded());
 
@@ -1379,7 +1462,7 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   c.Finish(options, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   // preloading filter/index blocks is prohibited.
-  auto reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  auto reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
   ASSERT_TRUE(!reader->TEST_index_reader_preloaded());
 
@@ -1513,7 +1596,7 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   ASSERT_OK(iter->status());
 
   ASSERT_OK(c.Reopen(opt));
-  auto table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  auto table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   for (const std::string& key : keys) {
     ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
@@ -1522,7 +1605,7 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
   opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
   ASSERT_OK(c.Reopen(opt));
-  table_reader = dynamic_cast<BlockBasedTable*>(c.table_reader());
+  table_reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   for (const std::string& key : keys) {
     ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
   }

@@ -271,10 +271,17 @@ Slice CuckooTableIterator::value() const {
   return curr_value_;
 }
 
-Iterator* CuckooTableReader::NewIterator(const ReadOptions&, Arena* arena) {
+extern Iterator* NewErrorIterator(const Status& status, Arena* arena);
+
+Iterator* CuckooTableReader::NewIterator(
+    const ReadOptions& read_options, Arena* arena) {
   if (!status().ok()) {
     return NewErrorIterator(
-        Status::Corruption("CuckooTableReader status is not okay."));
+        Status::Corruption("CuckooTableReader status is not okay."), arena);
+  }
+  if (read_options.total_order_seek) {
+    return NewErrorIterator(
+        Status::InvalidArgument("total_order_seek is not supported."), arena);
   }
   CuckooTableIterator* iter;
   if (arena == nullptr) {

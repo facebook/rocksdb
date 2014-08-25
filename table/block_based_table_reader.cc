@@ -137,7 +137,8 @@ class BlockBasedTable::IndexReader {
   // Create an iterator for index access.
   // An iter is passed in, if it is not null, update this one and return it
   // If it is null, create a new Iterator
-  virtual Iterator* NewIterator(BlockIter* iter = nullptr) = 0;
+  virtual Iterator* NewIterator(
+      BlockIter* iter = nullptr, bool total_order_seek = true) = 0;
 
   // The size of the index.
   virtual size_t size() const = 0;
@@ -174,8 +175,9 @@ class BinarySearchIndexReader : public IndexReader {
     return s;
   }
 
-  virtual Iterator* NewIterator(BlockIter* iter = nullptr) override {
-    return index_block_->NewIterator(comparator_, iter);
+  virtual Iterator* NewIterator(
+      BlockIter* iter = nullptr, bool dont_care = true) override {
+    return index_block_->NewIterator(comparator_, iter, true);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -295,8 +297,9 @@ class HashIndexReader : public IndexReader {
     return Status::OK();
   }
 
-  virtual Iterator* NewIterator(BlockIter* iter = nullptr) override {
-    return index_block_->NewIterator(comparator_, iter);
+  virtual Iterator* NewIterator(
+      BlockIter* iter = nullptr, bool total_order_seek = true) override {
+    return index_block_->NewIterator(comparator_, iter, total_order_seek);
   }
 
   virtual size_t size() const override { return index_block_->size(); }
@@ -818,7 +821,8 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
         BlockIter* input_iter) {
   // index reader has already been pre-populated.
   if (rep_->index_reader) {
-    return rep_->index_reader->NewIterator(input_iter);
+    return rep_->index_reader->NewIterator(
+        input_iter, read_options.total_order_seek);
   }
 
   bool no_io = read_options.read_tier == kBlockCacheTier;
@@ -866,10 +870,9 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
   }
 
   assert(cache_handle);
-  Iterator* iter;
-  iter = index_reader->NewIterator(input_iter);
+  auto* iter = index_reader->NewIterator(
+      input_iter, read_options.total_order_seek);
   iter->RegisterCleanup(&ReleaseCachedEntry, block_cache, cache_handle);
-
   return iter;
 }
 
@@ -988,6 +991,9 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
   }
 
   bool PrefixMayMatch(const Slice& internal_key) override {
+    if (read_options_.total_order_seek) {
+      return true;
+    }
     return table_->PrefixMayMatch(internal_key);
   }
 

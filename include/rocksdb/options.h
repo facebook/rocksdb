@@ -902,18 +902,25 @@ struct ReadOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
+  // Enable a total order seek regardless of index format (e.g. hash index)
+  // used in the table. Some table format (e.g. plain table) may not support
+  // this option.
+  bool total_order_seek;
+
   ReadOptions()
       : verify_checksums(true),
         fill_cache(true),
         snapshot(nullptr),
         read_tier(kReadAllTier),
-        tailing(false) {}
+        tailing(false),
+        total_order_seek(false) {}
   ReadOptions(bool cksum, bool cache)
       : verify_checksums(cksum),
         fill_cache(cache),
         snapshot(nullptr),
         read_tier(kReadAllTier),
-        tailing(false) {}
+        tailing(false),
+        total_order_seek(false) {}
 };
 
 // Options that control write operations

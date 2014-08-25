@@ -237,7 +237,8 @@ class Repairer {
     FileMetaData meta;
     meta.fd = FileDescriptor(next_file_number_++, 0, 0);
     ReadOptions ro;
-    Iterator* iter = mem->NewIterator(ro, true /* enforce_total_order */);
+    ro.total_order_seek = true;
+    Iterator* iter = mem->NewIterator(ro);
     status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
                         iter, &meta, icmp_, 0, 0, kNoCompression);
     delete iter;

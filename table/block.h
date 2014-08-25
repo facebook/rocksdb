@@ -45,8 +45,12 @@ class Block {
   //
   // If iter is null, return new Iterator
   // If iter is not null, update this one and return it as Iterator*
+  //
+  // If total_order_seek is true, hash_index_ and prefix_index_ are ignored.
+  // This option only applies for index block. For data block, hash_index_
+  // and prefix_index_ are null, so this option does not matter.
   Iterator* NewIterator(const Comparator* comparator,
-      BlockIter* iter = nullptr);
+      BlockIter* iter = nullptr, bool total_order_seek = true);
   void SetBlockHashIndex(BlockHashIndex* hash_index);
   void SetBlockPrefixIndex(BlockPrefixIndex* prefix_index);
 

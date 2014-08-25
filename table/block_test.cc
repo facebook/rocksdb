@@ -172,7 +172,7 @@ void CheckBlockContents(BlockContents contents, const int max_key,
   }
 
   std::unique_ptr<Iterator> hash_iter(
-      reader1.NewIterator(BytewiseComparator()));
+      reader1.NewIterator(BytewiseComparator(), nullptr, false));
 
   std::unique_ptr<Iterator> regular_iter(
       reader2.NewIterator(BytewiseComparator()));

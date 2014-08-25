@@ -321,7 +321,8 @@ Block::~Block() {
   }
 }
 
-Iterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter) {
+Iterator* Block::NewIterator(
+    const Comparator* cmp, BlockIter* iter, bool total_order_seek) {
   if (size_ < 2*sizeof(uint32_t)) {
     if (iter != nullptr) {
       iter->SetStatus(Status::Corruption("bad block contents"));
@@ -339,12 +340,17 @@ Iterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter) {
       return NewEmptyIterator();
     }
   } else {
+    BlockHashIndex* hash_index_ptr =
+        total_order_seek ? nullptr : hash_index_.get();
+    BlockPrefixIndex* prefix_index_ptr =
+        total_order_seek ? nullptr : prefix_index_.get();
+
     if (iter != nullptr) {
       iter->Initialize(cmp, data_, restart_offset_, num_restarts,
-                    hash_index_.get(), prefix_index_.get());
+                    hash_index_ptr, prefix_index_ptr);
     } else {
       iter = new BlockIter(cmp, data_, restart_offset_, num_restarts,
-                    hash_index_.get(), prefix_index_.get());
+                           hash_index_ptr, prefix_index_ptr);
     }
   }
 

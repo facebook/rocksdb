@@ -174,13 +174,13 @@ const char* EncodeKey(std::string* scratch, const Slice& target) {
 
 class MemTableIterator: public Iterator {
  public:
-  MemTableIterator(const MemTable& mem, const ReadOptions& options,
-                   bool enforce_total_order, Arena* arena)
+  MemTableIterator(
+      const MemTable& mem, const ReadOptions& options, Arena* arena)
       : bloom_(nullptr),
         prefix_extractor_(mem.prefix_extractor_),
         valid_(false),
         arena_mode_(arena != nullptr) {
-    if (prefix_extractor_ != nullptr && !enforce_total_order) {
+    if (prefix_extractor_ != nullptr && !options.total_order_seek) {
       bloom_ = mem.prefix_bloom_.get();
       iter_ = mem.table_->GetDynamicPrefixIterator(arena);
     } else {
@@ -248,14 +248,13 @@ class MemTableIterator: public Iterator {
   void operator=(const MemTableIterator&);
 };
 
-Iterator* MemTable::NewIterator(const ReadOptions& options,
-                                bool enforce_total_order, Arena* arena) {
+Iterator* MemTable::NewIterator(const ReadOptions& options, Arena* arena) {
   if (arena == nullptr) {
-    return new MemTableIterator(*this, options, enforce_total_order, nullptr);
+    return new MemTableIterator(*this, options, nullptr);
   } else {
     auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
     return new (mem)
-        MemTableIterator(*this, options, enforce_total_order, arena);
+        MemTableIterator(*this, options, arena);
   }
 }
 

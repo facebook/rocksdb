@@ -1406,7 +1406,9 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   FileMetaData meta;
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   pending_outputs_[meta.fd.GetNumber()] = 0;  // path 0 for level 0 file.
-  Iterator* iter = mem->NewIterator(ReadOptions(), true);
+  ReadOptions ro;
+  ro.total_order_seek = true;
+  Iterator* iter = mem->NewIterator(ro);
   const SequenceNumber newest_snapshot = snapshots_.GetNewest();
   const SequenceNumber earliest_seqno_in_memtable =
     mem->GetFirstSequenceNumber();
@@ -1473,11 +1475,13 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     mutex_.Unlock();
     log_buffer->FlushBufferToLog();
     std::vector<Iterator*> memtables;
+    ReadOptions ro;
+    ro.total_order_seek = true;
     for (MemTable* m : mems) {
       Log(options_.info_log,
           "[%s] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd->GetName().c_str(), m->GetNextLogNumber());
-      memtables.push_back(m->NewIterator(ReadOptions(), true));
+      memtables.push_back(m->NewIterator(ro));
     }
     Iterator* iter = NewMergingIterator(&cfd->internal_comparator(),
                                         &memtables[0], memtables.size());
@@ -3300,7 +3304,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
     MergeIteratorBuilder merge_iter_builder(&cfd->internal_comparator(), arena);
     // Collect iterator for mutable mem
     merge_iter_builder.AddIterator(
-        super_version->mem->NewIterator(options, false, arena));
+        super_version->mem->NewIterator(options, arena));
     // Collect all needed child iterators for immutable memtables
     super_version->imm->AddIterators(options, &merge_iter_builder);
     // Collect iterators for files in L0 - Ln
