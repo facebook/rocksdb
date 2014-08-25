@@ -99,11 +99,11 @@ public class RocksDB extends RocksObject {
   /**
    * The factory constructor of RocksDB that opens a RocksDB instance given
    * the path to the database using the specified options and db path.
-   * 
+   *
    * Options instance *should* not be disposed before all DBs using this options
    * instance have been closed. If user doesn't call options dispose explicitly,
    * then this options instance will be GC'd automatically.
-   * 
+   *
    * Options instance can be re-used to open multiple DBs if DB statistics is
    * not used. If DB statistics are required, then its recommended to open DB
    * with new Options instance as underlying native statistics instance does not
@@ -115,13 +115,12 @@ public class RocksDB extends RocksObject {
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     RocksDB db = new RocksDB();
-    db.open(options.nativeHandle_, options.cacheSize_,
-            options.numShardBits_, path);
-    
+    db.open(options.nativeHandle_, path);
+
     db.storeOptionsInstance(options);
     return db;
   }
-  
+
   private void storeOptionsInstance(Options options) {
     options_ = options;
   }
@@ -334,8 +333,7 @@ public class RocksDB extends RocksObject {
 
   // native methods
   protected native void open(
-      long optionsHandle, long cacheSize, int numShardBits,
-      String path) throws RocksDBException;
+      long optionsHandle, String path) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;

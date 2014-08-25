@@ -136,135 +136,6 @@ public class Options extends RocksObject {
     return maxWriteBufferNumber(nativeHandle_);
   }
 
-  /*
-   * Approximate size of user data packed per block.  Note that the
-   * block size specified here corresponds to uncompressed data.  The
-   * actual size of the unit read from disk may be smaller if
-   * compression is enabled.  This parameter can be changed dynamically.
-   *
-   * Default: 4K
-   *
-   * @param blockSize the size of each block in bytes.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
-   */
-  public Options setBlockSize(long blockSize) {
-    assert(isInitialized());
-    setBlockSize(nativeHandle_, blockSize);
-    return this;
-  }
-
-  /*
-   * Returns the size of a block in bytes.
-   *
-   * @return block size.
-   * @see setBlockSize()
-   */
-  public long blockSize() {
-    assert(isInitialized());
-    return blockSize(nativeHandle_);
-  }
-
-  /**
-   * Use the specified filter policy to reduce disk reads.
-   *
-   * Filter should not be disposed before options instances using this filter is
-   * disposed. If dispose() function is not called, then filter object will be
-   * GC'd automatically.
-   * 
-   * Filter instance can be re-used in multiple options instances. 
-   *
-   * @param Filter policy java instance.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
-   */
-  public Options setFilter(Filter filter) {
-    assert(isInitialized());
-    setFilterHandle(nativeHandle_, filter.nativeHandle_);
-    filter_ = filter;
-    return this;
-  }
-  private native void setFilterHandle(long optHandle, long filterHandle);
-
-  /*
-   * Disable compaction triggered by seek.
-   * With bloomfilter and fast storage, a miss on one level
-   * is very cheap if the file handle is cached in table cache
-   * (which is true if max_open_files is large).
-   * Default: true
-   *
-   * @param disableSeekCompaction a boolean value to specify whether
-   *     to disable seek compaction.
-   * @return the instance of the current Options.
-   * @see RocksDB.open()
-   */
-  public Options setDisableSeekCompaction(boolean disableSeekCompaction) {
-    assert(isInitialized());
-    setDisableSeekCompaction(nativeHandle_, disableSeekCompaction);
-    return this;
-  }
-
-  /*
-   * Returns true if disable seek compaction is set to true.
-   *
-   * @return true if disable seek compaction is set to true.
-   * @see setDisableSeekCompaction()
-   */
-  public boolean disableSeekCompaction() {
-    assert(isInitialized());
-    return disableSeekCompaction(nativeHandle_);
-  }
-
-  /**
-   * Set the amount of cache in bytes that will be used by RocksDB.
-   * If cacheSize is non-positive, then cache will not be used.
-   *
-   * DEFAULT: 8M
-   * @see setCacheNumShardBits()
-   */
-  public Options setCacheSize(long cacheSize) {
-    cacheSize_ = cacheSize;
-    return this;
-  }
-
-  /**
-   * @return the amount of cache in bytes that will be used by RocksDB.
-   *
-   * @see cacheNumShardBits()
-   */
-  public long cacheSize() {
-    return cacheSize_;
-  }
-
-  /**
-   * Controls the number of shards for the block cache.
-   * This is applied only if cacheSize is set to non-negative.
-   *
-   * @param numShardBits the number of shard bits.  The resulting
-   *     number of shards would be 2 ^ numShardBits.  Any negative
-   *     number means use default settings."
-   * @return the reference to the current option.
-   *
-   * @see setCacheSize()
-   */
-  public Options setCacheNumShardBits(int numShardBits) {
-    numShardBits_ = numShardBits;
-    return this;
-  }
-
-  /**
-   * Returns the number of shard bits used in the block cache.
-   * The resulting number of shards would be 2 ^ (returned value).
-   * Any negative number means use default settings.
-   *
-   * @return the number of shard bits used in the block cache.
-   *
-   * @see cacheSize()
-   */
-  public int cacheNumShardBits() {
-    return numShardBits_;
-  }
-
   /**
    * If true, an error will be thrown during RocksDB.open() if the
    * database already exists.
@@ -1344,26 +1215,26 @@ public class Options extends RocksObject {
   }
   private native void setBlockRestartInterval(
       long handle, int blockRestartInterval);
-      
+
   /**
    * Compress blocks using the specified compression algorithm.  This
      parameter can be changed dynamically.
-   * 
+   *
    * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
-   * 
+   *
    * @return Compression type.
-   */ 
+   */
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
   }
   private native byte compressionType(long handle);
-      
+
   /**
    * Compress blocks using the specified compression algorithm.  This
      parameter can be changed dynamically.
-   * 
+   *
    * Default: SNAPPY_COMPRESSION, which gives lightweight but fast compression.
-   * 
+   *
    * @param compressionType Compression Type.
    * @return the reference to the current option.
    */
@@ -1372,22 +1243,22 @@ public class Options extends RocksObject {
     return this;
   }
   private native void setCompressionType(long handle, byte compressionType);
-      
+
    /**
    * Compaction style for DB.
-   * 
+   *
    * @return Compaction style.
-   */ 
+   */
   public CompactionStyle compactionStyle() {
     return CompactionStyle.values()[compactionStyle(nativeHandle_)];
   }
   private native byte compactionStyle(long handle);
-      
+
   /**
    * Set compaction style for DB.
-   * 
+   *
    * Default: LEVEL.
-   * 
+   *
    * @param compactionStyle Compaction style.
    * @return the reference to the current option.
    */
@@ -1396,33 +1267,6 @@ public class Options extends RocksObject {
     return this;
   }
   private native void setCompactionStyle(long handle, byte compactionStyle);
-
-  /**
-   * If true, place whole keys in the filter (not just prefixes).
-   * This must generally be true for gets to be efficient.
-   * Default: true
-   *
-   * @return if true, then whole-key-filtering is on.
-   */
-  public boolean wholeKeyFiltering() {
-    return wholeKeyFiltering(nativeHandle_);
-  }
-  private native boolean wholeKeyFiltering(long handle);
-
-  /**
-   * If true, place whole keys in the filter (not just prefixes).
-   * This must generally be true for gets to be efficient.
-   * Default: true
-   *
-   * @param wholeKeyFiltering if true, then whole-key-filtering is on.
-   * @return the reference to the current option.
-   */
-  public Options setWholeKeyFiltering(boolean wholeKeyFiltering) {
-    setWholeKeyFiltering(nativeHandle_, wholeKeyFiltering);
-    return this;
-  }
-  private native void setWholeKeyFiltering(
-      long handle, boolean wholeKeyFiltering);
 
   /**
    * If level-styled compaction is used, then this number determines
@@ -1898,35 +1742,6 @@ public class Options extends RocksObject {
       long handle, int rateLimitDelayMaxMilliseconds);
 
   /**
-   * Disable block cache. If this is set to true,
-   * then no block cache should be used, and the block_cache should
-   * point to a nullptr object.
-   * Default: false
-   *
-   * @return true if block cache is disabled.
-   */
-  public boolean noBlockCache() {
-    return noBlockCache(nativeHandle_);
-  }
-  private native boolean noBlockCache(long handle);
-
-  /**
-   * Disable block cache. If this is set to true,
-   * then no block cache should be used, and the block_cache should
-   * point to a nullptr object.
-   * Default: false
-   *
-   * @param noBlockCache true if block-cache is disabled.
-   * @return the reference to the current option.
-   */
-  public Options setNoBlockCache(boolean noBlockCache) {
-    setNoBlockCache(nativeHandle_, noBlockCache);
-    return this;
-  }
-  private native void setNoBlockCache(
-      long handle, boolean noBlockCache);
-
-  /**
    * The size of one block in arena memory allocation.
    * If <= 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
@@ -2022,39 +1837,6 @@ public class Options extends RocksObject {
   }
   private native void setPurgeRedundantKvsWhileFlush(
       long handle, boolean purgeRedundantKvsWhileFlush);
-
-  /**
-   * This is used to close a block before it reaches the configured
-   * 'block_size'. If the percentage of free space in the current block is less
-   * than this specified number and adding a new record to the block will
-   * exceed the configured block size, then this block will be closed and the
-   * new record will be written to the next block.
-   * Default is 10.
-   *
-   * @return the target block size
-   */
-  public int blockSizeDeviation() {
-    return blockSizeDeviation(nativeHandle_);
-  }
-  private native int blockSizeDeviation(long handle);
-
-  /**
-   * This is used to close a block before it reaches the configured
-   * 'block_size'. If the percentage of free space in the current block is less
-   * than this specified number and adding a new record to the block will
-   * exceed the configured block size, then this block will be closed and the
-   * new record will be written to the next block.
-   * Default is 10.
-   *
-   * @param blockSizeDeviation the target block size
-   * @return the reference to the current option.
-   */
-  public Options setBlockSizeDeviation(int blockSizeDeviation) {
-    setBlockSizeDeviation(nativeHandle_, blockSizeDeviation);
-    return this;
-  }
-  private native void setBlockSizeDeviation(
-      long handle, int blockSizeDeviation);
 
   /**
    * If true, compaction will verify checksum on every read that happens
@@ -2437,11 +2219,6 @@ public class Options extends RocksObject {
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
   private native int maxWriteBufferNumber(long handle);
-  private native void setBlockSize(long handle, long blockSize);
-  private native long blockSize(long handle);
-  private native void setDisableSeekCompaction(
-      long handle, boolean disableSeekCompaction);
-  private native boolean disableSeekCompaction(long handle);
   private native void setMaxBackgroundCompactions(
       long handle, int maxBackgroundCompactions);
   private native int maxBackgroundCompactions(long handle);
@@ -2459,6 +2236,5 @@ public class Options extends RocksObject {
 
   long cacheSize_;
   int numShardBits_;
-  Filter filter_;
   RocksEnv env_;
 }

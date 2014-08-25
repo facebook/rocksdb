@@ -21,7 +21,6 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/filter_policy.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -120,66 +119,12 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setFilterHandle
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setFilterHandle(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jfilter_handle) {
-  reinterpret_cast<rocksdb::Options*>(jopt_handle)->filter_policy =
-      reinterpret_cast<rocksdb::FilterPolicy*>(jfilter_handle);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    maxWriteBufferNumber
  * Signature: (J)I
  */
 jint Java_org_rocksdb_Options_maxWriteBufferNumber(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setBlockSize
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setBlockSize(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jblock_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size =
-          static_cast<size_t>(jblock_size);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    blockSize
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_Options_blockSize(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setDisableSeekCompaction
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setDisableSeekCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jboolean jdisable_seek_compaction) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction =
-         jdisable_seek_compaction;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    disableSeekCompaction
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_disableSeekCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction;
 }
 
 /*
@@ -895,27 +840,6 @@ void Java_org_rocksdb_Options_setMinWriteBufferNumberToMerge(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    blockRestartInterval
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_blockRestartInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_restart_interval;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setBlockRestartInterval
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setBlockRestartInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jblock_restart_interval) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_restart_interval =
-      static_cast<int>(jblock_restart_interval);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setCompressionType
  * Signature: (JB)V
  */
@@ -954,27 +878,6 @@ void Java_org_rocksdb_Options_setCompactionStyle(
 jbyte Java_org_rocksdb_Options_compactionStyle(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_style;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    wholeKeyFiltering
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_wholeKeyFiltering(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->whole_key_filtering;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setWholeKeyFiltering
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setWholeKeyFiltering(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jwhole_key_filtering) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->whole_key_filtering =
-      static_cast<bool>(jwhole_key_filtering);
 }
 
 /*
@@ -1326,27 +1229,6 @@ void Java_org_rocksdb_Options_setRateLimitDelayMaxMilliseconds(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    noBlockCache
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_noBlockCache(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->no_block_cache;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setNoBlockCache
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setNoBlockCache(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jno_block_cache) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->no_block_cache =
-      static_cast<bool>(jno_block_cache);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    arenaBlockSize
  * Signature: (J)J
  */
@@ -1412,28 +1294,6 @@ void Java_org_rocksdb_Options_setPurgeRedundantKvsWhileFlush(
   reinterpret_cast<rocksdb::Options*>(
       jhandle)->purge_redundant_kvs_while_flush =
           static_cast<bool>(jpurge_redundant_kvs_while_flush);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    blockSizeDeviation
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_blockSizeDeviation(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size_deviation;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setBlockSizeDeviation
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setBlockSizeDeviation(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jblock_size_deviation) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size_deviation =
-      static_cast<int>(jblock_size_deviation);
 }
 
 /*
