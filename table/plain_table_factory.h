@@ -164,6 +164,8 @@ class PlainTableFactory : public TableFactory {
                                 CompressionType compression_type) const
       override;
 
+  std::string GetPrintableTableOptions() const override;
+
   static const char kValueTypeSeqId0 = 0xFF;
 
   // Sanitizes the specified DB Options.

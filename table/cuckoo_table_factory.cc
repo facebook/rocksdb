@@ -51,6 +51,21 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
       max_search_depth_, GetSliceMurmurHash);
 }
 
+std::string CuckooTableFactory::GetPrintableTableOptions() const {
+  std::string ret;
+  ret.reserve(2000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+
+  snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
+           hash_table_ratio_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  max_search_depth: %u\n",
+           max_search_depth_);
+  ret.append(buffer);
+  return ret;
+}
+
 TableFactory* NewCuckooTableFactory(double hash_table_ratio,
     uint32_t max_search_depth) {
   return new CuckooTableFactory(hash_table_ratio, max_search_depth);

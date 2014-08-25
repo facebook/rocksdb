@@ -6,6 +6,7 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <string>
 #include "rocksdb/table.h"
 
 namespace rocksdb {
@@ -44,6 +45,8 @@ class CuckooTableFactory : public TableFactory {
   Status SanitizeDBOptions(DBOptions* db_opts) const override {
     return Status::OK();
   }
+
+  std::string GetPrintableTableOptions() const override;
 
  private:
   const double hash_table_ratio_;

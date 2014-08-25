@@ -6,6 +6,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <string>
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
@@ -50,6 +51,7 @@ class AdaptiveTableFactory : public TableFactory {
     return Status::OK();
   }
 
+  std::string GetPrintableTableOptions() const override;
 
  private:
   std::shared_ptr<TableFactory> table_factory_to_write_;

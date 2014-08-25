@@ -35,6 +35,39 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
                                store_index_in_file_);
 }
 
+std::string PlainTableFactory::GetPrintableTableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+
+  snprintf(buffer, kBufferSize, "  user_key_len: %u\n",
+           user_key_len_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  bloom_bits_per_key: %d\n",
+           bloom_bits_per_key_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
+           hash_table_ratio_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  index_sparseness: %zd\n",
+           index_sparseness_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %zd\n",
+           huge_page_tlb_size_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  encoding_type: %d\n",
+           encoding_type_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  full_scan_mode: %d\n",
+           full_scan_mode_);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  store_index_in_file: %d\n",
+           store_index_in_file_);
+  ret.append(buffer);
+  return ret;
+}
+
 extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {
   return new PlainTableFactory(options);
 }

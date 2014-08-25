@@ -559,6 +559,10 @@ public:
   virtual Status SanitizeDBOptions(DBOptions* db_opts) const override {
     return Status::OK();
   }
+
+  virtual std::string GetPrintableTableOptions() const override {
+    return std::string();
+  }
 };
 
 Status SimpleTableFactory::NewTableReader(

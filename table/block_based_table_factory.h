@@ -49,6 +49,8 @@ class BlockBasedTableFactory : public TableFactory {
     return Status::OK();
   }
 
+  std::string GetPrintableTableOptions() const override;
+
  private:
   BlockBasedTableOptions table_options_;
 };

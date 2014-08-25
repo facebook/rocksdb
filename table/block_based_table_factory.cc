@@ -64,6 +64,66 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
   return table_builder;
 }
 
+std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+
+  snprintf(buffer, kBufferSize, "  flush_block_policy_factory: %s (%p)\n",
+           table_options_.flush_block_policy_factory->Name(),
+           table_options_.flush_block_policy_factory.get());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  cache_index_and_filter_blocks: %d\n",
+           table_options_.cache_index_and_filter_blocks);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  index_type: %d\n",
+           table_options_.index_type);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  hash_index_allow_collision: %d\n",
+           table_options_.hash_index_allow_collision);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  checksum: %d\n",
+           table_options_.checksum);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  no_block_cache: %d\n",
+           table_options_.no_block_cache);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  block_cache: %p\n",
+           table_options_.block_cache.get());
+  ret.append(buffer);
+  if (table_options_.block_cache) {
+    snprintf(buffer, kBufferSize, "  block_cache_size: %zd\n",
+             table_options_.block_cache->GetCapacity());
+    ret.append(buffer);
+  }
+  snprintf(buffer, kBufferSize, "  block_cache_compressed: %p\n",
+           table_options_.block_cache_compressed.get());
+  ret.append(buffer);
+  if (table_options_.block_cache_compressed) {
+    snprintf(buffer, kBufferSize, "  block_cache_compressed_size: %zd\n",
+             table_options_.block_cache_compressed->GetCapacity());
+    ret.append(buffer);
+  }
+  snprintf(buffer, kBufferSize, "  block_size: %zd\n",
+           table_options_.block_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  block_size_deviation: %d\n",
+           table_options_.block_size_deviation);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  block_restart_interval: %d\n",
+           table_options_.block_restart_interval);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  filter_policy: %s\n",
+           table_options_.filter_policy == nullptr ?
+             "nullptr" : table_options_.filter_policy->Name());
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
+           table_options_.whole_key_filtering);
+  ret.append(buffer);
+  return ret;
+}
+
 TableFactory* NewBlockBasedTableFactory(
     const BlockBasedTableOptions& table_options) {
   return new BlockBasedTableFactory(table_options);

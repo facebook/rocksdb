@@ -70,6 +70,39 @@ TableBuilder* AdaptiveTableFactory::NewTableBuilder(
                                                   file, compression_type);
 }
 
+std::string AdaptiveTableFactory::GetPrintableTableOptions() const {
+  std::string ret;
+  ret.reserve(20000);
+  const int kBufferSize = 200;
+  char buffer[kBufferSize];
+
+  if (!table_factory_to_write_) {
+    snprintf(buffer, kBufferSize, "  write factory (%s) options:\n%s\n",
+             table_factory_to_write_->Name(),
+             table_factory_to_write_->GetPrintableTableOptions().c_str());
+    ret.append(buffer);
+  }
+  if (!plain_table_factory_) {
+    snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
+             plain_table_factory_->Name(),
+             plain_table_factory_->GetPrintableTableOptions().c_str());
+    ret.append(buffer);
+  }
+  if (!block_based_table_factory_) {
+    snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
+             block_based_table_factory_->Name(),
+             block_based_table_factory_->GetPrintableTableOptions().c_str());
+    ret.append(buffer);
+  }
+  if (!cuckoo_table_factory_) {
+    snprintf(buffer, kBufferSize, "  %s options:\n%s\n",
+             cuckoo_table_factory_->Name(),
+             cuckoo_table_factory_->GetPrintableTableOptions().c_str());
+    ret.append(buffer);
+  }
+  return ret;
+}
+
 extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write,
     std::shared_ptr<TableFactory> block_based_table_factory,
