@@ -1137,8 +1137,8 @@ void rocksdb_options_increase_parallelism(
 }
 
 void rocksdb_options_optimize_for_point_lookup(
-    rocksdb_options_t* opt) {
-  opt->rep.OptimizeForPointLookup();
+    rocksdb_options_t* opt, uint64_t block_cache_size_mb) {
+  opt->rep.OptimizeForPointLookup(block_cache_size_mb);
 }
 
 void rocksdb_options_optimize_level_style_compaction(

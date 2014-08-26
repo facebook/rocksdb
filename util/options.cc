@@ -458,10 +458,14 @@ Options::PrepareForBulkLoad()
 }
 
 // Optimization functions
-ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup() {
+ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
+    uint64_t block_cache_size_mb) {
   prefix_extractor.reset(NewNoopTransform());
   BlockBasedTableOptions block_based_options;
-  block_based_options.index_type = BlockBasedTableOptions::kBinarySearch;
+  block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
+  block_based_options.filter_policy.reset(NewBloomFilterPolicy(10));
+  block_based_options.block_cache =
+    NewLRUCache(block_cache_size_mb * 1024 * 1024);
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
 #ifndef ROCKSDB_LITE
   memtable_factory.reset(NewHashLinkListRepFactory());

@@ -383,7 +383,7 @@ extern void rocksdb_options_destroy(rocksdb_options_t*);
 extern void rocksdb_options_increase_parallelism(
     rocksdb_options_t* opt, int total_threads);
 extern void rocksdb_options_optimize_for_point_lookup(
-    rocksdb_options_t* opt);
+    rocksdb_options_t* opt, uint64_t block_cache_size_mb);
 extern void rocksdb_options_optimize_level_style_compaction(
     rocksdb_options_t* opt, uint64_t memtable_memory_budget);
 extern void rocksdb_options_optimize_universal_style_compaction(
