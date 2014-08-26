@@ -231,7 +231,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
   PosixRandomAccessFile(const std::string& fname, int fd,
                         const EnvOptions& options)
       : filename_(fname), fd_(fd), use_os_buffer_(options.use_os_buffer) {
-    assert(!options.use_mmap_reads);
+    assert(!options.use_mmap_reads || sizeof(void*) < 8);
   }
   virtual ~PosixRandomAccessFile() { close(fd_); }
 
