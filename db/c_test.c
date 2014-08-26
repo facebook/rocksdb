@@ -542,7 +542,6 @@ int main(int argc, char** argv) {
       policy = rocksdb_filterpolicy_create_bloom(10);
     }
 
-    table_options = rocksdb_block_based_options_create();
     rocksdb_block_based_options_set_filter_policy(table_options, policy);
 
     // Create new database
