@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <vector>
 #include "db/column_family.h"
+#include "db/db_impl.h"
 
 namespace rocksdb {
 
@@ -133,6 +134,8 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
   } else if (in == "estimate-table-readers-mem") {
     *need_out_of_mutex = true;
     return kEstimatedUsageByTableReaders;
+  } else if (in == "is-file-deletions-enabled") {
+    return kIsFileDeletionEnabled;
   }
   return kUnknown;
 }
@@ -215,7 +218,7 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
 }
 
 bool InternalStats::GetIntProperty(DBPropertyType property_type,
-                                   uint64_t* value) const {
+                                   uint64_t* value, DBImpl* db) const {
   Version* current = cfd_->current();
 
   switch (property_type) {
@@ -253,6 +256,9 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       *value = cfd_->mem()->GetNumEntries() +
                cfd_->imm()->current()->GetTotalNumEntries() +
                current->GetEstimatedActiveKeys();
+      return true;
+    case kIsFileDeletionEnabled:
+      *value = db->IsFileDeletionsEnabled();
       return true;
     default:
       return false;

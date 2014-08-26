@@ -66,6 +66,10 @@ Status DBImpl::EnableFileDeletions(bool force) {
   return Status::OK();
 }
 
+int DBImpl::IsFileDeletionsEnabled() const {
+  return disable_delete_obsolete_files_;
+}
+
 Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
                             uint64_t* manifest_file_size,
                             bool flush_memtable) {

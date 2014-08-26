@@ -127,6 +127,7 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   virtual Status DisableFileDeletions();
   virtual Status EnableFileDeletions(bool force);
+  virtual int IsFileDeletionsEnabled() const;
   // All the returned filenames start with "/"
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,

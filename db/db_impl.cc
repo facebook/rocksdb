@@ -4468,7 +4468,7 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyHandle* column_family,
 
   if (!need_out_of_mutex) {
     MutexLock l(&mutex_);
-    return cfd->internal_stats()->GetIntProperty(property_type, value);
+    return cfd->internal_stats()->GetIntProperty(property_type, value, this);
   } else {
     SuperVersion* sv = GetAndRefSuperVersion(cfd);
 

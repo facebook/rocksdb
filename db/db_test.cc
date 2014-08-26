@@ -1149,6 +1149,31 @@ TEST(DBTest, Empty) {
 
     ASSERT_EQ("v1", Get(1, "foo"));
     env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
+
+    ASSERT_OK(db_->DisableFileDeletions());
+    ASSERT_TRUE(
+        dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
+    ASSERT_EQ("1", num);
+
+    ASSERT_OK(db_->DisableFileDeletions());
+    ASSERT_TRUE(
+        dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
+    ASSERT_EQ("2", num);
+
+    ASSERT_OK(db_->DisableFileDeletions());
+    ASSERT_TRUE(
+        dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
+    ASSERT_EQ("3", num);
+
+    ASSERT_OK(db_->EnableFileDeletions(false));
+    ASSERT_TRUE(
+        dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
+    ASSERT_EQ("2", num);
+
+    ASSERT_OK(db_->EnableFileDeletions());
+    ASSERT_TRUE(
+        dbfull()->GetProperty("rocksdb.is-file-deletions-enabled", &num));
+    ASSERT_EQ("0", num);
   } while (ChangeOptions());
 }
 
