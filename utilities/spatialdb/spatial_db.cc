@@ -17,6 +17,7 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/db.h"
@@ -655,6 +656,7 @@ ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
     column_family_options.num_levels = 2;
     column_family_options.target_file_size_base = 256 * 1024 * 1024;
     column_family_options.max_mem_compaction_level = 0;
+    column_family_options.memtable_factory.reset(new VectorRepFactory());
   }
   return column_family_options;
 }
