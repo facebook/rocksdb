@@ -117,7 +117,6 @@ TESTS = \
 	thread_local_test \
 	geodb_test \
 	rate_limiter_test \
-	cuckoo_table_builder_test \
 	options_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \

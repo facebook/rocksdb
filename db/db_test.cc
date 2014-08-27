@@ -1195,6 +1195,16 @@ TEST(DBTest, ReadOnlyDB) {
   }
   ASSERT_EQ(count, 2);
   delete iter;
+  Close();
+
+  // Reopen and flush memtable.
+  Reopen();
+  Flush();
+  Close();
+  // Now check keys in read only mode.
+  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_EQ("v3", Get("foo"));
+  ASSERT_EQ("v2", Get("bar"));
 }
 
 // Make sure that when options.block_cache is set, after a new table is

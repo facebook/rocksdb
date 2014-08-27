@@ -417,6 +417,11 @@ static bool SaveValue(void* arg, const char* entry) {
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
                    MergeContext& merge_context, const Options& options) {
+  // The sequence number is updated synchronously in version_set.h
+  if (first_seqno_ == 0) {
+    // Avoiding recording stats for speed.
+    return false;
+  }
   PERF_TIMER_AUTO(get_from_memtable_time);
 
   Slice user_key = key.user_key();

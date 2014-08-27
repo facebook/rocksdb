@@ -16,7 +16,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <vector>
-#include <algorithm>
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
