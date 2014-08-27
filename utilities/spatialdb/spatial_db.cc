@@ -621,7 +621,10 @@ class SpatialDBImpl : public SpatialDB {
 namespace {
 DBOptions GetDBOptions(const SpatialDBOptions& options) {
   DBOptions db_options;
-  db_options.IncreaseParallelism(options.num_threads);
+  db_options.max_background_compactions = options.num_threads / 2;
+  db_options.max_background_flushes = options.num_threads / 2;
+  db_options.env->SetBackgroundThreads(db_options.max_background_compactions, Env::LOW);
+  db_options.env->SetBackgroundThreads(db_options.max_background_flushes, Env::HIGH);
   if (options.bulk_load) {
     db_options.disableDataSync = true;
   }
