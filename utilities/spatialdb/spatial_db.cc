@@ -631,8 +631,9 @@ DBOptions GetDBOptions(const SpatialDBOptions& options) {
 ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
                                            std::shared_ptr<Cache> block_cache) {
   ColumnFamilyOptions column_family_options;
-  column_family_options.write_buffer_size = 256 * 1024 * 1024;          // 256MB
+  column_family_options.write_buffer_size = 128 * 1024 * 1024;          // 128MB
   column_family_options.max_bytes_for_level_base = 1024 * 1024 * 1024;  // 1 GB
+  column_family_options.max_write_buffer_number = 4;
   // only compress levels >= 1
   column_family_options.compression_per_level.resize(
       column_family_options.num_levels);
