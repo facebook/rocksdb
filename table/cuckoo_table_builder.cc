@@ -39,6 +39,7 @@ extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
 CuckooTableBuilder::CuckooTableBuilder(
     WritableFile* file, double hash_table_ratio,
     uint32_t max_num_hash_table, uint32_t max_search_depth,
+    const Comparator* user_comparator,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
     : num_hash_table_(2),
       file_(file),
@@ -47,6 +48,7 @@ CuckooTableBuilder::CuckooTableBuilder(
       max_search_depth_(max_search_depth),
       is_last_level_file_(false),
       has_seen_first_key_(false),
+      ucomp_(user_comparator),
       get_slice_hash_(get_slice_hash),
       closed_(false) {
   properties_.num_entries = 0;
@@ -73,6 +75,8 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   if (!has_seen_first_key_) {
     is_last_level_file_ = ikey.sequence == 0;
     has_seen_first_key_ = true;
+    smallest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
+    largest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
   }
   // Even if one sequence number is non-zero, then it is not last level.
   assert(!is_last_level_file_ || ikey.sequence == 0);
@@ -82,23 +86,17 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   } else {
     kvs_.emplace_back(std::make_pair(key.ToString(), value.ToString()));
   }
-
   properties_.num_entries++;
 
-  // We assume that the keys are inserted in sorted order as determined by
-  // Byte-wise comparator. To identify an unused key, which will be used in
-  // filling empty buckets in the table, we try to find gaps between successive
-  // keys inserted (ie, latest key and previous in kvs_).
-  if (unused_user_key_.empty() && kvs_.size() > 1) {
-    std::string prev_key = is_last_level_file_ ? kvs_[kvs_.size()-1].first
-      : ExtractUserKey(kvs_[kvs_.size()-1].first).ToString();
-    std::string new_user_key = prev_key;
-    new_user_key.back()++;
-    // We ignore carry-overs and check that it is larger than previous key.
-    if (Slice(new_user_key).compare(Slice(prev_key)) > 0 &&
-        Slice(new_user_key).compare(ikey.user_key) < 0) {
-      unused_user_key_ = new_user_key;
-    }
+  // In order to fill the empty buckets in the hash table, we identify a
+  // key which is not used so far (unused_user_key). We determine this by
+  // maintaining smallest and largest keys inserted so far in bytewise order
+  // and use them to find a key outside this range in Finish() operation.
+  // Note that this strategy is independent of user comparator used here.
+  if (ikey.user_key.compare(smallest_user_key_) < 0) {
+    smallest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
+  } else if (ikey.user_key.compare(largest_user_key_) > 0) {
+    largest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
   }
 }
 
@@ -119,7 +117,7 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
         bucket_found = true;
         break;
       } else {
-        if (user_key.compare(is_last_level_file_
+        if (ucomp_->Compare(user_key, is_last_level_file_
               ? Slice(kvs_[(*buckets)[hash_val].vector_idx].first)
               : ExtractUserKey(
                 kvs_[(*buckets)[hash_val].vector_idx].first)) == 0) {
@@ -160,31 +158,37 @@ Status CuckooTableBuilder::Finish() {
   if (!s.ok()) {
     return s;
   }
-  if (unused_user_key_.empty() && !kvs_.empty()) {
-    // Try to find the key next to last key by handling carryovers.
-    std::string last_key =
-      is_last_level_file_ ? kvs_[kvs_.size()-1].first
-      : ExtractUserKey(kvs_[kvs_.size()-1].first).ToString();
-    std::string new_user_key = last_key;
-    int curr_pos = new_user_key.size() - 1;
+  // Determine unused_user_key to fill empty buckets.
+  std::string unused_bucket;
+  if (!kvs_.empty()) {
+    std::string unused_user_key = smallest_user_key_;
+    int curr_pos = unused_user_key.size() - 1;
     while (curr_pos >= 0) {
-      ++new_user_key[curr_pos];
-      if (new_user_key > last_key) {
-        unused_user_key_ = new_user_key;
+      --unused_user_key[curr_pos];
+      if (Slice(unused_user_key).compare(smallest_user_key_) < 0) {
         break;
       }
       --curr_pos;
     }
     if (curr_pos < 0) {
+      // Try using the largest key to identify an unused key.
+      unused_user_key = largest_user_key_;
+      curr_pos = unused_user_key.size() - 1;
+      while (curr_pos >= 0) {
+        ++unused_user_key[curr_pos];
+        if (Slice(unused_user_key).compare(largest_user_key_) > 0) {
+          break;
+        }
+        --curr_pos;
+      }
+    }
+    if (curr_pos < 0) {
       return Status::Corruption("Unable to find unused key");
     }
-  }
-  std::string unused_bucket;
-  if (!kvs_.empty()) {
     if (is_last_level_file_) {
-      unused_bucket = unused_user_key_;
+      unused_bucket = unused_user_key;
     } else {
-      ParsedInternalKey ikey(unused_user_key_, 0, kTypeValue);
+      ParsedInternalKey ikey(unused_user_key, 0, kTypeValue);
       AppendInternalKey(&unused_bucket, ikey);
     }
   }

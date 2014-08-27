@@ -9,6 +9,7 @@
 
 #include "util/testutil.h"
 
+#include "port/port.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -50,6 +51,51 @@ extern Slice CompressibleString(Random* rnd, double compressed_fraction,
   }
   dst->resize(len);
   return Slice(*dst);
+}
+
+namespace {
+class Uint64ComparatorImpl : public Comparator {
+ public:
+  Uint64ComparatorImpl() { }
+
+  virtual const char* Name() const override {
+    return "rocksdb.Uint64Comparator";
+  }
+
+  virtual int Compare(const Slice& a, const Slice& b) const override {
+    assert(a.size() == sizeof(uint64_t) && b.size() == sizeof(uint64_t));
+    const uint64_t* left = reinterpret_cast<const uint64_t*>(a.data());
+    const uint64_t* right = reinterpret_cast<const uint64_t*>(b.data());
+    if (*left == *right) {
+      return 0;
+    } else if (*left < *right) {
+      return -1;
+    } else {
+      return 1;
+    }
+  }
+
+  virtual void FindShortestSeparator(std::string* start,
+      const Slice& limit) const override {
+    return;
+  }
+
+  virtual void FindShortSuccessor(std::string* key) const override {
+    return;
+  }
+};
+}  // namespace
+
+static port::OnceType once = LEVELDB_ONCE_INIT;
+static const Comparator* uint64comp;
+
+static void InitModule() {
+  uint64comp = new Uint64ComparatorImpl;
+}
+
+const Comparator* Uint64Comparator() {
+  port::InitOnce(&once, InitModule);
+  return uint64comp;
 }
 
 }  // namespace test

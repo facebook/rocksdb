@@ -163,6 +163,7 @@ DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
 
 DEFINE_int32(value_size, 100, "Size of each value");
 
+DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
 static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
@@ -1649,6 +1650,13 @@ class Benchmark {
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
+    }
+    if (FLAGS_use_uint64_comparator) {
+      options.comparator = test::Uint64Comparator();
+      if (FLAGS_key_size != 8) {
+        fprintf(stderr, "Using Uint64 comparator but key size is not 8.\n");
+        exit(1);
+      }
     }
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.bloom_locality = FLAGS_bloom_locality;

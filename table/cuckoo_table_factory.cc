@@ -36,7 +36,7 @@ Status CuckooTableFactory::NewTableReader(const Options& options,
     std::unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table) const {
   std::unique_ptr<CuckooTableReader> new_reader(new CuckooTableReader(options,
-      std::move(file), file_size, GetSliceMurmurHash));
+      std::move(file), file_size, icomp.user_comparator(), GetSliceMurmurHash));
   Status s = new_reader->status();
   if (s.ok()) {
     *table = std::move(new_reader);
@@ -48,7 +48,8 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
     const Options& options, const InternalKeyComparator& internal_comparator,
     WritableFile* file, CompressionType compression_type) const {
   return new CuckooTableBuilder(file, hash_table_ratio_, kMaxNumHashTable,
-      max_search_depth_, GetSliceMurmurHash);
+      max_search_depth_, internal_comparator.user_comparator(),
+      GetSliceMurmurHash);
 }
 
 std::string CuckooTableFactory::GetPrintableTableOptions() const {

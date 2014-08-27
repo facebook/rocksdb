@@ -76,5 +76,12 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
   }
 };
 
+// Returns a user key comparator that can be used for comparing two uint64_t
+// slices. Instead of comparing slices byte-wise, it compares all the 8 bytes
+// at once. Assumes same endian-ness is used though the database's lifetime.
+// Symantics of comparison would differ from Bytewise comparator in little
+// endian machines.
+extern const Comparator* Uint64Comparator();
+
 }  // namespace test
 }  // namespace rocksdb

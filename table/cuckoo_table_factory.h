@@ -21,7 +21,6 @@ extern uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
 // - Key length and Value length are fixed.
 // - Does not support Snapshot.
 // - Does not support Merge operations.
-// - Only supports Bytewise comparators.
 class CuckooTableFactory : public TableFactory {
  public:
   CuckooTableFactory(double hash_table_ratio, uint32_t max_search_depth)

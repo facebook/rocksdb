@@ -22,7 +22,7 @@ class CuckooTableBuilder: public TableBuilder {
  public:
   CuckooTableBuilder(
       WritableFile* file, double hash_table_ratio, uint32_t max_num_hash_table,
-      uint32_t max_search_depth,
+      uint32_t max_search_depth, const Comparator* user_comparator,
       uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
@@ -83,9 +83,11 @@ class CuckooTableBuilder: public TableBuilder {
   std::vector<std::pair<std::string, std::string>> kvs_;
   TableProperties properties_;
   bool has_seen_first_key_;
+  const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
     uint64_t max_num_buckets);
-  std::string unused_user_key_ = "";
+  std::string largest_user_key_ = "";
+  std::string smallest_user_key_ = "";
 
   bool closed_;  // Either Finish() or Abandon() has been called.
 

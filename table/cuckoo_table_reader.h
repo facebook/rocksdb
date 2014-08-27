@@ -29,6 +29,7 @@ class CuckooTableReader: public TableReader {
       const Options& options,
       std::unique_ptr<RandomAccessFile>&& file,
       uint64_t file_size,
+      const Comparator* user_comparator,
       uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
   ~CuckooTableReader() {}
 
@@ -70,6 +71,7 @@ class CuckooTableReader: public TableReader {
   uint32_t value_length_;
   uint32_t bucket_length_;
   uint64_t num_buckets_;
+  const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
       uint64_t max_num_buckets);
 };
