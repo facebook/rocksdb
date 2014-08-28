@@ -109,7 +109,7 @@ class CuckooReaderTest {
     std::unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
     CuckooTableBuilder builder(
-        writable_file.get(), 0.9, kNumHashFunc, 100, ucomp, GetSliceHash);
+        writable_file.get(), 0.9, kNumHashFunc, 100, ucomp, 2, GetSliceHash);
     ASSERT_OK(builder.status());
     for (uint32_t key_idx = 0; key_idx < num_items; ++key_idx) {
       builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
@@ -420,7 +420,7 @@ void WriteFile(const std::vector<std::string>& keys,
   ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
   CuckooTableBuilder builder(
       writable_file.get(), hash_ratio,
-      kMaxNumHashTable, 1000, test::Uint64Comparator(), GetSliceMurmurHash);
+      kMaxNumHashTable, 1000, test::Uint64Comparator(), 5, GetSliceMurmurHash);
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.
@@ -446,7 +446,7 @@ void WriteFile(const std::vector<std::string>& keys,
     int cnt = 0;
     ASSERT_OK(reader.Get(r_options, Slice(key), &cnt, CheckValue, nullptr));
     if (cnt != 1) {
-      fprintf(stderr, "%" PRIx64 " not found.\n",
+      fprintf(stderr, "%" PRIu64 " not found.\n",
           *reinterpret_cast<const uint64_t*>(key.data()));
       ASSERT_EQ(1, cnt);
     }
@@ -473,7 +473,7 @@ void ReadKeys(const std::vector<std::string>& keys, uint64_t num,
   const UserCollectedProperties user_props =
     reader.GetTableProperties()->user_collected_properties;
   const uint32_t num_hash_fun = *reinterpret_cast<const uint32_t*>(
-      user_props.at(CuckooTablePropertyNames::kNumHashTable).data());
+      user_props.at(CuckooTablePropertyNames::kNumHashFunc).data());
   fprintf(stderr, "With %" PRIu64 " items and hash table ratio %f, number of"
       " hash functions used: %u.\n", num, hash_ratio, num_hash_fun);
   ReadOptions r_options;

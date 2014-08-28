@@ -49,7 +49,7 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
     WritableFile* file, CompressionType compression_type) const {
   return new CuckooTableBuilder(file, hash_table_ratio_, kMaxNumHashTable,
       max_search_depth_, internal_comparator.user_comparator(),
-      GetSliceMurmurHash);
+      cuckoo_block_size_, GetSliceMurmurHash);
 }
 
 std::string CuckooTableFactory::GetPrintableTableOptions() const {
@@ -68,8 +68,9 @@ std::string CuckooTableFactory::GetPrintableTableOptions() const {
 }
 
 TableFactory* NewCuckooTableFactory(double hash_table_ratio,
-    uint32_t max_search_depth) {
-  return new CuckooTableFactory(hash_table_ratio, max_search_depth);
+    uint32_t max_search_depth, uint32_t cuckoo_block_size) {
+  return new CuckooTableFactory(
+      hash_table_ratio, max_search_depth, cuckoo_block_size);
 }
 
 }  // namespace rocksdb

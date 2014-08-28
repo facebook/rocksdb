@@ -65,12 +65,14 @@ class CuckooTableReader: public TableReader {
   bool is_last_level_;
   std::shared_ptr<const TableProperties> table_props_;
   Status status_;
-  uint32_t num_hash_fun_;
+  uint32_t num_hash_func_;
   std::string unused_key_;
   uint32_t key_length_;
   uint32_t value_length_;
   uint32_t bucket_length_;
-  uint64_t num_buckets_;
+  uint32_t cuckoo_block_size_;
+  uint32_t cuckoo_block_bytes_minus_one_;
+  uint64_t hash_table_size_;
   const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
       uint64_t max_num_buckets);

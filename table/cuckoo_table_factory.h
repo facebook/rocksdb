@@ -23,9 +23,11 @@ extern uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
 // - Does not support Merge operations.
 class CuckooTableFactory : public TableFactory {
  public:
-  CuckooTableFactory(double hash_table_ratio, uint32_t max_search_depth)
+  CuckooTableFactory(double hash_table_ratio, uint32_t max_search_depth,
+      uint32_t cuckoo_block_size)
     : hash_table_ratio_(hash_table_ratio),
-      max_search_depth_(max_search_depth) {}
+      max_search_depth_(max_search_depth),
+      cuckoo_block_size_(cuckoo_block_size) {}
   ~CuckooTableFactory() {}
 
   const char* Name() const override { return "CuckooTable"; }
@@ -50,6 +52,7 @@ class CuckooTableFactory : public TableFactory {
  private:
   const double hash_table_ratio_;
   const uint32_t max_search_depth_;
+  const uint32_t cuckoo_block_size_;
 };
 
 }  // namespace rocksdb
