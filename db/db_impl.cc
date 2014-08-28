@@ -1677,6 +1677,13 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   }
   LogFlush(options_.info_log);
 
+  {
+    MutexLock l(&mutex_);
+    // an automatic compaction that has been scheduled might have been
+    // preempted by the manual compactions. Need to schedule it back.
+    MaybeScheduleFlushOrCompaction();
+  }
+
   return s;
 }
 
@@ -1864,18 +1871,15 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       bg_cv_.Wait();
     } else {
       manual_compaction_ = &manual;
-      MaybeScheduleFlushOrCompaction();
+      assert(bg_compaction_scheduled_ == 0);
+      bg_compaction_scheduled_++;
+      env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
     }
   }
 
   assert(!manual.in_progress);
   assert(bg_manual_only_ > 0);
   --bg_manual_only_;
-  if (bg_manual_only_ == 0) {
-    // an automatic compaction should have been scheduled might have be
-    // preempted by the manual compactions. Need to schedule it back.
-    MaybeScheduleFlushOrCompaction();
-  }
   return manual.status;
 }
 
@@ -1963,11 +1967,11 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 
     // Schedule BGWorkCompaction if there's a compaction pending (or a memtable
     // flush, but the HIGH pool is not enabled)
-    // Do it only if max_background_compactions hasn't been reached and, in case
-    // bg_manual_only_ > 0, if it's a manual compaction.
-    if ((manual_compaction_ || is_compaction_needed ||
-         (is_flush_pending && options_.max_background_flushes == 0)) &&
-        (!bg_manual_only_ || manual_compaction_)) {
+    // Do it only if max_background_compactions hasn't been reached and
+    // bg_manual_only_ == 0
+    if (!bg_manual_only_ &&
+        (is_compaction_needed ||
+         (is_flush_pending && options_.max_background_flushes == 0))) {
       if (bg_compaction_scheduled_ < options_.max_background_compactions) {
         bg_compaction_scheduled_++;
         env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
@@ -2194,6 +2198,10 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   if (is_manual) {
     // another thread cannot pick up the same work
     manual_compaction_->in_progress = true;
+  } else if (manual_compaction_ != nullptr) {
+    // there should be no automatic compactions running when manual compaction
+    // is running
+    return Status::OK();
   }
 
   // FLUSH preempts compaction
