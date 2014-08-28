@@ -152,7 +152,7 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
     return s;
   }
 
-  Block properties_block(block_contents);
+  Block properties_block(std::move(block_contents));
   std::unique_ptr<Iterator> iter(
       properties_block.NewIterator(BytewiseComparator()));
 
@@ -237,7 +237,7 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  Block metaindex_block(metaindex_contents);
+  Block metaindex_block(std::move(metaindex_contents));
   std::unique_ptr<Iterator> meta_iter(
       metaindex_block.NewIterator(BytewiseComparator()));
 
@@ -291,7 +291,7 @@ Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  Block metaindex_block(metaindex_contents);
+  Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<Iterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
@@ -321,7 +321,7 @@ Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
   }
 
   // Finding metablock
-  Block metaindex_block(metaindex_contents);
+  Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<Iterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));

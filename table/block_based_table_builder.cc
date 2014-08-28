@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "db/dbformat.h"
 
@@ -629,7 +630,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     results.heap_allocated = true;
     results.compression_type = type;
 
-    Block* block = new Block(results);
+    Block* block = new Block(std::move(results));
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(

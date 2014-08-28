@@ -258,7 +258,7 @@ class BlockConstructor: public Constructor {
     contents.data = data_;
     contents.cachable = false;
     contents.heap_allocated = false;
-    block_ = new Block(contents);
+    block_ = new Block(std::move(contents));
     return Status::OK();
   }
   virtual Iterator* NewIterator() const {
