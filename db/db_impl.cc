@@ -1979,7 +1979,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
 }
 
 void DBImpl::RecordFlushIOStats() {
-  RecordTick(stats_, FLUSH_WRITE_BYTES, iostats_context.bytes_written);
+  RecordTick(stats_, FLUSH_WRITE_BYTES, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
 

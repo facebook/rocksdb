@@ -6,6 +6,8 @@
 #pragma once
 #include "rocksdb/iostats_context.h"
 
+#ifndef IOS_CROSS_COMPILE
+
 // increment a specific counter by the specified value
 #define IOSTATS_ADD(metric, value)     \
   (iostats_context.metric += value)
@@ -30,3 +32,15 @@
 
 #define IOSTATS(metric)                        \
   (iostats_context.metric)
+
+#else  // IOS_CROSS_COMPILE
+
+#define IOSTATS_ADD(metric, value)
+#define IOSTATS_ADD_IF_POSITIVE(metric, value)
+#define IOSTATS_RESET(metric)
+#define IOSTATS_RESET_ALL()
+#define IOSTATS_SET_THREAD_POOL_ID(value)
+#define IOSTATS_THREAD_POOL_ID()
+#define IOSTATS(metric) 0
+
+#endif  // IOS_CROSS_COMPILE
