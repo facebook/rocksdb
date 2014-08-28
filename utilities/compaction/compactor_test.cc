@@ -18,7 +18,7 @@ namespace {
 class EnvCompactor : public EventListener, public EnvWrapper {
  public:
   // Note that EnvCompactor will not release the input env.
-  explicit EnvCompactor(Env* t) : EnvWrapper(t) {}
+  explicit EnvCompactor(Env* t) : EnvWrapper(t), db_(nullptr), refs_(0) {}
 
   Status OpenDB(const Options& options, const std::string& name) {
     Status s = DB::Open(options, name, &db_);
@@ -215,8 +215,8 @@ TEST(CompactorTEST, PureExternalCompaction) {
   EnvFullCompactor compactor(options.env);
 
   DB* db;
-  ASSERT_OK(DB::Open(options, dbname_, &db);
-  comparator.ListenTo(db);
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+  compactor.ListenTo(db);
 
   WriteOptions wopts;
   for (int i = 0; i < 100; ++i) {
