@@ -15,7 +15,6 @@
 
 namespace rocksdb {
 
-struct Options;
 class Comparator;
 
 class BlockBuilder {
