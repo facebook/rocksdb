@@ -2634,9 +2634,29 @@ Status DBImpl::ProcessKeyValueCompaction(
     compaction_filter = compaction_filter_from_factory.get();
   }
 
+  int64_t key_drop_user = 0;
+  int64_t key_drop_newer_entry = 0;
+  int64_t key_drop_obsolete = 0;
+  int64_t loop_cnt = 0;
   while (input->Valid() && !shutting_down_.Acquire_Load() &&
          !cfd->IsDropped()) {
-    RecordCompactionIOStats();
+    if (++loop_cnt > 1000) {
+      if (key_drop_user > 0) {
+        RecordTick(stats_, COMPACTION_KEY_DROP_USER, key_drop_user);
+        key_drop_user = 0;
+      }
+      if (key_drop_newer_entry > 0) {
+        RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY,
+                   key_drop_newer_entry);
+        key_drop_newer_entry = 0;
+      }
+      if (key_drop_obsolete > 0) {
+        RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE, key_drop_obsolete);
+        key_drop_obsolete = 0;
+      }
+      RecordCompactionIOStats();
+      loop_cnt = 0;
+    }
     // FLUSH preempts compaction
     // TODO(icanadi) this currently only checks if flush is necessary on
     // compacting column family. we should also check if flush is necessary on
@@ -2717,7 +2737,7 @@ Status DBImpl::ProcessKeyValueCompaction(
             ParseInternalKey(key, &ikey);
             // no value associated with delete
             value.clear();
-            RecordTick(stats_, COMPACTION_KEY_DROP_USER);
+            ++key_drop_user;
           } else if (value_changed) {
             value = compaction_filter_value;
           }
@@ -2741,7 +2761,7 @@ Status DBImpl::ProcessKeyValueCompaction(
         // TODO: why not > ?
         assert(last_sequence_for_key >= ikey.sequence);
         drop = true;    // (A)
-        RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY);
+        ++key_drop_newer_entry;
       } else if (ikey.type == kTypeDeletion &&
           ikey.sequence <= earliest_snapshot &&
           compact->compaction->KeyNotExistsBeyondOutputLevel(ikey.user_key)) {
@@ -2753,7 +2773,7 @@ Status DBImpl::ProcessKeyValueCompaction(
         //     few iterations of this loop (by rule (A) above).
         // Therefore this deletion marker is obsolete and can be dropped.
         drop = true;
-        RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE);
+        ++key_drop_obsolete;
       } else if (ikey.type == kTypeMerge) {
         if (!merge.HasOperator()) {
           LogToBuffer(log_buffer, "Options::merge_operator is null.");
@@ -2900,7 +2920,15 @@ Status DBImpl::ProcessKeyValueCompaction(
       input->Next();
     }
   }
-
+  if (key_drop_user > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_USER, key_drop_user);
+  }
+  if (key_drop_newer_entry > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY, key_drop_newer_entry);
+  }
+  if (key_drop_obsolete > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE, key_drop_obsolete);
+  }
   RecordCompactionIOStats();
 
   return status;
