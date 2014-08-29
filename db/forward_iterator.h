@@ -73,6 +73,7 @@ class ForwardIterator : public Iterator {
  private:
   void Cleanup();
   void RebuildIterators();
+  void ResetIncompleteIterators();
   void SeekInternal(const Slice& internal_key, bool seek_to_first);
   void UpdateCurrent();
   bool NeedToSeekImmutable(const Slice& internal_key);
