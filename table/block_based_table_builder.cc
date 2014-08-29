@@ -492,7 +492,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   if (r->filter_block != nullptr) {
-    r->filter_block->AddKey(key);
+    r->filter_block->AddKey(ExtractUserKey(key));
   }
 
   r->last_key.assign(key.data(), key.size());

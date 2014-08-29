@@ -1067,9 +1067,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
     s = handle.DecodeFrom(&handle_value);
     assert(s.ok());
     auto filter_entry = GetFilter(true /* no io */);
-    may_match =
-      filter_entry.value == nullptr ||
-      filter_entry.value->PrefixMayMatch(handle.offset(), internal_prefix);
+    may_match = filter_entry.value == nullptr ||
+                filter_entry.value->PrefixMayMatch(handle.offset(), prefix);
     filter_entry.Release(rep_->table_options.block_cache.get());
   }
 
@@ -1105,9 +1104,8 @@ Status BlockBasedTable::Get(
 
     BlockHandle handle;
     bool may_not_exist_in_filter =
-      filter != nullptr &&
-      handle.DecodeFrom(&handle_value).ok() &&
-      !filter->KeyMayMatch(handle.offset(), key);
+        filter != nullptr && handle.DecodeFrom(&handle_value).ok() &&
+        !filter->KeyMayMatch(handle.offset(), ExtractUserKey(key));
 
     if (may_not_exist_in_filter) {
       // Not found

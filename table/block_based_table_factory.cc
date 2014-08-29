@@ -38,10 +38,6 @@ BlockBasedTableFactory::BlockBasedTableFactory(
       table_options_.block_size_deviation > 100) {
     table_options_.block_size_deviation = 0;
   }
-  if (table_options_.filter_policy) {
-    auto* p = new InternalFilterPolicy(table_options_.filter_policy);
-    table_options_.filter_policy.reset(p);
-  }
 }
 
 Status BlockBasedTableFactory::NewTableReader(
