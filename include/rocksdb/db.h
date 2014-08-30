@@ -72,17 +72,6 @@ struct LiveFileMetaData {
   SequenceNumber largest_seqno;  // largest seqno in file
 };
 
-// A structure that describes a compaction job.
-struct CompactionJob {
-  DB* db;
-  std::string column_family_name;
-  int output_level;
-  int output_path_id;
-  std::vector<uint64_t> input_file_numbers;
-  CompactionOptions compact_options;
-  std::string id;
-};
-
 
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely

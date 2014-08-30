@@ -43,6 +43,19 @@ class VersionSet;
 class CompactionFilterV2;
 class Arena;
 
+// A structure that describes a compaction job.  Will move to
+// include/rocksdb/db.h once the PluggableCompactionPicker has
+// been fully developed.
+struct CompactionJob {
+  DB* db;
+  std::string column_family_name;
+  int output_level;
+  int output_path_id;
+  std::vector<uint64_t> input_file_numbers;
+  CompactionOptions compact_options;
+  std::string id;
+};
+
 class DBImpl : public DB {
  public:
   DBImpl(const DBOptions& options, const std::string& dbname);
