@@ -515,7 +515,7 @@ class VersionSet {
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
                                        VersionEdit* edit);
 
-  void GetColumnFamilyMetaData(
+  void GetColumnFamilyMetaDataImpl(
       ColumnFamilyMetaData* cf_meta,
       ColumnFamilyData* cfd, Version* current);
 

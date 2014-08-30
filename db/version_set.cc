@@ -2956,7 +2956,7 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
-void VersionSet::GetColumnFamilyMetaData(
+void VersionSet::GetColumnFamilyMetaDataImpl(
     ColumnFamilyMetaData* cf_meta,
     ColumnFamilyData* cfd, Version* current) {
   assert(cf_meta);
@@ -3024,7 +3024,7 @@ Status VersionSet::GetColumnFamilyMetaData(
     return Status::NotFound(
         "Cannot find any column family with the specified name.");
   }
-  GetColumnFamilyMetaData(cf_meta, matched_cfd, current);
+  GetColumnFamilyMetaDataImpl(cf_meta, matched_cfd, current);
 
   mutex->Lock();
   current->Unref();
@@ -3057,7 +3057,7 @@ void VersionSet::GetDatabaseMetaData(
   assert(versions.size() == cfds.size());
   for (size_t i = 0; i < cfds.size(); ++i) {
     ColumnFamilyMetaData cf_meta;
-    GetColumnFamilyMetaData(&cf_meta, cfds[i], versions[i]);
+    GetColumnFamilyMetaDataImpl(&cf_meta, cfds[i], versions[i]);
 
     db_meta->size += cf_meta.size;
     db_meta->compensated_size += cf_meta.compensated_size;
