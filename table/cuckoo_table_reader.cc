@@ -17,12 +17,13 @@
 #include <vector>
 #include "rocksdb/iterator.h"
 #include "table/meta_blocks.h"
+#include "table/cuckoo_table_factory.h"
 #include "util/arena.h"
 #include "util/coding.h"
 
 namespace rocksdb {
 namespace {
-  static const uint64_t CACHE_LINE_MASK = ~(CACHE_LINE_SIZE - 1);
+  static const uint64_t CACHE_LINE_MASK = ~((uint64_t)CACHE_LINE_SIZE - 1);
 }
 
 extern const uint64_t kCuckooTableMagicNumber;
@@ -76,8 +77,8 @@ CuckooTableReader::CuckooTableReader(
     status_ = Status::InvalidArgument("Hash table size not found");
     return;
   }
-  hash_table_size_ = *reinterpret_cast<const uint64_t*>(
-      hash_table_size->second.data());
+  table_size_minus_one_ = *reinterpret_cast<const uint64_t*>(
+      hash_table_size->second.data()) - 1;
   auto is_last_level = user_props.find(CuckooTablePropertyNames::kIsLastLevel);
   if (is_last_level == user_props.end()) {
     status_ = Status::InvalidArgument("Is last level not found");
@@ -104,11 +105,11 @@ Status CuckooTableReader::Get(
   assert(key.size() == key_length_ + (is_last_level_ ? 8 : 0));
   Slice user_key = ExtractUserKey(key);
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
-    uint64_t hash_val = get_slice_hash_(user_key, hash_cnt, hash_table_size_);
-    assert(hash_val < hash_table_size_);
+    uint64_t offset = bucket_length_ * CuckooHash(
+        user_key, hash_cnt, table_size_minus_one_, get_slice_hash_);
+    const char* bucket = &file_data_.data()[offset];
     for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
-        ++block_idx, ++hash_val) {
-      const char* bucket = &file_data_.data()[hash_val * bucket_length_];
+        ++block_idx, bucket += bucket_length_) {
       if (ucomp_->Compare(Slice(unused_key_.data(), user_key.size()),
             Slice(bucket, user_key.size())) == 0) {
         return Status::OK();
@@ -137,8 +138,9 @@ Status CuckooTableReader::Get(
 
 void CuckooTableReader::Prepare(const Slice& key) {
   // Prefetch the first Cuckoo Block.
-  uint64_t addr = reinterpret_cast<uint64_t>(file_data_.data()) + bucket_length_
-    * get_slice_hash_(ExtractUserKey(key), 0, hash_table_size_);
+  Slice user_key = ExtractUserKey(key);
+  uint64_t addr = reinterpret_cast<uint64_t>(file_data_.data()) +
+    bucket_length_ * CuckooHash(user_key, 0, table_size_minus_one_, nullptr);
   uint64_t end_addr = addr + cuckoo_block_bytes_minus_one_;
   for (addr &= CACHE_LINE_MASK; addr < end_addr; addr += CACHE_LINE_SIZE) {
     PREFETCH(reinterpret_cast<const char*>(addr), 0, 3);
@@ -205,8 +207,8 @@ CuckooTableIterator::CuckooTableIterator(CuckooTableReader* reader)
 
 void CuckooTableIterator::LoadKeysFromReader() {
   key_to_bucket_id_.reserve(reader_->GetTableProperties()->num_entries);
-  uint64_t num_buckets = reader_->hash_table_size_ +
-    reader_->cuckoo_block_size_ - 1;
+  uint64_t num_buckets = reader_->table_size_minus_one_ +
+    reader_->cuckoo_block_size_;
   for (uint32_t bucket_id = 0; bucket_id < num_buckets; bucket_id++) {
     Slice read_key;
     status_ = reader_->file_->Read(bucket_id * reader_->bucket_length_,

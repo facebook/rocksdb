@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
 #include "table/block_builder.h"
+#include "table/cuckoo_table_factory.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/autovector.h"
@@ -39,16 +40,17 @@ const std::string CuckooTablePropertyNames::kCuckooBlockSize =
 extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
 
 CuckooTableBuilder::CuckooTableBuilder(
-    WritableFile* file, double hash_table_ratio,
+    WritableFile* file, double max_hash_table_ratio,
     uint32_t max_num_hash_table, uint32_t max_search_depth,
     const Comparator* user_comparator, uint32_t cuckoo_block_size,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
     : num_hash_func_(2),
       file_(file),
-      hash_table_ratio_(hash_table_ratio),
+      max_hash_table_ratio_(max_hash_table_ratio),
       max_num_hash_func_(max_num_hash_table),
       max_search_depth_(max_search_depth),
       cuckoo_block_size_(std::max(1U, cuckoo_block_size)),
+      hash_table_size_(2),
       is_last_level_file_(false),
       has_seen_first_key_(false),
       ucomp_(user_comparator),
@@ -89,7 +91,6 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   } else {
     kvs_.emplace_back(std::make_pair(key.ToString(), value.ToString()));
   }
-  properties_.num_entries++;
 
   // In order to fill the empty buckets in the hash table, we identify a
   // key which is not used so far (unused_user_key). We determine this by
@@ -101,11 +102,14 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   } else if (ikey.user_key.compare(largest_user_key_) > 0) {
     largest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
   }
+  if (hash_table_size_ < kvs_.size() / max_hash_table_ratio_) {
+    hash_table_size_ *= 2;
+  }
 }
 
 Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
-  uint64_t hash_table_size = kvs_.size() / hash_table_ratio_;
-  buckets->resize(hash_table_size + cuckoo_block_size_ - 1);
+  uint64_t hash_table_size_minus_one = hash_table_size_ - 1;
+  buckets->resize(hash_table_size_minus_one + cuckoo_block_size_);
   uint64_t make_space_for_key_call_id = 0;
   for (uint32_t vector_idx = 0; vector_idx < kvs_.size(); vector_idx++) {
     uint64_t bucket_id;
@@ -115,7 +119,8 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
       ExtractUserKey(kvs_[vector_idx].first);
     for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_ && !bucket_found;
         ++hash_cnt) {
-      uint64_t hash_val = get_slice_hash_(user_key, hash_cnt, hash_table_size);
+      uint64_t hash_val = CuckooHash(user_key, hash_cnt,
+          hash_table_size_minus_one, get_slice_hash_);
       // If there is a collision, check next cuckoo_block_size_ locations for
       // empty locations. While checking, if we reach end of the hash table,
       // stop searching and proceed for next hash function.
@@ -137,15 +142,15 @@ Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
       }
     }
     while (!bucket_found && !MakeSpaceForKey(hash_vals,
-          hash_table_size, ++make_space_for_key_call_id, buckets, &bucket_id)) {
+          ++make_space_for_key_call_id, buckets, &bucket_id)) {
       // Rehash by increashing number of hash tables.
       if (num_hash_func_ >= max_num_hash_func_) {
         return Status::NotSupported("Too many collisions. Unable to hash.");
       }
       // We don't really need to rehash the entire table because old hashes are
       // still valid and we only increased the number of hash functions.
-      uint64_t hash_val = get_slice_hash_(user_key,
-          num_hash_func_, hash_table_size);
+      uint64_t hash_val = CuckooHash(user_key, num_hash_func_,
+          hash_table_size_minus_one, get_slice_hash_);
       ++num_hash_func_;
       for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
           ++block_idx, ++hash_val) {
@@ -167,13 +172,14 @@ Status CuckooTableBuilder::Finish() {
   assert(!closed_);
   closed_ = true;
   std::vector<CuckooBucket> buckets;
-  Status s = MakeHashTable(&buckets);
-  if (!s.ok()) {
-    return s;
-  }
-  // Determine unused_user_key to fill empty buckets.
+  Status s;
   std::string unused_bucket;
   if (!kvs_.empty()) {
+    s = MakeHashTable(&buckets);
+    if (!s.ok()) {
+      return s;
+    }
+    // Determine unused_user_key to fill empty buckets.
     std::string unused_user_key = smallest_user_key_;
     int curr_pos = unused_user_key.size() - 1;
     while (curr_pos >= 0) {
@@ -205,6 +211,7 @@ Status CuckooTableBuilder::Finish() {
       AppendInternalKey(&unused_bucket, ikey);
     }
   }
+  properties_.num_entries = kvs_.size();
   properties_.fixed_key_len = unused_bucket.size();
   uint32_t value_length = kvs_.empty() ? 0 : kvs_[0].second.size();
   uint32_t bucket_size = value_length + properties_.fixed_key_len;
@@ -298,7 +305,7 @@ void CuckooTableBuilder::Abandon() {
 }
 
 uint64_t CuckooTableBuilder::NumEntries() const {
-  return properties_.num_entries;
+  return kvs_.size();
 }
 
 uint64_t CuckooTableBuilder::FileSize() const {
@@ -307,11 +314,17 @@ uint64_t CuckooTableBuilder::FileSize() const {
   } else if (properties_.num_entries == 0) {
     return 0;
   }
-  // This is not the actual size of the file as we need to account for
-  // hash table ratio. This returns the size of filled buckets in the table
-  // scaled up by a factor of 1/hash_table_ratio.
-  return ((kvs_[0].first.size() + kvs_[0].second.size()) *
-      properties_.num_entries) / hash_table_ratio_;
+
+  // Account for buckets being a power of two.
+  // As elements are added, file size remains constant for a while and doubles
+  // its size. Since compaction algorithm stops adding elements only after it
+  // exceeds the file limit, we account for the extra element being added here.
+  uint64_t expected_hash_table_size = hash_table_size_;
+  if (expected_hash_table_size < (kvs_.size() + 1) / max_hash_table_ratio_) {
+    expected_hash_table_size *= 2;
+  }
+  return (kvs_[0].first.size() + kvs_[0].second.size()) *
+    expected_hash_table_size;
 }
 
 // This method is invoked when there is no place to insert the target key.
@@ -326,7 +339,6 @@ uint64_t CuckooTableBuilder::FileSize() const {
 // If tree depth exceedes max depth, we return false indicating failure.
 bool CuckooTableBuilder::MakeSpaceForKey(
     const autovector<uint64_t>& hash_vals,
-    const uint64_t hash_table_size,
     const uint64_t make_space_for_key_call_id,
     std::vector<CuckooBucket>* buckets,
     uint64_t* bucket_id) {
@@ -354,6 +366,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
       make_space_for_key_call_id;
     tree.push_back(CuckooNode(bucket_id, 0, 0));
   }
+  uint64_t hash_table_size_minus_one = hash_table_size_ - 1;
   bool null_found = false;
   uint32_t curr_pos = 0;
   while (!null_found && curr_pos < tree.size()) {
@@ -365,10 +378,11 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     CuckooBucket& curr_bucket = (*buckets)[curr_node.bucket_id];
     for (uint32_t hash_cnt = 0;
         hash_cnt < num_hash_func_ && !null_found; ++hash_cnt) {
-      uint64_t child_bucket_id = get_slice_hash_(
-          is_last_level_file_ ? kvs_[curr_bucket.vector_idx].first
-          : ExtractUserKey(Slice(kvs_[curr_bucket.vector_idx].first)),
-          hash_cnt, hash_table_size);
+      uint64_t child_bucket_id = CuckooHash(
+          (is_last_level_file_ ? kvs_[curr_bucket.vector_idx].first :
+           ExtractUserKey(Slice(kvs_[curr_bucket.vector_idx].first))),
+          hash_cnt, hash_table_size_minus_one, get_slice_hash_);
+      // Iterate inside Cuckoo Block.
       for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
           ++block_idx, ++child_bucket_id) {
         if ((*buckets)[child_bucket_id].make_space_for_key_call_id ==

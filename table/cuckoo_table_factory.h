@@ -8,11 +8,23 @@
 
 #include <string>
 #include "rocksdb/table.h"
+#include "util/murmurhash.h"
 
 namespace rocksdb {
 
-extern uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
-    uint64_t max_num_buckets);
+const uint32_t kCuckooMurmurSeedMultiplier = 816922183;
+static inline uint64_t CuckooHash(
+    const Slice& user_key, uint32_t hash_cnt, uint64_t table_size_minus_one,
+    uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t)) {
+#ifndef NDEBUG
+  // This part is used only in unit tests.
+  if (get_slice_hash != nullptr) {
+    return get_slice_hash(user_key, hash_cnt, table_size_minus_one + 1);
+  }
+#endif
+  return MurmurHash(user_key.data(), user_key.size(),
+      kCuckooMurmurSeedMultiplier * hash_cnt) & table_size_minus_one;
+}
 
 // Cuckoo Table is designed for applications that require fast point lookups
 // but not fast range scans.
