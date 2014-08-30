@@ -13,7 +13,6 @@
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
-#include "rocksdb/compactor.h"
 
 #include <vector>
 #include <memory>
@@ -247,6 +246,16 @@ class FIFOCompactionPicker : public CompactionPicker {
   }
 };
 
+
+// The pluggable component to PluggableCompactionPicker that allows
+// developers to write their own compaction strategies.  It's currently
+// a dummy class and will move to include/rocksdb/db.h once its API
+// is completed.
+class Compactor {
+};
+
+// A compaction picker that has a pluggable component to allow developers
+// to write their own compaction strategies.
 class PluggableCompactionPicker : public CompactionPicker {
  public:
   PluggableCompactionPicker(

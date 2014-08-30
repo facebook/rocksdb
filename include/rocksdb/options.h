@@ -17,7 +17,6 @@
 #include <limits>
 
 #include "rocksdb/version.h"
-#include "rocksdb/compactor.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
@@ -57,9 +56,7 @@ enum CompactionStyle : char {
   kCompactionStyleLevel = 0x0,      // level based compaction style
   kCompactionStyleUniversal = 0x1,  // Universal compaction style
   kCompactionStyleFIFO = 0x2,    // FIFO compaction style
-  kCompactionStyleCustom = 0x3,  // Use the custom compactor specified
-                                 // in the custom_compactor option.
-  kCompactionStyleNone = 0x4,  // Disable background compaction. Compaction
+  kCompactionStyleNone = 0x3,  // Disable background compaction. Compaction
                                // jobs are submitted via CompactFiles()
                                // or ScheduleCompactFiles().
 };
@@ -450,11 +447,6 @@ struct ColumnFamilyOptions {
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
-
-  // Custom compactor.
-  // This option will be used only when compaction_style is set to
-  // kCompactionStyleCustom.
-  std::shared_ptr<Compactor> custom_compactor;
 
   // If true, compaction will verify checksum on every read that happens
   // as part of compaction
