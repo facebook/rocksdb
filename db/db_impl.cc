@@ -1733,8 +1733,13 @@ Status DBImpl::CompactFiles(
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  return CompactFilesImpl(compact_options, cfd, input_file_numbers,
-                          output_level, output_path_id);
+  auto version = cfd->current();
+  version->Ref();
+  auto s = CompactFilesImpl(compact_options, cfd, version,
+                            input_file_numbers, output_level, output_path_id);
+  version->Unref();
+  cfd->Unref();
+  return s;
 }
 
 ColumnFamilyData* DBImpl::GetColumnFamilyDataByName(
@@ -1759,22 +1764,26 @@ Status DBImpl::CompactFiles(
   if (cfd == nullptr) {
     return Status::InvalidArgument("Specified column family does not exist.");
   }
-  return CompactFilesImpl(compact_options, cfd, input_file_numbers,
-                          output_level, output_path_id);
+  cfd->Ref();
+  auto version = cfd->current();
+  version->Ref();
+  auto s = CompactFilesImpl(
+      compact_options, cfd, version, input_file_numbers,
+      output_level, output_path_id);
+  version->Unref();
+  cfd->Unref();
+  return s;
 }
 
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
-    const std::vector<uint64_t>& input_file_numbers,
+    Version* version, const std::vector<uint64_t>& input_file_numbers,
     const int output_level, const int output_path_id) {
   mutex_.AssertHeld();
 
   if (shutting_down_.Acquire_Load()) {
     return Status::ShutdownInProgress();
   }
-
-  auto version = cfd->current();
-  version->Ref();
 
   autovector<CompactionInputFiles> input_files;
 
@@ -1793,7 +1802,6 @@ Status DBImpl::CompactFilesImpl(
           compact_options, input_files,
           output_level, version, &adjusted, &s));
     if (!s.ok()) {
-      version->Unref();
       assert(c == nullptr);
       return s;
     }
@@ -1806,7 +1814,6 @@ Status DBImpl::CompactFilesImpl(
 
   if (output_path_id < 0) {
     // find the best fit path_id here
-    version->Unref();
     return Status::NotSupported(
         "Automatic output path selection is not "
         "yet supported in CompactFiles()");
@@ -1827,7 +1834,6 @@ Status DBImpl::CompactFilesImpl(
   c->ReleaseCompactionFiles(status);
   c->ReleaseInputs();
   bg_compaction_scheduled_--;
-  version->Unref();
   if (bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
     // signal if
     // * madeProgress -- need to wakeup MakeRoomForWrite
