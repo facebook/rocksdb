@@ -450,7 +450,7 @@ class DBImpl : public DB {
   void RecordCompactionIOStats();
 
   Status GetCompactionInputsFromFileNumbers(
-    const std::vector<uint64_t>& input_file_numbers,
+    std::set<uint64_t>* input_set,
     const Version* version, const CompactionOptions& compact_options,
     autovector<CompactionInputFiles>* input_files);
 

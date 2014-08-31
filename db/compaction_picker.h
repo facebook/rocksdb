@@ -58,23 +58,28 @@ class CompactionPicker {
   // for compaction input.
   virtual int MaxInputLevel(int current_num_levels) const = 0;
 
-  // Form a valid compaction based on a set of compaction input files and
-  // output level.  The funtion will return a non-null Compaction on success.
-  // Otherwise, nullptr will be returned and "status" will contain relevant
-  // information.
-  //
-  // When compact_options.adjustable is set to true, then in case the
-  // specified compaction input cannot form a valid compaction, it will
-  // try to adjust the input to be a valid compaction.  If there exists
-  // such adjustment, then "adjusted" will set to true and a non-null
-  // Compaction will be returned.
-  virtual Compaction* FormCompaction(
+  // The maximum allowed output level.  Default value is NumberLevels() - 1.
+  virtual int MaxOutputLevel() const {
+    return NumberLevels() - 1;
+  }
+
+  // Sanitize the input set of compaction input files.
+  // When the input parameters do not describe a valid compaction, the
+  // function will try to fix the input_files by adding necessary
+  // files.  If it's not possible to conver an invalid input_files
+  // into a valid one by adding more files, the function will return a
+  // non-ok status with specific reason.
+  Status SanitizeCompactionInputFiles(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const;
+
+  // Takes a list of CompactionInputFiles and returns a Compaction object.
+  Compaction* FormCompaction(
       const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
+      const autovector<CompactionInputFiles>& input_files,
       int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const;
+      Version* version) const;
 
   // Free up the files that participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
@@ -134,6 +139,23 @@ class CompactionPicker {
 
   void SetupOtherInputs(Compaction* c);
 
+  // A helper function to SanitizeCompactionInputFiles() that
+  // tries to add more files into "input_files" when necessary.
+  virtual Status SanitizeCompactionInputFilesForAllLevels(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const;
+
+  // A helper function to SanitizeCompactionInputFiles() that allows
+  // compaction-strategy-specific check.  Default implementation
+  // always return Status::OK().
+  virtual Status SanitizeCompactionInputFilesInternal(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const {
+    return Status::OK();
+  }
+
   // record all the ongoing compactions for all levels
   std::vector<std::set<Compaction*>> compactions_in_progress_;
 
@@ -145,7 +167,6 @@ class CompactionPicker {
 
   const Options* const options_;
 
- private:
   int num_levels_;
 
   const InternalKeyComparator* const icmp_;
@@ -159,18 +180,15 @@ class UniversalCompactionPicker : public CompactionPicker {
   virtual Compaction* PickCompaction(Version* version,
                                      LogBuffer* log_buffer) override;
 
-  // The maxinum allowed input level.  Always return 0.
+  // The maxinum allowed input level.  Always returns 0.
   virtual int MaxInputLevel(int current_num_levels) const override {
     return 0;
   }
 
-  virtual Compaction* FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const override;
+  // The maximum allowed output level.  Always returns 0.
+  virtual int MaxOutputLevel() const override {
+    return 0;
+  }
 
  private:
   // Pick Universal compaction to limit read amplification
@@ -202,14 +220,6 @@ class LevelCompactionPicker : public CompactionPicker {
     return current_num_levels - 2;
   }
 
-  virtual Compaction* FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const override;
-
  private:
   // For the specfied level, pick a compaction.
   // Returns nullptr if there is no compaction to be done.
@@ -232,16 +242,14 @@ class FIFOCompactionPicker : public CompactionPicker {
                                    const InternalKey* begin,
                                    const InternalKey* end,
                                    InternalKey** compaction_end) override;
-  virtual Compaction* FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const override;
 
-  // The maxinum allowed input level.  Always return 0.
+  // The maxinum allowed input level.  Always returns 0.
   virtual int MaxInputLevel(int current_num_levels) const override {
+    return 0;
+  }
+
+  // The maximum allowed output level.  Always returns 0.
+  virtual int MaxOutputLevel() const override {
     return 0;
   }
 };
@@ -252,6 +260,11 @@ class FIFOCompactionPicker : public CompactionPicker {
 // a dummy class and will move to include/rocksdb/db.h once its API
 // is completed.
 class Compactor {
+ public:
+  virtual Status SanitizeCompactionInputFiles(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const = 0;
 };
 
 // A compaction picker that has a pluggable component to allow developers
@@ -266,7 +279,7 @@ class PluggableCompactionPicker : public CompactionPicker {
 
   virtual Compaction* PickCompaction(Version* version,
                                      LogBuffer* log_buffer) override {
-    // TODO(yhchiang): complete this function
+    // TODO(yhchiang): complete it once the public API is done
     if (compactor_ == nullptr) {
       return nullptr;
     }
@@ -278,31 +291,31 @@ class PluggableCompactionPicker : public CompactionPicker {
                                    const InternalKey* begin,
                                    const InternalKey* end,
                                    InternalKey** compaction_end) override {
-    // TODO(yhchiang): complete this function
+    // TODO(yhchiang): complete it once the public API is done
     if (compactor_ == nullptr) {
       return nullptr;
     }
     return nullptr;
   }
 
-  virtual Compaction* FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const override {
-    return CompactionPicker::FormCompaction(
-        compact_options, input_files, output_level,
-        version, adjusted, status);
-  }
 
-  // The maxinum allowed input level.  Always return 0.
+  // The maxinum allowed input level.
   virtual int MaxInputLevel(int current_num_levels) const override {
     return current_num_levels - 2;
   }
 
  protected:
+  virtual Status SanitizeCompactionInputFilesInternal(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const override {
+    if (compactor_) {
+      return compactor_->SanitizeCompactionInputFiles(
+          input_files, cf_meta, output_level);
+    }
+    return Status::OK();
+  }
+
   std::shared_ptr<Compactor> compactor_;
 };
 

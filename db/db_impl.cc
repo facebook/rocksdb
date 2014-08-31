@@ -1674,43 +1674,35 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
 }
 
 Status DBImpl::GetCompactionInputsFromFileNumbers(
-    const std::vector<uint64_t>& input_file_numbers,
+    std::set<uint64_t>* input_set,
     const Version* version, const CompactionOptions& compact_options,
     autovector<CompactionInputFiles>* input_files) {
-  if (input_file_numbers.size() == 0) {
+  if (input_set->size() == 0) {
     return Status::InvalidArgument(
         "Compaction must include at least one file.");
   }
   assert(input_files);
 
-  size_t file_count = 0;
   autovector<CompactionInputFiles> matched_input_files;
   matched_input_files.resize(version->NumberLevels());
-  for (auto fn : input_file_numbers) {
-    bool found = false;
-    for (int level = 0; level < version->NumberLevels(); ++level) {
-      for (auto file : version->files_[level]) {
-        if (file->fd.GetNumber() == fn) {
-          found = true;
-          matched_input_files[level].files.push_back(file);
-          file_count++;
-          break;
-        }
+  // TODO(yhchiang): but there might be empty levels ...
+  for (int level = 0; level < version->NumberLevels(); ++level) {
+    for (auto file : version->files_[level]) {
+      auto iter = input_set->find(file->fd.GetNumber());
+      if (iter != input_set->end()) {
+        matched_input_files[level].files.push_back(file);
+        input_set->erase(iter);
       }
-      if (found == true) {
-        break;
-      }
-    }
-    if (found == false) {
-      char buffer[256];
-      snprintf(buffer, sizeof(buffer),
-          "Cannot find matched file for %llu", fn);
-      return Status::InvalidArgument(buffer);
     }
   }
-  if (file_count == 0) {
-    return Status::InvalidArgument(
-        "Number of input files to CompactFiles() must be > 0.");
+  if (!input_set->empty()) {
+    std::string message(
+        "Cannot find matched SST files for the following file numbers:");
+    for (auto fn : *input_set) {
+      message += " ";
+      message += std::to_string(fn);
+    }
+    return Status::InvalidArgument(message);
   }
 
   for (int level = 0; level < version->NumberLevels(); ++level) {
@@ -1785,38 +1777,40 @@ Status DBImpl::CompactFilesImpl(
     return Status::ShutdownInProgress();
   }
 
-  autovector<CompactionInputFiles> input_files;
+  std::set<uint64_t> input_set(
+      input_file_numbers.begin(), input_file_numbers.end());
 
-  Status s = GetCompactionInputsFromFileNumbers(
-      input_file_numbers, version, compact_options, &input_files);
+  ColumnFamilyMetaData cf_meta;
+  versions_->GetColumnFamilyMetaDataImpl(&cf_meta, cfd, version);
+
+  if (output_path_id < 0) {
+    return Status::NotSupported(
+        "Automatic output path selection is not "
+        "yet supported in CompactFiles()");
+  }
+
+  Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
+      &input_set, cf_meta, output_level);
+  if (!s.ok()) {
+    return s;
+  }
+  autovector<CompactionInputFiles> input_files;
+  s = GetCompactionInputsFromFileNumbers(
+      &input_set, version, compact_options, &input_files);
   if (!s.ok()) {
     return s;
   }
 
   unique_ptr<Compaction> c;
 
-  // Or, optionally, we could merge these two function?
-  if (cfd->compaction_picker()) {
-    bool adjusted = false;
-    c.reset(cfd->compaction_picker()->FormCompaction(
-          compact_options, input_files,
-          output_level, version, &adjusted, &s));
-    if (!s.ok()) {
-      assert(c == nullptr);
-      return s;
-    }
-    if (adjusted) {
-      Log(options_.info_log, "Input to CompactFiles() has been adjusted.");
-      // TODO(yhchiang): consider better way to return such status
-      // to the developers.
-    }
-  }
+  assert(cfd->compaction_picker());
+  c.reset(cfd->compaction_picker()->FormCompaction(
+        compact_options, input_files,
+        output_level, version));
+  assert(c);
 
   if (output_path_id < 0) {
     // find the best fit path_id here
-    return Status::NotSupported(
-        "Automatic output path selection is not "
-        "yet supported in CompactFiles()");
     // c->SetOutputPathId(FindBestSuitablePathId(c));
   } else {
     c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
@@ -1828,10 +1822,10 @@ Status DBImpl::CompactFilesImpl(
   DeletionState deletion_state(true);
   CompactionState* compact = new CompactionState(c.get());
   // May unlock and lock inside DoCompactionWork
-  Status status = DoCompactionWork(compact, deletion_state, &log_buffer);
+  s = DoCompactionWork(compact, deletion_state, &log_buffer);
 
-  CleanupCompaction(compact, status);
-  c->ReleaseCompactionFiles(status);
+  CleanupCompaction(compact, s);
+  c->ReleaseCompactionFiles(s);
   c->ReleaseInputs();
   bg_compaction_scheduled_--;
   if (bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
@@ -1843,7 +1837,7 @@ Status DBImpl::CompactFilesImpl(
     // waiting for it
     bg_cv_.SignalAll();
   }
-  return status;
+  return s;
 }
 
 Status DBImpl::ScheduleCompactFiles(

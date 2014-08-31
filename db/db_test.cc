@@ -7741,6 +7741,209 @@ TEST(DBTest, RateLimitingTest) {
   ASSERT_TRUE(ratio < 0.6);
 }
 
+namespace {
+  bool HaveOverlappingKeyRanges(
+      const Comparator* c,
+      const SstFileMetaData& a, const SstFileMetaData& b) {
+    if (c->Compare(a.smallestkey, b.smallestkey) >= 0) {
+      if (c->Compare(a.smallestkey, b.largestkey) <= 0) {
+        // b.smallestkey <= a.smallestkey <= b.largestkey
+        return true;
+      }
+    } else if (c->Compare(a.largestkey, b.smallestkey) >= 0) {
+      // a.smallestkey < b.smallestkey <= a.largestkey
+      return true;
+    }
+    if (c->Compare(a.largestkey, b.largestkey) <= 0) {
+      if (c->Compare(a.largestkey, b.smallestkey) >= 0) {
+        // b.smallestkey <= a.largestkey <= b.largestkey
+        return true;
+      }
+    } else if (c->Compare(a.smallestkey, b.largestkey) <= 0) {
+      // a.smallestkey <= b.largestkey < a.largestkey
+      return true;
+    }
+    return false;
+  }
+
+  // Identifies all files between level "min_level" and "max_level"
+  // which has overlapping key range with "input_file_meta".
+  void GetOverlappingFileNumbersForLevelCompaction(
+      const ColumnFamilyMetaData& cf_meta,
+      const Comparator* comparator,
+      int min_level, int max_level,
+      const SstFileMetaData* input_file_meta,
+      std::set<uint64_t>* overlapping_file_numbers) {
+    std::set<const SstFileMetaData*> overlapping_files;
+    overlapping_files.insert(input_file_meta);
+    for (int m = min_level; m <= max_level; ++m) {
+      for (auto& file : cf_meta.levels[m].files) {
+        for (auto* included_file : overlapping_files) {
+          if (HaveOverlappingKeyRanges(
+                  comparator, *included_file, file)) {
+            overlapping_files.insert(&file);
+            overlapping_file_numbers->insert(file.file_number);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  void VerifyCompactionResult(
+      const ColumnFamilyMetaData& cf_meta,
+      const std::set<uint64_t>& overlapping_file_numbers) {
+    for (auto& level : cf_meta.levels) {
+      for (auto& file : level.files) {
+        assert(overlapping_file_numbers.find(file.file_number) ==
+               overlapping_file_numbers.end());
+      }
+    }
+  }
+
+  void PickRandomFileMetaData(
+      Random* rnd, const ColumnFamilyMetaData& cf_meta,
+      int* level, const SstFileMetaData** random_file) {
+    int level_index;
+
+    // pick a level which has a file.
+    for (level_index = rnd->Uniform(cf_meta.levels.size());
+         cf_meta.levels[level_index].files.size() == 0;
+         level_index = rnd->Uniform(cf_meta.levels.size())) {
+    }
+
+    int file_index = rnd->Uniform(cf_meta.levels[level_index].files.size());
+
+    *level = level_index;
+    *random_file = &cf_meta.levels[level_index].files[file_index];
+  }
+}  // namespace
+
+TEST(DBTest, CompactFilesOnLevelCompaction) {
+  const int kKeySize = 16;
+  const int kValueSize = 984;
+  const int kEntrySize = kKeySize + kValueSize;
+  const int kEntriesPerBuffer = 100;
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base = options.target_file_size_base * 2;
+  options.level0_stop_writes_trigger = 2;
+  options.max_bytes_for_level_multiplier = 2;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, &options);
+
+  Random rnd(301);
+  for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
+    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kValueSize)));
+  }
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForCompact();
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
+  int output_level = cf_meta.levels.size() - 1;
+  for (int file_picked = 5; file_picked > 0; --file_picked) {
+    std::set<uint64_t> overlapping_file_numbers;
+    std::vector<uint64_t> compaction_input_file_numbers;
+    for (int f = 0; f < file_picked; ++f) {
+      int level;
+      const SstFileMetaData* random_file;
+      PickRandomFileMetaData(&rnd, cf_meta, &level, &random_file);
+      compaction_input_file_numbers.push_back(random_file->file_number);
+      GetOverlappingFileNumbersForLevelCompaction(
+          cf_meta, options.comparator, level, output_level,
+          random_file, &overlapping_file_numbers);
+    }
+
+    ASSERT_OK(dbfull()->CompactFiles(
+        CompactionOptions(), "pikachu",
+        compaction_input_file_numbers,
+        output_level, 0));
+
+    // Make sure all overlapping files do not exist after compaction
+    dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
+    VerifyCompactionResult(cf_meta, overlapping_file_numbers);
+  }
+
+  // make sure all key-values are still there.
+  for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
+    ASSERT_NE(Get(1, std::to_string(key)), "NOT_FOUND");
+  }
+}
+
+TEST(DBTest, CompactFilesOnUniversalCompaction) {
+  const int kKeySize = 16;
+  const int kValueSize = 984;
+  const int kEntrySize = kKeySize + kValueSize;
+  const int kEntriesPerBuffer = 10;
+
+  ChangeCompactOptions();
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, &options);
+  ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
+  Random rnd(301);
+  for (int key = 1024 * kEntriesPerBuffer; key >= 0; --key) {
+    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kValueSize)));
+  }
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForCompact();
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
+  std::vector<uint64_t> compaction_input_file_numbers;
+  for (auto file : cf_meta.levels[0].files) {
+    if (rnd.OneIn(2)) {
+      compaction_input_file_numbers.push_back(file.file_number);
+    }
+  }
+
+  if (compaction_input_file_numbers.size() == 0) {
+    compaction_input_file_numbers.push_back(
+        cf_meta.levels[0].files[0].file_number);
+  }
+
+  // expect fail since universal compaction only allow L0 output
+  ASSERT_TRUE(!dbfull()->CompactFiles(
+      CompactionOptions(), "pikachu",
+      compaction_input_file_numbers,
+      1, 0).ok());
+
+  // expect ok and verify the compacted files no longer exist.
+  ASSERT_OK(dbfull()->CompactFiles(
+      CompactionOptions(), "pikachu",
+      compaction_input_file_numbers,
+      0, 0));
+  dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
+  VerifyCompactionResult(
+      cf_meta,
+      std::set<uint64_t>(compaction_input_file_numbers.begin(),
+          compaction_input_file_numbers.end()));
+
+  compaction_input_file_numbers.clear();
+
+  // Pick the first and the last file, expect everything is
+  // compacted into one single file.
+  compaction_input_file_numbers.push_back(
+      cf_meta.levels[0].files[0].file_number);
+  compaction_input_file_numbers.push_back(
+      cf_meta.levels[0].files[
+          cf_meta.levels[0].files.size() - 1].file_number);
+  ASSERT_OK(dbfull()->CompactFiles(
+      CompactionOptions(), "pikachu",
+      compaction_input_file_numbers,
+      0, 0));
+  dbfull()->GetColumnFamilyMetaData(&cf_meta, "pikachu");
+  ASSERT_EQ(cf_meta.levels[0].files.size(), 1U);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

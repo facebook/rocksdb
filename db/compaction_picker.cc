@@ -406,25 +406,148 @@ Compaction* CompactionPicker::CompactRange(Version* version, int input_level,
   return c;
 }
 
-Compaction* CompactionPicker::FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const {
-  *status = Status::OK();
-  for (auto cinputs : input_files) {
-    for (auto file_meta : cinputs.files) {
-      if (file_meta->being_compacted) {
-        *status = Status::Aborted("Some files are currently being compacted.");
+namespace {
+bool HaveOverlappingKeyRanges(
+    const Comparator* c,
+    const SstFileMetaData& a, const SstFileMetaData& b) {
+  if (c->Compare(a.smallestkey, b.smallestkey) >= 0) {
+    if (c->Compare(a.smallestkey, b.largestkey) <= 0) {
+      // b.smallestkey <= a.smallestkey <= b.largestkey
+      return true;
+    }
+  } else if (c->Compare(a.largestkey, b.smallestkey) >= 0) {
+    // a.smallestkey < b.smallestkey <= a.largestkey
+    return true;
+  }
+  if (c->Compare(a.largestkey, b.largestkey) <= 0) {
+    if (c->Compare(a.largestkey, b.smallestkey) >= 0) {
+      // b.smallestkey <= a.largestkey <= b.largestkey
+      return true;
+    }
+  } else if (c->Compare(a.smallestkey, b.largestkey) <= 0) {
+    // a.smallestkey <= b.largestkey < a.largestkey
+    return true;
+  }
+  return false;
+}
+}  // namespace
+
+Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const {
+  auto& levels = cf_meta.levels;
+  auto comparator = icmp_->user_comparator();
+
+  for (size_t l = 0; l < levels.size(); ++l) {
+    auto& current_files = levels[l].files;
+    int first_included = static_cast<int>(current_files.size());
+    int last_included = -1;
+    // first, make sure all files being picked are in continuous order.
+    for (size_t f = 0; f < current_files.size(); ++f) {
+      if (input_files->find(current_files[f].file_number) !=
+          input_files->end()) {
+        first_included = std::min(first_included, static_cast<int>(f));
+        last_included = std::max(last_included, static_cast<int>(f));
+      }
+    }
+    if (last_included == -1) {
+      continue;
+    }
+    // include all files between the first and the last included ones.
+    for (int f = first_included; f <= last_included; ++f) {
+      if (current_files[f].being_compacted) {
+        return Status::Aborted(
+            "File " + std::to_string(current_files[f].file_number) +
+            " that has overlapping key range with one of the compaction "
+            " input file is currently being compacted.");
+      }
+      input_files->insert(current_files[f].file_number);
+    }
+
+    SstFileMetaData super_file_meta(
+        0, "", 0, 0, 0, 0,
+        current_files[first_included].smallestkey,
+        current_files[last_included].largestkey, false);
+
+    // For all lower levels, include all overlapping files.
+    for (size_t m = l + 1; m < levels.size(); ++m) {
+      for (auto& next_lv_file : levels[m].files) {
+        if (HaveOverlappingKeyRanges(
+            comparator, super_file_meta, next_lv_file)) {
+          if (next_lv_file.being_compacted) {
+            return Status::Aborted(
+                "File " + std::to_string(next_lv_file.file_number) +
+                " that has overlapping key range with one of the compaction "
+                " input file is currently being compacted.");
+          }
+          input_files->insert(next_lv_file.file_number);
+        }
       }
     }
   }
-  if (!status->ok()) {
-    return nullptr;
+  return Status::OK();
+}
+
+Status CompactionPicker::SanitizeCompactionInputFiles(
+    std::set<uint64_t>* input_files,
+    const ColumnFamilyMetaData& cf_meta,
+    const int output_level) const {
+  assert(static_cast<int>(cf_meta.levels.size()) - 1 ==
+         cf_meta.levels[cf_meta.levels.size() - 1].level);
+  if (output_level >= static_cast<int>(cf_meta.levels.size())) {
+    return Status::InvalidArgument(
+        "Output level for column family " + cf_meta.name +
+        " must between [0, " +
+        std::to_string(cf_meta.levels[cf_meta.levels.size() - 1].level) +
+        "].");
   }
 
+  if (input_files->size() == 0) {
+    return Status::InvalidArgument(
+        "A valid compaction must have at least one file.");
+  }
+
+  if (output_level > MaxOutputLevel()) {
+    return Status::InvalidArgument(
+        "Exceed maximum allowed output level --- " +
+            std::to_string(MaxOutputLevel()));
+  }
+
+  for (auto file_num : *input_files) {
+    bool found = false;
+    for (auto level_meta : cf_meta.levels) {
+      for (auto file_meta : level_meta.files) {
+        if (file_num == file_meta.file_number) {
+          if (file_meta.being_compacted) {
+            return Status::Aborted(
+                "Specified compaction input file " + std::to_string(file_num) +
+                " is already being compacted.");
+          }
+          found = true;
+          break;
+        }
+      }
+      if (found) {
+        break;
+      }
+    }
+    if (!found) {
+      return Status::InvalidArgument(
+          "Specified compaction input file " + std::to_string(file_num) +
+          " does not exist in column family " + cf_meta.name + ".");
+    }
+  }
+
+  return SanitizeCompactionInputFilesForAllLevels(
+      input_files, cf_meta, output_level);
+}
+
+Compaction* CompactionPicker::FormCompaction(
+      const CompactionOptions& compact_options,
+      const autovector<CompactionInputFiles>& input_files,
+      int output_level,
+      Version* version) const {
   uint64_t max_grandparent_overlap_bytes =
       output_level + 1 < NumberLevels() ?
           MaxGrandParentOverlapBytes(output_level + 1) :
@@ -509,18 +632,6 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
   compactions_in_progress_[level].insert(c);
 
   return c;
-}
-
-Compaction* LevelCompactionPicker::FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const {
-  return CompactionPicker::FormCompaction(
-      compact_options, input_files, output_level,
-      version, adjusted, status);
 }
 
 Compaction* LevelCompactionPicker::PickCompactionBySize(Version* version,
@@ -680,18 +791,6 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
       (c->inputs_[0].size() == c->input_version_->files_[0].size());
 
   return c;
-}
-
-Compaction* UniversalCompactionPicker::FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const {
-  return CompactionPicker::FormCompaction(
-      compact_options, input_files, output_level,
-      version, adjusted, status);
 }
 
 uint32_t UniversalCompactionPicker::GetPathId(const Options& options,
@@ -1046,18 +1145,6 @@ Compaction* FIFOCompactionPicker::PickCompaction(Version* version,
   compactions_in_progress_[0].insert(c);
 
   return c;
-}
-
-Compaction* FIFOCompactionPicker::FormCompaction(
-      const CompactionOptions& compact_options,
-      autovector<CompactionInputFiles>& input_files,
-      int output_level,
-      Version* version,
-      bool* adjusted,
-      Status* status) const {
-  return CompactionPicker::FormCompaction(
-      compact_options, input_files, output_level,
-      version, adjusted, status);
 }
 
 Compaction* FIFOCompactionPicker::CompactRange(

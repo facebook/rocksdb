@@ -70,7 +70,7 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
 }
 
 Compaction::Compaction(Version* input_version,
-    autovector<CompactionInputFiles>& inputs,
+    const autovector<CompactionInputFiles>& inputs,
     int start_level, int output_level,
     uint64_t max_grandparent_overlap_bytes,
     const CompactionOptions& options)

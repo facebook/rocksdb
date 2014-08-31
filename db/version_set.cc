@@ -2962,7 +2962,6 @@ void VersionSet::GetColumnFamilyMetaDataImpl(
   assert(cf_meta);
   assert(cfd);
   assert(current);
-  current->UpdateTemporaryStats();
 
   cf_meta->name = cfd->GetName();
   cf_meta->size = 0;
@@ -3024,6 +3023,7 @@ Status VersionSet::GetColumnFamilyMetaData(
     return Status::NotFound(
         "Cannot find any column family with the specified name.");
   }
+  current->UpdateTemporaryStats();
   GetColumnFamilyMetaDataImpl(cf_meta, matched_cfd, current);
 
   mutex->Lock();
@@ -3057,6 +3057,7 @@ void VersionSet::GetDatabaseMetaData(
   assert(versions.size() == cfds.size());
   for (size_t i = 0; i < cfds.size(); ++i) {
     ColumnFamilyMetaData cf_meta;
+    versions[i]->UpdateTemporaryStats();
     GetColumnFamilyMetaDataImpl(&cf_meta, cfds[i], versions[i]);
 
     db_meta->size += cf_meta.size;

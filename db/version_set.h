@@ -496,6 +496,7 @@ class VersionSet {
   struct ManifestWriter;
 
   friend class Version;
+  friend class DBImpl;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
