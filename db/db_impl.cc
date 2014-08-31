@@ -631,7 +631,7 @@ bool CompareCandidateFile(const rocksdb::DBImpl::CandidateFileInfo& first,
   } else if (first.file_name < second.file_name) {
     return false;
   } else {
-    return (first.path_id > first.path_id);
+    return (first.path_id > second.path_id);
   }
 }
 };  // namespace
