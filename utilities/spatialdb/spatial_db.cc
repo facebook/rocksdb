@@ -629,7 +629,7 @@ DBOptions GetDBOptions(const SpatialDBOptions& options) {
   db_options.env->SetBackgroundThreads(db_options.max_background_flushes,
                                        Env::HIGH);
   if (options.bulk_load) {
-    db_options.disableDataSync = true;
+    db_options.disable_data_sync = true;
   }
   return db_options;
 }

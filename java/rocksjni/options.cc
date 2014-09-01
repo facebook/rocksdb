@@ -197,7 +197,7 @@ void Java_org_rocksdb_Options_setMaxOpenFiles(
  */
 jboolean Java_org_rocksdb_Options_disableDataSync(
     JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->disableDataSync;
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->disable_data_sync;
 }
 
 /*
@@ -207,7 +207,7 @@ jboolean Java_org_rocksdb_Options_disableDataSync(
  */
 void Java_org_rocksdb_Options_setDisableDataSync(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean disableDataSync) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->disableDataSync =
+  reinterpret_cast<rocksdb::Options*>(jhandle)->disable_data_sync =
       static_cast<bool>(disableDataSync);
 }
 

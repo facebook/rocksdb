@@ -154,7 +154,7 @@ DBOptions::DBOptions()
       max_open_files(5000),
       max_total_wal_size(0),
       statistics(nullptr),
-      disableDataSync(false),
+      disable_data_sync(false),
       use_fsync(false),
       db_log_dir(""),
       wal_dir(""),
@@ -194,7 +194,7 @@ DBOptions::DBOptions(const Options& options)
       max_open_files(options.max_open_files),
       max_total_wal_size(options.max_total_wal_size),
       statistics(options.statistics),
-      disableDataSync(options.disableDataSync),
+      disable_data_sync(options.disable_data_sync),
       use_fsync(options.use_fsync),
       db_paths(options.db_paths),
       db_log_dir(options.db_log_dir),
@@ -237,7 +237,7 @@ void DBOptions::Dump(Logger* log) const {
     Log(log,"                Options.info_log: %p", info_log.get());
     Log(log,"          Options.max_open_files: %d", max_open_files);
     Log(log,"      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
-    Log(log, "       Options.disableDataSync: %d", disableDataSync);
+    Log(log, "     Options.disable_data_sync: %d", disable_data_sync);
     Log(log, "             Options.use_fsync: %d", use_fsync);
     Log(log, "     Options.max_log_file_size: %zu", max_log_file_size);
     Log(log, "Options.max_manifest_file_size: %lu",
@@ -436,7 +436,7 @@ Options::PrepareForBulkLoad()
   // no auto compactions please. The application should issue a
   // manual compaction after all data is loaded into L0.
   disable_auto_compactions = true;
-  disableDataSync = true;
+  disable_data_sync = true;
 
   // A manual compaction run should pick all files in L0 in
   // a single compaction run.

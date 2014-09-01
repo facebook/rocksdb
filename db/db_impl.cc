@@ -1499,7 +1499,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
         cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
 
-    if (!options_.disableDataSync) {
+    if (!options_.disable_data_sync) {
       db_directory_->Fsync();
     }
     mutex_.Lock();
@@ -2480,7 +2480,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
   compact->builder.reset();
 
   // Finish and check for file errors
-  if (s.ok() && !options_.disableDataSync) {
+  if (s.ok() && !options_.disable_data_sync) {
     if (options_.use_fsync) {
       StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
       s = compact->outfile->Fsync();
@@ -3233,7 +3233,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   }
   input.reset();
 
-  if (!options_.disableDataSync) {
+  if (!options_.disable_data_sync) {
     db_directory_->Fsync();
   }
 

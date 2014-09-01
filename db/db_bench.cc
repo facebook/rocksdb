@@ -1667,7 +1667,7 @@ class Benchmark {
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
     }
     options.env = FLAGS_env;
-    options.disableDataSync = FLAGS_disable_data_sync;
+    options.disable_data_sync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
     options.wal_dir = FLAGS_wal_dir;
     options.num_levels = FLAGS_num_levels;
