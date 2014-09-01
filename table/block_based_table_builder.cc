@@ -181,12 +181,12 @@ class HashIndexBuilder : public IndexBuilder {
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
                              const BlockHandle& block_handle) override {
-    ++current_restart_index_;
     primary_index_builder.AddIndexEntry(last_key_in_current_block,
                                         first_key_in_next_block, block_handle);
   }
 
   virtual void OnKeyAdded(const Slice& key) override {
+    ++current_restart_index_;
     auto key_prefix = hash_key_extractor_->Transform(key);
     bool is_first_entry = pending_block_num_ == 0;
 
