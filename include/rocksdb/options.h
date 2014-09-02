@@ -409,9 +409,23 @@ struct ColumnFamilyOptions {
   std::shared_ptr<MemTableRepFactory> memtable_factory;
 
   // This is a factory that provides TableFactory objects.
-  // Default: a factory that provides a default implementation of
-  // Table and TableBuilder.
+  // Default: a block-based table factory that provides a default
+  // implementation of TableBuilder and TableReader with default
+  // BlockBasedTableOptions.
   std::shared_ptr<TableFactory> table_factory;
+
+  // Block-based table related options are moved to BlockBasedTableOptions.
+  // Related options that were originally here but now moved include:
+  //   no_block_cache
+  //   block_cache
+  //   block_cache_compressed
+  //   block_size
+  //   block_size_deviation
+  //   block_restart_interval
+  //   filter_policy
+  //   whole_key_filtering
+  // If you'd like to customize some of these options, you will need to
+  // use NewBlockBasedTableFactory() to construct a new table factory.
 
   // This option allows user to to collect their own interested statistics of
   // the tables.
