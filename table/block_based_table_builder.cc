@@ -203,8 +203,7 @@ class HashIndexBuilder : public IndexBuilder {
       pending_block_num_ = 1;
       pending_entry_index_ = current_restart_index_;
     } else {
-        ++pending_block_num_;
-      }
+      ++pending_block_num_;
     }
   }
 
