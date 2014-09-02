@@ -203,11 +203,6 @@ class HashIndexBuilder : public IndexBuilder {
       pending_block_num_ = 1;
       pending_entry_index_ = current_restart_index_;
     } else {
-      // entry number increments when keys share the prefix reside in
-      // differnt data blocks.
-      auto last_restart_index = pending_entry_index_ + pending_block_num_ - 1;
-      assert(last_restart_index <= current_restart_index_);
-      if (last_restart_index != current_restart_index_) {
         ++pending_block_num_;
       }
     }
