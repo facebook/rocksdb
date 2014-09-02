@@ -290,8 +290,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   return result;
 }
 
+namespace {
+
 Status SanitizeDBOptionsByCFOptions(
-    DBOptions* db_opts,
+    const DBOptions* db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
   for (auto cf : column_families) {
@@ -303,7 +305,6 @@ Status SanitizeDBOptionsByCFOptions(
   return Status::OK();
 }
 
-namespace {
 CompressionType GetCompressionFlush(const Options& options) {
   // Compressing memtable flushes might not help unless the sequential load
   // optimization is used for leveled compaction. Otherwise the CPU and
@@ -4802,11 +4803,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
-  Status s = SanitizeDBOptionsByCFOptions(&db_options, column_families);
-  if (!s.ok()) {
-    return s;
-  }
-  s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
+  Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a reference to
@@ -4819,6 +4816,10 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
+  Status s = SanitizeDBOptionsByCFOptions(&db_options, column_families);
+  if (!s.ok()) {
+    return s;
+  }
   if (db_options.db_paths.size() > 1) {
     for (auto& cfd : column_families) {
       if (cfd.options.compaction_style != kCompactionStyleUniversal) {
@@ -4844,7 +4845,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   }
 
   DBImpl* impl = new DBImpl(db_options, dbname);
-  Status s = impl->env_->CreateDirIfMissing(impl->options_.wal_dir);
+  s = impl->env_->CreateDirIfMissing(impl->options_.wal_dir);
   if (s.ok()) {
     for (auto db_path : impl->options_.db_paths) {
       s = impl->env_->CreateDirIfMissing(db_path.path);

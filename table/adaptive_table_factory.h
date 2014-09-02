@@ -43,7 +43,7 @@ class AdaptiveTableFactory : public TableFactory {
       override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(DBOptions* db_opts) const override {
+  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
     if (db_opts->allow_mmap_reads == false) {
       return Status::NotSupported(
           "AdaptiveTable with allow_mmap_reads == false is not supported.");
