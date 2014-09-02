@@ -609,7 +609,7 @@ struct DBOptions {
   // of data. Once the bulk-loading is complete, please issue a
   // sync to the OS to flush all dirty buffesrs to stable storage.
   // Default: false
-  bool disableDataSync;
+  bool disable_data_sync;
 
   // If true, then every store to stable storage will issue a fsync.
   // If false, then every store to stable storage will issue a fdatasync.

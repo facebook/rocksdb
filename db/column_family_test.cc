@@ -740,7 +740,7 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   db_options_.max_open_files = 20;  // only 10 files in file cache
-  db_options_.disableDataSync = true;
+  db_options_.disable_data_sync = true;
 
   default_cf.compaction_style = kCompactionStyleLevel;
   default_cf.num_levels = 3;

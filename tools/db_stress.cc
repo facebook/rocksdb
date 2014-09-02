@@ -1585,7 +1585,7 @@ class StressTest {
     options_.max_open_files = FLAGS_open_files;
     options_.statistics = dbstats;
     options_.env = FLAGS_env;
-    options_.disableDataSync = FLAGS_disable_data_sync;
+    options_.disable_data_sync = FLAGS_disable_data_sync;
     options_.use_fsync = FLAGS_use_fsync;
     options_.allow_mmap_reads = FLAGS_mmap_read;
     rocksdb_kill_odds = FLAGS_kill_random_test;

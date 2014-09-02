@@ -196,7 +196,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok() && !options.disableDataSync) {
+    if (s.ok() && !options.disable_data_sync) {
       if (options.use_fsync) {
         StopWatch sw(env, options.statistics.get(), TABLE_SYNC_MICROS);
         s = file->Fsync();

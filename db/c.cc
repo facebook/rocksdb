@@ -1318,7 +1318,7 @@ void rocksdb_options_set_prefix_extractor(
 
 void rocksdb_options_set_disable_data_sync(
     rocksdb_options_t* opt, int disable_data_sync) {
-  opt->rep.disableDataSync = disable_data_sync;
+  opt->rep.disable_data_sync = disable_data_sync;
 }
 
 void rocksdb_options_set_use_fsync(
