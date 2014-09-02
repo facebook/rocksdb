@@ -16,30 +16,14 @@
 namespace rocksdb {
 
 char* EncodeVarint32(char* dst, uint32_t v) {
+  static const unsigned int B = 128;
   // Operate on characters as unsigneds
   unsigned char* ptr = reinterpret_cast<unsigned char*>(dst);
-  static const int B = 128;
-  if (v < (1 << 7)) {
-    *(ptr++) = v;
-  } else if (v < (1 << 14)) {
-    *(ptr++) = v | B;
-    *(ptr++) = v >> 7;
-  } else if (v < (1 << 21)) {
-    *(ptr++) = v | B;
-    *(ptr++) = (v >> 7) | B;
-    *(ptr++) = v >> 14;
-  } else if (v < (1 << 28)) {
-    *(ptr++) = v | B;
-    *(ptr++) = (v >> 7) | B;
-    *(ptr++) = (v >> 14) | B;
-    *(ptr++) = v >> 21;
-  } else {
-    *(ptr++) = v | B;
-    *(ptr++) = (v >> 7) | B;
-    *(ptr++) = (v >> 14) | B;
-    *(ptr++) = (v >> 21) | B;
-    *(ptr++) = v >> 28;
+  while (v >= B) {
+    *(ptr++) = (v & (B - 1)) | B;
+    v >>= 7;
   }
+  *(ptr++) = static_cast<unsigned char>(v);
   return reinterpret_cast<char*>(ptr);
 }
 
