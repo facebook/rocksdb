@@ -408,9 +408,15 @@ TEST(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   WriteBatch batch;
+  batch.Put(handles_[0], Slice("existing"), Slice("column-family"));
   batch.Put(handles_[1], Slice("non-existing"), Slice("column-family"));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
   DropColumnFamilies({1});
+  WriteOptions woptions_ignore_missing_cf;
+  woptions_ignore_missing_cf.ignore_missing_column_families = true;
+  batch.Put(handles_[0], Slice("still here"), Slice("column-family"));
+  ASSERT_OK(db_->Write(woptions_ignore_missing_cf, &batch));
+  ASSERT_EQ("column-family", Get(0, "still here"));
   Status s = db_->Write(WriteOptions(), &batch);
   ASSERT_TRUE(s.IsInvalidArgument());
   Close();

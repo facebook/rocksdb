@@ -959,7 +959,17 @@ struct WriteOptions {
   // Default: 0
   uint64_t timeout_hint_us;
 
-  WriteOptions() : sync(false), disableWAL(false), timeout_hint_us(0) {}
+  // If true and if user is trying to write to column families that don't exist
+  // (they were dropped),  ignore the write (don't return an error). If there
+  // are multiple writes in a WriteBatch, other writes will succeed.
+  // Default: false
+  bool ignore_missing_column_families;
+
+  WriteOptions()
+      : sync(false),
+        disableWAL(false),
+        timeout_hint_us(0),
+        ignore_missing_column_families(false) {}
 };
 
 // Options that control flush operations

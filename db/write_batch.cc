@@ -299,17 +299,17 @@ class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
   ColumnFamilyMemTables* cf_mems_;
-  bool recovery_;
+  bool ignore_missing_column_families_;
   uint64_t log_number_;
   DBImpl* db_;
   const bool dont_filter_deletes_;
 
   MemTableInserter(SequenceNumber sequence, ColumnFamilyMemTables* cf_mems,
-                   bool recovery, uint64_t log_number, DB* db,
-                   const bool dont_filter_deletes)
+                   bool ignore_missing_column_families, uint64_t log_number,
+                   DB* db, const bool dont_filter_deletes)
       : sequence_(sequence),
         cf_mems_(cf_mems),
-        recovery_(recovery),
+        ignore_missing_column_families_(ignore_missing_column_families),
         log_number_(log_number),
         db_(reinterpret_cast<DBImpl*>(db)),
         dont_filter_deletes_(dont_filter_deletes) {
@@ -321,12 +321,18 @@ class MemTableInserter : public WriteBatch::Handler {
 
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
     bool found = cf_mems_->Seek(column_family_id);
-    if (recovery_ && (!found || log_number_ < cf_mems_->GetLogNumber())) {
-      // if in recovery envoronment:
-      // * If column family was not found, it might mean that the WAL write
-      // batch references to the column family that was dropped after the
-      // insert. We don't want to fail the whole write batch in that case -- we
-      // just ignore the update.
+    if (!found) {
+      if (ignore_missing_column_families_) {
+        *s = Status::OK();
+      } else {
+        *s = Status::InvalidArgument(
+            "Invalid column family specified in write batch");
+      }
+      return false;
+    }
+    if (log_number_ != 0 && log_number_ < cf_mems_->GetLogNumber()) {
+      // This is true only in recovery environment (log_number_ is always 0 in
+      // non-recovery, regular write code-path)
       // * If log_number_ < cf_mems_->GetLogNumber(), this means that column
       // family already contains updates from this log. We can't apply updates
       // twice because of update-in-place or merge workloads -- ignore the
@@ -334,18 +340,8 @@ class MemTableInserter : public WriteBatch::Handler {
       *s = Status::OK();
       return false;
     }
-    if (!found) {
-      assert(!recovery_);
-      // If the column family was not found in non-recovery enviornment
-      // (client's write code-path), we have to fail the write and return
-      // the failure status to the client.
-      *s = Status::InvalidArgument(
-          "Invalid column family specified in write batch");
-      return false;
-    }
     return true;
   }
-
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
                        const Slice& value) {
     Status seek_status;
@@ -503,10 +499,12 @@ class MemTableInserter : public WriteBatch::Handler {
 
 Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       ColumnFamilyMemTables* memtables,
-                                      bool recovery, uint64_t log_number,
-                                      DB* db, const bool dont_filter_deletes) {
+                                      bool ignore_missing_column_families,
+                                      uint64_t log_number, DB* db,
+                                      const bool dont_filter_deletes) {
   MemTableInserter inserter(WriteBatchInternal::Sequence(b), memtables,
-                            recovery, log_number, db, dont_filter_deletes);
+                            ignore_missing_column_families, log_number, db,
+                            dont_filter_deletes);
   return b->Iterate(&inserter);
 }
 

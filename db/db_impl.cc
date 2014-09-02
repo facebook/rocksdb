@@ -1301,14 +1301,20 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
   WriteBatch batch;
   while (reader.ReadRecord(&record, &scratch)) {
     if (record.size() < 12) {
-      reporter.Corruption(
-          record.size(), Status::Corruption("log record too small"));
+      reporter.Corruption(record.size(),
+                          Status::Corruption("log record too small"));
       continue;
     }
     WriteBatchInternal::SetContents(&batch, record);
 
+    // If column family was not found, it might mean that the WAL write
+    // batch references to the column family that was dropped after the
+    // insert. We don't want to fail the whole write batch in that case -- we
+    // just ignore the update. That's why we set ignore missing column families
+    // to true
     status = WriteBatchInternal::InsertInto(
-        &batch, column_family_memtables_.get(), true, log_number);
+        &batch, column_family_memtables_.get(),
+        true /* ignore missing column families */, log_number);
 
     MaybeIgnoreError(&status);
     if (!status.ok()) {
@@ -4066,7 +4072,8 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         PERF_TIMER_GUARD(write_memtable_time);
 
         status = WriteBatchInternal::InsertInto(
-            updates, column_family_memtables_.get(), false, 0, this, false);
+            updates, column_family_memtables_.get(),
+            options.ignore_missing_column_families, 0, this, false);
         // A non-OK status here indicates iteration failure (either in-memory
         // writebatch corruption (very bad), or the client specified invalid
         // column family).  This will later on trigger bg_error_.
