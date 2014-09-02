@@ -133,12 +133,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) {
+  virtual Status Finish(IndexBlocks* index_blocks) override {
     index_blocks->index_block_contents = index_block_builder_.Finish();
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const {
+  virtual size_t EstimatedSize() const override {
     return index_block_builder_.CurrentSizeEstimate();
   }
 
@@ -181,7 +181,6 @@ class HashIndexBuilder : public IndexBuilder {
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
                              const BlockHandle& block_handle) override {
-    ++current_restart_index_;
     primary_index_builder.AddIndexEntry(last_key_in_current_block,
                                         first_key_in_next_block, block_handle);
   }
@@ -194,22 +193,15 @@ class HashIndexBuilder : public IndexBuilder {
     if (is_first_entry || pending_entry_prefix_ != key_prefix) {
       if (!is_first_entry) {
         FlushPendingPrefix();
+        ++pending_entry_index_;
       }
-
       // need a hard copy otherwise the underlying data changes all the time.
       // TODO(kailiu) ToString() is expensive. We may speed up can avoid data
       // copy.
       pending_entry_prefix_ = key_prefix.ToString();
       pending_block_num_ = 1;
-      pending_entry_index_ = current_restart_index_;
     } else {
-      // entry number increments when keys share the prefix reside in
-      // differnt data blocks.
-      auto last_restart_index = pending_entry_index_ + pending_block_num_ - 1;
-      assert(last_restart_index <= current_restart_index_);
-      if (last_restart_index != current_restart_index_) {
-        ++pending_block_num_;
-      }
+      ++pending_block_num_;
     }
   }
 
@@ -488,6 +480,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
     // blocks.
     if (ok()) {
       r->index_builder->AddIndexEntry(&r->last_key, &key, r->pending_handle);
+      r->index_builder->OnKeyAdded(key);
     }
   }
 
@@ -501,7 +494,6 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.raw_key_size += key.size();
   r->props.raw_value_size += value.size();
 
-  r->index_builder->OnKeyAdded(key);
   NotifyCollectTableCollectorsOnAdd(key, value, r->table_properties_collectors,
                                     r->options.info_log.get());
 }
