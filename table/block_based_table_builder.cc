@@ -186,7 +186,6 @@ class HashIndexBuilder : public IndexBuilder {
   }
 
   virtual void OnKeyAdded(const Slice& key) override {
-    ++current_restart_index_;
     auto key_prefix = hash_key_extractor_->Transform(key);
     bool is_first_entry = pending_block_num_ == 0;
 
@@ -194,14 +193,13 @@ class HashIndexBuilder : public IndexBuilder {
     if (is_first_entry || pending_entry_prefix_ != key_prefix) {
       if (!is_first_entry) {
         FlushPendingPrefix();
+        ++pending_entry_index_;
       }
-
       // need a hard copy otherwise the underlying data changes all the time.
       // TODO(kailiu) ToString() is expensive. We may speed up can avoid data
       // copy.
       pending_entry_prefix_ = key_prefix.ToString();
       pending_block_num_ = 1;
-      pending_entry_index_ = current_restart_index_;
     } else {
       ++pending_block_num_;
     }
