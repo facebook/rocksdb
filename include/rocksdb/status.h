@@ -96,7 +96,7 @@ class Status {
   // Returns true iff the status indicates Incomplete
   bool IsIncomplete() const { return code() == kIncomplete; }
 
-  // Returns true iff the status indicates Incomplete
+  // Returns true iff the status indicates Shutdown In progress
   bool IsShutdownInProgress() const { return code() == kShutdownInProgress; }
 
   bool IsTimedOut() const { return code() == kTimedOut; }

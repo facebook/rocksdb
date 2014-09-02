@@ -2321,7 +2321,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
 
   if (status.ok()) {
     // Done
-  } else if (shutting_down_.Acquire_Load()) {
+  } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {
     Log(InfoLogLevel::WARN_LEVEL, options_.info_log, "Compaction error: %s",
