@@ -2581,6 +2581,10 @@ inline SequenceNumber DBImpl::findEarliestVisibleSnapshot(
 uint64_t DBImpl::CallFlushDuringCompaction(ColumnFamilyData* cfd,
                                            DeletionState& deletion_state,
                                            LogBuffer* log_buffer) {
+  if (options_.max_background_flushes > 0) {
+    // flush thread will take care of this
+    return 0;
+  }
   if (cfd->imm()->imm_flush_needed.NoBarrier_Load() != nullptr) {
     const uint64_t imm_start = env_->NowMicros();
     mutex_.Lock();
