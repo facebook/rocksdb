@@ -50,7 +50,7 @@ class BlockBuilder {
 
  private:
   const int          block_restart_interval_;
-  const Comparator*  comparator_;
+  const Comparator* comparator_ __attribute__((unused));  // only used in assert
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
