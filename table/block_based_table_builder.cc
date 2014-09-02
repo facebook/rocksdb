@@ -133,12 +133,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) {
+  virtual Status Finish(IndexBlocks* index_blocks) override {
     index_blocks->index_block_contents = index_block_builder_.Finish();
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const {
+  virtual size_t EstimatedSize() const override {
     return index_block_builder_.CurrentSizeEstimate();
   }
 
