@@ -244,8 +244,7 @@ class BlockConstructor: public Constructor {
                             const KVMap& data) {
     delete block_;
     block_ = nullptr;
-    BlockBuilder builder(table_options.block_restart_interval,
-                         &internal_comparator);
+    BlockBuilder builder(table_options.block_restart_interval);
 
     for (KVMap::const_iterator it = data.begin();
          it != data.end();
@@ -1054,7 +1053,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   ASSERT_EQ("", props.filter_policy_name);  // no filter policy is used
 
   // Verify data size.
-  BlockBuilder block_builder(1, options.comparator);
+  BlockBuilder block_builder(1);
   for (const auto& item : kvmap) {
     block_builder.Add(item.first, item.second);
   }

@@ -116,7 +116,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
  public:
   explicit ShortenedIndexBuilder(const Comparator* comparator)
       : IndexBuilder(comparator),
-        index_block_builder_(1 /* block_restart_interval == 1 */, comparator) {}
+        index_block_builder_(1 /* block_restart_interval == 1 */) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
@@ -420,7 +420,7 @@ struct BlockBasedTableBuilder::Rep {
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
-        data_block(table_options.block_restart_interval, &internal_comparator),
+        data_block(table_options.block_restart_interval),
         internal_prefix_transform(options.prefix_extractor.get()),
         index_builder(CreateIndexBuilder(
               table_options.index_type, &internal_comparator,
