@@ -3407,7 +3407,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
                        std::string* value, bool* value_found) {
   StopWatch sw(env_, stats_, DB_GET);
-  PERF_TIMER_AUTO(get_snapshot_time);
+  PERF_TIMER_GUARD(get_snapshot_time);
 
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -3431,6 +3431,7 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   // merge_operands will contain the sequence of merges in the latter case.
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
+
   if (sv->mem->Get(lkey, value, &s, merge_context, *cfd->options())) {
     // Done
     RecordTick(stats_, MEMTABLE_HIT);
@@ -3438,20 +3439,19 @@ Status DBImpl::GetImpl(const ReadOptions& options,
     // Done
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
-    PERF_TIMER_START(get_from_output_files_time);
-
+    PERF_TIMER_GUARD(get_from_output_files_time);
     sv->current->Get(options, lkey, value, &s, &merge_context, value_found);
-    PERF_TIMER_STOP(get_from_output_files_time);
     RecordTick(stats_, MEMTABLE_MISS);
   }
 
-  PERF_TIMER_START(get_post_process_time);
+  {
+    PERF_TIMER_GUARD(get_post_process_time);
 
-  ReturnAndCleanupSuperVersion(cfd, sv);
+    ReturnAndCleanupSuperVersion(cfd, sv);
 
-  RecordTick(stats_, NUMBER_KEYS_READ);
-  RecordTick(stats_, BYTES_READ, value->size());
-  PERF_TIMER_STOP(get_post_process_time);
+    RecordTick(stats_, NUMBER_KEYS_READ);
+    RecordTick(stats_, BYTES_READ, value->size());
+  }
   return s;
 }
 
@@ -3461,7 +3461,7 @@ std::vector<Status> DBImpl::MultiGet(
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
 
   StopWatch sw(env_, stats_, DB_MULTIGET);
-  PERF_TIMER_AUTO(get_snapshot_time);
+  PERF_TIMER_GUARD(get_snapshot_time);
 
   SequenceNumber snapshot;
 
@@ -3537,7 +3537,7 @@ std::vector<Status> DBImpl::MultiGet(
   }
 
   // Post processing (decrement reference counts and record statistics)
-  PERF_TIMER_START(get_post_process_time);
+  PERF_TIMER_GUARD(get_post_process_time);
   autovector<SuperVersion*> superversions_to_delete;
 
   // TODO(icanadi) do we need lock here or just around Cleanup()?
@@ -3910,7 +3910,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
-  PERF_TIMER_AUTO(write_pre_and_post_process_time);
+  PERF_TIMER_GUARD(write_pre_and_post_process_time);
   Writer w(&mutex_);
   w.batch = my_batch;
   w.sync = options.sync;
@@ -4043,7 +4043,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
 
       uint64_t log_size = 0;
       if (!options.disableWAL) {
-        PERF_TIMER_START(write_wal_time);
+        PERF_TIMER_GUARD(write_wal_time);
         Slice log_entry = WriteBatchInternal::Contents(updates);
         status = log_->AddRecord(log_entry);
         total_log_size_ += log_entry.size();
@@ -4061,10 +4061,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
             status = log_->file()->Sync();
           }
         }
-        PERF_TIMER_STOP(write_wal_time);
       }
       if (status.ok()) {
-        PERF_TIMER_START(write_memtable_time);
+        PERF_TIMER_GUARD(write_memtable_time);
 
         status = WriteBatchInternal::InsertInto(
             updates, column_family_memtables_.get(), false, 0, this, false);
@@ -4075,8 +4074,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         // Note that existing logic was not sound. Any partial failure writing
         // into the memtable would result in a state that some write ops might
         // have succeeded in memtable but Status reports error for all writes.
-
-        PERF_TIMER_STOP(write_memtable_time);
 
         SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
       }
@@ -4111,7 +4108,6 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
     RecordTick(stats_, WRITE_TIMEDOUT);
   }
 
-  PERF_TIMER_STOP(write_pre_and_post_process_time);
   return status;
 }
 
