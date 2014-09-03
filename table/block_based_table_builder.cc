@@ -401,7 +401,7 @@ struct BlockBasedTableBuilder::Rep {
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
-  FilterBlockBuilder* filter_block;
+  std::unique_ptr<FilterBlockBuilder> filter_block;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
@@ -461,7 +461,6 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 
 BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   assert(rep_->closed);  // Catch errors where caller forgot to call Finish()
-  delete rep_->filter_block;
   delete rep_;
 }
 
