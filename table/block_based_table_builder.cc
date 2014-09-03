@@ -133,12 +133,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) {
+  virtual Status Finish(IndexBlocks* index_blocks) override {
     index_blocks->index_block_contents = index_block_builder_.Finish();
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const {
+  virtual size_t EstimatedSize() const override {
     return index_block_builder_.CurrentSizeEstimate();
   }
 
@@ -175,14 +175,14 @@ class HashIndexBuilder : public IndexBuilder {
   explicit HashIndexBuilder(const Comparator* comparator,
                             const SliceTransform* hash_key_extractor)
       : IndexBuilder(comparator),
-        primary_index_builder(comparator),
+        primary_index_builder_(comparator),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
                              const BlockHandle& block_handle) override {
     ++current_restart_index_;
-    primary_index_builder.AddIndexEntry(last_key_in_current_block,
+    primary_index_builder_.AddIndexEntry(last_key_in_current_block,
                                         first_key_in_next_block, block_handle);
   }
 
@@ -213,9 +213,9 @@ class HashIndexBuilder : public IndexBuilder {
     }
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) {
+  virtual Status Finish(IndexBlocks* index_blocks) override {
     FlushPendingPrefix();
-    primary_index_builder.Finish(index_blocks);
+    primary_index_builder_.Finish(index_blocks);
     index_blocks->meta_blocks.insert(
         {kHashIndexPrefixesBlock.c_str(), prefix_block_});
     index_blocks->meta_blocks.insert(
@@ -223,8 +223,8 @@ class HashIndexBuilder : public IndexBuilder {
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const {
-    return primary_index_builder.EstimatedSize() + prefix_block_.size() +
+  virtual size_t EstimatedSize() const override {
+    return primary_index_builder_.EstimatedSize() + prefix_block_.size() +
            prefix_meta_block_.size();
   }
 
@@ -237,7 +237,7 @@ class HashIndexBuilder : public IndexBuilder {
     PutVarint32(&prefix_meta_block_, pending_block_num_);
   }
 
-  ShortenedIndexBuilder primary_index_builder;
+  ShortenedIndexBuilder primary_index_builder_;
   const SliceTransform* hash_key_extractor_;
 
   // stores a sequence of prefixes
