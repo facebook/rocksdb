@@ -71,20 +71,14 @@ void FilterBlockBuilder::AddKey(const Slice& key) {
   }
 
   // add prefix to filter if needed
-  if (prefix_extractor_ && prefix_extractor_->InDomain(ExtractUserKey(key))) {
-    // If prefix_extractor_, this filter_block layer assumes we only
-    // operate on internal keys.
-    Slice user_key = ExtractUserKey(key);
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
     // this assumes prefix(prefix(key)) == prefix(key), as the last
     // entry in entries_ may be either a key or prefix, and we use
     // prefix(last entry) to get the prefix of the last key.
-    if (prev.size() == 0 ||
-        !SamePrefix(user_key, ExtractUserKey(prev))) {
-      Slice prefix = prefix_extractor_->Transform(user_key);
-      InternalKey internal_prefix_tmp(prefix, 0, kTypeValue);
-      Slice internal_prefix = internal_prefix_tmp.Encode();
+    if (prev.size() == 0 || !SamePrefix(key, prev)) {
+      Slice prefix = prefix_extractor_->Transform(key);
       start_.push_back(entries_.size());
-      entries_.append(internal_prefix.data(), internal_prefix.size());
+      entries_.append(prefix.data(), prefix.size());
     }
   }
 }

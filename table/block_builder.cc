@@ -41,10 +41,8 @@
 
 namespace rocksdb {
 
-BlockBuilder::BlockBuilder(int block_restart_interval,
-                           const Comparator* comparator)
+BlockBuilder::BlockBuilder(int block_restart_interval)
     : block_restart_interval_(block_restart_interval),
-      comparator_(comparator),
       restarts_(),
       counter_(0),
       finished_(false) {
@@ -96,8 +94,6 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
   Slice last_key_piece(last_key_);
   assert(!finished_);
   assert(counter_ <= block_restart_interval_);
-  assert(buffer_.empty() // No values yet?
-         || comparator_->Compare(key, last_key_piece) > 0);
   size_t shared = 0;
   if (counter_ < block_restart_interval_) {
     // See how much sharing to do with previous string

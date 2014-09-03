@@ -76,7 +76,7 @@ TEST(BlockTest, SimpleTest) {
 
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  BlockBuilder builder(16, ic.get());
+  BlockBuilder builder(16);
   int num_records = 100000;
 
   GenerateRandomKVs(&keys, &values, 0, num_records);
@@ -132,8 +132,7 @@ BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
                                const std::vector<std::string> &keys,
                                const std::vector<std::string> &values,
                                const int prefix_group_size = 1) {
-  builder->reset(
-      new BlockBuilder(1 /* restart interval */, BytewiseComparator()));
+  builder->reset(new BlockBuilder(1 /* restart interval */));
 
   // Add only half of the keys
   for (size_t i = 0; i < keys.size(); ++i) {

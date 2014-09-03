@@ -422,7 +422,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     // Avoiding recording stats for speed.
     return false;
   }
-  PERF_TIMER_AUTO(get_from_memtable_time);
+  PERF_TIMER_GUARD(get_from_memtable_time);
 
   Slice user_key = key.user_key();
   bool found_final_value = false;
@@ -452,7 +452,6 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   if (!found_final_value && merge_in_progress) {
     *s = Status::MergeInProgress("");
   }
-  PERF_TIMER_STOP(get_from_memtable_time);
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;
 }

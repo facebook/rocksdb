@@ -31,6 +31,7 @@ int main() {
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <exception>
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -759,7 +760,7 @@ class StressTest {
                            ? NewBloomFilterPolicy(FLAGS_bloom_bits)
                            : nullptr),
         db_(nullptr),
-        new_column_family_name_(0),
+        new_column_family_name_(1),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
       std::vector<std::string> files;
@@ -1217,12 +1218,20 @@ class StressTest {
           Status s __attribute__((unused));
           s = db_->DropColumnFamily(column_families_[cf]);
           delete column_families_[cf];
-          assert(s.ok());
+          if (!s.ok()) {
+            fprintf(stderr, "dropping column family error: %s\n",
+                s.ToString().c_str());
+            std::terminate();
+          }
           s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                       &column_families_[cf]);
           column_family_names_[cf] = new_name;
           thread->shared->ClearColumnFamily(cf);
-          assert(s.ok());
+          if (!s.ok()) {
+            fprintf(stderr, "creating column family error: %s\n",
+                s.ToString().c_str());
+            std::terminate();
+          }
           thread->shared->UnlockColumnFamily(cf);
         }
       }
@@ -1297,10 +1306,15 @@ class StressTest {
             }
           }
           thread->shared->Put(rand_column_family, rand_key, value_base);
+          Status s;
           if (FLAGS_use_merge) {
-            db_->Merge(write_opts, column_family, key, v);
+            s = db_->Merge(write_opts, column_family, key, v);
           } else {
-            db_->Put(write_opts, column_family, key, v);
+            s = db_->Put(write_opts, column_family, key, v);
+          }
+          if (!s.ok()) {
+            fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+            std::terminate();
           }
           thread->stats.AddBytesForWrites(1, sz);
         } else {
@@ -1311,8 +1325,12 @@ class StressTest {
         // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
           thread->shared->Delete(rand_column_family, rand_key);
-          db_->Delete(write_opts, column_family, key);
+          Status s = db_->Delete(write_opts, column_family, key);
           thread->stats.AddDeletes(1);
+          if (!s.ok()) {
+            fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
         } else {
           MultiDelete(thread, write_opts, column_family, key);
         }

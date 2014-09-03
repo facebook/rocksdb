@@ -239,11 +239,23 @@ class PosixRandomAccessFile: public RandomAccessFile {
                       char* scratch) const {
     Status s;
     ssize_t r = -1;
-    do {
-      r = pread(fd_, scratch, n, static_cast<off_t>(offset));
-    } while (r < 0 && errno == EINTR);
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, r);
-    *result = Slice(scratch, (r < 0) ? 0 : r);
+    size_t left = n;
+    char* ptr = scratch;
+    while (left > 0) {
+      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      if (r <= 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        break;
+      }
+      ptr += r;
+      offset += r;
+      left -= r;
+    }
+
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
+    *result = Slice(scratch, (r < 0) ? 0 : n - left);
     if (r < 0) {
       // An error: return a non-ok status
       s = IOError(filename_, errno);
@@ -907,9 +919,23 @@ class PosixRandomRWFile : public RandomRWFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const {
     Status s;
-    ssize_t r = pread(fd_, scratch, n, static_cast<off_t>(offset));
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, r);
-    *result = Slice(scratch, (r < 0) ? 0 : r);
+    ssize_t r = -1;
+    size_t left = n;
+    char* ptr = scratch;
+    while (left > 0) {
+      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      if (r <= 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        break;
+      }
+      ptr += r;
+      offset += r;
+      left -= r;
+    }
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
+    *result = Slice(scratch, (r < 0) ? 0 : n - left);
     if (r < 0) {
       s = IOError(filename_, errno);
     }
@@ -1018,14 +1044,11 @@ class PosixFileLock : public FileLock {
   std::string filename;
 };
 
-
-namespace {
 void PthreadCall(const char* label, int result) {
   if (result != 0) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
     exit(1);
   }
-}
 }
 
 class PosixEnv : public Env {
@@ -1724,12 +1747,11 @@ unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {
   return thread_pools_[pri].GetQueueLen();
 }
 
-namespace {
 struct StartThreadState {
   void (*user_function)(void*);
   void* arg;
 };
-}
+
 static void* StartThreadWrapper(void* arg) {
   StartThreadState* state = reinterpret_cast<StartThreadState*>(arg);
   state->user_function(state->arg);

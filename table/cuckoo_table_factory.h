@@ -8,11 +8,23 @@
 
 #include <string>
 #include "rocksdb/table.h"
+#include "util/murmurhash.h"
 
 namespace rocksdb {
 
-extern uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
-    uint64_t max_num_buckets);
+const uint32_t kCuckooMurmurSeedMultiplier = 816922183;
+static inline uint64_t CuckooHash(
+    const Slice& user_key, uint32_t hash_cnt, uint64_t table_size_minus_one,
+    uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t)) {
+#ifndef NDEBUG
+  // This part is used only in unit tests.
+  if (get_slice_hash != nullptr) {
+    return get_slice_hash(user_key, hash_cnt, table_size_minus_one + 1);
+  }
+#endif
+  return MurmurHash(user_key.data(), user_key.size(),
+      kCuckooMurmurSeedMultiplier * hash_cnt) & table_size_minus_one;
+}
 
 // Cuckoo Table is designed for applications that require fast point lookups
 // but not fast range scans.
@@ -23,9 +35,11 @@ extern uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
 // - Does not support Merge operations.
 class CuckooTableFactory : public TableFactory {
  public:
-  CuckooTableFactory(double hash_table_ratio, uint32_t max_search_depth)
+  CuckooTableFactory(double hash_table_ratio, uint32_t max_search_depth,
+      uint32_t cuckoo_block_size)
     : hash_table_ratio_(hash_table_ratio),
-      max_search_depth_(max_search_depth) {}
+      max_search_depth_(max_search_depth),
+      cuckoo_block_size_(cuckoo_block_size) {}
   ~CuckooTableFactory() {}
 
   const char* Name() const override { return "CuckooTable"; }
@@ -41,7 +55,7 @@ class CuckooTableFactory : public TableFactory {
       CompressionType compression_type) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(DBOptions* db_opts) const override {
+  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
     return Status::OK();
   }
 
@@ -50,6 +64,7 @@ class CuckooTableFactory : public TableFactory {
  private:
   const double hash_table_ratio_;
   const uint32_t max_search_depth_;
+  const uint32_t cuckoo_block_size_;
 };
 
 }  // namespace rocksdb

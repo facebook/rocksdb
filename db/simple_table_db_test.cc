@@ -556,7 +556,7 @@ public:
                                 WritableFile* file,
                                 CompressionType compression_type) const;
 
-  virtual Status SanitizeDBOptions(DBOptions* db_opts) const override {
+  virtual Status SanitizeDBOptions(const DBOptions* db_opts) const override {
     return Status::OK();
   }
 

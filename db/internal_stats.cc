@@ -257,9 +257,11 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
                cfd_->imm()->current()->GetTotalNumEntries() +
                current->GetEstimatedActiveKeys();
       return true;
+#ifndef ROCKSDB_LITE
     case kIsFileDeletionEnabled:
       *value = db->IsFileDeletionsEnabled();
       return true;
+#endif
     default:
       return false;
   }

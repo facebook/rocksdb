@@ -21,8 +21,9 @@ namespace rocksdb {
 class CuckooTableBuilder: public TableBuilder {
  public:
   CuckooTableBuilder(
-      WritableFile* file, double hash_table_ratio, uint32_t max_num_hash_table,
-      uint32_t max_search_depth, const Comparator* user_comparator,
+      WritableFile* file, double max_hash_table_ratio,
+      uint32_t max_num_hash_func, uint32_t max_search_depth,
+      const Comparator* user_comparator, uint32_t cuckoo_block_size,
       uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
@@ -60,7 +61,7 @@ class CuckooTableBuilder: public TableBuilder {
     CuckooBucket()
       : vector_idx(kMaxVectorIdx), make_space_for_key_call_id(0) {}
     uint32_t vector_idx;
-    // This number will not exceed kvs_.size() + max_num_hash_table_.
+    // This number will not exceed kvs_.size() + max_num_hash_func_.
     // We assume number of items is <= 2^32.
     uint32_t make_space_for_key_call_id;
   };
@@ -73,11 +74,13 @@ class CuckooTableBuilder: public TableBuilder {
       uint64_t* bucket_id);
   Status MakeHashTable(std::vector<CuckooBucket>* buckets);
 
-  uint32_t num_hash_table_;
+  uint32_t num_hash_func_;
   WritableFile* file_;
-  const double hash_table_ratio_;
-  const uint32_t max_num_hash_table_;
+  const double max_hash_table_ratio_;
+  const uint32_t max_num_hash_func_;
   const uint32_t max_search_depth_;
+  const uint32_t cuckoo_block_size_;
+  uint64_t hash_table_size_;
   bool is_last_level_file_;
   Status status_;
   std::vector<std::pair<std::string, std::string>> kvs_;

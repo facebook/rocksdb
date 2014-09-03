@@ -7554,7 +7554,7 @@ TEST(DBTest, SimpleWriteTimeoutTest) {
   ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
   // As the only two write buffers are full in this moment, the third
   // Put is expected to be timed-out.
-  write_opt.timeout_hint_us = 300;
+  write_opt.timeout_hint_us = 50;
   ASSERT_TRUE(
       Put(Key(3), Key(3) + std::string(100000, 'v'), write_opt).IsTimedOut());
 }

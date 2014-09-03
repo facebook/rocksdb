@@ -621,10 +621,13 @@ class SpatialDBImpl : public SpatialDB {
 namespace {
 DBOptions GetDBOptions(const SpatialDBOptions& options) {
   DBOptions db_options;
-  db_options.max_background_compactions = options.num_threads / 2;
-  db_options.max_background_flushes = options.num_threads / 2;
-  db_options.env->SetBackgroundThreads(db_options.max_background_compactions, Env::LOW);
-  db_options.env->SetBackgroundThreads(db_options.max_background_flushes, Env::HIGH);
+  db_options.max_background_compactions = 3 * options.num_threads / 4;
+  db_options.max_background_flushes =
+      options.num_threads - db_options.max_background_compactions;
+  db_options.env->SetBackgroundThreads(db_options.max_background_compactions,
+                                       Env::LOW);
+  db_options.env->SetBackgroundThreads(db_options.max_background_flushes,
+                                       Env::HIGH);
   if (options.bulk_load) {
     db_options.disableDataSync = true;
   }
@@ -634,14 +637,16 @@ DBOptions GetDBOptions(const SpatialDBOptions& options) {
 ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
                                            std::shared_ptr<Cache> block_cache) {
   ColumnFamilyOptions column_family_options;
-  column_family_options.write_buffer_size = 128 * 1024 * 1024;          // 128MB
-  column_family_options.max_bytes_for_level_base = 1024 * 1024 * 1024;  // 1 GB
+  column_family_options.write_buffer_size = 128 * 1024 * 1024;  // 128MB
   column_family_options.max_write_buffer_number = 4;
-  // only compress levels >= 1
+  column_family_options.level0_file_num_compaction_trigger = 2;
+  column_family_options.level0_slowdown_writes_trigger = 16;
+  column_family_options.level0_slowdown_writes_trigger = 32;
+  // only compress levels >= 2
   column_family_options.compression_per_level.resize(
       column_family_options.num_levels);
   for (int i = 0; i < column_family_options.num_levels; ++i) {
-    if (i == 0) {
+    if (i < 2) {
       column_family_options.compression_per_level[i] = kNoCompression;
     } else {
       column_family_options.compression_per_level[i] = kLZ4Compression;
@@ -651,17 +656,6 @@ ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
   table_options.block_cache = block_cache;
   column_family_options.table_factory.reset(
       NewBlockBasedTableFactory(table_options));
-  if (options.bulk_load) {
-    column_family_options.level0_file_num_compaction_trigger = (1 << 30);
-    column_family_options.level0_slowdown_writes_trigger = (1 << 30);
-    column_family_options.level0_stop_writes_trigger = (1 << 30);
-    column_family_options.disable_auto_compactions = true;
-    column_family_options.source_compaction_factor = (1 << 30);
-    column_family_options.num_levels = 2;
-    column_family_options.target_file_size_base = 256 * 1024 * 1024;
-    column_family_options.max_mem_compaction_level = 0;
-    column_family_options.memtable_factory.reset(new VectorRepFactory());
-  }
   return column_family_options;
 }
 

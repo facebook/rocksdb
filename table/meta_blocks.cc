@@ -16,9 +16,7 @@
 namespace rocksdb {
 
 MetaIndexBuilder::MetaIndexBuilder()
-    : meta_index_block_(
-        new BlockBuilder(1 /* restart interval */, BytewiseComparator())) {
-}
+    : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
 
 void MetaIndexBuilder::Add(const std::string& key,
                            const BlockHandle& handle) {
@@ -35,9 +33,7 @@ Slice MetaIndexBuilder::Finish() {
 }
 
 PropertyBlockBuilder::PropertyBlockBuilder()
-  : properties_block_(
-      new BlockBuilder(1 /* restart interval */, BytewiseComparator())) {
-}
+    : properties_block_(new BlockBuilder(1 /* restart interval */)) {}
 
 void PropertyBlockBuilder::Add(const std::string& name,
                                const std::string& val) {

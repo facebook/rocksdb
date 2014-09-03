@@ -172,8 +172,9 @@ void TwoLevelIterator::InitDataBlock() {
     SetSecondLevelIterator(nullptr);
   } else {
     Slice handle = first_level_iter_.value();
-    if (second_level_iter_.iter() != nullptr
-        && handle.compare(data_block_handle_) == 0) {
+    if (second_level_iter_.iter() != nullptr &&
+        !second_level_iter_.status().IsIncomplete() &&
+        handle.compare(data_block_handle_) == 0) {
       // second_level_iter is already constructed with this iterator, so
       // no need to change anything
     } else {
