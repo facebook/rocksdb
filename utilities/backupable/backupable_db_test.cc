@@ -916,7 +916,7 @@ TEST(BackupableDBTest, RateLimiting) {
     auto backup_time = env_->NowMicros() - start_backup;
     auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
                                     backupable_options_->backup_rate_limit;
-    ASSERT_GT(backup_time, 0.9 * rate_limited_backup_time);
+    ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
     CloseBackupableDB();
 
@@ -927,7 +927,7 @@ TEST(BackupableDBTest, RateLimiting) {
     CloseRestoreDB();
     auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
                                      backupable_options_->restore_rate_limit;
-    ASSERT_GT(restore_time, 0.9 * rate_limited_restore_time);
+    ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
 
     AssertBackupConsistency(0, 0, 100000, 100010);
   }
