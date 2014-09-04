@@ -7,7 +7,10 @@
 
 #include "rocksdb/utilities/spatial_db.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <string>
 #include <vector>

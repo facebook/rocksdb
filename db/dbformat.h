@@ -244,7 +244,7 @@ class IterKey {
 
   Slice GetKey() const { return Slice(key_, key_size_); }
 
-  const size_t Size() { return key_size_; }
+  size_t Size() { return key_size_; }
 
   void Clear() { key_size_ = 0; }
 
