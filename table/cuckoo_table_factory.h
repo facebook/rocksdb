@@ -9,6 +9,7 @@
 #include <string>
 #include "rocksdb/table.h"
 #include "util/murmurhash.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -45,14 +46,14 @@ class CuckooTableFactory : public TableFactory {
   const char* Name() const override { return "CuckooTable"; }
 
   Status NewTableReader(
-      const Options& options, const EnvOptions& soptions,
+      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
       const InternalKeyComparator& internal_comparator,
       unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table) const override;
 
-  TableBuilder* NewTableBuilder(const Options& options,
+  TableBuilder* NewTableBuilder(const ImmutableCFOptions& options,
       const InternalKeyComparator& icomparator, WritableFile* file,
-      CompressionType compression_type) const override;
+      const CompressionType, const CompressionOptions&) const override;
 
   // Sanitizes the specified DB Options.
   Status SanitizeDBOptions(const DBOptions* db_opts) const override {

@@ -11,11 +11,12 @@
 #include "table/cuckoo_table_reader.h"
 
 namespace rocksdb {
-Status CuckooTableFactory::NewTableReader(const Options& options,
-    const EnvOptions& soptions, const InternalKeyComparator& icomp,
+
+Status CuckooTableFactory::NewTableReader(const ImmutableCFOptions& ioptions,
+    const EnvOptions& env_options, const InternalKeyComparator& icomp,
     std::unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     std::unique_ptr<TableReader>* table) const {
-  std::unique_ptr<CuckooTableReader> new_reader(new CuckooTableReader(options,
+  std::unique_ptr<CuckooTableReader> new_reader(new CuckooTableReader(ioptions,
       std::move(file), file_size, icomp.user_comparator(), nullptr));
   Status s = new_reader->status();
   if (s.ok()) {
@@ -25,10 +26,13 @@ Status CuckooTableFactory::NewTableReader(const Options& options,
 }
 
 TableBuilder* CuckooTableFactory::NewTableBuilder(
-    const Options& options, const InternalKeyComparator& internal_comparator,
-    WritableFile* file, CompressionType compression_type) const {
-  return new CuckooTableBuilder(file, hash_table_ratio_, 64, max_search_depth_,
-      internal_comparator.user_comparator(), cuckoo_block_size_, nullptr);
+    const ImmutableCFOptions& ioptions,
+    const InternalKeyComparator& internal_comparator,
+    WritableFile* file, const CompressionType,
+    const CompressionOptions&) const {
+  return new CuckooTableBuilder(file, hash_table_ratio_, 64,
+      max_search_depth_, internal_comparator.user_comparator(),
+      cuckoo_block_size_, nullptr);
 }
 
 std::string CuckooTableFactory::GetPrintableTableOptions() const {

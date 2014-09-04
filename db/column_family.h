@@ -165,9 +165,11 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  // thread-safe
+  // TODO(ljin): make this API thread-safe once we allow updating options_
   const Options* options() const { return &options_; }
+  // thread-safe
   const EnvOptions* soptions() const;
+  const ImmutableCFOptions* ioptions() const { return &ioptions_; }
 
   InternalStats* internal_stats() { return internal_stats_.get(); }
 
@@ -251,7 +253,7 @@ class ColumnFamilyData {
                    Version* dummy_versions, Cache* table_cache,
                    const ColumnFamilyOptions& options,
                    const DBOptions* db_options,
-                   const EnvOptions& storage_options,
+                   const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
 
   // Recalculate some small conditions, which are changed only during
@@ -272,7 +274,8 @@ class ColumnFamilyData {
 
   const InternalKeyComparator internal_comparator_;
 
-  Options const options_;
+  const Options options_;
+  const ImmutableCFOptions ioptions_;
 
   std::unique_ptr<TableCache> table_cache_;
 
@@ -367,7 +370,7 @@ class ColumnFamilySet {
   };
 
   ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
-                  const EnvOptions& storage_options, Cache* table_cache);
+                  const EnvOptions& env_options, Cache* table_cache);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -420,7 +423,7 @@ class ColumnFamilySet {
 
   const std::string db_name_;
   const DBOptions* const db_options_;
-  const EnvOptions storage_options_;
+  const EnvOptions env_options_;
   Cache* table_cache_;
   std::atomic_flag spin_lock_;
 };

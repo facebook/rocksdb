@@ -178,7 +178,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions, Cache* table_cache,
                                    const ColumnFamilyOptions& options,
                                    const DBOptions* db_options,
-                                   const EnvOptions& storage_options,
+                                   const EnvOptions& env_options,
                                    ColumnFamilySet* column_family_set)
     : id_(id),
       name_(name),
@@ -188,6 +188,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       dropped_(false),
       internal_comparator_(options.comparator),
       options_(*db_options, SanitizeOptions(&internal_comparator_, options)),
+      ioptions_(options_),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -204,7 +205,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
   if (dummy_versions != nullptr) {
     internal_stats_.reset(
         new InternalStats(options_.num_levels, db_options->env, this));
-    table_cache_.reset(new TableCache(&options_, storage_options, table_cache));
+    table_cache_.reset(new TableCache(ioptions_, env_options, table_cache));
     if (options_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(&options_, &internal_comparator_));
@@ -306,7 +307,7 @@ void ColumnFamilyData::RecalculateWriteStallRateLimitsConditions() {
 }
 
 const EnvOptions* ColumnFamilyData::soptions() const {
-  return &(column_family_set_->storage_options_);
+  return &(column_family_set_->env_options_);
 }
 
 void ColumnFamilyData::SetCurrent(Version* current) {
@@ -462,16 +463,16 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const DBOptions* db_options,
-                                 const EnvOptions& storage_options,
+                                 const EnvOptions& env_options,
                                  Cache* table_cache)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr,
                                       ColumnFamilyOptions(), db_options,
-                                      storage_options_, nullptr)),
+                                      env_options_, nullptr)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
-      storage_options_(storage_options),
+      env_options_(env_options),
       table_cache_(table_cache),
       spin_lock_(ATOMIC_FLAG_INIT) {
   // initialize linked list
@@ -537,7 +538,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd =
       new ColumnFamilyData(id, name, dummy_versions, table_cache_, options,
-                           db_options_, storage_options_, this);
+                           db_options_, env_options_, this);
   Lock();
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});

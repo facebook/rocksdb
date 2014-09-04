@@ -88,10 +88,12 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
+  const ImmutableCFOptions ioptions(opts);
   if (!through_db) {
     env->NewWritableFile(file_name, &file, env_options);
-    tb = opts.table_factory->NewTableBuilder(opts, ikc, file.get(),
-                                             CompressionType::kNoCompression);
+    tb = opts.table_factory->NewTableBuilder(ioptions, ikc, file.get(),
+                                             CompressionType::kNoCompression,
+                                             CompressionOptions());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
@@ -122,7 +124,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
     s = opts.table_factory->NewTableReader(
-        opts, env_options, ikc, std::move(raf), file_size, &table_reader);
+        ioptions, env_options, ikc, std::move(raf), file_size, &table_reader);
   }
 
   Random rnd(301);

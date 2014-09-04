@@ -90,7 +90,8 @@ void MakeBuilder(const Options& options,
                  std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
   builder->reset(options.table_factory->NewTableBuilder(
-      options, internal_comparator, writable->get(), options.compression));
+      ImmutableCFOptions(options), internal_comparator, writable->get(),
+      options.compression, options.compression_opts));
 }
 }  // namespace
 

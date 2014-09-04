@@ -121,8 +121,9 @@ class CuckooReaderTest {
     // Check reader now.
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
+    const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(
-        options,
+        ioptions,
         std::move(read_file),
         file_size,
         ucomp,
@@ -147,8 +148,9 @@ class CuckooReaderTest {
   void CheckIterator(const Comparator* ucomp = BytewiseComparator()) {
     std::unique_ptr<RandomAccessFile> read_file;
     ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
+    const ImmutableCFOptions ioptions(options);
     CuckooTableReader reader(
-        options,
+        ioptions,
         std::move(read_file),
         file_size,
         ucomp,
@@ -325,8 +327,9 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
   CreateCuckooFileAndCheckReader();
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
+  const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(
-      options,
+      ioptions,
       std::move(read_file),
       file_size,
       BytewiseComparator(),
@@ -433,8 +436,9 @@ void WriteFile(const std::vector<std::string>& keys,
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
 
+  const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(
-      options, std::move(read_file), file_size,
+      ioptions, std::move(read_file), file_size,
       test::Uint64Comparator(), nullptr);
   ASSERT_OK(reader.status());
   ReadOptions r_options;
@@ -460,8 +464,9 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   std::unique_ptr<RandomAccessFile> read_file;
   ASSERT_OK(env->NewRandomAccessFile(fname, &read_file, env_options));
 
+  const ImmutableCFOptions ioptions(options);
   CuckooTableReader reader(
-      options, std::move(read_file), file_size, test::Uint64Comparator(),
+      ioptions, std::move(read_file), file_size, test::Uint64Comparator(),
       nullptr);
   ASSERT_OK(reader.status());
   const UserCollectedProperties user_props =

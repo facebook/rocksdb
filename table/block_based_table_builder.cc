@@ -25,7 +25,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
 #include "table/block.h"
@@ -385,7 +384,7 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 };
 
 struct BlockBasedTableBuilder::Rep {
-  const Options options;
+  const ImmutableCFOptions ioptions;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   WritableFile* file;
@@ -397,7 +396,8 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<IndexBuilder> index_builder;
 
   std::string last_key;
-  CompressionType compression_type;
+  const CompressionType compression_type;
+  const CompressionOptions compression_opts;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
@@ -413,27 +413,31 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<TablePropertiesCollector>>
       table_properties_collectors;
 
-  Rep(const Options& opt, const BlockBasedTableOptions& table_opt,
+  Rep(const ImmutableCFOptions& ioptions,
+      const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& icomparator,
-      WritableFile* f, CompressionType compression_type)
-      : options(opt),
+      WritableFile* f, const CompressionType compression_type,
+      const CompressionOptions& compression_opts)
+      : ioptions(ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
         data_block(table_options.block_restart_interval),
-        internal_prefix_transform(options.prefix_extractor.get()),
+        internal_prefix_transform(ioptions.prefix_extractor),
         index_builder(CreateIndexBuilder(
               table_options.index_type, &internal_comparator,
               &this->internal_prefix_transform)),
         compression_type(compression_type),
+        compression_opts(compression_opts),
         filter_block(table_options.filter_policy == nullptr ?
             nullptr :
-            new FilterBlockBuilder(opt, table_options, &internal_comparator)),
+            new FilterBlockBuilder(ioptions.prefix_extractor,
+                                   table_options, &internal_comparator)),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
               table_options, data_block)) {
     for (auto& collector_factories :
-         options.table_properties_collector_factories) {
+         ioptions.table_properties_collector_factories) {
       table_properties_collectors.emplace_back(
           collector_factories->CreateTablePropertiesCollector());
     }
@@ -443,11 +447,13 @@ struct BlockBasedTableBuilder::Rep {
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
-    const Options& options, const BlockBasedTableOptions& table_options,
+    const ImmutableCFOptions& ioptions,
+    const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator, WritableFile* file,
-    CompressionType compression_type)
-    : rep_(new Rep(options, table_options, internal_comparator,
-                   file, compression_type)) {
+    const CompressionType compression_type,
+    const CompressionOptions& compression_opts)
+    : rep_(new Rep(ioptions, table_options, internal_comparator,
+                   file, compression_type, compression_opts)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -502,7 +508,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->index_builder->OnKeyAdded(key);
   NotifyCollectTableCollectorsOnAdd(key, value, r->table_properties_collectors,
-                                    r->options.info_log.get());
+                                    r->ioptions.info_log);
 }
 
 void BlockBasedTableBuilder::Flush() {
@@ -540,10 +546,10 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   Slice block_contents;
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     block_contents =
-        CompressBlock(raw_block_contents, r->options.compression_opts, &type,
+        CompressBlock(raw_block_contents, r->compression_opts, &type,
                       &r->compressed_output);
   } else {
-    RecordTick(r->options.statistics.get(), NUMBER_BLOCK_NOT_COMPRESSED);
+    RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
   }
@@ -555,8 +561,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle) {
   Rep* r = rep_;
-  StopWatch sw(r->options.env, r->options.statistics.get(),
-               WRITE_RAW_BLOCK_MICROS);
+  StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
   r->status = r->file->Append(block_contents);
@@ -717,7 +722,7 @@ Status BlockBasedTableBuilder::Finish() {
 
       // Add use collected properties
       NotifyCollectTableCollectorsOnFinish(r->table_properties_collectors,
-                                           r->options.info_log.get(),
+                                           r->ioptions.info_log,
                                            &property_block_builder);
 
       BlockHandle properties_block_handle;
@@ -776,14 +781,12 @@ Status BlockBasedTableBuilder::Finish() {
       }
     }
 
-    Log(
-        r->options.info_log,
+    Log(r->ioptions.info_log,
         "Table was constructed:\n"
         "  [basic properties]: %s\n"
         "  [user collected properties]: %s",
         r->props.ToString().c_str(),
-        user_collected.c_str()
-    );
+        user_collected.c_str());
   }
 
   return r->status;

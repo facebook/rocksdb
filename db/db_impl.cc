@@ -356,7 +356,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       default_interval_to_delete_obsolete_WAL_(600),
       flush_on_destroy_(false),
       delayed_writes_(0),
-      storage_options_(options),
+      env_options_(options),
       bg_work_gate_closed_(false),
       refitting_level_(false),
       opened_successfully_(false) {
@@ -372,7 +372,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
                   options_.table_cache_remove_scan_count_limit);
 
   versions_.reset(
-      new VersionSet(dbname_, &options_, storage_options_, table_cache_.get()));
+      new VersionSet(dbname_, &options_, env_options_, table_cache_.get()));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -453,7 +453,7 @@ Status DBImpl::NewDB() {
   const std::string manifest = DescriptorFileName(dbname_, 1);
   unique_ptr<WritableFile> file;
   Status s = env_->NewWritableFile(
-      manifest, &file, env_->OptimizeForManifestWrite(storage_options_));
+      manifest, &file, env_->OptimizeForManifestWrite(env_options_));
   if (!s.ok()) {
     return s;
   }
@@ -1075,7 +1075,7 @@ Status DBImpl::ReadFirstLine(const std::string& fname,
   };
 
   unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file, storage_options_);
+  Status status = env_->NewSequentialFile(fname, &file, env_options_);
 
   if (!status.ok()) {
     return status;
@@ -1275,7 +1275,7 @@ Status DBImpl::RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
   // Open the log file
   std::string fname = LogFileName(options_.wal_dir, log_number);
   unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file, storage_options_);
+  Status status = env_->NewSequentialFile(fname, &file, env_options_);
   if (!status.ok()) {
     MaybeIgnoreError(&status);
     return status;
@@ -1425,10 +1425,11 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   Status s;
   {
     mutex_.Unlock();
-    s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
+    s = BuildTable(dbname_, env_, *cfd->ioptions(), env_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
                    newest_snapshot, earliest_seqno_in_memtable,
-                   GetCompressionFlush(*cfd->options()), Env::IO_HIGH);
+                   GetCompressionFlush(*cfd->options()),
+                   cfd->options()->compression_opts, Env::IO_HIGH);
     LogFlush(options_.info_log);
     mutex_.Lock();
   }
@@ -1495,10 +1496,11 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     Log(options_.info_log, "[%s] Level-0 flush table #%" PRIu64 ": started",
         cfd->GetName().c_str(), meta.fd.GetNumber());
 
-    s = BuildTable(dbname_, env_, *cfd->options(), storage_options_,
+    s = BuildTable(dbname_, env_, *cfd->ioptions(), env_options_,
                    cfd->table_cache(), iter, &meta, cfd->internal_comparator(),
                    newest_snapshot, earliest_seqno_in_memtable,
-                   GetCompressionFlush(*cfd->options()), Env::IO_HIGH);
+                   GetCompressionFlush(*cfd->options()),
+                   cfd->options()->compression_opts, Env::IO_HIGH);
     LogFlush(options_.info_log);
     delete iter;
     Log(options_.info_log,
@@ -2447,7 +2449,7 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
   // Make the output file
   std::string fname = TableFileName(options_.db_paths, file_number,
                                     compact->compaction->GetOutputPathId());
-  Status s = env_->NewWritableFile(fname, &compact->outfile, storage_options_);
+  Status s = env_->NewWritableFile(fname, &compact->outfile, env_options_);
 
   if (s.ok()) {
     compact->outfile->SetIOPriority(Env::IO_LOW);
@@ -2456,8 +2458,9 @@ Status DBImpl::OpenCompactionOutputFile(CompactionState* compact) {
 
     ColumnFamilyData* cfd = compact->compaction->column_family_data();
     compact->builder.reset(NewTableBuilder(
-        *cfd->options(), cfd->internal_comparator(), compact->outfile.get(),
-        compact->compaction->OutputCompressionType()));
+        *cfd->ioptions(), cfd->internal_comparator(), compact->outfile.get(),
+        compact->compaction->OutputCompressionType(),
+        cfd->options()->compression_opts));
   }
   LogFlush(options_.info_log);
   return s;
@@ -2506,7 +2509,7 @@ Status DBImpl::FinishCompactionOutputFile(CompactionState* compact,
     ColumnFamilyData* cfd = compact->compaction->column_family_data();
     FileDescriptor fd(output_number, output_path_id, current_bytes);
     Iterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), storage_options_, cfd->internal_comparator(), fd);
+        ReadOptions(), env_options_, cfd->internal_comparator(), fd);
     s = iter->status();
     delete iter;
     if (s.ok()) {
@@ -3355,7 +3358,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
     // Collect all needed child iterators for immutable memtables
     super_version->imm->AddIterators(options, &merge_iter_builder);
     // Collect iterators for files in L0 - Ln
-    super_version->current->AddIterators(options, storage_options_,
+    super_version->current->AddIterators(options, env_options_,
                                          &merge_iter_builder);
     internal_iter = merge_iter_builder.Finish();
   } else {
@@ -3366,7 +3369,7 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
     // Collect all needed child iterators for immutable memtables
     super_version->imm->AddIterators(options, &iterator_list);
     // Collect iterators for files in L0 - Ln
-    super_version->current->AddIterators(options, storage_options_,
+    super_version->current->AddIterators(options, env_options_,
                                          &iterator_list);
     internal_iter = NewMergingIterator(&cfd->internal_comparator(),
                                        &iterator_list[0], iterator_list.size());
@@ -4377,7 +4380,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     if (creating_new_log) {
       s = env_->NewWritableFile(LogFileName(options_.wal_dir, new_log_number),
                                 &lfile,
-                                env_->OptimizeForLogWrite(storage_options_));
+                                env_->OptimizeForLogWrite(env_options_));
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
@@ -4615,7 +4618,7 @@ Status DBImpl::GetUpdatesSince(
     return s;
   }
   iter->reset(new TransactionLogIteratorImpl(options_.wal_dir, &options_,
-                                             read_options, storage_options_,
+                                             read_options, env_options_,
                                              seq, std::move(wal_files), this));
   return (*iter)->status();
 }

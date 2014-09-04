@@ -36,12 +36,10 @@ static Slice GetSliceForFileNumber(const uint64_t* file_number) {
                sizeof(*file_number));
 }
 
-TableCache::TableCache(const Options* options,
-                       const EnvOptions& storage_options, Cache* const cache)
-    : env_(options->env),
-      db_paths_(options->db_paths),
-      options_(options),
-      storage_options_(storage_options),
+TableCache::TableCache(const ImmutableCFOptions& ioptions,
+                       const EnvOptions& env_options, Cache* const cache)
+    : ioptions_(ioptions),
+      env_options_(env_options),
       cache_(cache) {}
 
 TableCache::~TableCache() {
@@ -55,7 +53,7 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
   cache_->Release(handle);
 }
 
-Status TableCache::FindTable(const EnvOptions& toptions,
+Status TableCache::FindTable(const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
                              const FileDescriptor& fd, Cache::Handle** handle,
                              const bool no_io) {
@@ -68,24 +66,24 @@ Status TableCache::FindTable(const EnvOptions& toptions,
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
     std::string fname =
-        TableFileName(db_paths_, fd.GetNumber(), fd.GetPathId());
+        TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
     unique_ptr<RandomAccessFile> file;
     unique_ptr<TableReader> table_reader;
-    s = env_->NewRandomAccessFile(fname, &file, toptions);
-    RecordTick(options_->statistics.get(), NO_FILE_OPENS);
+    s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
+    RecordTick(ioptions_.statistics, NO_FILE_OPENS);
     if (s.ok()) {
-      if (options_->advise_random_on_open) {
+      if (ioptions_.advise_random_on_open) {
         file->Hint(RandomAccessFile::RANDOM);
       }
-      StopWatch sw(env_, options_->statistics.get(), TABLE_OPEN_IO_MICROS);
-      s = options_->table_factory->NewTableReader(
-          *options_, toptions, internal_comparator, std::move(file),
+      StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+      s = ioptions_.table_factory->NewTableReader(
+          ioptions_, env_options, internal_comparator, std::move(file),
           fd.GetFileSize(), &table_reader);
     }
 
     if (!s.ok()) {
       assert(table_reader == nullptr);
-      RecordTick(options_->statistics.get(), NO_FILE_ERRORS);
+      RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
@@ -97,7 +95,7 @@ Status TableCache::FindTable(const EnvOptions& toptions,
 }
 
 Iterator* TableCache::NewIterator(const ReadOptions& options,
-                                  const EnvOptions& toptions,
+                                  const EnvOptions& env_options,
                                   const InternalKeyComparator& icomparator,
                                   const FileDescriptor& fd,
                                   TableReader** table_reader_ptr,
@@ -109,7 +107,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   Cache::Handle* handle = nullptr;
   Status s;
   if (table_reader == nullptr) {
-    s = FindTable(toptions, icomparator, fd, &handle,
+    s = FindTable(env_options, icomparator, fd, &handle,
                   options.read_tier == kBlockCacheTier);
     if (!s.ok()) {
       return NewErrorIterator(s, arena);
@@ -142,7 +140,7 @@ Status TableCache::Get(const ReadOptions& options,
   Status s;
   Cache::Handle* handle = nullptr;
   if (!t) {
-    s = FindTable(storage_options_, internal_comparator, fd, &handle,
+    s = FindTable(env_options_, internal_comparator, fd, &handle,
                   options.read_tier == kBlockCacheTier);
     if (s.ok()) {
       t = GetTableReaderFromHandle(handle);
@@ -160,8 +158,9 @@ Status TableCache::Get(const ReadOptions& options,
   }
   return s;
 }
+
 Status TableCache::GetTableProperties(
-    const EnvOptions& toptions,
+    const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
     std::shared_ptr<const TableProperties>* properties, bool no_io) {
   Status s;
@@ -174,7 +173,7 @@ Status TableCache::GetTableProperties(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(toptions, internal_comparator, fd, &table_handle, no_io);
+  s = FindTable(env_options, internal_comparator, fd, &table_handle, no_io);
   if (!s.ok()) {
     return s;
   }
@@ -186,7 +185,7 @@ Status TableCache::GetTableProperties(
 }
 
 size_t TableCache::GetMemoryUsageByTableReader(
-    const EnvOptions& toptions,
+    const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator,
     const FileDescriptor& fd) {
   Status s;
@@ -197,7 +196,7 @@ size_t TableCache::GetMemoryUsageByTableReader(
   }
 
   Cache::Handle* table_handle = nullptr;
-  s = FindTable(toptions, internal_comparator, fd, &table_handle, true);
+  s = FindTable(env_options, internal_comparator, fd, &table_handle, true);
   if (!s.ok()) {
     return 0;
   }

@@ -52,7 +52,8 @@ extern const uint32_t kPlainTableVariableLength;
 // The implementation of IndexedTableReader requires output file is mmaped
 class PlainTableReader: public TableReader {
  public:
-  static Status Open(const Options& options, const EnvOptions& soptions,
+  static Status Open(const ImmutableCFOptions& ioptions,
+                     const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table,
@@ -82,8 +83,9 @@ class PlainTableReader: public TableReader {
     return arena_.MemoryAllocatedBytes();
   }
 
-  PlainTableReader(const Options& options, unique_ptr<RandomAccessFile>&& file,
-                   const EnvOptions& storage_options,
+  PlainTableReader(const ImmutableCFOptions& ioptions,
+                   unique_ptr<RandomAccessFile>&& file,
+                   const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,
                    const TableProperties* table_properties);
@@ -132,7 +134,7 @@ class PlainTableReader: public TableReader {
   DynamicBloom bloom_;
   Arena arena_;
 
-  const Options& options_;
+  const ImmutableCFOptions& ioptions_;
   unique_ptr<RandomAccessFile> file_;
   uint32_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;

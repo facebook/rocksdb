@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/options.h"
+#include "rocksdb/immutable_options.h"
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -27,6 +28,26 @@
 #include "util/statistics.h"
 
 namespace rocksdb {
+
+ImmutableCFOptions::ImmutableCFOptions(const Options& options)
+  : prefix_extractor(options.prefix_extractor.get()),
+    comparator(options.comparator),
+    merge_operator(options.merge_operator.get()),
+    info_log(options.info_log.get()),
+    statistics(options.statistics.get()),
+    env(options.env),
+    allow_mmap_reads(options.allow_mmap_reads),
+    allow_mmap_writes(options.allow_mmap_writes),
+    db_paths(options.db_paths),
+    table_factory(options.table_factory.get()),
+    table_properties_collector_factories(
+        options.table_properties_collector_factories),
+    advise_random_on_open(options.advise_random_on_open),
+    bloom_locality(options.bloom_locality),
+    purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
+    min_partial_merge_operands(options.min_partial_merge_operands),
+    disable_data_sync(options.disableDataSync),
+    use_fsync(options.use_fsync) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),

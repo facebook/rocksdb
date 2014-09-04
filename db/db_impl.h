@@ -607,7 +607,7 @@ class DBImpl : public DB {
   int delayed_writes_;
 
   // The options to access storage files
-  const EnvOptions storage_options_;
+  const EnvOptions env_options_;
 
   // A value of true temporarily disables scheduling of background work
   bool bg_work_gate_closed_;
