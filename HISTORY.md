@@ -1,6 +1,10 @@
 # Rocksdb Change Log
 
 ### Unreleased
+
+----- Past Releases -----
+
+## 3.5.0 (9/3/2014)
 ### New Features
 * Add include/utilities/write_batch_with_index.h, providing a utilitiy class to query data out of WriteBatch when building it.
 * Move BlockBasedTable related options to BlockBasedTableOptions from Options. Change corresponding JNI interface. Options affected include:
@@ -10,10 +14,6 @@
 
 ### Public API changes
 * The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
-
-
------ Past Releases -----
-
 
 ## 3.4.0 (8/18/2014)
 ### New Features
