@@ -15,15 +15,13 @@
 
 namespace rocksdb {
 
-class Comparator;
-
 class BlockBuilder {
  public:
   BlockBuilder(const BlockBuilder&) = delete;
   void operator=(const BlockBuilder&) = delete;
-  
+
   explicit BlockBuilder(int block_restart_interval);
-  
+
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
 
