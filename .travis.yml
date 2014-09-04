@@ -14,7 +14,6 @@ before_install:
  - sudo dpkg -i libgflags-dev_2.0-1_amd64.deb
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
- - sed -i "s/fallocate(/HACK_NO_fallocate(/" build_tools/build_detect_platform
-script: make check -j8
+script: OPT=-DTRAVIS make check -j8
 notifications:
     email: false

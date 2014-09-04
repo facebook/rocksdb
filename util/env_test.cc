@@ -392,6 +392,9 @@ TEST(EnvPosixTest, DecreaseNumBgThreads) {
 }
 
 #ifdef OS_LINUX
+// Travis doesn't support fallocate or getting unique ID from files for whatever
+// reason.
+#ifndef TRAVIS
 // To make sure the Env::GetUniqueId() related tests work correctly, The files
 // should be stored in regular storage like "hard disk" or "flash device".
 // Otherwise we cannot get the correct id.
@@ -507,7 +510,7 @@ TEST(EnvPosixTest, AllocateTest) {
   // verify that preallocated blocks were deallocated on file close
   ASSERT_GT(st_blocks, f_stat.st_blocks);
 }
-#endif
+#endif  // ROCKSDB_FALLOCATE_PRESENT
 
 // Returns true if any of the strings in ss are the prefix of another string.
 bool HasPrefix(const std::unordered_set<std::string>& ss) {
@@ -638,7 +641,8 @@ TEST(EnvPosixTest, InvalidateCache) {
   // Delete the file
   ASSERT_OK(env_->DeleteFile(fname));
 }
-#endif
+#endif  // not TRAVIS
+#endif  // OS_LINUX
 
 TEST(EnvPosixTest, PosixRandomRWFileTest) {
   EnvOptions soptions;
