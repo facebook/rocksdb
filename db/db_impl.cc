@@ -3677,7 +3677,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
     // TODO(ljin): remove tailing iterator
     auto iter = new ForwardIterator(this, options, cfd);
     return NewDBIterator(env_, *cfd->options(), cfd->user_comparator(), iter,
-                         kMaxSequenceNumber);
+                         kMaxSequenceNumber, options.iterate_upper_bound);
 // return new TailingIterator(env_, this, options, cfd);
 #endif
   } else {
@@ -3733,7 +3733,9 @@ Iterator* DBImpl::NewIterator(const ReadOptions& options,
     // likely that any iterator pointer is close to the iterator it points to so
     // that they are likely to be in the same cache line and/or page.
     ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
-        env_, *cfd->options(), cfd->user_comparator(), snapshot);
+        env_, *cfd->options(), cfd->user_comparator(),
+        snapshot, options.iterate_upper_bound);
+
     Iterator* internal_iter =
         NewInternalIterator(options, cfd, sv, db_iter->GetArena());
     db_iter->SetIterUnderDBIter(internal_iter);

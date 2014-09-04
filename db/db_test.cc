@@ -7743,6 +7743,144 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   ASSERT_TRUE(TryReopen(&options).IsNotSupported());
 }
 
+TEST(DBTest, DBIteratorBoundTest) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+
+  options.prefix_extractor = nullptr;
+  DestroyAndReopen(&options);
+  ASSERT_OK(Put("a", "0"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("g1", "0"));
+
+  // testing basic case with no iterate_upper_bound and no prefix_extractor
+  {
+    ReadOptions ro;
+    ro.iterate_upper_bound = nullptr;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("foo");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("g1")), 0);
+  }
+
+  // testing iterate_upper_bound and forward iterator
+  // to make sure it stops at bound
+  {
+    ReadOptions ro;
+    // iterate_upper_bound points beyond the last expected entry
+    ro.iterate_upper_bound = new Slice("foo2");
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("foo");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(("foo1")), 0);
+
+    iter->Next();
+    // should stop here...
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  // prefix is the first letter of the key
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+  DestroyAndReopen(&options);
+  ASSERT_OK(Put("a", "0"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("g1", "0"));
+
+  // testing with iterate_upper_bound and prefix_extractor
+  // Seek target and iterate_upper_bound are not is same prefix
+  // This should be an error
+  {
+    ReadOptions ro;
+    ro.iterate_upper_bound = new Slice("g1");
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("foo");
+
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  // testing that iterate_upper_bound prevents iterating over deleted items
+  // if the bound has already reached
+  {
+    options.prefix_extractor = nullptr;
+    DestroyAndReopen(&options);
+    ASSERT_OK(Put("a", "0"));
+    ASSERT_OK(Put("b", "0"));
+    ASSERT_OK(Put("b1", "0"));
+    ASSERT_OK(Put("c", "0"));
+    ASSERT_OK(Put("d", "0"));
+    ASSERT_OK(Put("e", "0"));
+    ASSERT_OK(Delete("c"));
+    ASSERT_OK(Delete("d"));
+
+    // base case with no bound
+    ReadOptions ro;
+    ro.iterate_upper_bound = nullptr;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("b");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("b")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(("b1")), 0);
+
+    perf_context.Reset();
+    iter->Next();
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 2);
+
+    // now testing with iterate_bound
+    ro.iterate_upper_bound = new Slice("c");
+
+    iter.reset(db_->NewIterator(ro));
+
+    perf_context.Reset();
+
+    iter->Seek("b");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("b")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(("b1")), 0);
+
+    iter->Next();
+    // the iteration should stop as soon as the the bound key is reached
+    // even though the key is deleted
+    // hence internal_delete_skipped_count should be 0
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

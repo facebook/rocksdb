@@ -698,6 +698,10 @@ extern void rocksdb_readoptions_set_fill_cache(
 extern void rocksdb_readoptions_set_snapshot(
     rocksdb_readoptions_t*,
     const rocksdb_snapshot_t*);
+extern void rocksdb_readoptions_set_iterate_upper_bound(
+    rocksdb_readoptions_t*,
+    const char* key,
+    size_t keylen);
 extern void rocksdb_readoptions_set_read_tier(
     rocksdb_readoptions_t*, int);
 extern void rocksdb_readoptions_set_tailing(
