@@ -64,6 +64,8 @@ class HistogramImpl {
   virtual double Average() const;
   virtual double StandardDeviation() const;
   virtual void Data(HistogramData * const data) const;
+  
+  virtual ~HistogramImpl() {}
 
  private:
   // To be able to use HistogramImpl as thread local variable, its constructor
