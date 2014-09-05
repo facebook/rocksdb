@@ -736,6 +736,7 @@ class DocumentDBImpl : public DocumentDB {
         CreateColumnFamily(ColumnFamilyOptions(rocksdb_options_),
                            InternalSecondaryIndexName(index.name), &cf_handle);
     if (!s.ok()) {
+      delete index_obj;
       return s;
     }
 
