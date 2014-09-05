@@ -203,6 +203,17 @@ class DBImpl : public DB {
                               SequenceNumber* sequence);
 
   Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
+
+  void TEST_LockMutex();
+
+  void TEST_UnlockMutex();
+
+  // REQUIRES: mutex locked
+  void* TEST_BeginWrite();
+
+  // REQUIRES: mutex locked
+  // pass the pointer that you got from TEST_BeginWrite()
+  void TEST_EndWrite(void* w);
 #endif  // NDEBUG
 
   // Structure to store information for candidate files to delete.
@@ -309,7 +320,7 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   struct CompactionState;
-  struct Writer;
+
   struct WriteContext;
 
   Status NewDB();
@@ -348,6 +359,20 @@ class DBImpl : public DB {
                           LogBuffer* log_buffer);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
+
+  // Information kept for every waiting writer
+  struct Writer {
+    Status status;
+    WriteBatch* batch;
+    bool sync;
+    bool disableWAL;
+    bool in_batch_group;
+    bool done;
+    uint64_t timeout_hint_us;
+    port::CondVar cv;
+
+    explicit Writer(port::Mutex* mu) : cv(mu) {}
+  };
 
   // Before applying write operation (such as DBImpl::Write, DBImpl::Flush)
   // thread should grab the mutex_ and be the first on writers queue.

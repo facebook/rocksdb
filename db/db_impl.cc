@@ -77,20 +77,6 @@ const std::string kDefaultColumnFamilyName("default");
 
 void DumpLeveldbBuildVersion(Logger * log);
 
-// Information kept for every waiting writer
-struct DBImpl::Writer {
-  Status status;
-  WriteBatch* batch;
-  bool sync;
-  bool disableWAL;
-  bool in_batch_group;
-  bool done;
-  uint64_t timeout_hint_us;
-  port::CondVar cv;
-
-  explicit Writer(port::Mutex* mu) : cv(mu) { }
-};
-
 struct DBImpl::WriteContext {
   autovector<SuperVersion*> superversions_to_free_;
   autovector<log::Writer*> logs_to_free_;
@@ -3627,6 +3613,14 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   edit.DropColumnFamily();
   edit.SetColumnFamily(cfd->GetID());
 
+  Writer w(&mutex_);
+  w.batch = nullptr;
+  w.sync = false;
+  w.disableWAL = false;
+  w.in_batch_group = false;
+  w.done = false;
+  w.timeout_hint_us = kNoTimeOut;
+
   Status s;
   {
     MutexLock l(&mutex_);
@@ -3634,7 +3628,11 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
       s = Status::InvalidArgument("Column family already dropped!\n");
     }
     if (s.ok()) {
+      // we drop column family from a single write thread
+      s = BeginWrite(&w, 0);
+      assert(s.ok() && !w.done);  // No timeout and nobody should do our job
       s = versions_->LogAndApply(cfd, &edit, &mutex_);
+      EndWrite(&w, &w, s);
     }
   }
 
@@ -4173,15 +4171,19 @@ void DBImpl::BuildBatchGroup(Writer** last_writer,
       break;
     }
 
-    if (w->batch != nullptr) {
-      size += WriteBatchInternal::ByteSize(w->batch);
-      if (size > max_size) {
-        // Do not make batch too big
-        break;
-      }
-
-      write_batch_group->push_back(w->batch);
+    if (w->batch == nullptr) {
+      // Do not include those writes with nullptr batch. Those are not writes,
+      // those are something else. They want to be alone
+      break;
     }
+
+    size += WriteBatchInternal::ByteSize(w->batch);
+    if (size > max_size) {
+      // Do not make batch too big
+      break;
+    }
+
+    write_batch_group->push_back(w->batch);
     w->in_batch_group = true;
     *last_writer = w;
   }

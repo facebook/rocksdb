@@ -130,5 +130,32 @@ Status DBImpl::TEST_ReadFirstLine(const std::string& fname,
                                   SequenceNumber* sequence) {
   return ReadFirstLine(fname, sequence);
 }
+
+void DBImpl::TEST_LockMutex() {
+  mutex_.Lock();
+}
+
+void DBImpl::TEST_UnlockMutex() {
+  mutex_.Unlock();
+}
+
+void* DBImpl::TEST_BeginWrite() {
+  auto w = new Writer(&mutex_);
+  w->batch = nullptr;
+  w->sync = false;
+  w->disableWAL = false;
+  w->in_batch_group = false;
+  w->done = false;
+  w->timeout_hint_us = kNoTimeOut;
+  Status s = BeginWrite(w, 0);
+  assert(s.ok() && !w->done);  // No timeout and nobody should do our job
+  return reinterpret_cast<void*>(w);
+}
+
+void DBImpl::TEST_EndWrite(void* w) {
+  auto writer = reinterpret_cast<Writer*>(w);
+  EndWrite(writer, writer, Status::OK());
+}
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

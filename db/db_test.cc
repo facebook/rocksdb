@@ -11,6 +11,7 @@
 #include <iostream>
 #include <set>
 #include <unistd.h>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 
@@ -7893,6 +7894,26 @@ TEST(DBTest, DBIteratorBoundTest) {
     ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
   }
 }
+
+TEST(DBTest, WriteSingleThreadEntry) {
+  std::vector<std::thread> threads;
+  dbfull()->TEST_LockMutex();
+  auto w = dbfull()->TEST_BeginWrite();
+  threads.emplace_back([&] { Put("a", "b"); });
+  env_->SleepForMicroseconds(10000);
+  threads.emplace_back([&] { Flush(); });
+  env_->SleepForMicroseconds(10000);
+  dbfull()->TEST_UnlockMutex();
+  dbfull()->TEST_LockMutex();
+  dbfull()->TEST_EndWrite(w);
+  dbfull()->TEST_UnlockMutex();
+
+  for (auto& t : threads) {
+    t.join();
+  }
+}
+
+
 
 }  // namespace rocksdb
 
