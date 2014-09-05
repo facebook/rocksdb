@@ -249,13 +249,9 @@ class MemTableIterator: public Iterator {
 };
 
 Iterator* MemTable::NewIterator(const ReadOptions& options, Arena* arena) {
-  if (arena == nullptr) {
-    return new MemTableIterator(*this, options, nullptr);
-  } else {
-    auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
-    return new (mem)
-        MemTableIterator(*this, options, arena);
-  }
+  assert(arena != nullptr);
+  auto mem = arena->AllocateAligned(sizeof(MemTableIterator));
+  return new (mem) MemTableIterator(*this, options, arena);
 }
 
 port::RWMutex* MemTable::GetLock(const Slice& key) {

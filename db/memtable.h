@@ -81,8 +81,7 @@ class MemTable {
   // arena: If not null, the arena needs to be used to allocate the Iterator.
   //        Calling ~Iterator of the iterator will destroy all the states but
   //        those allocated in arena.
-  Iterator* NewIterator(const ReadOptions& options,
-                        Arena* arena = nullptr);
+  Iterator* NewIterator(const ReadOptions& options, Arena* arena);
 
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.

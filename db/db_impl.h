@@ -30,6 +30,7 @@
 #include "util/autovector.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/scoped_arena_iterator.h"
 #include "db/internal_stats.h"
 
 namespace rocksdb {
@@ -173,8 +174,8 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
-  Iterator* TEST_NewInternalIterator(ColumnFamilyHandle* column_family =
-                                         nullptr);
+  Iterator* TEST_NewInternalIterator(
+      Arena* arena, ColumnFamilyHandle* column_family = nullptr);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
@@ -297,8 +298,7 @@ class DBImpl : public DB {
   Statistics* stats_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
-                                SuperVersion* super_version,
-                                Arena* arena = nullptr);
+                                SuperVersion* super_version, Arena* arena);
 
  private:
   friend class DB;

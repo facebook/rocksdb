@@ -49,7 +49,7 @@ class MemTableListVersion {
            MergeContext& merge_context, const Options& options);
 
   void AddIterators(const ReadOptions& options,
-                    std::vector<Iterator*>* iterator_list);
+                    std::vector<Iterator*>* iterator_list, Arena* arena);
 
   void AddIterators(const ReadOptions& options,
                     MergeIteratorBuilder* merge_iter_builder);

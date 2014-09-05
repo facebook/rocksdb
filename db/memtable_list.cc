@@ -73,9 +73,10 @@ bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
 }
 
 void MemTableListVersion::AddIterators(const ReadOptions& options,
-                                       std::vector<Iterator*>* iterator_list) {
+                                       std::vector<Iterator*>* iterator_list,
+                                       Arena* arena) {
   for (auto& m : memlist_) {
-    iterator_list->push_back(m->NewIterator(options));
+    iterator_list->push_back(m->NewIterator(options, arena));
   }
 }
 

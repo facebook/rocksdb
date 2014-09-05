@@ -42,6 +42,7 @@
 #include "util/statistics.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
@@ -223,7 +224,11 @@ class Constructor {
 
   virtual const KVMap& data() { return data_; }
 
+  virtual bool IsArenaMode() const { return false; }
+
   virtual DB* db() const { return nullptr; }  // Overridden in DBConstructor
+
+  virtual bool AnywayDeleteIterator() const { return false; }
 
  protected:
   const InternalKeyComparator* last_internal_key_;
@@ -279,8 +284,15 @@ class BlockConstructor: public Constructor {
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator: public Iterator {
  public:
-  explicit KeyConvertingIterator(Iterator* iter) : iter_(iter) { }
-  virtual ~KeyConvertingIterator() { delete iter_; }
+  KeyConvertingIterator(Iterator* iter, bool arena_mode = false)
+      : iter_(iter), arena_mode_(arena_mode) {}
+  virtual ~KeyConvertingIterator() {
+    if (arena_mode_) {
+      iter_->~Iterator();
+    } else {
+      delete iter_;
+    }
+  }
   virtual bool Valid() const { return iter_->Valid(); }
   virtual void Seek(const Slice& target) {
     ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
@@ -311,6 +323,7 @@ class KeyConvertingIterator: public Iterator {
  private:
   mutable Status status_;
   Iterator* iter_;
+  bool arena_mode_;
 
   // No copying allowed
   KeyConvertingIterator(const KeyConvertingIterator&);
@@ -391,6 +404,10 @@ class TableConstructor: public Constructor {
     return table_reader_.get();
   }
 
+  virtual bool AnywayDeleteIterator() const override {
+    return convert_to_internal_key_;
+  }
+
  private:
   void Reset() {
     uniq_id_ = 0;
@@ -398,12 +415,12 @@ class TableConstructor: public Constructor {
     sink_.reset();
     source_.reset();
   }
-  bool convert_to_internal_key_;
 
   uint64_t uniq_id_;
   unique_ptr<StringSink> sink_;
   unique_ptr<StringSource> source_;
   unique_ptr<TableReader> table_reader_;
+  bool convert_to_internal_key_;
 
   TableConstructor();
 
@@ -446,10 +463,16 @@ class MemTableConstructor: public Constructor {
     return Status::OK();
   }
   virtual Iterator* NewIterator() const {
-    return new KeyConvertingIterator(memtable_->NewIterator(ReadOptions()));
+    return new KeyConvertingIterator(
+        memtable_->NewIterator(ReadOptions(), &arena_), true);
   }
 
+  virtual bool AnywayDeleteIterator() const override { return true; }
+
+  virtual bool IsArenaMode() const override { return true; }
+
  private:
+  mutable Arena arena_;
   InternalKeyComparator internal_comparator_;
   MemTable* memtable_;
   std::shared_ptr<SkipListFactory> table_factory_;
@@ -800,7 +823,11 @@ class Harness {
       iter->Next();
     }
     ASSERT_TRUE(!iter->Valid());
-    delete iter;
+    if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
+      iter->~Iterator();
+    } else {
+      delete iter;
+    }
   }
 
   void TestBackwardScan(const std::vector<std::string>& keys,
@@ -815,7 +842,11 @@ class Harness {
       iter->Prev();
     }
     ASSERT_TRUE(!iter->Valid());
-    delete iter;
+    if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
+      iter->~Iterator();
+    } else {
+      delete iter;
+    }
   }
 
   void TestRandomAccess(Random* rnd,
@@ -885,7 +916,11 @@ class Harness {
         }
       }
     }
-    delete iter;
+    if (constructor_->IsArenaMode() && !constructor_->AnywayDeleteIterator()) {
+      iter->~Iterator();
+    } else {
+      delete iter;
+    }
   }
 
   std::string ToString(const KVMap& data, const KVMap::const_iterator& it) {
@@ -1835,7 +1870,8 @@ TEST(MemTableTest, Simple) {
   ColumnFamilyMemTablesDefault cf_mems_default(memtable, &options);
   ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, &cf_mems_default).ok());
 
-  Iterator* iter = memtable->NewIterator(ReadOptions());
+  Arena arena;
+  ScopedArenaIterator iter(memtable->NewIterator(ReadOptions(), &arena));
   iter->SeekToFirst();
   while (iter->Valid()) {
     fprintf(stderr, "key: '%s' -> '%s'\n",
@@ -1844,7 +1880,6 @@ TEST(MemTableTest, Simple) {
     iter->Next();
   }
 
-  delete iter;
   delete memtable->Unref();
 }
 

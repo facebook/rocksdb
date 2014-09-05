@@ -48,6 +48,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
+#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
@@ -240,13 +241,15 @@ class Repairer {
     // since ExtractMetaData() will also generate edits.
     FileMetaData meta;
     meta.fd = FileDescriptor(next_file_number_++, 0, 0);
-    ReadOptions ro;
-    ro.total_order_seek = true;
-    Iterator* iter = mem->NewIterator(ro);
-    status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
-                        iter, &meta, icmp_, 0, 0, kNoCompression,
-                        CompressionOptions());
-    delete iter;
+    {
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      Arena arena;
+      ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+      status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
+                          iter.get(), &meta, icmp_, 0, 0, kNoCompression,
+                          CompressionOptions());
+    }
     delete mem->Unref();
     delete cf_mems_default;
     mem = nullptr;

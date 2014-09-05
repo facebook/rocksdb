@@ -18,6 +18,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/logging.h"
 #include "util/testharness.h"
+#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
@@ -32,7 +33,8 @@ static std::string PrintContents(WriteBatch* b) {
   ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
-  Iterator* iter = mem->NewIterator(ReadOptions());
+  Arena arena;
+  ScopedArenaIterator iter(mem->NewIterator(ReadOptions(), &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     memset((void *)&ikey, 0, sizeof(ikey));
@@ -67,7 +69,6 @@ static std::string PrintContents(WriteBatch* b) {
     state.append("@");
     state.append(NumberToString(ikey.sequence));
   }
-  delete iter;
   if (!s.ok()) {
     state.append(s.ToString());
   } else if (count != WriteBatchInternal::Count(b)) {
