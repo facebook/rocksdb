@@ -7,7 +7,9 @@
 
 #include "utilities/geodb/geodb_impl.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <vector>
 #include <map>

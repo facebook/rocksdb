@@ -9,7 +9,10 @@
 
 #include "db/db_impl.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <algorithm>
 #include <climits>
