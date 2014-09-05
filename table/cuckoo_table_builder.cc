@@ -56,7 +56,6 @@ CuckooTableBuilder::CuckooTableBuilder(
       ucomp_(user_comparator),
       get_slice_hash_(get_slice_hash),
       closed_(false) {
-  properties_.num_entries = 0;
   // Data is in a huge block.
   properties_.num_data_blocks = 1;
   properties_.index_size = 0;
@@ -64,7 +63,7 @@ CuckooTableBuilder::CuckooTableBuilder(
 }
 
 void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
-  if (properties_.num_entries >= kMaxVectorIdx - 1) {
+  if (kvs_.size() >= kMaxVectorIdx - 1) {
     status_ = Status::NotSupported("Number of keys in a file must be < 2^32-1");
     return;
   }
@@ -311,7 +310,7 @@ uint64_t CuckooTableBuilder::NumEntries() const {
 uint64_t CuckooTableBuilder::FileSize() const {
   if (closed_) {
     return file_->GetFileSize();
-  } else if (properties_.num_entries == 0) {
+  } else if (kvs_.size() == 0) {
     return 0;
   }
 

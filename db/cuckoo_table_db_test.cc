@@ -245,10 +245,34 @@ TEST(CuckooTableDBTest, CompactionTrigger) {
     ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
   }
   dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_EQ("2", FilesPerLevel());
 
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_EQ("0,2", FilesPerLevel());
   for (int idx = 0; idx < 22; ++idx) {
+    ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
+  }
+}
+
+TEST(CuckooTableDBTest, CompactionIntoMultipleFiles) {
+  // Create a big L0 file and check it compacts into multiple files in L1.
+  Options options = CurrentOptions();
+  options.write_buffer_size = 270 << 10;
+  // Two SST files should be created, each containing 14 keys.
+  // Number of buckets will be 16. Total size ~156 KB.
+  options.target_file_size_base = 160 << 10;
+  Reopen(&options);
+
+  // Write 28 values, each 10016 B ~ 10KB
+  for (int idx = 0; idx < 28; ++idx) {
+    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("1", FilesPerLevel());
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_EQ("0,2", FilesPerLevel());
+  for (int idx = 0; idx < 28; ++idx) {
     ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
   }
 }
