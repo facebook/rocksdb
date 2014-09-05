@@ -7791,7 +7791,8 @@ TEST(DBTest, DBIteratorBoundTest) {
   {
     ReadOptions ro;
     // iterate_upper_bound points beyond the last expected entry
-    ro.iterate_upper_bound = new Slice("foo2");
+    Slice prefix("foo2");
+    ro.iterate_upper_bound = &prefix;
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
@@ -7823,7 +7824,8 @@ TEST(DBTest, DBIteratorBoundTest) {
   // This should be an error
   {
     ReadOptions ro;
-    ro.iterate_upper_bound = new Slice("g1");
+    Slice prefix("g1");
+    ro.iterate_upper_bound = &prefix;
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
@@ -7868,7 +7870,8 @@ TEST(DBTest, DBIteratorBoundTest) {
     ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 2);
 
     // now testing with iterate_bound
-    ro.iterate_upper_bound = new Slice("c");
+    Slice prefix("c");
+    ro.iterate_upper_bound = &prefix;
 
     iter.reset(db_->NewIterator(ro));
 
