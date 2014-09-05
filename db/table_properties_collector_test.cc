@@ -11,6 +11,7 @@
 #include "db/dbformat.h"
 #include "db/table_properties_collector.h"
 #include "rocksdb/table.h"
+#include "rocksdb/immutable_options.h"
 #include "table/block_based_table_factory.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
@@ -85,12 +86,13 @@ class DumbLogger : public Logger {
 // Utilities test functions
 namespace {
 void MakeBuilder(const Options& options,
+                 const ImmutableCFOptions& ioptions,
                  const InternalKeyComparator& internal_comparator,
                  std::unique_ptr<FakeWritableFile>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
   writable->reset(new FakeWritableFile);
-  builder->reset(options.table_factory->NewTableBuilder(
-      ImmutableCFOptions(options), internal_comparator, writable->get(),
+  builder->reset(ioptions.table_factory->NewTableBuilder(
+      ioptions, internal_comparator, writable->get(),
       options.compression, options.compression_opts));
 }
 }  // namespace
@@ -154,7 +156,8 @@ void TestCustomizedTablePropertiesCollector(
   // -- Step 1: build table
   std::unique_ptr<TableBuilder> builder;
   std::unique_ptr<FakeWritableFile> writable;
-  MakeBuilder(options, internal_comparator, &writable, &builder);
+  const ImmutableCFOptions ioptions(options);
+  MakeBuilder(options, ioptions, internal_comparator, &writable, &builder);
 
   for (const auto& kv : kvs) {
     if (encode_as_internal) {
@@ -265,9 +268,10 @@ void TestInternalKeyPropertiesCollector(
     options.table_properties_collector_factories = {
         std::make_shared<InternalKeyPropertiesCollectorFactory>()};
   }
+  const ImmutableCFOptions ioptions(options);
 
   for (int iter = 0; iter < 2; ++iter) {
-    MakeBuilder(options, pikc, &writable, &builder);
+    MakeBuilder(options, ioptions, pikc, &writable, &builder);
     for (const auto& k : keys) {
       builder->Add(k.Encode(), "val");
     }
