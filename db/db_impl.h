@@ -276,7 +276,7 @@ class DBImpl : public DB {
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
-  // options_.delete_obsolete_files_period_micros microseconds ago,
+  // db_options_.delete_obsolete_files_period_micros microseconds ago,
   // it will not fill up the deletion_state
   void FindObsoleteFiles(DeletionState& deletion_state,
                          bool force,
@@ -294,7 +294,7 @@ class DBImpl : public DB {
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
-  const DBOptions options_;
+  const DBOptions db_options_;
   Statistics* stats_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
