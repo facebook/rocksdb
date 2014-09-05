@@ -1110,6 +1110,8 @@ class Benchmark {
   }
 
   ~Benchmark() {
+    std::for_each(db_.cfh.begin(), db_.cfh.end(),
+                  [](ColumnFamilyHandle* cfh) { delete cfh; });
     delete db_.db;
     delete prefix_extractor_;
   }
@@ -1334,6 +1336,8 @@ class Benchmark {
           method = nullptr;
         } else {
           if (db_.db != nullptr) {
+            std::for_each(db_.cfh.begin(), db_.cfh.end(),
+                          [](ColumnFamilyHandle* cfh) { delete cfh; });
             delete db_.db;
             db_.db = nullptr;
             db_.cfh.clear();
