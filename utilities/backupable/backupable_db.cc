@@ -15,7 +15,9 @@
 #include "util/crc32c.h"
 #include "rocksdb/transaction_log.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <inttypes.h>
 #include <algorithm>
