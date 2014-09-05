@@ -2535,6 +2535,49 @@ class SleepingBackgroundTask {
   bool done_with_sleep_;
 };
 
+TEST(DBTest, FlushEmptyColumnFamily) {
+  // Block flush thread and disable compaction thread
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
+                 Env::Priority::HIGH);
+
+  Options options = CurrentOptions();
+  // disable compaction
+  options.disable_auto_compactions = true;
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  options.max_write_buffer_number = 2;
+  options.min_write_buffer_number_to_merge = 1;
+  CreateAndReopenWithCF({"pikachu"}, &options);
+
+  // Compaction can still go through even if no thread can flush the
+  // mem table.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  // Insert can go through
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[0], "foo", "v1"));
+  ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
+
+  ASSERT_EQ("v1", Get(0, "foo"));
+  ASSERT_EQ("v1", Get(1, "bar"));
+
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+
+  // Flush can still go through.
+  ASSERT_OK(Flush(0));
+  ASSERT_OK(Flush(1));
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+}
+
 TEST(DBTest, GetProperty) {
   // Set sizes to both background thread pool to be 1 and block them.
   env_->SetBackgroundThreads(1, Env::HIGH);

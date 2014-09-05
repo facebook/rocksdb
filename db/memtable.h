@@ -137,6 +137,9 @@ class MemTable {
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
+  // Returns if there is no entry inserted to the mem table.
+  bool IsEmpty() const { return first_seqno_ == 0; }
+
   // Returns the sequence number of the first element that was inserted
   // into the memtable
   SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }

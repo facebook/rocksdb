@@ -375,7 +375,7 @@ DBImpl::~DBImpl() {
   mutex_.Lock();
   if (flush_on_destroy_) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->mem()->GetFirstSequenceNumber() != 0) {
+      if (!cfd->mem()->IsEmpty()) {
         cfd->Ref();
         mutex_.Unlock();
         FlushMemTable(cfd, FlushOptions());
@@ -1905,6 +1905,12 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   {
     WriteContext context;
     MutexLock guard_lock(&mutex_);
+
+    if (cfd->imm()->size() == 0 && cfd->mem()->IsEmpty()) {
+      // Nothing to flush
+      return Status::OK();
+    }
+
     s = BeginWrite(&w, 0);
     assert(s.ok() && !w.done);  // No timeout and nobody should do our job
 
