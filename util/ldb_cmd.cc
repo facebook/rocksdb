@@ -541,6 +541,7 @@ void ManifestDumpCommand::DoCommand() {
         } else {
           exec_state_ = LDBCommandExecuteResult::FAILED(
             "Multiple MANIFEST files found; use --path to select one");
+          closedir(d);
           return;
         }
       }
