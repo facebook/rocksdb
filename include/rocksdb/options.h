@@ -409,9 +409,23 @@ struct ColumnFamilyOptions {
   std::shared_ptr<MemTableRepFactory> memtable_factory;
 
   // This is a factory that provides TableFactory objects.
-  // Default: a factory that provides a default implementation of
-  // Table and TableBuilder.
+  // Default: a block-based table factory that provides a default
+  // implementation of TableBuilder and TableReader with default
+  // BlockBasedTableOptions.
   std::shared_ptr<TableFactory> table_factory;
+
+  // Block-based table related options are moved to BlockBasedTableOptions.
+  // Related options that were originally here but now moved include:
+  //   no_block_cache
+  //   block_cache
+  //   block_cache_compressed
+  //   block_size
+  //   block_size_deviation
+  //   block_restart_interval
+  //   filter_policy
+  //   whole_key_filtering
+  // If you'd like to customize some of these options, you will need to
+  // use NewBlockBasedTableFactory() to construct a new table factory.
 
   // This option allows user to to collect their own interested statistics of
   // the tables.
@@ -889,6 +903,18 @@ struct ReadOptions {
   // ! DEPRECATED
   // const Slice* prefix;
 
+  // "iterate_upper_bound" defines the extent upto which the forward iterator
+  // can returns entries. Once the bound is reached, Valid() will be false.
+  // "iterate_upper_bound" is exclusive ie the bound value is
+  // not a valid entry.  If iterator_extractor is not null, the Seek target
+  // and iterator_upper_bound need to have the same prefix.
+  // This is because ordering is not guaranteed outside of prefix domain.
+  // There is no lower bound on the iterator. If needed, that can be easily
+  // implemented
+  //
+  // Default: nullptr
+  const Slice* iterate_upper_bound;
+
   // Specify if this read request should process data that ALREADY
   // resides on a particular cache. If the required data is not
   // found at the specified cache, then Status::Incomplete is returned.
@@ -912,6 +938,7 @@ struct ReadOptions {
       : verify_checksums(true),
         fill_cache(true),
         snapshot(nullptr),
+        iterate_upper_bound(nullptr),
         read_tier(kReadAllTier),
         tailing(false),
         total_order_seek(false) {}
@@ -919,6 +946,7 @@ struct ReadOptions {
       : verify_checksums(cksum),
         fill_cache(cache),
         snapshot(nullptr),
+        iterate_upper_bound(nullptr),
         read_tier(kReadAllTier),
         tailing(false),
         total_order_seek(false) {}

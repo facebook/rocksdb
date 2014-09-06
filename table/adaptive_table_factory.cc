@@ -39,7 +39,7 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kCuckooTableMagicNumber;
 
 Status AdaptiveTableFactory::NewTableReader(
-    const Options& options, const EnvOptions& soptions,
+    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
     const InternalKeyComparator& icomp, unique_ptr<RandomAccessFile>&& file,
     uint64_t file_size, unique_ptr<TableReader>* table) const {
   Footer footer;
@@ -50,24 +50,26 @@ Status AdaptiveTableFactory::NewTableReader(
   if (footer.table_magic_number() == kPlainTableMagicNumber ||
       footer.table_magic_number() == kLegacyPlainTableMagicNumber) {
     return plain_table_factory_->NewTableReader(
-        options, soptions, icomp, std::move(file), file_size, table);
+        ioptions, env_options, icomp, std::move(file), file_size, table);
   } else if (footer.table_magic_number() == kBlockBasedTableMagicNumber ||
       footer.table_magic_number() == kLegacyBlockBasedTableMagicNumber) {
     return block_based_table_factory_->NewTableReader(
-        options, soptions, icomp, std::move(file), file_size, table);
+        ioptions, env_options, icomp, std::move(file), file_size, table);
   } else if (footer.table_magic_number() == kCuckooTableMagicNumber) {
     return cuckoo_table_factory_->NewTableReader(
-        options, soptions, icomp, std::move(file), file_size, table);
+        ioptions, env_options, icomp, std::move(file), file_size, table);
   } else {
     return Status::NotSupported("Unidentified table format");
   }
 }
 
 TableBuilder* AdaptiveTableFactory::NewTableBuilder(
-    const Options& options, const InternalKeyComparator& internal_comparator,
-    WritableFile* file, CompressionType compression_type) const {
-  return table_factory_to_write_->NewTableBuilder(options, internal_comparator,
-                                                  file, compression_type);
+    const ImmutableCFOptions& ioptions,
+    const InternalKeyComparator& internal_comparator,
+    WritableFile* file, const CompressionType compression_type,
+    const CompressionOptions& compression_opts) const {
+  return table_factory_to_write_->NewTableBuilder(
+      ioptions, internal_comparator, file, compression_type, compression_opts);
 }
 
 std::string AdaptiveTableFactory::GetPrintableTableOptions() const {

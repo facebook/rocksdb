@@ -132,9 +132,11 @@ ForwardIterator::~ForwardIterator() {
 }
 
 void ForwardIterator::Cleanup() {
-  delete mutable_iter_;
+  if (mutable_iter_ != nullptr) {
+    mutable_iter_->~Iterator();
+  }
   for (auto* m : imm_iters_) {
-    delete m;
+    m->~Iterator();
   }
   imm_iters_.clear();
   for (auto* f : l0_iters_) {
@@ -401,8 +403,8 @@ void ForwardIterator::RebuildIterators() {
   Cleanup();
   // New
   sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
-  mutable_iter_ = sv_->mem->NewIterator(read_options_);
-  sv_->imm->AddIterators(read_options_, &imm_iters_);
+  mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
+  sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
   const auto& l0_files = sv_->current->files_[0];
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {

@@ -31,7 +31,10 @@
 
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include "db/builder.h"
 #include "db/db_impl.h"
@@ -46,6 +49,9 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
+#include "rocksdb/immutable_options.h"
+#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
@@ -58,6 +64,7 @@ class Repairer {
         env_(options.env),
         icmp_(options.comparator),
         options_(SanitizeOptions(dbname, &icmp_, options)),
+        ioptions_(options_),
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
             // once.
@@ -65,7 +72,7 @@ class Repairer {
                         options_.table_cache_remove_scan_count_limit)),
         next_file_number_(1) {
     table_cache_ =
-        new TableCache(&options_, storage_options_, raw_table_cache_.get());
+        new TableCache(ioptions_, env_options_, raw_table_cache_.get());
     edit_ = new VersionEdit();
   }
 
@@ -107,8 +114,9 @@ class Repairer {
 
   std::string const dbname_;
   Env* const env_;
-  InternalKeyComparator const icmp_;
-  Options const options_;
+  const InternalKeyComparator icmp_;
+  const Options options_;
+  const ImmutableCFOptions ioptions_;
   std::shared_ptr<Cache> raw_table_cache_;
   TableCache* table_cache_;
   VersionEdit* edit_;
@@ -118,7 +126,7 @@ class Repairer {
   std::vector<uint64_t> logs_;
   std::vector<TableInfo> tables_;
   uint64_t next_file_number_;
-  const EnvOptions storage_options_;
+  const EnvOptions env_options_;
 
   Status FindFiles() {
     std::vector<std::string> filenames;
@@ -190,7 +198,7 @@ class Repairer {
     // Open the log file
     std::string logname = LogFileName(dbname_, log);
     unique_ptr<SequentialFile> lfile;
-    Status status = env_->NewSequentialFile(logname, &lfile, storage_options_);
+    Status status = env_->NewSequentialFile(logname, &lfile, env_options_);
     if (!status.ok()) {
       return status;
     }
@@ -236,12 +244,15 @@ class Repairer {
     // since ExtractMetaData() will also generate edits.
     FileMetaData meta;
     meta.fd = FileDescriptor(next_file_number_++, 0, 0);
-    ReadOptions ro;
-    ro.total_order_seek = true;
-    Iterator* iter = mem->NewIterator(ro);
-    status = BuildTable(dbname_, env_, options_, storage_options_, table_cache_,
-                        iter, &meta, icmp_, 0, 0, kNoCompression);
-    delete iter;
+    {
+      ReadOptions ro;
+      ro.total_order_seek = true;
+      Arena arena;
+      ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
+      status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
+                          iter.get(), &meta, icmp_, 0, 0, kNoCompression,
+                          CompressionOptions());
+    }
     delete mem->Unref();
     delete cf_mems_default;
     mem = nullptr;
@@ -286,7 +297,7 @@ class Repairer {
                                 file_size);
     if (status.ok()) {
       Iterator* iter = table_cache_->NewIterator(
-          ReadOptions(), storage_options_, icmp_, t->meta.fd);
+          ReadOptions(), env_options_, icmp_, t->meta.fd);
       bool empty = true;
       ParsedInternalKey parsed;
       t->min_sequence = 0;
@@ -326,7 +337,7 @@ class Repairer {
     std::string tmp = TempFileName(dbname_, 1);
     unique_ptr<WritableFile> file;
     Status status = env_->NewWritableFile(
-        tmp, &file, env_->OptimizeForManifestWrite(storage_options_));
+        tmp, &file, env_->OptimizeForManifestWrite(env_options_));
     if (!status.ok()) {
       return status;
     }

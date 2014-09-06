@@ -23,6 +23,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/immutable_options.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -293,14 +294,15 @@ class TableFactory {
   //     and cache the table object returned.
   // (1) SstFileReader (for SST Dump) opens the table and dump the table
   //     contents using the interator of the table.
-  // options and soptions are options. options is the general options.
+  // ImmutableCFOptions is a subset of Options that can not be altered.
+  // EnvOptions is a subset of Options that will be used by Env.
   // Multiple configured can be accessed from there, including and not
   // limited to block cache and key comparators.
   // file is a file handler to handle the file for the table
   // file_size is the physical file size of the file
   // table_reader is the output table reader
   virtual Status NewTableReader(
-      const Options& options, const EnvOptions& soptions,
+      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
       const InternalKeyComparator& internal_comparator,
       unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table_reader) const = 0;
@@ -318,14 +320,17 @@ class TableFactory {
   // (4) When running Repairer, it creates a table builder to convert logs to
   //     SST files (In Repairer::ConvertLogToTable() by calling BuildTable())
   //
-  // options is the general options. Multiple configured can be acceseed from
-  // there, including and not limited to compression options.
-  // file is a handle of a writable file. It is the caller's responsibility to
-  // keep the file open and close the file after closing the table builder.
-  // compression_type is the compression type to use in this table.
+  // ImmutableCFOptions is a subset of Options that can not be altered.
+  // Multiple configured can be acceseed from there, including and not limited
+  // to compression options. file is a handle of a writable file.
+  // It is the caller's responsibility to keep the file open and close the file
+  // after closing the table builder. compression_type is the compression type
+  // to use in this table.
   virtual TableBuilder* NewTableBuilder(
-      const Options& options, const InternalKeyComparator& internal_comparator,
-      WritableFile* file, CompressionType compression_type) const = 0;
+      const ImmutableCFOptions& ioptions,
+      const InternalKeyComparator& internal_comparator,
+      WritableFile* file, const CompressionType compression_type,
+      const CompressionOptions& compression_opts) const = 0;
 
   // Sanitizes the specified DB Options.
   //

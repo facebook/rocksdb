@@ -30,6 +30,7 @@
 #include "util/autovector.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
+#include "util/scoped_arena_iterator.h"
 #include "db/internal_stats.h"
 
 namespace rocksdb {
@@ -173,8 +174,8 @@ class DBImpl : public DB {
   // Return an internal iterator over the current state of the database.
   // The keys of this iterator are internal keys (see format.h).
   // The returned iterator should be deleted when no longer needed.
-  Iterator* TEST_NewInternalIterator(ColumnFamilyHandle* column_family =
-                                         nullptr);
+  Iterator* TEST_NewInternalIterator(
+      Arena* arena, ColumnFamilyHandle* column_family = nullptr);
 
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
@@ -202,6 +203,17 @@ class DBImpl : public DB {
                               SequenceNumber* sequence);
 
   Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
+
+  void TEST_LockMutex();
+
+  void TEST_UnlockMutex();
+
+  // REQUIRES: mutex locked
+  void* TEST_BeginWrite();
+
+  // REQUIRES: mutex locked
+  // pass the pointer that you got from TEST_BeginWrite()
+  void TEST_EndWrite(void* w);
 #endif  // NDEBUG
 
   // Structure to store information for candidate files to delete.
@@ -275,7 +287,7 @@ class DBImpl : public DB {
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
-  // options_.delete_obsolete_files_period_micros microseconds ago,
+  // db_options_.delete_obsolete_files_period_micros microseconds ago,
   // it will not fill up the deletion_state
   void FindObsoleteFiles(DeletionState& deletion_state,
                          bool force,
@@ -293,12 +305,11 @@ class DBImpl : public DB {
   Env* const env_;
   const std::string dbname_;
   unique_ptr<VersionSet> versions_;
-  const DBOptions options_;
+  const DBOptions db_options_;
   Statistics* stats_;
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
-                                SuperVersion* super_version,
-                                Arena* arena = nullptr);
+                                SuperVersion* super_version, Arena* arena);
 
  private:
   friend class DB;
@@ -309,7 +320,7 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   struct CompactionState;
-  struct Writer;
+
   struct WriteContext;
 
   Status NewDB();
@@ -348,6 +359,20 @@ class DBImpl : public DB {
                           LogBuffer* log_buffer);
 
   uint64_t SlowdownAmount(int n, double bottom, double top);
+
+  // Information kept for every waiting writer
+  struct Writer {
+    Status status;
+    WriteBatch* batch;
+    bool sync;
+    bool disableWAL;
+    bool in_batch_group;
+    bool done;
+    uint64_t timeout_hint_us;
+    port::CondVar cv;
+
+    explicit Writer(port::Mutex* mu) : cv(mu) {}
+  };
 
   // Before applying write operation (such as DBImpl::Write, DBImpl::Flush)
   // thread should grab the mutex_ and be the first on writers queue.
@@ -607,7 +632,7 @@ class DBImpl : public DB {
   int delayed_writes_;
 
   // The options to access storage files
-  const EnvOptions storage_options_;
+  const EnvOptions env_options_;
 
   // A value of true temporarily disables scheduling of background work
   bool bg_work_gate_closed_;

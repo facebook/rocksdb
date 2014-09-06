@@ -14,6 +14,7 @@
 #include <utility>
 #include <string>
 
+#include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -36,7 +37,6 @@ class TableReader;
 class WritableFile;
 struct BlockBasedTableOptions;
 struct EnvOptions;
-struct Options;
 struct ReadOptions;
 
 using std::unique_ptr;
@@ -58,7 +58,8 @@ class BlockBasedTable : public TableReader {
   // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& db_options, const EnvOptions& env_options,
+  static Status Open(const ImmutableCFOptions& ioptions,
+                     const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,

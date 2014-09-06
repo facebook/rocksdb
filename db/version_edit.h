@@ -163,13 +163,13 @@ class VersionEdit {
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
-  void AddFile(int level, uint64_t file, uint64_t file_size,
-               uint64_t file_path_id, const InternalKey& smallest,
+  void AddFile(int level, uint64_t file, uint64_t file_path_id,
+               uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno) {
     assert(smallest_seqno <= largest_seqno);
     FileMetaData f;
-    f.fd = FileDescriptor(file, file_size, file_path_id);
+    f.fd = FileDescriptor(file, file_path_id, file_size);
     f.smallest = smallest;
     f.largest = largest;
     f.smallest_seqno = smallest_seqno;

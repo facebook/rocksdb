@@ -135,6 +135,7 @@ TEST(CuckooBuilderTest, SuccessWithEmptyFile) {
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
       4, 100, BytewiseComparator(), 1, GetSliceHash);
   ASSERT_OK(builder.status());
+  ASSERT_EQ(0UL, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   CheckFileContents({}, {}, {}, "", 0, 2, false);
@@ -155,6 +156,7 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionFullKey";
@@ -167,10 +169,12 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -192,6 +196,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionFullKey";
@@ -204,10 +209,12 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -229,6 +236,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   uint32_t cuckoo_block_size = 2;
@@ -242,10 +250,12 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -272,6 +282,7 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathFullKey";
@@ -284,10 +295,12 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKey) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -311,6 +324,7 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathFullKeyAndCuckooBlock";
@@ -323,10 +337,12 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -344,6 +360,7 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
     {user_keys[3], {3, 4, 5, 6}}
   };
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
+  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionUserKey";
@@ -356,10 +373,12 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = user_keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = "key00";
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(user_keys, values, expected_locations,
@@ -377,6 +396,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
     {user_keys[3], {0, 1, 2, 3}},
   };
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
+  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionUserKey";
@@ -389,10 +409,12 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = user_keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = "key00";
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(user_keys, values, expected_locations,
@@ -412,6 +434,7 @@ TEST(CuckooBuilderTest, WithCollisionPathUserKey) {
     {user_keys[4], {0, 2}},
   };
   std::vector<uint64_t> expected_locations = {0, 1, 3, 4, 2};
+  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathUserKey";
@@ -424,10 +447,12 @@ TEST(CuckooBuilderTest, WithCollisionPathUserKey) {
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  uint32_t bucket_size = user_keys[0].size() + values[0].size();
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = "key00";
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(user_keys, values, expected_locations,

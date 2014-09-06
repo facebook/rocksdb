@@ -210,8 +210,8 @@ Status BlockPrefixIndex::Create(const SliceTransform* internal_prefix_extractor,
   return s;
 }
 
-const uint32_t BlockPrefixIndex::GetBlocks(const Slice& key,
-                                           uint32_t** blocks) {
+uint32_t BlockPrefixIndex::GetBlocks(const Slice& key,
+                                     uint32_t** blocks) {
   Slice prefix = internal_prefix_extractor_->Transform(key);
 
   uint32_t bucket = PrefixToBucket(prefix, num_buckets_);

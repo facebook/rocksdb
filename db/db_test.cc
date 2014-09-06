@@ -11,6 +11,7 @@
 #include <iostream>
 #include <set>
 #include <unistd.h>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 
@@ -41,6 +42,7 @@
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
 #include "util/testharness.h"
+#include "util/scoped_arena_iterator.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"
 
@@ -755,11 +757,12 @@ class DBTest {
   }
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0) {
-    Iterator* iter;
+    ScopedArenaIterator iter;
+    Arena arena;
     if (cf == 0) {
-      iter = dbfull()->TEST_NewInternalIterator();
+      iter.set(dbfull()->TEST_NewInternalIterator(&arena));
     } else {
-      iter = dbfull()->TEST_NewInternalIterator(handles_[cf]);
+      iter.set(dbfull()->TEST_NewInternalIterator(&arena, handles_[cf]));
     }
     InternalKey target(user_key, kMaxSequenceNumber, kTypeValue);
     iter->Seek(target.Encode());
@@ -804,7 +807,6 @@ class DBTest {
       }
       result += "]";
     }
-    delete iter;
     return result;
   }
 
@@ -1042,11 +1044,12 @@ class DBTest {
 
   // Utility method to test InplaceUpdate
   void validateNumberOfEntries(int numValues, int cf = 0) {
-    Iterator* iter;
+    ScopedArenaIterator iter;
+    Arena arena;
     if (cf != 0) {
-      iter = dbfull()->TEST_NewInternalIterator(handles_[cf]);
+      iter.set(dbfull()->TEST_NewInternalIterator(&arena, handles_[cf]));
     } else {
-      iter = dbfull()->TEST_NewInternalIterator();
+      iter.set(dbfull()->TEST_NewInternalIterator(&arena));
     }
     iter->SeekToFirst();
     ASSERT_EQ(iter->status().ok(), true);
@@ -1060,7 +1063,6 @@ class DBTest {
       ASSERT_EQ(ikey.sequence, (unsigned)seq--);
       iter->Next();
     }
-    delete iter;
     ASSERT_EQ(0, seq);
   }
 
@@ -4210,22 +4212,25 @@ TEST(DBTest, CompactionFilter) {
   // TODO: figure out sequence number squashtoo
   int count = 0;
   int total = 0;
-  Iterator* iter = dbfull()->TEST_NewInternalIterator(handles_[1]);
-  iter->SeekToFirst();
-  ASSERT_OK(iter->status());
-  while (iter->Valid()) {
-    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-    ikey.sequence = -1;
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-    total++;
-    if (ikey.sequence != 0) {
-      count++;
+  Arena arena;
+  {
+    ScopedArenaIterator iter(
+        dbfull()->TEST_NewInternalIterator(&arena, handles_[1]));
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    while (iter->Valid()) {
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
+      ikey.sequence = -1;
+      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      total++;
+      if (ikey.sequence != 0) {
+        count++;
+      }
+      iter->Next();
     }
-    iter->Next();
   }
   ASSERT_EQ(total, 100000);
   ASSERT_EQ(count, 1);
-  delete iter;
 
   // overwrite all the 100K keys once again.
   for (int i = 0; i < 100000; i++) {
@@ -4280,7 +4285,7 @@ TEST(DBTest, CompactionFilter) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
 
   // Scan the entire database to ensure that nothing is left
-  iter = db_->NewIterator(ReadOptions(), handles_[1]);
+  Iterator* iter = db_->NewIterator(ReadOptions(), handles_[1]);
   iter->SeekToFirst();
   count = 0;
   while (iter->Valid()) {
@@ -4296,18 +4301,20 @@ TEST(DBTest, CompactionFilter) {
   // TODO: remove the following or design a different
   // test
   count = 0;
-  iter = dbfull()->TEST_NewInternalIterator(handles_[1]);
-  iter->SeekToFirst();
-  ASSERT_OK(iter->status());
-  while (iter->Valid()) {
-    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-    ASSERT_NE(ikey.sequence, (unsigned)0);
-    count++;
-    iter->Next();
+  {
+    ScopedArenaIterator iter(
+        dbfull()->TEST_NewInternalIterator(&arena, handles_[1]));
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    while (iter->Valid()) {
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
+      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      ASSERT_NE(ikey.sequence, (unsigned)0);
+      count++;
+      iter->Next();
+    }
+    ASSERT_EQ(count, 0);
   }
-  ASSERT_EQ(count, 0);
-  delete iter;
 }
 
 // Tests the edge case where compaction does not produce any output -- all
@@ -4429,22 +4436,24 @@ TEST(DBTest, CompactionFilterContextManual) {
   // Verify total number of keys is correct after manual compaction.
   int count = 0;
   int total = 0;
-  Iterator* iter = dbfull()->TEST_NewInternalIterator();
-  iter->SeekToFirst();
-  ASSERT_OK(iter->status());
-  while (iter->Valid()) {
-    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-    ikey.sequence = -1;
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-    total++;
-    if (ikey.sequence != 0) {
-      count++;
+  {
+    Arena arena;
+    ScopedArenaIterator iter(dbfull()->TEST_NewInternalIterator(&arena));
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    while (iter->Valid()) {
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
+      ikey.sequence = -1;
+      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      total++;
+      if (ikey.sequence != 0) {
+        count++;
+      }
+      iter->Next();
     }
-    iter->Next();
+    ASSERT_EQ(total, 700);
+    ASSERT_EQ(count, 1);
   }
-  ASSERT_EQ(total, 700);
-  ASSERT_EQ(count, 1);
-  delete iter;
 }
 
 class KeepFilterV2 : public CompactionFilterV2 {
@@ -4601,25 +4610,27 @@ TEST(DBTest, CompactionFilterV2) {
   // All the files are in the lowest level.
   int count = 0;
   int total = 0;
-  Iterator* iter = dbfull()->TEST_NewInternalIterator();
-  iter->SeekToFirst();
-  ASSERT_OK(iter->status());
-  while (iter->Valid()) {
-    ParsedInternalKey ikey(Slice(), 0, kTypeValue);
-    ikey.sequence = -1;
-    ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
-    total++;
-    if (ikey.sequence != 0) {
-      count++;
+  {
+    Arena arena;
+    ScopedArenaIterator iter(dbfull()->TEST_NewInternalIterator(&arena));
+    iter->SeekToFirst();
+    ASSERT_OK(iter->status());
+    while (iter->Valid()) {
+      ParsedInternalKey ikey(Slice(), 0, kTypeValue);
+      ikey.sequence = -1;
+      ASSERT_EQ(ParseInternalKey(iter->key(), &ikey), true);
+      total++;
+      if (ikey.sequence != 0) {
+        count++;
+      }
+      iter->Next();
     }
-    iter->Next();
   }
 
   ASSERT_EQ(total, 100000);
   // 1 snapshot only. Since we are using universal compacton,
   // the sequence no is cleared for better compression
   ASSERT_EQ(count, 1);
-  delete iter;
 
   // create a new database with the compaction
   // filter in such a way that it deletes all keys
@@ -4643,7 +4654,7 @@ TEST(DBTest, CompactionFilterV2) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
 
   // Scan the entire database to ensure that nothing is left
-  iter = db_->NewIterator(ReadOptions());
+  Iterator* iter = db_->NewIterator(ReadOptions());
   iter->SeekToFirst();
   count = 0;
   while (iter->Valid()) {
@@ -7742,6 +7753,167 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   Destroy(&options);
   ASSERT_TRUE(TryReopen(&options).IsNotSupported());
 }
+
+TEST(DBTest, DBIteratorBoundTest) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+
+  options.prefix_extractor = nullptr;
+  DestroyAndReopen(&options);
+  ASSERT_OK(Put("a", "0"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("g1", "0"));
+
+  // testing basic case with no iterate_upper_bound and no prefix_extractor
+  {
+    ReadOptions ro;
+    ro.iterate_upper_bound = nullptr;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("foo");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo1")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("g1")), 0);
+  }
+
+  // testing iterate_upper_bound and forward iterator
+  // to make sure it stops at bound
+  {
+    ReadOptions ro;
+    // iterate_upper_bound points beyond the last expected entry
+    Slice prefix("foo2");
+    ro.iterate_upper_bound = &prefix;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("foo");
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("foo")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(("foo1")), 0);
+
+    iter->Next();
+    // should stop here...
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  // prefix is the first letter of the key
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+
+  DestroyAndReopen(&options);
+  ASSERT_OK(Put("a", "0"));
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Put("foo1", "bar1"));
+  ASSERT_OK(Put("g1", "0"));
+
+  // testing with iterate_upper_bound and prefix_extractor
+  // Seek target and iterate_upper_bound are not is same prefix
+  // This should be an error
+  {
+    ReadOptions ro;
+    Slice prefix("g1");
+    ro.iterate_upper_bound = &prefix;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("foo");
+
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_TRUE(iter->status().IsInvalidArgument());
+  }
+
+  // testing that iterate_upper_bound prevents iterating over deleted items
+  // if the bound has already reached
+  {
+    options.prefix_extractor = nullptr;
+    DestroyAndReopen(&options);
+    ASSERT_OK(Put("a", "0"));
+    ASSERT_OK(Put("b", "0"));
+    ASSERT_OK(Put("b1", "0"));
+    ASSERT_OK(Put("c", "0"));
+    ASSERT_OK(Put("d", "0"));
+    ASSERT_OK(Put("e", "0"));
+    ASSERT_OK(Delete("c"));
+    ASSERT_OK(Delete("d"));
+
+    // base case with no bound
+    ReadOptions ro;
+    ro.iterate_upper_bound = nullptr;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->Seek("b");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("b")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(("b1")), 0);
+
+    perf_context.Reset();
+    iter->Next();
+
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 2);
+
+    // now testing with iterate_bound
+    Slice prefix("c");
+    ro.iterate_upper_bound = &prefix;
+
+    iter.reset(db_->NewIterator(ro));
+
+    perf_context.Reset();
+
+    iter->Seek("b");
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("b")), 0);
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(("b1")), 0);
+
+    iter->Next();
+    // the iteration should stop as soon as the the bound key is reached
+    // even though the key is deleted
+    // hence internal_delete_skipped_count should be 0
+    ASSERT_TRUE(!iter->Valid());
+    ASSERT_EQ(static_cast<int>(perf_context.internal_delete_skipped_count), 0);
+  }
+}
+
+TEST(DBTest, WriteSingleThreadEntry) {
+  std::vector<std::thread> threads;
+  dbfull()->TEST_LockMutex();
+  auto w = dbfull()->TEST_BeginWrite();
+  threads.emplace_back([&] { Put("a", "b"); });
+  env_->SleepForMicroseconds(10000);
+  threads.emplace_back([&] { Flush(); });
+  env_->SleepForMicroseconds(10000);
+  dbfull()->TEST_UnlockMutex();
+  dbfull()->TEST_LockMutex();
+  dbfull()->TEST_EndWrite(w);
+  dbfull()->TEST_UnlockMutex();
+
+  for (auto& t : threads) {
+    t.join();
+  }
+}
+
+
 
 }  // namespace rocksdb
 

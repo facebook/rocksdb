@@ -7,7 +7,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #ifndef GFLAGS
 #include <cstdio>
@@ -1108,6 +1110,8 @@ class Benchmark {
   }
 
   ~Benchmark() {
+    std::for_each(db_.cfh.begin(), db_.cfh.end(),
+                  [](ColumnFamilyHandle* cfh) { delete cfh; });
     delete db_.db;
     delete prefix_extractor_;
   }
@@ -1332,6 +1336,8 @@ class Benchmark {
           method = nullptr;
         } else {
           if (db_.db != nullptr) {
+            std::for_each(db_.cfh.begin(), db_.cfh.end(),
+                          [](ColumnFamilyHandle* cfh) { delete cfh; });
             delete db_.db;
             db_.db = nullptr;
             db_.cfh.clear();

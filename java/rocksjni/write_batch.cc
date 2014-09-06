@@ -18,6 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "util/logging.h"
+#include "util/scoped_arena_iterator.h"
 #include "util/testharness.h"
 
 /*
@@ -209,7 +210,9 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   rocksdb::Status s =
       rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
-  rocksdb::Iterator* iter = mem->NewIterator(rocksdb::ReadOptions());
+  Arena arena;
+  ScopedArenaIterator iter(mem->NewIterator(
+      rocksdb::ReadOptions(), false /*don't enforce total order*/, &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
     memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
@@ -244,7 +247,6 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
     state.append("@");
     state.append(rocksdb::NumberToString(ikey.sequence));
   }
-  delete iter;
   if (!s.ok()) {
     state.append(s.ToString());
   } else if (count != rocksdb::WriteBatchInternal::Count(b)) {

@@ -16,6 +16,7 @@
 
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "table/table_reader.h"
 
 namespace rocksdb {
@@ -26,7 +27,7 @@ class TableReader;
 class CuckooTableReader: public TableReader {
  public:
   CuckooTableReader(
-      const Options& options,
+      const ImmutableCFOptions& ioptions,
       std::unique_ptr<RandomAccessFile>&& file,
       uint64_t file_size,
       const Comparator* user_comparator,
@@ -40,7 +41,7 @@ class CuckooTableReader: public TableReader {
   Status status() const { return status_; }
 
   Status Get(
-      const ReadOptions& readOptions, const Slice& key, void* handle_context,
+      const ReadOptions& read_options, const Slice& key, void* handle_context,
       bool (*result_handler)(void* arg, const ParsedInternalKey& k,
                              const Slice& v),
       void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)

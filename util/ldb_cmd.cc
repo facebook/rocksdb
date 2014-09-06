@@ -14,6 +14,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/cache.h"
 #include "util/coding.h"
+#include "util/scoped_arena_iterator.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
 #include <ctime>
@@ -739,7 +740,8 @@ void InternalDumpCommand::DoCommand() {
   uint64_t c=0;
   uint64_t s1=0,s2=0;
   // Setup internal key iterator
-  auto iter = unique_ptr<Iterator>(idb->TEST_NewInternalIterator());
+  Arena arena;
+  ScopedArenaIterator iter(idb->TEST_NewInternalIterator(&arena));
   Status st = iter->status();
   if (!st.ok()) {
     exec_state_ = LDBCommandExecuteResult::FAILED("Iterator error:"

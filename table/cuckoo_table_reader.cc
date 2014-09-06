@@ -29,7 +29,7 @@ namespace {
 extern const uint64_t kCuckooTableMagicNumber;
 
 CuckooTableReader::CuckooTableReader(
-    const Options& options,
+    const ImmutableCFOptions& ioptions,
     std::unique_ptr<RandomAccessFile>&& file,
     uint64_t file_size,
     const Comparator* comparator,
@@ -37,12 +37,12 @@ CuckooTableReader::CuckooTableReader(
     : file_(std::move(file)),
       ucomp_(comparator),
       get_slice_hash_(get_slice_hash) {
-  if (!options.allow_mmap_reads) {
+  if (!ioptions.allow_mmap_reads) {
     status_ = Status::InvalidArgument("File is not mmaped");
   }
   TableProperties* props = nullptr;
   status_ = ReadTableProperties(file_.get(), file_size, kCuckooTableMagicNumber,
-      options.env, options.info_log.get(), &props);
+      ioptions.env, ioptions.info_log, &props);
   if (!status_.ok()) {
     return;
   }

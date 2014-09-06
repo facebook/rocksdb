@@ -19,6 +19,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "rocksdb/options.h"
 #include "table/table_reader.h"
 
 namespace rocksdb {
@@ -29,8 +30,8 @@ struct FileDescriptor;
 
 class TableCache {
  public:
-  TableCache(const Options* options, const EnvOptions& storage_options,
-             Cache* cache);
+  TableCache(const ImmutableCFOptions& ioptions,
+             const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -91,10 +92,8 @@ class TableCache {
   void ReleaseHandle(Cache::Handle* handle);
 
  private:
-  Env* const env_;
-  const std::vector<DbPath> db_paths_;
-  const Options* options_;
-  const EnvOptions& storage_options_;
+  const ImmutableCFOptions& ioptions_;
+  const EnvOptions& env_options_;
   Cache* const cache_;
 };
 

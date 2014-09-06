@@ -336,15 +336,16 @@ class HashIndexReader : public IndexReader {
 
 
 struct BlockBasedTable::Rep {
-  Rep(const EnvOptions& storage_options,
+  Rep(const ImmutableCFOptions& ioptions,
+      const EnvOptions& env_options,
       const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& internal_comparator)
-      : soptions(storage_options), table_options(table_opt),
+      : ioptions(ioptions), env_options(env_options), table_options(table_opt),
         filter_policy(table_opt.filter_policy.get()),
         internal_comparator(internal_comparator) {}
 
-  Options options;
-  const EnvOptions& soptions;
+  const ImmutableCFOptions& ioptions;
+  const EnvOptions& env_options;
   const BlockBasedTableOptions& table_options;
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
@@ -446,7 +447,8 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc,
   }
 }
 
-Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
+Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
+                             const EnvOptions& env_options,
                              const BlockBasedTableOptions& table_options,
                              const InternalKeyComparator& internal_comparator,
                              unique_ptr<RandomAccessFile>&& file,
@@ -461,8 +463,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
   Rep* rep = new BlockBasedTable::Rep(
-      soptions, table_options, internal_comparator);
-  rep->options = options;
+      ioptions, env_options, table_options, internal_comparator);
   rep->file = std::move(file);
   rep->footer = footer;
   rep->index_type = table_options.index_type;
@@ -484,7 +485,7 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
       s = ReadProperties(meta_iter->value(), rep->file.get(), rep->footer,
-                         rep->options.env, rep->options.info_log.get(),
+                         rep->ioptions.env, rep->ioptions.info_log,
                          &table_properties);
     }
 
@@ -492,12 +493,12 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
       auto err_msg =
         "[Warning] Encountered error while reading data from properties "
         "block " + s.ToString();
-      Log(rep->options.info_log, "%s", err_msg.c_str());
+      Log(rep->ioptions.info_log, "%s", err_msg.c_str());
     } else {
       rep->table_properties.reset(table_properties);
     }
   } else {
-    Log(WARN_LEVEL, rep->options.info_log,
+    Log(WARN_LEVEL, rep->ioptions.info_log,
         "Cannot find Properties block from file.");
   }
 
@@ -546,7 +547,8 @@ Status BlockBasedTable::Open(const Options& options, const EnvOptions& soptions,
 }
 
 void BlockBasedTable::SetupForCompaction() {
-  switch (rep_->options.access_hint_on_compaction_start) {
+  /*
+  switch (.access_hint_on_compaction_start) {
     case Options::NONE:
       break;
     case Options::NORMAL:
@@ -562,6 +564,7 @@ void BlockBasedTable::SetupForCompaction() {
       assert(false);
   }
   compaction_optimized_ = true;
+  */
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
@@ -596,13 +599,13 @@ Status BlockBasedTable::ReadMetaBlock(
       ReadOptions(),
       rep->footer.metaindex_handle(),
       &meta,
-      rep->options.env);
+      rep->ioptions.env);
 
     if (!s.ok()) {
       auto err_msg =
         "[Warning] Encountered error while reading data from properties"
         "block " + s.ToString();
-      Log(rep->options.info_log, "%s", err_msg.c_str());
+      Log(rep->ioptions.info_log, "%s", err_msg.c_str());
     }
   if (!s.ok()) {
     delete meta;
@@ -746,7 +749,7 @@ FilterBlockReader* BlockBasedTable::ReadFilter(const BlockHandle& filter_handle,
   ReadOptions opt;
   BlockContents block;
   if (!ReadBlockContents(rep->file.get(), rep->footer, opt, filter_handle,
-                         &block, rep->options.env, false).ok()) {
+                         &block, rep->ioptions.env, false).ok()) {
     return nullptr;
   }
 
@@ -755,7 +758,8 @@ FilterBlockReader* BlockBasedTable::ReadFilter(const BlockHandle& filter_handle,
   }
 
   return new FilterBlockReader(
-       rep->options, rep->table_options, block.data, block.heap_allocated);
+       rep->ioptions.prefix_extractor, rep->table_options,
+       block.data, block.heap_allocated);
 }
 
 BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
@@ -780,7 +784,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
       cache_key
   );
 
-  Statistics* statistics = rep_->options.statistics.get();
+  Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle =
       GetEntryFromCache(block_cache, key, BLOCK_CACHE_FILTER_MISS,
                         BLOCK_CACHE_FILTER_HIT, statistics);
@@ -830,7 +834,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
   char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
   auto key = GetCacheKey(rep_->cache_key_prefix, rep_->cache_key_prefix_size,
                          rep_->footer.index_handle(), cache_key);
-  Statistics* statistics = rep_->options.statistics.get();
+  Statistics* statistics = rep_->ioptions.statistics;
   auto cache_handle =
       GetEntryFromCache(block_cache, key, BLOCK_CACHE_INDEX_MISS,
                         BLOCK_CACHE_INDEX_HIT, statistics);
@@ -906,7 +910,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
 
   // If either block cache is enabled, we'll try to read from it.
   if (block_cache != nullptr || block_cache_compressed != nullptr) {
-    Statistics* statistics = rep->options.statistics.get();
+    Statistics* statistics = rep->ioptions.statistics;
     char cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
     char compressed_cache_key[kMaxCacheKeyPrefixSize + kMaxVarint64Length];
     Slice key, /* key to the block cache */
@@ -930,9 +934,9 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
     if (block.value == nullptr && !no_io && ro.fill_cache) {
       Block* raw_block = nullptr;
       {
-        StopWatch sw(rep->options.env, statistics, READ_BLOCK_GET_MICROS);
+        StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
         s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
-                              &raw_block, rep->options.env,
+                              &raw_block, rep->ioptions.env,
                               block_cache_compressed == nullptr);
       }
 
@@ -955,7 +959,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
       }
     }
     s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
-                          &block.value, rep->options.env);
+                          &block.value, rep->ioptions.env);
   }
 
   Iterator* iter;
@@ -982,7 +986,8 @@ class BlockBasedTable::BlockEntryIteratorState : public TwoLevelIteratorState {
  public:
   BlockEntryIteratorState(BlockBasedTable* table,
                           const ReadOptions& read_options)
-      : TwoLevelIteratorState(table->rep_->options.prefix_extractor != nullptr),
+      : TwoLevelIteratorState(
+          table->rep_->ioptions.prefix_extractor != nullptr),
         table_(table),
         read_options_(read_options) {}
 
@@ -1020,8 +1025,8 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
     return true;
   }
 
-  assert(rep_->options.prefix_extractor != nullptr);
-  auto prefix = rep_->options.prefix_extractor->Transform(
+  assert(rep_->ioptions.prefix_extractor != nullptr);
+  auto prefix = rep_->ioptions.prefix_extractor->Transform(
       ExtractUserKey(internal_key));
   InternalKey internal_key_prefix(prefix, 0, kTypeValue);
   auto internal_prefix = internal_key_prefix.Encode();
@@ -1072,7 +1077,7 @@ bool BlockBasedTable::PrefixMayMatch(const Slice& internal_key) {
     filter_entry.Release(rep_->table_options.block_cache.get());
   }
 
-  Statistics* statistics = rep_->options.statistics.get();
+  Statistics* statistics = rep_->ioptions.statistics;
   RecordTick(statistics, BLOOM_FILTER_PREFIX_CHECKED);
   if (!may_match) {
     RecordTick(statistics, BLOOM_FILTER_PREFIX_USEFUL);
@@ -1111,7 +1116,7 @@ Status BlockBasedTable::Get(
       // Not found
       // TODO: think about interaction with Merge. If a user key cannot
       // cross one data block, we should be fine.
-      RecordTick(rep_->options.statistics.get(), BLOOM_FILTER_USEFUL);
+      RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
       break;
     } else {
       BlockIter biter;
@@ -1205,13 +1210,13 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
   }
 
   auto file = rep_->file.get();
-  auto env = rep_->options.env;
+  auto env = rep_->ioptions.env;
   auto comparator = &rep_->internal_comparator;
   const Footer& footer = rep_->footer;
 
   if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
-      rep_->options.prefix_extractor == nullptr) {
-    Log(rep_->options.info_log,
+      rep_->ioptions.prefix_extractor == nullptr) {
+    Log(rep_->ioptions.info_log,
         "BlockBasedTableOptions::kHashSearch requires "
         "options.prefix_extractor to be set."
         " Fall back to binary seach index.");
@@ -1232,7 +1237,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
         if (!s.ok()) {
           // we simply fall back to binary search in case there is any
           // problem with prefix hash index loading.
-          Log(rep_->options.info_log,
+          Log(rep_->ioptions.info_log,
               "Unable to read the metaindex block."
               " Fall back to binary seach index.");
           return BinarySearchIndexReader::Create(
@@ -1244,7 +1249,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
       // We need to wrap data with internal_prefix_transform to make sure it can
       // handle prefix correctly.
       rep_->internal_prefix_transform.reset(
-          new InternalKeySliceTransform(rep_->options.prefix_extractor.get()));
+          new InternalKeySliceTransform(rep_->ioptions.prefix_extractor));
       return HashIndexReader::Create(
           rep_->internal_prefix_transform.get(), footer, file, env, comparator,
           footer.index_handle(), meta_index_iter, index_reader,

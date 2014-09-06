@@ -41,21 +41,24 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 }
 
 Status BlockBasedTableFactory::NewTableReader(
-    const Options& options, const EnvOptions& soptions,
+    const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
     const InternalKeyComparator& internal_comparator,
     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
-  return BlockBasedTable::Open(options, soptions, table_options_,
+  return BlockBasedTable::Open(ioptions, soptions, table_options_,
                                internal_comparator, std::move(file), file_size,
                                table_reader);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
-    const Options& options, const InternalKeyComparator& internal_comparator,
-    WritableFile* file, CompressionType compression_type) const {
+    const ImmutableCFOptions& ioptions,
+    const InternalKeyComparator& internal_comparator,
+    WritableFile* file, const CompressionType compression_type,
+    const CompressionOptions& compression_opts) const {
 
   auto table_builder = new BlockBasedTableBuilder(
-      options, table_options_, internal_comparator, file, compression_type);
+      ioptions, table_options_, internal_comparator, file,
+      compression_type, compression_opts);
 
   return table_builder;
 }

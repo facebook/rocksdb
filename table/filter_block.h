@@ -18,7 +18,6 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
-#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
@@ -36,7 +35,7 @@ class FilterPolicy;
 //      (StartBlock AddKey*)* Finish
 class FilterBlockBuilder {
  public:
-  explicit FilterBlockBuilder(const Options& opt,
+  explicit FilterBlockBuilder(const SliceTransform* prefix_extractor,
                               const BlockBasedTableOptions& table_opt,
                               const Comparator* internal_comparator);
 
@@ -71,7 +70,7 @@ class FilterBlockReader {
  public:
  // REQUIRES: "contents" and *policy must stay live while *this is live.
   FilterBlockReader(
-    const Options& opt,
+    const SliceTransform* prefix_extractor,
     const BlockBasedTableOptions& table_opt,
     const Slice& contents,
     bool delete_contents_after_use = false);

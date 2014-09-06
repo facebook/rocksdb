@@ -108,11 +108,11 @@ class PlainTableIndex {
 // #wiki-in-memory-index-format
 class PlainTableIndexBuilder {
  public:
-  PlainTableIndexBuilder(Arena* arena, const Options& options,
+  PlainTableIndexBuilder(Arena* arena, const ImmutableCFOptions& ioptions,
                          uint32_t index_sparseness, double hash_table_ratio,
                          double huge_page_tlb_size)
       : arena_(arena),
-        options_(options),
+        ioptions_(ioptions),
         record_list_(kRecordsPerGroup),
         is_first_record_(true),
         due_index_(false),
@@ -120,7 +120,7 @@ class PlainTableIndexBuilder {
         num_keys_per_prefix_(0),
         prev_key_prefix_hash_(0),
         index_sparseness_(index_sparseness),
-        prefix_extractor_(options.prefix_extractor.get()),
+        prefix_extractor_(ioptions.prefix_extractor),
         hash_table_ratio_(hash_table_ratio),
         huge_page_tlb_size_(huge_page_tlb_size) {}
 
@@ -196,7 +196,7 @@ class PlainTableIndexBuilder {
                     const std::vector<uint32_t>& entries_per_bucket);
 
   Arena* arena_;
-  Options options_;
+  const ImmutableCFOptions ioptions_;
   HistogramImpl keys_per_prefix_hist_;
   IndexRecordList record_list_;
   bool is_first_record_;

@@ -9,7 +9,10 @@
 
 #include "db/version_set.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <algorithm>
 #include <map>
@@ -594,31 +597,6 @@ uint64_t Version::GetEstimatedActiveKeys() {
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
   return num_non_deletions_ - num_deletions_;
-}
-
-void Version::AddIterators(const ReadOptions& read_options,
-                           const EnvOptions& soptions,
-                           std::vector<Iterator*>* iters) {
-  // Merge all level zero files together since they may overlap
-  for (size_t i = 0; i < file_levels_[0].num_files; i++) {
-    const auto& file = file_levels_[0].files[i];
-    iters->push_back(cfd_->table_cache()->NewIterator(
-        read_options, soptions, cfd_->internal_comparator(), file.fd));
-  }
-
-  // For levels > 0, we can use a concatenating iterator that sequentially
-  // walks through the non-overlapping files in the level, opening them
-  // lazily.
-  for (int level = 1; level < num_levels_; level++) {
-    if (file_levels_[level].num_files != 0) {
-      iters->push_back(NewTwoLevelIterator(new LevelFileIteratorState(
-          cfd_->table_cache(), read_options, soptions,
-          cfd_->internal_comparator(), false /* for_compaction */,
-          cfd_->options()->prefix_extractor != nullptr),
-        new LevelFileNumIterator(cfd_->internal_comparator(),
-            &file_levels_[level])));
-    }
-  }
 }
 
 void Version::AddIterators(const ReadOptions& read_options,

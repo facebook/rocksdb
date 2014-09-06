@@ -1844,6 +1844,13 @@ void rocksdb_readoptions_set_snapshot(
   opt->rep.snapshot = (snap ? snap->rep : nullptr);
 }
 
+void rocksdb_readoptions_set_iterate_upper_bound(
+    rocksdb_readoptions_t* opt,
+    const char* key, size_t keylen) {
+  Slice prefix = Slice(key, keylen);
+  opt->rep.iterate_upper_bound = &prefix;
+}
+
 void rocksdb_readoptions_set_read_tier(
     rocksdb_readoptions_t* opt, int v) {
   opt->rep.read_tier = static_cast<rocksdb::ReadTier>(v);
