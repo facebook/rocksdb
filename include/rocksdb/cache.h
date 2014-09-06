@@ -127,9 +127,6 @@ class Cache {
   void LRU_Append(Handle* e);
   void Unref(Handle* e);
 
-  struct Rep;
-  Rep* rep_;
-
   // No copying allowed
   Cache(const Cache&);
   void operator=(const Cache&);

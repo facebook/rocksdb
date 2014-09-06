@@ -221,6 +221,7 @@ std::string FeatureSet::DebugString() const {
     switch (iter.second.type()) {
       case Variant::kNull:
         out.append("null");
+        break;
       case Variant::kBool:
         if (iter.second.get_bool()) {
           out.append("true");
