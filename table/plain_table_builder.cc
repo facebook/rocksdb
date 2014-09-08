@@ -20,7 +20,6 @@
 #include "table/block_builder.h"
 #include "table/bloom_block.h"
 #include "table/plain_table_index.h"
-#include "table/filter_block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/coding.h"

@@ -324,21 +324,22 @@ class DBTest {
     kHashCuckoo = 7,
     kMergePut = 8,
     kFilter = 9,
-    kUncompressed = 10,
-    kNumLevel_3 = 11,
-    kDBLogDir = 12,
-    kWalDir = 13,
-    kManifestFileSize = 14,
-    kCompactOnFlush = 15,
-    kPerfOptions = 16,
-    kDeletesFilterFirst = 17,
-    kHashSkipList = 18,
-    kUniversalCompaction = 19,
-    kCompressedBlockCache = 20,
-    kInfiniteMaxOpenFiles = 21,
-    kxxHashChecksum = 22,
-    kFIFOCompaction = 23,
-    kEnd = 24
+    kFullFilter = 10,
+    kUncompressed = 11,
+    kNumLevel_3 = 12,
+    kDBLogDir = 13,
+    kWalDir = 14,
+    kManifestFileSize = 15,
+    kCompactOnFlush = 16,
+    kPerfOptions = 17,
+    kDeletesFilterFirst = 18,
+    kHashSkipList = 19,
+    kUniversalCompaction = 20,
+    kCompressedBlockCache = 21,
+    kInfiniteMaxOpenFiles = 22,
+    kxxHashChecksum = 23,
+    kFIFOCompaction = 24,
+    kEnd = 25
   };
   int option_config_;
 
@@ -448,6 +449,30 @@ class DBTest {
     }
   }
 
+  // Switch between different filter policy
+  // Jump from kDefault to kFilter to kFullFilter
+  bool ChangeFilterOptions(Options* prev_options = nullptr) {
+    if (option_config_ == kDefault) {
+      option_config_ = kFilter;
+      if (prev_options == nullptr) {
+        prev_options = &last_options_;
+      }
+      Destroy(prev_options);
+      TryReopen();
+      return true;
+    } else if (option_config_ == kFilter) {
+      option_config_ = kFullFilter;
+      if (prev_options == nullptr) {
+        prev_options = &last_options_;
+      }
+      Destroy(prev_options);
+      TryReopen();
+      return true;
+    } else {
+      return false;
+    }
+  }
+
   // Return the current option configuration.
   Options CurrentOptions(
       const anon::OptionsOverride& options_override = anon::OptionsOverride()) {
@@ -486,7 +511,10 @@ class DBTest {
         options.merge_operator = MergeOperators::CreatePutOperator();
         break;
       case kFilter:
-        table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+        table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+        break;
+      case kFullFilter:
+        table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
         break;
       case kUncompressed:
         options.compression = kNoCompression;
@@ -5744,6 +5772,92 @@ TEST(DBTest, BloomFilter) {
   } while (ChangeCompactOptions());
 }
 
+TEST(DBTest, BloomFilterRate) {
+  while (ChangeFilterOptions()) {
+    Options options = CurrentOptions();
+    options.statistics = rocksdb::CreateDBStatistics();
+    CreateAndReopenWithCF({"pikachu"}, &options);
+
+    const int maxKey = 10000;
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_OK(Put(1, Key(i), Key(i)));
+    }
+    // Add a large key to make the file contain wide range
+    ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+    Flush(1);
+
+    // Check if they can be found
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ(Key(i), Get(1, Key(i)));
+    }
+    ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+
+    // Check if filter is useful
+    for (int i = 0; i < maxKey; i++) {
+      ASSERT_EQ("NOT_FOUND", Get(1, Key(i+33333)));
+    }
+    ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey*0.98);
+  }
+}
+
+TEST(DBTest, BloomFilterCompatibility) {
+  Options options;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  // Create with block based filter
+  CreateAndReopenWithCF({"pikachu"}, &options);
+
+  const int maxKey = 10000;
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_OK(Put(1, Key(i), Key(i)));
+  }
+  ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+  Flush(1);
+
+  // Check db with full filter
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+
+  // Check if they can be found
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_EQ(Key(i), Get(1, Key(i)));
+  }
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+}
+
+TEST(DBTest, BloomFilterReverseCompatibility) {
+  Options options;
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  // Create with full filter
+  CreateAndReopenWithCF({"pikachu"}, &options);
+
+  const int maxKey = 10000;
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_OK(Put(1, Key(i), Key(i)));
+  }
+  ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+  Flush(1);
+
+  // Check db with block_based filter
+  table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+
+  // Check if they can be found
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_EQ(Key(i), Get(1, Key(i)));
+  }
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+}
+
 TEST(DBTest, SnapshotFiles) {
   do {
     Options options = CurrentOptions();
@@ -7194,47 +7308,49 @@ void PrefixScanInit(DBTest *dbtest) {
 }  // namespace
 
 TEST(DBTest, PrefixScan) {
-  int count;
-  Slice prefix;
-  Slice key;
-  char buf[100];
-  Iterator* iter;
-  snprintf(buf, sizeof(buf), "03______:");
-  prefix = Slice(buf, 8);
-  key = Slice(buf, 9);
-  // db configs
-  env_->count_random_reads_ = true;
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
-  options.disable_auto_compactions = true;
-  options.max_background_compactions = 2;
-  options.create_if_missing = true;
-  options.memtable_factory.reset(NewHashSkipListRepFactory(16));
+  while (ChangeFilterOptions()) {
+    int count;
+    Slice prefix;
+    Slice key;
+    char buf[100];
+    Iterator* iter;
+    snprintf(buf, sizeof(buf), "03______:");
+    prefix = Slice(buf, 8);
+    key = Slice(buf, 9);
+    // db configs
+    env_->count_random_reads_ = true;
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+    options.disable_auto_compactions = true;
+    options.max_background_compactions = 2;
+    options.create_if_missing = true;
+    options.memtable_factory.reset(NewHashSkipListRepFactory(16));
 
-  BlockBasedTableOptions table_options;
-  table_options.no_block_cache = true;
-  table_options.filter_policy.reset(NewBloomFilterPolicy(10));
-  table_options.whole_key_filtering = false;
-  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+    BlockBasedTableOptions table_options;
+    table_options.no_block_cache = true;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    table_options.whole_key_filtering = false;
+    options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  // 11 RAND I/Os
-  DestroyAndReopen(&options);
-  PrefixScanInit(this);
-  count = 0;
-  env_->random_read_counter_.Reset();
-  iter = db_->NewIterator(ReadOptions());
-  for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
-    if (! iter->key().starts_with(prefix)) {
-      break;
+    // 11 RAND I/Os
+    DestroyAndReopen(&options);
+    PrefixScanInit(this);
+    count = 0;
+    env_->random_read_counter_.Reset();
+    iter = db_->NewIterator(ReadOptions());
+    for (iter->Seek(prefix); iter->Valid(); iter->Next()) {
+      if (! iter->key().starts_with(prefix)) {
+        break;
+      }
+      count++;
     }
-    count++;
-  }
-  ASSERT_OK(iter->status());
-  delete iter;
-  ASSERT_EQ(count, 2);
-  ASSERT_EQ(env_->random_read_counter_.Read(), 2);
-  Close();
+    ASSERT_OK(iter->status());
+    delete iter;
+    ASSERT_EQ(count, 2);
+    ASSERT_EQ(env_->random_read_counter_.Read(), 2);
+    Close();
+  }  // end of while
 }
 
 TEST(DBTest, TailingIteratorSingle) {

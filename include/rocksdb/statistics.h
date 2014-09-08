@@ -115,7 +115,7 @@ enum Tickers : uint32_t {
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,
-  WRITE_TIMEDOUT,        // Number of writes ending up with timed-out.
+  WRITE_TIMEDOUT,       // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction

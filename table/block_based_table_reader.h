@@ -28,6 +28,8 @@ class BlockIter;
 class BlockHandle;
 class Cache;
 class FilterBlockReader;
+class BlockBasedFilterBlockReader;
+class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
@@ -47,6 +49,7 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
+  static const std::string kFullFilterBlockPrefix;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -184,7 +187,9 @@ class BlockBasedTable : public TableReader {
 
   // Create the filter from the filter block.
   static FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
-                                       Rep* rep, size_t* filter_size = nullptr);
+                                       Rep* rep,
+                                       const std::string& filter_block_prefix,
+                                       size_t* filter_size = nullptr);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 

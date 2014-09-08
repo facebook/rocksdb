@@ -209,6 +209,9 @@ static const bool FLAGS_reopen_dummy __attribute__((unused)) =
 DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
              "Negative means use default settings.");
 
+DEFINE_bool(use_block_based_filter, false, "use block based filter"
+              "instead of full filter for block based table");
+
 DEFINE_string(db, "", "Use the db with the following name.");
 
 DEFINE_bool(verify_checksum, false,
@@ -757,8 +760,10 @@ class StressTest {
                               ? NewLRUCache(FLAGS_compressed_cache_size)
                               : nullptr),
         filter_policy_(FLAGS_bloom_bits >= 0
-                           ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                           : nullptr),
+                   ? FLAGS_use_block_based_filter
+                     ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
+                     : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
+                   : nullptr),
         db_(nullptr),
         new_column_family_name_(1),
         num_times_reopened_(0) {

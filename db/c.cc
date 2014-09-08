@@ -118,7 +118,7 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
       const Slice& existing_value,
       std::string* new_value,
       bool* value_changed) const {
-    char* c_new_value = NULL;
+    char* c_new_value = nullptr;
     size_t new_value_length = 0;
     unsigned char c_value_changed = 0;
     unsigned char result = (*filter_)(

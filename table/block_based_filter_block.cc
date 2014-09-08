@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include "table/filter_block.h"
+#include "table/block_based_filter_block.h"
 
 #include "db/dbformat.h"
 #include "rocksdb/filter_policy.h"
@@ -15,21 +15,39 @@
 
 namespace rocksdb {
 
+namespace {
+bool SamePrefix(const SliceTransform* prefix_extractor,
+                const Slice& key1, const Slice& key2) {
+  if (!prefix_extractor->InDomain(key1) &&
+      !prefix_extractor->InDomain(key2)) {
+    return true;
+  } else if (!prefix_extractor->InDomain(key1) ||
+             !prefix_extractor->InDomain(key2)) {
+    return false;
+  } else {
+    return (prefix_extractor->Transform(key1) ==
+            prefix_extractor->Transform(key2));
+  }
+}
+}  // namespace
+
+
 // See doc/table_format.txt for an explanation of the filter block format.
 
 // Generate new filter every 2KB of data
 static const size_t kFilterBaseLg = 11;
 static const size_t kFilterBase = 1 << kFilterBaseLg;
 
-FilterBlockBuilder::FilterBlockBuilder(const SliceTransform* prefix_extractor,
-                                       const BlockBasedTableOptions& table_opt,
-                                       const Comparator* internal_comparator)
+BlockBasedFilterBlockBuilder::BlockBasedFilterBlockBuilder(
+    const SliceTransform* prefix_extractor,
+    const BlockBasedTableOptions& table_opt)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
-      whole_key_filtering_(table_opt.whole_key_filtering),
-      comparator_(internal_comparator) {}
+      whole_key_filtering_(table_opt.whole_key_filtering) {
+  assert(policy_);
+}
 
-void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
+void BlockBasedFilterBlockBuilder::StartBlock(uint64_t block_offset) {
   uint64_t filter_index = (block_offset / kFilterBase);
   assert(filter_index >= filter_offsets_.size());
   while (filter_index > filter_offsets_.size()) {
@@ -37,53 +55,45 @@ void FilterBlockBuilder::StartBlock(uint64_t block_offset) {
   }
 }
 
-bool FilterBlockBuilder::SamePrefix(const Slice &key1,
-                                    const Slice &key2) const {
-  if (!prefix_extractor_->InDomain(key1) &&
-      !prefix_extractor_->InDomain(key2)) {
-    return true;
-  } else if (!prefix_extractor_->InDomain(key1) ||
-             !prefix_extractor_->InDomain(key2)) {
-    return false;
-  } else {
-    return (prefix_extractor_->Transform(key1) ==
-            prefix_extractor_->Transform(key2));
+void BlockBasedFilterBlockBuilder::Add(const Slice& key) {
+  added_to_start_ = 0;
+  if (whole_key_filtering_) {
+    AddKey(key);
+    added_to_start_ = 1;
+  }
+  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
+    AddPrefix(key);
   }
 }
 
-void FilterBlockBuilder::AddKey(const Slice& key) {
+// Add key to filter if needed
+inline void BlockBasedFilterBlockBuilder::AddKey(const Slice& key) {
+  start_.push_back(entries_.size());
+  entries_.append(key.data(), key.size());
+}
+
+// Add prefix to filter if needed
+inline void BlockBasedFilterBlockBuilder::AddPrefix(const Slice& key) {
   // get slice for most recently added entry
   Slice prev;
-  size_t added_to_start = 0;
-
-  // add key to filter if needed
-  if (whole_key_filtering_) {
-    start_.push_back(entries_.size());
-    ++added_to_start;
-    entries_.append(key.data(), key.size());
-  }
-
-  if (start_.size() > added_to_start) {
-    size_t prev_start = start_[start_.size() - 1 - added_to_start];
+  if (start_.size() > added_to_start_) {
+    size_t prev_start = start_[start_.size() - 1 - added_to_start_];
     const char* base = entries_.data() + prev_start;
     size_t length = entries_.size() - prev_start;
     prev = Slice(base, length);
   }
 
-  // add prefix to filter if needed
-  if (prefix_extractor_ && prefix_extractor_->InDomain(key)) {
-    // this assumes prefix(prefix(key)) == prefix(key), as the last
-    // entry in entries_ may be either a key or prefix, and we use
-    // prefix(last entry) to get the prefix of the last key.
-    if (prev.size() == 0 || !SamePrefix(key, prev)) {
-      Slice prefix = prefix_extractor_->Transform(key);
-      start_.push_back(entries_.size());
-      entries_.append(prefix.data(), prefix.size());
-    }
+  // this assumes prefix(prefix(key)) == prefix(key), as the last
+  // entry in entries_ may be either a key or prefix, and we use
+  // prefix(last entry) to get the prefix of the last key.
+  if (prev.size() == 0 || !SamePrefix(prefix_extractor_, key, prev)) {
+    Slice prefix = prefix_extractor_->Transform(key);
+    start_.push_back(entries_.size());
+    entries_.append(prefix.data(), prefix.size());
   }
 }
 
-Slice FilterBlockBuilder::Finish() {
+Slice BlockBasedFilterBlockBuilder::Finish() {
   if (!start_.empty()) {
     GenerateFilter();
   }
@@ -99,7 +109,7 @@ Slice FilterBlockBuilder::Finish() {
   return Slice(result_);
 }
 
-void FilterBlockBuilder::GenerateFilter() {
+void BlockBasedFilterBlockBuilder::GenerateFilter() {
   const size_t num_entries = start_.size();
   if (num_entries == 0) {
     // Fast path if there are no keys for this filter
@@ -112,7 +122,7 @@ void FilterBlockBuilder::GenerateFilter() {
   tmp_entries_.resize(num_entries);
   for (size_t i = 0; i < num_entries; i++) {
     const char* base = entries_.data() + start_[i];
-    size_t length = start_[i+1] - start_[i];
+    size_t length = start_[i + 1] - start_[i];
     tmp_entries_[i] = Slice(base, length);
   }
 
@@ -125,7 +135,7 @@ void FilterBlockBuilder::GenerateFilter() {
   start_.clear();
 }
 
-FilterBlockReader::FilterBlockReader(
+BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
     const BlockBasedTableOptions& table_opt,
     const Slice& contents, bool delete_contents_after_use)
@@ -136,9 +146,10 @@ FilterBlockReader::FilterBlockReader(
       offset_(nullptr),
       num_(0),
       base_lg_(0) {
+  assert(policy_);
   size_t n = contents.size();
   if (n < 5) return;  // 1 byte for base_lg_ and 4 for start of offset array
-  base_lg_ = contents[n-1];
+  base_lg_ = contents[n - 1];
   uint32_t last_word = DecodeFixed32(contents.data() + n - 5);
   if (last_word > n - 5) return;
   data_ = contents.data();
@@ -149,27 +160,30 @@ FilterBlockReader::FilterBlockReader(
   }
 }
 
-bool FilterBlockReader::KeyMayMatch(uint64_t block_offset,
-                                    const Slice& key) {
+bool BlockBasedFilterBlockReader::KeyMayMatch(const Slice& key,
+                                              uint64_t block_offset) {
+  assert(block_offset != kNotValid);
   if (!whole_key_filtering_) {
     return true;
   }
-  return MayMatch(block_offset, key);
+  return MayMatch(key, block_offset);
 }
 
-bool FilterBlockReader::PrefixMayMatch(uint64_t block_offset,
-                                       const Slice& prefix) {
+bool BlockBasedFilterBlockReader::PrefixMayMatch(const Slice& prefix,
+                                                 uint64_t block_offset) {
+  assert(block_offset != kNotValid);
   if (!prefix_extractor_) {
     return true;
   }
-  return MayMatch(block_offset, prefix);
+  return MayMatch(prefix, block_offset);
 }
 
-bool FilterBlockReader::MayMatch(uint64_t block_offset, const Slice& entry) {
+bool BlockBasedFilterBlockReader::MayMatch(const Slice& entry,
+                                           uint64_t block_offset) {
   uint64_t index = block_offset >> base_lg_;
   if (index < num_) {
-    uint32_t start = DecodeFixed32(offset_ + index*4);
-    uint32_t limit = DecodeFixed32(offset_ + index*4 + 4);
+    uint32_t start = DecodeFixed32(offset_ + index * 4);
+    uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
     if (start <= limit && limit <= (uint32_t)(offset_ - data_)) {
       Slice filter = Slice(data_ + start, limit - start);
       return policy_->KeyMayMatch(entry, filter);
@@ -181,7 +195,7 @@ bool FilterBlockReader::MayMatch(uint64_t block_offset, const Slice& entry) {
   return true;  // Errors are treated as potential matches
 }
 
-size_t FilterBlockReader::ApproximateMemoryUsage() const {
+size_t BlockBasedFilterBlockReader::ApproximateMemoryUsage() const {
   return num_ * 4 + 5 + (offset_ - data_);
 }
 }

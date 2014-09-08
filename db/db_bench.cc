@@ -39,8 +39,8 @@ int main() {
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/statistics.h"
 #include "rocksdb/perf_context.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -553,7 +553,9 @@ DEFINE_double(cuckoo_hash_ratio, 0.9, "Hash ratio for Cuckoo SST table.");
 DEFINE_bool(use_hash_search, false, "if use kHashSearch "
             "instead of kBinarySearch. "
             "This is valid if only we use BlockTable");
-
+DEFINE_bool(use_block_based_filter, false, "if use kBlockBasedFilter "
+            "instead of kFullFilter for filter block. "
+            "This is valid if only we use BlockTable");
 DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
               " database The possible merge operators are defined in"
@@ -1076,9 +1078,9 @@ class Benchmark {
            (FLAGS_cache_numshardbits >= 1 ?
             NewLRUCache(FLAGS_compressed_cache_size, FLAGS_cache_numshardbits) :
             NewLRUCache(FLAGS_compressed_cache_size)) : nullptr),
-    filter_policy_(FLAGS_bloom_bits >= 0
-                   ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                   : nullptr),
+    filter_policy_(FLAGS_bloom_bits >= 0 ?
+        NewBloomFilterPolicy(FLAGS_bloom_bits, FLAGS_use_block_based_filter)
+        : nullptr),
     prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
     num_(FLAGS_num),
     value_size_(FLAGS_value_size),

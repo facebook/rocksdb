@@ -16,6 +16,7 @@
 #include "include/rocksdb/comparator.h"
 #include "include/rocksdb/table.h"
 #include "include/rocksdb/slice_transform.h"
+#include "include/rocksdb/filter_policy.h"
 
 namespace rocksdb {
 
@@ -146,13 +147,30 @@ class SanityTestPlainTableFactory : public SanityTest {
   Options options_;
 };
 
+class SanityTestBloomFilter : public SanityTest {
+ public:
+  explicit SanityTestBloomFilter(const std::string& path)
+      : SanityTest(path) {
+    table_options_.filter_policy.reset(NewBloomFilterPolicy(10));
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options_));
+  }
+  ~SanityTestBloomFilter() {}
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "BloomFilter"; }
+
+ private:
+  Options options_;
+  BlockBasedTableOptions table_options_;
+};
+
 namespace {
 bool RunSanityTests(const std::string& command, const std::string& path) {
   std::vector<SanityTest*> sanity_tests = {
       new SanityTestBasic(path),
       new SanityTestSpecialComparator(path),
       new SanityTestZlibCompression(path),
-      new SanityTestPlainTableFactory(path)};
+      new SanityTestPlainTableFactory(path),
+      new SanityTestBloomFilter(path)};
 
   if (command == "create") {
     fprintf(stderr, "Creating...\n");
