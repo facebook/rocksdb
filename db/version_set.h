@@ -34,6 +34,7 @@
 #include "db/column_family.h"
 #include "db/log_reader.h"
 #include "db/file_indexer.h"
+#include "db/write_controller.h"
 
 namespace rocksdb {
 
@@ -321,8 +322,8 @@ class Version {
   // These are used to pick the best compaction level
   std::vector<double> compaction_score_;
   std::vector<int> compaction_level_;
-  double max_compaction_score_; // max score in l1 to ln-1
-  int max_compaction_score_level_; // level on which max score occurs
+  double max_compaction_score_ = 0.0;   // max score in l1 to ln-1
+  int max_compaction_score_level_ = 0;  // level on which max score occurs
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
@@ -357,7 +358,8 @@ class Version {
 class VersionSet {
  public:
   VersionSet(const std::string& dbname, const DBOptions* options,
-             const EnvOptions& storage_options, Cache* table_cache);
+             const EnvOptions& storage_options, Cache* table_cache,
+             WriteController* write_controller);
   ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that

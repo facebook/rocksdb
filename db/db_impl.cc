@@ -344,7 +344,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       last_stats_dump_time_microsec_(0),
       default_interval_to_delete_obsolete_WAL_(600),
       flush_on_destroy_(false),
-      delayed_writes_(0),
       env_options_(options),
       bg_work_gate_closed_(false),
       refitting_level_(false),
@@ -360,8 +359,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       NewLRUCache(table_cache_size, db_options_.table_cache_numshardbits,
                   db_options_.table_cache_remove_scan_count_limit);
 
-  versions_.reset(
-      new VersionSet(dbname_, &db_options_, env_options_, table_cache_.get()));
+  versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
+                                 table_cache_.get(), &write_controller_));
   column_family_memtables_.reset(
       new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
@@ -3988,6 +3987,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         flush_column_family_if_log_file, total_log_size_, max_total_wal_size);
   }
 
+  if (write_controller_.IsStopped() || write_controller_.GetDelay() > 0) {
+    DelayWrite(expiration_time);
+  }
+
   if (LIKELY(single_column_family_mode_)) {
     // fast path
     status = MakeRoomForWrite(default_cf_handle_->cfd(),
@@ -4189,36 +4192,28 @@ void DBImpl::BuildBatchGroup(Writer** last_writer,
   }
 }
 
-// This function computes the amount of time in microseconds by which a write
-// should be delayed based on the number of level-0 files according to the
-// following formula:
-// if n < bottom, return 0;
-// if n >= top, return 1000;
-// otherwise, let r = (n - bottom) /
-//                    (top - bottom)
-//  and return r^2 * 1000.
-// The goal of this formula is to gradually increase the rate at which writes
-// are slowed. We also tried linear delay (r * 1000), but it seemed to do
-// slightly worse. There is no other particular reason for choosing quadratic.
-uint64_t DBImpl::SlowdownAmount(int n, double bottom, double top) {
-  uint64_t delay;
-  if (n >= top) {
-    delay = 1000;
+// REQUIRES: mutex_ is held
+// REQUIRES: this thread is currently at the front of the writer queue
+void DBImpl::DelayWrite(uint64_t expiration_time) {
+  StopWatch sw(env_, stats_, WRITE_STALL);
+  bool has_timeout = (expiration_time > 0);
+  auto delay = write_controller_.GetDelay();
+  if (write_controller_.IsStopped() == false && delay > 0) {
+    mutex_.Unlock();
+    env_->SleepForMicroseconds(delay);
+    mutex_.Lock();
   }
-  else if (n < bottom) {
-    delay = 0;
+
+  while (write_controller_.IsStopped()) {
+    if (has_timeout) {
+      bg_cv_.TimedWait(expiration_time);
+      if (env_->NowMicros() > expiration_time) {
+        break;
+      }
+    } else {
+      bg_cv_.Wait();
+    }
   }
-  else {
-    // If we are here, we know that:
-    //   level0_start_slowdown <= n < level0_slowdown
-    // since the previous two conditions are false.
-    double how_much =
-      (double) (n - bottom) /
-              (top - bottom);
-    delay = std::max(how_much * how_much * 1000, 100.0);
-  }
-  assert(delay <= 1000);
-  return delay;
 }
 
 // REQUIRES: mutex_ is held
@@ -4228,16 +4223,7 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd,
                                 uint64_t expiration_time) {
   mutex_.AssertHeld();
   assert(!writers_.empty());
-  bool allow_delay = true;
-  bool allow_hard_rate_limit_delay = true;
-  bool allow_soft_rate_limit_delay = true;
-  uint64_t rate_limit_delay_millis = 0;
   Status s;
-  double score;
-  // Once we schedule background work, we shouldn't schedule it again, since it
-  // might generate a tight feedback loop, constantly scheduling more background
-  // work, even if additional background work is not needed
-  bool schedule_background_work = true;
   bool has_timeout = (expiration_time > 0);
 
   while (true) {
@@ -4248,111 +4234,9 @@ Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd,
     } else if (has_timeout && env_->NowMicros() > expiration_time) {
       s = Status::TimedOut();
       break;
-    } else if (allow_delay && cfd->NeedSlowdownForNumLevel0Files()) {
-      // We are getting close to hitting a hard limit on the number of
-      // L0 files.  Rather than delaying a single write by several
-      // seconds when we hit the hard limit, start delaying each
-      // individual write by 0-1ms to reduce latency variance.  Also,
-      // this delay hands over some CPU to the compaction thread in
-      // case it is sharing the same core as the writer.
-      uint64_t slowdown =
-          SlowdownAmount(cfd->current()->NumLevelFiles(0),
-                         cfd->options()->level0_slowdown_writes_trigger,
-                         cfd->options()->level0_stop_writes_trigger);
-      mutex_.Unlock();
-      uint64_t delayed;
-      {
-        StopWatch sw(env_, stats_, STALL_L0_SLOWDOWN_COUNT, &delayed);
-        env_->SleepForMicroseconds(slowdown);
-      }
-      RecordTick(stats_, STALL_L0_SLOWDOWN_MICROS, delayed);
-      allow_delay = false;  // Do not delay a single write more than once
-      mutex_.Lock();
-      cfd->internal_stats()->AddCFStats(
-          InternalStats::LEVEL0_SLOWDOWN, delayed);
-      delayed_writes_++;
     } else if (!cfd->mem()->ShouldFlush()) {
       // There is room in current memtable
-      if (allow_delay) {
-        DelayLoggingAndReset();
-      }
       break;
-    } else if (cfd->NeedWaitForNumMemtables()) {
-      // We have filled up the current memtable, but the previous
-      // ones are still being flushed, so we wait.
-      DelayLoggingAndReset();
-      Log(db_options_.info_log, "[%s] wait for memtable flush...\n",
-          cfd->GetName().c_str());
-      if (schedule_background_work) {
-        MaybeScheduleFlushOrCompaction();
-        schedule_background_work = false;
-      }
-      uint64_t stall;
-      {
-        StopWatch sw(env_, stats_, STALL_MEMTABLE_COMPACTION_COUNT, &stall);
-        if (!has_timeout) {
-          bg_cv_.Wait();
-        } else {
-          bg_cv_.TimedWait(expiration_time);
-        }
-      }
-      RecordTick(stats_, STALL_MEMTABLE_COMPACTION_MICROS, stall);
-      cfd->internal_stats()->AddCFStats(
-          InternalStats::MEMTABLE_COMPACTION, stall);
-    } else if (cfd->NeedWaitForNumLevel0Files()) {
-      DelayLoggingAndReset();
-      Log(db_options_.info_log, "[%s] wait for fewer level0 files...\n",
-          cfd->GetName().c_str());
-      uint64_t stall;
-      {
-        StopWatch sw(env_, stats_, STALL_L0_NUM_FILES_COUNT, &stall);
-        if (!has_timeout) {
-          bg_cv_.Wait();
-        } else {
-          bg_cv_.TimedWait(expiration_time);
-        }
-      }
-      RecordTick(stats_, STALL_L0_NUM_FILES_MICROS, stall);
-      cfd->internal_stats()->AddCFStats(
-          InternalStats::LEVEL0_NUM_FILES, stall);
-    } else if (allow_hard_rate_limit_delay && cfd->ExceedsHardRateLimit()) {
-      // Delay a write when the compaction score for any level is too large.
-      const int max_level = cfd->current()->MaxCompactionScoreLevel();
-      score = cfd->current()->MaxCompactionScore();
-      mutex_.Unlock();
-      uint64_t delayed;
-      {
-        StopWatch sw(env_, stats_, HARD_RATE_LIMIT_DELAY_COUNT, &delayed);
-        env_->SleepForMicroseconds(1000);
-      }
-      // Make sure the following value doesn't round to zero.
-      uint64_t rate_limit = std::max((delayed / 1000), (uint64_t) 1);
-      rate_limit_delay_millis += rate_limit;
-      RecordTick(stats_, RATE_LIMIT_DELAY_MILLIS, rate_limit);
-      if (cfd->options()->rate_limit_delay_max_milliseconds > 0 &&
-          rate_limit_delay_millis >=
-              (unsigned)cfd->options()->rate_limit_delay_max_milliseconds) {
-        allow_hard_rate_limit_delay = false;
-      }
-      mutex_.Lock();
-      cfd->internal_stats()->RecordLevelNSlowdown(max_level, delayed, false);
-    } else if (allow_soft_rate_limit_delay && cfd->ExceedsSoftRateLimit()) {
-      const int max_level = cfd->current()->MaxCompactionScoreLevel();
-      score = cfd->current()->MaxCompactionScore();
-      // Delay a write when the compaction score for any level is too large.
-      // TODO: add statistics
-      uint64_t slowdown = SlowdownAmount(score, cfd->options()->soft_rate_limit,
-                                         cfd->options()->hard_rate_limit);
-      uint64_t elapsed = 0;
-      mutex_.Unlock();
-      {
-        StopWatch sw(env_, stats_, SOFT_RATE_LIMIT_DELAY_COUNT, &elapsed);
-        env_->SleepForMicroseconds(slowdown);
-        rate_limit_delay_millis += slowdown;
-      }
-      allow_soft_rate_limit_delay = false;
-      mutex_.Lock();
-      cfd->internal_stats()->RecordLevelNSlowdown(max_level, elapsed, true);
     } else {
       s = SetNewMemtableAndNewLogFile(cfd, context);
       if (!s.ok()) {
@@ -4383,7 +4267,6 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   mutex_.Unlock();
   Status s;
   {
-    DelayLoggingAndReset();
     if (creating_new_log) {
       s = env_->NewWritableFile(
           LogFileName(db_options_.wal_dir, new_log_number),
@@ -4592,13 +4475,6 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
   {
     MutexLock l(&mutex_);
     v->Unref();
-  }
-}
-
-inline void DBImpl::DelayLoggingAndReset() {
-  if (delayed_writes_ > 0) {
-    Log(db_options_.info_log, "delayed %d write...\n", delayed_writes_);
-    delayed_writes_ = 0;
   }
 }
 

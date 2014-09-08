@@ -32,6 +32,7 @@
 #include "util/thread_local.h"
 #include "util/scoped_arena_iterator.h"
 #include "db/internal_stats.h"
+#include "db/write_controller.h"
 
 namespace rocksdb {
 
@@ -357,9 +358,6 @@ class DBImpl : public DB {
   Status WriteLevel0Table(ColumnFamilyData* cfd, autovector<MemTable*>& mems,
                           VersionEdit* edit, uint64_t* filenumber,
                           LogBuffer* log_buffer);
-
-  uint64_t SlowdownAmount(int n, double bottom, double top);
-
   // Information kept for every waiting writer
   struct Writer {
     Status status;
@@ -399,8 +397,9 @@ class DBImpl : public DB {
   // See also: BeginWrite
   void EndWrite(Writer* w, Writer* last_writer, Status status);
 
-  Status MakeRoomForWrite(ColumnFamilyData* cfd,
-                          WriteContext* context,
+  void DelayWrite(uint64_t expiration_time);
+
+  Status MakeRoomForWrite(ColumnFamilyData* cfd, WriteContext* context,
                           uint64_t expiration_time);
 
   Status SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
@@ -557,6 +556,8 @@ class DBImpl : public DB {
   std::deque<Writer*> writers_;
   WriteBatch tmp_batch_;
 
+  WriteController write_controller_;
+
   SnapshotList snapshots_;
 
   // cache for ReadFirstRecord() calls
@@ -628,9 +629,6 @@ class DBImpl : public DB {
   static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
   std::string db_absolute_path_;
 
-  // count of the number of contiguous delaying writes
-  int delayed_writes_;
-
   // The options to access storage files
   const EnvOptions env_options_;
 
@@ -646,9 +644,6 @@ class DBImpl : public DB {
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);
-
-  // dump the delayed_writes_ to the log file and reset counter.
-  void DelayLoggingAndReset();
 
   // Return the earliest snapshot where seqno is visible.
   // Store the snapshot right before that, if any, in prev_snapshot

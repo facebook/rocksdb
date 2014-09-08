@@ -347,9 +347,7 @@ struct ColumnFamilyOptions {
   // Default: 0 (disabled)
   double hard_rate_limit;
 
-  // Max time a put will be stalled when hard_rate_limit is enforced. If 0, then
-  // there is no limit.
-  // Default: 1000
+  // DEPRECATED -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds;
 
   // size of one block in arena memory allocation.

@@ -112,7 +112,8 @@ TESTS = \
 	version_edit_test \
 	version_set_test \
 	file_indexer_test \
-	write_batch_test\
+	write_batch_test \
+	write_controller_test\
 	deletefile_test \
 	table_test \
 	thread_local_test \
@@ -426,6 +427,9 @@ reduce_levels_test: tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 write_batch_test: db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+write_controller_test: db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

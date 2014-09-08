@@ -1706,9 +1706,10 @@ class VersionSet::Builder {
 };
 
 VersionSet::VersionSet(const std::string& dbname, const DBOptions* options,
-                       const EnvOptions& storage_options, Cache* table_cache)
+                       const EnvOptions& storage_options, Cache* table_cache,
+                       WriteController* write_controller)
     : column_family_set_(new ColumnFamilySet(dbname, options, storage_options,
-                                             table_cache)),
+                                             table_cache, write_controller)),
       env_(options->env),
       dbname_(dbname),
       options_(options),
@@ -2411,7 +2412,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   std::shared_ptr<Cache> tc(NewLRUCache(
       options->max_open_files - 10, options->table_cache_numshardbits,
       options->table_cache_remove_scan_count_limit));
-  VersionSet versions(dbname, options, storage_options, tc.get());
+  WriteController wc;
+  VersionSet versions(dbname, options, storage_options, tc.get(), &wc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;

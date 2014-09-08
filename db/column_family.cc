@@ -9,6 +9,11 @@
 
 #include "db/column_family.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -19,10 +24,41 @@
 #include "db/internal_stats.h"
 #include "db/compaction_picker.h"
 #include "db/table_properties_collector.h"
+#include "db/write_controller.h"
 #include "util/autovector.h"
 #include "util/hash_skiplist_rep.h"
 
 namespace rocksdb {
+
+namespace {
+// This function computes the amount of time in microseconds by which a write
+// should be delayed based on the number of level-0 files according to the
+// following formula:
+// if n < bottom, return 0;
+// if n >= top, return 1000;
+// otherwise, let r = (n - bottom) /
+//                    (top - bottom)
+//  and return r^2 * 1000.
+// The goal of this formula is to gradually increase the rate at which writes
+// are slowed. We also tried linear delay (r * 1000), but it seemed to do
+// slightly worse. There is no other particular reason for choosing quadratic.
+uint64_t SlowdownAmount(int n, double bottom, double top) {
+  uint64_t delay;
+  if (n >= top) {
+    delay = 1000;
+  } else if (n < bottom) {
+    delay = 0;
+  } else {
+    // If we are here, we know that:
+    //   level0_start_slowdown <= n < level0_slowdown
+    // since the previous two conditions are false.
+    double how_much = static_cast<double>(n - bottom) / (top - bottom);
+    delay = std::max(how_much * how_much * 1000, 100.0);
+  }
+  assert(delay <= 1000);
+  return delay;
+}
+}  // namespace
 
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(ColumnFamilyData* cfd,
                                                DBImpl* db, port::Mutex* mutex)
@@ -197,7 +233,6 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      need_slowdown_for_num_level0_files_(false),
       column_family_set_(column_family_set) {
   Ref();
 
@@ -278,31 +313,62 @@ ColumnFamilyData::~ColumnFamilyData() {
 }
 
 void ColumnFamilyData::RecalculateWriteStallConditions() {
-  need_wait_for_num_memtables_ =
-    (imm()->size() == options()->max_write_buffer_number - 1);
-
   if (current_ != nullptr) {
-    need_wait_for_num_level0_files_ =
-      (current_->NumLevelFiles(0) >= options()->level0_stop_writes_trigger);
-  } else {
-    need_wait_for_num_level0_files_ = false;
-  }
+    const double score = current_->MaxCompactionScore();
+    const int max_level = current_->MaxCompactionScoreLevel();
 
-  RecalculateWriteStallRateLimitsConditions();
-}
+    auto write_controller = column_family_set_->write_controller_;
 
-void ColumnFamilyData::RecalculateWriteStallRateLimitsConditions() {
-  if (current_ != nullptr) {
-    exceeds_hard_rate_limit_ =
-        (options()->hard_rate_limit > 1.0 &&
-         current_->MaxCompactionScore() > options()->hard_rate_limit);
-
-    exceeds_soft_rate_limit_ =
-        (options()->soft_rate_limit > 0.0 &&
-         current_->MaxCompactionScore() > options()->soft_rate_limit);
-  } else {
-    exceeds_hard_rate_limit_ = false;
-    exceeds_soft_rate_limit_ = false;
+    if (imm()->size() == options_.max_write_buffer_number) {
+      write_controller_token_ = write_controller->GetStopToken();
+      internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
+      Log(options_.info_log,
+          "[%s] Stopping writes because we have %d immutable memtables "
+          "(waiting for flush)",
+          name_.c_str(), imm()->size());
+    } else if (options_.level0_slowdown_writes_trigger >= 0 &&
+               current_->NumLevelFiles(0) >=
+                   options_.level0_slowdown_writes_trigger) {
+      uint64_t slowdown = SlowdownAmount(
+          current_->NumLevelFiles(0), options_.level0_slowdown_writes_trigger,
+          options_.level0_stop_writes_trigger);
+      write_controller_token_ = write_controller->GetDelayToken(slowdown);
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, slowdown);
+      Log(options_.info_log,
+          "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
+          "us)",
+          name_.c_str(), current_->NumLevelFiles(0), slowdown);
+    } else if (current_->NumLevelFiles(0) >=
+               options_.level0_stop_writes_trigger) {
+      write_controller_token_ = write_controller->GetStopToken();
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
+      Log(options_.info_log,
+          "[%s] Stopping writes because we have %d level-0 files",
+          name_.c_str(), current_->NumLevelFiles(0));
+    } else if (options_.hard_rate_limit > 1.0 &&
+               score > options_.hard_rate_limit) {
+      uint64_t kHardLimitSlowdown = 1000;
+      write_controller_token_ =
+          write_controller->GetDelayToken(kHardLimitSlowdown);
+      internal_stats_->RecordLevelNSlowdown(max_level, kHardLimitSlowdown,
+                                            false);
+      Log(options_.info_log,
+          "[%s] Stalling writes because we hit hard limit on level %d. "
+          "(%" PRIu64 "us)",
+          name_.c_str(), max_level, kHardLimitSlowdown);
+    } else if (options_.soft_rate_limit > 0.0 &&
+               score > options_.soft_rate_limit) {
+      uint64_t slowdown = SlowdownAmount(score, options_.soft_rate_limit,
+                                         options_.hard_rate_limit);
+      write_controller_token_ = write_controller->GetDelayToken(slowdown);
+      internal_stats_->RecordLevelNSlowdown(max_level, slowdown, true);
+      Log(options_.info_log,
+          "[%s] Stalling writes because we hit soft limit on level %d (%" PRIu64
+          "us)",
+          name_.c_str(), max_level, slowdown);
+    } else {
+      write_controller_token_.reset();
+    }
   }
 }
 
@@ -310,12 +376,7 @@ const EnvOptions* ColumnFamilyData::soptions() const {
   return &(column_family_set_->env_options_);
 }
 
-void ColumnFamilyData::SetCurrent(Version* current) {
-  current_ = current;
-  need_slowdown_for_num_level0_files_ =
-      (options_.level0_slowdown_writes_trigger >= 0 &&
-       current_->NumLevelFiles(0) >= options_.level0_slowdown_writes_trigger);
-}
+void ColumnFamilyData::SetCurrent(Version* current) { current_ = current; }
 
 void ColumnFamilyData::CreateNewMemtable() {
   assert(current_ != nullptr);
@@ -328,7 +389,6 @@ void ColumnFamilyData::CreateNewMemtable() {
 
 Compaction* ColumnFamilyData::PickCompaction(LogBuffer* log_buffer) {
   auto result = compaction_picker_->PickCompaction(current_, log_buffer);
-  RecalculateWriteStallRateLimitsConditions();
   return result;
 }
 
@@ -464,16 +524,18 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const DBOptions* db_options,
                                  const EnvOptions& env_options,
-                                 Cache* table_cache)
+                                 Cache* table_cache,
+                                 WriteController* write_controller)
     : max_column_family_(0),
       dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr,
                                       ColumnFamilyOptions(), db_options,
-                                      env_options_, nullptr)),
+                                      env_options, nullptr)),
       default_cfd_cache_(nullptr),
       db_name_(dbname),
       db_options_(db_options),
       env_options_(env_options),
       table_cache_(table_cache),
+      write_controller_(write_controller),
       spin_lock_(ATOMIC_FLAG_INIT) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;

@@ -19,6 +19,7 @@
 #include "rocksdb/env.h"
 #include "db/memtable_list.h"
 #include "db/write_batch_internal.h"
+#include "db/write_controller.h"
 #include "db/table_cache.h"
 #include "util/thread_local.h"
 
@@ -156,6 +157,7 @@ class ColumnFamilyData {
     // can't drop default CF
     assert(id_ != 0);
     dropped_ = true;
+    write_controller_token_.reset();
   }
   bool IsDropped() const { return dropped_; }
 
@@ -225,35 +227,12 @@ class ColumnFamilyData {
 
   void ResetThreadLocalSuperVersions();
 
-  // A Flag indicating whether write needs to slowdown because of there are
-  // too many number of level0 files.
-  bool NeedSlowdownForNumLevel0Files() const {
-    return need_slowdown_for_num_level0_files_;
-  }
-
-  bool NeedWaitForNumLevel0Files() const {
-    return need_wait_for_num_level0_files_;
-  }
-
-  bool NeedWaitForNumMemtables() const {
-    return need_wait_for_num_memtables_;
-  }
-
-  bool ExceedsSoftRateLimit() const {
-    return exceeds_soft_rate_limit_;
-  }
-
-  bool ExceedsHardRateLimit() const {
-    return exceeds_hard_rate_limit_;
-  }
-
  private:
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
                    const ColumnFamilyOptions& options,
-                   const DBOptions* db_options,
-                   const EnvOptions& env_options,
+                   const DBOptions* db_options, const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
 
   // Recalculate some small conditions, which are changed only during
@@ -262,7 +241,6 @@ class ColumnFamilyData {
   // DBImpl::MakeRoomForWrite function to decide, if it need to make
   // a write stall
   void RecalculateWriteStallConditions();
-  void RecalculateWriteStallRateLimitsConditions();
 
   uint32_t id_;
   const std::string name_;
@@ -304,31 +282,13 @@ class ColumnFamilyData {
   // recovered from
   uint64_t log_number_;
 
-  // A flag indicating whether we should delay writes because
-  // we have too many level 0 files
-  bool need_slowdown_for_num_level0_files_;
-
-  // These 4 variables are updated only after compaction,
-  // adding new memtable, flushing memtables to files
-  // and/or add recalculation of compaction score.
-  // That's why theirs values are cached in ColumnFamilyData.
-  // Recalculation is made by RecalculateWriteStallConditions and
-  // RecalculateWriteStallRateLimitsConditions function. They are used
-  // in DBImpl::MakeRoomForWrite function to decide, if it need
-  // to sleep during write operation
-  bool need_wait_for_num_memtables_;
-
-  bool need_wait_for_num_level0_files_;
-
-  bool exceeds_hard_rate_limit_;
-
-  bool exceeds_soft_rate_limit_;
-
   // An object that keeps all the compaction stats
   // and picks the next compaction
   std::unique_ptr<CompactionPicker> compaction_picker_;
 
   ColumnFamilySet* column_family_set_;
+
+  std::unique_ptr<WriteControllerToken> write_controller_token_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements
@@ -370,7 +330,8 @@ class ColumnFamilySet {
   };
 
   ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
-                  const EnvOptions& env_options, Cache* table_cache);
+                  const EnvOptions& env_options, Cache* table_cache,
+                  WriteController* write_controller);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -425,6 +386,7 @@ class ColumnFamilySet {
   const DBOptions* const db_options_;
   const EnvOptions env_options_;
   Cache* table_cache_;
+  WriteController* write_controller_;
   std::atomic_flag spin_lock_;
 };
 

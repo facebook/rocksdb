@@ -564,7 +564,8 @@ void ManifestDumpCommand::DoCommand() {
   // if VersionSet::DumpManifest() depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
   options.db_paths.emplace_back("dummy", 0);
-  VersionSet versions(dbname, &options, sopt, tc.get());
+  WriteController wc;
+  VersionSet versions(dbname, &options, sopt, tc.get(), &wc);
   Status s = versions.DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
@@ -1089,7 +1090,8 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
       NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits,
                   opt.table_cache_remove_scan_count_limit));
   const InternalKeyComparator cmp(opt.comparator);
-  VersionSet versions(db_path_, &opt, soptions, tc.get());
+  WriteController wc;
+  VersionSet versions(db_path_, &opt, soptions, tc.get(), &wc);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));
