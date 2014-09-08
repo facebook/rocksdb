@@ -155,6 +155,7 @@ void* DBImpl::TEST_BeginWrite() {
 void DBImpl::TEST_EndWrite(void* w) {
   auto writer = reinterpret_cast<Writer*>(w);
   EndWrite(writer, writer, Status::OK());
+  delete writer;
 }
 
 }  // namespace rocksdb
