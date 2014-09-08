@@ -30,7 +30,7 @@ const unsigned char kSizeInlineLimit = 0x3F;
 size_t EncodeSize(EntryType type, uint32_t key_size, char* out_buffer) {
   out_buffer[0] = type << 6;
 
-  if (key_size < 0x3F) {
+  if (key_size < static_cast<uint32_t>(kSizeInlineLimit)) {
     // size inlined
     out_buffer[0] |= static_cast<char>(key_size);
     return 1;
