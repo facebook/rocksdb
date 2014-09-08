@@ -316,7 +316,6 @@ class DBImpl : public DB {
   friend class DB;
   friend class InternalStats;
 #ifndef ROCKSDB_LITE
-  friend class TailingIterator;
   friend class ForwardIterator;
 #endif
   friend struct SuperVersion;
