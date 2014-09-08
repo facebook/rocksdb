@@ -326,6 +326,13 @@ void ColumnFamilyData::RecalculateWriteStallConditions() {
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush)",
           name_.c_str(), imm()->size());
+    } else if (current_->NumLevelFiles(0) >=
+               options_.level0_stop_writes_trigger) {
+      write_controller_token_ = write_controller->GetStopToken();
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
+      Log(options_.info_log,
+          "[%s] Stopping writes because we have %d level-0 files",
+          name_.c_str(), current_->NumLevelFiles(0));
     } else if (options_.level0_slowdown_writes_trigger >= 0 &&
                current_->NumLevelFiles(0) >=
                    options_.level0_slowdown_writes_trigger) {
@@ -338,13 +345,6 @@ void ColumnFamilyData::RecalculateWriteStallConditions() {
           "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
           "us)",
           name_.c_str(), current_->NumLevelFiles(0), slowdown);
-    } else if (current_->NumLevelFiles(0) >=
-               options_.level0_stop_writes_trigger) {
-      write_controller_token_ = write_controller->GetStopToken();
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
-      Log(options_.info_log,
-          "[%s] Stopping writes because we have %d level-0 files",
-          name_.c_str(), current_->NumLevelFiles(0));
     } else if (options_.hard_rate_limit > 1.0 &&
                score > options_.hard_rate_limit) {
       uint64_t kHardLimitSlowdown = 1000;

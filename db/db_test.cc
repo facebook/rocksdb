@@ -7827,6 +7827,26 @@ TEST(DBTest, MTRandomTimeoutTest) {
   }
 }
 
+TEST(DBTest, Level0StopWritesTest) {
+  Options options = CurrentOptions();
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 4;
+  options.disable_auto_compactions = 4;
+  options.max_mem_compaction_level = 0;
+  Reopen(&options);
+
+  // create 4 level0 tables
+  for (int i = 0; i < 4; ++i) {
+    Put("a", "b");
+    Flush();
+  }
+
+  WriteOptions woptions;
+  woptions.timeout_hint_us = 30 * 1000;  // 30 ms
+  Status s = Put("a", "b", woptions);
+  ASSERT_TRUE(s.IsTimedOut());
+}
+
 }  // anonymous namespace
 
 /*
