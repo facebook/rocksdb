@@ -256,7 +256,7 @@ class Version {
   class LevelFileNumIterator;
   class LevelFileIteratorState;
 
-  bool PrefixMayMatch(const ReadOptions& options, Iterator* level_iter,
+  bool PrefixMayMatch(const ReadOptions& read_options, Iterator* level_iter,
                       const Slice& internal_prefix) const;
 
   // Update num_non_empty_levels_.
@@ -357,8 +357,8 @@ class Version {
 
 class VersionSet {
  public:
-  VersionSet(const std::string& dbname, const DBOptions* options,
-             const EnvOptions& storage_options, Cache* table_cache,
+  VersionSet(const std::string& dbname, const DBOptions* db_options,
+             const EnvOptions& env_options, Cache* table_cache,
              WriteController* write_controller);
   ~VersionSet();
 
@@ -397,7 +397,7 @@ class VersionSet {
   // among [4-6] contains files.
   static Status ReduceNumberOfLevels(const std::string& dbname,
                                      const Options* options,
-                                     const EnvOptions& storage_options,
+                                     const EnvOptions& env_options,
                                      int new_levels);
 
   // printf contents (for debugging)
@@ -506,14 +506,14 @@ class VersionSet {
   bool ManifestContains(uint64_t manifest_file_number,
                         const std::string& record) const;
 
-  ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
+  ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                        VersionEdit* edit);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 
   Env* const env_;
   const std::string dbname_;
-  const DBOptions* const options_;
+  const DBOptions* const db_options_;
   uint64_t next_file_number_;
   uint64_t manifest_file_number_;
   uint64_t pending_manifest_file_number_;
@@ -534,12 +534,12 @@ class VersionSet {
 
   std::vector<FileMetaData*> obsolete_files_;
 
-  // storage options for all reads and writes except compactions
-  const EnvOptions& storage_options_;
+  // env options for all reads and writes except compactions
+  const EnvOptions& env_options_;
 
-  // storage options used for compactions. This is a copy of
-  // storage_options_ but with readaheads set to readahead_compactions_.
-  const EnvOptions storage_options_compactions_;
+  // env options used for compactions. This is a copy of
+  // env_options_ but with readaheads set to readahead_compactions_.
+  const EnvOptions env_options_compactions_;
 
   // No copying allowed
   VersionSet(const VersionSet&);
