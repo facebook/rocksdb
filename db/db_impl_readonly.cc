@@ -69,25 +69,27 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   return s;
 }
 
-Iterator* DBImplReadOnly::NewIterator(const ReadOptions& options,
+Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
                                       ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   SuperVersion* super_version = cfd->GetSuperVersion()->Ref();
   SequenceNumber latest_snapshot = versions_->LastSequence();
   auto db_iter = NewArenaWrappedDbIterator(
-      env_, *cfd->options(), cfd->user_comparator(),
-      (options.snapshot != nullptr
-           ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-           : latest_snapshot));
-  auto internal_iter =
-      NewInternalIterator(options, cfd, super_version, db_iter->GetArena());
+      env_, *cfd->ioptions(), cfd->user_comparator(),
+      (read_options.snapshot != nullptr
+           ? reinterpret_cast<const SnapshotImpl*>(
+                read_options.snapshot)->number_
+           : latest_snapshot),
+      cfd->options()->max_sequential_skip_in_iterations);
+  auto internal_iter = NewInternalIterator(
+      read_options, cfd, super_version, db_iter->GetArena());
   db_iter->SetIterUnderDBIter(internal_iter);
   return db_iter;
 }
 
 Status DBImplReadOnly::NewIterators(
-    const ReadOptions& options,
+    const ReadOptions& read_options,
     const std::vector<ColumnFamilyHandle*>& column_families,
     std::vector<Iterator*>* iterators) {
   if (iterators == nullptr) {
@@ -100,12 +102,14 @@ Status DBImplReadOnly::NewIterators(
   for (auto cfh : column_families) {
     auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
     auto db_iter = NewArenaWrappedDbIterator(
-        env_, *cfd->options(), cfd->user_comparator(),
-        options.snapshot != nullptr
-            ? reinterpret_cast<const SnapshotImpl*>(options.snapshot)->number_
-            : latest_snapshot);
+        env_, *cfd->ioptions(), cfd->user_comparator(),
+        (read_options.snapshot != nullptr
+            ? reinterpret_cast<const SnapshotImpl*>(
+                  read_options.snapshot)->number_
+            : latest_snapshot),
+        cfd->options()->max_sequential_skip_in_iterations);
     auto internal_iter = NewInternalIterator(
-        options, cfd, cfd->GetSuperVersion()->Ref(), db_iter->GetArena());
+        read_options, cfd, cfd->GetSuperVersion()->Ref(), db_iter->GetArena());
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }

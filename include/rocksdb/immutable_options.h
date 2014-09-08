@@ -17,6 +17,10 @@ namespace rocksdb {
 struct ImmutableCFOptions {
   explicit ImmutableCFOptions(const Options& options);
 
+  CompactionStyle compaction_style;
+
+  CompactionOptionsUniversal compaction_options_universal;
+
   const SliceTransform* prefix_extractor;
 
   const Comparator* comparator;
@@ -57,6 +61,12 @@ struct ImmutableCFOptions {
   bool disable_data_sync;
 
   bool use_fsync;
+
+  CompressionType compression;
+
+  std::vector<CompressionType> compression_per_level;
+
+  CompressionOptions compression_opts;
 };
 
 }  // namespace rocksdb

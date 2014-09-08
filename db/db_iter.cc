@@ -58,24 +58,25 @@ class DBIter: public Iterator {
     kReverse
   };
 
-  DBIter(Env* env, const Options& options, const Comparator* cmp,
-         Iterator* iter, SequenceNumber s, bool arena_mode,
+  DBIter(Env* env, const ImmutableCFOptions& ioptions,
+         const Comparator* cmp, Iterator* iter, SequenceNumber s,
+         bool arena_mode, uint64_t max_sequential_skip_in_iterations,
          const Slice* iterate_upper_bound = nullptr)
       : arena_mode_(arena_mode),
         env_(env),
-        logger_(options.info_log.get()),
+        logger_(ioptions.info_log),
         user_comparator_(cmp),
-        user_merge_operator_(options.merge_operator.get()),
+        user_merge_operator_(ioptions.merge_operator),
         iter_(iter),
         sequence_(s),
         direction_(kForward),
         valid_(false),
         current_entry_is_merged_(false),
-        statistics_(options.statistics.get()),
+        statistics_(ioptions.statistics),
         iterate_upper_bound_(iterate_upper_bound) {
     RecordTick(statistics_, NO_ITERATORS);
-    prefix_extractor_ = options.prefix_extractor.get();
-    max_skip_ = options.max_sequential_skip_in_iterations;
+    prefix_extractor_ = ioptions.prefix_extractor;
+    max_skip_ = max_sequential_skip_in_iterations;
   }
   virtual ~DBIter() {
     RecordTick(statistics_, NO_ITERATORS, -1);
@@ -636,13 +637,15 @@ void DBIter::SeekToLast() {
   PrevInternal();
 }
 
-Iterator* NewDBIterator(Env* env, const Options& options,
+Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,
                         const Comparator* user_key_comparator,
                         Iterator* internal_iter,
                         const SequenceNumber& sequence,
+                        uint64_t max_sequential_skip_in_iterations,
                         const Slice* iterate_upper_bound) {
-  return new DBIter(env, options, user_key_comparator, internal_iter, sequence,
-                    false, iterate_upper_bound);
+  return new DBIter(env, ioptions, user_key_comparator, internal_iter, sequence,
+                    false, max_sequential_skip_in_iterations,
+                    iterate_upper_bound);
 }
 
 ArenaWrappedDBIter::~ArenaWrappedDBIter() { db_iter_->~DBIter(); }
@@ -670,14 +673,17 @@ void ArenaWrappedDBIter::RegisterCleanup(CleanupFunction function, void* arg1,
 }
 
 ArenaWrappedDBIter* NewArenaWrappedDbIterator(
-    Env* env, const Options& options, const Comparator* user_key_comparator,
+    Env* env, const ImmutableCFOptions& ioptions,
+    const Comparator* user_key_comparator,
     const SequenceNumber& sequence,
+    uint64_t max_sequential_skip_in_iterations,
     const Slice* iterate_upper_bound) {
   ArenaWrappedDBIter* iter = new ArenaWrappedDBIter();
   Arena* arena = iter->GetArena();
   auto mem = arena->AllocateAligned(sizeof(DBIter));
-  DBIter* db_iter = new (mem) DBIter(env, options, user_key_comparator,
-      nullptr, sequence, true, iterate_upper_bound);
+  DBIter* db_iter = new (mem) DBIter(env, ioptions, user_key_comparator,
+      nullptr, sequence, true, max_sequential_skip_in_iterations,
+      iterate_upper_bound);
 
   iter->SetDBIter(db_iter);
 

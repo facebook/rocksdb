@@ -512,7 +512,7 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                                    const FileMetaData* file_meta,
                                    const std::string* fname) {
   auto table_cache = cfd_->table_cache();
-  auto options = cfd_->options();
+  auto ioptions = cfd_->ioptions();
   Status s = table_cache->GetTableProperties(
       vset_->storage_options_, cfd_->internal_comparator(), file_meta->fd,
       tp, true /* no io */);
@@ -530,10 +530,10 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   // directly from the properties block in the file.
   std::unique_ptr<RandomAccessFile> file;
   if (fname != nullptr) {
-    s = options->env->NewRandomAccessFile(
+    s = ioptions->env->NewRandomAccessFile(
         *fname, &file, vset_->storage_options_);
   } else {
-    s = options->env->NewRandomAccessFile(
+    s = ioptions->env->NewRandomAccessFile(
         TableFileName(vset_->options_->db_paths, file_meta->fd.GetNumber(),
                       file_meta->fd.GetPathId()),
         &file, vset_->storage_options_);
@@ -548,11 +548,11 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   s = ReadTableProperties(
       file.get(), file_meta->fd.GetFileSize(),
       Footer::kInvalidTableMagicNumber /* table's magic number */,
-      vset_->env_, options->info_log.get(), &raw_table_properties);
+      vset_->env_, ioptions->info_log, &raw_table_properties);
   if (!s.ok()) {
     return s;
   }
-  RecordTick(options->statistics.get(), NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
+  RecordTick(ioptions->statistics, NUMBER_DIRECT_LOAD_TABLE_PROPERTIES);
 
   *tp = std::shared_ptr<const TableProperties>(raw_table_properties);
   return s;
@@ -619,7 +619,7 @@ void Version::AddIterators(const ReadOptions& read_options,
           new LevelFileIteratorState(
               cfd_->table_cache(), read_options, soptions,
               cfd_->internal_comparator(), false /* for_compaction */,
-              cfd_->options()->prefix_extractor != nullptr),
+              cfd_->ioptions()->prefix_extractor != nullptr),
           new LevelFileNumIterator(cfd_->internal_comparator(),
               &file_levels_[level]), merge_iter_builder->GetArena()));
     }
@@ -735,10 +735,10 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
           (cfd == nullptr) ? nullptr : internal_comparator_->user_comparator()),
       table_cache_((cfd == nullptr) ? nullptr : cfd->table_cache()),
       merge_operator_((cfd == nullptr) ? nullptr
-                                       : cfd->options()->merge_operator.get()),
-      info_log_((cfd == nullptr) ? nullptr : cfd->options()->info_log.get()),
+                                       : cfd->ioptions()->merge_operator),
+      info_log_((cfd == nullptr) ? nullptr : cfd->ioptions()->info_log),
       db_statistics_((cfd == nullptr) ? nullptr
-                                      : cfd->options()->statistics.get()),
+                                      : cfd->ioptions()->statistics),
       // cfd is nullptr if Version is dummy
       num_levels_(cfd == nullptr ? 0 : cfd->NumberLevels()),
       num_non_empty_levels_(num_levels_),
@@ -947,7 +947,7 @@ void Version::ComputeCompactionScore(
           numfiles++;
         }
       }
-      if (cfd_->options()->compaction_style == kCompactionStyleFIFO) {
+      if (cfd_->ioptions()->compaction_style == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 cfd_->options()->compaction_options_fifo.max_table_files_size;
       } else if (numfiles >= cfd_->options()->level0_stop_writes_trigger) {
@@ -1016,8 +1016,8 @@ void Version::UpdateNumNonEmptyLevels() {
 }
 
 void Version::UpdateFilesBySize() {
-  if (cfd_->options()->compaction_style == kCompactionStyleFIFO ||
-      cfd_->options()->compaction_style == kCompactionStyleUniversal) {
+  if (cfd_->ioptions()->compaction_style == kCompactionStyleFIFO ||
+      cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     // don't need this
     return;
   }

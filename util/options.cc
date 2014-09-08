@@ -33,7 +33,9 @@
 namespace rocksdb {
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
-  : prefix_extractor(options.prefix_extractor.get()),
+  : compaction_style(options.compaction_style),
+    compaction_options_universal(options.compaction_options_universal),
+    prefix_extractor(options.prefix_extractor.get()),
     comparator(options.comparator),
     merge_operator(options.merge_operator.get()),
     info_log(options.info_log.get()),
@@ -50,7 +52,10 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
     min_partial_merge_operands(options.min_partial_merge_operands),
     disable_data_sync(options.disableDataSync),
-    use_fsync(options.use_fsync) {}
+    use_fsync(options.use_fsync),
+    compression(options.compression),
+    compression_per_level(options.compression_per_level),
+    compression_opts(options.compression_opts) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
