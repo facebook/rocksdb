@@ -2643,12 +2643,12 @@ Status DBImpl::ProcessKeyValueCompaction(
       cfd->user_comparator(), cfd->ioptions()->merge_operator,
       db_options_.info_log.get(), cfd->options()->min_partial_merge_operands,
       false /* internal key corruption is expected */);
-  auto compaction_filter = cfd->options()->compaction_filter;
+  auto compaction_filter = cfd->ioptions()->compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (!compaction_filter) {
     auto context = compact->GetFilterContextV1();
     compaction_filter_from_factory =
-        cfd->options()->compaction_filter_factory->CreateCompactionFilter(
+        cfd->ioptions()->compaction_filter_factory->CreateCompactionFilter(
             context);
     compaction_filter = compaction_filter_from_factory.get();
   }
@@ -3085,8 +3085,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     = nullptr;
   auto context = compact->GetFilterContext();
   compaction_filter_from_factory_v2 =
-      cfd->options()->compaction_filter_factory_v2->CreateCompactionFilterV2(
-          context);
+      cfd->ioptions()->compaction_filter_factory_v2->
+          CreateCompactionFilterV2(context);
   auto compaction_filter_v2 =
     compaction_filter_from_factory_v2.get();
 
@@ -3116,7 +3116,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         continue;
       } else {
         const SliceTransform* transformer =
-            cfd->options()->compaction_filter_factory_v2->GetPrefixExtractor();
+            cfd->ioptions()->compaction_filter_factory_v2->GetPrefixExtractor();
         const auto key_prefix = transformer->Transform(ikey.user_key);
         if (!prefix_initialized) {
           compact->cur_prefix_ = key_prefix.ToString();
