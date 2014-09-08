@@ -127,7 +127,7 @@ class TableBuilder;
 class PlainTableFactory : public TableFactory {
  public:
   ~PlainTableFactory() {}
-  // user_key_size is the length of the user key. If it is set to be
+  // user_key_len is the length of the user key. If it is set to be
   // kPlainTableVariableLength, then it means variable length. Otherwise, all
   // the keys need to have the fix length of this value. bloom_bits_per_key is
   // number of bits used for bloom filer per key. hash_table_ratio is
