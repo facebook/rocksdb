@@ -6120,18 +6120,18 @@ namespace {
 std::vector<std::uint64_t> ListSpecificFiles(
     Env* env, const std::string& path, const FileType expected_file_type) {
   std::vector<std::string> files;
-  std::vector<uint64_t> log_files;
+  std::vector<uint64_t> file_numbers;
   env->GetChildren(path, &files);
   uint64_t number;
   FileType type;
   for (size_t i = 0; i < files.size(); ++i) {
     if (ParseFileName(files[i], &number, &type)) {
       if (type == expected_file_type) {
-        log_files.push_back(number);
+        file_numbers.push_back(number);
       }
     }
   }
-  return std::move(log_files);
+  return std::move(file_numbers);
 }
 
 std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
@@ -6140,6 +6140,17 @@ std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
 
 std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
   return ListSpecificFiles(env, path, kTableFile);
+}
+
+std::uint64_t GetNumberOfSstFilesForColumnFamily(
+    DB* db, std::string column_family_name) {
+  std::vector<LiveFileMetaData> metadata;
+  db->GetLiveFilesMetaData(&metadata);
+  uint64_t result = 0;
+  for (auto& fileMetadata : metadata) {
+    result += (fileMetadata.column_family_name == column_family_name);
+  }
+  return result;
 }
 }  // namespace
 
@@ -6162,6 +6173,119 @@ TEST(DBTest, FlushOneColumnFamily) {
     Flush(i);
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), i + 1U);
+  }
+}
+
+// In https://reviews.facebook.net/D20661 we change
+// recovery behavior: previously for each log file each column family
+// memtable was flushed, even it was empty. Now it's changed:
+// we try to create the smallest number of table files by merging
+// updates from multiple logs
+TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
+  Options options;
+  options.write_buffer_size = 5000000;
+  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, &options);
+
+  // Since we will reopen DB with smaller write_buffer_size,
+  // each key will go to new SST file
+  ASSERT_OK(Put(1, Key(10), DummyString(1000000)));
+  ASSERT_OK(Put(1, Key(10), DummyString(1000000)));
+  ASSERT_OK(Put(1, Key(10), DummyString(1000000)));
+  ASSERT_OK(Put(1, Key(10), DummyString(1000000)));
+
+  ASSERT_OK(Put(3, Key(10), DummyString(1)));
+  // Make 'dobrynia' to be flushed and new WAL file to be created
+  ASSERT_OK(Put(2, Key(10), DummyString(7500000)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  {
+    auto tables = ListTableFiles(env_, dbname_);
+    ASSERT_EQ(tables.size(), 1);
+    // Make sure 'dobrynia' was flushed: check sst files amount
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"), 1);
+  }
+  // New WAL file
+  ASSERT_OK(Put(1, Key(1), DummyString(1)));
+  ASSERT_OK(Put(1, Key(1), DummyString(1)));
+  ASSERT_OK(Put(3, Key(10), DummyString(1)));
+  ASSERT_OK(Put(3, Key(10), DummyString(1)));
+  ASSERT_OK(Put(3, Key(10), DummyString(1)));
+
+  options.write_buffer_size = 10;
+  ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
+                           &options);
+  {
+    // No inserts => default is empty
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"), 0);
+    // First 4 keys goes to separate SSTs + 1 more SST for 2 smaller keys
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 5);
+    // 1 SST for big key + 1 SST for small one
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"), 2);
+    // 1 SST for all keys
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 1);
+  }
+}
+
+// In https://reviews.facebook.net/D20661 we change
+// recovery behavior: previously for each log file each column family
+// memtable was flushed, even it wasn't empty. Now it's changed:
+// we try to create the smallest number of table files by merging
+// updates from multiple logs
+TEST(DBTest, RecoverCheckFileAmount) {
+  Options options;
+  options.write_buffer_size = 100000;
+  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, &options);
+
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  ASSERT_OK(Put(1, Key(1), DummyString(1)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+
+  // Make 'nikitich' memtable to be flushed
+  ASSERT_OK(Put(3, Key(10), DummyString(1002400)));
+  ASSERT_OK(Put(3, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  // 4 memtable are not flushed, 1 sst file
+  {
+    auto tables = ListTableFiles(env_, dbname_);
+    ASSERT_EQ(tables.size(), 1);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 1);
+  }
+  // Memtable for 'nikitich' has flushed, new WAL file has opened
+  // 4 memtable still not flushed
+
+  // Write to new WAL file
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  ASSERT_OK(Put(1, Key(1), DummyString(1)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+
+  // Fill up 'nikitich' one more time
+  ASSERT_OK(Put(3, Key(10), DummyString(1002400)));
+  // make it flush
+  ASSERT_OK(Put(3, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  // There are still 4 memtable not flushed, and 2 sst tables
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  ASSERT_OK(Put(1, Key(1), DummyString(1)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+
+  {
+    auto tables = ListTableFiles(env_, dbname_);
+    ASSERT_EQ(tables.size(), 2);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 2);
+  }
+
+  ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
+                           &options);
+  {
+    std::vector<uint64_t> table_files = ListTableFiles(env_, dbname_);
+    // Check, that records for 'default', 'dobrynia' and 'pikachu' from
+    // first, second and third WALs  went to the same SST.
+    // So, there is 6 SSTs: three  for 'nikitich', one for 'default', one for
+    // 'dobrynia', one for 'pikachu'
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"), 1);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 3);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"), 1);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1);
   }
 }
 

@@ -344,8 +344,9 @@ class DBImpl : public DB {
                                    DeletionState& deletion_state,
                                    LogBuffer* log_buffer);
 
-  Status RecoverLogFile(uint64_t log_number, SequenceNumber* max_sequence,
-                        bool read_only);
+  // REQUIRES: log_numbers are sorted in ascending order
+  Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
+                         SequenceNumber* max_sequence, bool read_only);
 
   // The following two methods are used to flush a memtable to
   // storage. The first one is used atdatabase RecoveryTime (when the
