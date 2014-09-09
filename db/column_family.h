@@ -133,7 +133,7 @@ class ColumnFamilyData {
   void Ref() { ++refs_; }
   // will just decrease reference count to 0, but will not delete it. returns
   // true if the ref count was decreased to zero. in that case, it can be
-  // deleted by the caller immediatelly, or later, by calling
+  // deleted by the caller immediately, or later, by calling
   // FreeDeadColumnFamilies()
   bool Unref() {
     assert(refs_ > 0);

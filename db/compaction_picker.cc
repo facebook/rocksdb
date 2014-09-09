@@ -42,13 +42,13 @@ CompressionType GetCompressionType(const Options& options, int level,
     return kNoCompression;
   }
   // If the use has specified a different compression level for each level,
-  // then pick the compresison for that level.
+  // then pick the compression for that level.
   if (!options.compression_per_level.empty()) {
     const int n = options.compression_per_level.size() - 1;
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
-    // belongs to.  Likewise, if level_ is beyond the end of the
+    // belongs to.  Likewise, if level is beyond the end of the
     // specified compression levels, use the last value.
     return options.compression_per_level[std::max(0, std::min(level, n))];
   } else {

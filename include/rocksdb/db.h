@@ -123,7 +123,7 @@ class DB {
 
   // Open DB with column families.
   // db_options specify database specific options
-  // column_families is the vector of all column families in the databse,
+  // column_families is the vector of all column families in the database,
   // containing column family name and options. You need to open ALL column
   // families in the database. To get the list of column families, you can use
   // ListColumnFamilies(). Also, you can open only a subset of column families
