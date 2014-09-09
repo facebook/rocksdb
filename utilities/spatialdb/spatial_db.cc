@@ -22,6 +22,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
@@ -516,6 +517,7 @@ class SpatialDBImpl : public SpatialDB {
       return Status::InvalidArgument("Spatial indexes can't be empty");
     }
 
+    const int kWriteOutEveryBytes = 1024 * 1024;  // 1MB
     uint64_t id = next_id_.fetch_add(1);
 
     for (const auto& si : spatial_indexes) {
@@ -537,6 +539,13 @@ class SpatialDBImpl : public SpatialDB {
               &key, GetQuadKeyFromTile(x, y, spatial_index.tile_bits));
           PutFixed64BigEndian(&key, id);
           batch.Put(itr->second.column_family, key, Slice());
+          if (batch.GetDataSize() >= kWriteOutEveryBytes) {
+            Status s = Write(write_options, &batch);
+            batch.Clear();
+            if (!s.ok()) {
+              return s;
+            }
+          }
         }
       }
     }
@@ -553,6 +562,7 @@ class SpatialDBImpl : public SpatialDB {
   }
 
   virtual Status Compact() override {
+    // TODO(icanadi) maybe do this in parallel?
     Status s, t;
     for (auto& iter : name_to_index_) {
       t = Flush(FlushOptions(), iter.second.column_family);
@@ -625,6 +635,7 @@ class SpatialDBImpl : public SpatialDB {
 namespace {
 DBOptions GetDBOptions(const SpatialDBOptions& options) {
   DBOptions db_options;
+  db_options.max_open_files = 50000;
   db_options.max_background_compactions = 3 * options.num_threads / 4;
   db_options.max_background_flushes =
       options.num_threads - db_options.max_background_compactions;
@@ -632,8 +643,12 @@ DBOptions GetDBOptions(const SpatialDBOptions& options) {
                                        Env::LOW);
   db_options.env->SetBackgroundThreads(db_options.max_background_flushes,
                                        Env::HIGH);
+  db_options.statistics = CreateDBStatistics();
   if (options.bulk_load) {
+    db_options.stats_dump_period_sec = 600;
     db_options.disableDataSync = true;
+  } else {
+    db_options.stats_dump_period_sec = 1800;  // 30min
   }
   return db_options;
 }
@@ -643,6 +658,8 @@ ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
   ColumnFamilyOptions column_family_options;
   column_family_options.write_buffer_size = 128 * 1024 * 1024;  // 128MB
   column_family_options.max_write_buffer_number = 4;
+  column_family_options.max_bytes_for_level_base = 256 * 1024 * 1024;  // 256MB
+  column_family_options.target_file_size_base = 64 * 1024 * 1024;      // 64MB
   column_family_options.level0_file_num_compaction_trigger = 2;
   column_family_options.level0_slowdown_writes_trigger = 16;
   column_family_options.level0_slowdown_writes_trigger = 32;
