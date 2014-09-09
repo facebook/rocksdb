@@ -19,8 +19,7 @@ import org.rocksdb.NativeLibraryLoader;
  * All methods of this class could potentially throw RocksDBException, which
  * indicates sth wrong at the rocksdb library side and the call failed.
  */
-public class RocksDB extends RocksObject
-{
+public class RocksDB extends RocksObject {
 
   public static final int NOT_FOUND = -1;
   private static final String[] compressionLibs_ = {
@@ -35,8 +34,7 @@ public class RocksDB extends RocksObject
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
    */
-  public static synchronized void loadLibrary()
-  {
+  public static synchronized void loadLibrary() {
     // loading possibly necessary libraries.
     for (String lib : compressionLibs_) {
       try {
@@ -45,14 +43,13 @@ public class RocksDB extends RocksObject
         // since it may be optional, we ignore its loading failure here.
       }
     }
-
     try
     {
       NativeLibraryLoader.loadLibraryFromJar();
     }
     catch (IOException e)
     {
-      e.printStackTrace();
+      throw new RuntimeException("Unable to load the RocksDB shared library" + e);
     }
   }
 

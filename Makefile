@@ -245,7 +245,7 @@ unity: unity.cc unity.o
 clean:
 	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) build_config.mk unity.cc
 	-rm -rf ios-x86/* ios-arm/*
-	-find . -name "*.[od]" -exec rm {} \;
+	-find . -name "*.[oda]" -exec rm {} \;
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 tags:
 	ctags * -R
@@ -480,29 +480,30 @@ ROCKSDBJNILIB = librocksdbjni.jnilib
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 
-
-rocksdbjavastatic:
-	#build zlib 
+libz.a:
+	-rm -rf zlib-1.2.8
 	curl -O http://zlib.net/zlib-1.2.8.tar.gz
 	tar xvzf zlib-1.2.8.tar.gz
 	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
-	cp zlib-1.2.8/libz.a .
-	rm -rf zlib-1.2.8.tar.gz zlib-1.2.8
-	
-	#build bzip
-	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
+	cp zlib-1.2.8/libz.a . 
+
+libbz2.a:
+	-rm -rf bzip2-1.0.6
+	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz 
 	tar xvzf bzip2-1.0.6.tar.gz
 	cd bzip2-1.0.6 && make CFLAGS='-fPIC -Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
-	rm -rf bzip2-1.0.6.tar.gz bzip2-1.0.6
 
-	#build snappy
+libsnappy.a:
+	-rm -rf snappy-1.1.1
 	curl -O https://snappy.googlecode.com/files/snappy-1.1.1.tar.gz
 	tar xvzf snappy-1.1.1.tar.gz
-	cd snappy-1.1.1 && ./configure --with-pic --enable-static 
+	cd snappy-1.1.1 && ./configure --with-pic --enable-static
 	cd snappy-1.1.1 && make
 	cp snappy-1.1.1/.libs/libsnappy.a .
-	rm -rf snappy-1.1.1 snappy-1.1.1.tar.gz
+		
+
+rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j
 	cd java;$(MAKE) java;
 	rm -f ./java/$(ROCKSDBJNILIB)

@@ -2,8 +2,7 @@ package org.rocksdb;
 
 import java.io.*;
 
-public class NativeLibraryLoader
-{
+public class NativeLibraryLoader {
 
   private static String sharedLibraryName = "librocksdbjni.so";
   private static String tempFilePrefix = "librocksdbjni";
@@ -14,13 +13,14 @@ public class NativeLibraryLoader
   private NativeLibraryLoader() {
   }
 
-  public static void loadLibraryFromJar() throws IOException {
+  public static void loadLibraryFromJar()
+      throws IOException {
 
     File temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
     temp.deleteOnExit();
 
     if (!temp.exists()) {
-      throw new FileNotFoundException("File " + temp.getAbsolutePath() + " does not exist.");
+      throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
     }
 
     byte[] buffer = new byte[1024];
@@ -28,7 +28,7 @@ public class NativeLibraryLoader
 
     InputStream is = ClassLoader.getSystemClassLoader().getResourceAsStream(sharedLibraryName);
     if (is == null) {
-      throw new FileNotFoundException(sharedLibraryName + " was not found inside JAR.");
+      throw new RuntimeException(sharedLibraryName + " was not found inside JAR.");
     }
 
     OutputStream os = new FileOutputStream(temp);
