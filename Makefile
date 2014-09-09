@@ -97,6 +97,7 @@ TESTS = \
 	manual_compaction_test \
 	memenv_test \
 	merge_test \
+	merger_test \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
@@ -433,6 +434,9 @@ write_controller_test: db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+merger_test: table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
