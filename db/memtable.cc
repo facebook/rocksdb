@@ -430,7 +430,7 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext& merge_context) {
+                   MergeContext* merge_context) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -454,7 +454,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.value = value;
     saver.status = s;
     saver.mem = this;
-    saver.merge_context = &merge_context;
+    saver.merge_context = merge_context;
     saver.merge_operator = ioptions_.merge_operator;
     saver.logger = ioptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;

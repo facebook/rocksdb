@@ -61,7 +61,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, merge_context)) {
+  if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
   } else {
     super_version->current->Get(read_options, lkey, value, &s, &merge_context);
   }

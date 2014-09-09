@@ -3449,10 +3449,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
 
-  if (sv->mem->Get(lkey, value, &s, merge_context)) {
+  if (sv->mem->Get(lkey, value, &s, &merge_context)) {
     // Done
     RecordTick(stats_, MEMTABLE_HIT);
-  } else if (sv->imm->Get(lkey, value, &s, merge_context)) {
+  } else if (sv->imm->Get(lkey, value, &s, &merge_context)) {
     // Done
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
@@ -3537,9 +3537,9 @@ std::vector<Status> DBImpl::MultiGet(
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
     auto super_version = mgd->super_version;
-    if (super_version->mem->Get(lkey, value, &s, merge_context)) {
+    if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
       // Done
-    } else if (super_version->imm->Get(lkey, value, &s, merge_context)) {
+    } else if (super_version->imm->Get(lkey, value, &s, &merge_context)) {
       // Done
     } else {
       super_version->current->Get(options, lkey, value, &s, &merge_context);

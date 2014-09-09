@@ -46,7 +46,7 @@ class MemTableListVersion {
   // Search all the memtables starting from the most recent one.
   // Return the most recent value found, if any.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext& merge_context);
+           MergeContext* merge_context);
 
   void AddIterators(const ReadOptions& options,
                     std::vector<Iterator*>* iterator_list, Arena* arena);

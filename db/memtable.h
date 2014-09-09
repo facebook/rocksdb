@@ -118,7 +118,7 @@ class MemTable {
   //   store MergeInProgress in s, and return false.
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext& merge_context);
+           MergeContext* merge_context);
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode
