@@ -7832,25 +7832,39 @@ TEST(DBTest, FIFOCompactionTest) {
 }
 
 TEST(DBTest, SimpleWriteTimeoutTest) {
+  // Block compaction thread, which will also block the flushes because
+  // max_background_flushes == 0, so flushes are getting executed by the
+  // compaction thread
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
   Options options;
   options.env = env_;
   options.create_if_missing = true;
   options.write_buffer_size = 100000;
   options.max_background_flushes = 0;
   options.max_write_buffer_number = 2;
-  options.min_write_buffer_number_to_merge = 3;
   options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   WriteOptions write_opt = WriteOptions();
   write_opt.timeout_hint_us = 0;
   DestroyAndReopen(&options);
-  // fill the two write buffer
+  // fill the two write buffers
   ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
   ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
+  // this will switch the previous memtable, but will not cause block because
+  // DelayWrite() is called before MakeRoomForWrite()
+  // TODO(icanadi) remove this as part of https://reviews.facebook.net/D23067
+  ASSERT_OK(Put(Key(3), Key(3), write_opt));
   // As the only two write buffers are full in this moment, the third
   // Put is expected to be timed-out.
   write_opt.timeout_hint_us = 50;
   ASSERT_TRUE(
       Put(Key(3), Key(3) + std::string(100000, 'v'), write_opt).IsTimedOut());
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 }
 
 // Multi-threaded Timeout Test
