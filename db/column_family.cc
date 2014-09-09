@@ -383,7 +383,8 @@ void ColumnFamilyData::CreateNewMemtable() {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  mem_ = new MemTable(internal_comparator_, options_);
+  mem_ = new MemTable(internal_comparator_, ioptions_,
+                      MemTableOptions(options_));
   mem_->Ref();
 }
 

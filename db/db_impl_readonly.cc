@@ -41,9 +41,9 @@
 
 namespace rocksdb {
 
-DBImplReadOnly::DBImplReadOnly(const DBOptions& options,
+DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
-    : DBImpl(options, dbname) {
+    : DBImpl(db_options, dbname) {
   Log(db_options_.info_log, "Opening the db in read only mode");
 }
 
@@ -51,7 +51,7 @@ DBImplReadOnly::~DBImplReadOnly() {
 }
 
 // Implementations of the DB interface
-Status DBImplReadOnly::Get(const ReadOptions& options,
+Status DBImplReadOnly::Get(const ReadOptions& read_options,
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value) {
   Status s;
@@ -61,10 +61,9 @@ Status DBImplReadOnly::Get(const ReadOptions& options,
   SuperVersion* super_version = cfd->GetSuperVersion();
   MergeContext merge_context;
   LookupKey lkey(key, snapshot);
-  if (super_version->mem->Get(lkey, value, &s, merge_context,
-                              *cfd->options())) {
+  if (super_version->mem->Get(lkey, value, &s, merge_context)) {
   } else {
-    super_version->current->Get(options, lkey, value, &s, &merge_context);
+    super_version->current->Get(read_options, lkey, value, &s, &merge_context);
   }
   return s;
 }

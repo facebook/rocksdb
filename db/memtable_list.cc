@@ -62,10 +62,9 @@ int MemTableList::size() const {
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext& merge_context,
-                              const Options& options) {
+                              Status* s, MergeContext& merge_context) {
   for (auto& memtable : memlist_) {
-    if (memtable->Get(key, value, s, merge_context, options)) {
+    if (memtable->Get(key, value, s, merge_context)) {
       return true;
     }
   }

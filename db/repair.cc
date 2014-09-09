@@ -219,7 +219,7 @@ class Repairer {
     std::string scratch;
     Slice record;
     WriteBatch batch;
-    MemTable* mem = new MemTable(icmp_, options_);
+    MemTable* mem = new MemTable(icmp_, ioptions_, MemTableOptions(options_));
     auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem, &options_);
     mem->Ref();
     int counter = 0;

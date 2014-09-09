@@ -3434,10 +3434,10 @@ Status DBImpl::GetImpl(const ReadOptions& options,
   LookupKey lkey(key, snapshot);
   PERF_TIMER_STOP(get_snapshot_time);
 
-  if (sv->mem->Get(lkey, value, &s, merge_context, *cfd->options())) {
+  if (sv->mem->Get(lkey, value, &s, merge_context)) {
     // Done
     RecordTick(stats_, MEMTABLE_HIT);
-  } else if (sv->imm->Get(lkey, value, &s, merge_context, *cfd->options())) {
+  } else if (sv->imm->Get(lkey, value, &s, merge_context)) {
     // Done
     RecordTick(stats_, MEMTABLE_HIT);
   } else {
@@ -3522,12 +3522,9 @@ std::vector<Status> DBImpl::MultiGet(
     assert(mgd_iter != multiget_cf_data.end());
     auto mgd = mgd_iter->second;
     auto super_version = mgd->super_version;
-    auto cfd = mgd->cfd;
-    if (super_version->mem->Get(lkey, value, &s, merge_context,
-                                *cfd->options())) {
+    if (super_version->mem->Get(lkey, value, &s, merge_context)) {
       // Done
-    } else if (super_version->imm->Get(lkey, value, &s, merge_context,
-                                       *cfd->options())) {
+    } else if (super_version->imm->Get(lkey, value, &s, merge_context)) {
       // Done
     } else {
       super_version->current->Get(options, lkey, value, &s, &merge_context);
@@ -4294,7 +4291,9 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     }
 
     if (s.ok()) {
-      new_mem = new MemTable(cfd->internal_comparator(), *cfd->options());
+      new_mem = new MemTable(cfd->internal_comparator(),
+                             *cfd->ioptions(),
+                             MemTableOptions(*cfd->options()));
       new_superversion = new SuperVersion();
     }
   }

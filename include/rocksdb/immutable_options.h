@@ -51,6 +51,8 @@ struct ImmutableCFOptions {
 
   std::vector<DbPath> db_paths;
 
+  MemTableRepFactory* memtable_factory;
+
   TableFactory* table_factory;
 
   Options::TablePropertiesCollectorFactories

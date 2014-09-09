@@ -437,21 +437,25 @@ class MemTableConstructor: public Constructor {
         table_factory_(new SkipListFactory) {
     Options options;
     options.memtable_factory = table_factory_;
-    memtable_ = new MemTable(internal_comparator_, options);
+    memtable_ = new MemTable(internal_comparator_,
+                             ImmutableCFOptions(options),
+                             MemTableOptions(options));
     memtable_->Ref();
   }
   ~MemTableConstructor() {
     delete memtable_->Unref();
   }
-  virtual Status FinishImpl(const Options& options,
+  virtual Status FinishImpl(const Options&,
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& data) {
     delete memtable_->Unref();
-    Options memtable_options;
-    memtable_options.memtable_factory = table_factory_;
-    memtable_ = new MemTable(internal_comparator_, memtable_options);
+    Options options;
+    options.memtable_factory = table_factory_;
+    memtable_ = new MemTable(internal_comparator_,
+                             ImmutableCFOptions(options),
+                             MemTableOptions(options));
     memtable_->Ref();
     int seq = 1;
     for (KVMap::const_iterator it = data.begin();
@@ -1859,7 +1863,8 @@ TEST(MemTableTest, Simple) {
   auto table_factory = std::make_shared<SkipListFactory>();
   Options options;
   options.memtable_factory = table_factory;
-  MemTable* memtable = new MemTable(cmp, options);
+  MemTable* memtable = new MemTable(cmp, ImmutableCFOptions(options),
+                                    MemTableOptions(options));
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);
