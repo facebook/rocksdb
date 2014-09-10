@@ -26,7 +26,7 @@ public class RocksDB extends RocksObject {
       "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
   static {
-      loadLibrary();
+      RocksDB.loadLibrary();
   }
 
 

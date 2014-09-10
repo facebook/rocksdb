@@ -2,16 +2,16 @@ package org.rocksdb;
 
 import java.io.*;
 
+
+/**
+ * This class is used to load the RocksDB shared library from within the jar.
+ * The shared library is extracted to a temp folder and loaded from there.
+ */
 public class NativeLibraryLoader {
 
   private static String sharedLibraryName = "librocksdbjni.so";
   private static String tempFilePrefix = "librocksdbjni";
   private static String tempFileSuffix = ".so";
-  /**
-   * Private constructor - this class will never be instanced
-   */
-  private NativeLibraryLoader() {
-  }
 
   public static void loadLibraryFromJar()
       throws IOException {
@@ -23,7 +23,7 @@ public class NativeLibraryLoader {
       throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
     }
 
-    byte[] buffer = new byte[1024];
+    byte[] buffer = new byte[102400];
     int readBytes;
 
     InputStream is = ClassLoader.getSystemClassLoader().getResourceAsStream(sharedLibraryName);
@@ -31,8 +31,8 @@ public class NativeLibraryLoader {
       throw new RuntimeException(sharedLibraryName + " was not found inside JAR.");
     }
 
-    OutputStream os = new FileOutputStream(temp);
     try {
+      OutputStream os = new FileOutputStream(temp);
       while ((readBytes = is.read(buffer)) != -1) {
         os.write(buffer, 0, readBytes);
       }
@@ -42,5 +42,10 @@ public class NativeLibraryLoader {
     }
 
     System.load(temp.getAbsolutePath());
+  }
+  /**
+   * Private constructor to disallow instantiation
+   */
+  private NativeLibraryLoader() {
   }
 }
