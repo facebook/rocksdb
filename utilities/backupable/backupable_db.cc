@@ -589,8 +589,9 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   double backup_speed = new_backup.GetSize() / (1.048576 * backup_time);
   Log(options_.info_log, "Backup number of files: %u",
       new_backup.GetNumberFiles());
-  Log(options_.info_log, "Backup size: %lu bytes", new_backup.GetSize());
-  Log(options_.info_log, "Backup time: %lu microseconds", backup_time);
+  Log(options_.info_log, "Backup size: %" PRIu64 " bytes",
+      new_backup.GetSize());
+  Log(options_.info_log, "Backup time: %" PRIu64 " microseconds", backup_time);
   Log(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
   Log(options_.info_log, "Backup Statistics %s",
       backup_statistics_.ToString().c_str());

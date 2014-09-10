@@ -6142,8 +6142,8 @@ std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
   return ListSpecificFiles(env, path, kTableFile);
 }
 
-std::uint64_t GetNumberOfSstFilesForColumnFamily(
-    DB* db, std::string column_family_name) {
+uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
+                                            std::string column_family_name) {
   std::vector<LiveFileMetaData> metadata;
   db->GetLiveFilesMetaData(&metadata);
   uint64_t result = 0;
@@ -6200,9 +6200,10 @@ TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
   dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
   {
     auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), 1);
+    ASSERT_EQ(tables.size(), static_cast<size_t>(1));
     // Make sure 'dobrynia' was flushed: check sst files amount
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"), 1);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
   }
   // New WAL file
   ASSERT_OK(Put(1, Key(1), DummyString(1)));
@@ -6216,13 +6217,17 @@ TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
                            &options);
   {
     // No inserts => default is empty
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"), 0);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(0));
     // First 4 keys goes to separate SSTs + 1 more SST for 2 smaller keys
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 5);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(5));
     // 1 SST for big key + 1 SST for small one
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"), 2);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(2));
     // 1 SST for all keys
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 1);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(1));
   }
 }
 
@@ -6247,8 +6252,9 @@ TEST(DBTest, RecoverCheckFileAmount) {
   // 4 memtable are not flushed, 1 sst file
   {
     auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), 1);
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 1);
+    ASSERT_EQ(tables.size(), static_cast<size_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(1));
   }
   // Memtable for 'nikitich' has flushed, new WAL file has opened
   // 4 memtable still not flushed
@@ -6270,8 +6276,9 @@ TEST(DBTest, RecoverCheckFileAmount) {
 
   {
     auto tables = ListTableFiles(env_, dbname_);
-    ASSERT_EQ(tables.size(), 2);
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 2);
+    ASSERT_EQ(tables.size(), static_cast<size_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
   }
 
   ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
@@ -6282,10 +6289,14 @@ TEST(DBTest, RecoverCheckFileAmount) {
     // first, second and third WALs  went to the same SST.
     // So, there is 6 SSTs: three  for 'nikitich', one for 'default', one for
     // 'dobrynia', one for 'pikachu'
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"), 1);
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"), 3);
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"), 1);
-    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"), 1);
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(3));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(1));
   }
 }
 
