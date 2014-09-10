@@ -29,14 +29,15 @@ using GFLAGS::ParseCommandLineFlags;
 
 static const uint32_t KB = 1024;
 
-DEFINE_int32(threads, 10, "Number of concurrent threads to run.");
-DEFINE_int64(cache_size, 2 * KB * KB * KB,
+DEFINE_int32(threads, 16, "Number of concurrent threads to run.");
+DEFINE_int64(cache_size, 8 * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 DEFINE_int32(num_shard_bits, 4, "shard_bits.");
 
-DEFINE_int64(max_key, 1 * KB* KB, "Max number of key to place in cache");
+DEFINE_int64(max_key, 1 * KB * KB * KB, "Max number of key to place in cache");
 DEFINE_uint64(ops_per_thread, 1200000, "Number of operations per thread.");
 
+DEFINE_bool(populate_cache, false, "Populate cache before operations");
 DEFINE_int32(insert_percent, 40,
              "Ratio of insert to total workload (expressed as a percentage)");
 DEFINE_int32(lookup_percent, 50,
@@ -135,6 +136,18 @@ class CacheBench {
 
   ~CacheBench() {}
 
+  void PopulateCache() {
+    Random rnd(1);
+    for (int64_t i = 0; i < FLAGS_cache_size; i++) {
+      uint64_t rand_key = rnd.Next() % FLAGS_max_key;
+      // Cast uint64* to be char*, data would be copied to cache
+      Slice key(reinterpret_cast<char*>(&rand_key), 8);
+      // do insert
+      auto handle = cache_->Insert(key, new char[10], 1, &deleter);
+      cache_->Release(handle);
+    }
+  }
+
   bool Run() {
     rocksdb::Env* env = rocksdb::Env::Default();
 
@@ -164,7 +177,10 @@ class CacheBench {
 
       // Record end time
       uint64_t end_time = env->NowMicros();
-      fprintf(stdout, "Complete in %" PRIu64 "ms\n", end_time - start_time);
+      double elapsed = static_cast<double>(end_time - start_time) * 1e-6;
+      uint32_t qps = static_cast<uint32_t>(
+          static_cast<double>(FLAGS_threads * FLAGS_ops_per_thread) / elapsed);
+      fprintf(stdout, "Complete in %.3f s; QPS = %u\n", elapsed, qps);
     }
     return true;
   }
@@ -230,6 +246,7 @@ class CacheBench {
     printf("Cache size          : %" PRIu64 "\n", FLAGS_cache_size);
     printf("Num shard bits      : %d\n", FLAGS_num_shard_bits);
     printf("Max key             : %" PRIu64 "\n", FLAGS_max_key);
+    printf("Populate cache      : %d\n", FLAGS_populate_cache);
     printf("Insert percentage   : %d%%\n", FLAGS_insert_percent);
     printf("Lookup percentage   : %d%%\n", FLAGS_lookup_percent);
     printf("Erase percentage    : %d%%\n", FLAGS_erase_percent);
@@ -247,6 +264,9 @@ int main(int argc, char** argv) {
   }
 
   rocksdb::CacheBench bench;
+  if (FLAGS_populate_cache) {
+    bench.PopulateCache();
+  }
   if (bench.Run()) {
     return 0;
   } else {
