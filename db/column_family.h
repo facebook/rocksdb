@@ -47,8 +47,8 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
 
-  virtual inline uint32_t GetID() const;
-  virtual inline const std::string& GetName() const override;
+  virtual uint32_t GetID() const;
+  virtual const std::string& GetName() const override;
 
  private:
   ColumnFamilyData* cfd_;
