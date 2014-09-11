@@ -2817,10 +2817,12 @@ TEST(DBTest, FlushSchedule) {
     t.join();
   }
 
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
-            static_cast<uint64_t>(10));
-  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
-            static_cast<uint64_t>(10));
+  auto default_tables = GetNumberOfSstFilesForColumnFamily(db_, "default");
+  auto pikachu_tables = GetNumberOfSstFilesForColumnFamily(db_, "pikachu");
+  ASSERT_LE(default_tables, static_cast<uint64_t>(10));
+  ASSERT_GT(default_tables, static_cast<uint64_t>(0));
+  ASSERT_LE(pikachu_tables, static_cast<uint64_t>(10));
+  ASSERT_GT(pikachu_tables, static_cast<uint64_t>(0));
 }
 
 TEST(DBTest, MinorCompactionsHappen) {
