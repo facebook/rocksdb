@@ -2799,16 +2799,17 @@ TEST(DBTest, FlushSchedule) {
   CreateAndReopenWithCF({"pikachu"}, &options);
   std::vector<std::thread> threads;
 
-  std::atomic<int> thread_num;
+  std::atomic<int> thread_num(0);
   // each column family will have 5 thread, each thread generating 2 memtables.
   // each column family should end up with 10 table files
   for (int i = 0; i < 10; ++i) {
     threads.emplace_back([&]() {
       int a = thread_num.fetch_add(1);
       Random rnd(a);
+      WriteOptions wo;
       // this should fill up 2 memtables
       for (int k = 0; k < 5000; ++k) {
-        Put(a & 1, RandomString(&rnd, 13), "");
+        ASSERT_OK(db_->Put(wo, handles_[a & 1], RandomString(&rnd, 13), ""));
       }
     });
   }
