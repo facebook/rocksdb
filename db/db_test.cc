@@ -1151,6 +1151,17 @@ void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
   ASSERT_EQ(props.size(), unique_entries.size());
   ASSERT_EQ(expected_entries_size, sum);
 }
+
+uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
+                                            std::string column_family_name) {
+  std::vector<LiveFileMetaData> metadata;
+  db->GetLiveFilesMetaData(&metadata);
+  uint64_t result = 0;
+  for (auto& fileMetadata : metadata) {
+    result += (fileMetadata.column_family_name == column_family_name);
+  }
+  return result;
+}
 }  // namespace
 
 TEST(DBTest, Empty) {
@@ -2775,6 +2786,41 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
     ASSERT_EQ(std::string(10000000, 'x'), Get(1, "big1"));
     ASSERT_EQ(std::string(1000, 'y'), Get(1, "big2"));
   } while (ChangeOptions());
+}
+
+TEST(DBTest, FlushSchedule) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.level0_stop_writes_trigger = 1 << 10;
+  options.level0_slowdown_writes_trigger = 1 << 10;
+  options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number = 2;
+  options.write_buffer_size = 100 * 1000;
+  CreateAndReopenWithCF({"pikachu"}, &options);
+  std::vector<std::thread> threads;
+
+  std::atomic<int> thread_num;
+  // each column family will have 5 thread, each thread generating 2 memtables.
+  // each column family should end up with 10 table files
+  for (int i = 0; i < 10; ++i) {
+    threads.emplace_back([&]() {
+      int a = thread_num.fetch_add(1);
+      Random rnd(a);
+      // this should fill up 2 memtables
+      for (int k = 0; k < 5000; ++k) {
+        Put(a & 1, RandomString(&rnd, 13), "");
+      }
+    });
+  }
+
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+            static_cast<uint64_t>(10));
+  ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+            static_cast<uint64_t>(10));
 }
 
 TEST(DBTest, MinorCompactionsHappen) {
@@ -6171,17 +6217,6 @@ std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
 std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
   return ListSpecificFiles(env, path, kTableFile);
 }
-
-uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
-                                            std::string column_family_name) {
-  std::vector<LiveFileMetaData> metadata;
-  db->GetLiveFilesMetaData(&metadata);
-  uint64_t result = 0;
-  for (auto& fileMetadata : metadata) {
-    result += (fileMetadata.column_family_name == column_family_name);
-  }
-  return result;
-}
 }  // namespace
 
 TEST(DBTest, FlushOneColumnFamily) {
@@ -6465,7 +6500,7 @@ TEST(DBTest, PurgeInfoLogs) {
     ASSERT_EQ(5, info_log_count);
 
     Destroy(&options);
-    // For mode (1), test DestoryDB() to delete all the logs under DB dir.
+    // For mode (1), test DestroyDB() to delete all the logs under DB dir.
     // For mode (2), no info log file should have been put under DB dir.
     std::vector<std::string> db_files;
     env_->GetChildren(dbname_, &db_files);
@@ -7894,10 +7929,6 @@ TEST(DBTest, SimpleWriteTimeoutTest) {
   // fill the two write buffers
   ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
   ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
-  // this will switch the previous memtable, but will not cause block because
-  // DelayWrite() is called before MakeRoomForWrite()
-  // TODO(icanadi) remove this as part of https://reviews.facebook.net/D23067
-  ASSERT_OK(Put(Key(3), Key(3), write_opt));
   // As the only two write buffers are full in this moment, the third
   // Put is expected to be timed-out.
   write_opt.timeout_hint_us = 50;

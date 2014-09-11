@@ -10,7 +10,9 @@
 #pragma once
 #include <string>
 #include <memory>
+#include <functional>
 #include <deque>
+#include <vector>
 #include "db/dbformat.h"
 #include "db/skiplist.h"
 #include "db/version_edit.h"
@@ -86,7 +88,11 @@ class MemTable {
 
   // This method heuristically determines if the memtable should continue to
   // host more data.
-  bool ShouldFlush() const { return should_flush_; }
+  bool ShouldScheduleFlush() const {
+    return flush_scheduled_ == false && should_flush_;
+  }
+
+  void MarkFlushScheduled() { flush_scheduled_ = true; }
 
   // Return an iterator that yields the contents of the memtable.
   //
@@ -194,7 +200,7 @@ class MemTable {
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
 
  private:
-  // Dynamically check if we can add more incoming entries.
+  // Dynamically check if we can add more incoming entries
   bool ShouldFlushNow() const;
 
   friend class MemTableIterator;
@@ -238,6 +244,9 @@ class MemTable {
 
   // a flag indicating if a memtable has met the criteria to flush
   bool should_flush_;
+
+  // a flag indicating if flush has been scheduled
+  bool flush_scheduled_;
 };
 
 extern const char* EncodeKey(std::string* scratch, const Slice& target);

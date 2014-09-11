@@ -33,6 +33,7 @@
 #include "util/scoped_arena_iterator.h"
 #include "db/internal_stats.h"
 #include "db/write_controller.h"
+#include "db/flush_scheduler.h"
 
 namespace rocksdb {
 
@@ -399,8 +400,7 @@ class DBImpl : public DB {
 
   void DelayWrite(uint64_t expiration_time);
 
-  Status MakeRoomForWrite(ColumnFamilyData* cfd, WriteContext* context,
-                          uint64_t expiration_time);
+  Status ScheduleFlushes(WriteContext* context);
 
   Status SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
                                      WriteContext* context);
@@ -557,6 +557,7 @@ class DBImpl : public DB {
   WriteBatch tmp_batch_;
 
   WriteController write_controller_;
+  FlushScheduler flush_scheduler_;
 
   SnapshotList snapshots_;
 

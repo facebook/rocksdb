@@ -9,6 +9,7 @@
 #include "util/testharness.h"
 #include "util/benchharness.h"
 #include "db/version_set.h"
+#include "db/write_controller.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {

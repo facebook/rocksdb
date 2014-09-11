@@ -660,6 +660,11 @@ bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
     column_family_set_->Lock();
     current_ = column_family_set_->GetColumnFamily(column_family_id);
     column_family_set_->Unlock();
+    // TODO(icanadi) Maybe remove column family from the hash table when it's
+    // dropped?
+    if (current_ != nullptr && current_->IsDropped()) {
+      current_ = nullptr;
+    }
   }
   handle_.SetCFD(current_);
   return current_ != nullptr;
@@ -683,6 +688,13 @@ const Options* ColumnFamilyMemTablesImpl::GetOptions() const {
 ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
   assert(current_ != nullptr);
   return &handle_;
+}
+
+void ColumnFamilyMemTablesImpl::CheckMemtableFull() {
+  if (current_ != nullptr && current_->mem()->ShouldScheduleFlush()) {
+    flush_scheduler_->ScheduleFlush(current_);
+    current_->mem()->MarkFlushScheduled();
+  }
 }
 
 uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {

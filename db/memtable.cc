@@ -54,8 +54,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       kArenaBlockSize(OptimizeBlockSize(moptions.arena_block_size)),
       arena_(moptions.arena_block_size),
       table_(ioptions.memtable_factory->CreateMemTableRep(
-          comparator_, &arena_, ioptions.prefix_extractor,
-          ioptions.info_log)),
+          comparator_, &arena_, ioptions.prefix_extractor, ioptions.info_log)),
       num_entries_(0),
       flush_in_progress_(false),
       flush_completed_(false),
@@ -65,7 +64,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       locks_(moptions.inplace_update_support ? moptions.inplace_update_num_locks
                                              : 0),
       prefix_extractor_(ioptions.prefix_extractor),
-      should_flush_(ShouldFlushNow()) {
+      should_flush_(ShouldFlushNow()),
+      flush_scheduled_(false) {
   // if should_flush_ == true without an entry inserted, something must have
   // gone wrong already.
   assert(!should_flush_);
@@ -79,9 +79,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   }
 }
 
-MemTable::~MemTable() {
-  assert(refs_ == 0);
-}
+MemTable::~MemTable() { assert(refs_ == 0); }
 
 size_t MemTable::ApproximateMemoryUsage() {
   size_t arena_usage = arena_.ApproximateMemoryUsage();

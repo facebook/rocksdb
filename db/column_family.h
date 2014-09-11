@@ -22,6 +22,7 @@
 #include "db/write_controller.h"
 #include "db/table_cache.h"
 #include "util/thread_local.h"
+#include "db/flush_scheduler.h"
 
 namespace rocksdb {
 
@@ -394,8 +395,11 @@ class ColumnFamilySet {
 // memtables of different column families (specified by ID in the write batch)
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
  public:
-  explicit ColumnFamilyMemTablesImpl(ColumnFamilySet* column_family_set)
-      : column_family_set_(column_family_set), current_(nullptr) {}
+  explicit ColumnFamilyMemTablesImpl(ColumnFamilySet* column_family_set,
+                                     FlushScheduler* flush_scheduler)
+      : column_family_set_(column_family_set),
+        current_(nullptr),
+        flush_scheduler_(flush_scheduler) {}
 
   // sets current_ to ColumnFamilyData with column_family_id
   // returns false if column family doesn't exist
@@ -414,9 +418,12 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   // Returns column family handle for the selected column family
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;
 
+  virtual void CheckMemtableFull() override;
+
  private:
   ColumnFamilySet* column_family_set_;
   ColumnFamilyData* current_;
+  FlushScheduler* flush_scheduler_;
   ColumnFamilyHandleInternal handle_;
 };
 

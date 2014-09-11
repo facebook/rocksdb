@@ -361,8 +361,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
   versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_controller_));
-  column_family_memtables_.reset(
-      new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
+  column_family_memtables_.reset(new ColumnFamilyMemTablesImpl(
+      versions_->GetColumnFamilySet(), &flush_scheduler_));
 
   DumpLeveldbBuildVersion(db_options_.info_log.get());
   DumpDBFileSummary(db_options_, dbname_);
@@ -391,6 +391,8 @@ DBImpl::~DBImpl() {
   while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
+
+  flush_scheduler_.Clear();
 
   if (default_cf_handle_ != nullptr) {
     // we need to delete handle outside of lock because it does its own locking
@@ -1336,28 +1338,30 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
 
       if (!read_only) {
-        // no need to refcount since client still doesn't have access
-        // to the DB and can not drop column families while we iterate
-        for (auto cfd : *versions_->GetColumnFamilySet()) {
-          if (cfd->mem()->ShouldFlush()) {
-            // If this asserts, it means that InsertInto failed in
-            // filtering updates to already-flushed column families
-            assert(cfd->GetLogNumber() <= log_number);
-            auto iter = version_edits.find(cfd->GetID());
-            assert(iter != version_edits.end());
-            VersionEdit* edit = &iter->second;
-            status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
-            if (!status.ok()) {
-              // Reflect errors immediately so that conditions like full
-              // file-systems cause the DB::Open() to fail.
-              return status;
-            }
-            cfd->CreateNewMemtable();
+        // we can do this because this is called before client has access to the
+        // DB and there is only a single thread operating on DB
+        ColumnFamilyData* cfd;
+
+        while ((cfd = flush_scheduler_.GetNextColumnFamily()) != nullptr) {
+          cfd->Unref();
+          // If this asserts, it means that InsertInto failed in
+          // filtering updates to already-flushed column families
+          assert(cfd->GetLogNumber() <= log_number);
+          auto iter = version_edits.find(cfd->GetID());
+          assert(iter != version_edits.end());
+          VersionEdit* edit = &iter->second;
+          status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
+          if (!status.ok()) {
+            // Reflect errors immediately so that conditions like full
+            // file-systems cause the DB::Open() to fail.
+            return status;
           }
+          cfd->CreateNewMemtable();
         }
       }
     }
 
+    flush_scheduler_.Clear();
     if (versions_->LastSequence() < *max_sequence) {
       versions_->SetLastSequence(*max_sequence);
     }
@@ -2201,7 +2205,7 @@ void DBImpl::BackgroundCallCompaction() {
     }
     if (madeProgress || bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
       // signal if
-      // * madeProgress -- need to wakeup MakeRoomForWrite
+      // * madeProgress -- need to wakeup DelayWrite
       // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
       // * bg_manual_only_ > 0 -- need to wakeup RunManualCompaction
       // If none of this is true, there is no need to signal since nobody is
@@ -2622,7 +2626,7 @@ uint64_t DBImpl::CallFlushDuringCompaction(ColumnFamilyData* cfd,
       cfd->Ref();
       FlushMemTableToOutputFile(cfd, nullptr, deletion_state, log_buffer);
       cfd->Unref();
-      bg_cv_.SignalAll();  // Wakeup MakeRoomForWrite() if necessary
+      bg_cv_.SignalAll();  // Wakeup DelayWrite() if necessary
     }
     mutex_.Unlock();
     log_buffer->FlushBufferToLog();
@@ -3959,10 +3963,12 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   w.timeout_hint_us = options.timeout_hint_us;
 
   uint64_t expiration_time = 0;
+  bool has_timeout = false;
   if (w.timeout_hint_us == 0) {
     w.timeout_hint_us = kNoTimeOut;
   } else {
     expiration_time = env_->NowMicros() + w.timeout_hint_us;
+    has_timeout = true;
   }
 
   if (!options.disableWAL) {
@@ -3997,56 +4003,48 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
   assert(!single_column_family_mode_ ||
          versions_->GetColumnFamilySet()->NumberOfColumnFamilies() == 1);
 
-  uint64_t flush_column_family_if_log_file = 0;
   uint64_t max_total_wal_size = (db_options_.max_total_wal_size == 0)
                                     ? 4 * max_total_in_memory_state_
                                     : db_options_.max_total_wal_size;
   if (UNLIKELY(!single_column_family_mode_) &&
       alive_log_files_.begin()->getting_flushed == false &&
       total_log_size_ > max_total_wal_size) {
-    flush_column_family_if_log_file = alive_log_files_.begin()->number;
+    uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
     alive_log_files_.begin()->getting_flushed = true;
     Log(db_options_.info_log,
         "Flushing all column families with data in WAL number %" PRIu64
         ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
         flush_column_family_if_log_file, total_log_size_, max_total_wal_size);
+    // no need to refcount because drop is happening in write thread, so can't
+    // happen while we're in the write thread
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
+        status = SetNewMemtableAndNewLogFile(cfd, &context);
+        if (!status.ok()) {
+          break;
+        }
+        cfd->imm()->FlushRequested();
+      }
+    }
+    MaybeScheduleFlushOrCompaction();
   }
 
-  if (write_controller_.IsStopped() || write_controller_.GetDelay() > 0) {
+  if (UNLIKELY(status.ok() && !bg_error_.ok())) {
+    status = bg_error_;
+  }
+
+  if (UNLIKELY(status.ok() && !flush_scheduler_.Empty())) {
+    status = ScheduleFlushes(&context);
+  }
+
+  if (UNLIKELY(status.ok()) &&
+      (write_controller_.IsStopped() || write_controller_.GetDelay() > 0)) {
     DelayWrite(expiration_time);
   }
 
-  if (LIKELY(single_column_family_mode_)) {
-    // fast path
-    status = MakeRoomForWrite(default_cf_handle_->cfd(),
-                              &context, expiration_time);
-  } else {
-    // refcounting cfd in iteration
-    bool dead_cfd = false;
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
-      cfd->Ref();
-      if (flush_column_family_if_log_file != 0 &&
-          cfd->GetLogNumber() <= flush_column_family_if_log_file) {
-        // log size excedded limit and we need to do flush
-        // SetNewMemtableAndNewLogFie may temporarily unlock and wait
-        status = SetNewMemtableAndNewLogFile(cfd, &context);
-        cfd->imm()->FlushRequested();
-        MaybeScheduleFlushOrCompaction();
-      } else {
-        // May temporarily unlock and wait.
-        status = MakeRoomForWrite(cfd, &context, expiration_time);
-      }
-
-      if (cfd->Unref()) {
-        dead_cfd = true;
-      }
-      if (!status.ok()) {
-        break;
-      }
-    }
-    if (dead_cfd) {
-      versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
-    }
+  if (UNLIKELY(status.ok() && has_timeout &&
+               env_->NowMicros() > expiration_time)) {
+    status = Status::TimedOut();
   }
 
   uint64_t last_sequence = versions_->LastSequence();
@@ -4241,36 +4239,23 @@ void DBImpl::DelayWrite(uint64_t expiration_time) {
   }
 }
 
-// REQUIRES: mutex_ is held
-// REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::MakeRoomForWrite(ColumnFamilyData* cfd,
-                                WriteContext* context,
-                                uint64_t expiration_time) {
-  mutex_.AssertHeld();
-  assert(!writers_.empty());
-  Status s;
-  bool has_timeout = (expiration_time > 0);
-
-  while (true) {
-    if (!bg_error_.ok()) {
-      // Yield previous error
-      s = bg_error_;
-      break;
-    } else if (has_timeout && env_->NowMicros() > expiration_time) {
-      s = Status::TimedOut();
-      break;
-    } else if (!cfd->mem()->ShouldFlush()) {
-      // There is room in current memtable
-      break;
-    } else {
-      s = SetNewMemtableAndNewLogFile(cfd, context);
-      if (!s.ok()) {
-        break;
-      }
-      MaybeScheduleFlushOrCompaction();
+Status DBImpl::ScheduleFlushes(WriteContext* context) {
+  bool schedule_bg_work = false;
+  ColumnFamilyData* cfd;
+  while ((cfd = flush_scheduler_.GetNextColumnFamily()) != nullptr) {
+    schedule_bg_work = true;
+    auto status = SetNewMemtableAndNewLogFile(cfd, context);
+    if (cfd->Unref()) {
+      delete cfd;
+    }
+    if (!status.ok()) {
+      return status;
     }
   }
-  return s;
+  if (schedule_bg_work) {
+    MaybeScheduleFlushOrCompaction();
+  }
+  return Status::OK();
 }
 
 // REQUIRES: mutex_ is held

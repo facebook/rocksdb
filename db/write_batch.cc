@@ -394,6 +394,7 @@ class MemTableInserter : public WriteBatch::Handler {
     // sequence number. Even if the update eventually fails and does not result
     // in memtable add/update.
     sequence_++;
+    cf_mems_->CheckMemtableFull();
     return Status::OK();
   }
 
@@ -465,6 +466,7 @@ class MemTableInserter : public WriteBatch::Handler {
     }
 
     sequence_++;
+    cf_mems_->CheckMemtableFull();
     return Status::OK();
   }
 
@@ -494,6 +496,7 @@ class MemTableInserter : public WriteBatch::Handler {
     }
     mem->Add(sequence_, kTypeDeletion, key, Slice());
     sequence_++;
+    cf_mems_->CheckMemtableFull();
     return Status::OK();
   }
 };
