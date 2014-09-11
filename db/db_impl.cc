@@ -1891,7 +1891,10 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   Log(db_options_.info_log, "[%s] Manual compaction starting",
       cfd->GetName().c_str());
 
-  while (!manual.done && !shutting_down_.Acquire_Load() && bg_error_.ok()) {
+  // We don't check bg_error_ here, because if we get the error in compaction,
+  // the compaction will set manual.status to bg_error_ and set manual.done to
+  // true.
+  while (!manual.done) {
     assert(bg_manual_only_ > 0);
     if (manual_compaction_ != nullptr) {
       // Running either this or some other manual compaction
@@ -2041,6 +2044,11 @@ Status DBImpl::BackgroundFlush(bool* madeProgress,
                                DeletionState& deletion_state,
                                LogBuffer* log_buffer) {
   mutex_.AssertHeld();
+
+  if (!bg_error_.ok()) {
+    return bg_error_;
+  }
+
   // call_status is failure if at least one flush was a failure. even if
   // flushing one column family reports a failure, we will continue flushing
   // other column families. however, call_status will be a failure in that case.
@@ -2227,6 +2235,16 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
 
   bool is_manual = (manual_compaction_ != nullptr) &&
                    (manual_compaction_->in_progress == false);
+
+  if (!bg_error_.ok()) {
+    if (is_manual) {
+      manual_compaction_->status = bg_error_;
+      manual_compaction_->done = true;
+      manual_compaction_->in_progress = false;
+      manual_compaction_ = nullptr;
+    }
+    return bg_error_;
+  }
 
   if (is_manual) {
     // another thread cannot pick up the same work
