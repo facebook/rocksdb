@@ -5980,6 +5980,80 @@ TEST(DBTest, BloomFilterReverseCompatibility) {
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
 }
 
+namespace {
+// A wrapped bloom over default FilterPolicy
+class WrappedBloom : public FilterPolicy {
+ public:
+  explicit WrappedBloom(int bits_per_key) :
+        filter_(NewBloomFilterPolicy(bits_per_key)),
+        counter_(0) {}
+
+  ~WrappedBloom() { delete filter_; }
+
+  const char* Name() const override { return "WrappedRocksDbFilterPolicy"; }
+
+  void CreateFilter(const rocksdb::Slice* keys, int n, std::string* dst)
+      const override {
+    std::unique_ptr<rocksdb::Slice[]> user_keys(new rocksdb::Slice[n]);
+    for (int i = 0; i < n; ++i) {
+      user_keys[i] = convertKey(keys[i]);
+    }
+    return filter_->CreateFilter(user_keys.get(), n, dst);
+  }
+
+  bool KeyMayMatch(const rocksdb::Slice& key, const rocksdb::Slice& filter)
+      const override {
+    counter_++;
+    return filter_->KeyMayMatch(convertKey(key), filter);
+  }
+
+  uint32_t GetCounter() { return counter_; }
+
+ private:
+  const FilterPolicy* filter_;
+  mutable uint32_t counter_;
+
+  rocksdb::Slice convertKey(const rocksdb::Slice key) const {
+    return key;
+  }
+};
+}  // namespace
+
+TEST(DBTest, BloomFilterWrapper) {
+  Options options;
+  options.statistics = rocksdb::CreateDBStatistics();
+
+  BlockBasedTableOptions table_options;
+  WrappedBloom* policy = new WrappedBloom(10);
+  table_options.filter_policy.reset(policy);
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  CreateAndReopenWithCF({"pikachu"}, &options);
+
+  const int maxKey = 10000;
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_OK(Put(1, Key(i), Key(i)));
+  }
+  // Add a large key to make the file contain wide range
+  ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
+  ASSERT_EQ(0, policy->GetCounter());
+  Flush(1);
+
+  // Check if they can be found
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_EQ(Key(i), Get(1, Key(i)));
+  }
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ(maxKey, policy->GetCounter());
+
+  // Check if filter is useful
+  for (int i = 0; i < maxKey; i++) {
+    ASSERT_EQ("NOT_FOUND", Get(1, Key(i+33333)));
+  }
+  ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey*0.98);
+  ASSERT_EQ(2 * maxKey, policy->GetCounter());
+}
+
 TEST(DBTest, SnapshotFiles) {
   do {
     Options options = CurrentOptions();
