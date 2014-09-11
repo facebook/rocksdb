@@ -123,6 +123,9 @@ class SpecialEnv : public EnvWrapper {
   // sstable Sync() calls are blocked while this pointer is non-nullptr.
   port::AtomicPointer delay_sstable_sync_;
 
+  // Drop writes on the floor while this pointer is non-nullptr.
+  port::AtomicPointer drop_writes_;
+
   // Simulate no-space errors while this pointer is non-nullptr.
   port::AtomicPointer no_space_;
 
@@ -150,6 +153,7 @@ class SpecialEnv : public EnvWrapper {
 
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
     delay_sstable_sync_.Release_Store(nullptr);
+    drop_writes_.Release_Store(nullptr);
     no_space_.Release_Store(nullptr);
     non_writable_.Release_Store(nullptr);
     count_random_reads_ = false;
@@ -173,9 +177,11 @@ class SpecialEnv : public EnvWrapper {
             base_(std::move(base)) {
       }
       Status Append(const Slice& data) {
-        if (env_->no_space_.Acquire_Load() != nullptr) {
+        if (env_->drop_writes_.Acquire_Load() != nullptr) {
           // Drop writes on the floor
           return Status::OK();
+        } else if (env_->no_space_.Acquire_Load() != nullptr) {
+          return Status::IOError("No space left on device");
         } else {
           env_->bytes_written_ += data.size();
           return base_->Append(data);
@@ -5573,8 +5579,8 @@ TEST(DBTest, DestroyDBMetaDatabase) {
   ASSERT_TRUE(!(DB::Open(opts, metametadbname, &db)).ok());
 }
 
-// Check that number of files does not grow when we are out of space
-TEST(DBTest, NoSpace) {
+// Check that number of files does not grow when writes are dropped
+TEST(DBTest, DropWrites) {
   do {
     Options options = CurrentOptions();
     options.env = env_;
@@ -5585,7 +5591,7 @@ TEST(DBTest, NoSpace) {
     ASSERT_EQ("v1", Get("foo"));
     Compact("a", "z");
     const int num_files = CountFiles();
-    env_->no_space_.Release_Store(env_);   // Force out-of-space errors
+    env_->drop_writes_.Release_Store(env_);   // Force out-of-space errors
     env_->sleep_counter_.Reset();
     for (int i = 0; i < 5; i++) {
       for (int level = 0; level < dbfull()->NumberLevels()-1; level++) {
@@ -5597,7 +5603,7 @@ TEST(DBTest, NoSpace) {
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("5", property_value);
 
-    env_->no_space_.Release_Store(nullptr);
+    env_->drop_writes_.Release_Store(nullptr);
     ASSERT_LT(CountFiles(), num_files + 3);
 
     // Check that compaction attempts slept after errors
@@ -5606,7 +5612,7 @@ TEST(DBTest, NoSpace) {
 }
 
 // Check background error counter bumped on flush failures.
-TEST(DBTest, NoSpaceFlush) {
+TEST(DBTest, DropWritesFlush) {
   do {
     Options options = CurrentOptions();
     options.env = env_;
@@ -5614,7 +5620,7 @@ TEST(DBTest, NoSpaceFlush) {
     Reopen(&options);
 
     ASSERT_OK(Put("foo", "v1"));
-    env_->no_space_.Release_Store(env_);  // Force out-of-space errors
+    env_->drop_writes_.Release_Store(env_);  // Force out-of-space errors
 
     std::string property_value;
     // Background error count is 0 now.
@@ -5637,6 +5643,30 @@ TEST(DBTest, NoSpaceFlush) {
       }
     }
     ASSERT_EQ("1", property_value);
+
+    env_->drop_writes_.Release_Store(nullptr);
+  } while (ChangeCompactOptions());
+}
+
+// Check that CompactRange() returns failure if there is not enough space left
+// on device
+TEST(DBTest, NoSpaceCompactRange) {
+  do {
+    Options options = CurrentOptions();
+    options.env = env_;
+    options.disable_auto_compactions = true;
+    Reopen(&options);
+
+    // generate 5 tables
+    for (int i = 0; i < 5; ++i) {
+      ASSERT_OK(Put(Key(i), Key(i) + "v"));
+      ASSERT_OK(Flush());
+    }
+
+    env_->no_space_.Release_Store(env_);  // Force out-of-space errors
+
+    Status s = db_->CompactRange(nullptr, nullptr);
+    ASSERT_TRUE(s.IsIOError());
 
     env_->no_space_.Release_Store(nullptr);
   } while (ChangeCompactOptions());

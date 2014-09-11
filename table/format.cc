@@ -135,7 +135,7 @@ Status Footer::DecodeFrom(Slice* input) {
       snprintf(buffer, sizeof(buffer) - 1,
                "not an sstable (bad magic number --- %lx)",
                (long)magic);
-      return Status::InvalidArgument(buffer);
+      return Status::Corruption(buffer);
     }
   } else {
     set_table_magic_number(magic);
@@ -156,7 +156,7 @@ Status Footer::DecodeFrom(Slice* input) {
     // It consists of the checksum type, two block handles, padding,
     // a version number, and a magic number
     if (input->size() < kVersion1EncodedLength) {
-      return Status::InvalidArgument("input is too short to be an sstable");
+      return Status::Corruption("input is too short to be an sstable");
     } else {
       input->remove_prefix(input->size() - kVersion1EncodedLength);
     }
@@ -183,7 +183,7 @@ Status ReadFooterFromFile(RandomAccessFile* file,
                           uint64_t file_size,
                           Footer* footer) {
   if (file_size < Footer::kMinEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
+    return Status::Corruption("file is too short to be an sstable");
   }
 
   char footer_space[Footer::kMaxEncodedLength];
@@ -198,7 +198,7 @@ Status ReadFooterFromFile(RandomAccessFile* file,
   // Check that we actually read the whole footer from the file. It may be
   // that size isn't correct.
   if (footer_input.size() < Footer::kMinEncodedLength) {
-    return Status::InvalidArgument("file is too short to be an sstable");
+    return Status::Corruption("file is too short to be an sstable");
   }
 
   return footer->DecodeFrom(&footer_input);
