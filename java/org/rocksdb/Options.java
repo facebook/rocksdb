@@ -13,6 +13,9 @@ package org.rocksdb;
  * native resources will be released as part of the process.
  */
 public class Options extends RocksObject {
+  static {
+    RocksDB.loadLibrary();
+  }
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
   static final int DEFAULT_NUM_SHARD_BITS = -1;
   /**
