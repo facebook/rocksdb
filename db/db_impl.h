@@ -34,6 +34,7 @@
 #include "db/internal_stats.h"
 #include "db/write_controller.h"
 #include "db/flush_scheduler.h"
+#include "db/write_thread.h"
 
 namespace rocksdb {
 
@@ -359,44 +360,6 @@ class DBImpl : public DB {
   Status WriteLevel0Table(ColumnFamilyData* cfd, autovector<MemTable*>& mems,
                           VersionEdit* edit, uint64_t* filenumber,
                           LogBuffer* log_buffer);
-  // Information kept for every waiting writer
-  struct Writer {
-    Status status;
-    WriteBatch* batch;
-    bool sync;
-    bool disableWAL;
-    bool in_batch_group;
-    bool done;
-    uint64_t timeout_hint_us;
-    port::CondVar cv;
-
-    explicit Writer(port::Mutex* mu) : cv(mu) {}
-  };
-
-  // Before applying write operation (such as DBImpl::Write, DBImpl::Flush)
-  // thread should grab the mutex_ and be the first on writers queue.
-  // BeginWrite is used for it.
-  // Be aware! Writer's job can be done by other thread (see DBImpl::Write
-  // for examples), so check it via w.done before applying changes.
-  //
-  // Writer* w:                writer to be placed in the queue
-  // uint64_t expiration_time: maximum time to be in the queue
-  // See also: EndWrite
-  Status BeginWrite(Writer* w, uint64_t expiration_time);
-
-  // After doing write job, we need to remove already used writers from
-  // writers_ queue and notify head of the queue about it.
-  // EndWrite is used for this.
-  //
-  // Writer* w:           Writer, that was added by BeginWrite function
-  // Writer* last_writer: Since we can join a few Writers (as DBImpl::Write
-  //                      does)
-  //                      we should pass last_writer as a parameter to
-  //                      EndWrite
-  //                      (if you don't touch other writers, just pass w)
-  // Status status:       Status of write operation
-  // See also: BeginWrite
-  void EndWrite(Writer* w, Writer* last_writer, Status status);
 
   void DelayWrite(uint64_t expiration_time);
 
@@ -404,9 +367,6 @@ class DBImpl : public DB {
 
   Status SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
                                      WriteContext* context);
-
-  void BuildBatchGroup(Writer** last_writer,
-                       autovector<WriteBatch*>* write_batch_group);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options);
@@ -552,8 +512,8 @@ class DBImpl : public DB {
 
   std::unique_ptr<Directory> db_directory_;
 
-  // Queue of writers.
-  std::deque<Writer*> writers_;
+  WriteThread write_thread_;
+
   WriteBatch tmp_batch_;
 
   WriteController write_controller_;
@@ -627,7 +587,6 @@ class DBImpl : public DB {
   bool flush_on_destroy_; // Used when disableWAL is true.
 
   static const int KEEP_LOG_FILE_NUM = 1000;
-  static const uint64_t kNoTimeOut = std::numeric_limits<uint64_t>::max();
   std::string db_absolute_path_;
 
   // The options to access storage files
