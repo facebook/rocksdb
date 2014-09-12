@@ -4109,9 +4109,9 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         alive_log_files_.back().AddSize(log_entry.size());
         log_empty_ = false;
         log_size = log_entry.size();
-        RecordTick(stats_, WAL_FILE_SYNCED);
         RecordTick(stats_, WAL_FILE_BYTES, log_size);
         if (status.ok() && options.sync) {
+          RecordTick(stats_, WAL_FILE_SYNCED);
           if (db_options_.use_fsync) {
             StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
