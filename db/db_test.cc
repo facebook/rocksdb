@@ -6036,7 +6036,7 @@ TEST(DBTest, BloomFilterWrapper) {
   }
   // Add a large key to make the file contain wide range
   ASSERT_OK(Put(1, Key(maxKey + 55555), Key(maxKey + 55555)));
-  ASSERT_EQ(0, policy->GetCounter());
+  ASSERT_EQ(0U, policy->GetCounter());
   Flush(1);
 
   // Check if they can be found
@@ -6044,14 +6044,14 @@ TEST(DBTest, BloomFilterWrapper) {
     ASSERT_EQ(Key(i), Get(1, Key(i)));
   }
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
-  ASSERT_EQ(maxKey, policy->GetCounter());
+  ASSERT_EQ(1U * maxKey, policy->GetCounter());
 
   // Check if filter is useful
   for (int i = 0; i < maxKey; i++) {
     ASSERT_EQ("NOT_FOUND", Get(1, Key(i+33333)));
   }
   ASSERT_GE(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), maxKey*0.98);
-  ASSERT_EQ(2 * maxKey, policy->GetCounter());
+  ASSERT_EQ(2U * maxKey, policy->GetCounter());
 }
 
 TEST(DBTest, SnapshotFiles) {
