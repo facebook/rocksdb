@@ -47,7 +47,7 @@ class WriteControllerToken {
  public:
   explicit WriteControllerToken(WriteController* controller)
       : controller_(controller) {}
-  virtual ~WriteControllerToken() = default;
+  virtual ~WriteControllerToken() {}
 
  protected:
   WriteController* controller_;
@@ -62,14 +62,14 @@ class StopWriteToken : public WriteControllerToken {
  public:
   explicit StopWriteToken(WriteController* controller)
       : WriteControllerToken(controller) {}
-  ~StopWriteToken();
+  virtual ~StopWriteToken();
 };
 
 class DelayWriteToken : public WriteControllerToken {
  public:
   DelayWriteToken(WriteController* controller, uint64_t delay_us)
       : WriteControllerToken(controller), delay_us_(delay_us) {}
-  ~DelayWriteToken();
+  virtual ~DelayWriteToken();
 
  private:
   uint64_t delay_us_;
