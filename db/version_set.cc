@@ -414,6 +414,50 @@ bool SomeFileOverlapsRange(
   return !BeforeFile(ucmp, largest_user_key, &file_level.files[index]);
 }
 
+void Version::GetColumnFamilyMetaData(
+    ColumnFamilyMetaData* cf_meta,
+    const DBOptions& options) {
+  assert(cf_meta);
+  assert(cfd_);
+
+  cf_meta->name = cfd_->GetName();
+  cf_meta->size = 0;
+  cf_meta->compensated_size = 0;
+  cf_meta->levels.clear();
+  for (int level = 0; level < cfd_->NumberLevels(); level++) {
+    uint64_t level_size = 0;
+    uint64_t level_csize = 0;
+    std::vector<SstFileMetaData> files;
+    for (const auto& file : files_[level]) {
+      uint32_t path_id = file->fd.GetPathId();
+      std::string file_path;
+      if (path_id < options.db_paths.size()) {
+        file_path = options.db_paths[path_id].path;
+      } else {
+        assert(!options.db_paths.empty());
+        file_path = options.db_paths.back().path;
+      }
+      files.emplace_back(
+          file->fd.GetNumber(),
+          MakeTableFileName(file_path, file->fd.GetNumber()),
+          file->fd.GetFileSize(),
+          file->compensated_file_size,
+          file->smallest_seqno,
+          file->largest_seqno,
+          file->smallest.user_key().ToString(),
+          file->largest.user_key().ToString(),
+          file->being_compacted);
+      level_size += file->fd.GetFileSize();
+      level_csize += file->compensated_file_size;
+    }
+    cf_meta->levels.emplace_back(
+        level, level_size, level_csize, std::move(files));
+    cf_meta->size += level_size;
+    cf_meta->compensated_size += level_csize;
+  }
+}
+
+
 // An internal iterator.  For a given version/level pair, yields
 // information about the files in the level.  For a given entry, key()
 // is the largest key that occurs in the file, and value() is an
@@ -2956,50 +3000,6 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
-void VersionSet::GetColumnFamilyMetaDataImpl(
-    ColumnFamilyMetaData* cf_meta,
-    ColumnFamilyData* cfd, Version* current) {
-  assert(cf_meta);
-  assert(cfd);
-  assert(current);
-
-  cf_meta->name = cfd->GetName();
-  cf_meta->size = 0;
-  cf_meta->compensated_size = 0;
-  cf_meta->levels.clear();
-  for (int level = 0; level < cfd->NumberLevels(); level++) {
-    uint64_t level_size = 0;
-    uint64_t level_csize = 0;
-    std::vector<SstFileMetaData> files;
-    for (const auto& file : current->files_[level]) {
-      uint32_t path_id = file->fd.GetPathId();
-      std::string file_path;
-      if (path_id < options_->db_paths.size()) {
-        file_path = options_->db_paths[path_id].path;
-      } else {
-        assert(!options_->db_paths.empty());
-        file_path = options_->db_paths.back().path;
-      }
-      files.emplace_back(
-          file->fd.GetNumber(),
-          MakeTableFileName(file_path, file->fd.GetNumber()),
-          file->fd.GetFileSize(),
-          file->compensated_file_size,
-          file->smallest_seqno,
-          file->largest_seqno,
-          file->smallest.user_key().ToString(),
-          file->largest.user_key().ToString(),
-          file->being_compacted);
-      level_size += file->fd.GetFileSize();
-      level_csize += file->compensated_file_size;
-    }
-    cf_meta->levels.emplace_back(
-        level, level_size, level_csize, std::move(files));
-    cf_meta->size += level_size;
-    cf_meta->compensated_size += level_csize;
-  }
-}
-
 Status VersionSet::GetColumnFamilyMetaData(
     ColumnFamilyMetaData* cf_meta,
     const std::string& name, port::Mutex* mutex) {
@@ -3024,7 +3024,7 @@ Status VersionSet::GetColumnFamilyMetaData(
         "Cannot find any column family with the specified name.");
   }
   current->UpdateTemporaryStats();
-  GetColumnFamilyMetaDataImpl(cf_meta, matched_cfd, current);
+  current->GetColumnFamilyMetaData(cf_meta, *options_);
 
   mutex->Lock();
   current->Unref();
@@ -3055,10 +3055,10 @@ void VersionSet::GetDatabaseMetaData(
   mutex->Unlock();
 
   assert(versions.size() == cfds.size());
-  for (size_t i = 0; i < cfds.size(); ++i) {
+  for (size_t i = 0; i < versions.size(); ++i) {
     ColumnFamilyMetaData cf_meta;
     versions[i]->UpdateTemporaryStats();
-    GetColumnFamilyMetaDataImpl(&cf_meta, cfds[i], versions[i]);
+    versions[i]->GetColumnFamilyMetaData(&cf_meta, *options_);
 
     db_meta->size += cf_meta.size;
     db_meta->compensated_size += cf_meta.compensated_size;

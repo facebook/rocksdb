@@ -228,13 +228,12 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     } else if (options_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
           new FIFOCompactionPicker(&options_, &internal_comparator_));
-    /*  // TODO(yhchiang): enable pull mode custom compaction picker
     } else if (options_.compaction_style == kCompactionStyleCustom) {
+      assert(options_.compactor_factory);
       compaction_picker_.reset(
-          new CustomCompactionPicker(
+          new PluggableCompactionPicker(
               &options_, &internal_comparator_,
-              custom_compactor);
-    */
+              options_.compactor_factory->CreateCompactor()));
     } else {
       assert(options_.compaction_style == kCompactionStyleNone);
       compaction_picker_.reset(new PluggableCompactionPicker(

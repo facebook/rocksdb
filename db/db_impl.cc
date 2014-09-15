@@ -1673,48 +1673,6 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
-Status DBImpl::GetCompactionInputsFromFileNumbers(
-    std::set<uint64_t>* input_set,
-    const Version* version, const CompactionOptions& compact_options,
-    autovector<CompactionInputFiles>* input_files) {
-  if (input_set->size() == 0) {
-    return Status::InvalidArgument(
-        "Compaction must include at least one file.");
-  }
-  assert(input_files);
-
-  autovector<CompactionInputFiles> matched_input_files;
-  matched_input_files.resize(version->NumberLevels());
-  // TODO(yhchiang): but there might be empty levels ...
-  for (int level = 0; level < version->NumberLevels(); ++level) {
-    for (auto file : version->files_[level]) {
-      auto iter = input_set->find(file->fd.GetNumber());
-      if (iter != input_set->end()) {
-        matched_input_files[level].files.push_back(file);
-        input_set->erase(iter);
-      }
-    }
-  }
-  if (!input_set->empty()) {
-    std::string message(
-        "Cannot find matched SST files for the following file numbers:");
-    for (auto fn : *input_set) {
-      message += " ";
-      message += std::to_string(fn);
-    }
-    return Status::InvalidArgument(message);
-  }
-
-  for (int level = 0; level < version->NumberLevels(); ++level) {
-    matched_input_files[level].level = level;
-    if (matched_input_files[level].files.size() > 0) {
-      input_files->emplace_back(std::move(matched_input_files[level]));
-    }
-  }
-
-  return Status::OK();
-}
-
 
 Status DBImpl::CompactFiles(
     const CompactionOptions& compact_options,
@@ -1781,7 +1739,7 @@ Status DBImpl::CompactFilesImpl(
       input_file_numbers.begin(), input_file_numbers.end());
 
   ColumnFamilyMetaData cf_meta;
-  versions_->GetColumnFamilyMetaDataImpl(&cf_meta, cfd, version);
+  version->GetColumnFamilyMetaData(&cf_meta, options_);
 
   if (output_path_id < 0) {
     return Status::NotSupported(
@@ -1794,9 +1752,10 @@ Status DBImpl::CompactFilesImpl(
   if (!s.ok()) {
     return s;
   }
+
   autovector<CompactionInputFiles> input_files;
-  s = GetCompactionInputsFromFileNumbers(
-      &input_set, version, compact_options, &input_files);
+  s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, version, compact_options);
   if (!s.ok()) {
     return s;
   }
@@ -5074,6 +5033,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     if (cf.options.block_cache != nullptr && cf.options.no_block_cache) {
       return Status::InvalidArgument(
           "no_block_cache is true while block_cache is not nullptr");
+    }
+    if (cf.options.compaction_style == kCompactionStyleCustom &&
+        cf.options.compactor_factory == nullptr) {
+      return Status::InvalidArgument(
+          "compactor_factory must be set when compaction_style"
+          " is set to kCompactionStyleCustom");
     }
   }
 

@@ -449,11 +449,6 @@ class DBImpl : public DB {
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
 
-  Status GetCompactionInputsFromFileNumbers(
-    std::set<uint64_t>* input_set,
-    const Version* version, const CompactionOptions& compact_options,
-    autovector<CompactionInputFiles>* input_files);
-
   static void BGWorkCompactFiles(void* compaction_job);
 
   Status CompactFilesImpl(

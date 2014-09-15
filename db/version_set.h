@@ -242,6 +242,9 @@ class Version {
     FileMetaData* file;
   };
 
+  void GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* cf_meta, const DBOptions& options);
+
  private:
   friend class Compaction;
   friend class VersionSet;
@@ -515,10 +518,6 @@ class VersionSet {
 
   ColumnFamilyData* CreateColumnFamily(const ColumnFamilyOptions& options,
                                        VersionEdit* edit);
-
-  void GetColumnFamilyMetaDataImpl(
-      ColumnFamilyMetaData* cf_meta,
-      ColumnFamilyData* cfd, Version* current);
 
   std::unique_ptr<ColumnFamilySet> column_family_set_;
 

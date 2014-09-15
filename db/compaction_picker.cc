@@ -12,6 +12,7 @@
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 #include <limits>
+#include <string>
 #include "db/filename.h"
 #include "util/log_buffer.h"
 #include "util/statistics.h"
@@ -142,6 +143,55 @@ double CompactionPicker::MaxBytesForLevel(int level) const {
   assert(level < NumberLevels());
   return level_max_bytes_[level];
 }
+
+Status CompactionPicker::GetCompactionInputsFromFileNumbers(
+    autovector<CompactionInputFiles>* input_files,
+    std::set<uint64_t>* input_set,
+    const Version* version,
+    const CompactionOptions& compact_options) const {
+  if (input_set->size() == 0U) {
+    return Status::InvalidArgument(
+        "Compaction must include at least one file.");
+  }
+  assert(input_files);
+
+  autovector<CompactionInputFiles> matched_input_files;
+  matched_input_files.resize(version->NumberLevels());
+  int first_non_empty_level = -1;
+  int last_non_empty_level = -1;
+  for (int level = 0; level < version->NumberLevels(); ++level) {
+    for (auto file : version->files_[level]) {
+      auto iter = input_set->find(file->fd.GetNumber());
+      if (iter != input_set->end()) {
+        matched_input_files[level].files.push_back(file);
+        input_set->erase(iter);
+        last_non_empty_level = level;
+        if (first_non_empty_level == -1) {
+          first_non_empty_level = level;
+        }
+      }
+    }
+  }
+
+  if (!input_set->empty()) {
+    std::string message(
+        "Cannot find matched SST files for the following file numbers:");
+    for (auto fn : *input_set) {
+      message += " ";
+      message += std::to_string(fn);
+    }
+    return Status::InvalidArgument(message);
+  }
+
+  for (int level = first_non_empty_level;
+       level <= last_non_empty_level; ++level) {
+    matched_input_files[level].level = level;
+    input_files->emplace_back(std::move(matched_input_files[level]));
+  }
+
+  return Status::OK();
+}
+
 
 void CompactionPicker::GetRange(const std::vector<FileMetaData*>& inputs,
                                 InternalKey* smallest, InternalKey* largest) {
@@ -1163,5 +1213,90 @@ Compaction* FIFOCompactionPicker::CompactRange(
   log_buffer.FlushBufferToLog();
   return c;
 }
+
+Compaction* PluggableCompactionPicker::PickCompaction(
+      Version* version, LogBuffer* log_buffer) {
+  assert(version);
+  if (compactor_ == nullptr) {
+    return nullptr;
+  }
+
+  ColumnFamilyMetaData cf_meta;
+  std::vector<uint64_t> input_file_numbers;
+  int output_level;
+  version->GetColumnFamilyMetaData(&cf_meta, *options_);
+  Status s = compactor_->PickCompaction(
+      &input_file_numbers, &output_level, cf_meta);
+  if (!s.ok() || input_file_numbers.size() == 0U) {
+    return nullptr;
+  }
+
+  std::set<uint64_t> input_set(
+      input_file_numbers.begin(), input_file_numbers.end());
+
+  s = SanitizeCompactionInputFiles(
+      &input_set, cf_meta, output_level);
+  if (!s.ok()) {
+    return nullptr;
+  }
+
+  // TODO(yhchiang): may need to add CompactionOptions to
+  // PickCompaction.
+  CompactionOptions compact_options;
+  autovector<CompactionInputFiles> input_files;
+  s = GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, version, compact_options);
+  if (!s.ok() || input_files.size() == 0U) {
+    return nullptr;
+  }
+
+  return FormCompaction(
+      compact_options, input_files,
+      output_level, version);
+}
+
+Compaction* PluggableCompactionPicker::CompactRange(
+    Version* version, int input_level,
+    int output_level, uint32_t output_path_id,
+    const InternalKey* begin,
+    const InternalKey* end,
+    InternalKey** compaction_end) {
+  assert(version);
+  if (compactor_ == nullptr) {
+    return nullptr;
+  }
+
+  ColumnFamilyMetaData cf_meta;
+  std::vector<uint64_t> input_file_numbers;
+  version->GetColumnFamilyMetaData(&cf_meta, *options_);
+  Status s = compactor_->PickCompactionByRange(
+      &input_file_numbers, cf_meta, input_level, output_level);
+  if (!s.ok()) {
+    return nullptr;
+  }
+
+  std::set<uint64_t> input_set(
+      input_file_numbers.begin(), input_file_numbers.end());
+  s = SanitizeCompactionInputFiles(
+      &input_set, cf_meta, output_level);
+  if (!s.ok()) {
+    return nullptr;
+  }
+
+  // TODO(yhchiang): may need to add CompactionOptions to
+  // CompactRange().
+  CompactionOptions compact_options;
+  autovector<CompactionInputFiles> input_files;
+  s = GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, version, compact_options);
+  if (!s.ok() || input_files.size() == 0U) {
+    return nullptr;
+  }
+
+  return FormCompaction(
+      compact_options, input_files,
+      output_level, version);
+}
+
 
 }  // namespace rocksdb

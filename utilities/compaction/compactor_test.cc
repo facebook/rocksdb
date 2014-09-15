@@ -221,9 +221,6 @@ TEST(CompactorTEST, PureExternalCompaction) {
   WriteOptions wopts;
   for (int i = 0; i < 100; ++i) {
     db->Put(wopts, std::to_string(i), std::string(45000, 'x'));
-    std::string num;
-    ASSERT_TRUE(dbfull(db)->GetProperty(
-        "rocksdb.num-entries-active-mem-table", &num));
   }
 
   // verify all kvs are still there.
@@ -235,6 +232,114 @@ TEST(CompactorTEST, PureExternalCompaction) {
 
   compactor.UnListen();
   delete db;
+}
+
+namespace {
+class FullCompactor : public Compactor {
+ public:
+  explicit FullCompactor(const Options* options) :
+      options_(options) {}
+
+  virtual Status SanitizeCompactionInputFiles(
+      std::set<uint64_t>* input_files,
+      const ColumnFamilyMetaData& cf_meta,
+      const int output_level) const override {
+    return Status::OK();
+  }
+
+  // always include all files into a single compaction when possible.
+  virtual Status PickCompaction(
+      std::vector<uint64_t>* input_file_numbers, int* output_level,
+      const ColumnFamilyMetaData& cf_meta) const override {
+    input_file_numbers->clear();
+    *output_level = 0;
+    for (auto level : cf_meta.levels) {
+      for (auto file : level.files) {
+        if (file.being_compacted) {
+          input_file_numbers->clear();
+          return Status::NotFound();
+        }
+        input_file_numbers->push_back(file.file_number);
+      }
+      if (*output_level < level.level) {
+        *output_level = level.level;
+      }
+    }
+    (*output_level)++;
+    if (*output_level >=  options_->num_levels) {
+      *output_level = options_->num_levels - 1;
+    }
+    return Status::OK();
+  }
+
+  virtual Status PickCompactionByRange(
+      std::vector<uint64_t>* input_file_Numbers,
+      const ColumnFamilyMetaData& cf_meta,
+      const int input_level, const int output_level) const override {
+    return Status::NotSupported("");
+  }
+
+ private:
+  const Options* options_;
+};
+
+class FullCompactorFactory : public CompactorFactory {
+ public:
+  explicit FullCompactorFactory(const Options* options) :
+      options_(options) {}
+
+  virtual Compactor* CreateCompactor() {
+    return new FullCompactor(options_);
+  }
+ private:
+  const Options* options_;
+};
+
+}  // namespace
+
+TEST(CompactorTEST, PluggableCompactor) {
+  Options options;
+  // disable RocksDB BG compaction
+  options.compaction_style = kCompactionStyleCustom;
+  options.compactor_factory.reset(new FullCompactorFactory(&options));
+  // configure DB in a way that it will hang if custom
+  // compactor is not working properly.
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 2;
+  options.compression = kNoCompression;
+  options.write_buffer_size = 45000;  // Small write buffer
+  options.create_if_missing = true;
+  options.target_file_size_base = 100000;
+  options.max_bytes_for_level_base = 100000;
+  options.max_bytes_for_level_multiplier = 2;
+  options.IncreaseParallelism();
+
+  DB* db;
+  ASSERT_OK(DB::Open(options, dbname_, &db));
+  WriteOptions wopts;
+  for (int i = 0; i < 100; ++i) {
+    db->Put(wopts, std::to_string(i), std::string(45000, 'x'));
+  }
+
+  // verify all kvs are still there.
+  for (int i = 0; i < 100; ++i) {
+    std::string value;
+    ASSERT_OK(db->Get(ReadOptions(), std::to_string(i), &value));
+    ASSERT_EQ(std::string(45000, 'x'), value);
+  }
+
+  delete db;
+}
+
+TEST(CompactorTEST, SanitizeOptionsTest) {
+  Options options;
+  // disable RocksDB BG compaction
+  options.compaction_style = kCompactionStyleCustom;
+  options.create_if_missing = true;
+
+  DB* db = nullptr;
+  ASSERT_TRUE(!DB::Open(options, dbname_, &db).ok());
+  ASSERT_TRUE(db == nullptr);
 }
 
 }  // namespace rocksdb

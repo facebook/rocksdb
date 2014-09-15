@@ -10,6 +10,7 @@
 #pragma once
 #include "db/version_set.h"
 #include "db/compaction.h"
+#include "rocksdb/compactor.h"
 #include "rocksdb/status.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
@@ -98,6 +99,14 @@ class CompactionPicker {
 
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level) const;
+
+  // Converts a set of compaction input file numbers into
+  // a list of CompactionInputFiles.
+  Status GetCompactionInputsFromFileNumbers(
+      autovector<CompactionInputFiles>* input_files,
+      std::set<uint64_t>* input_set,
+      const Version* version,
+      const CompactionOptions& compact_options) const;
 
  protected:
   int NumberLevels() const { return num_levels_; }
@@ -255,18 +264,6 @@ class FIFOCompactionPicker : public CompactionPicker {
 };
 
 
-// The pluggable component to PluggableCompactionPicker that allows
-// developers to write their own compaction strategies.  It's currently
-// a dummy class and will move to include/rocksdb/db.h once its API
-// is completed.
-class Compactor {
- public:
-  virtual Status SanitizeCompactionInputFiles(
-      std::set<uint64_t>* input_files,
-      const ColumnFamilyMetaData& cf_meta,
-      const int output_level) const = 0;
-};
-
 // A compaction picker that has a pluggable component to allow developers
 // to write their own compaction strategies.
 class PluggableCompactionPicker : public CompactionPicker {
@@ -274,29 +271,19 @@ class PluggableCompactionPicker : public CompactionPicker {
   PluggableCompactionPicker(
       const Options* options,
       const InternalKeyComparator* icmp,
-      const std::shared_ptr<Compactor>& compactor )
-      : CompactionPicker(options, icmp), compactor_(compactor) {}
-
-  virtual Compaction* PickCompaction(Version* version,
-                                     LogBuffer* log_buffer) override {
-    // TODO(yhchiang): complete it once the public API is done
-    if (compactor_ == nullptr) {
-      return nullptr;
-    }
-    return nullptr;
+      Compactor* compactor )
+      : CompactionPicker(options, icmp) {
+    compactor_.reset(compactor);
   }
+
+  virtual Compaction* PickCompaction(
+      Version* version, LogBuffer* log_buffer) override;
 
   virtual Compaction* CompactRange(Version* version, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    const InternalKey* begin,
                                    const InternalKey* end,
-                                   InternalKey** compaction_end) override {
-    // TODO(yhchiang): complete it once the public API is done
-    if (compactor_ == nullptr) {
-      return nullptr;
-    }
-    return nullptr;
-  }
+                                   InternalKey** compaction_end) override;
 
 
   // The maxinum allowed input level.
@@ -316,7 +303,7 @@ class PluggableCompactionPicker : public CompactionPicker {
     return Status::OK();
   }
 
-  std::shared_ptr<Compactor> compactor_;
+  std::unique_ptr<Compactor> compactor_;
 };
 
 // Utility function
