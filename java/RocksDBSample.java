@@ -72,6 +72,8 @@ public class RocksDBSample {
     assert(options.memTableFactoryName().equals("SkipListFactory"));
 
     options.setTableFormatConfig(new PlainTableConfig());
+    // Plain-Table requires mmap read
+    options.setAllowMmapReads(true);
     assert(options.tableFactoryName().equals("PlainTable"));
 
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
@@ -120,6 +122,29 @@ public class RocksDBSample {
         }
         System.out.println("");
       }
+
+      // write batch test
+      WriteOptions writeOpt = new WriteOptions();
+      for (int i = 10; i <= 19; ++i) {
+        WriteBatch batch = new WriteBatch();
+        for (int j = 10; j <= 19; ++j) {
+          batch.put(String.format("%dx%d", i, j).getBytes(),
+                    String.format("%d", i * j).getBytes());
+        }
+        db.write(writeOpt, batch);
+        batch.dispose();
+      }
+      for (int i = 10; i <= 19; ++i) {
+        for (int j = 10; j <= 19; ++j) {
+          assert(new String(
+              db.get(String.format("%dx%d", i, j).getBytes())).equals(
+                  String.format("%d", i * j)));
+          System.out.format("%s ", new String(db.get(
+              String.format("%dx%d", i, j).getBytes())));
+        }
+        System.out.println("");
+      }
+      writeOpt.dispose();
 
       value = db.get("1x1".getBytes());
       assert(value != null);
