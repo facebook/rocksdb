@@ -6,6 +6,7 @@
 
 ### Behavior changes
 * We have refactored our system of stalling writes.  Any stall-related statistics' meanings are changed. Instead of per-write stall counts, we now count stalls per-epoch, where epochs are periods between flushes and compactions. You'll find more information in our Tuning Perf Guide once we release RocksDB 3.6.
+* When disableDataSync=true, we no longer sync the MANIFEST file.
 
 ----- Past Releases -----
 

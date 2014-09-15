@@ -610,7 +610,7 @@ struct DBOptions {
   // it does not use any locks to prevent concurrent updates.
   std::shared_ptr<Statistics> statistics;
 
-  // If true, then the contents of data files are not synced
+  // If true, then the contents of manifest and data files are not synced
   // to stable storage. Their contents remain in the OS buffers till the
   // OS decides to flush them. This option is good for bulk-loading
   // of data. Once the bulk-loading is complete, please issue a

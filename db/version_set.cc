@@ -1891,7 +1891,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
           break;
         }
       }
-      if (s.ok()) {
+      if (s.ok() && db_options_->disableDataSync == false) {
         if (db_options_->use_fsync) {
           StopWatch sw(env_, db_options_->statistics.get(),
                        MANIFEST_FILE_SYNC_MICROS);
@@ -1928,7 +1928,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // new CURRENT file that points to it.
     if (s.ok() && new_descriptor_log) {
       s = SetCurrentFile(env_, dbname_, pending_manifest_file_number_,
-                         db_directory);
+                         db_options_->disableDataSync ? nullptr : db_directory);
       if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
         // delete old manifest file
         Log(db_options_->info_log,

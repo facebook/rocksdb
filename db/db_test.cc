@@ -151,6 +151,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int64_t> bytes_written_;
 
+  std::atomic<int> sync_counter_;
+
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
     delay_sstable_sync_.Release_Store(nullptr);
     drop_writes_.Release_Store(nullptr);
@@ -162,6 +164,7 @@ class SpecialEnv : public EnvWrapper {
     manifest_write_error_.Release_Store(nullptr);
     log_write_error_.Release_Store(nullptr);
     bytes_written_ = 0;
+    sync_counter_ = 0;
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
@@ -190,6 +193,7 @@ class SpecialEnv : public EnvWrapper {
       Status Close() { return base_->Close(); }
       Status Flush() { return base_->Flush(); }
       Status Sync() {
+        ++env_->sync_counter_;
         while (env_->delay_sstable_sync_.Acquire_Load() != nullptr) {
           env_->SleepForMicroseconds(100000);
         }
@@ -216,6 +220,7 @@ class SpecialEnv : public EnvWrapper {
       Status Close() { return base_->Close(); }
       Status Flush() { return base_->Flush(); }
       Status Sync() {
+        ++env_->sync_counter_;
         if (env_->manifest_sync_error_.Acquire_Load() != nullptr) {
           return Status::IOError("simulated sync error");
         } else {
@@ -239,7 +244,10 @@ class SpecialEnv : public EnvWrapper {
       }
       Status Close() { return base_->Close(); }
       Status Flush() { return base_->Flush(); }
-      Status Sync() { return base_->Sync(); }
+      Status Sync() {
+        ++env_->sync_counter_;
+        return base_->Sync();
+      }
     };
 
     if (non_writable_.Acquire_Load() != nullptr) {
@@ -8379,6 +8387,28 @@ TEST(DBTest, WriteSingleThreadEntry) {
   }
 }
 
+TEST(DBTest, DisableDataSyncTest) {
+  // iter 0 -- no sync
+  // iter 1 -- sync
+  for (int iter = 0; iter < 2; ++iter) {
+    Options options = CurrentOptions();
+    options.disableDataSync = iter == 0;
+    options.create_if_missing = true;
+    options.env = env_;
+    Reopen(&options);
+    CreateAndReopenWithCF({"pikachu"}, &options);
+
+    MakeTables(10, "a", "z");
+    Compact("a", "z");
+
+    if (iter == 0) {
+      ASSERT_EQ(env_->sync_counter_.load(), 0);
+    } else {
+      ASSERT_GT(env_->sync_counter_.load(), 0);
+    }
+    Destroy(&options);
+  }
+}
 
 
 }  // namespace rocksdb
