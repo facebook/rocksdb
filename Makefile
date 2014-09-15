@@ -53,26 +53,20 @@ endif
 INSTALL_PATH ?= /usr/local
 
 uninstall:
-	rm -rf $(INSTALL_PATH)/include/rocksdb
-	if [ -a $(LIBRARY) ]; then \
-		rm -rf $(INSTALL_PATH)/lib/$(LIBRARY); \
-	fi
-	if [ -a $(SHARED) ]; then \
-		rm -rf $(INSTALL_PATH)/lib/$(SHARED); \
-	fi
+	@rm -rf $(INSTALL_PATH)/include/rocksdb
+	@rm -rf $(INSTALL_PATH)/lib/$(LIBRARY)
+	@rm -rf $(INSTALL_PATH)/lib/$(SHARED)
 
 install:
-	install -d $(INSTALL_PATH)/include/rocksdb
-	install -d $(INSTALL_PATH)/lib
-	for header in `find "include/rocksdb" -type f -name *.h`; do \
-		install -C -m 644 -D $$header $(INSTALL_PATH)/$$header; \
+	@install -d $(INSTALL_PATH)/lib
+	@for header_dir in `find "include/rocksdb" -type d`; do \
+		install -d $(INSTALL_PATH)/$$header_dir; \
 	done
-	if [ -a $(LIBRARY) ]; then \
-		install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib/.; \
-	fi;
-	if [ -a $(SHARED) ]; then \
-		install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib/.; \
-	fi;
+	@for header in `find "include/rocksdb" -type f -name *.h`; do \
+		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+	done
+	@[ ! -e $(LIBRARY) ] || install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib
+	@[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
 #-------------------------------------------------
 
 WARNING_FLAGS = -Wall -Werror -Wsign-compare
