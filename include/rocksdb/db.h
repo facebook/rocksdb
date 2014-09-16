@@ -544,7 +544,7 @@ class DB {
   // any column family match the specified name.
   virtual Status GetColumnFamilyMetaData(
       ColumnFamilyMetaData* metadata, const std::string& cf_name) {
-    return Status::OK();
+    return Status::NotSupported("");
   }
 
   // Adds the specified listener to hear special events of the current DB.
