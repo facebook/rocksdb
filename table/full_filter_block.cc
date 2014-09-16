@@ -47,7 +47,7 @@ inline void FullFilterBlockBuilder::AddPrefix(const Slice& key) {
 Slice FullFilterBlockBuilder::Finish() {
   if (num_added_ != 0) {
     num_added_ = 0;
-    return filter_bits_builder_->Finish(&filter_data);
+    return filter_bits_builder_->Finish(&filter_data_);
   }
   return Slice();
 }
@@ -64,7 +64,7 @@ FullFilterBlockReader::FullFilterBlockReader(
   filter_bits_reader_.reset(filter_bits_reader);
 
   if (delete_contents_after_use) {
-    filter_data.reset(contents.data());
+    filter_data_.reset(contents.data());
   }
 }
 

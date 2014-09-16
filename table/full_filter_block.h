@@ -56,7 +56,7 @@ class FullFilterBlockBuilder : public FilterBlockBuilder {
 
   uint32_t num_added_;
   std::unique_ptr<FilterBitsBuilder> filter_bits_builder_;
-  std::unique_ptr<const char[]> filter_data;
+  std::unique_ptr<const char[]> filter_data_;
 
   void AddKey(const Slice& key);
   void AddPrefix(const Slice& key);
@@ -95,7 +95,7 @@ class FullFilterBlockReader : public FilterBlockReader {
 
   std::unique_ptr<FilterBitsReader> filter_bits_reader_;
   Slice contents_;
-  std::unique_ptr<const char[]> filter_data;
+  std::unique_ptr<const char[]> filter_data_;
 
   bool MayMatch(const Slice& entry);
 

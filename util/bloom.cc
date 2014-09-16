@@ -54,9 +54,8 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   // | ...                | num_probes : 1 byte | num_lines : 4 bytes |
   // +----------------------------------------------------------------+
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
-    char* data = nullptr;
     uint32_t total_bits, num_lines;
-    data = ReserveSpace(hash_entries_.size(), &total_bits, &num_lines);
+    char* data = ReserveSpace(hash_entries_.size(), &total_bits, &num_lines);
     assert(data);
 
     if (total_bits != 0 && num_lines != 0) {
@@ -67,7 +66,8 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
     data[total_bits/8] = static_cast<char>(num_probes_);
     EncodeFixed32(data + total_bits/8 + 1, static_cast<uint32_t>(num_lines));
 
-    buf->reset(data);
+    const char* const_data = data;
+    buf->reset(const_data);
     hash_entries_.clear();
 
     return Slice(data, total_bits / 8 + 5);
