@@ -10,10 +10,12 @@
 #include <set>
 #include <vector>
 
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
 #include "rocksdb/metadata.h"
 
 namespace rocksdb {
+struct Options;
 
 // The pluggable component to PluggableCompactionPicker that allows
 // developers to write their own compaction strategies.  It's currently
@@ -24,6 +26,9 @@ namespace rocksdb {
 // Otherwise, RocksDB may be blocked by these function calls.
 class Compactor {
  public:
+  // Constructs a compactor given the currently used options.
+  Compactor(const Options* options) : options_(options) {}
+
   // Given the meta data describes the current state of a column
   // family, this function will determine a list of compaction
   // input files and output level if the input column family
@@ -51,12 +56,15 @@ class Compactor {
       std::set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta,
       const int output_level) = 0;
+
+ protected:
+  const Options* options_;
 };
 
 class CompactorFactory {
  public:
   // Creates a pointer to a Compactor object.
-  virtual Compactor* CreateCompactor() = 0;
+  virtual Compactor* CreateCompactor(const Options* options) = 0;
 };
 
 }  // namespace rocksdb

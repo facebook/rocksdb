@@ -240,7 +240,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       compaction_picker_.reset(
           new PluggableCompactionPicker(
               &options_, &internal_comparator_,
-              options_.compactor_factory->CreateCompactor()));
+              options_.compactor_factory->CreateCompactor(&options_)));
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, options_.info_log,
           "Unable to recognize the specified compaction style %d. "

@@ -238,7 +238,7 @@ namespace {
 class FullCompactor : public Compactor {
  public:
   explicit FullCompactor(const Options* options) :
-      options_(options) {}
+      Compactor(options) {}
 
   virtual Status SanitizeCompactionInputFiles(
       std::set<uint64_t>* input_files,
@@ -278,21 +278,15 @@ class FullCompactor : public Compactor {
       const int input_level, const int output_level) override {
     return Status::NotSupported("");
   }
-
- private:
-  const Options* options_;
 };
 
 class FullCompactorFactory : public CompactorFactory {
  public:
-  explicit FullCompactorFactory(const Options* options) :
-      options_(options) {}
+  FullCompactorFactory() {}
 
-  virtual Compactor* CreateCompactor() {
-    return new FullCompactor(options_);
+  virtual Compactor* CreateCompactor(const Options* options) {
+    return new FullCompactor(options);
   }
- private:
-  const Options* options_;
 };
 
 }  // namespace
@@ -301,7 +295,7 @@ TEST(CompactorTEST, PluggableCompactor) {
   Options options;
   // disable RocksDB BG compaction
   options.compaction_style = kCompactionStyleCustom;
-  options.compactor_factory.reset(new FullCompactorFactory(&options));
+  options.compactor_factory.reset(new FullCompactorFactory());
   // configure DB in a way that it will hang if custom
   // compactor is not working properly.
   options.level0_slowdown_writes_trigger = 2;
