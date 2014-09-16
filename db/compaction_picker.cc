@@ -607,6 +607,7 @@ Compaction* CompactionPicker::FormCompaction(
       input_files[0].level, output_level,
       max_grandparent_overlap_bytes, compact_options);
   c->MarkFilesBeingCompacted(true);
+  c->SetupBottomMostLevel((output_level == NumberLevels() - 1));
   return c;
 }
 
