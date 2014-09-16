@@ -915,6 +915,70 @@ void Java_org_rocksdb_RocksDB_remove__JJ_3BIJ(
   }
 }
 //////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Merge
+
+void rocksdb_merge_helper(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::WriteOptions& write_options,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+
+  jbyte* key = env->GetByteArrayElements(jkey, 0);
+  jbyte* value = env->GetByteArrayElements(jvalue, 0);
+  rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+  rocksdb::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
+
+  rocksdb::Status s = db->Merge(write_options, key_slice, value_slice);
+
+  // trigger java unref on key and value.
+  // by passing JNI_ABORT, it will simply release the reference without
+  // copying the result back to the java byte array.
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
+
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    merge
+ * Signature: (J[BI[BI)V
+ */
+void Java_org_rocksdb_RocksDB_merge__J_3BI_3BI(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  static const rocksdb::WriteOptions default_write_options =
+      rocksdb::WriteOptions();
+
+  rocksdb_merge_helper(env, db, default_write_options,
+                     jkey, jkey_len,
+                     jvalue, jvalue_len);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    merge
+ * Signature: (JJ[BI[BI)V
+ */
+void Java_org_rocksdb_RocksDB_merge__JJ_3BI_3BI(
+    JNIEnv* env, jobject jdb,
+    jlong jdb_handle, jlong jwrite_options_handle,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(
+      jwrite_options_handle);
+
+  rocksdb_merge_helper(env, db, *write_options,
+                     jkey, jkey_len,
+                     jvalue, jvalue_len);
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::~DB()
 
 /*

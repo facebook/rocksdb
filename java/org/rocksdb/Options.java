@@ -2235,6 +2235,40 @@ public class Options extends RocksObject {
       long handle, int minPartialMergeOperands);
 
   /**
+   * Set the merge operator to be used for merging two different key/value
+   * pairs that share the same key. The merge function is invoked during
+   * compaction and at lookup time, if multiple key/value pairs belonging
+   * to the same key are found in the database.
+   *
+   * @param name the name of the merge function, as defined by
+   * the MergeOperators factory (see utilities/MergeOperators.h)
+   * @return the reference to the current option.
+   */
+  public Options setMergeOperatorName(String name) {
+      setMergeOperatorName(nativeHandle_, name);
+    return this;
+  }
+  private native void setMergeOperatorName(
+      long handle, String name);
+
+  /**
+   * Set the merge operator to be used for merging two different key/value
+   * pairs that share the same key. The merge function is invoked during
+   * compaction and at lookup time, if multiple key/value pairs belonging
+   * to the same key are found in the database.
+   *
+   * @param name the name of the merge function, as defined by
+   * the MergeOperators factory (see utilities/MergeOperators.h)
+   * @return the reference to the current option.
+   */
+  public Options setMergeOperator(MergeOperator mergeOperator) {
+      setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
+    return this;
+  }
+  private native void setMergeOperator(
+      long handle, long mergeOperatorHandle);
+
+  /**
    * Release the memory allocated for the current instance
    * in the c++ side.
    */

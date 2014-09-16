@@ -473,8 +473,32 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Get the value associated with the specified key within column family
+   * Set the database entry for "key" to "value".
    *
+   * @param key the specified key to be merged.
+   * @param value the value to be nerged with the current value for
+   * the specified key.
+   */
+  public void merge(byte[] key, byte[] value) throws RocksDBException {
+    merge(nativeHandle_, key, key.length, value, value.length);
+  }
+
+  /**
+   * Merge the database entry for "key" with "value".
+   *
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   * the specified key.
+   */
+  public void merge(WriteOptions writeOpts, byte[] key, byte[] value)
+      throws RocksDBException {
+    merge(nativeHandle_, writeOpts.nativeHandle_,
+        key, key.length, value, value.length);
+  }
+
+
+  /**
+   * Get the value associated with the specified key within column family*
    * @param key the key to retrieve the value.
    * @param value the out-value to receive the retrieved value.
    * @return The size of the actual value that matches the specified
@@ -1002,6 +1026,13 @@ public class RocksDB extends RocksObject {
       long cfHandle, StringBuffer stringBuffer);
   protected native boolean keyMayExist(long optionsHandle, byte[] key, int keyLen,
       long cfHandle, StringBuffer stringBuffer);
+  protected native void merge(
+      long handle, byte[] key, int keyLen,
+      byte[] value, int valueLen) throws RocksDBException;
+  protected native void merge(
+      long handle, long writeOptHandle,
+      byte[] key, int keyLen,
+      byte[] value, int valueLen) throws RocksDBException;
   protected native int get(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
