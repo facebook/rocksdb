@@ -228,6 +228,13 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     } else if (options_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
           new FIFOCompactionPicker(&options_, &internal_comparator_));
+    } else if (options_.compaction_style == kCompactionStyleNone) {
+      compaction_picker_.reset(new PluggableCompactionPicker(
+          &options_, &internal_comparator_, nullptr));
+      Log(InfoLogLevel::WARN_LEVEL, options_.info_log,
+          "Column family %s does not use any background compaction. "
+          "Compactions can only be done via CompactFiles / "
+          "ScheduleCompactFiles.\n");
     } else if (options_.compaction_style == kCompactionStyleCustom) {
       assert(options_.compactor_factory);
       compaction_picker_.reset(
@@ -235,9 +242,12 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
               &options_, &internal_comparator_,
               options_.compactor_factory->CreateCompactor()));
     } else {
-      assert(options_.compaction_style == kCompactionStyleNone);
-      compaction_picker_.reset(new PluggableCompactionPicker(
-          &options_, &internal_comparator_, nullptr));
+      Log(InfoLogLevel::ERROR_LEVEL, options_.info_log,
+          "Unable to recognize the specified compaction style %d. "
+          "Column family %s will use kCompactionStyleLevel.\n",
+          options_.compaction_style, GetName().c_str());
+      compaction_picker_.reset(
+          new LevelCompactionPicker(&options_, &internal_comparator_));
     }
 
     Log(options_.info_log, "Options for column family \"%s\":\n",

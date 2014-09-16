@@ -60,9 +60,9 @@ enum CompactionStyle : char {
   kCompactionStyleNone = 0x3,  // Disable background compaction. Compaction
                                // jobs are submitted via CompactFiles()
                                // or ScheduleCompactFiles().
-  kCompactionStyleCustom,      // Use the custom compactor created by
-                               // the specified CompactorFactory in
-                               // options.compactor_factory.
+  kCompactionStyleCustom = 0x4,   // Use the custom compactor created by
+                                  // the specified CompactorFactory in
+                                  // options.compactor_factory.
 };
 
 struct CompactionOptionsFIFO {
