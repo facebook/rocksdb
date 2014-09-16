@@ -243,14 +243,14 @@ class FullCompactor : public Compactor {
   virtual Status SanitizeCompactionInputFiles(
       std::set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta,
-      const int output_level) const override {
+      const int output_level) override {
     return Status::OK();
   }
 
   // always include all files into a single compaction when possible.
   virtual Status PickCompaction(
       std::vector<uint64_t>* input_file_numbers, int* output_level,
-      const ColumnFamilyMetaData& cf_meta) const override {
+      const ColumnFamilyMetaData& cf_meta) override {
     input_file_numbers->clear();
     *output_level = 0;
     for (auto level : cf_meta.levels) {
@@ -275,7 +275,7 @@ class FullCompactor : public Compactor {
   virtual Status PickCompactionByRange(
       std::vector<uint64_t>* input_file_Numbers,
       const ColumnFamilyMetaData& cf_meta,
-      const int input_level, const int output_level) const override {
+      const int input_level, const int output_level) override {
     return Status::NotSupported("");
   }
 

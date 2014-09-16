@@ -33,7 +33,7 @@ class Compactor {
   // compaction job.
   virtual Status PickCompaction(
       std::vector<uint64_t>* input_file_numbers, int* output_level,
-      const ColumnFamilyMetaData& cf_meta) const = 0;
+      const ColumnFamilyMetaData& cf_meta) = 0;
 
   // Similar to PickCompaction, but with one requirement that the
   // resulting list of compaction input files must be in the
@@ -42,7 +42,7 @@ class Compactor {
   virtual Status PickCompactionByRange(
       std::vector<uint64_t>* input_file_Numbers,
       const ColumnFamilyMetaData& cf_meta,
-      const int input_level, const int output_level) const = 0;
+      const int input_level, const int output_level) = 0;
 
   // Sanitize the compaction input files "input_files" to a valid
   // one by adding more files to it.  A non-ok status is returned
@@ -50,7 +50,7 @@ class Compactor {
   virtual Status SanitizeCompactionInputFiles(
       std::set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta,
-      const int output_level) const = 0;
+      const int output_level) = 0;
 };
 
 class CompactorFactory {
