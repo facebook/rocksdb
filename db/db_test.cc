@@ -3744,6 +3744,7 @@ void CheckDbMeta(const DatabaseMetaData& db_meta) {
       for (auto file_meta : level_meta.files) {
         level_size += file_meta.size;
         level_csize += file_meta.compensated_size;
+        ASSERT_GE(file_meta.compensated_size, file_meta.size);
       }
       ASSERT_EQ(level_meta.size, level_size);
       ASSERT_EQ(level_meta.compensated_size, level_csize);

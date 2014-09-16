@@ -437,18 +437,21 @@ void Version::GetColumnFamilyMetaData(
         assert(!options.db_paths.empty());
         file_path = options.db_paths.back().path;
       }
+      auto compensated_file_size = 
+          file->fd.GetFileSize() < file->compensated_file_size ?
+              file->compensated_file_size : file->fd.GetFileSize();
       files.emplace_back(
           file->fd.GetNumber(),
           MakeTableFileName(file_path, file->fd.GetNumber()),
           file->fd.GetFileSize(),
-          file->compensated_file_size,
+          compensated_file_size,
           file->smallest_seqno,
           file->largest_seqno,
           file->smallest.user_key().ToString(),
           file->largest.user_key().ToString(),
           file->being_compacted);
       level_size += file->fd.GetFileSize();
-      level_csize += file->compensated_file_size;
+      level_csize += compensated_file_size;
     }
     cf_meta->levels.emplace_back(
         level, level_size, level_csize, std::move(files));
