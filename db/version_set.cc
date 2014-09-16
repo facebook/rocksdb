@@ -437,7 +437,7 @@ void Version::GetColumnFamilyMetaData(
         assert(!options.db_paths.empty());
         file_path = options.db_paths.back().path;
       }
-      auto compensated_file_size = 
+      auto compensated_file_size =
           file->fd.GetFileSize() < file->compensated_file_size ?
               file->compensated_file_size : file->fd.GetFileSize();
       files.emplace_back(
