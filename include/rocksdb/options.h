@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 #include <stdint.h>
+#include <unordered_map>
 
 #include "rocksdb/version.h"
 #include "rocksdb/universal_compaction.h"
@@ -1012,6 +1013,12 @@ extern Options GetOptions(size_t total_write_buffer_limit,
                           int read_amplification_threshold = 8,
                           int write_amplification_threshold = 32,
                           uint64_t target_db_size = 68719476736 /* 64GB */);
+
+bool GetOptionsFromStrings(
+    const Options& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    Options* new_options);
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
