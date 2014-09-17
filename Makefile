@@ -3,7 +3,6 @@
 # found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 # Inherit some settings from environment variables, if available
-INSTALL_PATH ?= $(CURDIR)
 
 #-----------------------------------------------
 
@@ -48,6 +47,27 @@ else
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 endif
+
+#-------------------------------------------------
+# make install related stuff
+INSTALL_PATH ?= /usr/local
+
+uninstall:
+	@rm -rf $(INSTALL_PATH)/include/rocksdb
+	@rm -rf $(INSTALL_PATH)/lib/$(LIBRARY)
+	@rm -rf $(INSTALL_PATH)/lib/$(SHARED)
+
+install:
+	@install -d $(INSTALL_PATH)/lib
+	@for header_dir in `find "include/rocksdb" -type d`; do \
+		install -d $(INSTALL_PATH)/$$header_dir; \
+	done
+	@for header in `find "include/rocksdb" -type f -name *.h`; do \
+		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+	done
+	@[ ! -e $(LIBRARY) ] || install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib
+	@[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
+#-------------------------------------------------
 
 WARNING_FLAGS = -Wall -Werror -Wsign-compare
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
