@@ -70,7 +70,7 @@ jboolean Java_org_rocksdb_Options_createIfMissing(
 void Java_org_rocksdb_Options_setWriteBufferSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jwrite_buffer_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
-          static_cast<size_t>(jwrite_buffer_size);
+          rocksdb::jlong_to_size_t(jwrite_buffer_size);
 }
 
 
@@ -362,7 +362,7 @@ jlong Java_org_rocksdb_Options_maxLogFileSize(
 void Java_org_rocksdb_Options_setMaxLogFileSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong max_log_file_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->max_log_file_size =
-      static_cast<size_t>(max_log_file_size);
+      rocksdb::jlong_to_size_t(max_log_file_size);
 }
 
 /*
@@ -383,7 +383,7 @@ jlong Java_org_rocksdb_Options_logFileTimeToRoll(
 void Java_org_rocksdb_Options_setLogFileTimeToRoll(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong log_file_time_to_roll) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->log_file_time_to_roll =
-      static_cast<size_t>(log_file_time_to_roll);
+      rocksdb::jlong_to_size_t(log_file_time_to_roll);
 }
 
 /*
@@ -404,7 +404,7 @@ jlong Java_org_rocksdb_Options_keepLogFileNum(
 void Java_org_rocksdb_Options_setKeepLogFileNum(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong keep_log_file_num) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->keep_log_file_num =
-      static_cast<size_t>(keep_log_file_num);
+      rocksdb::jlong_to_size_t(keep_log_file_num);
 }
 
 /*
@@ -509,7 +509,8 @@ void Java_org_rocksdb_Options_setTableCacheRemoveScanCountLimit(
 void Java_org_rocksdb_Options_useFixedLengthPrefixExtractor(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jprefix_length) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->prefix_extractor.reset(
-      rocksdb::NewFixedPrefixTransform(static_cast<size_t>(jprefix_length)));
+      rocksdb::NewFixedPrefixTransform(
+          rocksdb::jlong_to_size_t(jprefix_length)));
 }
 
 /*
@@ -573,7 +574,7 @@ jlong Java_org_rocksdb_Options_manifestPreallocationSize(
 void Java_org_rocksdb_Options_setManifestPreallocationSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong preallocation_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->manifest_preallocation_size =
-      static_cast<size_t>(preallocation_size);
+      rocksdb::jlong_to_size_t(preallocation_size);
 }
 
 /*
@@ -1245,7 +1246,7 @@ jlong Java_org_rocksdb_Options_arenaBlockSize(
 void Java_org_rocksdb_Options_setArenaBlockSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jarena_block_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->arena_block_size =
-      static_cast<size_t>(jarena_block_size);
+      rocksdb::jlong_to_size_t(jarena_block_size);
 }
 
 /*
@@ -1410,7 +1411,7 @@ void Java_org_rocksdb_Options_setInplaceUpdateNumLocks(
     jlong jinplace_update_num_locks) {
   reinterpret_cast<rocksdb::Options*>(
       jhandle)->inplace_update_num_locks =
-          static_cast<size_t>(jinplace_update_num_locks);
+          rocksdb::jlong_to_size_t(jinplace_update_num_locks);
 }
 
 /*
@@ -1501,7 +1502,7 @@ void Java_org_rocksdb_Options_setMaxSuccessiveMerges(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jlong jmax_successive_merges) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->max_successive_merges =
-      static_cast<size_t>(jmax_successive_merges);
+      rocksdb::jlong_to_size_t(jmax_successive_merges);
 }
 
 /*
