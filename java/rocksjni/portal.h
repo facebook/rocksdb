@@ -11,11 +11,18 @@
 #define JAVA_ROCKSJNI_PORTAL_H_
 
 #include <jni.h>
+#include <limits>
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/utilities/backupable_db.h"
 
 namespace rocksdb {
+
+inline size_t jlong_to_size_t(const jlong& jvalue) {
+  return static_cast<uint64_t>(jvalue) <=
+      static_cast<uint64_t>(std::numeric_limits<size_t>::max()) ?
+      static_cast<size_t>(jvalue) : std::numeric_limits<size_t>::max();
+}
 
 // The portal class for org.rocksdb.RocksDB
 class RocksDBJni {

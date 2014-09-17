@@ -5,6 +5,7 @@
 //
 // This file implements the "bridge" between Java and C++ for MemTables.
 
+#include "rocksjni/portal.h"
 #include "include/org_rocksdb_HashSkipListMemTableConfig.h"
 #include "include/org_rocksdb_HashLinkedListMemTableConfig.h"
 #include "include/org_rocksdb_VectorMemTableConfig.h"
@@ -20,7 +21,7 @@ jlong Java_org_rocksdb_HashSkipListMemTableConfig_newMemTableFactoryHandle(
     JNIEnv* env, jobject jobj, jlong jbucket_count,
     jint jheight, jint jbranching_factor) {
   return reinterpret_cast<jlong>(rocksdb::NewHashSkipListRepFactory(
-      static_cast<size_t>(jbucket_count),
+      rocksdb::jlong_to_size_t(jbucket_count),
       static_cast<int32_t>(jheight),
       static_cast<int32_t>(jbranching_factor)));
 }
@@ -33,7 +34,7 @@ jlong Java_org_rocksdb_HashSkipListMemTableConfig_newMemTableFactoryHandle(
 jlong Java_org_rocksdb_HashLinkedListMemTableConfig_newMemTableFactoryHandle(
     JNIEnv* env, jobject jobj, jlong jbucket_count) {
   return reinterpret_cast<jlong>(rocksdb::NewHashLinkListRepFactory(
-       static_cast<size_t>(jbucket_count)));
+       rocksdb::jlong_to_size_t(jbucket_count)));
 }
 
 /*
@@ -44,7 +45,7 @@ jlong Java_org_rocksdb_HashLinkedListMemTableConfig_newMemTableFactoryHandle(
 jlong Java_org_rocksdb_VectorMemTableConfig_newMemTableFactoryHandle(
     JNIEnv* env, jobject jobj, jlong jreserved_size) {
   return reinterpret_cast<jlong>(new rocksdb::VectorRepFactory(
-      static_cast<size_t>(jreserved_size)));
+      rocksdb::jlong_to_size_t(jreserved_size)));
 }
 
 /*

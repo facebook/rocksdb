@@ -342,7 +342,7 @@ class DBTest {
     kUncompressed = 11,
     kNumLevel_3 = 12,
     kDBLogDir = 13,
-    kWalDir = 14,
+    kWalDirAndMmapReads = 14,
     kManifestFileSize = 15,
     kCompactOnFlush = 16,
     kPerfOptions = 17,
@@ -377,6 +377,7 @@ class DBTest {
     kSkipNoSeekToLast = 32,
     kSkipHashCuckoo = 64,
     kSkipFIFOCompaction = 128,
+    kSkipMmapReads = 256,
   };
 
 
@@ -434,6 +435,10 @@ class DBTest {
       }
       if ((skip_mask & kSkipFIFOCompaction) &&
           option_config_ == kFIFOCompaction) {
+        continue;
+      }
+      if ((skip_mask & kSkipMmapReads) &&
+          option_config_ == kWalDirAndMmapReads) {
         continue;
       }
       break;
@@ -539,8 +544,11 @@ class DBTest {
       case kDBLogDir:
         options.db_log_dir = test::TmpDir();
         break;
-      case kWalDir:
+      case kWalDirAndMmapReads:
         options.wal_dir = test::TmpDir() + "/wal";
+        // mmap reads should be orthogonal to WalDir setting, so we piggyback to
+        // this option config to test mmap reads as well
+        options.allow_mmap_reads = true;
         break;
       case kManifestFileSize:
         options.max_manifest_file_size = 50; // 50 bytes
@@ -1675,8 +1683,8 @@ TEST(DBTest, NonBlockingIteration) {
     // This test verifies block cache behaviors, which is not used by plain
     // table format.
     // Exclude kHashCuckoo as it does not support iteration currently
-  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast |
-                         kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipPlainTable | kSkipNoSeekToLast | kSkipHashCuckoo |
+                         kSkipMmapReads));
 }
 
 // A delete is skipped for key if KeyMayExist(key) returns False
