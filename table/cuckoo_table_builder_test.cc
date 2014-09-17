@@ -170,7 +170,7 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -210,7 +210,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -251,7 +251,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -296,7 +296,7 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKey) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -338,7 +338,7 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -374,7 +374,7 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = user_keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -410,7 +410,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = user_keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
@@ -448,7 +448,7 @@ TEST(CuckooBuilderTest, WithCollisionPathUserKey) {
     ASSERT_OK(builder.status());
   }
   uint32_t bucket_size = user_keys[0].size() + values[0].size();
-  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
   ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
