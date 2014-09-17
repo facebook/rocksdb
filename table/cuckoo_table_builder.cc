@@ -323,7 +323,7 @@ uint64_t CuckooTableBuilder::FileSize() const {
     expected_hash_table_size *= 2;
   }
   return (kvs_[0].first.size() + kvs_[0].second.size()) *
-    expected_hash_table_size;
+    expected_hash_table_size - 1;
 }
 
 // This method is invoked when there is no place to insert the target key.
