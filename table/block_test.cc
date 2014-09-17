@@ -146,13 +146,15 @@ BlockContents GetBlockContents(std::unique_ptr<BlockBuilder> *builder,
   return contents;
 }
 
-void CheckBlockContents(const BlockContents &contents, const int max_key,
+void CheckBlockContents(BlockContents contents, const int max_key,
                         const std::vector<std::string> &keys,
                         const std::vector<std::string> &values) {
   const size_t prefix_size = 6;
   // create block reader
-  Block reader1(contents);
-  Block reader2(contents);
+  BlockContents contents_ref(contents.data, contents.cachable,
+                             contents.compression_type);
+  Block reader1(std::move(contents));
+  Block reader2(std::move(contents_ref));
 
   std::unique_ptr<const SliceTransform> prefix_extractor(
       NewFixedPrefixTransform(prefix_size));
@@ -210,7 +212,7 @@ TEST(BlockTest, SimpleIndexHash) {
   std::unique_ptr<BlockBuilder> builder;
   auto contents = GetBlockContents(&builder, keys, values);
 
-  CheckBlockContents(contents, kMaxKey, keys, values);
+  CheckBlockContents(std::move(contents), kMaxKey, keys, values);
 }
 
 TEST(BlockTest, IndexHashWithSharedPrefix) {
@@ -229,7 +231,7 @@ TEST(BlockTest, IndexHashWithSharedPrefix) {
   std::unique_ptr<BlockBuilder> builder;
   auto contents = GetBlockContents(&builder, keys, values, kPrefixGroup);
 
-  CheckBlockContents(contents, kMaxKey, keys, values);
+  CheckBlockContents(std::move(contents), kMaxKey, keys, values);
 }
 
 }  // namespace rocksdb

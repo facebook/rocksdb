@@ -297,8 +297,10 @@ uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
-Block::Block(const BlockContents& contents)
-    : data_(contents.data.data()), size_(contents.data.size()) {
+Block::Block(BlockContents&& contents)
+    : contents_(std::move(contents)),
+      data_(contents_.data.data()),
+      size_(contents_.data.size()) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
@@ -309,10 +311,6 @@ Block::Block(const BlockContents& contents)
       size_ = 0;
     }
   }
-}
-
-Block::Block(BlockContents&& contents) : Block(contents) {
-  contents_ = std::move(contents);
 }
 
 Iterator* Block::NewIterator(

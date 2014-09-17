@@ -31,7 +31,6 @@ class Block {
  public:
   // Initialize the block with the specified contents.
   explicit Block(BlockContents&& contents);
-  explicit Block(const BlockContents& contents);
 
   ~Block() = default;
 
@@ -66,8 +65,8 @@ class Block {
 
  private:
   BlockContents contents_;
-  const char* data_;
-  size_t size_;
+  const char* data_;            // contents_.data.data()
+  size_t size_;                 // contents_.data.size()
   uint32_t restart_offset_;     // Offset in data_ of restart array
   std::unique_ptr<BlockHashIndex> hash_index_;
   std::unique_ptr<BlockPrefixIndex> prefix_index_;

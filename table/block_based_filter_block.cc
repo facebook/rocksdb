@@ -137,30 +137,24 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, const Slice& contents)
+    const BlockBasedTableOptions& table_opt, BlockContents&& contents)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),
       num_(0),
-      base_lg_(0) {
+      base_lg_(0),
+      contents_(std::move(contents)) {
   assert(policy_);
-  size_t n = contents.size();
+  size_t n = contents_.data.size();
   if (n < 5) return;  // 1 byte for base_lg_ and 4 for start of offset array
-  base_lg_ = contents[n - 1];
-  uint32_t last_word = DecodeFixed32(contents.data() + n - 5);
+  base_lg_ = contents_.data[n - 1];
+  uint32_t last_word = DecodeFixed32(contents_.data.data() + n - 5);
   if (last_word > n - 5) return;
-  data_ = contents.data();
+  data_ = contents_.data.data();
   offset_ = data_ + last_word;
   num_ = (n - 5 - last_word) / 4;
-}
-
-BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
-    const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, BlockContents&& contents)
-    : BlockBasedFilterBlockReader(prefix_extractor, table_opt, contents.data) {
-  contents_ = std::move(contents);
 }
 
 bool BlockBasedFilterBlockReader::KeyMayMatch(const Slice& key,
