@@ -74,8 +74,10 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
   // REQUIRES: "contents" and *policy must stay live while *this is live.
   BlockBasedFilterBlockReader(const SliceTransform* prefix_extractor,
                               const BlockBasedTableOptions& table_opt,
-                              const Slice& contents,
-                              bool delete_contents_after_use = false);
+                              const Slice& contents);
+  BlockBasedFilterBlockReader(const SliceTransform* prefix_extractor,
+                              const BlockBasedTableOptions& table_opt,
+                              BlockContents&& contents);
   virtual bool IsBlockBased() override { return true; }
   virtual bool KeyMayMatch(const Slice& key,
                            uint64_t block_offset = kNotValid) override;
@@ -91,7 +93,7 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
   const char* offset_;  // Pointer to beginning of offset array (at block-end)
   size_t num_;          // Number of entries in offset array
   size_t base_lg_;      // Encoding parameter (see kFilterBaseLg in .cc file)
-  std::unique_ptr<const char[]> filter_data;
+  BlockContents contents_;
 
   bool MayMatch(const Slice& entry, uint64_t block_offset);
 

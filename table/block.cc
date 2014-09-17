@@ -299,10 +299,7 @@ uint32_t Block::NumRestarts() const {
 
 Block::Block(const BlockContents& contents)
     : data_(contents.data.data()),
-      size_(contents.data.size()),
-      owned_(contents.heap_allocated),
-      cachable_(contents.cachable),
-      compression_type_(contents.compression_type) {
+      size_(contents.data.size()) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
@@ -315,10 +312,8 @@ Block::Block(const BlockContents& contents)
   }
 }
 
-Block::~Block() {
-  if (owned_) {
-    delete[] data_;
-  }
+Block::Block(BlockContents&& contents) : Block(contents) {
+  contents_ = std::move(contents);
 }
 
 Iterator* Block::NewIterator(

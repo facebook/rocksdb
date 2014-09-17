@@ -18,17 +18,22 @@
 
 #pragma once
 
+#include <memory>
 #include <stddef.h>
 #include <stdint.h>
 #include <string>
 #include <vector>
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "util/hash.h"
+#include "format.h"
 
 namespace rocksdb {
 
 const uint64_t kNotValid = ULLONG_MAX;
+class FilterPolicy;
 
 // A FilterBlockBuilder is used to construct all of the filters for a
 // particular Table.  It generates a single string which is stored as

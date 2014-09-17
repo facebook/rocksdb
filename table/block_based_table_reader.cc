@@ -66,7 +66,7 @@ Status ReadBlockFromFile(RandomAccessFile* file, const Footer& footer,
   Status s = ReadBlockContents(file, footer, options, handle, &contents, env,
                                do_uncompress);
   if (s.ok()) {
-    *result = new Block(contents);
+    *result = new Block(std::move(contents));
   }
 
   return s;
@@ -252,9 +252,6 @@ class HashIndexReader : public IndexReader {
                           &prefixes_meta_contents, env,
                           true /* do decompression */);
     if (!s.ok()) {
-      if (prefixes_contents.heap_allocated) {
-        delete[] prefixes_contents.data.data();
-      }
       // TODO: log error
       return Status::OK();
     }
@@ -269,7 +266,7 @@ class HashIndexReader : public IndexReader {
       // TODO: log error
       if (s.ok()) {
         new_index_reader->index_block_->SetBlockHashIndex(hash_index);
-        new_index_reader->OwnPrefixesContents(prefixes_contents);
+        new_index_reader->OwnPrefixesContents(std::move(prefixes_contents));
       }
     } else {
       BlockPrefixIndex* prefix_index = nullptr;
@@ -280,18 +277,6 @@ class HashIndexReader : public IndexReader {
       // TODO: log error
       if (s.ok()) {
         new_index_reader->index_block_->SetBlockPrefixIndex(prefix_index);
-      }
-    }
-
-    // Always release prefix meta block
-    if (prefixes_meta_contents.heap_allocated) {
-      delete[] prefixes_meta_contents.data.data();
-    }
-
-    // Release prefix content block if we don't own it.
-    if (!new_index_reader->own_prefixes_contents_) {
-      if (prefixes_contents.heap_allocated) {
-        delete[] prefixes_contents.data.data();
       }
     }
 
@@ -314,24 +299,18 @@ class HashIndexReader : public IndexReader {
  private:
   HashIndexReader(const Comparator* comparator, Block* index_block)
       : IndexReader(comparator),
-        index_block_(index_block),
-        own_prefixes_contents_(false) {
+        index_block_(index_block) {
     assert(index_block_ != nullptr);
   }
 
   ~HashIndexReader() {
-    if (own_prefixes_contents_ && prefixes_contents_.heap_allocated) {
-      delete[] prefixes_contents_.data.data();
-    }
   }
 
-  void OwnPrefixesContents(const BlockContents& prefixes_contents) {
-    prefixes_contents_ = prefixes_contents;
-    own_prefixes_contents_ = true;
+  void OwnPrefixesContents(BlockContents&& prefixes_contents) {
+    prefixes_contents_ = std::move(prefixes_contents);
   }
 
   std::unique_ptr<Block> index_block_;
-  bool own_prefixes_contents_;
   BlockContents prefixes_contents_;
 };
 
@@ -677,7 +656,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
-    block->value = new Block(contents);  // uncompressed block
+    block->value = new Block(std::move(contents));  // uncompressed block
     assert(block->value->compression_type() == kNoCompression);
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {
@@ -715,7 +694,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   }
 
   if (raw_block->compression_type() != kNoCompression) {
-    block->value = new Block(contents);  // uncompressed block
+    block->value = new Block(std::move(contents));  // uncompressed block
   } else {
     block->value = raw_block;
     raw_block = nullptr;
@@ -768,15 +747,14 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
   assert(rep->filter_policy);
   if (kFilterBlockPrefix == filter_block_prefix) {
     return new BlockBasedFilterBlockReader(rep->ioptions.prefix_extractor,
-        rep->table_options, block.data, block.heap_allocated);
+        rep->table_options, std::move(block));
   } else if (kFullFilterBlockPrefix == filter_block_prefix) {
     auto filter_bits_reader = rep->filter_policy->
         GetFilterBitsReader(block.data);
 
     if (filter_bits_reader != nullptr) {
       return new FullFilterBlockReader(rep->ioptions.prefix_extractor,
-          rep->table_options, block.data, filter_bits_reader,
-          block.heap_allocated);
+          rep->table_options, std::move(block), filter_bits_reader);
     }
   }
   return nullptr;
