@@ -163,28 +163,27 @@ struct BlockContents {
   CompressionType compression_type;
   std::unique_ptr<char[]> allocation;
 
-  BlockContents()
-   : cachable(false),
-     compression_type(kNoCompression) {}
+  BlockContents() : cachable(false), compression_type(kNoCompression) {}
 
-  BlockContents(const Slice &_data, bool _cachable, CompressionType _compression_type)
-    : data(_data),
-      cachable(_cachable),
-      compression_type(_compression_type) {}
+  BlockContents(const Slice& _data, bool _cachable,
+                CompressionType _compression_type)
+      : data(_data), cachable(_cachable), compression_type(_compression_type) {}
 
-  BlockContents(std::unique_ptr<char[]> &&_data, size_t _size, bool _cachable, CompressionType _compression_type)
-    : data(_data.get(), _size),
-      cachable(_cachable),
-      compression_type(_compression_type),
-      allocation(std::move(_data)) {}
+  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
+                CompressionType _compression_type)
+      : data(_data.get(), _size),
+        cachable(_cachable),
+        compression_type(_compression_type),
+        allocation(std::move(_data)) {}
 };
 
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
 extern Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
                                 const ReadOptions& options,
-                                const BlockHandle& handle, BlockContents* contents,
-                                Env* env, bool do_uncompress);
+                                const BlockHandle& handle,
+                                BlockContents* contents, Env* env,
+                                bool do_uncompress);
 
 // The 'data' points to the raw block contents read in from file.
 // This method allocates a new heap buffer and the raw block

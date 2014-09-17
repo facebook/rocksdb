@@ -257,19 +257,20 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
 
 Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
-                         BlockContents *contents, Env* env,
+                         BlockContents* contents, Env* env,
                          bool decompression_requested) {
   Status status;
   Slice slice;
   size_t n = static_cast<size_t>(handle.size());
   std::unique_ptr<char[]> heap_buf;
   char stack_buf[DefaultStackBufferSize];
-  char *used_buf = nullptr;
+  char* used_buf = nullptr;
   rocksdb::CompressionType compression_type;
 
-  if (decompression_requested && n + kBlockTrailerSize < DefaultStackBufferSize) {
-    //If we've got a small enough hunk of data, read it in to the
-    //trivially allocated stack buffer instead of needing a full malloc()
+  if (decompression_requested &&
+      n + kBlockTrailerSize < DefaultStackBufferSize) {
+    // If we've got a small enough hunk of data, read it in to the
+    // trivially allocated stack buffer instead of needing a full malloc()
     used_buf = &stack_buf[0];
   } else {
     heap_buf = std::unique_ptr<char[]>(new char[n + kBlockTrailerSize]);
@@ -331,40 +332,48 @@ Status UncompressBlockContents(const char* data, size_t n,
       break;
     }
     case kZlibCompression:
-      ubuf = std::unique_ptr<char[]>(port::Zlib_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(
+          port::Zlib_Uncompress(data, n, &decompress_size));
       static char zlib_corrupt_msg[] =
         "Zlib not supported or corrupted Zlib compressed block contents";
       if (!ubuf) {
         return Status::Corruption(zlib_corrupt_msg);
       }
-      *contents = BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents =
+          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     case kBZip2Compression:
-      ubuf = std::unique_ptr<char[]>(port::BZip2_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(
+          port::BZip2_Uncompress(data, n, &decompress_size));
       static char bzip2_corrupt_msg[] =
         "Bzip2 not supported or corrupted Bzip2 compressed block contents";
       if (!ubuf) {
         return Status::Corruption(bzip2_corrupt_msg);
       }
-      *contents = BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents =
+          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     case kLZ4Compression:
-      ubuf = std::unique_ptr<char[]>(port::LZ4_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(
+          port::LZ4_Uncompress(data, n, &decompress_size));
       static char lz4_corrupt_msg[] =
           "LZ4 not supported or corrupted LZ4 compressed block contents";
       if (!ubuf) {
         return Status::Corruption(lz4_corrupt_msg);
       }
-      *contents = BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents =
+          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     case kLZ4HCCompression:
-      ubuf = std::unique_ptr<char[]>(port::LZ4_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(
+          port::LZ4_Uncompress(data, n, &decompress_size));
       static char lz4hc_corrupt_msg[] =
           "LZ4HC not supported or corrupted LZ4HC compressed block contents";
       if (!ubuf) {
         return Status::Corruption(lz4hc_corrupt_msg);
       }
-      *contents = BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      *contents =
+          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     default:
       return Status::Corruption("bad block type");

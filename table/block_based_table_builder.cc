@@ -635,7 +635,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     Cache::Handle* cache_handle = nullptr;
     size_t size = block_contents.size();
 
-    std::unique_ptr<char[]> ubuf(new char[size+1]);
+    std::unique_ptr<char[]> ubuf(new char[size + 1]);
     memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 

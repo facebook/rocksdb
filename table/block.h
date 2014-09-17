@@ -39,7 +39,9 @@ class Block {
   const char* data() const { return data_; }
   bool cachable() const { return contents_.cachable; }
   uint32_t NumRestarts() const;
-  CompressionType compression_type() const { return contents_.compression_type; }
+  CompressionType compression_type() const {
+    return contents_.compression_type;
+  }
 
   // If hash index lookup is enabled and `use_hash_index` is true. This block
   // will do hash lookup for the key prefix.

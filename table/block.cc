@@ -298,8 +298,7 @@ uint32_t Block::NumRestarts() const {
 }
 
 Block::Block(const BlockContents& contents)
-    : data_(contents.data.data()),
-      size_(contents.data.size()) {
+    : data_(contents.data.data()), size_(contents.data.size()) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {

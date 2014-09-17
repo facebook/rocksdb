@@ -137,8 +137,7 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt,
-    const Slice& contents)
+    const BlockBasedTableOptions& table_opt, const Slice& contents)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
@@ -159,9 +158,8 @@ BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt,
-    BlockContents &&contents)
-    : BlockBasedFilterBlockReader (prefix_extractor, table_opt, contents.data) {
+    const BlockBasedTableOptions& table_opt, BlockContents&& contents)
+    : BlockBasedFilterBlockReader(prefix_extractor, table_opt, contents.data) {
   contents_ = std::move(contents);
 }
 

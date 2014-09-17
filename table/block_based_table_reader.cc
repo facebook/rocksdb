@@ -298,8 +298,7 @@ class HashIndexReader : public IndexReader {
 
  private:
   HashIndexReader(const Comparator* comparator, Block* index_block)
-      : IndexReader(comparator),
-        index_block_(index_block) {
+      : IndexReader(comparator), index_block_(index_block) {
     assert(index_block_ != nullptr);
   }
 
@@ -746,15 +745,16 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
 
   assert(rep->filter_policy);
   if (kFilterBlockPrefix == filter_block_prefix) {
-    return new BlockBasedFilterBlockReader(rep->ioptions.prefix_extractor,
-        rep->table_options, std::move(block));
+    return new BlockBasedFilterBlockReader(
+        rep->ioptions.prefix_extractor, rep->table_options, std::move(block));
   } else if (kFullFilterBlockPrefix == filter_block_prefix) {
     auto filter_bits_reader = rep->filter_policy->
         GetFilterBitsReader(block.data);
 
     if (filter_bits_reader != nullptr) {
       return new FullFilterBlockReader(rep->ioptions.prefix_extractor,
-          rep->table_options, std::move(block), filter_bits_reader);
+                                       rep->table_options, std::move(block),
+                                       filter_bits_reader);
     }
   }
   return nullptr;

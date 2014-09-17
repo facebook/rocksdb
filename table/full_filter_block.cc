@@ -54,8 +54,7 @@ Slice FullFilterBlockBuilder::Finish() {
 
 FullFilterBlockReader::FullFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt,
-    const Slice& contents,
+    const BlockBasedTableOptions& table_opt, const Slice& contents,
     FilterBitsReader* filter_bits_reader)
     : prefix_extractor_(prefix_extractor),
       whole_key_filtering_(table_opt.whole_key_filtering),
@@ -66,10 +65,10 @@ FullFilterBlockReader::FullFilterBlockReader(
 
 FullFilterBlockReader::FullFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt,
-    BlockContents&& contents,
+    const BlockBasedTableOptions& table_opt, BlockContents&& contents,
     FilterBitsReader* filter_bits_reader)
-    : FullFilterBlockReader(prefix_extractor, table_opt, contents.data, filter_bits_reader) {
+    : FullFilterBlockReader(prefix_extractor, table_opt, contents.data,
+                            filter_bits_reader) {
   block_contents_ = std::move(contents);
 }
 
