@@ -14,6 +14,7 @@ int main() {
 }
 #else
 
+#include <inttypes.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include <gflags/gflags.h>
