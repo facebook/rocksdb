@@ -1228,7 +1228,8 @@ Status DBImpl::Recover(
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
-          cfd->CreateNewMemtable();
+          cfd->CreateNewMemtable(MemTableOptions(
+              *cfd->GetLatestMutableCFOptions(), *cfd->options()));
         }
       }
     }
@@ -1356,7 +1357,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             // file-systems cause the DB::Open() to fail.
             return status;
           }
-          cfd->CreateNewMemtable();
+          cfd->CreateNewMemtable(MemTableOptions(
+              *cfd->GetLatestMutableCFOptions(), *cfd->options()));
         }
       }
     }
@@ -1393,7 +1395,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           // Recovery failed
           break;
         }
-        cfd->CreateNewMemtable();
+        cfd->CreateNewMemtable(MemTableOptions(
+            *cfd->GetLatestMutableCFOptions(), *cfd->options()));
       }
 
       // write MANIFEST with update
@@ -1623,6 +1626,7 @@ Status DBImpl::FlushMemTableToOutputFile(ColumnFamilyData* cfd,
   }
 
   if (s.ok()) {
+    // Use latest MutableCFOptions
     InstallSuperVersion(cfd, deletion_state);
     if (madeProgress) {
       *madeProgress = 1;
@@ -1714,6 +1718,13 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   return s;
 }
 
+bool DBImpl::SetOptions(ColumnFamilyHandle* column_family,
+    const std::unordered_map<std::string, std::string>& options_map) {
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  MutexLock l(&mutex_);
+  return cfh->cfd()->SetOptions(options_map);
+}
+
 // return the same level if it cannot be moved
 int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd, int level) {
   mutex_.AssertHeld();
@@ -1784,6 +1795,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         cfd->GetName().c_str(), edit.DebugString().data());
 
     status = versions_->LogAndApply(cfd, &edit, &mutex_, db_directory_.get());
+    // Use latest MutableCFOptions
     superversion_to_free = cfd->InstallSuperVersion(new_superversion, &mutex_);
     new_superversion = nullptr;
 
@@ -2322,6 +2334,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
     }
     status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
                                     db_directory_.get());
+    // Use latest MutableCFOptions
     InstallSuperVersion(c->column_family_data(), deletion_state);
     LogToBuffer(log_buffer, "[%s] Deleted %d files\n",
                 c->column_family_data()->GetName().c_str(),
@@ -2338,6 +2351,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
                        f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(), c->edit(), &mutex_,
                                     db_directory_.get());
+    // Use latest MutableCFOptions
     InstallSuperVersion(c->column_family_data(), deletion_state);
 
     Version::LevelSummaryStorage tmp;
@@ -3322,6 +3336,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
   if (status.ok()) {
     status = InstallCompactionResults(compact, log_buffer);
+    // Use latest MutableCFOptions
     InstallSuperVersion(cfd, deletion_state);
   }
   Version::LevelSummaryStorage tmp;
@@ -3426,6 +3441,7 @@ void DBImpl::InstallSuperVersion(ColumnFamilyData* cfd,
   SuperVersion* new_superversion =
     (deletion_state.new_superversion != nullptr) ?
     deletion_state.new_superversion : new SuperVersion();
+  // Use latest MutableCFOptions
   SuperVersion* old_superversion =
       cfd->InstallSuperVersion(new_superversion, &mutex_);
   deletion_state.new_superversion = nullptr;
@@ -3618,6 +3634,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& options,
     auto cfd =
         versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
     assert(cfd != nullptr);
+    // Use latest MutableCFOptions
     delete cfd->InstallSuperVersion(new SuperVersion(), &mutex_);
     *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
     Log(db_options_.info_log, "Created column family [%s] (ID %u)",
@@ -4138,6 +4155,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
   SuperVersion* new_superversion = nullptr;
+  const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
   mutex_.Unlock();
   Status s;
   {
@@ -4156,8 +4174,8 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
 
     if (s.ok()) {
       new_mem = new MemTable(cfd->internal_comparator(),
-                             *cfd->ioptions(),
-                             MemTableOptions(*cfd->options()));
+          *cfd->ioptions(), MemTableOptions(mutable_cf_options,
+          *cfd->options()));
       new_superversion = new SuperVersion();
     }
   }
@@ -4197,7 +4215,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
       "[%s] New memtable created with log file: #%" PRIu64 "\n",
       cfd->GetName().c_str(), logfile_number_);
   context->superversions_to_free_.push_back(
-      cfd->InstallSuperVersion(new_superversion, &mutex_));
+      cfd->InstallSuperVersion(new_superversion, &mutex_, mutable_cf_options));
   return s;
 }
 
@@ -4672,6 +4690,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     }
     if (s.ok()) {
       for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
+        // Use latest MutableCFOptions
         delete cfd->InstallSuperVersion(new SuperVersion(), &impl->mutex_);
       }
       impl->alive_log_files_.push_back(

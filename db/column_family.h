@@ -23,6 +23,7 @@
 #include "db/table_cache.h"
 #include "util/thread_local.h"
 #include "db/flush_scheduler.h"
+#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -80,6 +81,7 @@ struct SuperVersion {
   MemTable* mem;
   MemTableListVersion* imm;
   Version* current;
+  MutableCFOptions mutable_cf_options;
   std::atomic<uint32_t> refs;
   // We need to_delete because during Cleanup(), imm->Unref() returns
   // all memtables that we need to free through this vector. We then
@@ -168,11 +170,24 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  // TODO(ljin): make this API thread-safe once we allow updating options_
-  const Options* options() const { return &options_; }
   // thread-safe
+  const Options* options() const { return &options_; }
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
+  // REQUIRES: DB mutex held
+  // This returns the MutableCFOptions used by current SuperVersion
+  // You shoul use this API to reference MutableCFOptions most of the time.
+  const MutableCFOptions* mutable_cf_options() const {
+    return &(super_version_->mutable_cf_options);
+  }
+  // REQUIRES: DB mutex held
+  // This returns the latest MutableCFOptions, which may be not in effect yet.
+  const MutableCFOptions* GetLatestMutableCFOptions() const {
+    return &mutable_cf_options_;
+  }
+  // REQUIRES: DB mutex held
+  bool SetOptions(
+      const std::unordered_map<std::string, std::string>& options_map);
 
   InternalStats* internal_stats() { return internal_stats_.get(); }
 
@@ -182,7 +197,7 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void SetCurrent(Version* current);
-  void CreateNewMemtable();
+  void CreateNewMemtable(const MemTableOptions& moptions);
 
   TableCache* table_cache() const { return table_cache_.get(); }
 
@@ -224,6 +239,9 @@ class ColumnFamilyData {
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
   SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
+                                    port::Mutex* db_mutex,
+                                    const MutableCFOptions& mutable_cf_options);
+  SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
                                     port::Mutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
@@ -255,6 +273,7 @@ class ColumnFamilyData {
 
   const Options options_;
   const ImmutableCFOptions ioptions_;
+  MutableCFOptions mutable_cf_options_;
 
   std::unique_ptr<TableCache> table_cache_;
 

@@ -31,18 +31,20 @@
 
 namespace rocksdb {
 
-MemTableOptions::MemTableOptions(const Options& options)
-  : write_buffer_size(options.write_buffer_size),
-    arena_block_size(options.arena_block_size),
-    memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
-    memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
+MemTableOptions::MemTableOptions(
+    const MutableCFOptions& mutable_cf_options, const Options& options)
+  : write_buffer_size(mutable_cf_options.write_buffer_size),
+    arena_block_size(mutable_cf_options.arena_block_size),
+    memtable_prefix_bloom_bits(mutable_cf_options.memtable_prefix_bloom_bits),
+    memtable_prefix_bloom_probes(
+        mutable_cf_options.memtable_prefix_bloom_probes),
     memtable_prefix_bloom_huge_page_tlb_size(
-        options.memtable_prefix_bloom_huge_page_tlb_size),
+        mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size),
     inplace_update_support(options.inplace_update_support),
     inplace_update_num_locks(options.inplace_update_num_locks),
     inplace_callback(options.inplace_callback),
-    max_successive_merges(options.max_successive_merges),
-    filter_deletes(options.filter_deletes) {}
+    max_successive_merges(mutable_cf_options.max_successive_merges),
+    filter_deletes(mutable_cf_options.filter_deletes) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,

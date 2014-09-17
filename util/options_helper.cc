@@ -1,14 +1,11 @@
-//  Copyright (c) 2013, Facebook, Inc.  All rights reserved.
+//  Copyright (c) 2014, Facebook, Inc.  All rights reserved.
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
-// Copyright (c) 2011 The LevelDB Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <cassert>
 #include "rocksdb/options.h"
+#include "util/options_helper.h"
 
 namespace rocksdb {
 
@@ -75,6 +72,49 @@ CompactionStyle ParseCompactionStyle(const std::string& type) {
 }
 }  // anonymouse namespace
 
+template<typename OptionsType>
+bool ParseMemtableOption(const std::string& name, const std::string& value,
+                         OptionsType* new_options) {
+  if (name == "write_buffer_size") {
+    new_options->write_buffer_size = ParseInt64(value);
+  } else if (name == "arena_block_size") {
+    new_options->arena_block_size = ParseInt64(value);
+  } else if (name == "memtable_prefix_bloom_bits") {
+    new_options->memtable_prefix_bloom_bits = stoul(value);
+  } else if (name == "memtable_prefix_bloom_probes") {
+    new_options->memtable_prefix_bloom_probes = stoul(value);
+  } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
+    new_options->memtable_prefix_bloom_huge_page_tlb_size =
+      ParseInt64(value);
+  } else if (name == "max_successive_merges") {
+    new_options->max_successive_merges = ParseInt64(value);
+  } else if (name == "filter_deletes") {
+    new_options->filter_deletes = ParseBoolean(name, value);
+  } else {
+    return false;
+  }
+  return true;
+}
+
+bool GetMutableOptionsFromStrings(
+    const MutableCFOptions& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    MutableCFOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  try {
+    for (const auto& o : options_map) {
+      if (ParseMemtableOption(o.first, o.second, new_options)) {
+      } else {
+        return false;
+      }
+    }
+  } catch (std::exception) {
+    return false;
+  }
+  return true;
+}
+
 bool GetOptionsFromStrings(
     const Options& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -83,8 +123,7 @@ bool GetOptionsFromStrings(
   *new_options = base_options;
   for (const auto& o : options_map) {
     try {
-      if (o.first == "write_buffer_size") {
-        new_options->write_buffer_size = ParseInt64(o.second);
+      if (ParseMemtableOption(o.first, o.second, new_options)) {
       } else if (o.first == "max_write_buffer_number") {
         new_options->max_write_buffer_number = ParseInt(o.second);
       } else if (o.first == "min_write_buffer_number_to_merge") {
@@ -170,8 +209,6 @@ bool GetOptionsFromStrings(
         new_options->soft_rate_limit = ParseDouble(o.second);
       } else if (o.first == "hard_rate_limit") {
         new_options->hard_rate_limit = ParseDouble(o.second);
-      } else if (o.first == "arena_block_size") {
-        new_options->arena_block_size = ParseInt64(o.second);
       } else if (o.first == "disable_auto_compactions") {
         new_options->disable_auto_compactions = ParseBoolean(o.first, o.second);
       } else if (o.first == "purge_redundant_kvs_while_flush") {
@@ -188,25 +225,14 @@ bool GetOptionsFromStrings(
       } else if (o.first == "compaction_options_fifo") {
         new_options->compaction_options_fifo.max_table_files_size
           = ParseUint64(o.second);
-      } else if (o.first == "filter_deletes") {
-        new_options->filter_deletes = ParseBoolean(o.first, o.second);
       } else if (o.first == "max_sequential_skip_in_iterations") {
         new_options->max_sequential_skip_in_iterations = ParseUint64(o.second);
       } else if (o.first == "inplace_update_support") {
         new_options->inplace_update_support = ParseBoolean(o.first, o.second);
       } else if (o.first == "inplace_update_num_locks") {
         new_options->inplace_update_num_locks = ParseInt64(o.second);
-      } else if (o.first == "memtable_prefix_bloom_bits") {
-        new_options->memtable_prefix_bloom_bits = stoul(o.second);
-      } else if (o.first == "memtable_prefix_bloom_probes") {
-        new_options->memtable_prefix_bloom_probes = stoul(o.second);
-      } else if (o.first == "memtable_prefix_bloom_huge_page_tlb_size") {
-        new_options->memtable_prefix_bloom_huge_page_tlb_size =
-          ParseInt64(o.second);
       } else if (o.first == "bloom_locality") {
         new_options->bloom_locality = ParseUint32(o.second);
-      } else if (o.first == "max_successive_merges") {
-        new_options->max_successive_merges = ParseInt64(o.second);
       } else if (o.first == "min_partial_merge_operands") {
         new_options->min_partial_merge_operands = ParseUint32(o.second);
       } else if (o.first == "create_if_missing") {

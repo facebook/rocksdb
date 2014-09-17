@@ -21,6 +21,7 @@
 #include "rocksdb/immutable_options.h"
 #include "util/arena.h"
 #include "util/dynamic_bloom.h"
+#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -30,7 +31,9 @@ class MemTableIterator;
 class MergeContext;
 
 struct MemTableOptions {
-  explicit MemTableOptions(const Options& options);
+  explicit MemTableOptions(
+      const MutableCFOptions& mutable_cf_options,
+      const Options& options);
   size_t write_buffer_size;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;

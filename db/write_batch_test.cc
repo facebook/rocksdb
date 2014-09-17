@@ -28,7 +28,7 @@ static std::string PrintContents(WriteBatch* b) {
   Options options;
   options.memtable_factory = factory;
   MemTable* mem = new MemTable(cmp, ImmutableCFOptions(options),
-                               MemTableOptions(options));
+      MemTableOptions(MutableCFOptions(options), options));
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);

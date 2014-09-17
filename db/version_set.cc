@@ -2962,17 +2962,21 @@ void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
 }
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(
-    const ColumnFamilyOptions& options, VersionEdit* edit) {
+    const ColumnFamilyOptions& cf_options, VersionEdit* edit) {
   assert(edit->is_column_family_add_);
 
   Version* dummy_versions = new Version(nullptr, this);
   auto new_cfd = column_family_set_->CreateColumnFamily(
-      edit->column_family_name_, edit->column_family_, dummy_versions, options);
+      edit->column_family_name_, edit->column_family_, dummy_versions,
+      cf_options);
 
   Version* v = new Version(new_cfd, this, current_version_number_++);
 
   AppendVersion(new_cfd, v);
-  new_cfd->CreateNewMemtable();
+  // GetLatestMutableCFOptions() is safe here without mutex since the
+  // cfd is not available to client
+  new_cfd->CreateNewMemtable(MemTableOptions(
+        *new_cfd->GetLatestMutableCFOptions(), *new_cfd->options()));
   new_cfd->SetLogNumber(edit->log_number_);
   return new_cfd;
 }

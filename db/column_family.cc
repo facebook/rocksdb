@@ -27,6 +27,7 @@
 #include "db/write_controller.h"
 #include "util/autovector.h"
 #include "util/hash_skiplist_rep.h"
+#include "util/options_helper.h"
 
 namespace rocksdb {
 
@@ -212,7 +213,7 @@ void SuperVersionUnrefHandle(void* ptr) {
 
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* dummy_versions, Cache* table_cache,
-                                   const ColumnFamilyOptions& options,
+                                   const ColumnFamilyOptions& cf_options,
                                    const DBOptions* db_options,
                                    const EnvOptions& env_options,
                                    ColumnFamilySet* column_family_set)
@@ -222,9 +223,10 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       current_(nullptr),
       refs_(0),
       dropped_(false),
-      internal_comparator_(options.comparator),
-      options_(*db_options, SanitizeOptions(&internal_comparator_, options)),
+      internal_comparator_(cf_options.comparator),
+      options_(*db_options, SanitizeOptions(&internal_comparator_, cf_options)),
       ioptions_(options_),
+      mutable_cf_options_(options_),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -378,13 +380,12 @@ const EnvOptions* ColumnFamilyData::soptions() const {
 
 void ColumnFamilyData::SetCurrent(Version* current) { current_ = current; }
 
-void ColumnFamilyData::CreateNewMemtable() {
+void ColumnFamilyData::CreateNewMemtable(const MemTableOptions& moptions) {
   assert(current_ != nullptr);
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  mem_ = new MemTable(internal_comparator_, ioptions_,
-                      MemTableOptions(options_));
+  mem_ = new MemTable(internal_comparator_, ioptions_, moptions);
   mem_->Ref();
 }
 
@@ -486,7 +487,15 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
     SuperVersion* new_superversion, port::Mutex* db_mutex) {
+  db_mutex->AssertHeld();
+  return InstallSuperVersion(new_superversion, db_mutex, mutable_cf_options_);
+}
+
+SuperVersion* ColumnFamilyData::InstallSuperVersion(
+    SuperVersion* new_superversion, port::Mutex* db_mutex,
+    const MutableCFOptions& mutable_cf_options) {
   new_superversion->db_mutex = db_mutex;
+  new_superversion->mutable_cf_options = mutable_cf_options;
   new_superversion->Init(mem_, imm_.current(), current_);
   SuperVersion* old_superversion = super_version_;
   super_version_ = new_superversion;
@@ -520,6 +529,17 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
       delete sv;
     }
   }
+}
+
+bool ColumnFamilyData::SetOptions(
+      const std::unordered_map<std::string, std::string>& options_map) {
+  MutableCFOptions new_mutable_cf_options;
+  if (GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
+                                   &new_mutable_cf_options)) {
+    mutable_cf_options_ = new_mutable_cf_options;
+    return true;
+  }
+  return false;
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
