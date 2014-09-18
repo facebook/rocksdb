@@ -517,7 +517,7 @@ class SpatialDBImpl : public SpatialDB {
       return Status::InvalidArgument("Spatial indexes can't be empty");
     }
 
-    const int kWriteOutEveryBytes = 1024 * 1024;  // 1MB
+    const size_t kWriteOutEveryBytes = 1024 * 1024;  // 1MB
     uint64_t id = next_id_.fetch_add(1);
 
     for (const auto& si : spatial_indexes) {
