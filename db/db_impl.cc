@@ -2356,10 +2356,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
 
     Version::LevelSummaryStorage tmp;
     LogToBuffer(
-        log_buffer, "[%s] Moved #%lld to level-%d %lld bytes %s: %s\n",
+        log_buffer,
+        "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes %s: %s\n",
         c->column_family_data()->GetName().c_str(),
-        static_cast<unsigned long long>(f->fd.GetNumber()), c->level() + 1,
-        static_cast<unsigned long long>(f->fd.GetFileSize()),
+        f->fd.GetNumber(), c->level() + 1,
+        f->fd.GetFileSize(),
         status.ToString().c_str(), c->input_version()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
