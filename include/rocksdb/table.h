@@ -251,23 +251,36 @@ struct CuckooTablePropertyNames {
   // Denotes if the key sorted in the file is Internal Key (if false)
   // or User Key only (if true).
   static const std::string kIsLastLevel;
+  // Indicate if using identity function for the first hash function.
+  static const std::string kIdentityAsFirstHash;
+};
+
+struct CuckooTableOptions {
+  // Determines the utilization of hash tables. Smaller values
+  // result in larger hash tables with fewer collisions.
+  double hash_table_ratio = 0.9;
+  // A property used by builder to determine the depth to go to
+  // to search for a path to displace elements in case of
+  // collision. See Builder.MakeSpaceForKey method. Higher
+  // values result in more efficient hash tables with fewer
+  // lookups but take more time to build.
+  uint32_t max_search_depth = 100;
+  // In case of collision while inserting, the builder
+  // attempts to insert in the next cuckoo_block_size
+  // locations before skipping over to the next Cuckoo hash
+  // function. This makes lookups more cache friendly in case
+  // of collisions.
+  uint32_t cuckoo_block_size = 5;
+  // If this options is enabled, user key is treated as uint64_t and its value
+  // is used as hash value directly. This option changes builder's behavior.
+  // Reader ignore this option and behave according to what specified in table
+  // property.
+  bool identity_as_first_hash = false;
 };
 
 // Cuckoo Table Factory for SST table format using Cache Friendly Cuckoo Hashing
-// @hash_table_ratio: Determines the utilization of hash tables. Smaller values
-//                    result in larger hash tables with fewer collisions.
-// @max_search_depth: A property used by builder to determine the depth to go to
-//                    to search for a path to displace elements in case of
-//                    collision. See Builder.MakeSpaceForKey method.  Higher
-//                    values result in more efficient hash tables with fewer
-//                    lookups but take more time to build.
-// @cuckoo_block_size: In case of collision while inserting, the builder
-//                     attempts to insert in the next cuckoo_block_size
-//                     locations before skipping over to the next Cuckoo hash
-//                     function. This makes lookups more cache friendly in case
-//                     of collisions.
-extern TableFactory* NewCuckooTableFactory(double hash_table_ratio = 0.9,
-    uint32_t max_search_depth = 100, uint32_t cuckoo_block_size = 5);
+extern TableFactory* NewCuckooTableFactory(
+    const CuckooTableOptions& table_options = CuckooTableOptions());
 
 #endif  // ROCKSDB_LITE
 

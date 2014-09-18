@@ -50,13 +50,13 @@ CuckooTableReader::CuckooTableReader(
   auto& user_props = props->user_collected_properties;
   auto hash_funs = user_props.find(CuckooTablePropertyNames::kNumHashFunc);
   if (hash_funs == user_props.end()) {
-    status_ = Status::InvalidArgument("Number of hash functions not found");
+    status_ = Status::Corruption("Number of hash functions not found");
     return;
   }
   num_hash_func_ = *reinterpret_cast<const uint32_t*>(hash_funs->second.data());
   auto unused_key = user_props.find(CuckooTablePropertyNames::kEmptyKey);
   if (unused_key == user_props.end()) {
-    status_ = Status::InvalidArgument("Empty bucket value not found");
+    status_ = Status::Corruption("Empty bucket value not found");
     return;
   }
   unused_key_ = unused_key->second;
@@ -64,7 +64,7 @@ CuckooTableReader::CuckooTableReader(
   key_length_ = props->fixed_key_len;
   auto value_length = user_props.find(CuckooTablePropertyNames::kValueLength);
   if (value_length == user_props.end()) {
-    status_ = Status::InvalidArgument("Value length not found");
+    status_ = Status::Corruption("Value length not found");
     return;
   }
   value_length_ = *reinterpret_cast<const uint32_t*>(
@@ -74,21 +74,31 @@ CuckooTableReader::CuckooTableReader(
   auto hash_table_size = user_props.find(
       CuckooTablePropertyNames::kHashTableSize);
   if (hash_table_size == user_props.end()) {
-    status_ = Status::InvalidArgument("Hash table size not found");
+    status_ = Status::Corruption("Hash table size not found");
     return;
   }
   table_size_minus_one_ = *reinterpret_cast<const uint64_t*>(
       hash_table_size->second.data()) - 1;
   auto is_last_level = user_props.find(CuckooTablePropertyNames::kIsLastLevel);
   if (is_last_level == user_props.end()) {
-    status_ = Status::InvalidArgument("Is last level not found");
+    status_ = Status::Corruption("Is last level not found");
     return;
   }
   is_last_level_ = *reinterpret_cast<const bool*>(is_last_level->second.data());
+
+  auto identity_as_first_hash = user_props.find(
+      CuckooTablePropertyNames::kIdentityAsFirstHash);
+  if (identity_as_first_hash == user_props.end()) {
+    status_ = Status::Corruption("identity as first hash not found");
+    return;
+  }
+  identity_as_first_hash_ = *reinterpret_cast<const bool*>(
+      identity_as_first_hash->second.data());
+
   auto cuckoo_block_size = user_props.find(
       CuckooTablePropertyNames::kCuckooBlockSize);
   if (cuckoo_block_size == user_props.end()) {
-    status_ = Status::InvalidArgument("Cuckoo block size not found");
+    status_ = Status::Corruption("Cuckoo block size not found");
     return;
   }
   cuckoo_block_size_ = *reinterpret_cast<const uint32_t*>(
@@ -106,7 +116,8 @@ Status CuckooTableReader::Get(
   Slice user_key = ExtractUserKey(key);
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
     uint64_t offset = bucket_length_ * CuckooHash(
-        user_key, hash_cnt, table_size_minus_one_, get_slice_hash_);
+        user_key, hash_cnt, table_size_minus_one_, identity_as_first_hash_,
+        get_slice_hash_);
     const char* bucket = &file_data_.data()[offset];
     for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
         ++block_idx, bucket += bucket_length_) {
@@ -117,7 +128,7 @@ Status CuckooTableReader::Get(
       // Here, we compare only the user key part as we support only one entry
       // per user key and we don't support sanpshot.
       if (ucomp_->Compare(user_key, Slice(bucket, user_key.size())) == 0) {
-        Slice value = Slice(&bucket[key_length_], value_length_);
+        Slice value(bucket + key_length_, value_length_);
         if (is_last_level_) {
           ParsedInternalKey found_ikey(
               Slice(bucket, key_length_), 0, kTypeValue);
@@ -140,7 +151,8 @@ void CuckooTableReader::Prepare(const Slice& key) {
   // Prefetch the first Cuckoo Block.
   Slice user_key = ExtractUserKey(key);
   uint64_t addr = reinterpret_cast<uint64_t>(file_data_.data()) +
-    bucket_length_ * CuckooHash(user_key, 0, table_size_minus_one_, nullptr);
+    bucket_length_ * CuckooHash(user_key, 0, table_size_minus_one_,
+                                identity_as_first_hash_, nullptr);
   uint64_t end_addr = addr + cuckoo_block_bytes_minus_one_;
   for (addr &= CACHE_LINE_MASK; addr < end_addr; addr += CACHE_LINE_SIZE) {
     PREFETCH(reinterpret_cast<const char*>(addr), 0, 3);

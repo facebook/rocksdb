@@ -64,6 +64,7 @@ class CuckooTableReader: public TableReader {
   std::unique_ptr<RandomAccessFile> file_;
   Slice file_data_;
   bool is_last_level_;
+  bool identity_as_first_hash_;
   std::shared_ptr<const TableProperties> table_props_;
   Status status_;
   uint32_t num_hash_func_;

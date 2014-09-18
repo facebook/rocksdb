@@ -30,9 +30,10 @@ TableBuilder* CuckooTableFactory::NewTableBuilder(
     const InternalKeyComparator& internal_comparator,
     WritableFile* file, const CompressionType,
     const CompressionOptions&) const {
-  return new CuckooTableBuilder(file, hash_table_ratio_, 64,
-      max_search_depth_, internal_comparator.user_comparator(),
-      cuckoo_block_size_, nullptr);
+  return new CuckooTableBuilder(file, table_options_.hash_table_ratio, 64,
+      table_options_.max_search_depth, internal_comparator.user_comparator(),
+      table_options_.cuckoo_block_size, table_options_.identity_as_first_hash,
+      nullptr);
 }
 
 std::string CuckooTableFactory::GetPrintableTableOptions() const {
@@ -42,21 +43,22 @@ std::string CuckooTableFactory::GetPrintableTableOptions() const {
   char buffer[kBufferSize];
 
   snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
-           hash_table_ratio_);
+           table_options_.hash_table_ratio);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  max_search_depth: %u\n",
-           max_search_depth_);
+           table_options_.max_search_depth);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  cuckoo_block_size: %u\n",
-           cuckoo_block_size_);
+           table_options_.cuckoo_block_size);
+  ret.append(buffer);
+  snprintf(buffer, kBufferSize, "  identity_as_first_hash: %d\n",
+           table_options_.identity_as_first_hash);
   ret.append(buffer);
   return ret;
 }
 
-TableFactory* NewCuckooTableFactory(double hash_table_ratio,
-    uint32_t max_search_depth, uint32_t cuckoo_block_size) {
-  return new CuckooTableFactory(
-      hash_table_ratio, max_search_depth, cuckoo_block_size);
+TableFactory* NewCuckooTableFactory(const CuckooTableOptions& table_options) {
+  return new CuckooTableFactory(table_options);
 }
 
 }  // namespace rocksdb

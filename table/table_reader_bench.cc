@@ -260,8 +260,9 @@ int main(int argc, char** argv) {
   if (FLAGS_table_factory == "cuckoo_hash") {
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
-
-    tf.reset(rocksdb::NewCuckooTableFactory(0.75));
+    rocksdb::CuckooTableOptions table_options;
+    table_options.hash_table_ratio = 0.75;
+    tf.reset(rocksdb::NewCuckooTableFactory(table_options));
   } else if (FLAGS_table_factory == "plain_table") {
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;

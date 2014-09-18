@@ -24,6 +24,7 @@ class CuckooTableBuilder: public TableBuilder {
       WritableFile* file, double max_hash_table_ratio,
       uint32_t max_num_hash_func, uint32_t max_search_depth,
       const Comparator* user_comparator, uint32_t cuckoo_block_size,
+      bool identity_as_first_hash,
       uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
@@ -87,6 +88,7 @@ class CuckooTableBuilder: public TableBuilder {
   TableProperties properties_;
   bool has_seen_first_key_;
   const Comparator* ucomp_;
+  bool identity_as_first_hash_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
     uint64_t max_num_buckets);
   std::string largest_user_key_ = "";

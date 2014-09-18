@@ -514,6 +514,9 @@ DEFINE_int64(keys_per_prefix, 0, "control average number of keys generated "
              "i.e. use the prefix comes with the generated random number.");
 DEFINE_bool(enable_io_prio, false, "Lower the background flush/compaction "
             "threads' IO priority");
+DEFINE_bool(identity_as_first_hash, false, "the first hash function of cuckoo "
+            "table becomes an identity function. This is only valid when key "
+            "is 8 bytes");
 
 enum RepFactory {
   kSkipList,
@@ -1739,8 +1742,11 @@ class Benchmark {
         fprintf(stderr, "Invalid cuckoo_hash_ratio\n");
         exit(1);
       }
+      rocksdb::CuckooTableOptions table_options;
+      table_options.hash_table_ratio = FLAGS_cuckoo_hash_ratio;
+      table_options.identity_as_first_hash = FLAGS_identity_as_first_hash;
       options.table_factory = std::shared_ptr<TableFactory>(
-          NewCuckooTableFactory(FLAGS_cuckoo_hash_ratio));
+          NewCuckooTableFactory(table_options));
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {
