@@ -34,6 +34,7 @@ class DeleteFileTest {
   DeleteFileTest() {
     db_ = nullptr;
     env_ = Env::Default();
+    options_.max_background_flushes = 0;
     options_.write_buffer_size = 1024*1024*1000;
     options_.target_file_size_base = 1024*1024*1000;
     options_.max_bytes_for_level_base = 1024*1024*1000;

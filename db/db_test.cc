@@ -1325,6 +1325,7 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
 
 TEST(DBTest, GetPropertiesOfAllTablesTest) {
   Options options = CurrentOptions();
+  options.max_background_flushes = 0;
   Reopen(&options);
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
@@ -1520,7 +1521,10 @@ TEST(DBTest, GetPicksCorrectFile) {
 
 TEST(DBTest, GetEncountersEmptyLevel) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    Options options = CurrentOptions();
+    options.max_background_flushes = 0;
+    options.disableDataSync = true;
+    CreateAndReopenWithCF({"pikachu"}, &options);
     // Arrange for the following to happen:
     //   * sstable A in level 0
     //   * nothing in level 1
@@ -5124,7 +5128,9 @@ TEST(DBTest, Snapshot) {
 
 TEST(DBTest, HiddenValuesAreRemoved) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    Options options = CurrentOptions();
+    options.max_background_flushes = 0;
+    CreateAndReopenWithCF({"pikachu"}, &options);
     Random rnd(301);
     FillLevels("a", "z", 1);
 
@@ -5215,7 +5221,9 @@ TEST(DBTest, CompactBetweenSnapshots) {
 }
 
 TEST(DBTest, DeletionMarkers1) {
-  CreateAndReopenWithCF({"pikachu"});
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, &options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
   const int last = CurrentOptions().max_mem_compaction_level;
@@ -5250,7 +5258,9 @@ TEST(DBTest, DeletionMarkers1) {
 }
 
 TEST(DBTest, DeletionMarkers2) {
-  CreateAndReopenWithCF({"pikachu"});
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, &options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
   const int last = CurrentOptions().max_mem_compaction_level;
@@ -5279,7 +5289,9 @@ TEST(DBTest, DeletionMarkers2) {
 
 TEST(DBTest, OverlapInLevel0) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    Options options = CurrentOptions();
+    options.max_background_flushes = 0;
+    CreateAndReopenWithCF({"pikachu"}, &options);
     int tmp = CurrentOptions().max_mem_compaction_level;
     ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
@@ -5457,7 +5469,9 @@ TEST(DBTest, CustomComparator) {
 }
 
 TEST(DBTest, ManualCompaction) {
-  CreateAndReopenWithCF({"pikachu"});
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, &options);
   ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
       << "Need to update this test to match kMaxMemCompactLevel";
 
@@ -5495,6 +5509,7 @@ TEST(DBTest, ManualCompaction) {
 
     if (iter == 0) {
       Options options = CurrentOptions();
+      options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
       DestroyAndReopen(&options);
@@ -5594,6 +5609,7 @@ TEST(DBTest, DBOpen_Options) {
 TEST(DBTest, DBOpen_Change_NumLevels) {
   Options opts;
   opts.create_if_missing = true;
+  opts.max_background_flushes = 0;
   DestroyAndReopen(&opts);
   ASSERT_TRUE(db_ != nullptr);
   CreateAndReopenWithCF({"pikachu"}, &opts);
@@ -5777,6 +5793,7 @@ TEST(DBTest, ManifestWriteError) {
     options.env = env_;
     options.create_if_missing = true;
     options.error_if_exists = false;
+    options.max_background_flushes = 0;
     DestroyAndReopen(&options);
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_EQ("bar", Get("foo"));

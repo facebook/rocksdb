@@ -332,6 +332,9 @@ TEST(CorruptionTest, CorruptedDescriptor) {
 }
 
 TEST(CorruptionTest, CompactionInputError) {
+  Options options;
+  options.max_background_flushes = 0;
+  Reopen(&options);
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
@@ -351,6 +354,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
+  options.max_background_flushes = 0;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
