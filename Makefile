@@ -220,7 +220,7 @@ coverage:
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-check: $(TESTS) ldb unity
+check: $(TESTS) ldb
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 	python tools/ldb_test.py
 
