@@ -1559,6 +1559,7 @@ Status DBImpl::WriteLevel0Table(ColumnFamilyData* cfd,
     // threads could be concurrently producing compacted files for
     // that key range.
     if (base != nullptr && db_options_.max_background_compactions <= 1 &&
+        db_options_.max_background_flushes == 0 &&
         cfd->ioptions()->compaction_style == kCompactionStyleLevel) {
       level = base->PickLevelForMemTableOutput(min_user_key, max_user_key);
     }
@@ -1913,7 +1914,6 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       bg_cv_.Wait();
     } else {
       manual_compaction_ = &manual;
-      assert(bg_compaction_scheduled_ == 0);
       bg_compaction_scheduled_++;
       env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
     }
