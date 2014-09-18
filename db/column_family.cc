@@ -234,7 +234,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       Log(InfoLogLevel::WARN_LEVEL, options_.info_log,
           "Column family %s does not use any background compaction. "
           "Compactions can only be done via CompactFiles / "
-          "ScheduleCompactFiles.\n");
+          "ScheduleCompactFiles.\n", GetName().c_str());
     } else if (options_.compaction_style == kCompactionStyleCustom) {
       assert(options_.compactor_factory);
       compaction_picker_.reset(
