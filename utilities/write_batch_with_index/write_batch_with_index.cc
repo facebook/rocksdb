@@ -10,7 +10,6 @@
 #include "util/arena.h"
 
 namespace rocksdb {
-namespace {
 class ReadableWriteBatch : public WriteBatch {
  public:
   explicit ReadableWriteBatch(size_t reserved_bytes = 0)
@@ -20,7 +19,6 @@ class ReadableWriteBatch : public WriteBatch {
   Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,
                                 Slice* value, Slice* blob) const;
 };
-}  // namespace
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
 struct WriteBatchIndexEntry {
