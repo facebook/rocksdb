@@ -52,12 +52,6 @@ public class OptionsTest {
       assert(opt.useFsync() == boolValue);
     }
 
-    { // DbStatsLogInterval test
-      int intValue = rand.nextInt();
-      opt.setDbStatsLogInterval(intValue);
-      assert(opt.dbStatsLogInterval() == intValue);
-    }
-
     { // DbLogDir test
       String str = "path/to/DbLogDir";
       opt.setDbLogDir(str);

@@ -306,40 +306,6 @@ public class Options extends RocksObject {
   private native void setUseFsync(long handle, boolean useFsync);
 
   /**
-   * The time interval in seconds between each two consecutive stats logs.
-   * This number controls how often a new scribe log about
-   * db deploy stats is written out.
-   * -1 indicates no logging at all.
-   *
-   * @return the time interval in seconds between each two consecutive
-   *     stats logs.
-   */
-  public int dbStatsLogInterval() {
-    assert(isInitialized());
-    return dbStatsLogInterval(nativeHandle_);
-  }
-  private native int dbStatsLogInterval(long handle);
-
-  /**
-   * The time interval in seconds between each two consecutive stats logs.
-   * This number controls how often a new scribe log about
-   * db deploy stats is written out.
-   * -1 indicates no logging at all.
-   * Default value is 1800 (half an hour).
-   *
-   * @param dbStatsLogInterval the time interval in seconds between each
-   *     two consecutive stats logs.
-   * @return the reference to the current option.
-   */
-  public Options setDbStatsLogInterval(int dbStatsLogInterval) {
-    assert(isInitialized());
-    setDbStatsLogInterval(nativeHandle_, dbStatsLogInterval);
-    return this;
-  }
-  private native void setDbStatsLogInterval(
-      long handle, int dbStatsLogInterval);
-
-  /**
    * Returns the directory of info log.
    *
    * If it is empty, the log files will be in the same dir as data.
