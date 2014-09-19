@@ -206,7 +206,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   options.memtable_factory = factory;
   rocksdb::MemTable* mem = new rocksdb::MemTable(
       cmp, rocksdb::ImmutableCFOptions(options),
-      rocksdb::MemTableOptions(options));
+      rocksdb::MemTableOptions(rocksdb::MutableCFOptions(options), options));
   mem->Ref();
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
