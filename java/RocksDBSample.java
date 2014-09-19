@@ -75,6 +75,10 @@ public class RocksDBSample {
     // Plain-Table requires mmap read
     options.setAllowMmapReads(true);
     assert(options.tableFactoryName().equals("PlainTable"));
+    
+    options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000,
+            10000, 10));
+    options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
 
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
     table_options.setBlockCacheSize(64 * SizeUnit.KB)

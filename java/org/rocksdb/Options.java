@@ -1104,6 +1104,19 @@ public class Options extends RocksObject {
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
   }
+  
+  /**
+   * Use to control write rate of flush and compaction. Flush has higher
+   * priority than compaction. Rate limiting is disabled if nullptr.
+   * Default: nullptr
+   *
+   * @param config rate limiter config.
+   * @return the instance of the current Options.
+   */
+  public Options setRateLimiterConfig(RateLimiterConfig config) {
+    setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
+    return this;
+  }
 
   /**
    * Returns the name of the current mem table representation.
@@ -2192,6 +2205,8 @@ public class Options extends RocksObject {
   private native long statisticsPtr(long optHandle);
 
   private native void setMemTableFactory(long handle, long factoryHandle);
+  private native void setRateLimiter(long handle,
+      long rateLimiterHandle);
   private native String memTableFactoryName(long handle);
 
   private native void setTableFactory(long handle, long factoryHandle);
