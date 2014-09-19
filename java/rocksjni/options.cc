@@ -21,6 +21,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/rate_limiter.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -457,6 +458,17 @@ void Java_org_rocksdb_Options_setMemTableFactory(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jfactory_handle) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->memtable_factory.reset(
       reinterpret_cast<rocksdb::MemTableRepFactory*>(jfactory_handle));
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
+      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
 }
 
 /*
