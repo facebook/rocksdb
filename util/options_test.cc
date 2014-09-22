@@ -177,7 +177,7 @@ TEST(OptionsTest, GetOptionsFromStringsTest) {
   ASSERT_EQ(new_opt.level0_slowdown_writes_trigger, 9);
   ASSERT_EQ(new_opt.level0_stop_writes_trigger, 10);
   ASSERT_EQ(new_opt.max_mem_compaction_level, 11);
-  ASSERT_EQ(new_opt.target_file_size_base, 12);
+  ASSERT_EQ(new_opt.target_file_size_base, static_cast<uint64_t>(12));
   ASSERT_EQ(new_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_opt.max_bytes_for_level_multiplier, 15);
