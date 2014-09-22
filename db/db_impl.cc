@@ -3117,9 +3117,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   const uint64_t start_micros = env_->NowMicros();
   unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
   input->SeekToFirst();
-  shared_ptr<Iterator> backup_input(
-      versions_->MakeInputIterator(compact->compaction));
-  backup_input->SeekToFirst();
 
   Status status;
   ParsedInternalKey ikey;
@@ -3132,14 +3129,30 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   auto compaction_filter_v2 =
     compaction_filter_from_factory_v2.get();
 
-  // temp_backup_input always point to the start of the current buffer
-  // temp_backup_input = backup_input;
-  // iterate through input,
-  // 1) buffer ineligible keys and value keys into 2 separate buffers;
-  // 2) send value_buffer to compaction filter and alternate the values;
-  // 3) merge value_buffer with ineligible_value_buffer;
-  // 4) run the modified "compaction" using the old for loop.
-  if (compaction_filter_v2) {
+  if (!compaction_filter_v2) {
+    status = ProcessKeyValueCompaction(
+      is_snapshot_supported,
+      visible_at_tip,
+      earliest_snapshot,
+      latest_snapshot,
+      deletion_state,
+      bottommost_level,
+      imm_micros,
+      input.get(),
+      compact,
+      false,
+      log_buffer);
+  } else {
+    // temp_backup_input always point to the start of the current buffer
+    // temp_backup_input = backup_input;
+    // iterate through input,
+    // 1) buffer ineligible keys and value keys into 2 separate buffers;
+    // 2) send value_buffer to compaction filter and alternate the values;
+    // 3) merge value_buffer with ineligible_value_buffer;
+    // 4) run the modified "compaction" using the old for loop.
+    shared_ptr<Iterator> backup_input(
+        versions_->MakeInputIterator(compact->compaction));
+    backup_input->SeekToFirst();
     while (backup_input->Valid() && !shutting_down_.Acquire_Load() &&
            !cfd->IsDropped()) {
       // FLUSH preempts compaction
@@ -3266,21 +3279,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         true,
         log_buffer);
   }  // checking for compaction filter v2
-
-  if (!compaction_filter_v2) {
-    status = ProcessKeyValueCompaction(
-      is_snapshot_supported,
-      visible_at_tip,
-      earliest_snapshot,
-      latest_snapshot,
-      deletion_state,
-      bottommost_level,
-      imm_micros,
-      input.get(),
-      compact,
-      false,
-      log_buffer);
-  }
 
   if (status.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
     status = Status::ShutdownInProgress(
