@@ -101,6 +101,7 @@ class ForwardIterator : public Iterator {
 
   IterKey prev_key_;
   bool is_prev_set_;
+  bool is_prev_inclusive_;
   Arena arena_;
 };
 

@@ -125,7 +125,8 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
       mutable_iter_(nullptr),
       current_(nullptr),
       valid_(false),
-      is_prev_set_(false) {}
+      is_prev_set_(false),
+      is_prev_inclusive_(false) {}
 
 ForwardIterator::~ForwardIterator() {
   Cleanup();
@@ -314,11 +315,12 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
     }
 
-    if (seek_to_first || immutable_min_heap_.empty()) {
+    if (seek_to_first) {
       is_prev_set_ = false;
     } else {
       prev_key_.SetKey(internal_key);
       is_prev_set_ = true;
+      is_prev_inclusive_ = true;
     }
   } else if (current_ && current_ != mutable_iter_) {
     // current_ is one of immutable iterators, push it back to the heap
@@ -343,8 +345,20 @@ void ForwardIterator::Next() {
     }
   } else if (current_ != mutable_iter_) {
     // It is going to advance immutable iterator
-    prev_key_.SetKey(current_->key());
-    is_prev_set_ = true;
+
+    bool update_prev_key = true;
+    if (is_prev_set_ && prefix_extractor_) {
+      // advance prev_key_ to current_ only if they share the same prefix
+      update_prev_key =
+        prefix_extractor_->Transform(prev_key_.GetKey()).compare(
+          prefix_extractor_->Transform(current_->key())) == 0;
+    }
+
+    if (update_prev_key) {
+      prev_key_.SetKey(current_->key());
+      is_prev_set_ = true;
+      is_prev_inclusive_ = false;
+    }
   }
 
   current_->Next();
@@ -476,7 +490,14 @@ void ForwardIterator::UpdateCurrent() {
 }
 
 bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
-  if (!valid_ || !is_prev_set_) {
+  // We maintain the interval (prev_key_, immutable_min_heap_.top()->key())
+  // such that there are no records with keys within that range in
+  // immutable_min_heap_. Since immutable structures (SST files and immutable
+  // memtables) can't change in this version, we don't need to do a seek if
+  // 'target' belongs to that interval (immutable_min_heap_.top() is already
+  // at the correct position).
+
+  if (!valid_ || !current_ || !is_prev_set_) {
     return true;
   }
   Slice prev_key = prev_key_.GetKey();
@@ -485,13 +506,17 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
     return true;
   }
   if (cfd_->internal_comparator().InternalKeyComparator::Compare(
-        prev_key, target) >= 0) {
+        prev_key, target) >= (is_prev_inclusive_ ? 1 : 0)) {
     return true;
   }
-  if (immutable_min_heap_.empty() ||
-      cfd_->internal_comparator().InternalKeyComparator::Compare(
-          target, current_ == mutable_iter_ ? immutable_min_heap_.top()->key()
-                                            : current_->key()) > 0) {
+
+  if (immutable_min_heap_.empty() && current_ == mutable_iter_) {
+    // Nothing to seek on.
+    return false;
+  }
+  if (cfd_->internal_comparator().InternalKeyComparator::Compare(
+        target, current_ == mutable_iter_ ? immutable_min_heap_.top()->key()
+                                          : current_->key()) > 0) {
     return true;
   }
   return false;
