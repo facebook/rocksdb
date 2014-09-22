@@ -20,7 +20,6 @@ class ReadableWriteBatch : public WriteBatch {
   Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,
                                 Slice* value, Slice* blob) const;
 };
-}  // namespace
 
 // Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
 struct WriteBatchIndexEntry {
@@ -38,43 +37,27 @@ struct WriteBatchIndexEntry {
 
 class WriteBatchEntryComparator {
  public:
-  WriteBatchEntryComparator(const Comparator* comparator,
+  WriteBatchEntryComparator(const Comparator* default_comparator,
                             const ReadableWriteBatch* write_batch)
-      : comparator_(comparator), write_batch_(write_batch) {}
+      : default_comparator_(default_comparator), write_batch_(write_batch) {}
   // Compare a and b. Return a negative value if a is less than b, 0 if they
   // are equal, and a positive value if a is greater than b
   int operator()(const WriteBatchIndexEntry* entry1,
                  const WriteBatchIndexEntry* entry2) const;
 
+  void SetComparatorForCF(uint32_t column_family_id,
+                          const Comparator* comparator) {
+    cf_comparator_map_[column_family_id] = comparator;
+  }
+
  private:
-  const Comparator* comparator_;
+  const Comparator* default_comparator_;
+  std::unordered_map<uint32_t, const Comparator*> cf_comparator_map_;
   const ReadableWriteBatch* write_batch_;
 };
 
 typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
     WriteBatchEntrySkipList;
-
-struct WriteBatchWithIndex::Rep {
-  Rep(const Comparator* index_comparator, size_t reserved_bytes = 0)
-      : write_batch(reserved_bytes),
-        comparator(index_comparator, &write_batch),
-        skip_list(comparator, &arena) {}
-  ReadableWriteBatch write_batch;
-  WriteBatchEntryComparator comparator;
-  Arena arena;
-  WriteBatchEntrySkipList skip_list;
-
-  WriteBatchIndexEntry* GetEntry(ColumnFamilyHandle* column_family) {
-    return GetEntryWithCfId(GetColumnFamilyID(column_family));
-  }
-
-  WriteBatchIndexEntry* GetEntryWithCfId(uint32_t column_family_id) {
-    auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
-    auto* index_entry = new (mem)
-        WriteBatchIndexEntry(write_batch.GetDataSize(), column_family_id);
-    return index_entry;
-  }
-};
 
 class WBWIIteratorImpl : public WBWIIterator {
  public:
@@ -138,6 +121,35 @@ class WBWIIteratorImpl : public WBWIIterator {
     }
   }
 };
+}  // namespace
+
+struct WriteBatchWithIndex::Rep {
+  Rep(const Comparator* index_comparator, size_t reserved_bytes = 0)
+      : write_batch(reserved_bytes),
+        comparator(index_comparator, &write_batch),
+        skip_list(comparator, &arena) {}
+  ReadableWriteBatch write_batch;
+  WriteBatchEntryComparator comparator;
+  Arena arena;
+  WriteBatchEntrySkipList skip_list;
+
+  WriteBatchIndexEntry* GetEntry(ColumnFamilyHandle* column_family) {
+    uint32_t cf_id = GetColumnFamilyID(column_family);
+    const auto* cf_cmp = GetColumnFamilyUserComparator(column_family);
+    if (cf_cmp != nullptr) {
+      comparator.SetComparatorForCF(cf_id, cf_cmp);
+    }
+
+    return GetEntryWithCfId(cf_id);
+  }
+
+  WriteBatchIndexEntry* GetEntryWithCfId(uint32_t column_family_id) {
+    auto* mem = arena.Allocate(sizeof(WriteBatchIndexEntry));
+    auto* index_entry = new (mem)
+        WriteBatchIndexEntry(write_batch.GetDataSize(), column_family_id);
+    return index_entry;
+  }
+};
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
                                                   WriteType* type, Slice* Key,
@@ -179,9 +191,9 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
   return Status::OK();
 }
 
-WriteBatchWithIndex::WriteBatchWithIndex(const Comparator* index_comparator,
-                                         size_t reserved_bytes)
-    : rep(new Rep(index_comparator, reserved_bytes)) {}
+WriteBatchWithIndex::WriteBatchWithIndex(
+    const Comparator* default_index_comparator, size_t reserved_bytes)
+    : rep(new Rep(default_index_comparator, reserved_bytes)) {}
 
 WriteBatchWithIndex::~WriteBatchWithIndex() { delete rep; }
 
@@ -287,7 +299,14 @@ int WriteBatchEntryComparator::operator()(
     key2 = *(entry2->search_key);
   }
 
-  int cmp = comparator_->Compare(key1, key2);
+  int cmp;
+  auto comparator_for_cf = cf_comparator_map_.find(entry1->column_family);
+  if (comparator_for_cf != cf_comparator_map_.end()) {
+    cmp = comparator_for_cf->second->Compare(key1, key2);
+  } else {
+    cmp = default_comparator_->Compare(key1, key2);
+  }
+
   if (cmp != 0) {
     return cmp;
   } else if (entry1->offset > entry2->offset) {
