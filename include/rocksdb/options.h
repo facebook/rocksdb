@@ -287,7 +287,7 @@ struct ColumnFamilyOptions {
   // and each file on level-3 will be 200MB.
 
   // by default target_file_size_base is 2MB.
-  int target_file_size_base;
+  uint64_t target_file_size_base;
   // by default target_file_size_multiplier is 1, which means
   // by default files in different levels will have similar size.
   int target_file_size_multiplier;

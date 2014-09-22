@@ -8,6 +8,7 @@
 * We have refactored our system of stalling writes.  Any stall-related statistics' meanings are changed. Instead of per-write stall counts, we now count stalls per-epoch, where epochs are periods between flushes and compactions. You'll find more information in our Tuning Perf Guide once we release RocksDB 3.6.
 * When disableDataSync=true, we no longer sync the MANIFEST file.
 * Add identity_as_first_hash property to CuckooTable. SST file needs to be rebuilt to be opened by reader properly.
+* Change target_file_size_base type to uint64_t from int.
 
 ----- Past Releases -----
 
