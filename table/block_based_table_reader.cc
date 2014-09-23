@@ -498,7 +498,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     // pre-load these blocks, which will kept in member variables in Rep
     // and with a same life-time as this table object.
     IndexReader* index_reader = nullptr;
-    // TODO: we never really verify check sum for index block
     s = new_table->CreateIndexReader(&index_reader, meta_iter.get());
 
     if (s.ok()) {
