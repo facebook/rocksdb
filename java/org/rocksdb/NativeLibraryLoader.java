@@ -8,15 +8,18 @@ import java.io.*;
  * The shared library is extracted to a temp folder and loaded from there.
  */
 public class NativeLibraryLoader {
-
   private static String sharedLibraryName = "librocksdbjni.so";
   private static String tempFilePrefix = "librocksdbjni";
   private static String tempFileSuffix = ".so";
 
-  public static void loadLibraryFromJar()
+  public static void loadLibraryFromJar(String tmpDir)
       throws IOException {
+    File temp;
+    if(tmpDir == null || tmpDir.equals(""))
+      temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
+    else
+      temp = new File(tmpDir+"/"+sharedLibraryName);
 
-    File temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
     temp.deleteOnExit();
 
     if (!temp.exists()) {
@@ -31,14 +34,18 @@ public class NativeLibraryLoader {
       throw new RuntimeException(sharedLibraryName + " was not found inside JAR.");
     }
 
+    OutputStream os = null;
     try {
-      OutputStream os = new FileOutputStream(temp);
+      os = new FileOutputStream(temp);
       while ((readBytes = is.read(buffer)) != -1) {
         os.write(buffer, 0, readBytes);
       }
     } finally {
-      os.close();
-      is.close();
+      if(os != null)
+        os.close();
+
+      if(is != null)
+        is.close();
     }
 
     System.load(temp.getAbsolutePath());

@@ -20,21 +20,20 @@ import org.rocksdb.NativeLibraryLoader;
  * indicates sth wrong at the rocksdb library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-
   public static final int NOT_FOUND = -1;
   private static final String[] compressionLibs_ = {
       "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
   static {
-      RocksDB.loadLibrary();
+    RocksDB.loadLibrary();
   }
-
 
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
    */
   public static synchronized void loadLibrary() {
+    String tmpDir = System.getenv("ROCKSDB_SHAREDLIB_DIR");
     // loading possibly necessary libraries.
     for (String lib : compressionLibs_) {
       try {
@@ -45,7 +44,7 @@ public class RocksDB extends RocksObject {
     }
     try
     {
-      NativeLibraryLoader.loadLibraryFromJar();
+      NativeLibraryLoader.loadLibraryFromJar(tmpDir);
     }
     catch (IOException e)
     {
