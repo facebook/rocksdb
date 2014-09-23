@@ -31,6 +31,9 @@ public class RocksDB extends RocksObject {
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
+   * By default the method extracts the shared library for loading at
+   * java.io.tmpdir, however, you can override this temporary location by
+   * setting the environment variable ROCKSDB_SHAREDLIB_DIR.
    */
   public static synchronized void loadLibrary() {
     String tmpDir = System.getenv("ROCKSDB_SHAREDLIB_DIR");

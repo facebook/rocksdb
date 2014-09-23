@@ -18,7 +18,7 @@ public class NativeLibraryLoader {
     if(tmpDir == null || tmpDir.equals(""))
       temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
     else
-      temp = new File(tmpDir+"/"+sharedLibraryName);
+      temp = new File(tmpDir + "/" + sharedLibraryName);
 
     temp.deleteOnExit();
 
