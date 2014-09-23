@@ -12,9 +12,16 @@ namespace rocksdb {
 namespace {
 class SkipListRep : public MemTableRep {
   SkipList<const char*, const MemTableRep::KeyComparator&> skip_list_;
+  const MemTableRep::KeyComparator& cmp_;
+  const SliceTransform* transform_;
+  const size_t lookahead_;
+
+  friend class LookaheadIterator;
 public:
-  explicit SkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena)
-    : MemTableRep(arena), skip_list_(compare, arena) {
+  explicit SkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
+                       const SliceTransform* transform, const size_t lookahead)
+    : MemTableRep(arena), skip_list_(compare, arena), cmp_(compare),
+      transform_(transform), lookahead_(lookahead) {
   }
 
   // Insert key into the list.
@@ -106,11 +113,110 @@ public:
     std::string tmp_;       // For passing to EncodeKey
   };
 
+  // Iterator over the contents of a skip list which also keeps track of the
+  // previously visited node. In Seek(), it examines a few nodes after it
+  // first, falling back to O(log n) search from the head of the list only if
+  // the target key hasn't been found.
+  class LookaheadIterator : public MemTableRep::Iterator {
+   public:
+    explicit LookaheadIterator(const SkipListRep& rep) :
+        rep_(rep), iter_(&rep_.skip_list_), prev_(iter_) {}
+
+    virtual ~LookaheadIterator() override {}
+
+    virtual bool Valid() const override {
+      return iter_.Valid();
+    }
+
+    virtual const char *key() const override {
+      assert(Valid());
+      return iter_.key();
+    }
+
+    virtual void Next() override {
+      assert(Valid());
+
+      bool advance_prev = true;
+      if (prev_.Valid()) {
+        auto k1 = rep_.UserKey(prev_.key());
+        auto k2 = rep_.UserKey(iter_.key());
+
+        if (k1.compare(k2) == 0) {
+          // same user key, don't move prev_
+          advance_prev = false;
+        } else if (rep_.transform_) {
+          // only advance prev_ if it has the same prefix as iter_
+          auto t1 = rep_.transform_->Transform(k1);
+          auto t2 = rep_.transform_->Transform(k2);
+          advance_prev = t1.compare(t2) == 0;
+        }
+      }
+
+      if (advance_prev) {
+        prev_ = iter_;
+      }
+      iter_.Next();
+    }
+
+    virtual void Prev() override {
+      assert(Valid());
+      iter_.Prev();
+      prev_ = iter_;
+    }
+
+    virtual void Seek(const Slice& internal_key, const char *memtable_key)
+        override {
+      const char *encoded_key =
+        (memtable_key != nullptr) ?
+            memtable_key : EncodeKey(&tmp_, internal_key);
+
+      if (prev_.Valid() && rep_.cmp_(encoded_key, prev_.key()) >= 0) {
+        // prev_.key() is smaller or equal to our target key; do a quick
+        // linear search (at most lookahead_ steps) starting from prev_
+        iter_ = prev_;
+
+        size_t cur = 0;
+        while (cur++ <= rep_.lookahead_ && iter_.Valid()) {
+          if (rep_.cmp_(encoded_key, iter_.key()) <= 0) {
+            return;
+          }
+          Next();
+        }
+      }
+
+      iter_.Seek(encoded_key);
+      prev_ = iter_;
+    }
+
+    virtual void SeekToFirst() override {
+      iter_.SeekToFirst();
+      prev_ = iter_;
+    }
+
+    virtual void SeekToLast() override {
+      iter_.SeekToLast();
+      prev_ = iter_;
+    }
+
+   protected:
+    std::string tmp_;       // For passing to EncodeKey
+
+   private:
+    const SkipListRep& rep_;
+    SkipList<const char*, const MemTableRep::KeyComparator&>::Iterator iter_;
+    SkipList<const char*, const MemTableRep::KeyComparator&>::Iterator prev_;
+  };
+
   virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override {
-    if (arena == nullptr) {
-      return new SkipListRep::Iterator(&skip_list_);
+    if (lookahead_ > 0) {
+      void *mem =
+        arena ? arena->AllocateAligned(sizeof(SkipListRep::LookaheadIterator))
+              : operator new(sizeof(SkipListRep::LookaheadIterator));
+      return new (mem) SkipListRep::LookaheadIterator(*this);
     } else {
-      auto mem = arena->AllocateAligned(sizeof(SkipListRep::Iterator));
+      void *mem =
+        arena ? arena->AllocateAligned(sizeof(SkipListRep::Iterator))
+              : operator new(sizeof(SkipListRep::Iterator));
       return new (mem) SkipListRep::Iterator(&skip_list_);
     }
   }
@@ -119,8 +225,8 @@ public:
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
-    const SliceTransform*, Logger* logger) {
-  return new SkipListRep(compare, arena);
+    const SliceTransform* transform, Logger* logger) {
+  return new SkipListRep(compare, arena, transform, lookahead_);
 }
 
 } // namespace rocksdb

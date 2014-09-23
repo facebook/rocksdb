@@ -86,7 +86,8 @@ DEFINE_string(benchmarks,
               "xxhash,"
               "compress,"
               "uncompress,"
-              "acquireload,",
+              "acquireload,"
+              "fillseekseq,",
 
               "Comma-separated list of operations to run in the specified order"
               "Actual benchmarks:\n"
@@ -129,6 +130,8 @@ DEFINE_string(benchmarks,
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
               "\txxhash        -- repeated xxHash of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
+              "\tfillseekseq   -- write N values in sequential key, then read "
+              "them by seeking to each key\n"
               "Meta operations:\n"
               "\tcompact     -- Compact the entire DB\n"
               "\tstats       -- Print DB stats\n"
@@ -164,6 +167,9 @@ DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
              " When 0 then num & reads determine the test duration");
 
 DEFINE_int32(value_size, 100, "Size of each value");
+
+DEFINE_int32(seekseq_next, 0, "How many times to call Next() after Seek() in "
+             "fillseekseq");
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
@@ -565,6 +571,9 @@ DEFINE_string(merge_operator, "", "The merge operator to use with the database."
               "If a new merge operator is specified, be sure to use fresh"
               " database The possible merge operators are defined in"
               " utilities/merge_operators.h");
+DEFINE_int32(skip_list_lookahead, 0, "Used with skip_list memtablerep; try "
+             "linear search first for this many steps from the previous "
+             "position");
 
 static const bool FLAGS_soft_rate_limit_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_soft_rate_limit, &ValidateRateLimit);
@@ -1326,6 +1335,8 @@ class Benchmark {
         method = &Benchmark::MergeRandom;
       } else if (name == Slice("randomwithverify")) {
         method = &Benchmark::RandomWithVerify;
+      } else if (name == Slice("fillseekseq")) {
+        method = &Benchmark::WriteSeqSeekSeq;
       } else if (name == Slice("compact")) {
         method = &Benchmark::Compact;
       } else if (name == Slice("crc32c")) {
@@ -1717,7 +1728,8 @@ class Benchmark {
             FLAGS_hash_bucket_count));
         break;
       case kSkipList:
-        // no need to do anything
+        options.memtable_factory.reset(new SkipListFactory(
+            FLAGS_skip_list_lookahead));
         break;
       case kHashLinkedList:
         options.memtable_factory.reset(NewHashLinkListRepFactory(
@@ -2789,6 +2801,36 @@ class Benchmark {
              PRIu64 " maxlength:%zu)",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
+  }
+
+  void WriteSeqSeekSeq(ThreadState* thread) {
+    writes_ = FLAGS_num;
+    DoWrite(thread, SEQUENTIAL);
+    // exclude writes from the ops/sec calculation
+    thread->stats.Start(thread->tid);
+
+    DB* db = SelectDB(thread);
+    std::unique_ptr<Iterator> iter(
+      db->NewIterator(ReadOptions(FLAGS_verify_checksum, true)));
+
+    Slice key = AllocateKey();
+    for (int64_t i = 0; i < FLAGS_num; ++i) {
+      GenerateKeyFromInt(i, FLAGS_num, &key);
+      iter->Seek(key);
+      assert(iter->Valid() && iter->key() == key);
+      thread->stats.FinishedOps(nullptr, db, 1);
+
+      for (int j = 0; j < FLAGS_seekseq_next && i+1 < FLAGS_num; ++j) {
+        iter->Next();
+        GenerateKeyFromInt(++i, FLAGS_num, &key);
+        assert(iter->Valid() && iter->key() == key);
+        thread->stats.FinishedOps(nullptr, db, 1);
+      }
+
+      iter->Seek(key);
+      assert(iter->Valid() && iter->key() == key);
+      thread->stats.FinishedOps(nullptr, db, 1);
+    }
   }
 
   void Compact(ThreadState* thread) {

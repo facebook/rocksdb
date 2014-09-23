@@ -186,12 +186,23 @@ class MemTableRepFactory {
 };
 
 // This uses a skip list to store keys. It is the default.
+//
+// Parameters:
+//   lookahead: If non-zero, each iterator's seek operation will start the
+//     search from the previously visited record (doing at most 'lookahead'
+//     steps). This is an optimization for the access pattern including many
+//     seeks with consecutive keys.
 class SkipListFactory : public MemTableRepFactory {
  public:
+  explicit SkipListFactory(size_t lookahead = 0) : lookahead_(lookahead) {}
+
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Arena*, const SliceTransform*,
                                          Logger* logger) override;
   virtual const char* Name() const override { return "SkipListFactory"; }
+
+ private:
+  const size_t lookahead_;
 };
 
 #ifndef ROCKSDB_LITE
