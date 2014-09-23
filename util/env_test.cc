@@ -768,6 +768,41 @@ TEST(EnvPosixTest, LogBufferTest) {
   ASSERT_EQ(10, test_logger.char_x_count);
 }
 
+class TestLogger2 : public Logger {
+ public:
+  explicit TestLogger2(size_t max_log_size) : max_log_size_(max_log_size) {}
+  virtual void Logv(const char* format, va_list ap) override {
+    char new_format[2000];
+    std::fill_n(new_format, sizeof(new_format), '2');
+    {
+      va_list backup_ap;
+      va_copy(backup_ap, ap);
+      int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
+      // 48 bytes for extra information + bytes allocated
+      ASSERT_TRUE(
+          n <= 48 + static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      va_end(backup_ap);
+    }
+  }
+  size_t max_log_size_;
+};
+
+TEST(EnvPosixTest, LogBufferMaxSizeTest) {
+  char bytes9000[9000];
+  std::fill_n(bytes9000, sizeof(bytes9000), '1');
+  bytes9000[sizeof(bytes9000) - 1] = '\0';
+
+  for (size_t max_log_size = 256; max_log_size <= 1024;
+       max_log_size += 1024 - 256) {
+    TestLogger2 test_logger(max_log_size);
+    test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+    LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, &test_logger);
+    LogToBuffer(&log_buffer, max_log_size, "%s", bytes9000);
+    log_buffer.FlushBufferToLog();
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
