@@ -59,7 +59,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     use_fsync(options.use_fsync),
     compression(options.compression),
     compression_per_level(options.compression_per_level),
-    compression_opts(options.compression_opts) {}
+    compression_opts(options.compression_opts),
+    access_hint_on_compaction_start(options.access_hint_on_compaction_start) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),

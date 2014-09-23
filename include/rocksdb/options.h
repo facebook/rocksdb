@@ -58,6 +58,7 @@ enum CompactionStyle : char {
   kCompactionStyleFIFO = 0x2,       // FIFO compaction style
 };
 
+
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -783,12 +784,13 @@ struct DBOptions {
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
-  enum {
-    NONE,
-    NORMAL,
-    SEQUENTIAL,
-    WILLNEED
-  } access_hint_on_compaction_start;
+  enum AccessHint {
+      NONE,
+      NORMAL,
+      SEQUENTIAL,
+      WILLNEED
+  };
+  AccessHint access_hint_on_compaction_start;
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not

@@ -532,8 +532,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 }
 
 void BlockBasedTable::SetupForCompaction() {
-  /*
-  switch (.access_hint_on_compaction_start) {
+  switch (rep_->ioptions.access_hint_on_compaction_start) {
     case Options::NONE:
       break;
     case Options::NORMAL:
@@ -549,7 +548,6 @@ void BlockBasedTable::SetupForCompaction() {
       assert(false);
   }
   compaction_optimized_ = true;
-  */
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
