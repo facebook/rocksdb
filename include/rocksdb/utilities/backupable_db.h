@@ -10,7 +10,10 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <string>
 #include <map>
@@ -127,9 +130,41 @@ struct BackupInfo {
   int64_t timestamp;
   uint64_t size;
 
+  uint32_t number_files;
+
   BackupInfo() {}
-  BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size)
-      : backup_id(_backup_id), timestamp(_timestamp), size(_size) {}
+
+  BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
+             uint32_t _number_files)
+      : backup_id(_backup_id), timestamp(_timestamp), size(_size),
+        number_files(_number_files) {}
+};
+
+class BackupStatistics {
+ public:
+  BackupStatistics() {
+    number_success_backup = 0;
+    number_fail_backup = 0;
+  }
+
+  BackupStatistics(uint32_t _number_success_backup,
+                   uint32_t _number_fail_backup)
+      : number_success_backup(_number_success_backup),
+        number_fail_backup(_number_fail_backup) {}
+
+  ~BackupStatistics() {}
+
+  void IncrementNumberSuccessBackup();
+  void IncrementNumberFailBackup();
+
+  uint32_t GetNumberSuccessBackup() const;
+  uint32_t GetNumberFailBackup() const;
+
+  std::string ToString() const;
+
+ private:
+  uint32_t number_success_backup;
+  uint32_t number_fail_backup;
 };
 
 class BackupEngineReadOnly {

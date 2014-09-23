@@ -15,7 +15,9 @@
 #include "util/crc32c.h"
 #include "rocksdb/transaction_log.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <inttypes.h>
 #include <algorithm>
@@ -69,6 +71,27 @@ class BackupRateLimiter {
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
 };
 }  // namespace
+
+void BackupStatistics::IncrementNumberSuccessBackup() {
+  number_success_backup++;
+}
+void BackupStatistics::IncrementNumberFailBackup() {
+  number_fail_backup++;
+}
+
+uint32_t BackupStatistics::GetNumberSuccessBackup() const {
+  return number_success_backup;
+}
+uint32_t BackupStatistics::GetNumberFailBackup() const {
+  return number_fail_backup;
+}
+
+std::string BackupStatistics::ToString() const {
+  char result[50];
+  snprintf(result, sizeof(result), "# success backup: %u, # fail backup: %u",
+           GetNumberSuccessBackup(), GetNumberFailBackup());
+  return result;
+}
 
 void BackupableDBOptions::Dump(Logger* logger) const {
   Log(logger, "        Options.backup_dir: %s", backup_dir.c_str());
@@ -141,6 +164,9 @@ class BackupEngineImpl : public BackupEngine {
     }
     uint64_t GetSize() const {
       return size_;
+    }
+    uint32_t GetNumberFiles() {
+      return files_.size();
     }
     void SetSequenceNumber(uint64_t sequence_number) {
       sequence_number_ = sequence_number;
@@ -286,6 +312,7 @@ class BackupEngineImpl : public BackupEngine {
   static const size_t kDefaultCopyFileBufferSize = 5 * 1024 * 1024LL;  // 5MB
   size_t copy_file_buffer_size_;
   bool read_only_;
+  BackupStatistics backup_statistics_;
 };
 
 BackupEngine* BackupEngine::NewBackupEngine(
@@ -441,6 +468,8 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   new_backup.RecordTimestamp();
   new_backup.SetSequenceNumber(sequence_number);
 
+  auto start_backup = backup_env_-> NowMicros();
+
   Log(options_.info_log, "Started the backup process -- creating backup %u",
       new_backup_id);
 
@@ -505,6 +534,8 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)));
   }
 
+  auto backup_time = backup_env_->NowMicros() - start_backup;
+
   if (s.ok()) {
     // persist the backup metadata on the disk
     s = new_backup.StoreToFile(options_.sync);
@@ -535,9 +566,15 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     }
   }
 
+  if (s.ok()) {
+    backup_statistics_.IncrementNumberSuccessBackup();
+  }
   if (!s.ok()) {
+    backup_statistics_.IncrementNumberFailBackup();
     // clean all the files we might have created
     Log(options_.info_log, "Backup failed -- %s", s.ToString().c_str());
+    Log(options_.info_log, "Backup Statistics %s\n",
+        backup_statistics_.ToString().c_str());
     backups_.erase(new_backup_id);
     GarbageCollection(true);
     return s;
@@ -547,6 +584,17 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   // in the LATEST_BACKUP file
   latest_backup_id_ = new_backup_id;
   Log(options_.info_log, "Backup DONE. All is good");
+
+  // backup_speed is in byte/second
+  double backup_speed = new_backup.GetSize() / (1.048576 * backup_time);
+  Log(options_.info_log, "Backup number of files: %u",
+      new_backup.GetNumberFiles());
+  Log(options_.info_log, "Backup size: %" PRIu64 " bytes",
+      new_backup.GetSize());
+  Log(options_.info_log, "Backup time: %" PRIu64 " microseconds", backup_time);
+  Log(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
+  Log(options_.info_log, "Backup Statistics %s",
+      backup_statistics_.ToString().c_str());
   return s;
 }
 
@@ -582,8 +630,9 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   backup_info->reserve(backups_.size());
   for (auto& backup : backups_) {
     if (!backup.second.Empty()) {
-      backup_info->push_back(BackupInfo(
-          backup.first, backup.second.GetTimestamp(), backup.second.GetSize()));
+        backup_info->push_back(BackupInfo(
+            backup.first, backup.second.GetTimestamp(), backup.second.GetSize(),
+            backup.second.GetNumberFiles()));
     }
   }
 }

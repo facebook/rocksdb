@@ -21,6 +21,8 @@ namespace test {
 // references the generated data.
 extern Slice RandomString(Random* rnd, int len, std::string* dst);
 
+extern std::string RandomHumanReadableString(Random* rnd, int len);
+
 // Return a random key with the specified length that may contain interesting
 // characters (e.g. \x00, \xff, etc.).
 extern std::string RandomKey(Random* rnd, int len);
@@ -75,6 +77,13 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
     user_comparator()->FindShortSuccessor(key);
   }
 };
+
+// Returns a user key comparator that can be used for comparing two uint64_t
+// slices. Instead of comparing slices byte-wise, it compares all the 8 bytes
+// at once. Assumes same endian-ness is used though the database's lifetime.
+// Symantics of comparison would differ from Bytewise comparator in little
+// endian machines.
+extern const Comparator* Uint64Comparator();
 
 }  // namespace test
 }  // namespace rocksdb

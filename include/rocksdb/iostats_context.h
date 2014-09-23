@@ -27,7 +27,9 @@ struct IOStatsContext {
   uint64_t bytes_read;
 };
 
+#ifndef IOS_CROSS_COMPILE
 extern __thread IOStatsContext iostats_context;
+#endif  // IOS_CROSS_COMPILE
 
 }  // namespace rocksdb
 

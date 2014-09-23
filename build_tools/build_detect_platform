@@ -46,7 +46,7 @@ PLATFORM_CXXFLAGS="-std=c++11"
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
 
 # Default to fbcode gcc on internal fb machines
-if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
+if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
     if [ -z "$USE_CLANG" ]; then
         CENTOS_VERSION=`rpm -q --qf "%{VERSION}" \

@@ -45,7 +45,9 @@ class CorruptionTest {
 
     db_ = nullptr;
     options_.create_if_missing = true;
-    options_.block_size_deviation = 0; // make unit test pass for now
+    BlockBasedTableOptions table_options;
+    table_options.block_size_deviation = 0;  // make unit test pass for now
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen();
     options_.create_if_missing = false;
   }
@@ -60,9 +62,11 @@ class CorruptionTest {
     db_ = nullptr;
     Options opt = (options ? *options : options_);
     opt.env = &env_;
-    opt.block_cache = tiny_cache_;
-    opt.block_size_deviation = 0;
     opt.arena_block_size = 4096;
+    BlockBasedTableOptions table_options;
+    table_options.block_cache = tiny_cache_;
+    table_options.block_size_deviation = 0;
+    opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return DB::Open(opt, dbname_, &db_);
   }
 
@@ -328,6 +332,9 @@ TEST(CorruptionTest, CorruptedDescriptor) {
 }
 
 TEST(CorruptionTest, CompactionInputError) {
+  Options options;
+  options.max_background_flushes = 0;
+  Reopen(&options);
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
@@ -347,6 +354,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
+  options.max_background_flushes = 0;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 

@@ -33,7 +33,7 @@ const char* GetExecutableName() {
 
   char link[1024];
   snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
-  auto read = readlink(link, name, sizeof(name));
+  auto read = readlink(link, name, sizeof(name) - 1);
   if (-1 == read) {
     return nullptr;
   } else {

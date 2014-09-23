@@ -30,7 +30,7 @@ const unsigned char kSizeInlineLimit = 0x3F;
 size_t EncodeSize(EntryType type, uint32_t key_size, char* out_buffer) {
   out_buffer[0] = type << 6;
 
-  if (key_size < 0x3F) {
+  if (key_size < static_cast<uint32_t>(kSizeInlineLimit)) {
     // size inlined
     out_buffer[0] |= static_cast<char>(key_size);
     return 1;
@@ -97,9 +97,9 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
 
     Slice prefix =
         prefix_extractor_->Transform(Slice(key.data(), user_key_size));
-    if (key_count_for_prefix == 0 || prefix != pre_prefix_.GetKey() ||
-        key_count_for_prefix % index_sparseness_ == 0) {
-      key_count_for_prefix = 1;
+    if (key_count_for_prefix_ == 0 || prefix != pre_prefix_.GetKey() ||
+        key_count_for_prefix_ % index_sparseness_ == 0) {
+      key_count_for_prefix_ = 1;
       pre_prefix_.SetKey(prefix);
       size_bytes_pos += EncodeSize(kFullKey, user_key_size, size_bytes);
       Status s = file->Append(Slice(size_bytes, size_bytes_pos));
@@ -108,8 +108,8 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
       }
       *offset += size_bytes_pos;
     } else {
-      key_count_for_prefix++;
-      if (key_count_for_prefix == 2) {
+      key_count_for_prefix_++;
+      if (key_count_for_prefix_ == 2) {
         // For second key within a prefix, need to encode prefix length
         size_bytes_pos +=
             EncodeSize(kPrefixFromPreviousKey, pre_prefix_.GetKey().size(),

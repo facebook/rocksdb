@@ -3,7 +3,6 @@
 # found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 # Inherit some settings from environment variables, if available
-INSTALL_PATH ?= $(CURDIR)
 
 #-----------------------------------------------
 
@@ -49,6 +48,27 @@ else
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 endif
 
+#-------------------------------------------------
+# make install related stuff
+INSTALL_PATH ?= /usr/local
+
+uninstall:
+	@rm -rf $(INSTALL_PATH)/include/rocksdb
+	@rm -rf $(INSTALL_PATH)/lib/$(LIBRARY)
+	@rm -rf $(INSTALL_PATH)/lib/$(SHARED)
+
+install:
+	@install -d $(INSTALL_PATH)/lib
+	@for header_dir in `find "include/rocksdb" -type d`; do \
+		install -d $(INSTALL_PATH)/$$header_dir; \
+	done
+	@for header in `find "include/rocksdb" -type f -name *.h`; do \
+		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+	done
+	@[ ! -e $(LIBRARY) ] || install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib
+	@[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
+#-------------------------------------------------
+
 WARNING_FLAGS = -Wall -Werror -Wsign-compare
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual
@@ -90,12 +110,14 @@ TESTS = \
 	blob_store_test \
 	filelock_test \
 	filename_test \
-	filter_block_test \
+	block_based_filter_block_test \
+	full_filter_block_test \
 	histogram_test \
 	log_test \
 	manual_compaction_test \
 	memenv_test \
 	merge_test \
+	merger_test \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
@@ -111,17 +133,18 @@ TESTS = \
 	version_edit_test \
 	version_set_test \
 	file_indexer_test \
-	write_batch_test\
+	write_batch_test \
+	write_controller_test\
 	deletefile_test \
 	table_test \
 	thread_local_test \
 	geodb_test \
 	rate_limiter_test \
-	cuckoo_table_builder_test \
 	options_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
-	cuckoo_table_db_test
+	cuckoo_table_db_test \
+	write_batch_with_index_test
 
 TOOLS = \
         sst_dump \
@@ -132,7 +155,7 @@ TOOLS = \
   options_test \
 	blob_store_bench
 
-PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench $(TOOLS)
+PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench cache_bench $(TOOLS)
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -175,7 +198,7 @@ endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava
+	dbg rocksdbjavastatic rocksdbjava install uninstall
 
 all: $(LIBRARY) $(PROGRAMS) $(TESTS)
 
@@ -263,6 +286,9 @@ $(LIBRARY): $(LIBOBJECTS)
 
 db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) db/db_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+
+cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
+	$(CXX) util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 block_hash_index_test: table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	 $(CXX) table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -375,6 +401,9 @@ spatial_db_test: utilities/spatialdb/spatial_db_test.o $(LIBOBJECTS) $(TESTHARNE
 ttl_test: utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/ttl/ttl_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
+write_batch_with_index_test: utilities/write_batch_with_index/write_batch_with_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/write_batch_with_index/write_batch_with_index_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+
 dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
@@ -387,8 +416,11 @@ rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-filter_block_test: table/filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) table/filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/block_based_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+full_filter_block_test: table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/full_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 log_test: db/log_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/log_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
@@ -417,8 +449,14 @@ reduce_levels_test: tools/reduce_levels_test.o $(LIBOBJECTS) $(TESTHARNESS)
 write_batch_test: db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/write_batch_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
+write_controller_test: db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/write_controller_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 merge_test: db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/merge_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+merger_test: table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) table/merger_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)

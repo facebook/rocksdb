@@ -10,6 +10,11 @@
 // A filter block is stored near the end of a Table file.  It contains
 // filters (e.g., bloom filters) for all data blocks in the table combined
 // into a single filter block.
+//
+// It is a base class for BlockBasedFilter and FullFilter.
+// These two are both used in BlockBasedTable. The first one contain filter
+// For a part of keys in sst file, the second contain filter for all keys
+// in sst file.
 
 #pragma once
 
@@ -21,10 +26,13 @@
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
 #include "util/hash.h"
+#include "format.h"
 
 namespace rocksdb {
 
+const uint64_t kNotValid = ULLONG_MAX;
 class FilterPolicy;
 
 // A FilterBlockBuilder is used to construct all of the filters for a
@@ -32,62 +40,45 @@ class FilterPolicy;
 // a special block in the Table.
 //
 // The sequence of calls to FilterBlockBuilder must match the regexp:
-//      (StartBlock AddKey*)* Finish
+//      (StartBlock Add*)* Finish
+//
+// BlockBased/Full FilterBlock would be called in the same way.
 class FilterBlockBuilder {
  public:
-  explicit FilterBlockBuilder(const Options& opt,
-                              const Comparator* internal_comparator);
+  explicit FilterBlockBuilder() {}
+  virtual ~FilterBlockBuilder() {}
 
-  void StartBlock(uint64_t block_offset);
-  void AddKey(const Slice& key);
-  Slice Finish();
+  virtual bool IsBlockBased() = 0;                    // If is blockbased filter
+  virtual void StartBlock(uint64_t block_offset) = 0;  // Start new block filter
+  virtual void Add(const Slice& key) = 0;      // Add a key to current filter
+  virtual Slice Finish() = 0;                     // Generate Filter
 
  private:
-  bool SamePrefix(const Slice &key1, const Slice &key2) const;
-  void GenerateFilter();
-
-  // important: all of these might point to invalid addresses
-  // at the time of destruction of this filter block. destructor
-  // should NOT dereference them.
-  const FilterPolicy* policy_;
-  const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
-  const Comparator* comparator_;
-
-  std::string entries_;         // Flattened entry contents
-  std::vector<size_t> start_;   // Starting index in entries_ of each entry
-  std::string result_;          // Filter data computed so far
-  std::vector<Slice> tmp_entries_; // policy_->CreateFilter() argument
-  std::vector<uint32_t> filter_offsets_;
-
   // No copying allowed
   FilterBlockBuilder(const FilterBlockBuilder&);
   void operator=(const FilterBlockBuilder&);
 };
 
+// A FilterBlockReader is used to parse filter from SST table.
+// KeyMayMatch and PrefixMayMatch would trigger filter checking
+//
+// BlockBased/Full FilterBlock would be called in the same way.
 class FilterBlockReader {
  public:
- // REQUIRES: "contents" and *policy must stay live while *this is live.
-  FilterBlockReader(
-    const Options& opt,
-    const Slice& contents,
-    bool delete_contents_after_use = false);
-  bool KeyMayMatch(uint64_t block_offset, const Slice& key);
-  bool PrefixMayMatch(uint64_t block_offset, const Slice& prefix);
-  size_t ApproximateMemoryUsage() const;
+  explicit FilterBlockReader() {}
+  virtual ~FilterBlockReader() {}
+
+  virtual bool IsBlockBased() = 0;  // If is blockbased filter
+  virtual bool KeyMayMatch(const Slice& key,
+                           uint64_t block_offset = kNotValid) = 0;
+  virtual bool PrefixMayMatch(const Slice& prefix,
+                              uint64_t block_offset = kNotValid) = 0;
+  virtual size_t ApproximateMemoryUsage() const = 0;
 
  private:
-  const FilterPolicy* policy_;
-  const SliceTransform* prefix_extractor_;
-  bool whole_key_filtering_;
-  const char* data_;    // Pointer to filter data (at block-start)
-  const char* offset_;  // Pointer to beginning of offset array (at block-end)
-  size_t num_;          // Number of entries in offset array
-  size_t base_lg_;      // Encoding parameter (see kFilterBaseLg in .cc file)
-  std::unique_ptr<const char[]> filter_data;
-
-
-  bool MayMatch(uint64_t block_offset, const Slice& entry);
+  // No copying allowed
+  FilterBlockReader(const FilterBlockReader&);
+  void operator=(const FilterBlockReader&);
 };
 
-}
+}  // namespace rocksdb

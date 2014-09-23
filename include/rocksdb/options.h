@@ -14,6 +14,7 @@
 #include <memory>
 #include <vector>
 #include <stdint.h>
+#include <unordered_map>
 
 #include "rocksdb/version.h"
 #include "rocksdb/universal_compaction.h"
@@ -57,6 +58,7 @@ enum CompactionStyle : char {
   kCompactionStyleFIFO = 0x2,       // FIFO compaction style
 };
 
+
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -97,7 +99,8 @@ struct ColumnFamilyOptions {
 
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
-  ColumnFamilyOptions* OptimizeForPointLookup();
+  ColumnFamilyOptions* OptimizeForPointLookup(
+      uint64_t block_cache_size_mb);
 
   // Default values for some parameters in ColumnFamilyOptions are not
   // optimized for heavy workloads and big datasets, which means you might
@@ -206,34 +209,6 @@ struct ColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge;
 
-  // Control over blocks (user data is stored in a set of blocks, and
-  // a block is the unit of reading from disk).
-
-  // If non-NULL use the specified cache for blocks.
-  // If NULL, rocksdb will automatically create and use an 8MB internal cache.
-  // Default: nullptr
-  std::shared_ptr<Cache> block_cache;
-
-  // If non-NULL use the specified cache for compressed blocks.
-  // If NULL, rocksdb will not use a compressed block cache.
-  // Default: nullptr
-  std::shared_ptr<Cache> block_cache_compressed;
-
-  // Approximate size of user data packed per block.  Note that the
-  // block size specified here corresponds to uncompressed data.  The
-  // actual size of the unit read from disk may be smaller if
-  // compression is enabled.  This parameter can be changed dynamically.
-  //
-  // Default: 4K
-  size_t block_size;
-
-  // Number of keys between restart points for delta encoding of keys.
-  // This parameter can be changed dynamically.  Most clients should
-  // leave this parameter alone.
-  //
-  // Default: 16
-  int block_restart_interval;
-
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
@@ -251,28 +226,16 @@ struct ColumnFamilyOptions {
   CompressionType compression;
 
   // Different levels can have different compression policies. There
-  // are cases where most lower levels would like to quick compression
-  // algorithm while the higher levels (which have more data) use
+  // are cases where most lower levels would like to use quick compression
+  // algorithms while the higher levels (which have more data) use
   // compression algorithms that have better compression but could
-  // be slower. This array, if non nullptr, should have an entry for
-  // each level of the database. This array, if non nullptr, overides the
-  // value specified in the previous field 'compression'. The caller is
-  // reponsible for allocating memory and initializing the values in it
-  // before invoking Open(). The caller is responsible for freeing this
-  // array and it could be freed anytime after the return from Open().
-  // This could have been a std::vector but that makes the equivalent
-  // java/C api hard to construct.
+  // be slower. This array, if non-empty, should have an entry for
+  // each level of the database; these override the value specified in
+  // the previous field 'compression'.
   std::vector<CompressionType> compression_per_level;
 
   // different options for compression algorithms
   CompressionOptions compression_opts;
-
-  // If non-nullptr, use the specified filter policy to reduce disk reads.
-  // Many applications will benefit from passing the result of
-  // NewBloomFilterPolicy() here.
-  //
-  // Default: nullptr
-  const FilterPolicy* filter_policy;
 
   // If non-nullptr, use the specified function to determine the
   // prefixes for keys.  These prefixes will be placed in the filter.
@@ -289,12 +252,6 @@ struct ColumnFamilyOptions {
   //
   // Default: nullptr
   std::shared_ptr<const SliceTransform> prefix_extractor;
-
-  // If true, place whole keys in the filter (not just prefixes).
-  // This must generally be true for gets to be efficient.
-  //
-  // Default: true
-  bool whole_key_filtering;
 
   // Number of levels for this database
   int num_levels;
@@ -331,7 +288,7 @@ struct ColumnFamilyOptions {
   // and each file on level-3 will be 200MB.
 
   // by default target_file_size_base is 2MB.
-  int target_file_size_base;
+  uint64_t target_file_size_base;
   // by default target_file_size_multiplier is 1, which means
   // by default files in different levels will have similar size.
   int target_file_size_multiplier;
@@ -375,18 +332,6 @@ struct ColumnFamilyOptions {
   // stop building a single file in a level->level+1 compaction.
   int max_grandparent_overlap_factor;
 
-  // We decided to remove seek compaction from RocksDB because:
-  // 1) It makes more sense for spinning disk workloads, while RocksDB is
-  // primarily designed for flash and memory,
-  // 2) It added some complexity to the important code-paths,
-  // 3) None of our internal customers were really using it.
-  //
-  // Since we removed seek compaction, this option is now obsolete.
-  // We left it here for backwards compatiblity (otherwise it would break the
-  // build), but we'll remove it at some point.
-  // Default: true
-  bool disable_seek_compaction;
-
   // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
   // soft_rate_limit. This is ignored when == 0.0.
   // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
@@ -399,16 +344,8 @@ struct ColumnFamilyOptions {
   // Default: 0 (disabled)
   double hard_rate_limit;
 
-  // Max time a put will be stalled when hard_rate_limit is enforced. If 0, then
-  // there is no limit.
-  // Default: 1000
+  // DEPRECATED -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds;
-
-  // Disable block cache. If this is set to true,
-  // then no block cache should be used, and the block_cache should
-  // point to a nullptr object.
-  // Default: false
-  bool no_block_cache;
 
   // size of one block in arena memory allocation.
   // If <= 0, a proper value is automatically calculated (usually 1/10 of
@@ -432,14 +369,6 @@ struct ColumnFamilyOptions {
   // Purge duplicate/deleted keys when a memtable is flushed to storage.
   // Default: true
   bool purge_redundant_kvs_while_flush;
-
-  // This is used to close a block before it reaches the configured
-  // 'block_size'. If the percentage of free space in the current block is less
-  // than this specified number and adding a new record to the block will
-  // exceed the configured block size, then this block will be closed and the
-  // new record will be written to the next block.
-  // Default is 10.
-  int block_size_deviation;
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
@@ -475,9 +404,23 @@ struct ColumnFamilyOptions {
   std::shared_ptr<MemTableRepFactory> memtable_factory;
 
   // This is a factory that provides TableFactory objects.
-  // Default: a factory that provides a default implementation of
-  // Table and TableBuilder.
+  // Default: a block-based table factory that provides a default
+  // implementation of TableBuilder and TableReader with default
+  // BlockBasedTableOptions.
   std::shared_ptr<TableFactory> table_factory;
+
+  // Block-based table related options are moved to BlockBasedTableOptions.
+  // Related options that were originally here but now moved include:
+  //   no_block_cache
+  //   block_cache
+  //   block_cache_compressed
+  //   block_size
+  //   block_size_deviation
+  //   block_restart_interval
+  //   filter_policy
+  //   whole_key_filtering
+  // If you'd like to customize some of these options, you will need to
+  // use NewBlockBasedTableFactory() to construct a new table factory.
 
   // This option allows user to to collect their own interested statistics of
   // the tables.
@@ -669,7 +612,7 @@ struct DBOptions {
   // it does not use any locks to prevent concurrent updates.
   std::shared_ptr<Statistics> statistics;
 
-  // If true, then the contents of data files are not synced
+  // If true, then the contents of manifest and data files are not synced
   // to stable storage. Their contents remain in the OS buffers till the
   // OS decides to flush them. This option is good for bulk-loading
   // of data. Once the bulk-loading is complete, please issue a
@@ -683,9 +626,6 @@ struct DBOptions {
   // filesystem like ext3 that can lose files after a reboot.
   // Default: false
   bool use_fsync;
-
-  // This options is not used!!
-  int db_stats_log_interval;
 
   // A list of paths where SST files can be put into, with its target size.
   // Newer data is placed into paths specified earlier in the vector while
@@ -844,12 +784,13 @@ struct DBOptions {
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
-  enum {
-    NONE,
-    NORMAL,
-    SEQUENTIAL,
-    WILLNEED
-  } access_hint_on_compaction_start;
+  enum AccessHint {
+      NONE,
+      NORMAL,
+      SEQUENTIAL,
+      WILLNEED
+  };
+  AccessHint access_hint_on_compaction_start;
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not
@@ -958,6 +899,18 @@ struct ReadOptions {
   // ! DEPRECATED
   // const Slice* prefix;
 
+  // "iterate_upper_bound" defines the extent upto which the forward iterator
+  // can returns entries. Once the bound is reached, Valid() will be false.
+  // "iterate_upper_bound" is exclusive ie the bound value is
+  // not a valid entry.  If iterator_extractor is not null, the Seek target
+  // and iterator_upper_bound need to have the same prefix.
+  // This is because ordering is not guaranteed outside of prefix domain.
+  // There is no lower bound on the iterator. If needed, that can be easily
+  // implemented
+  //
+  // Default: nullptr
+  const Slice* iterate_upper_bound;
+
   // Specify if this read request should process data that ALREADY
   // resides on a particular cache. If the required data is not
   // found at the specified cache, then Status::Incomplete is returned.
@@ -972,18 +925,27 @@ struct ReadOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
+  // Enable a total order seek regardless of index format (e.g. hash index)
+  // used in the table. Some table format (e.g. plain table) may not support
+  // this option.
+  bool total_order_seek;
+
   ReadOptions()
       : verify_checksums(true),
         fill_cache(true),
         snapshot(nullptr),
+        iterate_upper_bound(nullptr),
         read_tier(kReadAllTier),
-        tailing(false) {}
+        tailing(false),
+        total_order_seek(false) {}
   ReadOptions(bool cksum, bool cache)
       : verify_checksums(cksum),
         fill_cache(cache),
         snapshot(nullptr),
+        iterate_upper_bound(nullptr),
         read_tier(kReadAllTier),
-        tailing(false) {}
+        tailing(false),
+        total_order_seek(false) {}
 };
 
 // Options that control write operations
@@ -1021,7 +983,17 @@ struct WriteOptions {
   // Default: 0
   uint64_t timeout_hint_us;
 
-  WriteOptions() : sync(false), disableWAL(false), timeout_hint_us(0) {}
+  // If true and if user is trying to write to column families that don't exist
+  // (they were dropped),  ignore the write (don't return an error). If there
+  // are multiple writes in a WriteBatch, other writes will succeed.
+  // Default: false
+  bool ignore_missing_column_families;
+
+  WriteOptions()
+      : sync(false),
+        disableWAL(false),
+        timeout_hint_us(0),
+        ignore_missing_column_families(false) {}
 };
 
 // Options that control flush operations
@@ -1043,6 +1015,12 @@ extern Options GetOptions(size_t total_write_buffer_limit,
                           int read_amplification_threshold = 8,
                           int write_amplification_threshold = 32,
                           uint64_t target_db_size = 68719476736 /* 64GB */);
+
+bool GetOptionsFromStrings(
+    const Options& base_options,
+    const std::unordered_map<std::string, std::string>& options_map,
+    Options* new_options);
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

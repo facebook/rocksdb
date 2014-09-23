@@ -1,10 +1,34 @@
 # Rocksdb Change Log
 
-### Unreleased
+## Unreleased (will be released with 3.6)
+### Disk format changes
+* If you're using RocksDB on ARM platforms and you're using default bloom filter, there is a disk format change you need to be aware of. There are three steps you need to do when you convert to new release: 1. turn off filter policy, 2. compact the whole database, 3. turn on filter policy
+
+### Behavior changes
+* We have refactored our system of stalling writes.  Any stall-related statistics' meanings are changed. Instead of per-write stall counts, we now count stalls per-epoch, where epochs are periods between flushes and compactions. You'll find more information in our Tuning Perf Guide once we release RocksDB 3.6.
+* When disableDataSync=true, we no longer sync the MANIFEST file.
+* Add identity_as_first_hash property to CuckooTable. SST file needs to be rebuilt to be opened by reader properly.
+* Change target_file_size_base type to uint64_t from int.
+
+----- Past Releases -----
+
+## 3.5.0 (9/3/2014)
+### New Features
+* Add include/utilities/write_batch_with_index.h, providing a utilitiy class to query data out of WriteBatch when building it.
+* Move BlockBasedTable related options to BlockBasedTableOptions from Options. Change corresponding JNI interface. Options affected include:
+  no_block_cache, block_cache, block_cache_compressed, block_size, block_size_deviation, block_restart_interval, filter_policy, whole_key_filtering. filter_policy is changed to shared_ptr from a raw pointer.
+* Remove deprecated options: disable_seek_compaction and db_stats_log_interval
+* OptimizeForPointLookup() takes one parameter for block cache size. It now builds hash index, bloom filter, and block cache.
+
+### Public API changes
+* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
+
+## 3.4.0 (8/18/2014)
 ### New Features
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
 * CompactRange() will never output compacted files to level 0. This used to be the case when all the compaction input files were at level 0.
+* Added iterate_upper_bound to define the extent upto which the forward iterator will return entries. This will prevent iterating over delete markers and overwritten entries for edge cases where you want to break out the iterator anyways. This may improve perfomance in case there are a large number of delete markers or overwritten entries.
 
 ### Public API changes
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size

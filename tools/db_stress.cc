@@ -31,6 +31,7 @@ int main() {
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <exception>
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -41,7 +42,6 @@ int main() {
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/statistics.h"
 #include "port/port.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
@@ -154,7 +154,7 @@ DEFINE_int32(level0_stop_writes_trigger,
              rocksdb::Options().level0_stop_writes_trigger,
              "Number of files in level-0 that will trigger put stop.");
 
-DEFINE_int32(block_size, rocksdb::Options().block_size,
+DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
              "Number of bytes in a block.");
 
 DEFINE_int32(max_background_compactions,
@@ -208,6 +208,9 @@ static const bool FLAGS_reopen_dummy __attribute__((unused)) =
 
 DEFINE_int32(bloom_bits, 10, "Bloom filter bits per key. "
              "Negative means use default settings.");
+
+DEFINE_bool(use_block_based_filter, false, "use block based filter"
+              "instead of full filter for block based table");
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
@@ -757,10 +760,12 @@ class StressTest {
                               ? NewLRUCache(FLAGS_compressed_cache_size)
                               : nullptr),
         filter_policy_(FLAGS_bloom_bits >= 0
-                           ? NewBloomFilterPolicy(FLAGS_bloom_bits)
-                           : nullptr),
+                   ? FLAGS_use_block_based_filter
+                     ? NewBloomFilterPolicy(FLAGS_bloom_bits, true)
+                     : NewBloomFilterPolicy(FLAGS_bloom_bits, false)
+                   : nullptr),
         db_(nullptr),
-        new_column_family_name_(0),
+        new_column_family_name_(1),
         num_times_reopened_(0) {
     if (FLAGS_destroy_db_initially) {
       std::vector<std::string> files;
@@ -780,7 +785,6 @@ class StressTest {
     }
     column_families_.clear();
     delete db_;
-    delete filter_policy_;
   }
 
   bool Run() {
@@ -1219,12 +1223,20 @@ class StressTest {
           Status s __attribute__((unused));
           s = db_->DropColumnFamily(column_families_[cf]);
           delete column_families_[cf];
-          assert(s.ok());
+          if (!s.ok()) {
+            fprintf(stderr, "dropping column family error: %s\n",
+                s.ToString().c_str());
+            std::terminate();
+          }
           s = db_->CreateColumnFamily(ColumnFamilyOptions(options_), new_name,
                                       &column_families_[cf]);
           column_family_names_[cf] = new_name;
           thread->shared->ClearColumnFamily(cf);
-          assert(s.ok());
+          if (!s.ok()) {
+            fprintf(stderr, "creating column family error: %s\n",
+                s.ToString().c_str());
+            std::terminate();
+          }
           thread->shared->UnlockColumnFamily(cf);
         }
       }
@@ -1299,10 +1311,15 @@ class StressTest {
             }
           }
           thread->shared->Put(rand_column_family, rand_key, value_base);
+          Status s;
           if (FLAGS_use_merge) {
-            db_->Merge(write_opts, column_family, key, v);
+            s = db_->Merge(write_opts, column_family, key, v);
           } else {
-            db_->Put(write_opts, column_family, key, v);
+            s = db_->Put(write_opts, column_family, key, v);
+          }
+          if (!s.ok()) {
+            fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
+            std::terminate();
           }
           thread->stats.AddBytesForWrites(1, sz);
         } else {
@@ -1313,8 +1330,12 @@ class StressTest {
         // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
           thread->shared->Delete(rand_column_family, rand_key);
-          db_->Delete(write_opts, column_family, key);
+          Status s = db_->Delete(write_opts, column_family, key);
           thread->stats.AddDeletes(1);
+          if (!s.ok()) {
+            fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+            std::terminate();
+          }
         } else {
           MultiDelete(thread, write_opts, column_family, key);
         }
@@ -1550,8 +1571,13 @@ class StressTest {
 
   void Open() {
     assert(db_ == nullptr);
-    options_.block_cache = cache_;
-    options_.block_cache_compressed = compressed_cache_;
+    BlockBasedTableOptions block_based_options;
+    block_based_options.block_cache = cache_;
+    block_based_options.block_cache_compressed = compressed_cache_;
+    block_based_options.block_size = FLAGS_block_size;
+    block_based_options.filter_policy = filter_policy_;
+    options_.table_factory.reset(
+        NewBlockBasedTableFactory(block_based_options));
     options_.write_buffer_size = FLAGS_write_buffer_size;
     options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options_.min_write_buffer_number_to_merge =
@@ -1560,8 +1586,6 @@ class StressTest {
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
         static_cast<rocksdb::CompactionStyle>(FLAGS_compaction_style);
-    options_.block_size = FLAGS_block_size;
-    options_.filter_policy = filter_policy_;
     options_.prefix_extractor.reset(NewFixedPrefixTransform(FLAGS_prefix_size));
     options_.max_open_files = FLAGS_open_files;
     options_.statistics = dbstats;
@@ -1718,9 +1742,9 @@ class StressTest {
   }
 
  private:
-  shared_ptr<Cache> cache_;
-  shared_ptr<Cache> compressed_cache_;
-  const FilterPolicy* filter_policy_;
+  std::shared_ptr<Cache> cache_;
+  std::shared_ptr<Cache> compressed_cache_;
+  std::shared_ptr<const FilterPolicy> filter_policy_;
   DB* db_;
   Options options_;
   std::vector<ColumnFamilyHandle*> column_families_;

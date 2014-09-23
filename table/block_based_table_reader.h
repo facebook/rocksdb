@@ -14,6 +14,7 @@
 #include <utility>
 #include <string>
 
+#include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -27,6 +28,8 @@ class BlockIter;
 class BlockHandle;
 class Cache;
 class FilterBlockReader;
+class BlockBasedFilterBlockReader;
+class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
@@ -36,7 +39,6 @@ class TableReader;
 class WritableFile;
 struct BlockBasedTableOptions;
 struct EnvOptions;
-struct Options;
 struct ReadOptions;
 
 using std::unique_ptr;
@@ -47,6 +49,7 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
+  static const std::string kFullFilterBlockPrefix;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -58,7 +61,8 @@ class BlockBasedTable : public TableReader {
   // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& db_options, const EnvOptions& env_options,
+  static Status Open(const ImmutableCFOptions& ioptions,
+                     const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
@@ -183,7 +187,9 @@ class BlockBasedTable : public TableReader {
 
   // Create the filter from the filter block.
   static FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
-                                       Rep* rep, size_t* filter_size = nullptr);
+                                       Rep* rep,
+                                       const std::string& filter_block_prefix,
+                                       size_t* filter_size = nullptr);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 

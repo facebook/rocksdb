@@ -68,6 +68,7 @@ class SstFileReader {
   // options_ and internal_comparator_ will also be used in
   // ReadSequential internally (specifically, seek-related operations)
   Options options_;
+  const ImmutableCFOptions ioptions_;
   InternalKeyComparator internal_comparator_;
   unique_ptr<TableProperties> table_properties_;
 };
@@ -76,7 +77,8 @@ SstFileReader::SstFileReader(const std::string& file_path,
                              bool verify_checksum,
                              bool output_hex)
     :file_name_(file_path), read_num_(0), verify_checksum_(verify_checksum),
-    output_hex_(output_hex), internal_comparator_(BytewiseComparator()) {
+    output_hex_(output_hex), ioptions_(options_),
+    internal_comparator_(BytewiseComparator()) {
   fprintf(stdout, "Process %s\n", file_path.c_str());
 
   init_result_ = NewTableReader(file_name_);
@@ -123,7 +125,7 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
 
   if (s.ok()) {
     s = options_.table_factory->NewTableReader(
-        options_, soptions_, internal_comparator_, std::move(file_), file_size,
+        ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
         &table_reader_);
   }
   return s;

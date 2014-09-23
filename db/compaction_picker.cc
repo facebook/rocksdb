@@ -9,7 +9,10 @@
 
 #include "db/compaction_picker.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <limits>
 #include "db/filename.h"
@@ -39,13 +42,13 @@ CompressionType GetCompressionType(const Options& options, int level,
     return kNoCompression;
   }
   // If the use has specified a different compression level for each level,
-  // then pick the compresison for that level.
+  // then pick the compression for that level.
   if (!options.compression_per_level.empty()) {
     const int n = options.compression_per_level.size() - 1;
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
-    // belongs to.  Likewise, if level_ is beyond the end of the
+    // belongs to.  Likewise, if level is beyond the end of the
     // specified compression levels, use the last value.
     return options.compression_per_level[std::max(0, std::min(level, n))];
   } else {
@@ -173,9 +176,12 @@ void CompactionPicker::GetRange(const std::vector<FileMetaData*>& inputs1,
 }
 
 bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
+  assert(c != nullptr);
   // If inputs are empty then there is nothing to expand.
-  if (!c || c->inputs_[0].empty()) {
-    return true;
+  if (c->inputs_[0].empty()) {
+    assert(c->inputs_[1].empty());
+    // This isn't good compaction
+    return false;
   }
 
   // GetOverlappingInputs will always do the right thing for level-0.
@@ -427,7 +433,7 @@ Compaction* LevelCompactionPicker::PickCompaction(Version* version,
     level = version->compaction_level_[i];
     if ((version->compaction_score_[i] >= 1)) {
       c = PickCompactionBySize(version, level, version->compaction_score_[i]);
-      if (ExpandWhileOverlapping(c) == false) {
+      if (c == nullptr || ExpandWhileOverlapping(c) == false) {
         delete c;
         c = nullptr;
       } else {

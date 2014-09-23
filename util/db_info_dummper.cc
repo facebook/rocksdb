@@ -6,7 +6,10 @@
 // Must not be included from any .h files to avoid polluting the namespace
 // with macros.
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <stdio.h>
 #include <string>

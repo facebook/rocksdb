@@ -297,12 +297,10 @@ uint32_t Block::NumRestarts() const {
   return DecodeFixed32(data_ + size_ - sizeof(uint32_t));
 }
 
-Block::Block(const BlockContents& contents)
-    : data_(contents.data.data()),
-      size_(contents.data.size()),
-      owned_(contents.heap_allocated),
-      cachable_(contents.cachable),
-      compression_type_(contents.compression_type) {
+Block::Block(BlockContents&& contents)
+    : contents_(std::move(contents)),
+      data_(contents_.data.data()),
+      size_(contents_.data.size()) {
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
@@ -315,13 +313,8 @@ Block::Block(const BlockContents& contents)
   }
 }
 
-Block::~Block() {
-  if (owned_) {
-    delete[] data_;
-  }
-}
-
-Iterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter) {
+Iterator* Block::NewIterator(
+    const Comparator* cmp, BlockIter* iter, bool total_order_seek) {
   if (size_ < 2*sizeof(uint32_t)) {
     if (iter != nullptr) {
       iter->SetStatus(Status::Corruption("bad block contents"));
@@ -339,12 +332,17 @@ Iterator* Block::NewIterator(const Comparator* cmp, BlockIter* iter) {
       return NewEmptyIterator();
     }
   } else {
+    BlockHashIndex* hash_index_ptr =
+        total_order_seek ? nullptr : hash_index_.get();
+    BlockPrefixIndex* prefix_index_ptr =
+        total_order_seek ? nullptr : prefix_index_.get();
+
     if (iter != nullptr) {
       iter->Initialize(cmp, data_, restart_offset_, num_restarts,
-                    hash_index_.get(), prefix_index_.get());
+                    hash_index_ptr, prefix_index_ptr);
     } else {
       iter = new BlockIter(cmp, data_, restart_offset_, num_restarts,
-                    hash_index_.get(), prefix_index_.get());
+                           hash_index_ptr, prefix_index_ptr);
     }
   }
 

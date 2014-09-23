@@ -87,7 +87,7 @@ class PlainTableIterator : public Iterator {
 };
 
 extern const uint64_t kPlainTableMagicNumber;
-PlainTableReader::PlainTableReader(const Options& options,
+PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
                                    unique_ptr<RandomAccessFile>&& file,
                                    const EnvOptions& storage_options,
                                    const InternalKeyComparator& icomparator,
@@ -99,10 +99,10 @@ PlainTableReader::PlainTableReader(const Options& options,
       full_scan_mode_(false),
       data_end_offset_(table_properties->data_size),
       user_key_len_(table_properties->fixed_key_len),
-      prefix_extractor_(options.prefix_extractor.get()),
+      prefix_extractor_(ioptions.prefix_extractor),
       enable_bloom_(false),
       bloom_(6, nullptr),
-      options_(options),
+      ioptions_(ioptions),
       file_(std::move(file)),
       file_size_(file_size),
       table_properties_(nullptr) {}
@@ -110,8 +110,8 @@ PlainTableReader::PlainTableReader(const Options& options,
 PlainTableReader::~PlainTableReader() {
 }
 
-Status PlainTableReader::Open(const Options& options,
-                              const EnvOptions& soptions,
+Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
+                              const EnvOptions& env_options,
                               const InternalKeyComparator& internal_comparator,
                               unique_ptr<RandomAccessFile>&& file,
                               uint64_t file_size,
@@ -119,14 +119,14 @@ Status PlainTableReader::Open(const Options& options,
                               const int bloom_bits_per_key,
                               double hash_table_ratio, size_t index_sparseness,
                               size_t huge_page_tlb_size, bool full_scan_mode) {
-  assert(options.allow_mmap_reads);
+  assert(ioptions.allow_mmap_reads);
   if (file_size > PlainTableIndex::kMaxFileSize) {
     return Status::NotSupported("File is too large for PlainTableReader!");
   }
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                               options.env, options.info_log.get(), &props);
+                               ioptions.env, ioptions.info_log, &props);
   if (!s.ok()) {
     return s;
   }
@@ -137,12 +137,12 @@ Status PlainTableReader::Open(const Options& options,
       user_props.find(PlainTablePropertyNames::kPrefixExtractorName);
 
   if (!full_scan_mode && prefix_extractor_in_file != user_props.end()) {
-    if (!options.prefix_extractor) {
+    if (!ioptions.prefix_extractor) {
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
           "using a prefix extractor");
     } else if (prefix_extractor_in_file->second.compare(
-                   options.prefix_extractor->Name()) != 0) {
+                   ioptions.prefix_extractor->Name()) != 0) {
       return Status::InvalidArgument(
           "Prefix extractor given doesn't match the one used to build "
           "PlainTable");
@@ -158,8 +158,8 @@ Status PlainTableReader::Open(const Options& options,
   }
 
   std::unique_ptr<PlainTableReader> new_reader(new PlainTableReader(
-      options, std::move(file), soptions, internal_comparator, encoding_type,
-      file_size, props));
+      ioptions, std::move(file), env_options, internal_comparator,
+      encoding_type, file_size, props));
 
   s = new_reader->MmapDataFile();
   if (!s.ok()) {
@@ -187,6 +187,10 @@ void PlainTableReader::SetupForCompaction() {
 
 Iterator* PlainTableReader::NewIterator(const ReadOptions& options,
                                         Arena* arena) {
+  if (options.total_order_seek && !IsTotalOrderMode()) {
+    return NewErrorIterator(
+        Status::InvalidArgument("total_order_seek not supported"), arena);
+  }
   if (arena == nullptr) {
     return new PlainTableIterator(this, prefix_extractor_ != nullptr);
   } else {
@@ -203,7 +207,7 @@ Status PlainTableReader::PopulateIndexRecordList(
   bool is_first_record = true;
   Slice key_prefix_slice;
   PlainTableKeyDecoder decoder(encoding_type_, user_key_len_,
-                               options_.prefix_extractor.get());
+                               ioptions_.prefix_extractor);
   while (pos < data_end_offset_) {
     uint32_t key_offset = pos;
     ParsedInternalKey key;
@@ -248,8 +252,8 @@ void PlainTableReader::AllocateAndFillBloom(int bloom_bits_per_key,
     uint32_t bloom_total_bits = num_prefixes * bloom_bits_per_key;
     if (bloom_total_bits > 0) {
       enable_bloom_ = true;
-      bloom_.SetTotalBits(&arena_, bloom_total_bits, options_.bloom_locality,
-                          huge_page_tlb_size, options_.info_log.get());
+      bloom_.SetTotalBits(&arena_, bloom_total_bits, ioptions_.bloom_locality,
+                          huge_page_tlb_size, ioptions_.info_log);
       FillBloom(prefix_hashes);
     }
   }
@@ -277,14 +281,14 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   BlockContents bloom_block_contents;
   auto s = ReadMetaBlock(file_.get(), file_size_, kPlainTableMagicNumber,
-                         options_.env, BloomBlockBuilder::kBloomBlock,
+                         ioptions_.env, BloomBlockBuilder::kBloomBlock,
                          &bloom_block_contents);
   bool index_in_file = s.ok();
 
   BlockContents index_block_contents;
   s = ReadMetaBlock(file_.get(), file_size_, kPlainTableMagicNumber,
-                    options_.env, PlainTableIndexBuilder::kPlainTableIndexBlock,
-                    &index_block_contents);
+      ioptions_.env, PlainTableIndexBuilder::kPlainTableIndexBlock,
+      &index_block_contents);
 
   index_in_file &= s.ok();
 
@@ -306,8 +310,9 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     index_block = nullptr;
   }
 
-  if ((options_.prefix_extractor.get() == nullptr) && (hash_table_ratio != 0)) {
-  // options.prefix_extractor is requried for a hash-based look-up.
+  if ((ioptions_.prefix_extractor == nullptr) &&
+      (hash_table_ratio != 0)) {
+    // ioptions.prefix_extractor is requried for a hash-based look-up.
     return Status::NotSupported(
         "PlainTable requires a prefix extractor enable prefix hash mode.");
   }
@@ -324,8 +329,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
           table_properties_->num_entries * bloom_bits_per_key;
       if (num_bloom_bits > 0) {
         enable_bloom_ = true;
-        bloom_.SetTotalBits(&arena_, num_bloom_bits, options_.bloom_locality,
-                            huge_page_tlb_size, options_.info_log.get());
+        bloom_.SetTotalBits(&arena_, num_bloom_bits, ioptions_.bloom_locality,
+                            huge_page_tlb_size, ioptions_.info_log);
       }
     }
   } else {
@@ -347,7 +352,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
         bloom_block->size() * 8, num_blocks);
   }
 
-  PlainTableIndexBuilder index_builder(&arena_, options_, index_sparseness,
+  PlainTableIndexBuilder index_builder(&arena_, ioptions_, index_sparseness,
                                        hash_table_ratio, huge_page_tlb_size);
 
   std::vector<uint32_t> prefix_hashes;
@@ -418,7 +423,7 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
     uint32_t file_offset = GetFixed32Element(base_ptr, mid);
     size_t tmp;
     Status s = PlainTableKeyDecoder(encoding_type_, user_key_len_,
-                                    options_.prefix_extractor.get())
+                                    ioptions_.prefix_extractor)
                    .NextKey(file_data_.data() + file_offset,
                             file_data_.data() + data_end_offset_, &mid_key,
                             nullptr, &tmp);
@@ -447,7 +452,7 @@ Status PlainTableReader::GetOffset(const Slice& target, const Slice& prefix,
   size_t tmp;
   uint32_t low_key_offset = GetFixed32Element(base_ptr, low);
   Status s = PlainTableKeyDecoder(encoding_type_, user_key_len_,
-                                  options_.prefix_extractor.get())
+                                  ioptions_.prefix_extractor)
                  .NextKey(file_data_.data() + low_key_offset,
                           file_data_.data() + data_end_offset_, &low_key,
                           nullptr, &tmp);
@@ -561,7 +566,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   }
   Slice found_value;
   PlainTableKeyDecoder decoder(encoding_type_, user_key_len_,
-                               options_.prefix_extractor.get());
+                               ioptions_.prefix_extractor);
   while (offset < data_end_offset_) {
     Status s = Next(&decoder, &offset, &found_key, nullptr, &found_value);
     if (!s.ok()) {

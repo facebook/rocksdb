@@ -60,7 +60,7 @@ GenericRateLimiter::~GenericRateLimiter() {
 }
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
-  assert(bytes < refill_bytes_per_period_);
+  assert(bytes <= refill_bytes_per_period_);
 
   MutexLock g(&request_mutex_);
   if (stop_) {

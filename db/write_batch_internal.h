@@ -28,6 +28,7 @@ class ColumnFamilyMemTables {
   virtual MemTable* GetMemTable() const = 0;
   virtual const Options* GetOptions() const = 0;
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
+  virtual void CheckMemtableFull() = 0;
 };
 
 class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
@@ -53,6 +54,8 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
   }
 
   ColumnFamilyHandle* GetColumnFamilyHandle() override { return nullptr; }
+
+  void CheckMemtableFull() override {}
 
  private:
   bool ok_;
@@ -106,18 +109,18 @@ class WriteBatchInternal {
   // Inserts batch entries into memtable
   // If dont_filter_deletes is false AND options.filter_deletes is true,
   // then --> Drops deletes in batch if db->KeyMayExist returns false
-  // If recovery == true, this means InsertInto is executed on a recovery
-  // code-path. WriteBatch referencing a dropped column family can be
-  // found on a recovery code-path and should be ignored (recovery should not
-  // fail). Additionally, the memtable will be updated only if
+  // If ignore_missing_column_families == true. WriteBatch referencing
+  // non-existing column family should be ignored.
+  // However, if ignore_missing_column_families == false, any WriteBatch
+  // referencing non-existing column family will return a InvalidArgument()
+  // failure.
+  //
+  // If log_number is non-zero, the memtable will be updated only if
   // memtables->GetLogNumber() >= log_number
-  // However, if recovery == false, any WriteBatch referencing
-  // non-existing column family will return a failure. Also, log_number is
-  // ignored in that case
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
-                           bool recovery = false, uint64_t log_number = 0,
-                           DB* db = nullptr,
+                           bool ignore_missing_column_families = false,
+                           uint64_t log_number = 0, DB* db = nullptr,
                            const bool dont_filter_deletes = true);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);

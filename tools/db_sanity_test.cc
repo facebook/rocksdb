@@ -8,14 +8,15 @@
 #include <vector>
 #include <memory>
 
-#include "include/rocksdb/db.h"
-#include "include/rocksdb/options.h"
-#include "include/rocksdb/env.h"
-#include "include/rocksdb/slice.h"
-#include "include/rocksdb/status.h"
-#include "include/rocksdb/comparator.h"
-#include "include/rocksdb/table.h"
-#include "include/rocksdb/slice_transform.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/env.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/table.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/filter_policy.h"
 
 namespace rocksdb {
 
@@ -49,7 +50,7 @@ class SanityTest {
         return s;
       }
     }
-    return Status::OK();
+    return db->Flush(FlushOptions());
   }
   Status Verify() {
     DB* db;
@@ -146,13 +147,29 @@ class SanityTestPlainTableFactory : public SanityTest {
   Options options_;
 };
 
+class SanityTestBloomFilter : public SanityTest {
+ public:
+  explicit SanityTestBloomFilter(const std::string& path) : SanityTest(path) {
+    BlockBasedTableOptions table_options;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+  ~SanityTestBloomFilter() {}
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "BloomFilter"; }
+
+ private:
+  Options options_;
+};
+
 namespace {
 bool RunSanityTests(const std::string& command, const std::string& path) {
   std::vector<SanityTest*> sanity_tests = {
       new SanityTestBasic(path),
       new SanityTestSpecialComparator(path),
       new SanityTestZlibCompression(path),
-      new SanityTestPlainTableFactory(path)};
+      new SanityTestPlainTableFactory(path),
+      new SanityTestBloomFilter(path)};
 
   if (command == "create") {
     fprintf(stderr, "Creating...\n");

@@ -6,9 +6,10 @@
 #ifndef ROCKSDB_LITE
 #include "db/forward_iterator.h"
 
+#include <limits>
 #include <string>
 #include <utility>
-#include <limits>
+
 #include "db/db_impl.h"
 #include "db/db_iter.h"
 #include "db/column_family.h"
@@ -37,11 +38,15 @@ class LevelIterator : public Iterator {
     assert(file_index < files_.size());
     if (file_index != file_index_) {
       file_index_ = file_index;
-      file_iter_.reset(cfd_->table_cache()->NewIterator(
-          read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-          files_[file_index_]->fd, nullptr /* table_reader_ptr */, false));
+      Reset();
     }
     valid_ = false;
+  }
+  void Reset() {
+    assert(file_index_ < files_.size());
+    file_iter_.reset(cfd_->table_cache()->NewIterator(
+        read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
+        files_[file_index_]->fd, nullptr /* table_reader_ptr */, false));
   }
   void SeekToLast() override {
     status_ = Status::NotSupported("LevelIterator::SeekToLast()");
@@ -63,12 +68,15 @@ class LevelIterator : public Iterator {
     assert(file_iter_ != nullptr);
     file_iter_->Seek(internal_key);
     valid_ = file_iter_->Valid();
-    assert(valid_);
   }
   void Next() override {
     assert(valid_);
     file_iter_->Next();
-    while (!file_iter_->Valid()) {
+    for (;;) {
+      if (file_iter_->status().IsIncomplete() || file_iter_->Valid()) {
+        valid_ = !file_iter_->status().IsIncomplete();
+        return;
+      }
       if (file_index_ + 1 >= files_.size()) {
         valid_ = false;
         return;
@@ -76,7 +84,6 @@ class LevelIterator : public Iterator {
       SetFileIndex(file_index_ + 1);
       file_iter_->SeekToFirst();
     }
-    valid_ = file_iter_->Valid();
   }
   Slice key() const override {
     assert(valid_);
@@ -125,9 +132,11 @@ ForwardIterator::~ForwardIterator() {
 }
 
 void ForwardIterator::Cleanup() {
-  delete mutable_iter_;
+  if (mutable_iter_ != nullptr) {
+    mutable_iter_->~Iterator();
+  }
   for (auto* m : imm_iters_) {
-    delete m;
+    m->~Iterator();
   }
   imm_iters_.clear();
   for (auto* f : l0_iters_) {
@@ -160,6 +169,8 @@ void ForwardIterator::SeekToFirst() {
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
     RebuildIterators();
+  } else if (status_.IsIncomplete()) {
+    ResetIncompleteIterators();
   }
   SeekInternal(Slice(), true);
 }
@@ -168,6 +179,8 @@ void ForwardIterator::Seek(const Slice& internal_key) {
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
     RebuildIterators();
+  } else if (status_.IsIncomplete()) {
+    ResetIncompleteIterators();
   }
   SeekInternal(internal_key, false);
 }
@@ -211,7 +224,15 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         }
         l0_iters_[i]->Seek(internal_key);
       }
-      if (l0_iters_[i]->Valid()) {
+
+      if (l0_iters_[i]->status().IsIncomplete()) {
+        // if any of the immutable iterators is incomplete (no-io option was
+        // used), we are unable to reliably find the smallest key
+        assert(read_options_.read_tier == kBlockCacheTier);
+        status_ = l0_iters_[i]->status();
+        valid_ = false;
+        return;
+      } else if (l0_iters_[i]->Valid()) {
         immutable_min_heap_.push(l0_iters_[i]);
       }
     }
@@ -280,7 +301,14 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         level_iters_[level - 1]->SetFileIndex(f_idx);
         seek_to_first ? level_iters_[level - 1]->SeekToFirst() :
                         level_iters_[level - 1]->Seek(internal_key);
-        if (level_iters_[level - 1]->Valid()) {
+
+        if (level_iters_[level - 1]->status().IsIncomplete()) {
+          // see above
+          assert(read_options_.read_tier == kBlockCacheTier);
+          status_ = level_iters_[level - 1]->status();
+          valid_ = false;
+          return;
+        } else if (level_iters_[level - 1]->Valid()) {
           immutable_min_heap_.push(level_iters_[level - 1]);
         }
       }
@@ -304,7 +332,7 @@ void ForwardIterator::Next() {
   assert(valid_);
 
   if (sv_ == nullptr ||
-      sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
+      sv_->version_number != cfd_->GetSuperVersionNumber()) {
     std::string current_key = key().ToString();
     Slice old_key(current_key.data(), current_key.size());
 
@@ -320,9 +348,17 @@ void ForwardIterator::Next() {
   }
 
   current_->Next();
-  if (current_->Valid() && current_ != mutable_iter_) {
-    immutable_min_heap_.push(current_);
+  if (current_ != mutable_iter_) {
+    if (current_->status().IsIncomplete()) {
+      assert(read_options_.read_tier == kBlockCacheTier);
+      status_ = current_->status();
+      valid_ = false;
+      return;
+    } else if (current_->Valid()) {
+      immutable_min_heap_.push(current_);
+    }
   }
+
   UpdateCurrent();
 }
 
@@ -367,8 +403,8 @@ void ForwardIterator::RebuildIterators() {
   Cleanup();
   // New
   sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
-  mutable_iter_ = sv_->mem->NewIterator(read_options_);
-  sv_->imm->AddIterators(read_options_, &imm_iters_);
+  mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
+  sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
   const auto& l0_files = sv_->current->files_[0];
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {
@@ -382,6 +418,29 @@ void ForwardIterator::RebuildIterators() {
     } else {
       level_iters_.push_back(new LevelIterator(cfd_, read_options_,
           sv_->current->files_[level]));
+    }
+  }
+
+  current_ = nullptr;
+  is_prev_set_ = false;
+}
+
+void ForwardIterator::ResetIncompleteIterators() {
+  const auto& l0_files = sv_->current->files_[0];
+  for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
+    assert(i < l0_files.size());
+    if (!l0_iters_[i]->status().IsIncomplete()) {
+      continue;
+    }
+    delete l0_iters_[i];
+    l0_iters_[i] = cfd_->table_cache()->NewIterator(
+        read_options_, *cfd_->soptions(), cfd_->internal_comparator(),
+        l0_files[i]->fd);
+  }
+
+  for (auto* level_iter : level_iters_) {
+    if (level_iter && level_iter->status().IsIncomplete()) {
+      level_iter->Reset();
     }
   }
 
@@ -417,7 +476,7 @@ void ForwardIterator::UpdateCurrent() {
 }
 
 bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
-  if (!is_prev_set_) {
+  if (!valid_ || !is_prev_set_) {
     return true;
   }
   Slice prev_key = prev_key_.GetKey();

@@ -131,8 +131,6 @@ TEST(CuckooTableDBTest, Flush) {
   ASSERT_EQ("v2", Get("key2"));
   ASSERT_EQ("v3", Get("key3"));
   ASSERT_EQ("NOT_FOUND", Get("key4"));
-  ASSERT_EQ("Invalid argument: Length of key is invalid.", Get("somelongkey"));
-  ASSERT_EQ("Invalid argument: Length of key is invalid.", Get("s"));
 
   // Now add more keys and flush.
   ASSERT_OK(Put("key4", "v4"));
@@ -195,6 +193,38 @@ static std::string Key(int i) {
   snprintf(buf, sizeof(buf), "key_______%06d", i);
   return std::string(buf);
 }
+static std::string Uint64Key(uint64_t i) {
+  std::string str;
+  str.resize(8);
+  memcpy(&str[0], static_cast<void*>(&i), 8);
+  return str;
+}
+}  // namespace.
+
+TEST(CuckooTableDBTest, Uint64Comparator) {
+  Options options = CurrentOptions();
+  options.comparator = test::Uint64Comparator();
+  Reopen(&options);
+
+  ASSERT_OK(Put(Uint64Key(1), "v1"));
+  ASSERT_OK(Put(Uint64Key(2), "v2"));
+  ASSERT_OK(Put(Uint64Key(3), "v3"));
+  dbfull()->TEST_FlushMemTable();
+
+  ASSERT_EQ("v1", Get(Uint64Key(1)));
+  ASSERT_EQ("v2", Get(Uint64Key(2)));
+  ASSERT_EQ("v3", Get(Uint64Key(3)));
+  ASSERT_EQ("NOT_FOUND", Get(Uint64Key(4)));
+
+  // Add more keys.
+  ASSERT_OK(Delete(Uint64Key(2)));  // Delete.
+  ASSERT_OK(Put(Uint64Key(3), "v0"));  // Update.
+  ASSERT_OK(Put(Uint64Key(4), "v4"));
+  dbfull()->TEST_FlushMemTable();
+  ASSERT_EQ("v1", Get(Uint64Key(1)));
+  ASSERT_EQ("NOT_FOUND", Get(Uint64Key(2)));
+  ASSERT_EQ("v0", Get(Uint64Key(3)));
+  ASSERT_EQ("v4", Get(Uint64Key(4)));
 }
 
 TEST(CuckooTableDBTest, CompactionTrigger) {
@@ -215,10 +245,34 @@ TEST(CuckooTableDBTest, CompactionTrigger) {
     ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
   }
   dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_EQ("2", FilesPerLevel());
 
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
   ASSERT_EQ("0,2", FilesPerLevel());
   for (int idx = 0; idx < 22; ++idx) {
+    ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
+  }
+}
+
+TEST(CuckooTableDBTest, CompactionIntoMultipleFiles) {
+  // Create a big L0 file and check it compacts into multiple files in L1.
+  Options options = CurrentOptions();
+  options.write_buffer_size = 270 << 10;
+  // Two SST files should be created, each containing 14 keys.
+  // Number of buckets will be 16. Total size ~156 KB.
+  options.target_file_size_base = 160 << 10;
+  Reopen(&options);
+
+  // Write 28 values, each 10016 B ~ 10KB
+  for (int idx = 0; idx < 28; ++idx) {
+    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_EQ("1", FilesPerLevel());
+
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  ASSERT_EQ("0,2", FilesPerLevel());
+  for (int idx = 0; idx < 28; ++idx) {
     ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
   }
 }

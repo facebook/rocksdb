@@ -123,7 +123,7 @@ class DB {
 
   // Open DB with column families.
   // db_options specify database specific options
-  // column_families is the vector of all column families in the databse,
+  // column_families is the vector of all column families in the database,
   // containing column family name and options. You need to open ALL column
   // families in the database. To get the list of column families, you can use
   // ListColumnFamilies(). Also, you can open only a subset of column families
@@ -358,6 +358,14 @@ class DB {
                               uint32_t target_path_id = 0) {
     return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
                         target_level, target_path_id);
+  }
+  virtual bool SetOptions(ColumnFamilyHandle* column_family,
+      const std::unordered_map<std::string, std::string>& new_options) {
+    return true;
+  }
+  virtual bool SetOptions(
+      const std::unordered_map<std::string, std::string>& new_options) {
+    return SetOptions(DefaultColumnFamily(), new_options);
   }
 
   // Number of levels used for this DB.

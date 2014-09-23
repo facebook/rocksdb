@@ -21,7 +21,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
-#include "rocksdb/filter_policy.h"
+#include "rocksdb/rate_limiter.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -71,7 +71,7 @@ jboolean Java_org_rocksdb_Options_createIfMissing(
 void Java_org_rocksdb_Options_setWriteBufferSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jwrite_buffer_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
-          static_cast<size_t>(jwrite_buffer_size);
+          rocksdb::jlong_to_size_t(jwrite_buffer_size);
 }
 
 
@@ -120,66 +120,12 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    setFilterHandle
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setFilterHandle(
-    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jfilter_handle) {
-  reinterpret_cast<rocksdb::Options*>(jopt_handle)->filter_policy =
-      reinterpret_cast<rocksdb::FilterPolicy*>(jfilter_handle);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    maxWriteBufferNumber
  * Signature: (J)I
  */
 jint Java_org_rocksdb_Options_maxWriteBufferNumber(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->max_write_buffer_number;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setBlockSize
- * Signature: (JJ)V
- */
-void Java_org_rocksdb_Options_setBlockSize(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jblock_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size =
-          static_cast<size_t>(jblock_size);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    blockSize
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_Options_blockSize(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setDisableSeekCompaction
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setDisableSeekCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jboolean jdisable_seek_compaction) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction =
-         jdisable_seek_compaction;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    disableSeekCompaction
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_disableSeekCompaction(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->disable_seek_compaction;
 }
 
 /*
@@ -285,27 +231,6 @@ void Java_org_rocksdb_Options_setUseFsync(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean use_fsync) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->use_fsync =
       static_cast<bool>(use_fsync);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    dbStatsLogInterval
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_dbStatsLogInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->db_stats_log_interval;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setDbStatsLogInterval
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setDbStatsLogInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint db_stats_log_interval) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->db_stats_log_interval =
-      static_cast<int>(db_stats_log_interval);
 }
 
 /*
@@ -438,7 +363,7 @@ jlong Java_org_rocksdb_Options_maxLogFileSize(
 void Java_org_rocksdb_Options_setMaxLogFileSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong max_log_file_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->max_log_file_size =
-      static_cast<size_t>(max_log_file_size);
+      rocksdb::jlong_to_size_t(max_log_file_size);
 }
 
 /*
@@ -459,7 +384,7 @@ jlong Java_org_rocksdb_Options_logFileTimeToRoll(
 void Java_org_rocksdb_Options_setLogFileTimeToRoll(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong log_file_time_to_roll) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->log_file_time_to_roll =
-      static_cast<size_t>(log_file_time_to_roll);
+      rocksdb::jlong_to_size_t(log_file_time_to_roll);
 }
 
 /*
@@ -480,7 +405,7 @@ jlong Java_org_rocksdb_Options_keepLogFileNum(
 void Java_org_rocksdb_Options_setKeepLogFileNum(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong keep_log_file_num) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->keep_log_file_num =
-      static_cast<size_t>(keep_log_file_num);
+      rocksdb::jlong_to_size_t(keep_log_file_num);
 }
 
 /*
@@ -537,6 +462,17 @@ void Java_org_rocksdb_Options_setMemTableFactory(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
+      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    tableCacheNumshardbits
  * Signature: (J)I
  */
@@ -585,7 +521,8 @@ void Java_org_rocksdb_Options_setTableCacheRemoveScanCountLimit(
 void Java_org_rocksdb_Options_useFixedLengthPrefixExtractor(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jprefix_length) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->prefix_extractor.reset(
-      rocksdb::NewFixedPrefixTransform(static_cast<size_t>(jprefix_length)));
+      rocksdb::NewFixedPrefixTransform(
+          rocksdb::jlong_to_size_t(jprefix_length)));
 }
 
 /*
@@ -649,7 +586,7 @@ jlong Java_org_rocksdb_Options_manifestPreallocationSize(
 void Java_org_rocksdb_Options_setManifestPreallocationSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong preallocation_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->manifest_preallocation_size =
-      static_cast<size_t>(preallocation_size);
+      rocksdb::jlong_to_size_t(preallocation_size);
 }
 
 /*
@@ -916,27 +853,6 @@ void Java_org_rocksdb_Options_setMinWriteBufferNumberToMerge(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    blockRestartInterval
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_blockRestartInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_restart_interval;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setBlockRestartInterval
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setBlockRestartInterval(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint jblock_restart_interval) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_restart_interval =
-      static_cast<int>(jblock_restart_interval);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    setCompressionType
  * Signature: (JB)V
  */
@@ -975,27 +891,6 @@ void Java_org_rocksdb_Options_setCompactionStyle(
 jbyte Java_org_rocksdb_Options_compactionStyle(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_style;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    wholeKeyFiltering
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_wholeKeyFiltering(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->whole_key_filtering;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setWholeKeyFiltering
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setWholeKeyFiltering(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jwhole_key_filtering) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->whole_key_filtering =
-      static_cast<bool>(jwhole_key_filtering);
 }
 
 /*
@@ -1347,27 +1242,6 @@ void Java_org_rocksdb_Options_setRateLimitDelayMaxMilliseconds(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    noBlockCache
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_noBlockCache(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->no_block_cache;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setNoBlockCache
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setNoBlockCache(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean jno_block_cache) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->no_block_cache =
-      static_cast<bool>(jno_block_cache);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    arenaBlockSize
  * Signature: (J)J
  */
@@ -1384,7 +1258,7 @@ jlong Java_org_rocksdb_Options_arenaBlockSize(
 void Java_org_rocksdb_Options_setArenaBlockSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jarena_block_size) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->arena_block_size =
-      static_cast<size_t>(jarena_block_size);
+      rocksdb::jlong_to_size_t(jarena_block_size);
 }
 
 /*
@@ -1433,28 +1307,6 @@ void Java_org_rocksdb_Options_setPurgeRedundantKvsWhileFlush(
   reinterpret_cast<rocksdb::Options*>(
       jhandle)->purge_redundant_kvs_while_flush =
           static_cast<bool>(jpurge_redundant_kvs_while_flush);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    blockSizeDeviation
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_blockSizeDeviation(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->block_size_deviation;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setBlockSizeDeviation
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setBlockSizeDeviation(
-    JNIEnv* env, jobject jobj, jlong jhandle,
-    jint jblock_size_deviation) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->block_size_deviation =
-      static_cast<int>(jblock_size_deviation);
 }
 
 /*
@@ -1571,7 +1423,7 @@ void Java_org_rocksdb_Options_setInplaceUpdateNumLocks(
     jlong jinplace_update_num_locks) {
   reinterpret_cast<rocksdb::Options*>(
       jhandle)->inplace_update_num_locks =
-          static_cast<size_t>(jinplace_update_num_locks);
+          rocksdb::jlong_to_size_t(jinplace_update_num_locks);
 }
 
 /*
@@ -1662,7 +1514,7 @@ void Java_org_rocksdb_Options_setMaxSuccessiveMerges(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jlong jmax_successive_merges) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->max_successive_merges =
-      static_cast<size_t>(jmax_successive_merges);
+      rocksdb::jlong_to_size_t(jmax_successive_merges);
 }
 
 /*

@@ -16,9 +16,7 @@
 namespace rocksdb {
 
 MetaIndexBuilder::MetaIndexBuilder()
-    : meta_index_block_(
-        new BlockBuilder(1 /* restart interval */, BytewiseComparator())) {
-}
+    : meta_index_block_(new BlockBuilder(1 /* restart interval */)) {}
 
 void MetaIndexBuilder::Add(const std::string& key,
                            const BlockHandle& handle) {
@@ -35,9 +33,7 @@ Slice MetaIndexBuilder::Finish() {
 }
 
 PropertyBlockBuilder::PropertyBlockBuilder()
-  : properties_block_(
-      new BlockBuilder(1 /* restart interval */, BytewiseComparator())) {
-}
+    : properties_block_(new BlockBuilder(1 /* restart interval */)) {}
 
 void PropertyBlockBuilder::Add(const std::string& name,
                                const std::string& val) {
@@ -145,14 +141,15 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
   BlockContents block_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  Status s = ReadBlockContents(file, footer, read_options, handle,
-                               &block_contents, env, false);
+  Status s;
+  s = ReadBlockContents(file, footer, read_options, handle, &block_contents,
+                        env, false);
 
   if (!s.ok()) {
     return s;
   }
 
-  Block properties_block(block_contents);
+  Block properties_block(std::move(block_contents));
   std::unique_ptr<Iterator> iter(
       properties_block.NewIterator(BytewiseComparator()));
 
@@ -237,7 +234,7 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  Block metaindex_block(metaindex_contents);
+  Block metaindex_block(std::move(metaindex_contents));
   std::unique_ptr<Iterator> meta_iter(
       metaindex_block.NewIterator(BytewiseComparator()));
 
@@ -291,7 +288,7 @@ Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
   if (!s.ok()) {
     return s;
   }
-  Block metaindex_block(metaindex_contents);
+  Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<Iterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
@@ -303,10 +300,11 @@ Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
                      uint64_t table_magic_number, Env* env,
                      const std::string& meta_block_name,
                      BlockContents* contents) {
+  Status status;
   Footer footer(table_magic_number);
-  auto s = ReadFooterFromFile(file, file_size, &footer);
-  if (!s.ok()) {
-    return s;
+  status = ReadFooterFromFile(file, file_size, &footer);
+  if (!status.ok()) {
+    return status;
   }
 
   // Reading metaindex block
@@ -314,30 +312,28 @@ Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
   BlockContents metaindex_contents;
   ReadOptions read_options;
   read_options.verify_checksums = false;
-  s = ReadBlockContents(file, footer, read_options, metaindex_handle,
-                        &metaindex_contents, env, false);
-  if (!s.ok()) {
-    return s;
+  status = ReadBlockContents(file, footer, read_options, metaindex_handle,
+                             &metaindex_contents, env, false);
+  if (!status.ok()) {
+    return status;
   }
 
   // Finding metablock
-  Block metaindex_block(metaindex_contents);
+  Block metaindex_block(std::move(metaindex_contents));
 
   std::unique_ptr<Iterator> meta_iter;
   meta_iter.reset(metaindex_block.NewIterator(BytewiseComparator()));
 
   BlockHandle block_handle;
-  s = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);
+  status = FindMetaBlock(meta_iter.get(), meta_block_name, &block_handle);
 
-  if (!s.ok()) {
-    return s;
+  if (!status.ok()) {
+    return status;
   }
 
   // Reading metablock
-  s = ReadBlockContents(file, footer, read_options, block_handle, contents, env,
-                        false);
-
-  return s;
+  return ReadBlockContents(file, footer, read_options, block_handle, contents,
+                           env, false);
 }
 
 }  // namespace rocksdb

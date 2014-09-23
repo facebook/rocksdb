@@ -151,41 +151,53 @@ TEST(SpatialDBTest, FeatureSetTest) {
 }
 
 TEST(SpatialDBTest, SimpleTest) {
-  ASSERT_OK(SpatialDB::Create(
-      SpatialDBOptions(), dbname_,
-      {SpatialIndexOptions("index", BoundingBox<double>(0, 0, 128, 128), 3)}));
-  ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
+  // iter 0 -- not read only
+  // iter 1 -- read only
+  for (int iter = 0; iter < 2; ++iter) {
+    DestroyDB(dbname_, Options());
+    ASSERT_OK(SpatialDB::Create(
+        SpatialDBOptions(), dbname_,
+        {SpatialIndexOptions("index", BoundingBox<double>(0, 0, 128, 128),
+                             3)}));
+    ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_));
 
-  ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(33, 17, 63, 79),
-                        "one", FeatureSet(), {"index"}));
-  ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(65, 65, 111, 111),
-                        "two", FeatureSet(), {"index"}));
-  ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(1, 49, 127, 63),
-                        "three", FeatureSet(), {"index"}));
-  ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(20, 100, 21, 101),
-                        "four", FeatureSet(), {"index"}));
-  ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(81, 33, 127, 63),
-                        "five", FeatureSet(), {"index"}));
-  ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(1, 65, 47, 95),
-                        "six", FeatureSet(), {"index"}));
+    ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(33, 17, 63, 79),
+                          "one", FeatureSet(), {"index"}));
+    ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(65, 65, 111, 111),
+                          "two", FeatureSet(), {"index"}));
+    ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(1, 49, 127, 63),
+                          "three", FeatureSet(), {"index"}));
+    ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(20, 100, 21, 101),
+                          "four", FeatureSet(), {"index"}));
+    ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(81, 33, 127, 63),
+                          "five", FeatureSet(), {"index"}));
+    ASSERT_OK(db_->Insert(WriteOptions(), BoundingBox<double>(1, 65, 47, 95),
+                          "six", FeatureSet(), {"index"}));
 
-  AssertCursorResults(BoundingBox<double>(33, 17, 47, 31), "index", {"one"});
-  AssertCursorResults(BoundingBox<double>(17, 33, 79, 63), "index",
-                      {"one", "three"});
-  AssertCursorResults(BoundingBox<double>(17, 81, 63, 111), "index",
-                      {"four", "six"});
-  AssertCursorResults(BoundingBox<double>(85, 86, 85, 86), "index", {"two"});
-  AssertCursorResults(BoundingBox<double>(33, 1, 127, 111), "index",
-                      {"one", "two", "three", "five", "six"});
-  // even though the bounding box doesn't intersect, we got "four" back because
-  // it's in the same tile
-  AssertCursorResults(BoundingBox<double>(18, 98, 19, 99), "index", {"four"});
-  AssertCursorResults(BoundingBox<double>(130, 130, 131, 131), "index", {});
-  AssertCursorResults(BoundingBox<double>(81, 17, 127, 31), "index", {});
-  AssertCursorResults(BoundingBox<double>(90, 50, 91, 51), "index",
-                      {"three", "five"});
+    if (iter == 1) {
+      delete db_;
+      ASSERT_OK(SpatialDB::Open(SpatialDBOptions(), dbname_, &db_, true));
+    }
 
-  delete db_;
+    AssertCursorResults(BoundingBox<double>(33, 17, 47, 31), "index", {"one"});
+    AssertCursorResults(BoundingBox<double>(17, 33, 79, 63), "index",
+                        {"one", "three"});
+    AssertCursorResults(BoundingBox<double>(17, 81, 63, 111), "index",
+                        {"four", "six"});
+    AssertCursorResults(BoundingBox<double>(85, 86, 85, 86), "index", {"two"});
+    AssertCursorResults(BoundingBox<double>(33, 1, 127, 111), "index",
+                        {"one", "two", "three", "five", "six"});
+    // even though the bounding box doesn't intersect, we got "four" back
+    // because
+    // it's in the same tile
+    AssertCursorResults(BoundingBox<double>(18, 98, 19, 99), "index", {"four"});
+    AssertCursorResults(BoundingBox<double>(130, 130, 131, 131), "index", {});
+    AssertCursorResults(BoundingBox<double>(81, 17, 127, 31), "index", {});
+    AssertCursorResults(BoundingBox<double>(90, 50, 91, 51), "index",
+                        {"three", "five"});
+
+    delete db_;
+  }
 }
 
 namespace {

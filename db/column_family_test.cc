@@ -408,9 +408,15 @@ TEST(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   WriteBatch batch;
+  batch.Put(handles_[0], Slice("existing"), Slice("column-family"));
   batch.Put(handles_[1], Slice("non-existing"), Slice("column-family"));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
   DropColumnFamilies({1});
+  WriteOptions woptions_ignore_missing_cf;
+  woptions_ignore_missing_cf.ignore_missing_column_families = true;
+  batch.Put(handles_[0], Slice("still here"), Slice("column-family"));
+  ASSERT_OK(db_->Write(woptions_ignore_missing_cf, &batch));
+  ASSERT_EQ("column-family", Get(0, "still here"));
   Status s = db_->Write(WriteOptions(), &batch);
   ASSERT_TRUE(s.IsInvalidArgument());
   Close();
@@ -746,9 +752,10 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.num_levels = 3;
   default_cf.write_buffer_size = 64 << 10;  // 64KB
   default_cf.target_file_size_base = 30 << 10;
-  default_cf.filter_policy = nullptr;
-  default_cf.no_block_cache = true;
   default_cf.source_compaction_factor = 100;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   one.compaction_style = kCompactionStyleUniversal;
   // trigger compaction if there are >= 4 files

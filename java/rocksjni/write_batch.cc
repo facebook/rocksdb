@@ -12,12 +12,14 @@
 #include "include/org_rocksdb_WriteBatchTest.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
+#include "rocksdb/immutable_options.h"
 #include "db/memtable.h"
 #include "rocksdb/write_batch.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "util/logging.h"
+#include "util/scoped_arena_iterator.h"
 #include "util/testharness.h"
 
 /*
@@ -28,7 +30,7 @@
 void Java_org_rocksdb_WriteBatch_newWriteBatch(
     JNIEnv* env, jobject jobj, jint jreserved_bytes) {
   rocksdb::WriteBatch* wb = new rocksdb::WriteBatch(
-      static_cast<size_t>(jreserved_bytes));
+      rocksdb::jlong_to_size_t(jreserved_bytes));
 
   rocksdb::WriteBatchJni::setHandle(env, jobj, wb);
 }
@@ -202,14 +204,18 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   auto factory = std::make_shared<rocksdb::SkipListFactory>();
   rocksdb::Options options;
   options.memtable_factory = factory;
-  rocksdb::MemTable* mem = new rocksdb::MemTable(cmp, options);
+  rocksdb::MemTable* mem = new rocksdb::MemTable(
+      cmp, rocksdb::ImmutableCFOptions(options),
+      rocksdb::MemTableOptions(rocksdb::MutableCFOptions(options), options));
   mem->Ref();
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
   rocksdb::Status s =
       rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
-  rocksdb::Iterator* iter = mem->NewIterator(rocksdb::ReadOptions());
+  rocksdb::Arena arena;
+  rocksdb::ScopedArenaIterator iter(mem->NewIterator(
+      rocksdb::ReadOptions(), &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
     memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
@@ -244,7 +250,6 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
     state.append("@");
     state.append(rocksdb::NumberToString(ikey.sequence));
   }
-  delete iter;
   if (!s.ok()) {
     state.append(s.ToString());
   } else if (count != rocksdb::WriteBatchInternal::Count(b)) {

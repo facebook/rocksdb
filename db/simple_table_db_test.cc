@@ -79,7 +79,8 @@ public:
   // for the duration of the returned table's lifetime.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& options, const EnvOptions& soptions,
+  static Status Open(const ImmutableCFOptions& options,
+                     const EnvOptions& env_options,
                      unique_ptr<RandomAccessFile> && file, uint64_t file_size,
                      unique_ptr<TableReader>* table_reader);
 
@@ -160,14 +161,14 @@ private:
 struct SimpleTableReader::Rep {
   ~Rep() {
   }
-  Rep(const EnvOptions& storage_options, uint64_t index_start_offset,
-      int num_entries) :
-      soptions(storage_options), index_start_offset(index_start_offset),
-      num_entries(num_entries) {
+  Rep(const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
+      uint64_t index_start_offset, int num_entries) :
+      ioptions(ioptions), env_options(env_options),
+      index_start_offset(index_start_offset), num_entries(num_entries) {
   }
 
-  Options options;
-  const EnvOptions& soptions;
+  const ImmutableCFOptions& ioptions;
+  const EnvOptions& env_options;
   Status status;
   unique_ptr<RandomAccessFile> file;
   uint64_t index_start_offset;
@@ -187,8 +188,8 @@ SimpleTableReader::~SimpleTableReader() {
   delete rep_;
 }
 
-Status SimpleTableReader::Open(const Options& options,
-                               const EnvOptions& soptions,
+Status SimpleTableReader::Open(const ImmutableCFOptions& ioptions,
+                               const EnvOptions& env_options,
                                unique_ptr<RandomAccessFile> && file,
                                uint64_t size,
                                unique_ptr<TableReader>* table_reader) {
@@ -201,12 +202,10 @@ Status SimpleTableReader::Open(const Options& options,
 
     int num_entries = (size - Rep::offset_length - index_start_offset)
         / (Rep::GetInternalKeyLength() + Rep::offset_length);
-    SimpleTableReader::Rep* rep = new SimpleTableReader::Rep(soptions,
-                                                             index_start_offset,
-                                                             num_entries);
+    SimpleTableReader::Rep* rep = new SimpleTableReader::Rep(
+        ioptions, env_options, index_start_offset, num_entries);
 
     rep->file = std::move(file);
-    rep->options = options;
     table_reader->reset(new SimpleTableReader(rep));
   }
   return s;
@@ -248,7 +247,7 @@ Status SimpleTableReader::GetOffset(const Slice& target, uint64_t* offset) {
       return s;
     }
 
-    InternalKeyComparator ikc(rep_->options.comparator);
+    InternalKeyComparator ikc(rep_->ioptions.comparator);
     int compare_result = ikc.Compare(tmp_slice, target);
 
     if (compare_result < 0) {
@@ -382,7 +381,7 @@ void SimpleTableIterator::Prev() {
 }
 
 Slice SimpleTableIterator::key() const {
-  Log(table_->rep_->options.info_log, "key!!!!");
+  Log(table_->rep_->ioptions.info_log, "key!!!!");
   return key_;
 }
 
@@ -401,7 +400,7 @@ public:
   // caller to close the file after calling Finish(). The output file
   // will be part of level specified by 'level'.  A value of -1 means
   // that the caller does not know which level the output file will reside.
-  SimpleTableBuilder(const Options& options, WritableFile* file,
+  SimpleTableBuilder(const ImmutableCFOptions& ioptions, WritableFile* file,
                      CompressionType compression_type);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
@@ -444,7 +443,7 @@ private:
 };
 
 struct SimpleTableBuilder::Rep {
-  Options options;
+  const ImmutableCFOptions& ioptions;
   WritableFile* file;
   uint64_t offset = 0;
   Status status;
@@ -463,17 +462,17 @@ struct SimpleTableBuilder::Rep {
 
   std::string index;
 
-  Rep(const Options& opt, WritableFile* f) :
-      options(opt), file(f) {
+  Rep(const ImmutableCFOptions& iopt, WritableFile* f) :
+      ioptions(iopt), file(f) {
   }
   ~Rep() {
   }
 };
 
-SimpleTableBuilder::SimpleTableBuilder(const Options& options,
+SimpleTableBuilder::SimpleTableBuilder(const ImmutableCFOptions& ioptions,
                                        WritableFile* file,
                                        CompressionType compression_type) :
-    rep_(new SimpleTableBuilder::Rep(options, file)) {
+    rep_(new SimpleTableBuilder::Rep(ioptions, file)) {
 }
 
 SimpleTableBuilder::~SimpleTableBuilder() {
@@ -546,31 +545,45 @@ public:
   const char* Name() const override {
     return "SimpleTable";
   }
-  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& env_options,
                         const InternalKeyComparator& internal_key,
                         unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const;
 
-  TableBuilder* NewTableBuilder(const Options& options,
-                                const InternalKeyComparator& internal_key,
-                                WritableFile* file,
-                                CompressionType compression_type) const;
+  TableBuilder* NewTableBuilder(
+      const ImmutableCFOptions& ioptions,
+      const InternalKeyComparator& internal_key,
+      WritableFile* file,
+      const CompressionType compression_type,
+      const CompressionOptions& compression_opts) const;
+
+  virtual Status SanitizeDBOptions(const DBOptions* db_opts) const override {
+    return Status::OK();
+  }
+
+  virtual std::string GetPrintableTableOptions() const override {
+    return std::string();
+  }
 };
 
 Status SimpleTableFactory::NewTableReader(
-    const Options& options, const EnvOptions& soptions,
+    const ImmutableCFOptions& ioptions,
+    const EnvOptions& env_options,
     const InternalKeyComparator& internal_key,
     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
 
-  return SimpleTableReader::Open(options, soptions, std::move(file), file_size,
-                                 table_reader);
+  return SimpleTableReader::Open(ioptions, env_options, std::move(file),
+                                 file_size, table_reader);
 }
 
 TableBuilder* SimpleTableFactory::NewTableBuilder(
-    const Options& options, const InternalKeyComparator& internal_key,
-    WritableFile* file, CompressionType compression_type) const {
-  return new SimpleTableBuilder(options, file, compression_type);
+    const ImmutableCFOptions& ioptions,
+    const InternalKeyComparator& internal_key,
+    WritableFile* file, const CompressionType compression_type,
+    const CompressionOptions& compression_opts) const {
+  return new SimpleTableBuilder(ioptions, file, compression_type);
 }
 
 class SimpleTableDBTest {

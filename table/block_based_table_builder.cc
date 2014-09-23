@@ -17,6 +17,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include "db/dbformat.h"
 
@@ -25,13 +26,14 @@
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/flush_block_policy.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table.h"
 
 #include "table/block.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/filter_block.h"
+#include "table/block_based_filter_block.h"
+#include "table/full_filter_block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
@@ -116,7 +118,7 @@ class ShortenedIndexBuilder : public IndexBuilder {
  public:
   explicit ShortenedIndexBuilder(const Comparator* comparator)
       : IndexBuilder(comparator),
-        index_block_builder_(1 /* block_restart_interval == 1 */, comparator) {}
+        index_block_builder_(1 /* block_restart_interval == 1 */) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
@@ -133,12 +135,12 @@ class ShortenedIndexBuilder : public IndexBuilder {
     index_block_builder_.Add(*last_key_in_current_block, handle_encoding);
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) {
+  virtual Status Finish(IndexBlocks* index_blocks) override {
     index_blocks->index_block_contents = index_block_builder_.Finish();
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const {
+  virtual size_t EstimatedSize() const override {
     return index_block_builder_.CurrentSizeEstimate();
   }
 
@@ -175,14 +177,14 @@ class HashIndexBuilder : public IndexBuilder {
   explicit HashIndexBuilder(const Comparator* comparator,
                             const SliceTransform* hash_key_extractor)
       : IndexBuilder(comparator),
-        primary_index_builder(comparator),
+        primary_index_builder_(comparator),
         hash_key_extractor_(hash_key_extractor) {}
 
   virtual void AddIndexEntry(std::string* last_key_in_current_block,
                              const Slice* first_key_in_next_block,
                              const BlockHandle& block_handle) override {
     ++current_restart_index_;
-    primary_index_builder.AddIndexEntry(last_key_in_current_block,
+    primary_index_builder_.AddIndexEntry(last_key_in_current_block,
                                         first_key_in_next_block, block_handle);
   }
 
@@ -213,9 +215,9 @@ class HashIndexBuilder : public IndexBuilder {
     }
   }
 
-  virtual Status Finish(IndexBlocks* index_blocks) {
+  virtual Status Finish(IndexBlocks* index_blocks) override {
     FlushPendingPrefix();
-    primary_index_builder.Finish(index_blocks);
+    primary_index_builder_.Finish(index_blocks);
     index_blocks->meta_blocks.insert(
         {kHashIndexPrefixesBlock.c_str(), prefix_block_});
     index_blocks->meta_blocks.insert(
@@ -223,8 +225,8 @@ class HashIndexBuilder : public IndexBuilder {
     return Status::OK();
   }
 
-  virtual size_t EstimatedSize() const {
-    return primary_index_builder.EstimatedSize() + prefix_block_.size() +
+  virtual size_t EstimatedSize() const override {
+    return primary_index_builder_.EstimatedSize() + prefix_block_.size() +
            prefix_meta_block_.size();
   }
 
@@ -237,7 +239,7 @@ class HashIndexBuilder : public IndexBuilder {
     PutVarint32(&prefix_meta_block_, pending_block_num_);
   }
 
-  ShortenedIndexBuilder primary_index_builder;
+  ShortenedIndexBuilder primary_index_builder_;
   const SliceTransform* hash_key_extractor_;
 
   // stores a sequence of prefixes
@@ -273,6 +275,21 @@ IndexBuilder* CreateIndexBuilder(IndexType type, const Comparator* comparator,
   // impossible.
   assert(false);
   return nullptr;
+}
+
+// Create a index builder based on its type.
+FilterBlockBuilder* CreateFilterBlockBuilder(const ImmutableCFOptions& opt,
+    const BlockBasedTableOptions& table_opt) {
+  if (table_opt.filter_policy == nullptr) return nullptr;
+
+  FilterBitsBuilder* filter_bits_builder =
+      table_opt.filter_policy->GetFilterBitsBuilder();
+  if (filter_bits_builder == nullptr) {
+    return new BlockBasedFilterBlockBuilder(opt.prefix_extractor, table_opt);
+  } else {
+    return new FullFilterBlockBuilder(opt.prefix_extractor, table_opt,
+                                      filter_bits_builder);
+  }
 }
 
 bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
@@ -366,7 +383,6 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     std::string val;
     PutFixed32(&val, static_cast<uint32_t>(index_type_));
     properties->insert({BlockBasedTablePropertyNames::kIndexType, val});
-
     return Status::OK();
   }
 
@@ -385,7 +401,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 };
 
 struct BlockBasedTableBuilder::Rep {
-  Options options;
+  const ImmutableCFOptions ioptions;
+  const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
   WritableFile* file;
   uint64_t offset = 0;
@@ -396,12 +413,12 @@ struct BlockBasedTableBuilder::Rep {
   std::unique_ptr<IndexBuilder> index_builder;
 
   std::string last_key;
-  CompressionType compression_type;
-  ChecksumType checksum_type;
+  const CompressionType compression_type;
+  const CompressionOptions compression_opts;
   TableProperties props;
 
   bool closed = false;  // Either Finish() or Abandon() has been called.
-  FilterBlockBuilder* filter_block;
+  std::unique_ptr<FilterBlockBuilder> filter_block;
   char compressed_cache_key_prefix[BlockBasedTable::kMaxCacheKeyPrefixSize];
   size_t compressed_cache_key_prefix_size;
 
@@ -413,48 +430,49 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<TablePropertiesCollector>>
       table_properties_collectors;
 
-  Rep(const Options& opt, const InternalKeyComparator& icomparator,
-      WritableFile* f, FlushBlockPolicyFactory* flush_block_policy_factory,
-      CompressionType compression_type, IndexType index_block_type,
-      ChecksumType checksum_type)
-      : options(opt),
+  Rep(const ImmutableCFOptions& ioptions,
+      const BlockBasedTableOptions& table_opt,
+      const InternalKeyComparator& icomparator,
+      WritableFile* f, const CompressionType compression_type,
+      const CompressionOptions& compression_opts)
+      : ioptions(ioptions),
+        table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
-        data_block(options, &internal_comparator),
-        internal_prefix_transform(options.prefix_extractor.get()),
-        index_builder(CreateIndexBuilder(index_block_type, &internal_comparator,
-                                         &this->internal_prefix_transform)),
+        data_block(table_options.block_restart_interval),
+        internal_prefix_transform(ioptions.prefix_extractor),
+        index_builder(CreateIndexBuilder(
+              table_options.index_type, &internal_comparator,
+              &this->internal_prefix_transform)),
         compression_type(compression_type),
-        checksum_type(checksum_type),
-        filter_block(opt.filter_policy == nullptr
-                         ? nullptr
-                         : new FilterBlockBuilder(opt, &internal_comparator)),
-        flush_block_policy(flush_block_policy_factory->NewFlushBlockPolicy(
-            options, data_block)) {
+        filter_block(CreateFilterBlockBuilder(ioptions, table_options)),
+        flush_block_policy(
+            table_options.flush_block_policy_factory->NewFlushBlockPolicy(
+              table_options, data_block)) {
     for (auto& collector_factories :
-         options.table_properties_collector_factories) {
+         ioptions.table_properties_collector_factories) {
       table_properties_collectors.emplace_back(
           collector_factories->CreateTablePropertiesCollector());
     }
     table_properties_collectors.emplace_back(
-        new BlockBasedTablePropertiesCollector(index_block_type));
+        new BlockBasedTablePropertiesCollector(table_options.index_type));
   }
 };
 
 BlockBasedTableBuilder::BlockBasedTableBuilder(
-    const Options& options, const BlockBasedTableOptions& table_options,
+    const ImmutableCFOptions& ioptions,
+    const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator, WritableFile* file,
-    CompressionType compression_type)
-    : rep_(new Rep(options, internal_comparator, file,
-                   table_options.flush_block_policy_factory.get(),
-                   compression_type, table_options.index_type,
-                   table_options.checksum)) {
+    const CompressionType compression_type,
+    const CompressionOptions& compression_opts)
+    : rep_(new Rep(ioptions, table_options, internal_comparator,
+                   file, compression_type, compression_opts)) {
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
-  if (options.block_cache_compressed.get() != nullptr) {
+  if (table_options.block_cache_compressed.get() != nullptr) {
     BlockBasedTable::GenerateCachePrefix(
-        options.block_cache_compressed.get(), file,
+        table_options.block_cache_compressed.get(), file,
         &rep_->compressed_cache_key_prefix[0],
         &rep_->compressed_cache_key_prefix_size);
   }
@@ -462,7 +480,6 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
 
 BlockBasedTableBuilder::~BlockBasedTableBuilder() {
   assert(rep_->closed);  // Catch errors where caller forgot to call Finish()
-  delete rep_->filter_block;
   delete rep_;
 }
 
@@ -493,7 +510,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   if (r->filter_block != nullptr) {
-    r->filter_block->AddKey(key);
+    r->filter_block->Add(ExtractUserKey(key));
   }
 
   r->last_key.assign(key.data(), key.size());
@@ -504,7 +521,7 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
 
   r->index_builder->OnKeyAdded(key);
   NotifyCollectTableCollectorsOnAdd(key, value, r->table_properties_collectors,
-                                    r->options.info_log.get());
+                                    r->ioptions.info_log);
 }
 
 void BlockBasedTableBuilder::Flush() {
@@ -542,10 +559,10 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   Slice block_contents;
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     block_contents =
-        CompressBlock(raw_block_contents, r->options.compression_opts, &type,
+        CompressBlock(raw_block_contents, r->compression_opts, &type,
                       &r->compressed_output);
   } else {
-    RecordTick(r->options.statistics.get(), NUMBER_BLOCK_NOT_COMPRESSED);
+    RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;
     block_contents = raw_block_contents;
   }
@@ -557,8 +574,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
                                            CompressionType type,
                                            BlockHandle* handle) {
   Rep* r = rep_;
-  StopWatch sw(r->options.env, r->options.statistics.get(),
-               WRITE_RAW_BLOCK_MICROS);
+  StopWatch sw(r->ioptions.env, r->ioptions.statistics, WRITE_RAW_BLOCK_MICROS);
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
   r->status = r->file->Append(block_contents);
@@ -566,7 +582,7 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
     char trailer[kBlockTrailerSize];
     trailer[0] = type;
     char* trailer_without_type = trailer + 1;
-    switch (r->checksum_type) {
+    switch (r->table_options.checksum) {
       case kNoChecksum:
         // we don't support no checksum yet
         assert(false);
@@ -612,25 +628,20 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
                                                   const CompressionType type,
                                                   const BlockHandle* handle) {
   Rep* r = rep_;
-  Cache* block_cache_compressed = r->options.block_cache_compressed.get();
+  Cache* block_cache_compressed = r->table_options.block_cache_compressed.get();
 
   if (type != kNoCompression && block_cache_compressed != nullptr) {
 
     Cache::Handle* cache_handle = nullptr;
     size_t size = block_contents.size();
 
-    char* ubuf = new char[size + 1];  // make a new copy
-    memcpy(ubuf, block_contents.data(), size);
+    std::unique_ptr<char[]> ubuf(new char[size + 1]);
+    memcpy(ubuf.get(), block_contents.data(), size);
     ubuf[size] = type;
 
-    BlockContents results;
-    Slice sl(ubuf, size);
-    results.data = sl;
-    results.cachable = true; // XXX
-    results.heap_allocated = true;
-    results.compression_type = type;
+    BlockContents results(std::move(ubuf), size, true, type);
 
-    Block* block = new Block(results);
+    Block* block = new Block(std::move(results));
 
     // make cache key by appending the file offset to the cache prefix id
     char* end = EncodeVarint64(
@@ -658,10 +669,7 @@ Status BlockBasedTableBuilder::Finish() {
   assert(!r->closed);
   r->closed = true;
 
-  BlockHandle filter_block_handle,
-              metaindex_block_handle,
-              index_block_handle;
-
+  BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
   // Write filter block
   if (ok() && r->filter_block != nullptr) {
     auto filter_contents = r->filter_block->Finish();
@@ -700,8 +708,13 @@ Status BlockBasedTableBuilder::Finish() {
     if (r->filter_block != nullptr) {
       // Add mapping from "<filter_block_prefix>.Name" to location
       // of filter data.
-      std::string key = BlockBasedTable::kFilterBlockPrefix;
-      key.append(r->options.filter_policy->Name());
+      std::string key;
+      if (r->filter_block->IsBlockBased()) {
+        key = BlockBasedTable::kFilterBlockPrefix;
+      } else {
+        key = BlockBasedTable::kFullFilterBlockPrefix;
+      }
+      key.append(r->table_options.filter_policy->Name());
       meta_index_builder.Add(key, filter_block_handle);
     }
 
@@ -709,8 +722,8 @@ Status BlockBasedTableBuilder::Finish() {
     {
       PropertyBlockBuilder property_block_builder;
       std::vector<std::string> failed_user_prop_collectors;
-      r->props.filter_policy_name = r->options.filter_policy != nullptr ?
-          r->options.filter_policy->Name() : "";
+      r->props.filter_policy_name = r->table_options.filter_policy != nullptr ?
+          r->table_options.filter_policy->Name() : "";
       r->props.index_size =
           r->index_builder->EstimatedSize() + kBlockTrailerSize;
 
@@ -719,7 +732,7 @@ Status BlockBasedTableBuilder::Finish() {
 
       // Add use collected properties
       NotifyCollectTableCollectorsOnFinish(r->table_properties_collectors,
-                                           r->options.info_log.get(),
+                                           r->ioptions.info_log,
                                            &property_block_builder);
 
       BlockHandle properties_block_handle;
@@ -750,12 +763,12 @@ Status BlockBasedTableBuilder::Finish() {
     // TODO(icanadi) at some point in the future, when we're absolutely sure
     // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
     // number and always write new table files with new magic number
-    bool legacy = (r->checksum_type == kCRC32c);
+    bool legacy = (r->table_options.checksum == kCRC32c);
     Footer footer(legacy ? kLegacyBlockBasedTableMagicNumber
                          : kBlockBasedTableMagicNumber);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
-    footer.set_checksum(r->checksum_type);
+    footer.set_checksum(r->table_options.checksum);
     std::string footer_encoding;
     footer.EncodeTo(&footer_encoding);
     r->status = r->file->Append(footer_encoding);
@@ -778,14 +791,12 @@ Status BlockBasedTableBuilder::Finish() {
       }
     }
 
-    Log(
-        r->options.info_log,
+    Log(r->ioptions.info_log,
         "Table was constructed:\n"
         "  [basic properties]: %s\n"
         "  [user collected properties]: %s",
         r->props.ToString().c_str(),
-        user_collected.c_str()
-    );
+        user_collected.c_str());
   }
 
   return r->status;
@@ -806,5 +817,6 @@ uint64_t BlockBasedTableBuilder::FileSize() const {
 }
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
+const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
 
 }  // namespace rocksdb

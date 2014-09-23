@@ -124,17 +124,6 @@ class InternalKeyComparator : public Comparator {
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
 };
 
-// Filter policy wrapper that converts from internal keys to user keys
-class InternalFilterPolicy : public FilterPolicy {
- private:
-  const FilterPolicy* const user_policy_;
- public:
-  explicit InternalFilterPolicy(const FilterPolicy* p) : user_policy_(p) { }
-  virtual const char* Name() const;
-  virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const;
-  virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const;
-};
-
 // Modules in this directory should keep internal keys wrapped inside
 // the following class instead of plain strings so that we do not
 // incorrectly use string comparisons instead of an InternalKeyComparator.
@@ -255,7 +244,7 @@ class IterKey {
 
   Slice GetKey() const { return Slice(key_, key_size_); }
 
-  const size_t Size() { return key_size_; }
+  size_t Size() { return key_size_; }
 
   void Clear() { key_size_ = 0; }
 
@@ -401,4 +390,12 @@ class InternalKeySliceTransform : public SliceTransform {
   const SliceTransform* const transform_;
 };
 
+// Read record from a write batch piece from input.
+// tag, column_family, key, value and blob are return values. Callers own the
+// Slice they point to.
+// Tag is defined as ValueType.
+// input will be advanced to after the record.
+extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
+                                       uint32_t* column_family, Slice* key,
+                                       Slice* value, Slice* blob);
 }  // namespace rocksdb

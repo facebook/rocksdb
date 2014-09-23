@@ -42,6 +42,8 @@ enum DBPropertyType : uint32_t {
                                    // the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
+  kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
+                                  // 0 means file deletions enabled
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,
@@ -197,7 +199,8 @@ class InternalStats {
   bool GetStringProperty(DBPropertyType property_type, const Slice& property,
                          std::string* value);
 
-  bool GetIntProperty(DBPropertyType property_type, uint64_t* value) const;
+  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
+                      DBImpl* db) const;
 
   bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
                                 uint64_t* value) const;

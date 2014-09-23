@@ -9,6 +9,7 @@
 #include "util/testharness.h"
 #include "util/benchharness.h"
 #include "db/version_set.h"
+#include "db/write_controller.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -21,6 +22,7 @@ std::string MakeKey(unsigned int num) {
 
 void BM_LogAndApply(int iters, int num_base_files) {
   VersionSet* vset;
+  WriteController wc;
   ColumnFamilyData* default_cfd;
   uint64_t fnum = 1;
   port::Mutex mu;
@@ -47,7 +49,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
     options.db_paths.emplace_back(dbname, 0);
     // The parameter of table cache is passed in as null, so any file I/O
     // operation is likely to fail.
-    vset = new VersionSet(dbname, &options, sopt, nullptr);
+    vset = new VersionSet(dbname, &options, sopt, nullptr, &wc);
     std::vector<ColumnFamilyDescriptor> dummy;
     dummy.push_back(ColumnFamilyDescriptor());
     ASSERT_OK(vset->Recover(dummy));
@@ -69,6 +71,7 @@ void BM_LogAndApply(int iters, int num_base_files) {
     vedit.AddFile(2, ++fnum, 0, 1 /* file size */, start, limit, 1, 1);
     vset->LogAndApply(default_cfd, &vedit, &mu);
   }
+  delete vset;
 }
 
 BENCHMARK_NAMED_PARAM(BM_LogAndApply, 1000_iters_1_file, 1000, 1)

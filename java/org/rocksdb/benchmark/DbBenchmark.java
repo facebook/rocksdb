@@ -255,7 +255,7 @@ public class DbBenchmark {
             for (long j = 0; j < entriesPerBatch_; j++) {
               getKey(key, i + j, keyRange_);
               DbBenchmark.this.gen_.generate(value);
-              db_.put(writeOpt_, key, value);
+              batch.put(key, value);
               stats_.finishedSingleOp(keySize_ + valueSize_);
             }
             db_.write(writeOpt_, batch);
@@ -446,7 +446,6 @@ public class DbBenchmark {
     randSeed_ = (Long) flags.get(Flag.seed);
     databaseDir_ = (String) flags.get(Flag.db);
     writesPerSeconds_ = (Integer) flags.get(Flag.writes_per_second);
-    cacheSize_ = (Long) flags.get(Flag.cache_size);
     memtable_ = (String) flags.get(Flag.memtablerep);
     maxWriteBufferNumber_ = (Integer) flags.get(Flag.max_write_buffer_number);
     prefixSize_ = (Integer) flags.get(Flag.prefix_size);
@@ -491,7 +490,6 @@ public class DbBenchmark {
   }
 
   private void prepareOptions(Options options) {
-    options.setCacheSize(cacheSize_);
     if (!useExisting_) {
       options.setCreateIfMissing(true);
     } else {
@@ -521,6 +519,13 @@ public class DbBenchmark {
     if (usePlainTable_) {
       options.setTableFormatConfig(
           new PlainTableConfig().setKeySize(keySize_));
+    } else {
+      BlockBasedTableConfig table_options = new BlockBasedTableConfig();
+      table_options.setBlockSize((Long)flags_.get(Flag.block_size))
+                   .setBlockCacheSize((Long)flags_.get(Flag.cache_size))
+                   .setFilterBitsPerKey((Integer)flags_.get(Flag.bloom_bits))
+                   .setCacheNumShardBits((Integer)flags_.get(Flag.cache_numshardbits));
+      options.setTableFormatConfig(table_options);
     }
     options.setWriteBufferSize(
         (Long)flags_.get(Flag.write_buffer_size));
@@ -532,12 +537,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_compactions));
     options.setMaxBackgroundFlushes(
         (Integer)flags_.get(Flag.max_background_flushes));
-    options.setCacheSize(
-        (Long)flags_.get(Flag.cache_size));
-    options.setCacheNumShardBits(
-        (Integer)flags_.get(Flag.cache_numshardbits));
-    options.setBlockSize(
-        (Long)flags_.get(Flag.block_size));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
     options.setTableCacheRemoveScanCountLimit(
@@ -548,8 +547,6 @@ public class DbBenchmark {
         (Boolean)flags_.get(Flag.use_fsync));
     options.setWalDir(
         (String)flags_.get(Flag.wal_dir));
-    options.setDisableSeekCompaction(
-        (Boolean)flags_.get(Flag.disable_seek_compaction));
     options.setDeleteObsoleteFilesPeriodMicros(
         (Integer)flags_.get(Flag.delete_obsolete_files_period_micros));
     options.setTableCacheNumshardbits(
@@ -604,15 +601,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));
     options.setWalSizeLimitMB((Long)flags_.get(Flag.wal_size_limit_MB));
-    int bloomBits = (Integer)flags_.get(Flag.bloom_bits);
-    if (bloomBits > 0) {
-      // Internally, options will keep a reference to this BloomFilter.
-      // This will disallow Java to GC this BloomFilter.  In addition,
-      // options.dispose() will release the c++ object of this BloomFilter.
-      // As a result, the caller should not directly call
-      // BloomFilter.dispose().
-      options.setFilter(new BloomFilter(bloomBits));
-    }
     /* TODO(yhchiang): enable the following parameters
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
@@ -1160,7 +1148,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    block_size(defaultOptions_.blockSize(),
+    block_size(defaultBlockBasedTableOptions_.blockSize(),
         "Number of bytes in a block.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1310,12 +1298,6 @@ public class DbBenchmark {
         "\tFLAGS_readwritepercent)") {
       @Override public Object parseValue(String value) {
         return Integer.parseInt(value);
-      }
-    },
-    disable_seek_compaction(false,"Option to disable compaction\n" +
-        "\ttriggered by read.") {
-      @Override public Object parseValue(String value) {
-        return parseBoolean(value);
       }
     },
     delete_obsolete_files_period_micros(0,"Option to delete\n" +
@@ -1597,7 +1579,6 @@ public class DbBenchmark {
   final int threadNum_;
   final int writesPerSeconds_;
   final long randSeed_;
-  final long cacheSize_;
   final boolean useExisting_;
   final String databaseDir_;
   double compressionRatio_;
@@ -1620,6 +1601,8 @@ public class DbBenchmark {
   // as the scope of a static member equals to the scope of the problem,
   // we let its c++ pointer to be disposed in its finalizer.
   static Options defaultOptions_ = new Options();
+  static BlockBasedTableConfig defaultBlockBasedTableOptions_ =
+    new BlockBasedTableConfig();
   String compressionType_;
   CompressionType compression_;
 }

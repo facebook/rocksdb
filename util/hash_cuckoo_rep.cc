@@ -70,7 +70,7 @@ class HashCuckooRep : public MemTableRep {
     }
 
     cuckoo_path_ = reinterpret_cast<int*>(
-        arena_->Allocate(sizeof(int*) * (cuckoo_path_max_depth_ + 1)));
+        arena_->Allocate(sizeof(int) * (cuckoo_path_max_depth_ + 1)));
     is_nearly_full_ = false;
   }
 

@@ -23,6 +23,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/immutable_options.h"
 #include "rocksdb/status.h"
 
 namespace rocksdb {
@@ -84,6 +85,46 @@ struct BlockBasedTableOptions {
   // protected with this checksum type. Old table files will still be readable,
   // even though they have different checksum type.
   ChecksumType checksum = kCRC32c;
+
+  // Disable block cache. If this is set to true,
+  // then no block cache should be used, and the block_cache should
+  // point to a nullptr object.
+  bool no_block_cache = false;
+
+  // If non-NULL use the specified cache for blocks.
+  // If NULL, rocksdb will automatically create and use an 8MB internal cache.
+  std::shared_ptr<Cache> block_cache = nullptr;
+
+  // If non-NULL use the specified cache for compressed blocks.
+  // If NULL, rocksdb will not use a compressed block cache.
+  std::shared_ptr<Cache> block_cache_compressed = nullptr;
+
+  // Approximate size of user data packed per block.  Note that the
+  // block size specified here corresponds to uncompressed data.  The
+  // actual size of the unit read from disk may be smaller if
+  // compression is enabled.  This parameter can be changed dynamically.
+  size_t block_size = 4 * 1024;
+
+  // This is used to close a block before it reaches the configured
+  // 'block_size'. If the percentage of free space in the current block is less
+  // than this specified number and adding a new record to the block will
+  // exceed the configured block size, then this block will be closed and the
+  // new record will be written to the next block.
+  int block_size_deviation = 10;
+
+  // Number of keys between restart points for delta encoding of keys.
+  // This parameter can be changed dynamically.  Most clients should
+  // leave this parameter alone.
+  int block_restart_interval = 16;
+
+  // If non-nullptr, use the specified filter policy to reduce disk reads.
+  // Many applications will benefit from passing the result of
+  // NewBloomFilterPolicy() here.
+  std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+
+  // If true, place whole keys in the filter (not just prefixes).
+  // This must generally be true for gets to be efficient.
+  bool whole_key_filtering = true;
 };
 
 // Table Properties that are specific to block-based table properties.
@@ -126,47 +167,49 @@ struct PlainTablePropertyNames {
 const uint32_t kPlainTableVariableLength = 0;
 
 struct PlainTableOptions {
-// @user_key_len: plain table has optimization for fix-sized keys, which can be
-//                specified via user_key_len.  Alternatively, you can pass
-//                `kPlainTableVariableLength` if your keys have variable
-//                lengths.
-uint32_t user_key_len = kPlainTableVariableLength;
+  // @user_key_len: plain table has optimization for fix-sized keys, which can
+  //                be specified via user_key_len.  Alternatively, you can pass
+  //                `kPlainTableVariableLength` if your keys have variable
+  //                lengths.
+  uint32_t user_key_len = kPlainTableVariableLength;
 
-// @bloom_bits_per_key: the number of bits used for bloom filer per prefix. You
-//                      may disable it by passing a zero.
-int bloom_bits_per_key = 10;
+  // @bloom_bits_per_key: the number of bits used for bloom filer per prefix.
+  //                      You may disable it by passing a zero.
+  int bloom_bits_per_key = 10;
 
-// @hash_table_ratio: the desired utilization of the hash table used for prefix
-//                    hashing. hash_table_ratio = number of prefixes / #buckets
-//                    in the hash table
-double hash_table_ratio = 0.75;
+  // @hash_table_ratio: the desired utilization of the hash table used for
+  //                    prefix hashing.
+  //                    hash_table_ratio = number of prefixes / #buckets in the
+  //                    hash table
+  double hash_table_ratio = 0.75;
 
-// @index_sparseness: inside each prefix, need to build one index record for how
-//                    many keys for binary search inside each hash bucket.
-//                    For encoding type kPrefix, the value will be used when
-//                    writing to determine an interval to rewrite the full key.
-//                    It will also be used as a suggestion and satisfied when
-//                    possible.
-size_t index_sparseness = 16;
+  // @index_sparseness: inside each prefix, need to build one index record for
+  //                    how many keys for binary search inside each hash bucket.
+  //                    For encoding type kPrefix, the value will be used when
+  //                    writing to determine an interval to rewrite the full
+  //                    key. It will also be used as a suggestion and satisfied
+  //                    when possible.
+  size_t index_sparseness = 16;
 
-// @huge_page_tlb_size: if <=0, allocate hash indexes and blooms from malloc.
-//                      Otherwise from huge page TLB. The user needs to reserve
-//                      huge pages for it to be allocated, like:
-//                          sysctl -w vm.nr_hugepages=20
-//                      See linux doc Documentation/vm/hugetlbpage.txt
-size_t huge_page_tlb_size = 0;
+  // @huge_page_tlb_size: if <=0, allocate hash indexes and blooms from malloc.
+  //                      Otherwise from huge page TLB. The user needs to
+  //                      reserve huge pages for it to be allocated, like:
+  //                          sysctl -w vm.nr_hugepages=20
+  //                      See linux doc Documentation/vm/hugetlbpage.txt
+  size_t huge_page_tlb_size = 0;
 
-// @encoding_type: how to encode the keys. See enum EncodingType above for
-//                 the choices. The value will determine how to encode keys
-//                 when writing to a new SST file. This value will be stored
-//                 inside the SST file which will be used when reading from the
-//                 file, which makes it possible for users to choose different
-//                 encoding type when reopening a DB. Files with different
-//                 encoding types can co-exist in the same DB and can be read.
-EncodingType encoding_type = kPlain;
+  // @encoding_type: how to encode the keys. See enum EncodingType above for
+  //                 the choices. The value will determine how to encode keys
+  //                 when writing to a new SST file. This value will be stored
+  //                 inside the SST file which will be used when reading from
+  //                 the file, which makes it possible for users to choose
+  //                 different encoding type when reopening a DB. Files with
+  //                 different encoding types can co-exist in the same DB and
+  //                 can be read.
+  EncodingType encoding_type = kPlain;
 
-// @full_scan_mode: mode for reading the whole file one record by one without
-//                  using the index.
+  // @full_scan_mode: mode for reading the whole file one record by one without
+  //                  using the index.
   bool full_scan_mode = false;
 
   // @store_index_in_file: compute plain table index and bloom filter during
@@ -185,15 +228,59 @@ extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options =
                                               PlainTableOptions());
 
 struct CuckooTablePropertyNames {
+  // The key that is used to fill empty buckets.
   static const std::string kEmptyKey;
+  // Fixed length of value.
   static const std::string kValueLength;
-  static const std::string kNumHashTable;
-  static const std::string kMaxNumBuckets;
+  // Number of hash functions used in Cuckoo Hash.
+  static const std::string kNumHashFunc;
+  // It denotes the number of buckets in a Cuckoo Block. Given a key and a
+  // particular hash function, a Cuckoo Block is a set of consecutive buckets,
+  // where starting bucket id is given by the hash function on the key. In case
+  // of a collision during inserting the key, the builder tries to insert the
+  // key in other locations of the cuckoo block before using the next hash
+  // function. This reduces cache miss during read operation in case of
+  // collision.
+  static const std::string kCuckooBlockSize;
+  // Size of the hash table. Use this number to compute the modulo of hash
+  // function. The actual number of buckets will be kMaxHashTableSize +
+  // kCuckooBlockSize - 1. The last kCuckooBlockSize-1 buckets are used to
+  // accommodate the Cuckoo Block from end of hash table, due to cache friendly
+  // implementation.
+  static const std::string kHashTableSize;
+  // Denotes if the key sorted in the file is Internal Key (if false)
+  // or User Key only (if true).
   static const std::string kIsLastLevel;
+  // Indicate if using identity function for the first hash function.
+  static const std::string kIdentityAsFirstHash;
 };
 
-extern TableFactory* NewCuckooTableFactory(double hash_table_ratio = 0.9,
-    uint32_t max_search_depth = 100);
+struct CuckooTableOptions {
+  // Determines the utilization of hash tables. Smaller values
+  // result in larger hash tables with fewer collisions.
+  double hash_table_ratio = 0.9;
+  // A property used by builder to determine the depth to go to
+  // to search for a path to displace elements in case of
+  // collision. See Builder.MakeSpaceForKey method. Higher
+  // values result in more efficient hash tables with fewer
+  // lookups but take more time to build.
+  uint32_t max_search_depth = 100;
+  // In case of collision while inserting, the builder
+  // attempts to insert in the next cuckoo_block_size
+  // locations before skipping over to the next Cuckoo hash
+  // function. This makes lookups more cache friendly in case
+  // of collisions.
+  uint32_t cuckoo_block_size = 5;
+  // If this options is enabled, user key is treated as uint64_t and its value
+  // is used as hash value directly. This option changes builder's behavior.
+  // Reader ignore this option and behave according to what specified in table
+  // property.
+  bool identity_as_first_hash = false;
+};
+
+// Cuckoo Table Factory for SST table format using Cache Friendly Cuckoo Hashing
+extern TableFactory* NewCuckooTableFactory(
+    const CuckooTableOptions& table_options = CuckooTableOptions());
 
 #endif  // ROCKSDB_LITE
 
@@ -220,14 +307,15 @@ class TableFactory {
   //     and cache the table object returned.
   // (1) SstFileReader (for SST Dump) opens the table and dump the table
   //     contents using the interator of the table.
-  // options and soptions are options. options is the general options.
+  // ImmutableCFOptions is a subset of Options that can not be altered.
+  // EnvOptions is a subset of Options that will be used by Env.
   // Multiple configured can be accessed from there, including and not
   // limited to block cache and key comparators.
   // file is a file handler to handle the file for the table
   // file_size is the physical file size of the file
   // table_reader is the output table reader
   virtual Status NewTableReader(
-      const Options& options, const EnvOptions& soptions,
+      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
       const InternalKeyComparator& internal_comparator,
       unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table_reader) const = 0;
@@ -245,14 +333,27 @@ class TableFactory {
   // (4) When running Repairer, it creates a table builder to convert logs to
   //     SST files (In Repairer::ConvertLogToTable() by calling BuildTable())
   //
-  // options is the general options. Multiple configured can be acceseed from
-  // there, including and not limited to compression options.
-  // file is a handle of a writable file. It is the caller's responsibility to
-  // keep the file open and close the file after closing the table builder.
-  // compression_type is the compression type to use in this table.
+  // ImmutableCFOptions is a subset of Options that can not be altered.
+  // Multiple configured can be acceseed from there, including and not limited
+  // to compression options. file is a handle of a writable file.
+  // It is the caller's responsibility to keep the file open and close the file
+  // after closing the table builder. compression_type is the compression type
+  // to use in this table.
   virtual TableBuilder* NewTableBuilder(
-      const Options& options, const InternalKeyComparator& internal_comparator,
-      WritableFile* file, CompressionType compression_type) const = 0;
+      const ImmutableCFOptions& ioptions,
+      const InternalKeyComparator& internal_comparator,
+      WritableFile* file, const CompressionType compression_type,
+      const CompressionOptions& compression_opts) const = 0;
+
+  // Sanitizes the specified DB Options.
+  //
+  // If the function cannot find a way to sanitize the input DB Options,
+  // a non-ok Status will be returned.
+  virtual Status SanitizeDBOptions(const DBOptions* db_opts) const = 0;
+
+  // Return a string that contains printable format of table configurations.
+  // RocksDB prints configurations at DB Open().
+  virtual std::string GetPrintableTableOptions() const = 0;
 };
 
 #ifndef ROCKSDB_LITE

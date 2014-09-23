@@ -115,7 +115,7 @@ enum Tickers : uint32_t {
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,
-  WRITE_TIMEDOUT,        // Number of writes ending up with timed-out.
+  WRITE_TIMEDOUT,       // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
@@ -212,7 +212,6 @@ enum Histograms : uint32_t {
   READ_BLOCK_COMPACTION_MICROS,
   READ_BLOCK_GET_MICROS,
   WRITE_RAW_BLOCK_MICROS,
-
   STALL_L0_SLOWDOWN_COUNT,
   STALL_MEMTABLE_COMPACTION_COUNT,
   STALL_L0_NUM_FILES_COUNT,
@@ -220,6 +219,7 @@ enum Histograms : uint32_t {
   SOFT_RATE_LIMIT_DELAY_COUNT,
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
+  WRITE_STALL,
   HISTOGRAM_ENUM_MAX,
 };
 

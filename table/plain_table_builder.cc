@@ -20,7 +20,6 @@
 #include "table/block_builder.h"
 #include "table/bloom_block.h"
 #include "table/plain_table_index.h"
-#include "table/filter_block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/coding.h"
@@ -58,24 +57,24 @@ extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
-    const Options& options, WritableFile* file, uint32_t user_key_len,
-    EncodingType encoding_type, size_t index_sparseness,
+    const ImmutableCFOptions& ioptions, WritableFile* file,
+    uint32_t user_key_len, EncodingType encoding_type, size_t index_sparseness,
     uint32_t bloom_bits_per_key, uint32_t num_probes, size_t huge_page_tlb_size,
     double hash_table_ratio, bool store_index_in_file)
-    : options_(options),
+    : ioptions_(ioptions),
       bloom_block_(num_probes),
       file_(file),
       bloom_bits_per_key_(bloom_bits_per_key),
       huge_page_tlb_size_(huge_page_tlb_size),
-      encoder_(encoding_type, user_key_len, options.prefix_extractor.get(),
+      encoder_(encoding_type, user_key_len, ioptions.prefix_extractor,
                index_sparseness),
       store_index_in_file_(store_index_in_file),
-      prefix_extractor_(options.prefix_extractor.get()) {
+      prefix_extractor_(ioptions.prefix_extractor) {
   // Build index block and save it in the file if hash_table_ratio > 0
   if (store_index_in_file_) {
     assert(hash_table_ratio > 0 || IsTotalOrderMode());
     index_builder_.reset(
-        new PlainTableIndexBuilder(&arena_, options, index_sparseness,
+        new PlainTableIndexBuilder(&arena_, ioptions, index_sparseness,
                                    hash_table_ratio, huge_page_tlb_size_));
     assert(bloom_bits_per_key_ > 0);
     properties_.user_collected_properties
@@ -93,10 +92,10 @@ PlainTableBuilder::PlainTableBuilder(
   // plain encoding.
   properties_.format_version = (encoding_type == kPlain) ? 0 : 1;
 
-  if (options_.prefix_extractor) {
+  if (ioptions_.prefix_extractor) {
     properties_.user_collected_properties
         [PlainTablePropertyNames::kPrefixExtractorName] =
-        options_.prefix_extractor->Name();
+        ioptions_.prefix_extractor->Name();
   }
 
   std::string val;
@@ -105,7 +104,7 @@ PlainTableBuilder::PlainTableBuilder(
       [PlainTablePropertyNames::kEncodingType] = val;
 
   for (auto& collector_factories :
-       options.table_properties_collector_factories) {
+       ioptions.table_properties_collector_factories) {
     table_properties_collectors_.emplace_back(
         collector_factories->CreateTablePropertiesCollector());
   }
@@ -124,11 +123,11 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   // Store key hash
   if (store_index_in_file_) {
-    if (options_.prefix_extractor.get() == nullptr) {
+    if (ioptions_.prefix_extractor == nullptr) {
       keys_or_prefixes_hashes_.push_back(GetSliceHash(internal_key.user_key));
     } else {
       Slice prefix =
-          options_.prefix_extractor->Transform(internal_key.user_key);
+          ioptions_.prefix_extractor->Transform(internal_key.user_key);
       keys_or_prefixes_hashes_.push_back(GetSliceHash(prefix));
     }
   }
@@ -160,7 +159,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
 
   // notify property collectors
   NotifyCollectTableCollectorsOnAdd(key, value, table_properties_collectors_,
-                                    options_.info_log.get());
+                                    ioptions_.info_log);
 }
 
 Status PlainTableBuilder::status() const { return status_; }
@@ -183,7 +182,8 @@ Status PlainTableBuilder::Finish() {
   if (store_index_in_file_ && (properties_.num_entries > 0)) {
     bloom_block_.SetTotalBits(
         &arena_, properties_.num_entries * bloom_bits_per_key_,
-        options_.bloom_locality, huge_page_tlb_size_, options_.info_log.get());
+        ioptions_.bloom_locality, huge_page_tlb_size_,
+        ioptions_.info_log);
 
     PutVarint32(&properties_.user_collected_properties
                      [PlainTablePropertyNames::kNumBloomBlocks],
@@ -224,7 +224,7 @@ Status PlainTableBuilder::Finish() {
 
   // -- Add user collected properties
   NotifyCollectTableCollectorsOnFinish(table_properties_collectors_,
-                                       options_.info_log.get(),
+                                       ioptions_.info_log,
                                        &property_block_builder);
 
   // -- Write property block
