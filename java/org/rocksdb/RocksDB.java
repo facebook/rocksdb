@@ -324,6 +324,26 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
+  
+  /**
+   * DB implementations can export properties about their state
+     via this method.  If "property" is a valid property understood by this
+     DB implementation, fills "*value" with its current value and returns
+     true.  Otherwise returns false.
+  
+  
+     Valid property names include:
+   
+     "rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
+         where <N> is an ASCII representation of a level number (e.g. "0").
+     "rocksdb.stats" - returns a multi-line string that describes statistics
+         about the internal operation of the DB.
+     "rocksdb.sstables" - returns a multi-line string that describes all
+       of the sstables that make up the db contents.
+   */
+  public String getProperty(String property) throws RocksDBException {
+    return getProperty0(nativeHandle_, property, property.length());
+  }
 
   /**
    * Return a heap-allocated iterator over the contents of the database.
@@ -378,6 +398,8 @@ public class RocksDB extends RocksObject {
   protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
+  protected native String getProperty0(long nativeHandle,
+      String property, int propertyLength) throws RocksDBException;
   protected native long iterator0(long optHandle);
   private native void disposeInternal(long handle);
 

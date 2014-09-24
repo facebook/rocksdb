@@ -83,9 +83,23 @@ public class RocksDBSample {
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
     table_options.setBlockCacheSize(64 * SizeUnit.KB)
                  .setFilterBitsPerKey(10)
-                 .setCacheNumShardBits(6);
+                 .setCacheNumShardBits(6)
+                 .setBlockSizeDeviation(5)
+                 .setBlockRestartInterval(10)
+                 .setCacheIndexAndFilterBlocks(true)
+                 .setHashIndexAllowCollision(false)
+                 .setBlockCacheCompressedSize(64 * SizeUnit.KB)
+                 .setBlockCacheCompressedNumShardBits(10);
+                 
     assert(table_options.blockCacheSize() == 64 * SizeUnit.KB);
     assert(table_options.cacheNumShardBits() == 6);
+    assert(table_options.blockSizeDeviation() == 5);
+    assert(table_options.blockRestartInterval() == 10);
+    assert(table_options.cacheIndexAndFilterBlocks() == true);
+    assert(table_options.hashIndexAllowCollision() == false);
+    assert(table_options.blockCacheCompressedSize() == 64 * SizeUnit.KB);
+    assert(table_options.blockCacheCompressedNumShardBits() == 10);
+    
     options.setTableFormatConfig(table_options);
     assert(options.tableFactoryName().equals("BlockBasedTable"));
 
@@ -94,6 +108,8 @@ public class RocksDBSample {
       db.put("hello".getBytes(), "world".getBytes());
       byte[] value = db.get("hello".getBytes());
       assert("world".equals(new String(value)));
+      String str = db.getProperty("rocksdb.stats");
+      assert(str != null && str != "");
     } catch (RocksDBException e) {
       System.out.format("[ERROR] caught the unexpceted exception -- %s\n", e);
       assert(db == null);

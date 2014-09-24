@@ -425,3 +425,27 @@ jlong Java_org_rocksdb_RocksDB_iterator0(
   rocksdb::Iterator* iterator = db->NewIterator(rocksdb::ReadOptions());
   return reinterpret_cast<jlong>(iterator);
 }
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getProperty0
+ * Signature: (JLjava/lang/String;I)Ljava/lang/String;
+ */
+jstring Java_org_rocksdb_RocksDB_getProperty0(
+    JNIEnv* env, jobject jdb, jlong db_handle, jstring jproperty,
+    jint jproperty_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  
+  const char* property = env->GetStringUTFChars(jproperty, 0);
+  rocksdb::Slice property_slice(property, jproperty_len);
+  
+  std::string property_value;
+  bool retCode = db->GetProperty(property_slice, &property_value);
+  env->ReleaseStringUTFChars(jproperty, property);
+  
+  if (!retCode) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, rocksdb::Status::NotFound());
+  }
+  
+  return env->NewStringUTF(property_value.data());
+}
