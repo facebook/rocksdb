@@ -790,27 +790,6 @@ void Java_org_rocksdb_Options_setBytesPerSync(
 }
 
 /*
- * Class:     org_rocksdb_Options
- * Method:    allowThreadLocal
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_allowThreadLocal(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->allow_thread_local;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setAllowThreadLocal
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setAllowThreadLocal(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_thread_local) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->allow_thread_local =
-      static_cast<bool>(allow_thread_local);
-}
-
-/*
  * Method:    tableFactoryName
  * Signature: (J)Ljava/lang/String
  */

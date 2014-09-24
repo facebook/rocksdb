@@ -799,10 +799,6 @@ struct DBOptions {
   // Default: false
   bool use_adaptive_mutex;
 
-  // Allow RocksDB to use thread local storage to optimize performance.
-  // Default: true
-  bool allow_thread_local;
-
   // Create DBOptions with default values for all fields
   DBOptions();
   // Create DBOptions from Options

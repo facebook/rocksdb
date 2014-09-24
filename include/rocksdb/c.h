@@ -537,8 +537,6 @@ extern void rocksdb_options_set_min_partial_merge_operands(
     rocksdb_options_t*, uint32_t);
 extern void rocksdb_options_set_bloom_locality(
     rocksdb_options_t*, uint32_t);
-extern void rocksdb_options_set_allow_thread_local(
-    rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_inplace_update_support(
     rocksdb_options_t*, unsigned char);
 extern void rocksdb_options_set_inplace_update_num_locks(

@@ -411,16 +411,10 @@ Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
     port::Mutex* db_mutex) {
   SuperVersion* sv = nullptr;
-  if (LIKELY(column_family_set_->db_options_->allow_thread_local)) {
-    sv = GetThreadLocalSuperVersion(db_mutex);
-    sv->Ref();
-    if (!ReturnThreadLocalSuperVersion(sv)) {
-      sv->Unref();
-    }
-  } else {
-    db_mutex->Lock();
-    sv = super_version_->Ref();
-    db_mutex->Unlock();
+  sv = GetThreadLocalSuperVersion(db_mutex);
+  sv->Ref();
+  if (!ReturnThreadLocalSuperVersion(sv)) {
+    sv->Unref();
   }
   return sv;
 }
@@ -506,9 +500,7 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
   // Reset SuperVersions cached in thread local storage
-  if (column_family_set_->db_options_->allow_thread_local) {
-    ResetThreadLocalSuperVersions();
-  }
+  ResetThreadLocalSuperVersions();
 
   RecalculateWriteStallConditions();
 

@@ -401,24 +401,22 @@ DBImpl::~DBImpl() {
     mutex_.Lock();
   }
 
-  if (db_options_.allow_thread_local) {
-    // Clean up obsolete files due to SuperVersion release.
-    // (1) Need to delete to obsolete files before closing because RepairDB()
-    // scans all existing files in the file system and builds manifest file.
-    // Keeping obsolete files confuses the repair process.
-    // (2) Need to check if we Open()/Recover() the DB successfully before
-    // deleting because if VersionSet recover fails (may be due to corrupted
-    // manifest file), it is not able to identify live files correctly. As a
-    // result, all "live" files can get deleted by accident. However, corrupted
-    // manifest is recoverable by RepairDB().
-    if (opened_successfully_) {
-      DeletionState deletion_state;
-      FindObsoleteFiles(deletion_state, true);
-      // manifest number starting from 2
-      deletion_state.manifest_file_number = 1;
-      if (deletion_state.HaveSomethingToDelete()) {
-        PurgeObsoleteFiles(deletion_state);
-      }
+  // Clean up obsolete files due to SuperVersion release.
+  // (1) Need to delete to obsolete files before closing because RepairDB()
+  // scans all existing files in the file system and builds manifest file.
+  // Keeping obsolete files confuses the repair process.
+  // (2) Need to check if we Open()/Recover() the DB successfully before
+  // deleting because if VersionSet recover fails (may be due to corrupted
+  // manifest file), it is not able to identify live files correctly. As a
+  // result, all "live" files can get deleted by accident. However, corrupted
+  // manifest is recoverable by RepairDB().
+  if (opened_successfully_) {
+    DeletionState deletion_state;
+    FindObsoleteFiles(deletion_state, true);
+    // manifest number starting from 2
+    deletion_state.manifest_file_number = 1;
+    if (deletion_state.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(deletion_state);
     }
   }
 
@@ -4315,20 +4313,12 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyHandle* column_family,
 
 SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
   // TODO(ljin): consider using GetReferencedSuperVersion() directly
-  if (LIKELY(db_options_.allow_thread_local)) {
-    return cfd->GetThreadLocalSuperVersion(&mutex_);
-  } else {
-    MutexLock l(&mutex_);
-    return cfd->GetSuperVersion()->Ref();
-  }
+  return cfd->GetThreadLocalSuperVersion(&mutex_);
 }
 
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
-  bool unref_sv = true;
-  if (LIKELY(db_options_.allow_thread_local)) {
-    unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
-  }
+  bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
 
   if (unref_sv) {
     // Release SuperVersion

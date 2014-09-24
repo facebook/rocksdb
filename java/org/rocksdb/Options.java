@@ -1071,33 +1071,6 @@ public class Options extends RocksObject {
       long handle, long bytesPerSync);
 
   /**
-   * Allow RocksDB to use thread local storage to optimize performance.
-   * Default: true
-   *
-   * @return true if thread-local storage is allowed
-   */
-  public boolean allowThreadLocal() {
-    assert(isInitialized());
-    return allowThreadLocal(nativeHandle_);
-  }
-  private native boolean allowThreadLocal(long handle);
-
-  /**
-   * Allow RocksDB to use thread local storage to optimize performance.
-   * Default: true
-   *
-   * @param allowThreadLocal true if thread-local storage is allowed.
-   * @return the reference to the current option.
-   */
-  public Options setAllowThreadLocal(boolean allowThreadLocal) {
-    assert(isInitialized());
-    setAllowThreadLocal(nativeHandle_, allowThreadLocal);
-    return this;
-  }
-  private native void setAllowThreadLocal(
-      long handle, boolean allowThreadLocal);
-
-  /**
    * Set the config for mem-table.
    *
    * @param config the mem-table config.

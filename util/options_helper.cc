@@ -301,8 +301,6 @@ bool GetOptionsFromStrings(
         new_options->advise_random_on_open = ParseBoolean(o.first, o.second);
       } else if (o.first == "use_adaptive_mutex") {
         new_options->use_adaptive_mutex = ParseBoolean(o.first, o.second);
-      } else if (o.first == "allow_thread_local") {
-        new_options->allow_thread_local = ParseBoolean(o.first, o.second);
       } else if (o.first == "bytes_per_sync") {
         new_options->bytes_per_sync = ParseUint64(o.second);
       } else {
