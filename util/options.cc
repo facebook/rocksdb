@@ -419,7 +419,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
             "max_size_amplification_percent: %u",
         compaction_options_universal.max_size_amplification_percent);
     Log(log,
-        "Options.compaction_options_universal.compression_size_percent: %u",
+        "Options.compaction_options_universal.compression_size_percent: %d",
         compaction_options_universal.compression_size_percent);
     Log(log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
         compaction_options_fifo.max_table_files_size);

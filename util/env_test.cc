@@ -17,6 +17,11 @@
 #include <unistd.h>
 #endif
 
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+#include <errno.h>
+#include <fcntl.h>
+#endif
+
 #include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -478,6 +483,31 @@ TEST(EnvPosixTest, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST(EnvPosixTest, AllocateTest) {
   std::string fname = GetOnDiskTestDir() + "/preallocate_testfile";
+
+  // Try fallocate in a file to see whether the target file system supports it.
+  // Skip the test if fallocate is not supported.
+  std::string fname_test_fallocate =
+      GetOnDiskTestDir() + "/preallocate_testfile_2";
+  int fd = -1;
+  do {
+    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  } while (fd < 0 && errno == EINTR);
+  ASSERT_GT(fd, 0);
+
+  int alloc_status = fallocate(fd, 0, 0, 1);
+
+  int err_number = 0;
+  if (alloc_status != 0) {
+    err_number = errno;
+    fprintf(stderr, "Warning: fallocate() fails, %s\n", strerror(err_number));
+  }
+  close(fd);
+  ASSERT_OK(env_->DeleteFile(fname_test_fallocate));
+  if (alloc_status != 0 && err_number == EOPNOTSUPP) {
+    // The filesystem containing the file does not support fallocate
+    return;
+  }
+
   EnvOptions soptions;
   soptions.use_mmap_writes = false;
   unique_ptr<WritableFile> wfile;
