@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.io.Closeable;
 import java.io.IOException;
 import org.rocksdb.util.Environment;
+import org.rocksdb.NativeLibraryLoader;
 
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
@@ -23,11 +24,19 @@ public class RocksDB extends RocksObject {
   private static final String[] compressionLibs_ = {
       "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
+  static {
+    RocksDB.loadLibrary();
+  }
+
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
+   * By default the method extracts the shared library for loading at
+   * java.io.tmpdir, however, you can override this temporary location by
+   * setting the environment variable ROCKSDB_SHAREDLIB_DIR.
    */
   public static synchronized void loadLibrary() {
+    String tmpDir = System.getenv("ROCKSDB_SHAREDLIB_DIR");
     // loading possibly necessary libraries.
     for (String lib : compressionLibs_) {
       try {
@@ -36,8 +45,14 @@ public class RocksDB extends RocksObject {
         // since it may be optional, we ignore its loading failure here.
       }
     }
-    // However, if any of them is required.  We will see error here.
-    System.loadLibrary("rocksdbjni");
+    try
+    {
+      NativeLibraryLoader.loadLibraryFromJar(tmpDir);
+    }
+    catch (IOException e)
+    {
+      throw new RuntimeException("Unable to load the RocksDB shared library" + e);
+    }
   }
 
   /**

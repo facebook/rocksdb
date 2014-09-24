@@ -575,7 +575,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(Version* version,
     return nullptr;
   }
   Version::FileSummaryStorage tmp;
-  LogToBuffer(log_buffer, "[%s] Universal: candidate files(%zu): %s\n",
+  LogToBuffer(log_buffer, 3072, "[%s] Universal: candidate files(%zu): %s\n",
               version->cfd_->GetName().c_str(), version->files_[level].size(),
               version->LevelFileSummary(&tmp, 0));
 

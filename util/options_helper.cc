@@ -177,7 +177,7 @@ bool GetOptionsFromStrings(
       } else if (o.first == "max_mem_compaction_level") {
         new_options->max_mem_compaction_level = ParseInt(o.second);
       } else if (o.first == "target_file_size_base") {
-        new_options->target_file_size_base = ParseInt(o.second);
+        new_options->target_file_size_base = ParseUint64(o.second);
       } else if (o.first == "target_file_size_multiplier") {
         new_options->target_file_size_multiplier = ParseInt(o.second);
       } else if (o.first == "max_bytes_for_level_base") {

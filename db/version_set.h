@@ -183,10 +183,10 @@ class Version {
   // Return a human-readable short (single-line) summary of the number
   // of files per level.  Uses *scratch as backing store.
   struct LevelSummaryStorage {
-    char buffer[100];
+    char buffer[1000];
   };
   struct FileSummaryStorage {
-    char buffer[1000];
+    char buffer[3000];
   };
   const char* LevelSummary(LevelSummaryStorage* scratch) const;
   // Return a human-readable short (single-line) summary of files

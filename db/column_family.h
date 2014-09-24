@@ -49,6 +49,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
+  virtual const Comparator* user_comparator() const;
 
   virtual uint32_t GetID() const;
 
@@ -447,5 +448,8 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
 };
 
 extern uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family);
+
+extern const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family);
 
 }  // namespace rocksdb

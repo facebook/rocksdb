@@ -86,6 +86,10 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
 
 uint32_t ColumnFamilyHandleImpl::GetID() const { return cfd()->GetID(); }
 
+const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
+  return cfd()->user_comparator();
+}
+
 ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
@@ -724,6 +728,15 @@ uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
     column_family_id = cfh->GetID();
   }
   return column_family_id;
+}
+
+const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family) {
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    return cfh->user_comparator();
+  }
+  return nullptr;
 }
 
 }  // namespace rocksdb

@@ -307,7 +307,7 @@ DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_int32(num_levels, 7, "The total number of levels");
 
-DEFINE_int32(target_file_size_base, 2 * 1048576, "Target file size at level-1");
+DEFINE_int64(target_file_size_base, 2 * 1048576, "Target file size at level-1");
 
 DEFINE_int32(target_file_size_multiplier, 1,
              "A multiplier to compute target level-N file size (N >= 2)");

@@ -58,6 +58,7 @@ enum CompactionStyle : char {
   kCompactionStyleFIFO = 0x2,       // FIFO compaction style
 };
 
+
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -287,7 +288,7 @@ struct ColumnFamilyOptions {
   // and each file on level-3 will be 200MB.
 
   // by default target_file_size_base is 2MB.
-  int target_file_size_base;
+  uint64_t target_file_size_base;
   // by default target_file_size_multiplier is 1, which means
   // by default files in different levels will have similar size.
   int target_file_size_multiplier;
@@ -783,12 +784,13 @@ struct DBOptions {
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.
   // Default: NORMAL
-  enum {
-    NONE,
-    NORMAL,
-    SEQUENTIAL,
-    WILLNEED
-  } access_hint_on_compaction_start;
+  enum AccessHint {
+      NONE,
+      NORMAL,
+      SEQUENTIAL,
+      WILLNEED
+  };
+  AccessHint access_hint_on_compaction_start;
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not

@@ -289,6 +289,9 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   explicit ColumnFamilyHandleImplDummy(int id)
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
   uint32_t GetID() const override { return id_; }
+  const Comparator* user_comparator() const override {
+    return BytewiseComparator();
+  }
 
  private:
   uint32_t id_;
@@ -320,7 +323,7 @@ TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
 }
 
 TEST(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
-  WriteBatchWithIndex batch(BytewiseComparator(), 20);
+  WriteBatchWithIndex batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
   batch.Put(&zero, Slice("foo"), Slice("bar"));
   batch.Put(&two, Slice("twofoo"), Slice("bar2"));

@@ -522,7 +522,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   float time_per_op = (env->NowMicros() - start_time) * 1.0 / num;
   fprintf(stderr,
       "Time taken per op is %.3fus (%.1f Mqps) with batch size of %u, "
-      "# of found keys %ld\n",
+      "# of found keys %" PRId64 "\n",
       time_per_op, 1.0 / time_per_op, batch_size, found_count);
 }
 }  // namespace.

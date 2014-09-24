@@ -19,12 +19,16 @@ namespace rocksdb {
 namespace {
 class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
  public:
-  explicit ColumnFamilyHandleImplDummy(int id)
-      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
+  explicit ColumnFamilyHandleImplDummy(int id, const Comparator* comparator)
+      : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr),
+        id_(id),
+        comparator_(comparator) {}
   uint32_t GetID() const override { return id_; }
+  const Comparator* user_comparator() const override { return comparator_; }
 
  private:
   uint32_t id_;
+  const Comparator* comparator_;
 };
 
 struct Entry {
@@ -90,8 +94,9 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
     index_map[e.value].push_back(&e);
   }
 
-  WriteBatchWithIndex batch(BytewiseComparator(), 20);
-  ColumnFamilyHandleImplDummy data(6), index(8);
+  WriteBatchWithIndex batch(nullptr, 20);
+  ColumnFamilyHandleImplDummy data(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy index(8, BytewiseComparator());
   for (auto& e : entries) {
     if (e.type == kPutRecord) {
       batch.Put(&data, e.key, e.value);
@@ -227,6 +232,107 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
         ASSERT_EQ(e.value, write_entry.key);
       }
     }
+  }
+}
+
+class ReverseComparator : public Comparator {
+ public:
+  ReverseComparator() {}
+
+  virtual const char* Name() const override {
+    return "rocksdb.ReverseComparator";
+  }
+
+  virtual int Compare(const Slice& a, const Slice& b) const override {
+    return 0 - BytewiseComparator()->Compare(a, b);
+  }
+
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const {}
+  virtual void FindShortSuccessor(std::string* key) const {}
+};
+
+TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
+  ReverseComparator reverse_cmp;
+  ColumnFamilyHandleImplDummy cf1(6, nullptr);
+  ColumnFamilyHandleImplDummy reverse_cf(66, &reverse_cmp);
+  ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20);
+
+  batch.Put(&cf1, "ddd", "");
+  batch.Put(&cf2, "aaa", "");
+  batch.Put(&cf2, "eee", "");
+  batch.Put(&cf1, "ccc", "");
+  batch.Put(&reverse_cf, "a11", "");
+  batch.Put(&cf1, "bbb", "");
+  batch.Put(&reverse_cf, "a33", "");
+  batch.Put(&reverse_cf, "a22", "");
+
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+    iter->Seek("");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("bbb", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("ccc", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("ddd", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf2));
+    iter->Seek("");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("aaa", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("eee", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&reverse_cf));
+    iter->Seek("");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("z");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a33", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a22", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a11", iter->Entry().key.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("a22");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a22", iter->Entry().key.ToString());
+
+    iter->Seek("a13");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a11", iter->Entry().key.ToString());
   }
 }
 
