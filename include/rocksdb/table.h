@@ -253,6 +253,8 @@ struct CuckooTablePropertyNames {
   static const std::string kIsLastLevel;
   // Indicate if using identity function for the first hash function.
   static const std::string kIdentityAsFirstHash;
+  // Indicate if using module or bit and to calculate hash value
+  static const std::string kUseModuleHash;
 };
 
 struct CuckooTableOptions {
@@ -271,11 +273,17 @@ struct CuckooTableOptions {
   // function. This makes lookups more cache friendly in case
   // of collisions.
   uint32_t cuckoo_block_size = 5;
-  // If this options is enabled, user key is treated as uint64_t and its value
+  // If this option is enabled, user key is treated as uint64_t and its value
   // is used as hash value directly. This option changes builder's behavior.
   // Reader ignore this option and behave according to what specified in table
   // property.
   bool identity_as_first_hash = false;
+  // If this option is set to true, module is used during hash calculation.
+  // This often yields better space efficiency at the cost of performance.
+  // If this optino is set to false, # of entries in table is constrained to be
+  // power of two, and bit and is used to calculate hash, which is faster in
+  // general.
+  bool use_module_hash = true;
 };
 
 // Cuckoo Table Factory for SST table format using Cache Friendly Cuckoo Hashing

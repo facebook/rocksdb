@@ -15,21 +15,27 @@ namespace rocksdb {
 
 const uint32_t kCuckooMurmurSeedMultiplier = 816922183;
 static inline uint64_t CuckooHash(
-    const Slice& user_key, uint32_t hash_cnt, uint64_t table_size_minus_one,
-    bool identity_as_first_hash,
+    const Slice& user_key, uint32_t hash_cnt, bool use_module_hash,
+    uint64_t table_size_, bool identity_as_first_hash,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t)) {
 #ifndef NDEBUG
   // This part is used only in unit tests.
   if (get_slice_hash != nullptr) {
-    return get_slice_hash(user_key, hash_cnt, table_size_minus_one + 1);
+    return get_slice_hash(user_key, hash_cnt, table_size_);
   }
 #endif
+  uint64_t value = 0;
   if (hash_cnt == 0 && identity_as_first_hash) {
-    return (*reinterpret_cast<const int64_t*>(user_key.data())) &
-           table_size_minus_one;
+    value = (*reinterpret_cast<const int64_t*>(user_key.data()));
+  } else {
+    value = MurmurHash(user_key.data(), user_key.size(),
+                       kCuckooMurmurSeedMultiplier * hash_cnt);
   }
-  return MurmurHash(user_key.data(), user_key.size(),
-      kCuckooMurmurSeedMultiplier * hash_cnt) & table_size_minus_one;
+  if (use_module_hash) {
+    return value % table_size_;
+  } else {
+    return value & (table_size_ - 1);
+  }
 }
 
 // Cuckoo Table is designed for applications that require fast point lookups

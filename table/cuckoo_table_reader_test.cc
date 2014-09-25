@@ -110,8 +110,8 @@ class CuckooReaderTest {
     std::unique_ptr<WritableFile> writable_file;
     ASSERT_OK(env->NewWritableFile(fname, &writable_file, env_options));
     CuckooTableBuilder builder(
-        writable_file.get(), 0.9, kNumHashFunc, 100, ucomp, 2, false,
-        GetSliceHash);
+        writable_file.get(), 0.9, kNumHashFunc, 100, ucomp, 2,
+        false, false, GetSliceHash);
     ASSERT_OK(builder.status());
     for (uint32_t key_idx = 0; key_idx < num_items; ++key_idx) {
       builder.Add(Slice(keys[key_idx]), Slice(values[key_idx]));
@@ -434,7 +434,7 @@ void WriteFile(const std::vector<std::string>& keys,
   CuckooTableBuilder builder(
       writable_file.get(), hash_ratio,
       64, 1000, test::Uint64Comparator(), 5,
-      FLAGS_identity_as_first_hash, nullptr);
+      false, FLAGS_identity_as_first_hash, nullptr);
   ASSERT_OK(builder.status());
   for (uint64_t key_idx = 0; key_idx < num; ++key_idx) {
     // Value is just a part of key.

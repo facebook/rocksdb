@@ -65,6 +65,7 @@ class CuckooTableReader: public TableReader {
   Slice file_data_;
   bool is_last_level_;
   bool identity_as_first_hash_;
+  bool use_module_hash_;
   std::shared_ptr<const TableProperties> table_props_;
   Status status_;
   uint32_t num_hash_func_;
@@ -74,7 +75,7 @@ class CuckooTableReader: public TableReader {
   uint32_t bucket_length_;
   uint32_t cuckoo_block_size_;
   uint32_t cuckoo_block_bytes_minus_one_;
-  uint64_t table_size_minus_one_;
+  uint64_t table_size_;
   const Comparator* ucomp_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
       uint64_t max_num_buckets);
