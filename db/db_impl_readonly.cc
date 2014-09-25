@@ -2,42 +2,12 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
-// Copyright (c) 2012 Facebook. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
 
 #include "db/db_impl_readonly.h"
+#include "utilities/compacted_db/compacted_db_impl.h"
 #include "db/db_impl.h"
-
-#include <algorithm>
-#include <set>
-#include <string>
-#include <stdint.h>
-#include <stdio.h>
-#include <vector>
-#include "db/db_iter.h"
-#include "db/dbformat.h"
-#include "db/filename.h"
-#include "db/log_reader.h"
-#include "db/log_writer.h"
-#include "db/memtable.h"
 #include "db/merge_context.h"
-#include "db/table_cache.h"
-#include "db/version_set.h"
-#include "db/write_batch_internal.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "rocksdb/status.h"
-#include "rocksdb/table.h"
-#include "rocksdb/merge_operator.h"
-#include "port/port.h"
-#include "table/block.h"
-#include "table/merger.h"
-#include "table/two_level_iterator.h"
-#include "util/coding.h"
-#include "util/logging.h"
-#include "util/build_version.h"
+#include "db/db_iter.h"
 
 namespace rocksdb {
 
@@ -120,6 +90,15 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
                            DB** dbptr, bool error_if_log_file_exist) {
   *dbptr = nullptr;
 
+  // Try to first open DB as fully compacted DB
+  Status s;
+#ifndef ROCKSDB_LITE
+  s = CompactedDBImpl::Open(options, dbname, dbptr);
+  if (s.ok()) {
+    return s;
+  }
+#endif
+
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -127,8 +106,7 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
   std::vector<ColumnFamilyHandle*> handles;
 
-  Status s =
-      DB::OpenForReadOnly(db_options, dbname, column_families, &handles, dbptr);
+  s = DB::OpenForReadOnly(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
     assert(handles.size() == 1);
     // i can delete the handle since DBImpl is always holding a

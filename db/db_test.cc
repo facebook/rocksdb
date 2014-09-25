@@ -1270,6 +1270,80 @@ TEST(DBTest, ReadOnlyDB) {
   ASSERT_EQ("v2", Get("bar"));
 }
 
+TEST(DBTest, CompactedDB) {
+  const uint64_t kFileSize = 1 << 20;
+  Options options;
+  options.disable_auto_compactions = true;
+  options.max_mem_compaction_level = 0;
+  options.write_buffer_size = kFileSize;
+  options.target_file_size_base = kFileSize;
+  options.max_bytes_for_level_base = 1 << 30;
+  options.compression = kNoCompression;
+  Reopen(&options);
+  // 1 L0 file, use CompactedDB if max_open_files = -1
+  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
+  Flush();
+  Close();
+  ASSERT_OK(ReadOnlyReopen(&options));
+  Status s = Put("new", "value");
+  ASSERT_EQ(s.ToString(),
+            "Not implemented: Not supported operation in read only mode.");
+  ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
+  Close();
+  options.max_open_files = -1;
+  ASSERT_OK(ReadOnlyReopen(&options));
+  s = Put("new", "value");
+  ASSERT_EQ(s.ToString(),
+            "Not implemented: Not supported in compacted db mode.");
+  ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
+  Close();
+  Reopen(&options);
+  // Add more L0 files
+  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
+  Flush();
+  ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
+  Flush();
+  ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
+  Flush();
+  Close();
+
+  ASSERT_OK(ReadOnlyReopen(&options));
+  // Fallback to read-only DB
+  s = Put("new", "value");
+  ASSERT_EQ(s.ToString(),
+            "Not implemented: Not supported operation in read only mode.");
+  Close();
+
+  // Full compaction
+  Reopen(&options);
+  // Add more keys
+  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
+  ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
+  ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
+  ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
+  ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
+  db_->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(3, NumTableFilesAtLevel(1));
+  Close();
+
+  // CompactedDB
+  ASSERT_OK(ReadOnlyReopen(&options));
+  s = Put("new", "value");
+  ASSERT_EQ(s.ToString(),
+            "Not implemented: Not supported in compacted db mode.");
+  ASSERT_EQ("NOT_FOUND", Get("abc"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), Get("aaa"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'b'), Get("bbb"));
+  ASSERT_EQ("NOT_FOUND", Get("ccc"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), Get("eee"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'f'), Get("fff"));
+  ASSERT_EQ("NOT_FOUND", Get("ggg"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'h'), Get("hhh"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
+  ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
+  ASSERT_EQ("NOT_FOUND", Get("kkk"));
+}
+
 // Make sure that when options.block_cache is set, after a new table is
 // created its index/filter blocks are added to block cache.
 TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {

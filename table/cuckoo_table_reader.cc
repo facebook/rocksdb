@@ -120,9 +120,9 @@ Status CuckooTableReader::Get(
         get_slice_hash_);
     const char* bucket = &file_data_.data()[offset];
     for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
-        ++block_idx, bucket += bucket_length_) {
+         ++block_idx, bucket += bucket_length_) {
       if (ucomp_->Compare(Slice(unused_key_.data(), user_key.size()),
-            Slice(bucket, user_key.size())) == 0) {
+                          Slice(bucket, user_key.size())) == 0) {
         return Status::OK();
       }
       // Here, we compare only the user key part as we support only one entry

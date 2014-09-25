@@ -1262,6 +1262,8 @@ class Benchmark {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
         method = &Benchmark::ReadRandom;
+      } else if (name == Slice("readrandomfast")) {
+        method = &Benchmark::ReadRandomFast;
       } else if (name == Slice("multireadrandom")) {
         method = &Benchmark::MultiReadRandom;
       } else if (name == Slice("readmissing")) {
@@ -2069,6 +2071,44 @@ class Benchmark {
     }
     delete iter;
     thread->stats.AddBytes(bytes);
+  }
+
+  void ReadRandomFast(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    Slice key = AllocateKey();
+    std::unique_ptr<const char[]> key_guard(key.data());
+    std::string value;
+    DB* db = SelectDBWithCfh(thread)->db;
+
+    int64_t pot = 1;
+    while (pot < FLAGS_num) {
+      pot <<= 1;
+    }
+
+    Duration duration(FLAGS_duration, reads_);
+    do {
+      for (int i = 0; i < 100; ++i) {
+        int64_t key_rand = thread->rand.Next() & (pot - 1);
+        GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+        ++read;
+        if (db->Get(options, key, &value).ok()) {
+          ++found;
+        }
+      }
+      thread->stats.FinishedOps(db, 100);
+    } while (!duration.Done(100));
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
+             found, read);
+
+    thread->stats.AddMessage(msg);
+
+    if (FLAGS_perf_level > 0) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
   }
 
   void ReadRandom(ThreadState* thread) {

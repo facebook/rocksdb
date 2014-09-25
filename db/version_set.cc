@@ -626,46 +626,23 @@ void Version::AddIterators(const ReadOptions& read_options,
   }
 }
 
-// Callback from TableCache::Get()
-enum SaverState {
-  kNotFound,
-  kFound,
-  kDeleted,
-  kCorrupt,
-  kMerge // saver contains the current merge result (the operands)
-};
-
-namespace version_set {
-struct Saver {
-  SaverState state;
-  const Comparator* ucmp;
-  Slice user_key;
-  bool* value_found; // Is value set correctly? Used by KeyMayExist
-  std::string* value;
-  const MergeOperator* merge_operator;
-  // the merge operations encountered;
-  MergeContext* merge_context;
-  Logger* logger;
-  Statistics* statistics;
-};
-} // namespace version_set
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may  exist are not there in TableCache/BlockCache respectively. In this
 // case we  can't guarantee that key does not exist and are not permitted to do
 // IO to be  certain.Set the status=kFound and value_found=false to let the
 // caller know that key may exist but is not there in memory
-static void MarkKeyMayExist(void* arg) {
-  version_set::Saver* s = reinterpret_cast<version_set::Saver*>(arg);
-  s->state = kFound;
+void MarkKeyMayExist(void* arg) {
+  Version::Saver* s = reinterpret_cast<Version::Saver*>(arg);
+  s->state = Version::kFound;
   if (s->value_found != nullptr) {
     *(s->value_found) = false;
   }
 }
 
-static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
-                      const Slice& v) {
-  version_set::Saver* s = reinterpret_cast<version_set::Saver*>(arg);
+bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
+               const Slice& v) {
+  Version::Saver* s = reinterpret_cast<Version::Saver*>(arg);
   MergeContext* merge_contex = s->merge_context;
   std::string merge_result;  // temporary area for merge results later
 
@@ -676,17 +653,17 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
     // Key matches. Process it
     switch (parsed_key.type) {
       case kTypeValue:
-        if (kNotFound == s->state) {
-          s->state = kFound;
+        if (Version::kNotFound == s->state) {
+          s->state = Version::kFound;
           s->value->assign(v.data(), v.size());
-        } else if (kMerge == s->state) {
+        } else if (Version::kMerge == s->state) {
           assert(s->merge_operator != nullptr);
-          s->state = kFound;
+          s->state = Version::kFound;
           if (!s->merge_operator->FullMerge(s->user_key, &v,
                                             merge_contex->GetOperands(),
                                             s->value, s->logger)) {
             RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            s->state = kCorrupt;
+            s->state = Version::kCorrupt;
           }
         } else {
           assert(false);
@@ -694,15 +671,15 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
         return false;
 
       case kTypeDeletion:
-        if (kNotFound == s->state) {
-          s->state = kDeleted;
-        } else if (kMerge == s->state) {
-          s->state = kFound;
+        if (Version::kNotFound == s->state) {
+          s->state = Version::kDeleted;
+        } else if (Version::kMerge == s->state) {
+          s->state = Version::kFound;
           if (!s->merge_operator->FullMerge(s->user_key, nullptr,
                                             merge_contex->GetOperands(),
                                             s->value, s->logger)) {
             RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            s->state = kCorrupt;
+            s->state = Version::kCorrupt;
           }
         } else {
           assert(false);
@@ -710,8 +687,8 @@ static bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
         return false;
 
       case kTypeMerge:
-        assert(s->state == kNotFound || s->state == kMerge);
-        s->state = kMerge;
+        assert(s->state == Version::kNotFound || s->state == Version::kMerge);
+        s->state = Version::kMerge;
         merge_contex->PushOperand(v);
         return true;
 
@@ -779,7 +756,7 @@ void Version::Get(const ReadOptions& options,
   Slice user_key = k.user_key();
 
   assert(status->ok() || status->IsMergeInProgress());
-  version_set::Saver saver;
+  Saver saver;
   saver.state = status->ok()? kNotFound : kMerge;
   saver.ucmp = user_comparator_;
   saver.user_key = user_key;
