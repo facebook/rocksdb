@@ -3954,8 +3954,9 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
 
 TEST(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
-  CompressionType type;
-  if (!MinLevelToCompress(type, options, -14, -1, 0)) {
+  CompressionType * type = new CompressionType();
+  if (!MinLevelToCompress(*type, options, -14, -1, 0)) {
+    delete type;
     return;
   }
   Reopen(&options);
@@ -3966,16 +3967,18 @@ TEST(DBTest, MinLevelToCompress1) {
     options.compression_per_level[i] = kNoCompression;
   }
   for (int i = 2; i < options.num_levels; i++) {
-    options.compression_per_level[i] = type;
+    options.compression_per_level[i] = *type;
   }
   DestroyAndReopen(&options);
   MinLevelHelper(this, options);
+  delete type;
 }
 
 TEST(DBTest, MinLevelToCompress2) {
   Options options = CurrentOptions();
-  CompressionType type;
-  if (!MinLevelToCompress(type, options, 15, -1, 0)) {
+  CompressionType * type = new CompressionType();
+  if (!MinLevelToCompress(*type, options, 15, -1, 0)) {
+    delete type;
     return;
   }
   Reopen(&options);
@@ -3986,10 +3989,11 @@ TEST(DBTest, MinLevelToCompress2) {
     options.compression_per_level[i] = kNoCompression;
   }
   for (int i = 2; i < options.num_levels; i++) {
-    options.compression_per_level[i] = type;
+    options.compression_per_level[i] = *type;
   }
   DestroyAndReopen(&options);
   MinLevelHelper(this, options);
+  delete type;
 }
 
 TEST(DBTest, RepeatedWritesToSameKey) {
