@@ -23,8 +23,7 @@ CompactedDBImpl::CompactedDBImpl(
 CompactedDBImpl::~CompactedDBImpl() {
 }
 
-Status CompactedDBImpl::Get(const ReadOptions& options,
-     ColumnFamilyHandle*, const Slice& key, std::string* value) {
+size_t CompactedDBImpl::FindFile(const Slice& key) {
   size_t left = 0;
   size_t right = files_.num_files - 1;
   while (left < right) {
@@ -40,7 +39,12 @@ Status CompactedDBImpl::Get(const ReadOptions& options,
       right = mid;
     }
   }
-  const FdWithKeyRange& f = files_.files[right];
+  return right;
+}
+
+Status CompactedDBImpl::Get(const ReadOptions& options,
+     ColumnFamilyHandle*, const Slice& key, std::string* value) {
+  const FdWithKeyRange& f = files_.files[FindFile(key)];
 
   bool value_found;
   MergeContext merge_context;
@@ -62,6 +66,50 @@ Status CompactedDBImpl::Get(const ReadOptions& options,
     return Status::OK();
   }
   return Status::NotFound();
+}
+
+std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
+    const std::vector<ColumnFamilyHandle*>&,
+    const std::vector<Slice>& keys, std::vector<std::string>* values) {
+  autovector<TableReader*, 16> reader_list;
+  for (const auto& key : keys) {
+    const FdWithKeyRange& f = files_.files[FindFile(key)];
+    if (user_comparator_->Compare(key, ExtractUserKey(f.smallest_key)) < 0) {
+      reader_list.push_back(nullptr);
+    } else {
+      LookupKey lkey(key, kMaxSequenceNumber);
+      f.fd.table_reader->Prepare(lkey.internal_key());
+      reader_list.push_back(f.fd.table_reader);
+    }
+  }
+  std::vector<Status> statuses(keys.size(), Status::NotFound());
+  values->resize(keys.size());
+  bool value_found;
+  MergeContext merge_context;
+  Version::Saver saver;
+  saver.ucmp = user_comparator_;
+  saver.value_found = &value_found;
+  saver.merge_operator = nullptr;
+  saver.merge_context = &merge_context;
+  saver.logger = info_log_;
+  saver.statistics = statistics_;
+  int idx = 0;
+  for (auto* r : reader_list) {
+    if (r != nullptr) {
+      saver.state = Version::kNotFound;
+      saver.user_key = keys[idx];
+      saver.value = &(*values)[idx];
+      LookupKey lkey(keys[idx], kMaxSequenceNumber);
+      r->Get(options, lkey.internal_key(),
+             reinterpret_cast<void*>(&saver), SaveValue,
+             MarkKeyMayExist);
+      if (saver.state == Version::kFound) {
+        statuses[idx] = Status::OK();
+      }
+    }
+    ++idx;
+  }
+  return statuses;
 }
 
 Status CompactedDBImpl::Init(const Options& options) {

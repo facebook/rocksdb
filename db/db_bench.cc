@@ -167,6 +167,8 @@ DEFINE_int32(value_size, 100, "Size of each value");
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
+DEFINE_int64(batch_size, 1, "Batch size");
+
 static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
 }
@@ -1265,6 +1267,8 @@ class Benchmark {
       } else if (name == Slice("readrandomfast")) {
         method = &Benchmark::ReadRandomFast;
       } else if (name == Slice("multireadrandom")) {
+        entries_per_batch_ = FLAGS_batch_size;
+        fprintf(stderr, "entries_per_batch_ = %ld\n", entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
       } else if (name == Slice("readmissing")) {
         ++key_size_;
@@ -2076,6 +2080,7 @@ class Benchmark {
   void ReadRandomFast(ThreadState* thread) {
     int64_t read = 0;
     int64_t found = 0;
+    int64_t nonexist = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     Slice key = AllocateKey();
     std::unique_ptr<const char[]> key_guard(key.data());
@@ -2096,13 +2101,17 @@ class Benchmark {
         if (db->Get(options, key, &value).ok()) {
           ++found;
         }
+        if (key_rand >= FLAGS_num) {
+          ++nonexist;
+        }
       }
       thread->stats.FinishedOps(db, 100);
     } while (!duration.Done(100));
 
     char msg[100];
-    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
-             found, read);
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found, "
+             "issued %" PRIu64 " non-exist keys)\n",
+             found, read, nonexist);
 
     thread->stats.AddMessage(msg);
 

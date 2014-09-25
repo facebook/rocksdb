@@ -24,6 +24,12 @@ class CompactedDBImpl : public DBImpl {
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
                      std::string* value) override;
+  using DB::MultiGet;
+  virtual std::vector<Status> MultiGet(
+      const ReadOptions& options,
+      const std::vector<ColumnFamilyHandle*>&,
+      const std::vector<Slice>& keys, std::vector<std::string>* values)
+    override;
 
   using DBImpl::Put;
   virtual Status Put(const WriteOptions& options,
@@ -74,6 +80,7 @@ class CompactedDBImpl : public DBImpl {
 
  private:
   friend class DB;
+  inline size_t FindFile(const Slice& key);
   Status Init(const Options& options);
 
   ColumnFamilyData* cfd_;

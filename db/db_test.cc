@@ -1342,6 +1342,24 @@ TEST(DBTest, CompactedDB) {
   ASSERT_EQ(DummyString(kFileSize / 2, 'i'), Get("iii"));
   ASSERT_EQ(DummyString(kFileSize / 2, 'j'), Get("jjj"));
   ASSERT_EQ("NOT_FOUND", Get("kkk"));
+
+  // MultiGet
+  std::vector<std::string> values;
+  std::vector<Status> status_list = dbfull()->MultiGet(ReadOptions(),
+      std::vector<Slice>({Slice("aaa"), Slice("ccc"), Slice("eee"),
+                          Slice("ggg"), Slice("iii"), Slice("kkk")}),
+      &values);
+  ASSERT_EQ(status_list.size(), 6);
+  ASSERT_EQ(values.size(), 6);
+  ASSERT_OK(status_list[0]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'a'), values[0]);
+  ASSERT_TRUE(status_list[1].IsNotFound());
+  ASSERT_OK(status_list[2]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'e'), values[2]);
+  ASSERT_TRUE(status_list[3].IsNotFound());
+  ASSERT_OK(status_list[4]);
+  ASSERT_EQ(DummyString(kFileSize / 2, 'i'), values[4]);
+  ASSERT_TRUE(status_list[5].IsNotFound());
 }
 
 // Make sure that when options.block_cache is set, after a new table is
