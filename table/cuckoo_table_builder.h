@@ -75,6 +75,10 @@ class CuckooTableBuilder: public TableBuilder {
       uint64_t* bucket_id);
   Status MakeHashTable(std::vector<CuckooBucket>* buckets);
 
+  inline Slice GetKey(uint64_t idx) const;
+  inline Slice GetUserKey(uint64_t idx) const;
+  inline Slice GetValue(uint64_t idx) const;
+
   uint32_t num_hash_func_;
   WritableFile* file_;
   const double max_hash_table_ratio_;
@@ -83,10 +87,17 @@ class CuckooTableBuilder: public TableBuilder {
   const uint32_t cuckoo_block_size_;
   uint64_t hash_table_size_;
   bool is_last_level_file_;
-  Status status_;
-  std::vector<std::pair<std::string, std::string>> kvs_;
-  TableProperties properties_;
   bool has_seen_first_key_;
+  uint64_t key_size_;
+  uint64_t value_size_;
+  // A list of fixed-size key-value pairs concatenating into a string.
+  // Use GetKey(), GetUserKey(), and GetValue() to retrieve a specific
+  // key / value given an index
+  std::string kvs_;
+  // Number of key-value pairs stored in kvs_
+  uint64_t num_entries_;
+  Status status_;
+  TableProperties properties_;
   const Comparator* ucomp_;
   bool use_module_hash_;
   bool identity_as_first_hash_;
