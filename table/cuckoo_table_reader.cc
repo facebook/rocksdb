@@ -191,7 +191,7 @@ class CuckooTableIterator : public Iterator {
   Slice key() const override;
   Slice value() const override;
   Status status() const override { return status_; }
-  void LoadKeysFromReader();
+  void InitIfNeeded();
 
  private:
   struct BucketComparator {
@@ -224,6 +224,7 @@ class CuckooTableIterator : public Iterator {
   const BucketComparator bucket_comparator_;
   void PrepareKVAtCurrIdx();
   CuckooTableReader* reader_;
+  bool initialized_;
   Status status_;
   // Contains a map of keys to bucket_id sorted in key order.
   std::vector<uint32_t> sorted_bucket_ids_;
@@ -240,13 +241,17 @@ CuckooTableIterator::CuckooTableIterator(CuckooTableReader* reader)
   : bucket_comparator_(reader->file_data_, reader->ucomp_,
                        reader->bucket_length_, reader->user_key_length_),
     reader_(reader),
+    initialized_(false),
     curr_key_idx_(kInvalidIndex) {
   sorted_bucket_ids_.clear();
   curr_value_.clear();
   curr_key_.Clear();
 }
 
-void CuckooTableIterator::LoadKeysFromReader() {
+void CuckooTableIterator::InitIfNeeded() {
+  if (initialized_) {
+    return;
+  }
   sorted_bucket_ids_.reserve(reader_->GetTableProperties()->num_entries);
   uint64_t num_buckets = reader_->table_size_ + reader_->cuckoo_block_size_ - 1;
   assert(num_buckets < kInvalidIndex);
@@ -262,19 +267,23 @@ void CuckooTableIterator::LoadKeysFromReader() {
   std::sort(sorted_bucket_ids_.begin(), sorted_bucket_ids_.end(),
             bucket_comparator_);
   curr_key_idx_ = kInvalidIndex;
+  initialized_ = true;
 }
 
 void CuckooTableIterator::SeekToFirst() {
+  InitIfNeeded();
   curr_key_idx_ = 0;
   PrepareKVAtCurrIdx();
 }
 
 void CuckooTableIterator::SeekToLast() {
+  InitIfNeeded();
   curr_key_idx_ = sorted_bucket_ids_.size() - 1;
   PrepareKVAtCurrIdx();
 }
 
 void CuckooTableIterator::Seek(const Slice& target) {
+  InitIfNeeded();
   const BucketComparator seek_comparator(
       reader_->file_data_, reader_->ucomp_,
       reader_->bucket_length_, reader_->user_key_length_,
@@ -361,9 +370,6 @@ Iterator* CuckooTableReader::NewIterator(
   } else {
     auto iter_mem = arena->AllocateAligned(sizeof(CuckooTableIterator));
     iter = new (iter_mem) CuckooTableIterator(this);
-  }
-  if (iter->status().ok()) {
-    iter->LoadKeysFromReader();
   }
   return iter;
 }
