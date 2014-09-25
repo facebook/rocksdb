@@ -3954,7 +3954,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
 
 TEST(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
-  CompressionType type;
+  CompressionType type = kSnappyCompression;
   if (!MinLevelToCompress(type, options, -14, -1, 0)) {
     return;
   }
@@ -3974,7 +3974,7 @@ TEST(DBTest, MinLevelToCompress1) {
 
 TEST(DBTest, MinLevelToCompress2) {
   Options options = CurrentOptions();
-  CompressionType type;
+  CompressionType type = kSnappyCompression;
   if (!MinLevelToCompress(type, options, 15, -1, 0)) {
     return;
   }
