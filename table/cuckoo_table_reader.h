@@ -71,6 +71,7 @@ class CuckooTableReader: public TableReader {
   uint32_t num_hash_func_;
   std::string unused_key_;
   uint32_t key_length_;
+  uint32_t user_key_length_;
   uint32_t value_length_;
   uint32_t bucket_length_;
   uint32_t cuckoo_block_size_;

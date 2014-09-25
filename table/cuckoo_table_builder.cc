@@ -39,6 +39,8 @@ const std::string CuckooTablePropertyNames::kIdentityAsFirstHash =
       "rocksdb.cuckoo.hash.identityfirst";
 const std::string CuckooTablePropertyNames::kUseModuleHash =
       "rocksdb.cuckoo.hash.usemodule";
+const std::string CuckooTablePropertyNames::kUserKeyLength =
+      "rocksdb.cuckoo.hash.userkeylength";
 
 // Obtained by running echo rocksdb.table.cuckoo | sha1sum
 extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
@@ -280,6 +282,11 @@ Status CuckooTableBuilder::Finish() {
     CuckooTablePropertyNames::kUseModuleHash].assign(
         reinterpret_cast<const char*>(&use_module_hash_),
         sizeof(use_module_hash_));
+  uint32_t user_key_len = static_cast<uint32_t>(smallest_user_key_.size());
+  properties_.user_collected_properties[
+    CuckooTablePropertyNames::kUserKeyLength].assign(
+        reinterpret_cast<const char*>(&user_key_len),
+        sizeof(user_key_len));
 
   // Write meta blocks.
   MetaIndexBuilder meta_index_builder;

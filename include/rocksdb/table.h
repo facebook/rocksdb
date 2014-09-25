@@ -255,6 +255,8 @@ struct CuckooTablePropertyNames {
   static const std::string kIdentityAsFirstHash;
   // Indicate if using module or bit and to calculate hash value
   static const std::string kUseModuleHash;
+  // Fixed user key length
+  static const std::string kUserKeyLength;
 };
 
 struct CuckooTableOptions {
