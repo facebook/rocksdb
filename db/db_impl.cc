@@ -590,7 +590,8 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
       env_->GetChildren(db_options_.db_paths[path_id].path,
                         &files);  // Ignore errors
       for (std::string file : files) {
-        deletion_state.candidate_files.emplace_back(file, path_id);
+        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
+        deletion_state.candidate_files.emplace_back("/" + file, path_id);
       }
     }
 
