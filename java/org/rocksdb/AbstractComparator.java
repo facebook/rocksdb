@@ -14,7 +14,7 @@ package org.rocksdb;
  *   @see org.rocksdb.Comparator
  *   @see org.rocksdb.DirectComparator
  */
-abstract class AbstractComparator<T extends AbstractSlice> extends RocksObject {
+public abstract class AbstractComparator<T extends AbstractSlice> extends RocksObject {
 
   public abstract String name();
 
