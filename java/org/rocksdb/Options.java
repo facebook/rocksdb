@@ -79,6 +79,37 @@ public class Options extends RocksObject {
   }
 
   /**
+   * Use BytewiseComparator instead of the default
+   * comparator used by RocksDB. Currently this comparator
+   * is set by default.
+   *
+   * Note: Comparator can be set once upon database creation. 
+   *
+   * Default: BytewiseComparator.
+   */
+  public void useBytewiseComparator() {
+    assert(isInitialized());
+    useBytewiseComparator(nativeHandle_);
+  }
+
+  private native void useBytewiseComparator(long handle);
+
+  /**
+   * Use ReverseBytewiseComparator instead of the default
+   * comparator used by RocksDB. 
+   *
+   * Note: Comparator can be set once upon database creation.
+   *
+   * Default: BytewiseComparator.
+   */
+  public void useReverseBytewiseComparator() {
+    assert(isInitialized());
+    useReverseBytewiseComparator(nativeHandle_);
+  }
+
+  private native void useReverseBytewiseComparator(long handle);
+
+  /**
    * Amount of data to build up in memory (backed by an unsorted log
    * on disk) before converting to a sorted on-disk file.
    *
@@ -2169,6 +2200,7 @@ public class Options extends RocksObject {
   private native void disposeInternal(long handle);
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
+
   private native void setWriteBufferSize(long handle, long writeBufferSize);
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
