@@ -746,15 +746,15 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       // default kCompactionStopStyleTotalSize; with
       // kCompactionStopStyleSimilarSize, it's simply the size of the last
       // picked file.
-      uint64_t sz = (candidate_size * (100L + ratio)) /100;
-      if (sz < f->fd.GetFileSize()) {
+      double sz = candidate_size * (100.0 + ratio) / 100.0;
+      if (sz < static_cast<double>(f->fd.GetFileSize())) {
         break;
       }
       if (options_->compaction_options_universal.stop_style == kCompactionStopStyleSimilarSize) {
         // Similar-size stopping rule: also check the last picked file isn't
         // far larger than the next candidate file.
-        sz = (f->fd.GetFileSize() * (100L + ratio)) / 100;
-        if (sz < candidate_size) {
+        sz = (f->fd.GetFileSize() * (100.0 + ratio)) / 100.0;
+        if (sz < static_cast<double>(candidate_size)) {
           // If the small file we've encountered begins a run of similar-size
           // files, we'll pick them up on a future iteration of the outer
           // loop. If it's some lonely straggler, it'll eventually get picked
