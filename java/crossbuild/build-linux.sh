@@ -6,6 +6,7 @@ sudo apt-get -y install git make gcc g++ libgflags-dev libsnappy-dev zlib1g-dev 
 # set java home so we can build rocksdb jars
 export JAVA_HOME=$(echo /usr/lib/jvm/java-7-openjdk*)
 cd /rocksdb
-make jclean clean -j 4 rocksdbjavastatic
+make jclean clean
+make -j 4 rocksdbjavastatic
 sudo shutdown -h now
 
