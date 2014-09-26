@@ -270,6 +270,7 @@ clean:
 	-rm -rf ios-x86/* ios-arm/*
 	-find . -name "*.[oda]" -exec rm {} \;
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	-rm -rf bzip2* snappy* zlib*
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
@@ -510,11 +511,14 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 
 JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ROCKSDBJNILIB = librocksdbjni.so
-ROCKSDB_JAR = rocksdbjni.jar
+ARCH := $(shell getconf LONG_BIT)
+ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
+ROCKSDB_JAR = rocksdbjni-linux$(ARCH).jar
+ROCKSDB_JAR_ALL = rocksdbjni-all.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDBJNILIB = librocksdbjni.jnilib
+ROCKSDBJNILIB = librocksdbjni-osx.jnilib
+ROCKSDB_JAR = rocksdbjni-osx.jar
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 
@@ -548,6 +552,10 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
 	
+
+rocksdbjavastaticrelease: rocksdbjavastatic
+	cd java/crossbuild && vagrant destroy -f && vagrant up
+	cd java;jar -cf $(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md librocksdbjni-*.so librocksdbjni-*.jnilib
 
 rocksdbjava:
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32

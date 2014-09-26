@@ -1,12 +1,16 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.RocksDB org.rocksdb.Options org.rocksdb.WriteBatch org.rocksdb.WriteBatchInternal org.rocksdb.WriteBatchTest org.rocksdb.WriteOptions org.rocksdb.BackupableDB org.rocksdb.BackupableDBOptions org.rocksdb.Statistics org.rocksdb.RocksIterator org.rocksdb.VectorMemTableConfig org.rocksdb.SkipListMemTableConfig org.rocksdb.HashLinkedListMemTableConfig org.rocksdb.HashSkipListMemTableConfig org.rocksdb.PlainTableConfig org.rocksdb.BlockBasedTableConfig org.rocksdb.ReadOptions org.rocksdb.Filter org.rocksdb.BloomFilter org.rocksdb.RestoreOptions org.rocksdb.RestoreBackupableDB org.rocksdb.RocksEnv org.rocksdb.GenericRateLimiterConfig
 
 NATIVE_INCLUDE = ./include
-ROCKSDB_JAR = rocksdbjni.jar
+ARCH := $(shell getconf LONG_BIT)
+ROCKSDB_JAR = rocksdbjni-linux$(ARCH).jar
+
+ifeq ($(PLATFORM), OS_MACOSX)
+ROCKSDB_JAR = rocksdbjni-osx.jar
+endif
 
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	-find . -name "hs*.log" -exec rm {} \;
-	rm -f $(ROCKSDB_JAR)
 
 java:
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
