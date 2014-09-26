@@ -131,7 +131,7 @@ class CorruptionTest {
     ASSERT_GE(max_expected, correct);
   }
 
-  void CorruptFile(const std::string fname, int offset, int bytes_to_corrupt) {
+  void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
