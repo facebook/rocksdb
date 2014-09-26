@@ -26,7 +26,7 @@ class BloomBlockBuilder {
 
   uint32_t GetNumBlocks() const { return bloom_.GetNumBlocks(); }
 
-  void AddKeysHashes(const std::vector<uint32_t> keys_hashes);
+  void AddKeysHashes(const std::vector<uint32_t>& keys_hashes);
 
   Slice Finish();
 
