@@ -6138,7 +6138,7 @@ class WrappedBloom : public FilterPolicy {
   const FilterPolicy* filter_;
   mutable uint32_t counter_;
 
-  rocksdb::Slice convertKey(const rocksdb::Slice key) const {
+  rocksdb::Slice convertKey(const rocksdb::Slice& key) const {
     return key;
   }
 };
