@@ -97,6 +97,7 @@ class ForwardIterator : public Iterator {
   Iterator* current_;
   // internal iterator status
   Status status_;
+  Status immutable_status_;
   bool valid_;
 
   IterKey prev_key_;

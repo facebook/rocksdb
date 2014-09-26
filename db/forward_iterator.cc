@@ -125,6 +125,8 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
       sv_(current_sv),
       mutable_iter_(nullptr),
       current_(nullptr),
+      status_(Status::OK()),
+      immutable_status_(Status::OK()),
       valid_(false),
       is_prev_set_(false),
       is_prev_inclusive_(false) {
@@ -177,7 +179,7 @@ void ForwardIterator::SeekToFirst() {
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
     RebuildIterators(true);
-  } else if (status_.IsIncomplete()) {
+  } else if (immutable_status_.IsIncomplete()) {
     ResetIncompleteIterators();
   }
   SeekInternal(Slice(), true);
@@ -187,7 +189,7 @@ void ForwardIterator::Seek(const Slice& internal_key) {
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
     RebuildIterators(true);
-  } else if (status_.IsIncomplete()) {
+  } else if (immutable_status_.IsIncomplete()) {
     ResetIncompleteIterators();
   }
   SeekInternal(internal_key, false);
@@ -205,13 +207,16 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
   // if it turns to need to seek immutable often. We probably want to have
   // an option to turn it off.
   if (seek_to_first || NeedToSeekImmutable(internal_key)) {
+    immutable_status_ = Status::OK();
     {
       auto tmp = MinIterHeap(MinIterComparator(&cfd_->internal_comparator()));
       immutable_min_heap_.swap(tmp);
     }
     for (auto* m : imm_iters_) {
       seek_to_first ? m->SeekToFirst() : m->Seek(internal_key);
-      if (m->Valid()) {
+      if (!m->status().ok()) {
+        immutable_status_ = m->status();
+      } else if (m->Valid()) {
         immutable_min_heap_.push(m);
       }
     }
@@ -235,13 +240,8 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         l0_iters_[i]->Seek(internal_key);
       }
 
-      if (l0_iters_[i]->status().IsIncomplete()) {
-        // if any of the immutable iterators is incomplete (no-io option was
-        // used), we are unable to reliably find the smallest key
-        assert(read_options_.read_tier == kBlockCacheTier);
-        status_ = l0_iters_[i]->status();
-        valid_ = false;
-        return;
+      if (!l0_iters_[i]->status().ok()) {
+        immutable_status_ = l0_iters_[i]->status();
       } else if (l0_iters_[i]->Valid()) {
         immutable_min_heap_.push(l0_iters_[i]);
       }
@@ -311,12 +311,8 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         seek_to_first ? level_iters_[level - 1]->SeekToFirst() :
                         level_iters_[level - 1]->Seek(internal_key);
 
-        if (level_iters_[level - 1]->status().IsIncomplete()) {
-          // see above
-          assert(read_options_.read_tier == kBlockCacheTier);
-          status_ = level_iters_[level - 1]->status();
-          valid_ = false;
-          return;
+        if (!level_iters_[level - 1]->status().ok()) {
+          immutable_status_ = level_iters_[level - 1]->status();
         } else if (level_iters_[level - 1]->Valid()) {
           immutable_min_heap_.push(level_iters_[level - 1]);
         }
@@ -371,11 +367,8 @@ void ForwardIterator::Next() {
 
   current_->Next();
   if (current_ != mutable_iter_) {
-    if (current_->status().IsIncomplete()) {
-      assert(read_options_.read_tier == kBlockCacheTier);
-      status_ = current_->status();
-      valid_ = false;
-      return;
+    if (!current_->status().ok()) {
+      immutable_status_ = current_->status();
     } else if (current_->Valid()) {
       immutable_min_heap_.push(current_);
     }
@@ -401,23 +394,7 @@ Status ForwardIterator::status() const {
     return mutable_iter_->status();
   }
 
-  for (auto *it : imm_iters_) {
-    if (it && !it->status().ok()) {
-      return it->status();
-    }
-  }
-  for (auto *it : l0_iters_) {
-    if (it && !it->status().ok()) {
-      return it->status();
-    }
-  }
-  for (auto *it : level_iters_) {
-    if (it && !it->status().ok()) {
-      return it->status();
-    }
-  }
-
-  return Status::OK();
+  return immutable_status_;
 }
 
 void ForwardIterator::RebuildIterators(bool refresh_sv) {
@@ -511,7 +488,7 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
   // 'target' belongs to that interval (immutable_min_heap_.top() is already
   // at the correct position).
 
-  if (!valid_ || !current_ || !is_prev_set_) {
+  if (!valid_ || !current_ || !is_prev_set_ || !immutable_status_.ok()) {
     return true;
   }
   Slice prev_key = prev_key_.GetKey();

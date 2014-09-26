@@ -2220,7 +2220,10 @@ class Benchmark {
   }
 
   void ReadSequential(ThreadState* thread, DB* db) {
-    Iterator* iter = db->NewIterator(ReadOptions(FLAGS_verify_checksum, true));
+    ReadOptions options(FLAGS_verify_checksum, true);
+    options.tailing = FLAGS_use_tailing_iterator;
+
+    Iterator* iter = db->NewIterator(options);
     int64_t i = 0;
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
