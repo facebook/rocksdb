@@ -75,7 +75,7 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
   ReverseBytewiseComparatorImpl() { }
 
   virtual const char* Name() const {
-    return "leveldb.ReverseBytewiseComparator";
+    return "rocksdb.ReverseBytewiseComparator";
   }
 
   virtual int Compare(const Slice& a, const Slice& b) const {
