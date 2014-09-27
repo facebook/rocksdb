@@ -21,5 +21,6 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     v.cpus = 4
   end
 
+  config.vm.synced_folder "../", "/rocksdb-build"
   config.vm.synced_folder "../..", "/rocksdb", type: "rsync"
 end

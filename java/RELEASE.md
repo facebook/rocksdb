@@ -1,12 +1,12 @@
 ## Cross-building
 
-To build RocksDB as a single self contained cross-platform JAR. The cross-platform jar can be usd on any 64-bit OSX system, 32-bit Linux system, or 64-bit Linux system.
+RocksDB can be built as a single self contained cross-platform JAR. The cross-platform jar can be usd on any 64-bit OSX system, 32-bit Linux system, or 64-bit Linux system.
 
 Building a cross-platform JAR requires:
 
  * [Vagrant](https://www.vagrantup.com/)
  * [Virtualbox](https://www.virtualbox.org/)
- * A Mac OSX machine
+ * A Mac OSX machine that can compile RocksDB.
 
 Once you have these items, run this make command from RocksDB's root source directory:
 
