@@ -1278,7 +1278,8 @@ class Benchmark {
         method = &Benchmark::ReadRandomFast;
       } else if (name == Slice("multireadrandom")) {
         entries_per_batch_ = FLAGS_batch_size;
-        fprintf(stderr, "entries_per_batch_ = %ld\n", entries_per_batch_);
+        fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
+                entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
       } else if (name == Slice("readmissing")) {
         ++key_size_;
