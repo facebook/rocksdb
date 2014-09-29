@@ -218,6 +218,7 @@ TEST(CuckooTableDBTest, Uint64Comparator) {
 
   // Add more keys.
   ASSERT_OK(Delete(Uint64Key(2)));  // Delete.
+  dbfull()->TEST_FlushMemTable();
   ASSERT_OK(Put(Uint64Key(3), "v0"));  // Update.
   ASSERT_OK(Put(Uint64Key(4), "v4"));
   dbfull()->TEST_FlushMemTable();
