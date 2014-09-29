@@ -167,6 +167,8 @@ DEFINE_int32(value_size, 100, "Size of each value");
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
+DEFINE_int64(batch_size, 1, "Batch size");
+
 static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
 }
@@ -307,7 +309,7 @@ DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_int32(num_levels, 7, "The total number of levels");
 
-DEFINE_int32(target_file_size_base, 2 * 1048576, "Target file size at level-1");
+DEFINE_int64(target_file_size_base, 2 * 1048576, "Target file size at level-1");
 
 DEFINE_int32(target_file_size_multiplier, 1,
              "A multiplier to compute target level-N file size (N >= 2)");
@@ -1262,7 +1264,11 @@ class Benchmark {
         method = &Benchmark::ReadReverse;
       } else if (name == Slice("readrandom")) {
         method = &Benchmark::ReadRandom;
+      } else if (name == Slice("readrandomfast")) {
+        method = &Benchmark::ReadRandomFast;
       } else if (name == Slice("multireadrandom")) {
+        entries_per_batch_ = FLAGS_batch_size;
+        fprintf(stderr, "entries_per_batch_ = %ld\n", entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
       } else if (name == Slice("readmissing")) {
         ++key_size_;
@@ -2069,6 +2075,49 @@ class Benchmark {
     }
     delete iter;
     thread->stats.AddBytes(bytes);
+  }
+
+  void ReadRandomFast(ThreadState* thread) {
+    int64_t read = 0;
+    int64_t found = 0;
+    int64_t nonexist = 0;
+    ReadOptions options(FLAGS_verify_checksum, true);
+    Slice key = AllocateKey();
+    std::unique_ptr<const char[]> key_guard(key.data());
+    std::string value;
+    DB* db = SelectDBWithCfh(thread)->db;
+
+    int64_t pot = 1;
+    while (pot < FLAGS_num) {
+      pot <<= 1;
+    }
+
+    Duration duration(FLAGS_duration, reads_);
+    do {
+      for (int i = 0; i < 100; ++i) {
+        int64_t key_rand = thread->rand.Next() & (pot - 1);
+        GenerateKeyFromInt(key_rand, FLAGS_num, &key);
+        ++read;
+        if (db->Get(options, key, &value).ok()) {
+          ++found;
+        }
+        if (key_rand >= FLAGS_num) {
+          ++nonexist;
+        }
+      }
+      thread->stats.FinishedOps(db, 100);
+    } while (!duration.Done(100));
+
+    char msg[100];
+    snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found, "
+             "issued %" PRIu64 " non-exist keys)\n",
+             found, read, nonexist);
+
+    thread->stats.AddMessage(msg);
+
+    if (FLAGS_perf_level > 0) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
   }
 
   void ReadRandom(ThreadState* thread) {

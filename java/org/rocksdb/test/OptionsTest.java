@@ -184,12 +184,6 @@ public class OptionsTest {
       assert(opt.bytesPerSync() == longValue);
     }
 
-    { // AllowThreadLocal test
-      boolean boolValue = rand.nextBoolean();
-      opt.setAllowThreadLocal(boolValue);
-      assert(opt.allowThreadLocal() == boolValue);
-    }
-
     { // WriteBufferSize test
       long longValue = rand.nextLong();
       opt.setWriteBufferSize(longValue);

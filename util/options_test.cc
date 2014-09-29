@@ -151,7 +151,6 @@ TEST(OptionsTest, GetOptionsFromStringsTest) {
     {"stats_dump_period_sec", "46"},
     {"advise_random_on_open", "true"},
     {"use_adaptive_mutex", "false"},
-    {"allow_thread_local", "true"},
     {"bytes_per_sync", "47"},
   };
 
@@ -177,7 +176,7 @@ TEST(OptionsTest, GetOptionsFromStringsTest) {
   ASSERT_EQ(new_opt.level0_slowdown_writes_trigger, 9);
   ASSERT_EQ(new_opt.level0_stop_writes_trigger, 10);
   ASSERT_EQ(new_opt.max_mem_compaction_level, 11);
-  ASSERT_EQ(new_opt.target_file_size_base, 12);
+  ASSERT_EQ(new_opt.target_file_size_base, static_cast<uint64_t>(12));
   ASSERT_EQ(new_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_opt.max_bytes_for_level_base, 14U);
   ASSERT_EQ(new_opt.max_bytes_for_level_multiplier, 15);
@@ -239,7 +238,6 @@ TEST(OptionsTest, GetOptionsFromStringsTest) {
   ASSERT_EQ(new_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_opt.advise_random_on_open, true);
   ASSERT_EQ(new_opt.use_adaptive_mutex, false);
-  ASSERT_EQ(new_opt.allow_thread_local, true);
   ASSERT_EQ(new_opt.bytes_per_sync, static_cast<uint64_t>(47));
 
   options_map["write_buffer_size"] = "hello";

@@ -86,6 +86,10 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
 
 uint32_t ColumnFamilyHandleImpl::GetID() const { return cfd()->GetID(); }
 
+const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
+  return cfd()->user_comparator();
+}
+
 ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
@@ -407,16 +411,10 @@ Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
     port::Mutex* db_mutex) {
   SuperVersion* sv = nullptr;
-  if (LIKELY(column_family_set_->db_options_->allow_thread_local)) {
-    sv = GetThreadLocalSuperVersion(db_mutex);
-    sv->Ref();
-    if (!ReturnThreadLocalSuperVersion(sv)) {
-      sv->Unref();
-    }
-  } else {
-    db_mutex->Lock();
-    sv = super_version_->Ref();
-    db_mutex->Unlock();
+  sv = GetThreadLocalSuperVersion(db_mutex);
+  sv->Ref();
+  if (!ReturnThreadLocalSuperVersion(sv)) {
+    sv->Unref();
   }
   return sv;
 }
@@ -502,9 +500,7 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   ++super_version_number_;
   super_version_->version_number = super_version_number_;
   // Reset SuperVersions cached in thread local storage
-  if (column_family_set_->db_options_->allow_thread_local) {
-    ResetThreadLocalSuperVersions();
-  }
+  ResetThreadLocalSuperVersions();
 
   RecalculateWriteStallConditions();
 
@@ -724,6 +720,15 @@ uint32_t GetColumnFamilyID(ColumnFamilyHandle* column_family) {
     column_family_id = cfh->GetID();
   }
   return column_family_id;
+}
+
+const Comparator* GetColumnFamilyUserComparator(
+    ColumnFamilyHandle* column_family) {
+  if (column_family != nullptr) {
+    auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+    return cfh->user_comparator();
+  }
+  return nullptr;
 }
 
 }  // namespace rocksdb

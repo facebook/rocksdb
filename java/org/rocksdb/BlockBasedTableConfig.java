@@ -14,11 +14,14 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public BlockBasedTableConfig() {
     noBlockCache_ = false;
     blockCacheSize_ = 8 * 1024 * 1024;
-    blockSize_ =  4 * 1024;
-    blockSizeDeviation_ =10;
-    blockRestartInterval_ =16;
+    blockSize_ = 4 * 1024;
+    blockSizeDeviation_ = 10;
+    blockRestartInterval_ = 16;
     wholeKeyFiltering_ = true;
-    bitsPerKey_ = 0;
+    bitsPerKey_ = 10;
+    cacheIndexAndFilterBlocks_ = false;
+    hashIndexAllowCollision_ = true;
+    blockCacheCompressedSize_ = 0;
   }
 
   /**
@@ -71,8 +74,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *     number means use default settings."
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setCacheNumShardBits(int numShardBits) {
-    numShardBits_ = numShardBits;
+  public BlockBasedTableConfig setCacheNumShardBits(int blockCacheNumShardBits) {
+    blockCacheNumShardBits_ = blockCacheNumShardBits;
     return this;
   }
 
@@ -84,7 +87,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the number of shard bits used in the block cache.
    */
   public int cacheNumShardBits() {
-    return numShardBits_;
+    return blockCacheNumShardBits_;
   }
 
   /**
@@ -186,25 +189,135 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     bitsPerKey_ = bitsPerKey;
     return this;
   }
+  
+  /**
+   * Indicating if we'd put index/filter blocks to the block cache.
+     If not specified, each "table reader" object will pre-load index/filter
+     block during table initialization.
+   * 
+   * @return if index and filter blocks should be put in block cache.
+   */
+  public boolean cacheIndexAndFilterBlocks() {
+    return cacheIndexAndFilterBlocks_;
+  }
+  
+  /**
+   * Indicating if we'd put index/filter blocks to the block cache.
+     If not specified, each "table reader" object will pre-load index/filter
+     block during table initialization.
+   * 
+   * @param index and filter blocks should be put in block cache.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setCacheIndexAndFilterBlocks(
+      boolean cacheIndexAndFilterBlocks) {
+    cacheIndexAndFilterBlocks_ = cacheIndexAndFilterBlocks;
+    return this;
+  }
+  
+  /**
+   * Influence the behavior when kHashSearch is used.
+     if false, stores a precise prefix to block range mapping
+     if true, does not store prefix and allows prefix hash collision
+     (less memory consumption)
+   * 
+   * @return if hash collisions should be allowed.
+   */
+  public boolean hashIndexAllowCollision() {
+    return hashIndexAllowCollision_;
+  }
+  
+  /**
+   * Influence the behavior when kHashSearch is used.
+     if false, stores a precise prefix to block range mapping
+     if true, does not store prefix and allows prefix hash collision
+     (less memory consumption)
+   * 
+   * @param if hash collisions should be allowed.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setHashIndexAllowCollision(
+      boolean hashIndexAllowCollision) {
+    hashIndexAllowCollision_ = hashIndexAllowCollision;
+    return this;
+  }
+  
+  /**
+   * Size of compressed block cache. If 0, then block_cache_compressed is set
+   * to null.
+   * 
+   * @return size of compressed block cache.
+   */
+  public long blockCacheCompressedSize() {
+    return blockCacheCompressedSize_;
+  }
+  
+  /**
+   * Size of compressed block cache. If 0, then block_cache_compressed is set
+   * to null.
+   * 
+   * @param size of compressed block cache.
+   * @return the reference to the current config.
+   */
+  public BlockBasedTableConfig setBlockCacheCompressedSize(
+      long blockCacheCompressedSize) {
+    blockCacheCompressedSize_ = blockCacheCompressedSize;
+    return this;
+  }
+  
+  /**
+   * Controls the number of shards for the block compressed cache.
+   * This is applied only if blockCompressedCacheSize is set to non-negative.
+   *
+   * @return numShardBits the number of shard bits.  The resulting
+   *     number of shards would be 2 ^ numShardBits.  Any negative
+   *     number means use default settings.
+   */
+  public int blockCacheCompressedNumShardBits() {
+    return blockCacheCompressedNumShardBits_;
+  }
+  
+  /**
+   * Controls the number of shards for the block compressed cache.
+   * This is applied only if blockCompressedCacheSize is set to non-negative.
+   *
+   * @param numShardBits the number of shard bits.  The resulting
+   *     number of shards would be 2 ^ numShardBits.  Any negative
+   *     number means use default settings."
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setBlockCacheCompressedNumShardBits(
+      int blockCacheCompressedNumShardBits) {
+    blockCacheCompressedNumShardBits_ = blockCacheCompressedNumShardBits;
+    return this;
+  }
 
   @Override protected long newTableFactoryHandle() {
-    return newTableFactoryHandle(noBlockCache_, blockCacheSize_, numShardBits_,
-        blockSize_, blockSizeDeviation_, blockRestartInterval_,
-        wholeKeyFiltering_, bitsPerKey_);
+    return newTableFactoryHandle(noBlockCache_, blockCacheSize_,
+        blockCacheNumShardBits_, blockSize_, blockSizeDeviation_,
+        blockRestartInterval_, wholeKeyFiltering_, bitsPerKey_,
+        cacheIndexAndFilterBlocks_, hashIndexAllowCollision_,
+        blockCacheCompressedSize_, blockCacheCompressedNumShardBits_);
   }
 
   private native long newTableFactoryHandle(
-      boolean noBlockCache, long blockCacheSize, int numShardbits,
+      boolean noBlockCache, long blockCacheSize, int blockCacheNumShardBits,
       long blockSize, int blockSizeDeviation, int blockRestartInterval,
-      boolean wholeKeyFiltering, int bitsPerKey);
+      boolean wholeKeyFiltering, int bitsPerKey,
+      boolean cacheIndexAndFilterBlocks, boolean hashIndexAllowCollision,
+      long blockCacheCompressedSize, int blockCacheCompressedNumShardBits);
 
   private boolean noBlockCache_;
   private long blockCacheSize_;
-  private int numShardBits_;
+  private int blockCacheNumShardBits_;
   private long shard;
   private long blockSize_;
   private int blockSizeDeviation_;
   private int blockRestartInterval_;
   private boolean wholeKeyFiltering_;
   private int bitsPerKey_;
+  private boolean cacheIndexAndFilterBlocks_;
+  private boolean hashIndexAllowCollision_;
+  private long blockCacheCompressedSize_;
+  private int blockCacheCompressedNumShardBits_;
 }

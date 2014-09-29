@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.io.Closeable;
 import java.io.IOException;
 import org.rocksdb.util.Environment;
+import org.rocksdb.NativeLibraryLoader;
 
 /**
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
@@ -23,11 +24,19 @@ public class RocksDB extends RocksObject {
   private static final String[] compressionLibs_ = {
       "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
+  static {
+    RocksDB.loadLibrary();
+  }
+
   /**
    * Loads the necessary library files.
    * Calling this method twice will have no effect.
+   * By default the method extracts the shared library for loading at
+   * java.io.tmpdir, however, you can override this temporary location by
+   * setting the environment variable ROCKSDB_SHAREDLIB_DIR.
    */
   public static synchronized void loadLibrary() {
+    String tmpDir = System.getenv("ROCKSDB_SHAREDLIB_DIR");
     // loading possibly necessary libraries.
     for (String lib : compressionLibs_) {
       try {
@@ -36,8 +45,14 @@ public class RocksDB extends RocksObject {
         // since it may be optional, we ignore its loading failure here.
       }
     }
-    // However, if any of them is required.  We will see error here.
-    System.loadLibrary("rocksdbjni");
+    try
+    {
+      NativeLibraryLoader.loadLibraryFromJar(tmpDir);
+    }
+    catch (IOException e)
+    {
+      throw new RuntimeException("Unable to load the RocksDB shared library" + e);
+    }
   }
 
   /**
@@ -309,6 +324,26 @@ public class RocksDB extends RocksObject {
       throws RocksDBException {
     remove(nativeHandle_, writeOpt.nativeHandle_, key, key.length);
   }
+  
+  /**
+   * DB implementations can export properties about their state
+     via this method.  If "property" is a valid property understood by this
+     DB implementation, fills "*value" with its current value and returns
+     true.  Otherwise returns false.
+  
+  
+     Valid property names include:
+   
+     "rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
+         where <N> is an ASCII representation of a level number (e.g. "0").
+     "rocksdb.stats" - returns a multi-line string that describes statistics
+         about the internal operation of the DB.
+     "rocksdb.sstables" - returns a multi-line string that describes all
+       of the sstables that make up the db contents.
+   */
+  public String getProperty(String property) throws RocksDBException {
+    return getProperty0(nativeHandle_, property, property.length());
+  }
 
   /**
    * Return a heap-allocated iterator over the contents of the database.
@@ -363,6 +398,8 @@ public class RocksDB extends RocksObject {
   protected native void remove(
       long handle, long writeOptHandle,
       byte[] key, int keyLen) throws RocksDBException;
+  protected native String getProperty0(long nativeHandle,
+      String property, int propertyLength) throws RocksDBException;
   protected native long iterator0(long optHandle);
   private native void disposeInternal(long handle);
 

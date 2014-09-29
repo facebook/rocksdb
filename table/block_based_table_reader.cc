@@ -33,6 +33,7 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/two_level_iterator.h"
+#include "table/get_context.h"
 
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
@@ -498,7 +499,6 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     // pre-load these blocks, which will kept in member variables in Rep
     // and with a same life-time as this table object.
     IndexReader* index_reader = nullptr;
-    // TODO: we never really verify check sum for index block
     s = new_table->CreateIndexReader(&index_reader, meta_iter.get());
 
     if (s.ok()) {
@@ -533,8 +533,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 }
 
 void BlockBasedTable::SetupForCompaction() {
-  /*
-  switch (.access_hint_on_compaction_start) {
+  switch (rep_->ioptions.access_hint_on_compaction_start) {
     case Options::NONE:
       break;
     case Options::NORMAL:
@@ -550,7 +549,6 @@ void BlockBasedTable::SetupForCompaction() {
       assert(false);
   }
   compaction_optimized_ = true;
-  */
 }
 
 std::shared_ptr<const TableProperties> BlockBasedTable::GetTableProperties()
@@ -1103,10 +1101,8 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
 }
 
 Status BlockBasedTable::Get(
-    const ReadOptions& read_options, const Slice& key, void* handle_context,
-    bool (*result_handler)(void* handle_context, const ParsedInternalKey& k,
-                           const Slice& v),
-    void (*mark_key_may_exist_handler)(void* handle_context)) {
+    const ReadOptions& read_options, const Slice& key,
+    GetContext* get_context) {
   Status s;
   auto filter_entry = GetFilter(read_options.read_tier == kBlockCacheTier);
   FilterBlockReader* filter = filter_entry.value;
@@ -1144,7 +1140,7 @@ Status BlockBasedTable::Get(
           // couldn't get block from block_cache
           // Update Saver.state to Found because we are only looking for whether
           // we can guarantee the key is not there when "no_io" is set
-          (*mark_key_may_exist_handler)(handle_context);
+          get_context->MarkKeyMayExist();
           break;
         }
         if (!biter.status().ok()) {
@@ -1159,8 +1155,7 @@ Status BlockBasedTable::Get(
             s = Status::Corruption(Slice());
           }
 
-          if (!(*result_handler)(handle_context, parsed_key,
-                                 biter.value())) {
+          if (!get_context->SaveValue(parsed_key, biter.value())) {
             done = true;
             break;
           }

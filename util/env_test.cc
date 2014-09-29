@@ -17,6 +17,11 @@
 #include <unistd.h>
 #endif
 
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+#include <errno.h>
+#include <fcntl.h>
+#endif
+
 #include "rocksdb/env.h"
 #include "port/port.h"
 #include "util/coding.h"
@@ -478,6 +483,31 @@ TEST(EnvPosixTest, RandomAccessUniqueID) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST(EnvPosixTest, AllocateTest) {
   std::string fname = GetOnDiskTestDir() + "/preallocate_testfile";
+
+  // Try fallocate in a file to see whether the target file system supports it.
+  // Skip the test if fallocate is not supported.
+  std::string fname_test_fallocate =
+      GetOnDiskTestDir() + "/preallocate_testfile_2";
+  int fd = -1;
+  do {
+    fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  } while (fd < 0 && errno == EINTR);
+  ASSERT_GT(fd, 0);
+
+  int alloc_status = fallocate(fd, 0, 0, 1);
+
+  int err_number = 0;
+  if (alloc_status != 0) {
+    err_number = errno;
+    fprintf(stderr, "Warning: fallocate() fails, %s\n", strerror(err_number));
+  }
+  close(fd);
+  ASSERT_OK(env_->DeleteFile(fname_test_fallocate));
+  if (alloc_status != 0 && err_number == EOPNOTSUPP) {
+    // The filesystem containing the file does not support fallocate
+    return;
+  }
+
   EnvOptions soptions;
   soptions.use_mmap_writes = false;
   unique_ptr<WritableFile> wfile;
@@ -736,6 +766,41 @@ TEST(EnvPosixTest, LogBufferTest) {
   ASSERT_EQ(6, test_logger.log_count);
   ASSERT_EQ(6, test_logger.char_0_count);
   ASSERT_EQ(10, test_logger.char_x_count);
+}
+
+class TestLogger2 : public Logger {
+ public:
+  explicit TestLogger2(size_t max_log_size) : max_log_size_(max_log_size) {}
+  virtual void Logv(const char* format, va_list ap) override {
+    char new_format[2000];
+    std::fill_n(new_format, sizeof(new_format), '2');
+    {
+      va_list backup_ap;
+      va_copy(backup_ap, ap);
+      int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
+      // 48 bytes for extra information + bytes allocated
+      ASSERT_TRUE(
+          n <= 48 + static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      ASSERT_TRUE(n > static_cast<int>(max_log_size_ - sizeof(struct timeval)));
+      va_end(backup_ap);
+    }
+  }
+  size_t max_log_size_;
+};
+
+TEST(EnvPosixTest, LogBufferMaxSizeTest) {
+  char bytes9000[9000];
+  std::fill_n(bytes9000, sizeof(bytes9000), '1');
+  bytes9000[sizeof(bytes9000) - 1] = '\0';
+
+  for (size_t max_log_size = 256; max_log_size <= 1024;
+       max_log_size += 1024 - 256) {
+    TestLogger2 test_logger(max_log_size);
+    test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
+    LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, &test_logger);
+    LogToBuffer(&log_buffer, max_log_size, "%s", bytes9000);
+    log_buffer.FlushBufferToLog();
+  }
 }
 
 }  // namespace rocksdb

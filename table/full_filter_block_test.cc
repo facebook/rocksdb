@@ -30,7 +30,8 @@ class TestFilterBitsBuilder : public FilterBitsBuilder {
     for (size_t i = 0; i < hash_entries_.size(); i++) {
       EncodeFixed32(data + i * 4, hash_entries_[i]);
     }
-    buf->reset(data);
+    const char* const_data = data;
+    buf->reset(const_data);
     return Slice(data, len);
   }
 

@@ -325,6 +325,7 @@ class DBImpl : public DB {
   friend class ForwardIterator;
 #endif
   friend struct SuperVersion;
+  friend class CompactedDBImpl;
   struct CompactionState;
 
   struct WriteContext;

@@ -9,6 +9,10 @@
 * When disableDataSync=true, we no longer sync the MANIFEST file.
 * Add identity_as_first_hash property to CuckooTable. SST file needs to be rebuilt to be opened by reader properly.
 
+### Public API changes
+* Change target_file_size_base type to uint64_t from int.
+* Remove allow_thread_local. This feature was proved to be stable, so we are turning it always-on.
+
 ----- Past Releases -----
 
 ## 3.5.0 (9/3/2014)

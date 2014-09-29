@@ -77,6 +77,8 @@ struct ImmutableCFOptions {
   std::vector<CompressionType> compression_per_level;
 
   CompressionOptions compression_opts;
+
+  Options::AccessHint access_hint_on_compaction_start;
 };
 
 }  // namespace rocksdb

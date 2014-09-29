@@ -1355,8 +1355,8 @@ void rocksdb_options_set_purge_redundant_kvs_while_flush(
   opt->rep.purge_redundant_kvs_while_flush = v;
 }
 
-void rocksdb_options_set_allow_os_buffer(
-    rocksdb_options_t* opt, unsigned char v) {
+void rocksdb_options_set_allow_os_buffer(rocksdb_options_t* opt,
+                                         unsigned char v) {
   opt->rep.allow_os_buffer = v;
 }
 
@@ -1579,11 +1579,6 @@ void rocksdb_options_set_min_partial_merge_operands(
 void rocksdb_options_set_bloom_locality(
     rocksdb_options_t* opt, uint32_t v) {
   opt->rep.bloom_locality = v;
-}
-
-void rocksdb_options_set_allow_thread_local(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.allow_thread_local = v;
 }
 
 void rocksdb_options_set_inplace_update_support(

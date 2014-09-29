@@ -401,24 +401,22 @@ DBImpl::~DBImpl() {
     mutex_.Lock();
   }
 
-  if (db_options_.allow_thread_local) {
-    // Clean up obsolete files due to SuperVersion release.
-    // (1) Need to delete to obsolete files before closing because RepairDB()
-    // scans all existing files in the file system and builds manifest file.
-    // Keeping obsolete files confuses the repair process.
-    // (2) Need to check if we Open()/Recover() the DB successfully before
-    // deleting because if VersionSet recover fails (may be due to corrupted
-    // manifest file), it is not able to identify live files correctly. As a
-    // result, all "live" files can get deleted by accident. However, corrupted
-    // manifest is recoverable by RepairDB().
-    if (opened_successfully_) {
-      DeletionState deletion_state;
-      FindObsoleteFiles(deletion_state, true);
-      // manifest number starting from 2
-      deletion_state.manifest_file_number = 1;
-      if (deletion_state.HaveSomethingToDelete()) {
-        PurgeObsoleteFiles(deletion_state);
-      }
+  // Clean up obsolete files due to SuperVersion release.
+  // (1) Need to delete to obsolete files before closing because RepairDB()
+  // scans all existing files in the file system and builds manifest file.
+  // Keeping obsolete files confuses the repair process.
+  // (2) Need to check if we Open()/Recover() the DB successfully before
+  // deleting because if VersionSet recover fails (may be due to corrupted
+  // manifest file), it is not able to identify live files correctly. As a
+  // result, all "live" files can get deleted by accident. However, corrupted
+  // manifest is recoverable by RepairDB().
+  if (opened_successfully_) {
+    DeletionState deletion_state;
+    FindObsoleteFiles(deletion_state, true);
+    // manifest number starting from 2
+    deletion_state.manifest_file_number = 1;
+    if (deletion_state.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(deletion_state);
     }
   }
 
@@ -592,7 +590,8 @@ void DBImpl::FindObsoleteFiles(DeletionState& deletion_state,
       env_->GetChildren(db_options_.db_paths[path_id].path,
                         &files);  // Ignore errors
       for (std::string file : files) {
-        deletion_state.candidate_files.emplace_back(file, path_id);
+        // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
+        deletion_state.candidate_files.emplace_back("/" + file, path_id);
       }
     }
 
@@ -3117,9 +3116,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   const uint64_t start_micros = env_->NowMicros();
   unique_ptr<Iterator> input(versions_->MakeInputIterator(compact->compaction));
   input->SeekToFirst();
-  shared_ptr<Iterator> backup_input(
-      versions_->MakeInputIterator(compact->compaction));
-  backup_input->SeekToFirst();
 
   Status status;
   ParsedInternalKey ikey;
@@ -3132,14 +3128,30 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   auto compaction_filter_v2 =
     compaction_filter_from_factory_v2.get();
 
-  // temp_backup_input always point to the start of the current buffer
-  // temp_backup_input = backup_input;
-  // iterate through input,
-  // 1) buffer ineligible keys and value keys into 2 separate buffers;
-  // 2) send value_buffer to compaction filter and alternate the values;
-  // 3) merge value_buffer with ineligible_value_buffer;
-  // 4) run the modified "compaction" using the old for loop.
-  if (compaction_filter_v2) {
+  if (!compaction_filter_v2) {
+    status = ProcessKeyValueCompaction(
+      is_snapshot_supported,
+      visible_at_tip,
+      earliest_snapshot,
+      latest_snapshot,
+      deletion_state,
+      bottommost_level,
+      imm_micros,
+      input.get(),
+      compact,
+      false,
+      log_buffer);
+  } else {
+    // temp_backup_input always point to the start of the current buffer
+    // temp_backup_input = backup_input;
+    // iterate through input,
+    // 1) buffer ineligible keys and value keys into 2 separate buffers;
+    // 2) send value_buffer to compaction filter and alternate the values;
+    // 3) merge value_buffer with ineligible_value_buffer;
+    // 4) run the modified "compaction" using the old for loop.
+    shared_ptr<Iterator> backup_input(
+        versions_->MakeInputIterator(compact->compaction));
+    backup_input->SeekToFirst();
     while (backup_input->Valid() && !shutting_down_.Acquire_Load() &&
            !cfd->IsDropped()) {
       // FLUSH preempts compaction
@@ -3266,21 +3278,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         true,
         log_buffer);
   }  // checking for compaction filter v2
-
-  if (!compaction_filter_v2) {
-    status = ProcessKeyValueCompaction(
-      is_snapshot_supported,
-      visible_at_tip,
-      earliest_snapshot,
-      latest_snapshot,
-      deletion_state,
-      bottommost_level,
-      imm_micros,
-      input.get(),
-      compact,
-      false,
-      log_buffer);
-  }
 
   if (status.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
     status = Status::ShutdownInProgress(
@@ -4317,20 +4314,12 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyHandle* column_family,
 
 SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
   // TODO(ljin): consider using GetReferencedSuperVersion() directly
-  if (LIKELY(db_options_.allow_thread_local)) {
-    return cfd->GetThreadLocalSuperVersion(&mutex_);
-  } else {
-    MutexLock l(&mutex_);
-    return cfd->GetSuperVersion()->Ref();
-  }
+  return cfd->GetThreadLocalSuperVersion(&mutex_);
 }
 
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
-  bool unref_sv = true;
-  if (LIKELY(db_options_.allow_thread_local)) {
-    unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
-  }
+  bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
 
   if (unref_sv) {
     // Release SuperVersion

@@ -31,20 +31,22 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJIIZI)J
+ * Signature: (ZJIJIIZIZZJI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jboolean no_block_cache, jlong block_cache_size,
-    jint num_shardbits, jlong block_size, jint block_size_deviation,
+    jint block_cache_num_shardbits, jlong block_size, jint block_size_deviation,
     jint block_restart_interval, jboolean whole_key_filtering,
-    jint bits_per_key) {
+    jint bits_per_key, jboolean cache_index_and_filter_blocks,
+    jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
+    jint block_cache_compressd_num_shard_bits) {
   rocksdb::BlockBasedTableOptions options;
   options.no_block_cache = no_block_cache;
 
   if (!no_block_cache && block_cache_size > 0) {
-    if (num_shardbits > 0) {
+    if (block_cache_num_shardbits > 0) {
       options.block_cache =
-          rocksdb::NewLRUCache(block_cache_size, num_shardbits);
+          rocksdb::NewLRUCache(block_cache_size, block_cache_num_shardbits);
     } else {
       options.block_cache = rocksdb::NewLRUCache(block_cache_size);
     }
@@ -56,5 +58,17 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   if (bits_per_key > 0) {
     options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(bits_per_key));
   }
+  options.cache_index_and_filter_blocks = cache_index_and_filter_blocks;
+  options.hash_index_allow_collision = hash_index_allow_collision;
+  if (block_cache_compressed_size > 0) {
+    if (block_cache_compressd_num_shard_bits > 0) {
+      options.block_cache =
+          rocksdb::NewLRUCache(block_cache_compressed_size,
+              block_cache_compressd_num_shard_bits);
+    } else {
+      options.block_cache = rocksdb::NewLRUCache(block_cache_compressed_size);
+    }
+  }
+  
   return reinterpret_cast<jlong>(rocksdb::NewBlockBasedTableFactory(options));
 }

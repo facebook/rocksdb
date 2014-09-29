@@ -177,7 +177,7 @@ bool GetOptionsFromStrings(
       } else if (o.first == "max_mem_compaction_level") {
         new_options->max_mem_compaction_level = ParseInt(o.second);
       } else if (o.first == "target_file_size_base") {
-        new_options->target_file_size_base = ParseInt(o.second);
+        new_options->target_file_size_base = ParseUint64(o.second);
       } else if (o.first == "target_file_size_multiplier") {
         new_options->target_file_size_multiplier = ParseInt(o.second);
       } else if (o.first == "max_bytes_for_level_base") {
@@ -301,8 +301,6 @@ bool GetOptionsFromStrings(
         new_options->advise_random_on_open = ParseBoolean(o.first, o.second);
       } else if (o.first == "use_adaptive_mutex") {
         new_options->use_adaptive_mutex = ParseBoolean(o.first, o.second);
-      } else if (o.first == "allow_thread_local") {
-        new_options->allow_thread_local = ParseBoolean(o.first, o.second);
       } else if (o.first == "bytes_per_sync") {
         new_options->bytes_per_sync = ParseUint64(o.second);
       } else {

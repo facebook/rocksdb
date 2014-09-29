@@ -21,8 +21,9 @@ class LogBuffer {
   // info_log:  logger to write the logs to
   LogBuffer(const InfoLogLevel log_level, Logger* info_log);
 
-  // Add a log entry to the buffer.
-  void AddLogToBuffer(const char* format, va_list ap);
+  // Add a log entry to the buffer. Use default max_log_size.
+  // max_log_size indicates maximize log size, including some metadata.
+  void AddLogToBuffer(size_t max_log_size, const char* format, va_list ap);
 
   size_t IsEmpty() const { return logs_.empty(); }
 
@@ -44,6 +45,10 @@ class LogBuffer {
 
 // Add log to the LogBuffer for a delayed info logging. It can be used when
 // we want to add some logs inside a mutex.
+// max_log_size indicates maximize log size, including some metadata.
+extern void LogToBuffer(LogBuffer* log_buffer, size_t max_log_size,
+                        const char* format, ...);
+// Same as previous function, but with default max log size.
 extern void LogToBuffer(LogBuffer* log_buffer, const char* format, ...);
 
 }  // namespace rocksdb

@@ -21,6 +21,8 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/rate_limiter.h"
+#include "rocksdb/comparator.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -60,6 +62,23 @@ void Java_org_rocksdb_Options_setCreateIfMissing(
 jboolean Java_org_rocksdb_Options_createIfMissing(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->create_if_missing;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    useReverseBytewiseComparator
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setBuiltinComparator(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint builtinComparator) {
+  switch (builtinComparator){
+    case 1:
+    	reinterpret_cast<rocksdb::Options*>(jhandle)->comparator = rocksdb::ReverseBytewiseComparator();
+    	break;
+    default:
+    	reinterpret_cast<rocksdb::Options*>(jhandle)->comparator = rocksdb::BytewiseComparator();
+	break;
+  }
 }
 
 /*
@@ -461,6 +480,17 @@ void Java_org_rocksdb_Options_setMemTableFactory(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
+      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    tableCacheNumshardbits
  * Signature: (J)I
  */
@@ -775,27 +805,6 @@ void Java_org_rocksdb_Options_setBytesPerSync(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong bytes_per_sync) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->bytes_per_sync =
       static_cast<int64_t>(bytes_per_sync);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    allowThreadLocal
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_allowThreadLocal(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)->allow_thread_local;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setAllowThreadLocal
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setAllowThreadLocal(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean allow_thread_local) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->allow_thread_local =
-      static_cast<bool>(allow_thread_local);
 }
 
 /*

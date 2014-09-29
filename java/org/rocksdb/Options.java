@@ -13,8 +13,19 @@ package org.rocksdb;
  * native resources will be released as part of the process.
  */
 public class Options extends RocksObject {
+  static {
+    RocksDB.loadLibrary();
+  }
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
   static final int DEFAULT_NUM_SHARD_BITS = -1;
+
+  /**
+   * Builtin RocksDB comparators 
+   */
+  public enum BuiltinComparator {
+      BYTEWISE_COMPARATOR, REVERSE_BYTEWISE_COMPARATOR;
+  }
+
   /**
    * Construct options for opening a RocksDB.
    *
@@ -74,6 +85,21 @@ public class Options extends RocksObject {
     assert(isInitialized());
     return createIfMissing(nativeHandle_);
   }
+
+  /**
+   * Set BuiltinComparator to be used with RocksDB. 
+   *
+   * Note: Comparator can be set once upon database creation.
+   *
+   * Default: BytewiseComparator.
+   * @param builtinComparator a BuiltinComparator type.
+   */
+  public void setBuiltinComparator(BuiltinComparator builtinComparator) {
+    assert(isInitialized());
+    setBuiltinComparator(nativeHandle_, builtinComparator.ordinal());
+  }
+
+  private native void setBuiltinComparator(long handle, int builtinComparator);
 
   /**
    * Amount of data to build up in memory (backed by an unsorted log
@@ -1068,33 +1094,6 @@ public class Options extends RocksObject {
       long handle, long bytesPerSync);
 
   /**
-   * Allow RocksDB to use thread local storage to optimize performance.
-   * Default: true
-   *
-   * @return true if thread-local storage is allowed
-   */
-  public boolean allowThreadLocal() {
-    assert(isInitialized());
-    return allowThreadLocal(nativeHandle_);
-  }
-  private native boolean allowThreadLocal(long handle);
-
-  /**
-   * Allow RocksDB to use thread local storage to optimize performance.
-   * Default: true
-   *
-   * @param allowThreadLocal true if thread-local storage is allowed.
-   * @return the reference to the current option.
-   */
-  public Options setAllowThreadLocal(boolean allowThreadLocal) {
-    assert(isInitialized());
-    setAllowThreadLocal(nativeHandle_, allowThreadLocal);
-    return this;
-  }
-  private native void setAllowThreadLocal(
-      long handle, boolean allowThreadLocal);
-
-  /**
    * Set the config for mem-table.
    *
    * @param config the mem-table config.
@@ -1102,6 +1101,19 @@ public class Options extends RocksObject {
    */
   public Options setMemTableConfig(MemTableConfig config) {
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
+    return this;
+  }
+  
+  /**
+   * Use to control write rate of flush and compaction. Flush has higher
+   * priority than compaction. Rate limiting is disabled if nullptr.
+   * Default: nullptr
+   *
+   * @param config rate limiter config.
+   * @return the instance of the current Options.
+   */
+  public Options setRateLimiterConfig(RateLimiterConfig config) {
+    setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
   }
 
@@ -2192,6 +2204,8 @@ public class Options extends RocksObject {
   private native long statisticsPtr(long optHandle);
 
   private native void setMemTableFactory(long handle, long factoryHandle);
+  private native void setRateLimiter(long handle,
+      long rateLimiterHandle);
   private native String memTableFactoryName(long handle);
 
   private native void setTableFactory(long handle, long factoryHandle);
