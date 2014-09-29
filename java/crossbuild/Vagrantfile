@@ -7,13 +7,11 @@ VAGRANTFILE_API_VERSION = "2"
 Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
 
   config.vm.define "linux32" do |linux32|
-    linux32.vm.box = "ubuntu/trusty32"
-    linux32.vm.provision :shell, path: "build-linux.sh"
+    linux32.vm.box = "hansode/centos-5.6-i386"
   end
 
   config.vm.define "linux64" do |linux64|
-    linux64.vm.box = "ubuntu/trusty64"
-    linux64.vm.provision :shell, path: "build-linux.sh"
+    linux64.vm.box = "hansode/centos-5.6-x86_64"
   end
 
   config.vm.provider "virtualbox" do |v|
@@ -21,6 +19,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     v.cpus = 4
   end
 
+  config.vm.provision :shell, path: "build-linux-centos.sh"
   config.vm.synced_folder "../", "/rocksdb-build"
   config.vm.synced_folder "../..", "/rocksdb", type: "rsync"
 end
