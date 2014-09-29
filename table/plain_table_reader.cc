@@ -26,6 +26,7 @@
 #include "table/two_level_iterator.h"
 #include "table/plain_table_factory.h"
 #include "table/plain_table_key_coding.h"
+#include "table/get_context.h"
 
 #include "util/arena.h"
 #include "util/coding.h"
@@ -525,10 +526,7 @@ void PlainTableReader::Prepare(const Slice& target) {
 }
 
 Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
-                             void* arg,
-                             bool (*saver)(void*, const ParsedInternalKey&,
-                                           const Slice&),
-                             void (*mark_key_may_exist)(void*)) {
+                             GetContext* get_context) {
   // Check bloom filter first.
   Slice prefix_slice;
   uint32_t prefix_hash;
@@ -580,8 +578,10 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
       }
       prefix_match = true;
     }
+    // TODO(ljin): since we know the key comparison result here,
+    // can we enable the fast path?
     if (internal_comparator_.Compare(found_key, parsed_target) >= 0) {
-      if (!(*saver)(arg, found_key, found_value)) {
+      if (!get_context->SaveValue(found_key, found_value)) {
         break;
       }
     }

@@ -40,6 +40,7 @@ class WritableFile;
 struct BlockBasedTableOptions;
 struct EnvOptions;
 struct ReadOptions;
+class GetContext;
 
 using std::unique_ptr;
 
@@ -76,11 +77,7 @@ class BlockBasedTable : public TableReader {
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
-             void* handle_context,
-             bool (*result_handler)(void* handle_context,
-                                    const ParsedInternalKey& k, const Slice& v),
-             void (*mark_key_may_exist_handler)(void* handle_context) =
-                 nullptr) override;
+             GetContext* get_context) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were

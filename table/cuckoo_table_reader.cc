@@ -19,6 +19,7 @@
 #include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/cuckoo_table_factory.h"
+#include "table/get_context.h"
 #include "util/arena.h"
 #include "util/coding.h"
 
@@ -126,11 +127,8 @@ CuckooTableReader::CuckooTableReader(
   status_ = file_->Read(0, file_size, &file_data_, nullptr);
 }
 
-Status CuckooTableReader::Get(
-    const ReadOptions& readOptions, const Slice& key, void* handle_context,
-    bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                           const Slice& v),
-    void (*mark_key_may_exist_handler)(void* handle_context)) {
+Status CuckooTableReader::Get(const ReadOptions& readOptions, const Slice& key,
+                              GetContext* get_context) {
   assert(key.size() == key_length_ + (is_last_level_ ? 8 : 0));
   Slice user_key = ExtractUserKey(key);
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
@@ -149,14 +147,12 @@ Status CuckooTableReader::Get(
       if (ucomp_->Compare(user_key, Slice(bucket, user_key.size())) == 0) {
         Slice value(bucket + key_length_, value_length_);
         if (is_last_level_) {
-          ParsedInternalKey found_ikey(
-              Slice(bucket, key_length_), 0, kTypeValue);
-          result_handler(handle_context, found_ikey, value);
+          get_context->SaveValue(value);
         } else {
           Slice full_key(bucket, key_length_);
           ParsedInternalKey found_ikey;
           ParseInternalKey(full_key, &found_ikey);
-          result_handler(handle_context, found_ikey, value);
+          get_context->SaveValue(found_ikey, value);
         }
         // We don't support merge operations. So, we return here.
         return Status::OK();

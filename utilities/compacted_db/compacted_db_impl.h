@@ -88,9 +88,6 @@ class CompactedDBImpl : public DBImpl {
   const Comparator* user_comparator_;
   FileLevel files_;
 
-  Statistics* statistics_;
-  Logger* info_log_;
-
   // No copying allowed
   CompactedDBImpl(const CompactedDBImpl&);
   void operator=(const CompactedDBImpl&);

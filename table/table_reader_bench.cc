@@ -22,6 +22,7 @@ int main() {
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
+#include "table/get_context.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -46,11 +47,6 @@ static std::string MakeKey(int i, int j, bool through_db) {
   // key.
   InternalKey key(std::string(buf), 0, ValueType::kTypeValue);
   return key.Encode().ToString();
-}
-
-static bool DummySaveValue(void* arg, const ParsedInternalKey& ikey,
-                           const Slice& v) {
-  return false;
 }
 
 uint64_t Now(Env* env, bool measured_by_nanosecond) {
@@ -131,7 +127,6 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   std::string result;
   HistogramImpl hist;
 
-  void* arg = nullptr;
   for (int it = 0; it < num_iter; it++) {
     for (int i = 0; i < num_keys1; i++) {
       for (int j = 0; j < num_keys2; j++) {
@@ -147,8 +142,13 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string key = MakeKey(r1, r2, through_db);
           uint64_t start_time = Now(env, measured_by_nanosecond);
           if (!through_db) {
-            s = table_reader->Get(read_options, key, arg, DummySaveValue,
-                                  nullptr);
+            std::string value;
+            MergeContext merge_context;
+            GetContext get_context(ioptions.comparator, ioptions.merge_operator,
+                                   ioptions.info_log, ioptions.statistics,
+                                   GetContext::kNotFound, Slice(key), &value,
+                                   nullptr, &merge_context);
+            s = table_reader->Get(read_options, key, &get_context);
           } else {
             s = db->Get(read_options, key, &result);
           }

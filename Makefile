@@ -122,7 +122,6 @@ TESTS = \
 	reduce_levels_test \
 	plain_table_db_test \
 	prefix_test \
-	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
 	ttl_test \
@@ -371,9 +370,6 @@ log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-simple_table_db_test: db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
-
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
 
@@ -523,11 +519,11 @@ libz.a:
 	curl -O http://zlib.net/zlib-1.2.8.tar.gz
 	tar xvzf zlib-1.2.8.tar.gz
 	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
-	cp zlib-1.2.8/libz.a . 
+	cp zlib-1.2.8/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-1.0.6
-	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz 
+	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
 	tar xvzf bzip2-1.0.6.tar.gz
 	cd bzip2-1.0.6 && make CFLAGS='-fPIC -Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
@@ -539,7 +535,7 @@ libsnappy.a:
 	cd snappy-1.1.1 && ./configure --with-pic --enable-static
 	cd snappy-1.1.1 && make
 	cp snappy-1.1.1/.libs/libsnappy.a .
-		
+
 
 rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j
@@ -547,7 +543,7 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
-	
+
 
 rocksdbjava:
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32

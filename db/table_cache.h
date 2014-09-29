@@ -27,6 +27,7 @@ namespace rocksdb {
 class Env;
 class Arena;
 struct FileDescriptor;
+class GetContext;
 
 class TableCache {
  public:
@@ -52,10 +53,8 @@ class TableCache {
   // it returns false.
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
-             const FileDescriptor& file_fd, const Slice& k, void* arg,
-             bool (*handle_result)(void*, const ParsedInternalKey&,
-                                   const Slice&),
-             void (*mark_key_may_exist)(void*) = nullptr);
+             const FileDescriptor& file_fd, const Slice& k,
+             GetContext* get_context);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);

@@ -37,6 +37,7 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
+#include "table/get_context.h"
 
 #include "util/random.h"
 #include "util/statistics.h"
@@ -1485,8 +1486,11 @@ TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
   }
 
   {
+    GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                           GetContext::kNotFound, Slice(), nullptr,
+                           nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
-    reader->Get(ReadOptions(), "non-exist-key", nullptr, nullptr, nullptr);
+    reader->Get(ReadOptions(), "non-exist-key", &get_context);
     BlockCachePropertiesSnapshot props(options.statistics.get());
     props.AssertIndexBlockStat(0, 0);
     props.AssertFilterBlockStat(0, 0);
