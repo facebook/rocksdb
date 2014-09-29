@@ -22,6 +22,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/rate_limiter.h"
+#include "rocksdb/comparator.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -61,6 +62,23 @@ void Java_org_rocksdb_Options_setCreateIfMissing(
 jboolean Java_org_rocksdb_Options_createIfMissing(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->create_if_missing;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    useReverseBytewiseComparator
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setBuiltinComparator(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint builtinComparator) {
+  switch (builtinComparator){
+    case 1:
+    	reinterpret_cast<rocksdb::Options*>(jhandle)->comparator = rocksdb::ReverseBytewiseComparator();
+    	break;
+    default:
+    	reinterpret_cast<rocksdb::Options*>(jhandle)->comparator = rocksdb::BytewiseComparator();
+	break;
+  }
 }
 
 /*
