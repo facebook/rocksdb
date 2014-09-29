@@ -36,7 +36,7 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
     ));
     $linters[] = $java_text_linter;
 
-    $pep8_options = $this->getPEP8WithTextOptions().',E302';
+    $pep8_options = '--ignore=E101,E501,W291,W292,W293,E302';
 
     $python_linter = new ArcanistPEP8Linter();
     $python_linter->setConfig(array('options' => $pep8_options));
