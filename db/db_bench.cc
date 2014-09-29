@@ -636,6 +636,14 @@ static void AppendWithSpace(std::string* str, Slice msg) {
   str->append(msg.data(), msg.size());
 }
 
+struct DBWithColumnFamilies {
+  std::vector<ColumnFamilyHandle*> cfh;
+  DB* db;
+  DBWithColumnFamilies() : db(nullptr) {
+    cfh.clear();
+  }
+};
+
 class Stats {
  private:
   int id_;
@@ -699,7 +707,7 @@ class Stats {
   void SetId(int id) { id_ = id; }
   void SetExcludeFromMerge() { exclude_from_merge_ = true; }
 
-  void FinishedOps(DB* db, int64_t num_ops) {
+  void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops) {
     if (FLAGS_histogram) {
       double now = FLAGS_env->NowMicros();
       double micros = now - last_op_finish_;
@@ -739,8 +747,17 @@ class Stats {
 
         if (FLAGS_stats_per_interval) {
           std::string stats;
-          if (db && db->GetProperty("rocksdb.stats", &stats))
+
+          if (db_with_cfh && db_with_cfh->cfh.size()) {
+            for (size_t i = 0; i < db_with_cfh->cfh.size(); ++i) {
+              if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+                                  &stats))
+                fprintf(stderr, "%s\n", stats.c_str());
+            }
+
+          } else if (db && db->GetProperty("rocksdb.stats", &stats)) {
             fprintf(stderr, "%s\n", stats.c_str());
+          }
         }
 
         fflush(stderr);
@@ -859,13 +876,6 @@ class Benchmark {
   std::shared_ptr<Cache> compressed_cache_;
   std::shared_ptr<const FilterPolicy> filter_policy_;
   const SliceTransform* prefix_extractor_;
-  struct DBWithColumnFamilies {
-    std::vector<ColumnFamilyHandle*> cfh;
-    DB* db;
-    DBWithColumnFamilies() : db(nullptr) {
-      cfh.clear();
-    }
-  };
   DBWithColumnFamilies db_;
   std::vector<DBWithColumnFamilies> multi_dbs_;
   int64_t num_;
@@ -1480,7 +1490,7 @@ class Benchmark {
     uint32_t crc = 0;
     while (bytes < 500 * 1048576) {
       crc = crc32c::Value(data.data(), size);
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
       bytes += size;
     }
     // Print so result is not dead
@@ -1499,7 +1509,7 @@ class Benchmark {
     unsigned int xxh32 = 0;
     while (bytes < 500 * 1048576) {
       xxh32 = XXH32(data.data(), size, 0);
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
       bytes += size;
     }
     // Print so result is not dead
@@ -1520,7 +1530,7 @@ class Benchmark {
         ptr = ap.Acquire_Load();
       }
       count++;
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
     }
     if (ptr == nullptr) exit(1); // Disable unused variable warning.
   }
@@ -1561,7 +1571,7 @@ class Benchmark {
       }
       produced += compressed.size();
       bytes += input.size();
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
     }
 
     if (!ok) {
@@ -1642,7 +1652,7 @@ class Benchmark {
       }
       delete[] uncompressed;
       bytes += input.size();
-      thread->stats.FinishedOps(nullptr, 1);
+      thread->stats.FinishedOps(nullptr, nullptr, 1);
     }
 
     if (!ok) {
@@ -2022,7 +2032,8 @@ class Benchmark {
         bytes += value_size_ + key_size_;
       }
       s = db_with_cfh->db->Write(write_options_, &batch);
-      thread->stats.FinishedOps(db_with_cfh->db, entries_per_batch_);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db,
+                                entries_per_batch_);
       if (!s.ok()) {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
@@ -2047,7 +2058,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToFirst(); i < reads_ && iter->Valid(); iter->Next()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
       ++i;
     }
     delete iter;
@@ -2070,7 +2081,7 @@ class Benchmark {
     int64_t bytes = 0;
     for (iter->SeekToLast(); i < reads_ && iter->Valid(); iter->Prev()) {
       bytes += iter->key().size() + iter->value().size();
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
       ++i;
     }
     delete iter;
@@ -2105,7 +2116,7 @@ class Benchmark {
           ++nonexist;
         }
       }
-      thread->stats.FinishedOps(db, 100);
+      thread->stats.FinishedOps(nullptr, db, 100);
     } while (!duration.Done(100));
 
     char msg[100];
@@ -2147,7 +2158,7 @@ class Benchmark {
       if (s.ok()) {
         found++;
       }
-      thread->stats.FinishedOps(db_with_cfh->db, 1);
+      thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1);
     }
 
     char msg[100];
@@ -2189,7 +2200,7 @@ class Benchmark {
           ++found;
         }
       }
-      thread->stats.FinishedOps(db, entries_per_batch_);
+      thread->stats.FinishedOps(nullptr, db, entries_per_batch_);
     }
     for (auto& k : keys) {
       delete k.data();
@@ -2208,7 +2219,7 @@ class Benchmark {
       DB* db = SelectDB(thread);
       Iterator* iter = db->NewIterator(options);
       delete iter;
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
   }
 
@@ -2272,7 +2283,7 @@ class Benchmark {
       if (iter_to_use->Valid() && iter_to_use->key().compare(key) == 0) {
         found++;
       }
-      thread->stats.FinishedOps(db_.db, 1);
+      thread->stats.FinishedOps(&db_, db_.db, 1);
     }
     delete single_iter;
     for (auto iter : multi_iters) {
@@ -2312,7 +2323,7 @@ class Benchmark {
         batch.Delete(key);
       }
       auto s = db->Write(write_options_, &batch);
-      thread->stats.FinishedOps(db, entries_per_batch_);
+      thread->stats.FinishedOps(nullptr, db, entries_per_batch_);
       if (!s.ok()) {
         fprintf(stderr, "del error: %s\n", s.ToString().c_str());
         exit(1);
@@ -2372,7 +2383,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db_.db, 1);
+      thread->stats.FinishedOps(&db_, db_.db, 1);
 
       ++num_writes;
       if (writes_per_second_by_10 && num_writes >= writes_per_second_by_10) {
@@ -2532,7 +2543,7 @@ class Benchmark {
         deletes_done++;
       }
 
-      thread->stats.FinishedOps(db_.db, 1);
+      thread->stats.FinishedOps(&db_, db_.db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
@@ -2590,7 +2601,7 @@ class Benchmark {
         put_weight--;
         writes_done++;
       }
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg), "( reads:%" PRIu64 " writes:%" PRIu64 \
@@ -2624,7 +2635,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
@@ -2671,7 +2682,7 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     char msg[100];
@@ -2707,7 +2718,7 @@ class Benchmark {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     // Print some statistics
@@ -2768,7 +2779,7 @@ class Benchmark {
 
       }
 
-      thread->stats.FinishedOps(db, 1);
+      thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     char msg[100];
