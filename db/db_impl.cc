@@ -4037,11 +4037,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         RecordTick(stats_, WAL_FILE_BYTES, log_size);
         if (status.ok() && options.sync) {
           RecordTick(stats_, WAL_FILE_SYNCED);
+          StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
           if (db_options_.use_fsync) {
-            StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
           } else {
-            StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Sync();
           }
         }
