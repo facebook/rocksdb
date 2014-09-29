@@ -39,12 +39,7 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
     $pep8_options = '--ignore=E101,E501,W291,W292,W293,E302';
 
     $python_linter = new ArcanistPEP8Linter();
-    $python_linter->setConfig(array('options' => $pep8_options));
     $linters[] = $python_linter;
-
-    $python_2space_linter = new ArcanistPEP8Linter();
-    $python_2space_linter->setConfig(array('options' => $pep8_options.',E111'));
-    $linters[] = $python_2space_linter;
 
    // Currently we can't run cpplint in commit hook mode, because it
     // depends on having access to the working directory.
