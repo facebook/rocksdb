@@ -376,7 +376,7 @@ class IndexKey {
 
 class SimpleSortedIndex : public Index {
  public:
-  SimpleSortedIndex(const std::string field, const std::string& name)
+  SimpleSortedIndex(const std::string& field, const std::string& name)
       : field_(field), name_(name) {}
 
   virtual const char* Name() const override { return name_.c_str(); }
