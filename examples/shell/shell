@@ -1,0 +1,3 @@
+#!/bin/bash
+
+ruby -I. ruby/shell.rb
