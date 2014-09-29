@@ -1349,8 +1349,8 @@ TEST(DBTest, CompactedDB) {
       std::vector<Slice>({Slice("aaa"), Slice("ccc"), Slice("eee"),
                           Slice("ggg"), Slice("iii"), Slice("kkk")}),
       &values);
-  ASSERT_EQ(status_list.size(), 6);
-  ASSERT_EQ(values.size(), 6);
+  ASSERT_EQ(status_list.size(), static_cast<uint64_t>(6));
+  ASSERT_EQ(values.size(), static_cast<uint64_t>(6));
   ASSERT_OK(status_list[0]);
   ASSERT_EQ(DummyString(kFileSize / 2, 'a'), values[0]);
   ASSERT_TRUE(status_list[1].IsNotFound());
