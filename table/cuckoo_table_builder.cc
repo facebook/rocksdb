@@ -60,9 +60,11 @@ CuckooTableBuilder::CuckooTableBuilder(
       hash_table_size_(use_module_hash ? 0 : 2),
       is_last_level_file_(false),
       has_seen_first_key_(false),
+      has_seen_first_value_(false),
       key_size_(0),
       value_size_(0),
       num_entries_(0),
+      num_values_(0),
       ucomp_(user_comparator),
       use_module_hash_(use_module_hash),
       identity_as_first_hash_(identity_as_first_hash),
@@ -84,6 +86,12 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     status_ = Status::Corruption("Unable to parse key into inernal key.");
     return;
   }
+  if (ikey.type != kTypeDeletion && ikey.type != kTypeValue) {
+    status_ = Status::NotSupported("Unsupported key type " +
+                                   std::to_string(ikey.type));
+    return;
+  }
+
   // Determine if we can ignore the sequence number and value type from
   // internal keys by looking at sequence number from first key. We assume
   // that if first key has a zero sequence number, then all the remaining
@@ -94,16 +102,38 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
     smallest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
     largest_user_key_.assign(ikey.user_key.data(), ikey.user_key.size());
     key_size_ = is_last_level_file_ ? ikey.user_key.size() : key.size();
-    value_size_ = value.size();
+  }
+  if (key_size_ != (is_last_level_file_ ? ikey.user_key.size() : key.size())) {
+    status_ = Status::NotSupported("all keys have to be the same size");
+    return;
   }
   // Even if one sequence number is non-zero, then it is not last level.
   assert(!is_last_level_file_ || ikey.sequence == 0);
-  if (is_last_level_file_) {
-    kvs_.append(ikey.user_key.data(), ikey.user_key.size());
+
+  if (ikey.type == kTypeValue) {
+    if (!has_seen_first_value_) {
+      has_seen_first_value_ = true;
+      value_size_ = value.size();
+    }
+    if (value_size_ != value.size()) {
+      status_ = Status::NotSupported("all values have to be the same size");
+      return;
+    }
+
+    if (is_last_level_file_) {
+      kvs_.append(ikey.user_key.data(), ikey.user_key.size());
+    } else {
+      kvs_.append(key.data(), key.size());
+    }
+    kvs_.append(value.data(), value.size());
+    ++num_values_;
   } else {
-    kvs_.append(key.data(), key.size());
+    if (is_last_level_file_) {
+      deleted_keys_.append(ikey.user_key.data(), ikey.user_key.size());
+    } else {
+      deleted_keys_.append(key.data(), key.size());
+    }
   }
-  kvs_.append(value.data(), value.size());
   ++num_entries_;
 
   // In order to fill the empty buckets in the hash table, we identify a
@@ -123,15 +153,30 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   }
 }
 
+bool CuckooTableBuilder::IsDeletedKey(uint64_t idx) const {
+  assert(closed_);
+  return idx >= num_values_;
+}
+
 Slice CuckooTableBuilder::GetKey(uint64_t idx) const {
+  assert(closed_);
+  if (IsDeletedKey(idx)) {
+    return Slice(&deleted_keys_[(idx - num_values_) * key_size_], key_size_);
+  }
   return Slice(&kvs_[idx * (key_size_ + value_size_)], key_size_);
 }
 
 Slice CuckooTableBuilder::GetUserKey(uint64_t idx) const {
+  assert(closed_);
   return is_last_level_file_ ? GetKey(idx) : ExtractUserKey(GetKey(idx));
 }
 
 Slice CuckooTableBuilder::GetValue(uint64_t idx) const {
+  assert(closed_);
+  if (IsDeletedKey(idx)) {
+    static std::string empty_value(value_size_, 'a');
+    return Slice(empty_value);
+  }
   return Slice(&kvs_[idx * (key_size_ + value_size_) + key_size_], value_size_);
 }
 
@@ -256,7 +301,9 @@ Status CuckooTableBuilder::Finish() {
       ++num_added;
       s = file_->Append(GetKey(bucket.vector_idx));
       if (s.ok()) {
-        s = file_->Append(GetValue(bucket.vector_idx));
+        if (value_size_ > 0) {
+          s = file_->Append(GetValue(bucket.vector_idx));
+        }
       }
     }
     if (!s.ok()) {
