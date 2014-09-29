@@ -164,6 +164,9 @@ endif
 LIBRARY = ${LIBNAME}.a
 MEMENVLIBRARY = libmemenv.a
 
+ROCKSDB_MAJOR = 3
+ROCKSDB_MINOR = 4
+
 default: all
 
 #-----------------------------------------------
@@ -178,8 +181,8 @@ SHARED3 = $(SHARED1)
 SHARED = $(SHARED1)
 else
 # Update db.h if you change these.
-SHARED_MAJOR = 3
-SHARED_MINOR = 4
+SHARED_MAJOR = $(ROCKSDB_MAJOR)
+SHARED_MINOR = $(ROCKSDB_MINOR)
 SHARED1 = ${LIBNAME}.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1).$(SHARED_MAJOR)
 SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
@@ -195,7 +198,7 @@ $(SHARED3):
 
 endif  # PLATFORM_SHARED_EXT
 
-.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
+.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install uninstall
 
@@ -275,6 +278,9 @@ tags:
 
 format:
 	build_tools/format-diff.sh
+
+package:
+	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
 
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools
@@ -627,7 +633,9 @@ ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(MAKECMDGOALS),format)
 ifneq ($(MAKECMDGOALS),jclean)
 ifneq ($(MAKECMDGOALS),jtest)
+ifneq ($(MAKECMDGOALS),package)
 -include $(DEPFILES)
+endif
 endif
 endif
 endif

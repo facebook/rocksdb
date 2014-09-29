@@ -28,8 +28,10 @@ util/build_version.cc
 build_tools/VALGRIND_LOGS/
 coverage/COVERAGE_REPORT
 .gdbhistory
+package/
 .phutil_module_cache
 tags
 java/*.log
 java/include/org_rocksdb_*.h
 unity.cc
+.vagrant/
