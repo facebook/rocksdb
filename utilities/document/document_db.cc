@@ -33,7 +33,7 @@ namespace {
 // > 0   <=>  lhs == rhs
 // TODO(icanadi) move this to JSONDocument?
 int DocumentCompare(const JSONDocument& lhs, const JSONDocument& rhs) {
-  assert(rhs.IsObject() == false && rhs.IsObject() == false &&
+  assert(lhs.IsObject() == false && rhs.IsObject() == false &&
          lhs.type() == rhs.type());
 
   switch (lhs.type()) {
