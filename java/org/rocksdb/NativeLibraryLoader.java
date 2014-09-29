@@ -8,7 +8,7 @@ import org.rocksdb.util.Environment;
  * The shared library is extracted to a temp folder and loaded from there.
  */
 public class NativeLibraryLoader {
-  private static String sharedLibraryName = Environment.getJniLibraryName("rockdsb");
+  private static String sharedLibraryName = Environment.getJniLibraryName("rocksdb");
   private static String tempFilePrefix = "librocksdbjni";
   private static String tempFileSuffix = "." + Environment.getJniLibraryExtension();
 

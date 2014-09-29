@@ -24,9 +24,9 @@ public class Environment {
 
   public static String getSharedLibraryName(String name) {
     if (isUnix()) {
-      return String.format("lib%s.so", name);
+      return String.format("lib%sjni.so", name);
     } else if (isMac()) {
-      return String.format("lib%s.dylib", name);
+      return String.format("lib%sjni.dylib", name);
     }
     throw new UnsupportedOperationException();
   }
@@ -34,9 +34,9 @@ public class Environment {
   public static String getJniLibraryName(String name) {
     if (isUnix()) {
       String arch = (is64Bit()) ? "64" : "32";
-      return String.format("lib%s-linux%s.so", name, arch);
+      return String.format("lib%sjni-linux%s.so", name, arch);
     } else if (isMac()) {
-      return String.format("lib%s-osx.jnilib", name);
+      return String.format("lib%sjni-osx.jnilib", name);
     }
     throw new UnsupportedOperationException();
   }
