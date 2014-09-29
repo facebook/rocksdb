@@ -325,7 +325,7 @@ bool LDBCommand::ParseKeyValue(const string& line, string* key, string* value,
 bool LDBCommand::ValidateCmdLineOptions() {
 
   for (map<string, string>::const_iterator itr = option_map_.begin();
-        itr != option_map_.end(); itr++) {
+        itr != option_map_.end(); ++itr) {
     if (find(valid_cmd_line_options_.begin(),
           valid_cmd_line_options_.end(), itr->first) ==
           valid_cmd_line_options_.end()) {
@@ -335,7 +335,7 @@ bool LDBCommand::ValidateCmdLineOptions() {
   }
 
   for (vector<string>::const_iterator itr = flags_.begin();
-        itr != flags_.end(); itr++) {
+        itr != flags_.end(); ++itr) {
     if (find(valid_cmd_line_options_.begin(),
           valid_cmd_line_options_.end(), *itr) ==
           valid_cmd_line_options_.end()) {
@@ -1538,7 +1538,7 @@ void BatchPutCommand::DoCommand() {
   WriteBatch batch;
 
   for (vector<pair<string, string>>::const_iterator itr
-        = key_values_.begin(); itr != key_values_.end(); itr++) {
+        = key_values_.begin(); itr != key_values_.end(); ++itr) {
       batch.Put(itr->first, itr->second);
   }
   Status st = db_->Write(WriteOptions(), &batch);
