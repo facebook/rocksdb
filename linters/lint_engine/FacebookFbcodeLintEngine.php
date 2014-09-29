@@ -36,8 +36,6 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
     ));
     $linters[] = $java_text_linter;
 
-    $pep8_options = '--ignore=E101,E501,W291,W292,W293,E302';
-
     $python_linter = new ArcanistPEP8Linter();
     $linters[] = $python_linter;
 
@@ -114,11 +112,7 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
           $dir = dirname($dir);
         } while ($dir != '/' && $dir != '.');
 
-        if ($space_count == 4) {
-          $cur_path_linter = $python_linter;
-        } else {
-          $cur_path_linter = $python_2space_linter;
-        }
+        $cur_path_linter = $python_linter;
         $cur_path_linter->addPath($path);
         $cur_path_linter->addData($path, $this->loadData($path));
 
