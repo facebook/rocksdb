@@ -3340,12 +3340,14 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   Version::LevelSummaryStorage tmp;
   LogToBuffer(
       log_buffer,
-      "[%s] compacted to: %s, %.1f MB/sec, level %d, files in(%d, %d) out(%d) "
+      "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
+      "files in(%d, %d) out(%d) "
       "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
       "write-amplify(%.1f) %s\n",
       cfd->GetName().c_str(), cfd->current()->LevelSummary(&tmp),
-      (stats.bytes_readn + stats.bytes_readnp1 + stats.bytes_written) /
-          (double)stats.micros,
+      (stats.bytes_readn + stats.bytes_readnp1) /
+          static_cast<double>(stats.micros),
+      stats.bytes_written / static_cast<double>(stats.micros),
       compact->compaction->output_level(), stats.files_in_leveln,
       stats.files_in_levelnp1, stats.files_out_levelnp1,
       stats.bytes_readn / 1048576.0, stats.bytes_readnp1 / 1048576.0,
