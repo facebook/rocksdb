@@ -369,7 +369,7 @@ class SpatialIndexCursor : public Cursor {
     }
     delete spatial_iterator;
 
-    valid_ = valid_ && primary_key_ids_.size() > 0;
+    valid_ = valid_ && !primary_key_ids_.empty();
 
     if (valid_) {
       primary_keys_iterator_ = primary_key_ids_.begin();

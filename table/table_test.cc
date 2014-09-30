@@ -1216,7 +1216,7 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
-void AddInternalKey(TableConstructor* c, const std::string prefix,
+void AddInternalKey(TableConstructor* c, const std::string& prefix,
                     int suffix_len = 800) {
   static Random rnd(1023);
   InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);

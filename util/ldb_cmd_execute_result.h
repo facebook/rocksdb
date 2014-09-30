@@ -13,15 +13,10 @@ public:
     EXEC_NOT_STARTED = 0, EXEC_SUCCEED = 1, EXEC_FAILED = 2,
   };
 
-  LDBCommandExecuteResult() {
-    state_ = EXEC_NOT_STARTED;
-    message_ = "";
-  }
+  LDBCommandExecuteResult() : state_(EXEC_NOT_STARTED), message_("") {}
 
-  LDBCommandExecuteResult(State state, std::string& msg) {
-    state_ = state;
-    message_ = msg;
-  }
+  LDBCommandExecuteResult(State state, std::string& msg) :
+    state_(state), message_(msg) {}
 
   std::string ToString() {
     std::string ret;

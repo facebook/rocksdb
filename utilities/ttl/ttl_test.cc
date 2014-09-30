@@ -120,7 +120,7 @@ class TtlTest {
     static FlushOptions flush_opts;
     WriteBatch batch;
     kv_it_ = kvmap_.begin();
-    for (int i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, kv_it_++) {
+    for (int i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
       switch (batch_ops[i]) {
         case PUT:
           batch.Put(kv_it_->first, kv_it_->second);
@@ -145,7 +145,7 @@ class TtlTest {
     static FlushOptions flush_opts;
     kv_it_ = kvmap_.begin();
     advance(kv_it_, start_pos_map);
-    for (int i = 0; kv_it_ != kvmap_.end() && i < num_entries; i++, kv_it_++) {
+    for (int i = 0; kv_it_ != kvmap_.end() && i < num_entries; i++, ++kv_it_) {
       ASSERT_OK(cf == nullptr
                     ? db_ttl_->Put(wopts, kv_it_->first, kv_it_->second)
                     : db_ttl_->Put(wopts, cf, kv_it_->first, kv_it_->second));
@@ -207,7 +207,7 @@ class TtlTest {
     kv_it_ = kvmap_.begin();
     advance(kv_it_, st_pos);
     std::string v;
-    for (int i = 0; kv_it_ != kvmap_.end() && i < span; i++, kv_it_++) {
+    for (int i = 0; kv_it_ != kvmap_.end() && i < span; i++, ++kv_it_) {
       Status s = (cf == nullptr) ? db_ttl_->Get(ropts, kv_it_->first, &v)
                                  : db_ttl_->Get(ropts, cf, kv_it_->first, &v);
       if (s.ok() != check) {
@@ -252,7 +252,7 @@ class TtlTest {
     } else {  // dbiter should have found out kvmap_[st_pos]
       for (int i = st_pos;
            kv_it_ != kvmap_.end() && i < st_pos + span;
-           i++, kv_it_++)  {
+           i++, ++kv_it_)  {
         ASSERT_TRUE(dbiter->Valid());
         ASSERT_EQ(dbiter->value().compare(kv_it_->second), 0);
         dbiter->Next();

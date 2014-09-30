@@ -920,7 +920,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
         "earliest-file-size %" PRIu64,
         version->cfd_->GetName().c_str(), candidate_size, earliest_file_size);
   }
-  assert(start_index >= 0 && start_index < files.size() - 1);
+  assert(start_index < files.size() - 1);
 
   // Estimate total file size
   uint64_t estimated_total_size = 0;

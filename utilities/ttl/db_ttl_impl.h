@@ -206,7 +206,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
 class TtlMergeOperator : public MergeOperator {
 
  public:
-  explicit TtlMergeOperator(const std::shared_ptr<MergeOperator> merge_op,
+  explicit TtlMergeOperator(const std::shared_ptr<MergeOperator>& merge_op,
                             Env* env)
       : user_merge_op_(merge_op), env_(env) {
     assert(merge_op);

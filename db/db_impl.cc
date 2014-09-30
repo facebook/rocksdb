@@ -3064,7 +3064,6 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   assert(compact);
   compact->CleanupBatchBuffer();
   compact->CleanupMergedBuffer();
-  bool prefix_initialized = false;
 
   // Generate file_levels_ for compaction berfore making Iterator
   compact->compaction->GenerateFileLevels();
@@ -3149,6 +3148,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     // 2) send value_buffer to compaction filter and alternate the values;
     // 3) merge value_buffer with ineligible_value_buffer;
     // 4) run the modified "compaction" using the old for loop.
+    bool prefix_initialized = false;
     shared_ptr<Iterator> backup_input(
         versions_->MakeInputIterator(compact->compaction));
     backup_input->SeekToFirst();
@@ -4037,11 +4037,10 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* my_batch) {
         RecordTick(stats_, WAL_FILE_BYTES, log_size);
         if (status.ok() && options.sync) {
           RecordTick(stats_, WAL_FILE_SYNCED);
+          StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
           if (db_options_.use_fsync) {
-            StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Fsync();
           } else {
-            StopWatch(env_, stats_, WAL_FILE_SYNC_MICROS);
             status = log_->file()->Sync();
           }
         }
