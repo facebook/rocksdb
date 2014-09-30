@@ -1,5 +1,7 @@
 package org.rocksdb;
 
+import org.rocksdb.util.Environment;
+
 import java.io.*;
 
 
@@ -8,7 +10,7 @@ import java.io.*;
  * The shared library is extracted to a temp folder and loaded from there.
  */
 public class NativeLibraryLoader {
-  private static String sharedLibraryName = "librocksdbjni.so";
+  private static String sharedLibraryName = Environment.getJniLibraryName("rocksdbjni");
   private static String tempFilePrefix = "librocksdbjni";
   private static String tempFileSuffix = ".so";
 
