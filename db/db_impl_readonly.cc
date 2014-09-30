@@ -14,7 +14,8 @@ namespace rocksdb {
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
     : DBImpl(db_options, dbname) {
-  Log(db_options_.info_log, "Opening the db in read only mode");
+  Log(INFO_LEVEL, db_options_.info_log, "Opening the db in read only mode");
+  LogFlush(db_options_.info_log);
 }
 
 DBImplReadOnly::~DBImplReadOnly() {

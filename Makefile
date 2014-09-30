@@ -122,7 +122,6 @@ TESTS = \
 	reduce_levels_test \
 	plain_table_db_test \
 	prefix_test \
-	simple_table_db_test \
 	skiplist_test \
 	stringappend_test \
 	ttl_test \
@@ -165,6 +164,9 @@ endif
 LIBRARY = ${LIBNAME}.a
 MEMENVLIBRARY = libmemenv.a
 
+ROCKSDB_MAJOR = 3
+ROCKSDB_MINOR = 4
+
 default: all
 
 #-----------------------------------------------
@@ -179,8 +181,8 @@ SHARED3 = $(SHARED1)
 SHARED = $(SHARED1)
 else
 # Update db.h if you change these.
-SHARED_MAJOR = 3
-SHARED_MINOR = 4
+SHARED_MAJOR = $(ROCKSDB_MAJOR)
+SHARED_MINOR = $(ROCKSDB_MINOR)
 SHARED1 = ${LIBNAME}.$(PLATFORM_SHARED_EXT)
 SHARED2 = $(SHARED1).$(SHARED_MAJOR)
 SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
@@ -196,7 +198,7 @@ $(SHARED3):
 
 endif  # PLATFORM_SHARED_EXT
 
-.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests \
+.PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install uninstall
 
@@ -277,6 +279,9 @@ tags:
 
 format:
 	build_tools/format-diff.sh
+
+package:
+	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
 
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools
@@ -371,9 +376,6 @@ log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 
 plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
-
-simple_table_db_test: db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) db/simple_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
@@ -527,11 +529,11 @@ libz.a:
 	curl -O http://zlib.net/zlib-1.2.8.tar.gz
 	tar xvzf zlib-1.2.8.tar.gz
 	cd zlib-1.2.8 && CFLAGS='-fPIC' ./configure --static && make
-	cp zlib-1.2.8/libz.a . 
+	cp zlib-1.2.8/libz.a .
 
 libbz2.a:
 	-rm -rf bzip2-1.0.6
-	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz 
+	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
 	tar xvzf bzip2-1.0.6.tar.gz
 	cd bzip2-1.0.6 && make CFLAGS='-fPIC -Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
@@ -543,7 +545,7 @@ libsnappy.a:
 	cd snappy-1.1.1 && ./configure --with-pic --enable-static
 	cd snappy-1.1.1 && make
 	cp snappy-1.1.1/.libs/libsnappy.a .
-		
+
 
 rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j
@@ -551,7 +553,7 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
-	
+
 
 rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/crossbuild && vagrant destroy -f && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64
@@ -639,7 +641,9 @@ ifneq ($(MAKECMDGOALS),clean)
 ifneq ($(MAKECMDGOALS),format)
 ifneq ($(MAKECMDGOALS),jclean)
 ifneq ($(MAKECMDGOALS),jtest)
+ifneq ($(MAKECMDGOALS),package)
 -include $(DEPFILES)
+endif
 endif
 endif
 endif

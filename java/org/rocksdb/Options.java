@@ -18,6 +18,14 @@ public class Options extends RocksObject {
   }
   static final long DEFAULT_CACHE_SIZE = 8 << 20;
   static final int DEFAULT_NUM_SHARD_BITS = -1;
+
+  /**
+   * Builtin RocksDB comparators 
+   */
+  public enum BuiltinComparator {
+      BYTEWISE_COMPARATOR, REVERSE_BYTEWISE_COMPARATOR;
+  }
+
   /**
    * Construct options for opening a RocksDB.
    *
@@ -77,6 +85,21 @@ public class Options extends RocksObject {
     assert(isInitialized());
     return createIfMissing(nativeHandle_);
   }
+
+  /**
+   * Set BuiltinComparator to be used with RocksDB. 
+   *
+   * Note: Comparator can be set once upon database creation.
+   *
+   * Default: BytewiseComparator.
+   * @param builtinComparator a BuiltinComparator type.
+   */
+  public void setBuiltinComparator(BuiltinComparator builtinComparator) {
+    assert(isInitialized());
+    setBuiltinComparator(nativeHandle_, builtinComparator.ordinal());
+  }
+
+  private native void setBuiltinComparator(long handle, int builtinComparator);
 
   /**
    * Amount of data to build up in memory (backed by an unsorted log

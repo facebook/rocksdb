@@ -15,6 +15,7 @@
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
 #include "table/table_reader.h"
+#include "table/get_context.h"
 #include "util/coding.h"
 #include "util/stop_watch.h"
 
@@ -132,10 +133,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
 
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
-                       const FileDescriptor& fd, const Slice& k, void* arg,
-                       bool (*saver)(void*, const ParsedInternalKey&,
-                                     const Slice&),
-                       void (*mark_key_may_exist)(void*)) {
+                       const FileDescriptor& fd, const Slice& k,
+                       GetContext* get_context) {
   TableReader* t = fd.table_reader;
   Status s;
   Cache::Handle* handle = nullptr;
@@ -147,13 +146,13 @@ Status TableCache::Get(const ReadOptions& options,
     }
   }
   if (s.ok()) {
-    s = t->Get(options, k, arg, saver, mark_key_may_exist);
+    s = t->Get(options, k, get_context);
     if (handle != nullptr) {
       ReleaseHandle(handle);
     }
   } else if (options.read_tier && s.IsIncomplete()) {
     // Couldnt find Table in cache but treat as kFound if no_io set
-    (*mark_key_may_exist)(arg);
+    get_context->MarkKeyMayExist();
     return Status::OK();
   }
   return s;

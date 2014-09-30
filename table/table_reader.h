@@ -18,6 +18,7 @@ class Slice;
 class Arena;
 struct ReadOptions;
 struct TableProperties;
+class GetContext;
 
 // A Table is a sorted map from strings to strings.  Tables are
 // immutable and persistent.  A Table may be safely accessed from
@@ -55,23 +56,17 @@ class TableReader {
   // Report an approximation of how much memory has been used.
   virtual size_t ApproximateMemoryUsage() const = 0;
 
-  // Calls (*result_handler)(handle_context, ...) repeatedly, starting with
-  // the entry found after a call to Seek(key), until result_handler returns
-  // false, where k is the actual internal key for a row found and v as the
-  // value of the key. May not make such a call if filter policy says that key
-  // is not present.
+  // Calls get_context->SaveValue() repeatedly, starting with
+  // the entry found after a call to Seek(key), until it returns false.
+  // May not make such a call if filter policy says that key is not present.
   //
-  // mark_key_may_exist_handler needs to be called when it is configured to be
-  // memory only and the key is not found in the block cache, with
-  // the parameter to be handle_context.
+  // get_context->MarkKeyMayExist needs to be called when it is configured to be
+  // memory only and the key is not found in the block cache.
   //
   // readOptions is the options for the read
   // key is the key to search for
-  virtual Status Get(
-      const ReadOptions& readOptions, const Slice& key, void* handle_context,
-      bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                             const Slice& v),
-      void (*mark_key_may_exist_handler)(void* handle_context) = nullptr) = 0;
+  virtual Status Get(const ReadOptions& readOptions, const Slice& key,
+                     GetContext* get_context) = 0;
 };
 
 }  // namespace rocksdb

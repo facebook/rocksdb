@@ -37,6 +37,7 @@
 #include "table/format.h"
 #include "table/plain_table_factory.h"
 #include "table/meta_blocks.h"
+#include "table/get_context.h"
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
@@ -627,81 +628,6 @@ void Version::AddIterators(const ReadOptions& read_options,
 }
 
 
-// Called from TableCache::Get and Table::Get when file/block in which
-// key may  exist are not there in TableCache/BlockCache respectively. In this
-// case we  can't guarantee that key does not exist and are not permitted to do
-// IO to be  certain.Set the status=kFound and value_found=false to let the
-// caller know that key may exist but is not there in memory
-void MarkKeyMayExist(void* arg) {
-  Version::Saver* s = reinterpret_cast<Version::Saver*>(arg);
-  s->state = Version::kFound;
-  if (s->value_found != nullptr) {
-    *(s->value_found) = false;
-  }
-}
-
-bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
-               const Slice& v) {
-  Version::Saver* s = reinterpret_cast<Version::Saver*>(arg);
-  MergeContext* merge_contex = s->merge_context;
-  std::string merge_result;  // temporary area for merge results later
-
-  assert(s != nullptr && merge_contex != nullptr);
-
-  // TODO: Merge?
-  if (s->ucmp->Compare(parsed_key.user_key, s->user_key) == 0) {
-    // Key matches. Process it
-    switch (parsed_key.type) {
-      case kTypeValue:
-        if (Version::kNotFound == s->state) {
-          s->state = Version::kFound;
-          s->value->assign(v.data(), v.size());
-        } else if (Version::kMerge == s->state) {
-          assert(s->merge_operator != nullptr);
-          s->state = Version::kFound;
-          if (!s->merge_operator->FullMerge(s->user_key, &v,
-                                            merge_contex->GetOperands(),
-                                            s->value, s->logger)) {
-            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            s->state = Version::kCorrupt;
-          }
-        } else {
-          assert(false);
-        }
-        return false;
-
-      case kTypeDeletion:
-        if (Version::kNotFound == s->state) {
-          s->state = Version::kDeleted;
-        } else if (Version::kMerge == s->state) {
-          s->state = Version::kFound;
-          if (!s->merge_operator->FullMerge(s->user_key, nullptr,
-                                            merge_contex->GetOperands(),
-                                            s->value, s->logger)) {
-            RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
-            s->state = Version::kCorrupt;
-          }
-        } else {
-          assert(false);
-        }
-        return false;
-
-      case kTypeMerge:
-        assert(s->state == Version::kNotFound || s->state == Version::kMerge);
-        s->state = Version::kMerge;
-        merge_contex->PushOperand(v);
-        return true;
-
-      default:
-        assert(false);
-        break;
-    }
-  }
-
-  // s->state could be Corrupt, merge or notfound
-
-  return false;
-}
 
 Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
                  uint64_t version_number)
@@ -756,46 +682,42 @@ void Version::Get(const ReadOptions& options,
   Slice user_key = k.user_key();
 
   assert(status->ok() || status->IsMergeInProgress());
-  Saver saver;
-  saver.state = status->ok()? kNotFound : kMerge;
-  saver.ucmp = user_comparator_;
-  saver.user_key = user_key;
-  saver.value_found = value_found;
-  saver.value = value;
-  saver.merge_operator = merge_operator_;
-  saver.merge_context = merge_context;
-  saver.logger = info_log_;
-  saver.statistics = db_statistics_;
+
+  GetContext get_context(user_comparator_, merge_operator_, info_log_,
+      db_statistics_, status->ok() ? GetContext::kNotFound : GetContext::kMerge,
+      user_key, value, value_found, merge_context);
 
   FilePicker fp(files_, user_key, ikey, &file_levels_, num_non_empty_levels_,
       &file_indexer_, user_comparator_, internal_comparator_);
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
     *status = table_cache_->Get(options, *internal_comparator_, f->fd, ikey,
-                                &saver, SaveValue, MarkKeyMayExist);
+                                &get_context);
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
     }
 
-    switch (saver.state) {
-      case kNotFound:
-        break;      // Keep searching in other files
-      case kFound:
+    switch (get_context.State()) {
+      case GetContext::kNotFound:
+        // Keep searching in other files
+        break;
+      case GetContext::kFound:
         return;
-      case kDeleted:
-        *status = Status::NotFound();  // Use empty error message for speed
+      case GetContext::kDeleted:
+        // Use empty error message for speed
+        *status = Status::NotFound();
         return;
-      case kCorrupt:
+      case GetContext::kCorrupt:
         *status = Status::Corruption("corrupted key for ", user_key);
         return;
-      case kMerge:
+      case GetContext::kMerge:
         break;
     }
     f = fp.GetNextFile();
   }
 
-  if (kMerge == saver.state) {
+  if (GetContext::kMerge == get_context.State()) {
     if (!merge_operator_) {
       *status =  Status::InvalidArgument(
           "merge_operator is not properly initialized.");
@@ -804,7 +726,7 @@ void Version::Get(const ReadOptions& options,
     // merge_operands are in saver and we hit the beginning of the key history
     // do a final merge of nullptr and operands;
     if (merge_operator_->FullMerge(user_key, nullptr,
-                                   saver.merge_context->GetOperands(), value,
+                                   merge_context->GetOperands(), value,
                                    info_log_)) {
       *status = Status::OK();
     } else {

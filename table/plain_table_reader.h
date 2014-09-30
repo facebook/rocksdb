@@ -36,6 +36,7 @@ class TableCache;
 class TableReader;
 class InternalKeyComparator;
 class PlainTableKeyDecoder;
+class GetContext;
 
 using std::unique_ptr;
 using std::unordered_map;
@@ -65,10 +66,8 @@ class PlainTableReader: public TableReader {
 
   void Prepare(const Slice& target);
 
-  Status Get(const ReadOptions&, const Slice& key, void* arg,
-             bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                                    const Slice& v),
-             void (*mark_key_may_exist)(void*) = nullptr);
+  Status Get(const ReadOptions&, const Slice& key,
+             GetContext* get_context) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key);
 

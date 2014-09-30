@@ -36,15 +36,8 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
     ));
     $linters[] = $java_text_linter;
 
-    $pep8_options = $this->getPEP8WithTextOptions().',E302';
-
     $python_linter = new ArcanistPEP8Linter();
-    $python_linter->setConfig(array('options' => $pep8_options));
     $linters[] = $python_linter;
-
-    $python_2space_linter = new ArcanistPEP8Linter();
-    $python_2space_linter->setConfig(array('options' => $pep8_options.',E111'));
-    $linters[] = $python_2space_linter;
 
    // Currently we can't run cpplint in commit hook mode, because it
     // depends on having access to the working directory.
@@ -119,11 +112,7 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
           $dir = dirname($dir);
         } while ($dir != '/' && $dir != '.');
 
-        if ($space_count == 4) {
-          $cur_path_linter = $python_linter;
-        } else {
-          $cur_path_linter = $python_2space_linter;
-        }
+        $cur_path_linter = $python_linter;
         $cur_path_linter->addPath($path);
         $cur_path_linter->addData($path, $this->loadData($path));
 

@@ -7,13 +7,13 @@
 #include "utilities/compacted_db/compacted_db_impl.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "db/merge_context.h"
+#include "table/get_context.h"
 
 namespace rocksdb {
 
 extern void MarkKeyMayExist(void* arg);
 extern bool SaveValue(void* arg, const ParsedInternalKey& parsed_key,
-                      const Slice& v);
+                      const Slice& v, bool hit_and_return);
 
 CompactedDBImpl::CompactedDBImpl(
   const DBOptions& options, const std::string& dbname)
@@ -44,25 +44,12 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
 
 Status CompactedDBImpl::Get(const ReadOptions& options,
      ColumnFamilyHandle*, const Slice& key, std::string* value) {
-  const FdWithKeyRange& f = files_.files[FindFile(key)];
-
-  bool value_found;
-  MergeContext merge_context;
-  Version::Saver saver;
-  saver.state = Version::kNotFound;
-  saver.ucmp = user_comparator_;
-  saver.user_key = key;
-  saver.value_found = &value_found;
-  saver.value = value;
-  saver.merge_operator = nullptr;
-  saver.merge_context = &merge_context;
-  saver.logger = info_log_;
-  saver.statistics = statistics_;
+  GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
+                         GetContext::kNotFound, key, value, nullptr, nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
-  f.fd.table_reader->Get(options, lkey.internal_key(),
-                         reinterpret_cast<void*>(&saver), SaveValue,
-                         MarkKeyMayExist);
-  if (saver.state == Version::kFound) {
+  files_.files[FindFile(key)].fd.table_reader->Get(
+      options, lkey.internal_key(), &get_context);
+  if (get_context.State() == GetContext::kFound) {
     return Status::OK();
   }
   return Status::NotFound();
@@ -84,26 +71,15 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
   }
   std::vector<Status> statuses(keys.size(), Status::NotFound());
   values->resize(keys.size());
-  bool value_found;
-  MergeContext merge_context;
-  Version::Saver saver;
-  saver.ucmp = user_comparator_;
-  saver.value_found = &value_found;
-  saver.merge_operator = nullptr;
-  saver.merge_context = &merge_context;
-  saver.logger = info_log_;
-  saver.statistics = statistics_;
   int idx = 0;
   for (auto* r : reader_list) {
     if (r != nullptr) {
-      saver.state = Version::kNotFound;
-      saver.user_key = keys[idx];
-      saver.value = &(*values)[idx];
+      GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, keys[idx], &(*values)[idx],
+                             nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
-      r->Get(options, lkey.internal_key(),
-             reinterpret_cast<void*>(&saver), SaveValue,
-             MarkKeyMayExist);
-      if (saver.state == Version::kFound) {
+      r->Get(options, lkey.internal_key(), &get_context);
+      if (get_context.State() == GetContext::kFound) {
         statuses[idx] = Status::OK();
       }
     }
@@ -128,8 +104,6 @@ Status CompactedDBImpl::Init(const Options& options) {
   }
   version_ = cfd_->GetSuperVersion()->current;
   user_comparator_ = cfd_->user_comparator();
-  statistics_ = cfd_->ioptions()->statistics;
-  info_log_ = cfd_->ioptions()->info_log;
   // L0 should not have files
   if (version_->file_levels_[0].num_files > 1) {
     return Status::NotSupported("L0 contain more than 1 file");
@@ -170,8 +144,10 @@ Status CompactedDBImpl::Open(const Options& options,
   std::unique_ptr<CompactedDBImpl> db(new CompactedDBImpl(db_options, dbname));
   Status s = db->Init(options);
   if (s.ok()) {
+    Log(INFO_LEVEL, db->db_options_.info_log,
+        "Opened the db as fully compacted mode");
+    LogFlush(db->db_options_.info_log);
     *dbptr = db.release();
-    Log(options.info_log, "Opened the db as fully compacted mode");
   }
   return s;
 }

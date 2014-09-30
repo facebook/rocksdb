@@ -241,28 +241,6 @@ class Version {
     FileMetaData* file;
   };
 
-  enum SaverState {
-    kNotFound,
-    kFound,
-    kDeleted,
-    kCorrupt,
-    kMerge  // saver contains the current merge result (the operands)
-  };
-
-  // Callback from TableCache::Get()
-  struct Saver {
-    SaverState state;
-    const Comparator* ucmp;
-    Slice user_key;
-    bool* value_found;  // Is value set correctly? Used by KeyMayExist
-    std::string* value;
-    const MergeOperator* merge_operator;
-    // the merge operations encountered;
-    MergeContext* merge_context;
-    Logger* logger;
-    Statistics* statistics;
-  };
-
  private:
   friend class Compaction;
   friend class VersionSet;

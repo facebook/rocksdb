@@ -40,12 +40,8 @@ class CuckooTableReader: public TableReader {
 
   Status status() const { return status_; }
 
-  Status Get(
-      const ReadOptions& read_options, const Slice& key, void* handle_context,
-      bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                             const Slice& v),
-      void (*mark_key_may_exist_handler)(void* handle_context) = nullptr)
-    override;
+  Status Get(const ReadOptions& read_options, const Slice& key,
+             GetContext* get_context) override;
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
   void Prepare(const Slice& target) override;
