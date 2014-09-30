@@ -15,6 +15,10 @@ There are few options when compiling RocksDB:
 * `make all` will compile our static library, and all our tools and unit tests. Our tools
 depend on gflags. You will need to have gflags installed to run `make all`.
 
+* if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 " to make sure
+SSE4.2 is used to speed up CRC32 when calculating data checksum.
+
+
 ## Dependencies
 
 * You can link RocksDB with following compression libraries:
