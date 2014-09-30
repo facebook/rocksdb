@@ -554,11 +554,7 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	
 
 rocksdbjavastaticrelease: rocksdbjavastatic
-	cd java/crossbuild && vagrant destroy -f
-	vagrant up linux32
-	vagrant halt linux32
-	vagrant up linux64
-	vagrant halt linux64
+	cd java/crossbuild && vagrant destroy -f && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64
 	cd java;jar -cf $(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md librocksdbjni-*.so librocksdbjni-*.jnilib
 
 rocksdbjava:
