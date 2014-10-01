@@ -85,4 +85,4 @@ SSE4.2 is used to speed up CRC32 when calculating data checksum.
     We did not run any production workloads on it.
 
 * **iOS**:
-  * Run: `TARGET_OS=IOS make static_lib`
+  * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.
