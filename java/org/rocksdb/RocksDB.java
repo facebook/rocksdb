@@ -136,6 +136,51 @@ public class RocksDB extends RocksObject {
     return db;
   }
 
+  /*
+   * The factory constructor of RocksDB that opens a RocksDB instance in
+   * Read-Only mode given the path to the database using the default
+   * options.
+   *
+   * @param path the path to the rocksdb.
+   * @return a rocksdb instance on success, null if the specified rocksdb can
+   *     not be opened.
+   */
+  public static RocksDB openReadOnly(String path)
+      throws RocksDBException {
+    RocksDB db = new RocksDB();
+
+    // This allows to use the rocksjni default Options instead of
+    // the c++ one.
+    Options options = new Options();
+    return openReadOnly(options, path);
+  }
+
+  /**
+   * The factory constructor of RocksDB that opens a RocksDB instance in
+   * Read-Only mode given the path to the database using the specified
+   * options and db path.
+   *
+   * Options instance *should* not be disposed before all DBs using this options
+   * instance have been closed. If user doesn't call options dispose explicitly,
+   * then this options instance will be GC'd automatically.
+   *
+   * Options instance can be re-used to open multiple DBs if DB statistics is
+   * not used. If DB statistics are required, then its recommended to open DB
+   * with new Options instance as underlying native statistics instance does not
+   * use any locks to prevent concurrent updates.
+   */
+  public static RocksDB openReadOnly(Options options, String path)
+      throws RocksDBException {
+    // when non-default Options is used, keeping an Options reference
+    // in RocksDB can prevent Java to GC during the life-time of
+    // the currently-created RocksDB.
+    RocksDB db = new RocksDB();
+    db.openReadOnly(options.nativeHandle_, path);
+
+    db.storeOptionsInstance(options);
+    return db;
+  }
+
   private void storeOptionsInstance(Options options) {
     options_ = options;
   }
@@ -368,6 +413,8 @@ public class RocksDB extends RocksObject {
 
   // native methods
   protected native void open(
+      long optionsHandle, String path) throws RocksDBException;
+  protected native void openReadOnly(
       long optionsHandle, String path) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,

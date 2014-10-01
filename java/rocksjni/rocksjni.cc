@@ -40,6 +40,27 @@ void Java_org_rocksdb_RocksDB_open(
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    openReadOnly
+ * Signature: (JLjava/lang/String;)V
+ */
+void Java_org_rocksdb_RocksDB_openReadOnly(
+    JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path) {
+  auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  rocksdb::DB* db = nullptr;
+  const char* db_path = env->GetStringUTFChars(jdb_path, 0);
+  rocksdb::Status s = rocksdb::DB::OpenForReadOnly(*opt,
+      db_path, &db);
+  env->ReleaseStringUTFChars(jdb_path, db_path);
+
+  if (s.ok()) {
+    rocksdb::RocksDBJni::setHandle(env, jdb, db);
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Put
 
