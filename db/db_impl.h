@@ -347,9 +347,9 @@ class DBImpl : public DB {
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd, bool* madeProgress,
-                                   DeletionState& deletion_state,
-                                   LogBuffer* log_buffer);
+  Status FlushMemTableToOutputFile(
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+      bool* madeProgress, DeletionState& deletion_state, LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -362,9 +362,10 @@ class DBImpl : public DB {
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
                                      VersionEdit* edit);
-  Status WriteLevel0Table(ColumnFamilyData* cfd, autovector<MemTable*>& mems,
-                          VersionEdit* edit, uint64_t* filenumber,
-                          LogBuffer* log_buffer);
+  Status WriteLevel0Table(ColumnFamilyData* cfd,
+      const MutableCFOptions& mutable_cf_options,
+      const autovector<MemTable*>& mems,
+      VersionEdit* edit, uint64_t* filenumber, LogBuffer* log_buffer);
 
   void DelayWrite(uint64_t expiration_time);
 
@@ -393,6 +394,7 @@ class DBImpl : public DB {
                          LogBuffer* log_buffer);
   void CleanupCompaction(CompactionState* compact, Status status);
   Status DoCompactionWork(CompactionState* compact,
+                          const MutableCFOptions& mutable_cf_options,
                           DeletionState& deletion_state,
                           LogBuffer* log_buffer);
 
@@ -400,12 +402,13 @@ class DBImpl : public DB {
   // preempt compaction, since it's higher prioirty
   // Returns: micros spent executing
   uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
-                                     DeletionState& deletion_state,
-                                     LogBuffer* log_buffer);
+      const MutableCFOptions& mutable_cf_options, DeletionState& deletion_state,
+      LogBuffer* log_buffer);
 
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs
   Status ProcessKeyValueCompaction(
+    const MutableCFOptions& mutable_cf_options,
     bool is_snapshot_supported,
     SequenceNumber visible_at_tip,
     SequenceNumber earliest_snapshot,
@@ -422,10 +425,11 @@ class DBImpl : public DB {
   void CallCompactionFilterV2(CompactionState* compact,
     CompactionFilterV2* compaction_filter_v2);
 
-  Status OpenCompactionOutputFile(CompactionState* compact);
+  Status OpenCompactionOutputFile(CompactionState* compact,
+      const MutableCFOptions& mutable_cf_options);
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
   Status InstallCompactionResults(CompactionState* compact,
-                                  LogBuffer* log_buffer);
+      const MutableCFOptions& mutable_cf_options, LogBuffer* log_buffer);
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
@@ -467,7 +471,8 @@ class DBImpl : public DB {
 
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
-  int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd, int level);
+  int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
+      const MutableCFOptions& mutable_cf_options, int level);
 
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
@@ -621,7 +626,8 @@ class DBImpl : public DB {
   // the cfd->InstallSuperVersion() function. Background threads carry
   // deletion_state which can have new_superversion already allocated.
   void InstallSuperVersion(ColumnFamilyData* cfd,
-                           DeletionState& deletion_state);
+                           DeletionState& deletion_state,
+                           const MutableCFOptions& mutable_cf_options);
 
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.

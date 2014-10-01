@@ -230,7 +230,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       internal_comparator_(cf_options.comparator),
       options_(*db_options, SanitizeOptions(&internal_comparator_, cf_options)),
       ioptions_(options_),
-      mutable_cf_options_(options_),
+      mutable_cf_options_(options_, ioptions_),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -245,27 +245,27 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
   // if dummy_versions is nullptr, then this is a dummy column family.
   if (dummy_versions != nullptr) {
     internal_stats_.reset(
-        new InternalStats(options_.num_levels, db_options->env, this));
+        new InternalStats(ioptions_.num_levels, db_options->env, this));
     table_cache_.reset(new TableCache(ioptions_, env_options, table_cache));
-    if (options_.compaction_style == kCompactionStyleUniversal) {
+    if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
-          new UniversalCompactionPicker(&options_, &internal_comparator_));
-    } else if (options_.compaction_style == kCompactionStyleLevel) {
+          new UniversalCompactionPicker(ioptions_, &internal_comparator_));
+    } else if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
-          new LevelCompactionPicker(&options_, &internal_comparator_));
+          new LevelCompactionPicker(ioptions_, &internal_comparator_));
     } else {
-      assert(options_.compaction_style == kCompactionStyleFIFO);
+      assert(ioptions_.compaction_style == kCompactionStyleFIFO);
       compaction_picker_.reset(
-          new FIFOCompactionPicker(&options_, &internal_comparator_));
+          new FIFOCompactionPicker(ioptions_, &internal_comparator_));
     }
 
-    Log(options_.info_log, "Options for column family \"%s\":\n",
+    Log(ioptions_.info_log, "Options for column family \"%s\":\n",
         name.c_str());
     const ColumnFamilyOptions* cf_options = &options_;
-    cf_options->Dump(options_.info_log.get());
+    cf_options->Dump(ioptions_.info_log);
   }
 
-  RecalculateWriteStallConditions();
+  RecalculateWriteStallConditions(mutable_cf_options_);
 }
 
 // DB mutex held
@@ -318,7 +318,8 @@ ColumnFamilyData::~ColumnFamilyData() {
   }
 }
 
-void ColumnFamilyData::RecalculateWriteStallConditions() {
+void ColumnFamilyData::RecalculateWriteStallConditions(
+      const MutableCFOptions& mutable_cf_options) {
   if (current_ != nullptr) {
     const double score = current_->MaxCompactionScore();
     const int max_level = current_->MaxCompactionScoreLevel();
@@ -328,26 +329,27 @@ void ColumnFamilyData::RecalculateWriteStallConditions() {
     if (imm()->size() == options_.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
-      Log(options_.info_log,
+      Log(ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush)",
           name_.c_str(), imm()->size());
     } else if (current_->NumLevelFiles(0) >=
-               options_.level0_stop_writes_trigger) {
+               mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
-      Log(options_.info_log,
+      Log(ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), current_->NumLevelFiles(0));
-    } else if (options_.level0_slowdown_writes_trigger >= 0 &&
+    } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                current_->NumLevelFiles(0) >=
-                   options_.level0_slowdown_writes_trigger) {
+                   mutable_cf_options.level0_slowdown_writes_trigger) {
       uint64_t slowdown = SlowdownAmount(
-          current_->NumLevelFiles(0), options_.level0_slowdown_writes_trigger,
-          options_.level0_stop_writes_trigger);
+          current_->NumLevelFiles(0),
+          mutable_cf_options.level0_slowdown_writes_trigger,
+          mutable_cf_options.level0_stop_writes_trigger);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
       internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, slowdown);
-      Log(options_.info_log,
+      Log(ioptions_.info_log,
           "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
           "us)",
           name_.c_str(), current_->NumLevelFiles(0), slowdown);
@@ -358,7 +360,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions() {
           write_controller->GetDelayToken(kHardLimitSlowdown);
       internal_stats_->RecordLevelNSlowdown(max_level, kHardLimitSlowdown,
                                             false);
-      Log(options_.info_log,
+      Log(ioptions_.info_log,
           "[%s] Stalling writes because we hit hard limit on level %d. "
           "(%" PRIu64 "us)",
           name_.c_str(), max_level, kHardLimitSlowdown);
@@ -368,7 +370,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions() {
                                          options_.hard_rate_limit);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
       internal_stats_->RecordLevelNSlowdown(max_level, slowdown, true);
-      Log(options_.info_log,
+      Log(ioptions_.info_log,
           "[%s] Stalling writes because we hit soft limit on level %d (%" PRIu64
           "us)",
           name_.c_str(), max_level, slowdown);
@@ -393,19 +395,21 @@ void ColumnFamilyData::CreateNewMemtable(const MemTableOptions& moptions) {
   mem_->Ref();
 }
 
-Compaction* ColumnFamilyData::PickCompaction(LogBuffer* log_buffer) {
-  auto result = compaction_picker_->PickCompaction(current_, log_buffer);
+Compaction* ColumnFamilyData::PickCompaction(
+    const MutableCFOptions& mutable_options, LogBuffer* log_buffer) {
+  auto result = compaction_picker_->PickCompaction(
+      mutable_options, current_, log_buffer);
   return result;
 }
 
-Compaction* ColumnFamilyData::CompactRange(int input_level, int output_level,
-                                           uint32_t output_path_id,
-                                           const InternalKey* begin,
-                                           const InternalKey* end,
-                                           InternalKey** compaction_end) {
-  return compaction_picker_->CompactRange(current_, input_level, output_level,
-                                          output_path_id, begin, end,
-                                          compaction_end);
+Compaction* ColumnFamilyData::CompactRange(
+    const MutableCFOptions& mutable_cf_options,
+    int input_level, int output_level, uint32_t output_path_id,
+    const InternalKey* begin, const InternalKey* end,
+    InternalKey** compaction_end) {
+  return compaction_picker_->CompactRange(
+      mutable_cf_options, current_, input_level, output_level,
+      output_path_id, begin, end, compaction_end);
 }
 
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
@@ -443,11 +447,11 @@ SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
   sv = static_cast<SuperVersion*>(ptr);
   if (sv == SuperVersion::kSVObsolete ||
       sv->version_number != super_version_number_.load()) {
-    RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_ACQUIRES);
+    RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_ACQUIRES);
     SuperVersion* sv_to_delete = nullptr;
 
     if (sv && sv->Unref()) {
-      RecordTick(options_.statistics.get(), NUMBER_SUPERVERSION_CLEANUPS);
+      RecordTick(ioptions_.statistics, NUMBER_SUPERVERSION_CLEANUPS);
       db_mutex->Lock();
       // NOTE: underlying resources held by superversion (sst files) might
       // not be released until the next background job.
@@ -502,7 +506,7 @@ SuperVersion* ColumnFamilyData::InstallSuperVersion(
   // Reset SuperVersions cached in thread local storage
   ResetThreadLocalSuperVersions();
 
-  RecalculateWriteStallConditions();
+  RecalculateWriteStallConditions(mutable_cf_options);
 
   if (old_superversion != nullptr && old_superversion->Unref()) {
     old_superversion->Cleanup();
@@ -533,6 +537,7 @@ bool ColumnFamilyData::SetOptions(
   if (GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
                                    &new_mutable_cf_options)) {
     mutable_cf_options_ = new_mutable_cf_options;
+    mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     return true;
   }
   return false;

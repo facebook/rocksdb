@@ -60,7 +60,8 @@ void BM_LogAndApply(int iters, int num_base_files) {
       InternalKey limit(MakeKey(2 * fnum + 1), 1, kTypeDeletion);
       vbase.AddFile(2, ++fnum, 0, 1 /* file size */, start, limit, 1, 1);
     }
-    ASSERT_OK(vset->LogAndApply(default_cfd, &vbase, &mu));
+    ASSERT_OK(vset->LogAndApply(default_cfd,
+          *default_cfd->GetLatestMutableCFOptions(), &vbase, &mu));
   }
 
   for (int i = 0; i < iters; i++) {
@@ -69,7 +70,8 @@ void BM_LogAndApply(int iters, int num_base_files) {
     InternalKey start(MakeKey(2 * fnum), 1, kTypeValue);
     InternalKey limit(MakeKey(2 * fnum + 1), 1, kTypeDeletion);
     vedit.AddFile(2, ++fnum, 0, 1 /* file size */, start, limit, 1, 1);
-    vset->LogAndApply(default_cfd, &vedit, &mu);
+    vset->LogAndApply(default_cfd, *default_cfd->GetLatestMutableCFOptions(),
+                      &vedit, &mu);
   }
   delete vset;
 }

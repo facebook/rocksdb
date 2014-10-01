@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include <cassert>
+#include <unordered_set>
 #include "rocksdb/options.h"
 #include "util/options_helper.h"
 
@@ -73,8 +74,8 @@ CompactionStyle ParseCompactionStyle(const std::string& type) {
 }  // anonymouse namespace
 
 template<typename OptionsType>
-bool ParseMemtableOption(const std::string& name, const std::string& value,
-                         OptionsType* new_options) {
+bool ParseMemtableOptions(const std::string& name, const std::string& value,
+                          OptionsType* new_options) {
   if (name == "write_buffer_size") {
     new_options->write_buffer_size = ParseInt64(value);
   } else if (name == "arena_block_size") {
@@ -96,6 +97,50 @@ bool ParseMemtableOption(const std::string& name, const std::string& value,
   return true;
 }
 
+template<typename OptionsType>
+bool ParseCompactionOptions(const std::string& name, const std::string& value,
+                            OptionsType* new_options) {
+  if (name == "level0_file_num_compaction_trigger") {
+    new_options->level0_file_num_compaction_trigger = ParseInt(value);
+  } else if (name == "level0_slowdown_writes_trigger") {
+    new_options->level0_slowdown_writes_trigger = ParseInt(value);
+  } else if (name == "level0_stop_writes_trigger") {
+    new_options->level0_stop_writes_trigger = ParseInt(value);
+  } else if (name == "max_grandparent_overlap_factor") {
+    new_options->max_grandparent_overlap_factor = ParseInt(value);
+  } else if (name == "expanded_compaction_factor") {
+    new_options->expanded_compaction_factor = ParseInt(value);
+  } else if (name == "source_compaction_factor") {
+    new_options->source_compaction_factor = ParseInt(value);
+  } else if (name == "target_file_size_base") {
+    new_options->target_file_size_base = ParseInt(value);
+  } else if (name == "target_file_size_multiplier") {
+    new_options->target_file_size_multiplier = ParseInt(value);
+  } else if (name == "max_bytes_for_level_base") {
+    new_options->max_bytes_for_level_base = ParseUint64(value);
+  } else if (name == "max_bytes_for_level_multiplier") {
+    new_options->max_bytes_for_level_multiplier = ParseInt(value);
+  } else if (name == "max_bytes_for_level_multiplier_additional") {
+    new_options->max_bytes_for_level_multiplier_additional.clear();
+    size_t start = 0;
+    while (true) {
+      size_t end = value.find_first_of(':', start);
+      if (end == std::string::npos) {
+        new_options->max_bytes_for_level_multiplier_additional.push_back(
+            ParseInt(value.substr(start)));
+        break;
+      } else {
+        new_options->max_bytes_for_level_multiplier_additional.push_back(
+            ParseInt(value.substr(start, end - start)));
+        start = end + 1;
+      }
+    }
+  } else {
+    return false;
+  }
+  return true;
+}
+
 bool GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -104,7 +149,8 @@ bool GetMutableOptionsFromStrings(
   *new_options = base_options;
   try {
     for (const auto& o : options_map) {
-      if (ParseMemtableOption(o.first, o.second, new_options)) {
+      if (ParseMemtableOptions(o.first, o.second, new_options)) {
+      } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
       } else {
         return false;
       }
@@ -123,7 +169,8 @@ bool GetOptionsFromStrings(
   *new_options = base_options;
   for (const auto& o : options_map) {
     try {
-      if (ParseMemtableOption(o.first, o.second, new_options)) {
+      if (ParseMemtableOptions(o.first, o.second, new_options)) {
+      } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
       } else if (o.first == "max_write_buffer_number") {
         new_options->max_write_buffer_number = ParseInt(o.second);
       } else if (o.first == "min_write_buffer_number_to_merge") {
@@ -168,43 +215,8 @@ bool GetOptionsFromStrings(
             ParseInt(o.second.substr(start, o.second.size() - start));
       } else if (o.first == "num_levels") {
         new_options->num_levels = ParseInt(o.second);
-      } else if (o.first == "level0_file_num_compaction_trigger") {
-        new_options->level0_file_num_compaction_trigger = ParseInt(o.second);
-      } else if (o.first == "level0_slowdown_writes_trigger") {
-        new_options->level0_slowdown_writes_trigger = ParseInt(o.second);
-      } else if (o.first == "level0_stop_writes_trigger") {
-        new_options->level0_stop_writes_trigger = ParseInt(o.second);
       } else if (o.first == "max_mem_compaction_level") {
         new_options->max_mem_compaction_level = ParseInt(o.second);
-      } else if (o.first == "target_file_size_base") {
-        new_options->target_file_size_base = ParseUint64(o.second);
-      } else if (o.first == "target_file_size_multiplier") {
-        new_options->target_file_size_multiplier = ParseInt(o.second);
-      } else if (o.first == "max_bytes_for_level_base") {
-        new_options->max_bytes_for_level_base = ParseUint64(o.second);
-      } else if (o.first == "max_bytes_for_level_multiplier") {
-        new_options->max_bytes_for_level_multiplier = ParseInt(o.second);
-      } else if (o.first == "max_bytes_for_level_multiplier_additional") {
-        new_options->max_bytes_for_level_multiplier_additional.clear();
-        size_t start = 0;
-        while (true) {
-          size_t end = o.second.find_first_of(':', start);
-          if (end == std::string::npos) {
-            new_options->max_bytes_for_level_multiplier_additional.push_back(
-                ParseInt(o.second.substr(start)));
-            break;
-          } else {
-            new_options->max_bytes_for_level_multiplier_additional.push_back(
-                ParseInt(o.second.substr(start, end - start)));
-            start = end + 1;
-          }
-        }
-      } else if (o.first == "expanded_compaction_factor") {
-        new_options->expanded_compaction_factor = ParseInt(o.second);
-      } else if (o.first == "source_compaction_factor") {
-        new_options->source_compaction_factor = ParseInt(o.second);
-      } else if (o.first == "max_grandparent_overlap_factor") {
-        new_options->max_grandparent_overlap_factor = ParseInt(o.second);
       } else if (o.first == "soft_rate_limit") {
         new_options->soft_rate_limit = ParseDouble(o.second);
       } else if (o.first == "hard_rate_limit") {

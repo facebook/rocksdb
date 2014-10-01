@@ -22,6 +22,7 @@ struct ImmutableCFOptions {
   CompactionStyle compaction_style;
 
   CompactionOptionsUniversal compaction_options_universal;
+  CompactionOptionsFIFO compaction_options_fifo;
 
   const SliceTransform* prefix_extractor;
 
@@ -79,6 +80,8 @@ struct ImmutableCFOptions {
   CompressionOptions compression_opts;
 
   Options::AccessHint access_hint_on_compaction_start;
+
+  int num_levels;
 };
 
 }  // namespace rocksdb

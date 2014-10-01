@@ -56,7 +56,6 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
       is_full_compaction_(false),
       is_manual_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels_)) {
-
   cfd_->Ref();
   input_version_->Ref();
   edit_ = new VersionEdit();
@@ -267,12 +266,12 @@ void Compaction::Summary(char* output, int len) {
   snprintf(output + write, len - write, "]");
 }
 
-uint64_t Compaction::OutputFilePreallocationSize() {
+uint64_t Compaction::OutputFilePreallocationSize(
+    const MutableCFOptions& mutable_options) {
   uint64_t preallocation_size = 0;
 
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    preallocation_size =
-        cfd_->compaction_picker()->MaxFileSizeForLevel(output_level());
+    preallocation_size = mutable_options.MaxFileSizeForLevel(output_level());
   } else {
     for (int level = 0; level < num_input_levels(); ++level) {
       for (const auto& f : inputs_[level].files) {
