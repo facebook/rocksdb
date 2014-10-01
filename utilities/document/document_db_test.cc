@@ -56,7 +56,7 @@ class DocumentDBTest {
     }
   }
 
-  JSONDocument* Parse(const std::string doc) {
+  JSONDocument* Parse(const std::string& doc) {
     return JSONDocument::ParseJSON(ConvertQuotes(doc).c_str());
   }
 
