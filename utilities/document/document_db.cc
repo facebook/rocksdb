@@ -407,7 +407,6 @@ class SimpleSortedIndex : public Index {
     assert(interval != nullptr);  // because index is useful
     Direction direction;
 
-    std::string op;
     const JSONDocument* limit;
     if (interval->lower_bound != nullptr) {
       limit = interval->lower_bound;
