@@ -193,7 +193,7 @@ class CuckooTableIterator : public Iterator {
   struct BucketComparator {
     BucketComparator(const Slice& file_data, const Comparator* ucomp,
                      uint32_t bucket_len, uint32_t user_key_len,
-                     const Slice target = Slice())
+                     const Slice& target = Slice())
       : file_data_(file_data),
         ucomp_(ucomp),
         bucket_len_(bucket_len),
