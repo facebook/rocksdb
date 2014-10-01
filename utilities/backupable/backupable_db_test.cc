@@ -228,7 +228,7 @@ class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
 
-  Status DeleteRandomFileInDir(const std::string dir) {
+  Status DeleteRandomFileInDir(const std::string& dir) {
     std::vector<std::string> children;
     GetChildren(dir, &children);
     if (children.size() <= 2) { // . and ..
