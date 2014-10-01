@@ -4672,9 +4672,9 @@ TEST(DBTest, CompactionFilterContextManual) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
 
   // Verify total number of keys is correct after manual compaction.
-  int count = 0;
-  int total = 0;
   {
+    int count = 0;
+    int total = 0;
     Arena arena;
     ScopedArenaIterator iter(dbfull()->TEST_NewInternalIterator(&arena));
     iter->SeekToFirst();
