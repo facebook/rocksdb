@@ -386,7 +386,7 @@ class Value {
 
 namespace {
 void deleter(const Slice& key, void* value) {
-  delete (Value *)value;
+  delete static_cast<Value *>(value);
 }
 }  // namespace
 
