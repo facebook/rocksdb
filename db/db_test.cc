@@ -8193,7 +8193,6 @@ static void RandomTimeoutWriter(void* arg) {
     if (write_opt.timeout_hint_us == 0 ||
         put_duration + kTimerBias < write_opt.timeout_hint_us) {
       ASSERT_OK(s);
-      std::string result;
     }
     if (s.IsTimedOut()) {
       timeout_count++;
