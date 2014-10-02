@@ -518,6 +518,8 @@ ARCH := $(shell getconf LONG_BIT)
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
+ROCKSDB_JAVADOCS_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-javadocs.jar
+ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-sources.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDBJNILIB = librocksdbjni-osx.jnilib
@@ -554,13 +556,16 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
-
+	cd java/javadocs;jar -cf ../$(ROCKSDB_JAVADOCS_JAR) *
+	cd java;jar -cf $(ROCKSDB_SOURCES_JAR) org
 
 rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/crossbuild && vagrant destroy -f && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64
 	cd java;jar -cf $(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md librocksdbjni-*.so librocksdbjni-*.jnilib
 
 rocksdbjavastaticpublish:
+	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksdbjni-3.5.0.pom -Dfile=java/rocksdbjni-3.5.0-javadocs.jar -Dclassifier=javadocs
+	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksdbjni-3.5.0.pom -Dfile=java/rocksdbjni-3.5.0-sources.jar -Dclassifier=sources
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksdbjni-3.5.0.pom -Dfile=java/rocksdbjni-3.5.0-linux64.jar -Dclassifier=linux64
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksdbjni-3.5.0.pom -Dfile=java/rocksdbjni-3.5.0-linux32.jar -Dclassifier=linux32
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksdbjni-3.5.0.pom -Dfile=java/rocksdbjni-3.5.0-osx.jar -Dclassifier=osx

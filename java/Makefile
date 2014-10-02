@@ -15,8 +15,12 @@ endif
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	-find . -name "hs*.log" -exec rm {} \;
+	rm -rf javadocs/*
 
-java:
+javadocs:
+	mkdir -p javadocs; javadoc -d javadocs -sourcepath . -subpackages org
+
+java: javadocs
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md
 	@rm -f ./HISTORY-CPP.md
