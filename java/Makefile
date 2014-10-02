@@ -15,7 +15,7 @@ endif
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	-find . -name "hs*.log" -exec rm {} \;
-	rm -rf javadocs/*
+	rm -rf javadoc/*
 
 javadocs:
 	mkdir -p javadoc; javadoc -d javadoc -sourcepath . -subpackages org
