@@ -1219,7 +1219,7 @@ bool Version::HasOverlappingUserKey(
   // Check the last file in inputs against the file after it
   size_t last_file = FindFile(cfd_->internal_comparator(), file_level,
                               inputs->back()->largest.Encode());
-  assert(0 <= last_file && last_file < kNumFiles);  // File should exist!
+  assert(last_file < kNumFiles);  // File should exist!
   if (last_file < kNumFiles-1) {                    // If not the last file
     const Slice last_key_in_input = ExtractUserKey(
         files[last_file].largest_key);
@@ -1234,7 +1234,7 @@ bool Version::HasOverlappingUserKey(
   // Check the first file in inputs against the file just before it
   size_t first_file = FindFile(cfd_->internal_comparator(), file_level,
                                inputs->front()->smallest.Encode());
-  assert(0 <= first_file && first_file <= last_file);   // File should exist!
+  assert(first_file <= last_file);   // File should exist!
   if (first_file > 0) {                                 // If not first file
     const Slice& first_key_in_input = ExtractUserKey(
         files[first_file].smallest_key);

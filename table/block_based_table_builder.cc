@@ -721,7 +721,6 @@ Status BlockBasedTableBuilder::Finish() {
     // Write properties block.
     {
       PropertyBlockBuilder property_block_builder;
-      std::vector<std::string> failed_user_prop_collectors;
       r->props.filter_policy_name = r->table_options.filter_policy != nullptr ?
           r->table_options.filter_policy->Name() : "";
       r->props.index_size =

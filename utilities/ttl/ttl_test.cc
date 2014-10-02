@@ -263,7 +263,7 @@ class TtlTest {
 
   class TestFilter : public CompactionFilter {
    public:
-    TestFilter(const int64_t kSampleSize, const std::string kNewValue)
+    TestFilter(const int64_t kSampleSize, const std::string& kNewValue)
       : kSampleSize_(kSampleSize),
         kNewValue_(kNewValue) {
     }
@@ -311,7 +311,7 @@ class TtlTest {
 
   class TestFilterFactory : public CompactionFilterFactory {
     public:
-      TestFilterFactory(const int64_t kSampleSize, const std::string kNewValue)
+      TestFilterFactory(const int64_t kSampleSize, const std::string& kNewValue)
         : kSampleSize_(kSampleSize),
           kNewValue_(kNewValue) {
       }
