@@ -80,9 +80,10 @@ public class RocksDBSample {
             10000, 10));
     options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
 
+    Filter bloomFilter = new BloomFilter(10);
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
     table_options.setBlockCacheSize(64 * SizeUnit.KB)
-                 .setFilterBitsPerKey(10)
+                 .setFilter(bloomFilter)
                  .setCacheNumShardBits(6)
                  .setBlockSizeDeviation(5)
                  .setBlockRestartInterval(10)
