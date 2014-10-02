@@ -287,7 +287,6 @@ void DBIter::MergeValuesNewToOld() {
   std::deque<std::string> operands;
   operands.push_front(iter_->value().ToString());
 
-  std::string merge_result;   // Temporary string to hold merge result later
   ParsedInternalKey ikey;
   for (iter_->Next(); iter_->Valid(); iter_->Next()) {
     if (!ParseKey(&ikey)) {

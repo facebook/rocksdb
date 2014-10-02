@@ -672,7 +672,7 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
   }
 }
 
-void Version::Get(const ReadOptions& options,
+void Version::Get(const ReadOptions& read_options,
                   const LookupKey& k,
                   std::string* value,
                   Status* status,
@@ -691,8 +691,8 @@ void Version::Get(const ReadOptions& options,
       &file_indexer_, user_comparator_, internal_comparator_);
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
-    *status = table_cache_->Get(options, *internal_comparator_, f->fd, ikey,
-                                &get_context);
+    *status = table_cache_->Get(read_options, *internal_comparator_, f->fd,
+                                ikey, &get_context);
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
@@ -746,9 +746,10 @@ void Version::GenerateFileLevels() {
   }
 }
 
-void Version::PrepareApply(std::vector<uint64_t>& size_being_compacted) {
+void Version::PrepareApply(const MutableCFOptions& mutable_cf_options,
+                           std::vector<uint64_t>& size_being_compacted) {
   UpdateTemporaryStats();
-  ComputeCompactionScore(size_being_compacted);
+  ComputeCompactionScore(mutable_cf_options, size_being_compacted);
   UpdateFilesBySize();
   UpdateNumNonEmptyLevels();
   file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
@@ -817,13 +818,13 @@ void Version::UpdateTemporaryStats() {
 }
 
 void Version::ComputeCompactionScore(
+    const MutableCFOptions& mutable_cf_options,
     std::vector<uint64_t>& size_being_compacted) {
   double max_score = 0;
   int max_score_level = 0;
 
   int max_input_level =
       cfd_->compaction_picker()->MaxInputLevel(NumberLevels());
-
   for (int level = 0; level <= max_input_level; level++) {
     double score;
     if (level == 0) {
@@ -849,21 +850,22 @@ void Version::ComputeCompactionScore(
       if (cfd_->ioptions()->compaction_style == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 cfd_->options()->compaction_options_fifo.max_table_files_size;
-      } else if (numfiles >= cfd_->options()->level0_stop_writes_trigger) {
+      } else if (numfiles >= mutable_cf_options.level0_stop_writes_trigger) {
         // If we are slowing down writes, then we better compact that first
         score = 1000000;
-      } else if (numfiles >= cfd_->options()->level0_slowdown_writes_trigger) {
+      } else if (numfiles >=
+          mutable_cf_options.level0_slowdown_writes_trigger) {
         score = 10000;
       } else {
         score = static_cast<double>(numfiles) /
-                cfd_->options()->level0_file_num_compaction_trigger;
+                mutable_cf_options.level0_file_num_compaction_trigger;
       }
     } else {
       // Compute the ratio of current size to size limit.
       const uint64_t level_bytes =
           TotalCompensatedFileSize(files_[level]) - size_being_compacted[level];
       score = static_cast<double>(level_bytes) /
-              cfd_->compaction_picker()->MaxBytesForLevel(level);
+              mutable_cf_options.MaxBytesForLevel(level);
       if (max_score < score) {
         max_score = score;
         max_score_level = level;
@@ -993,6 +995,7 @@ bool Version::OverlapInLevel(int level,
 }
 
 int Version::PickLevelForMemTableOutput(
+    const MutableCFOptions& mutable_cf_options,
     const Slice& smallest_user_key,
     const Slice& largest_user_key) {
   int level = 0;
@@ -1013,7 +1016,7 @@ int Version::PickLevelForMemTableOutput(
       }
       GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
       const uint64_t sum = TotalFileSize(overlaps);
-      if (sum > cfd_->compaction_picker()->MaxGrandParentOverlapBytes(level)) {
+      if (sum > mutable_cf_options.MaxGrandParentOverlapBytes(level)) {
         break;
       }
       level++;
@@ -1216,7 +1219,7 @@ bool Version::HasOverlappingUserKey(
   // Check the last file in inputs against the file after it
   size_t last_file = FindFile(cfd_->internal_comparator(), file_level,
                               inputs->back()->largest.Encode());
-  assert(0 <= last_file && last_file < kNumFiles);  // File should exist!
+  assert(last_file < kNumFiles);  // File should exist!
   if (last_file < kNumFiles-1) {                    // If not the last file
     const Slice last_key_in_input = ExtractUserKey(
         files[last_file].largest_key);
@@ -1231,7 +1234,7 @@ bool Version::HasOverlappingUserKey(
   // Check the first file in inputs against the file just before it
   size_t first_file = FindFile(cfd_->internal_comparator(), file_level,
                                inputs->front()->smallest.Encode());
-  assert(0 <= first_file && first_file <= last_file);   // File should exist!
+  assert(first_file <= last_file);   // File should exist!
   if (first_file > 0) {                                 // If not first file
     const Slice& first_key_in_input = ExtractUserKey(
         files[first_file].smallest_key);
@@ -1246,7 +1249,7 @@ bool Version::HasOverlappingUserKey(
   return false;
 }
 
-int64_t Version::NumLevelBytes(int level) const {
+uint64_t Version::NumLevelBytes(int level) const {
   assert(level >= 0);
   assert(level < NumberLevels());
   return TotalFileSize(files_[level]);
@@ -1653,16 +1656,17 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 }
 
 Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
+                               const MutableCFOptions& mutable_cf_options,
                                VersionEdit* edit, port::Mutex* mu,
                                Directory* db_directory, bool new_descriptor_log,
-                               const ColumnFamilyOptions* options) {
+                               const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();
 
   // column_family_data can be nullptr only if this is column_family_add.
   // in that case, we also need to specify ColumnFamilyOptions
   if (column_family_data == nullptr) {
     assert(edit->is_column_family_add_);
-    assert(options != nullptr);
+    assert(new_cf_options != nullptr);
   }
 
   // queue our request
@@ -1777,7 +1781,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply(size_being_compacted);
+      v->PrepareApply(mutable_cf_options, size_being_compacted);
     }
 
     // Write new record to MANIFEST log
@@ -1853,8 +1857,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (edit->is_column_family_add_) {
       // no group commit on column family add
       assert(batch_edits.size() == 1);
-      assert(options != nullptr);
-      CreateColumnFamily(*options, edit);
+      assert(new_cf_options != nullptr);
+      CreateColumnFamily(*new_cf_options, edit);
     } else if (edit->is_column_family_drop_) {
       assert(batch_edits.size() == 1);
       column_family_data->SetDropped();
@@ -2169,7 +2173,7 @@ Status VersionSet::Recover(
 
   // there were some column families in the MANIFEST that weren't specified
   // in the argument. This is OK in read_only mode
-  if (read_only == false && column_families_not_found.size() > 0) {
+  if (read_only == false && !column_families_not_found.empty()) {
     std::string list_of_not_found;
     for (const auto& cf : column_families_not_found) {
       list_of_not_found += ", " + cf.second;
@@ -2198,7 +2202,7 @@ Status VersionSet::Recover(
       // Install recovered version
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->PrepareApply(size_being_compacted);
+      v->PrepareApply(*cfd->GetLatestMutableCFOptions(), size_being_compacted);
       AppendVersion(cfd, v);
     }
 
@@ -2374,11 +2378,13 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   current_version->files_ = new_files_list;
   current_version->num_levels_ = new_levels;
 
+  MutableCFOptions mutable_cf_options(*options, ImmutableCFOptions(*options));
   VersionEdit ve;
   port::Mutex dummy_mutex;
   MutexLock l(&dummy_mutex);
-  return versions.LogAndApply(versions.GetColumnFamilySet()->GetDefault(), &ve,
-                              &dummy_mutex, nullptr, true);
+  return versions.LogAndApply(
+      versions.GetColumnFamilySet()->GetDefault(),
+      mutable_cf_options, &ve, &dummy_mutex, nullptr, true);
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
@@ -2530,7 +2536,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       builder->SaveTo(v);
       std::vector<uint64_t> size_being_compacted(v->NumberLevels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->PrepareApply(size_being_compacted);
+      v->PrepareApply(*cfd->GetLatestMutableCFOptions(), size_being_compacted);
       delete builder;
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",

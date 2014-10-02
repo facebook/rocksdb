@@ -437,8 +437,9 @@ class MemTableConstructor: public Constructor {
         table_factory_(new SkipListFactory) {
     Options options;
     options.memtable_factory = table_factory_;
-    memtable_ = new MemTable(internal_comparator_, ImmutableCFOptions(options),
-        MemTableOptions(MutableCFOptions(options), options));
+    ImmutableCFOptions ioptions(options);
+    memtable_ = new MemTable(internal_comparator_, ioptions,
+        MemTableOptions(MutableCFOptions(options, ioptions), options));
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -452,8 +453,9 @@ class MemTableConstructor: public Constructor {
     delete memtable_->Unref();
     Options options;
     options.memtable_factory = table_factory_;
-    memtable_ = new MemTable(internal_comparator_, ImmutableCFOptions(options),
-        MemTableOptions(MutableCFOptions(options), options));
+    ImmutableCFOptions mem_ioptions(options);
+    memtable_ = new MemTable(internal_comparator_, mem_ioptions,
+        MemTableOptions(MutableCFOptions(options, mem_ioptions), options));
     memtable_->Ref();
     int seq = 1;
     for (KVMap::const_iterator it = data.begin();
@@ -1216,7 +1218,7 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
-void AddInternalKey(TableConstructor* c, const std::string prefix,
+void AddInternalKey(TableConstructor* c, const std::string& prefix,
                     int suffix_len = 800) {
   static Random rnd(1023);
   InternalKey k(prefix + RandomString(&rnd, 800), 0, kTypeValue);
@@ -1864,8 +1866,9 @@ TEST(MemTableTest, Simple) {
   auto table_factory = std::make_shared<SkipListFactory>();
   Options options;
   options.memtable_factory = table_factory;
-  MemTable* memtable = new MemTable(cmp, ImmutableCFOptions(options),
-        MemTableOptions(MutableCFOptions(options), options));
+  ImmutableCFOptions ioptions(options);
+  MemTable* memtable = new MemTable(cmp, ioptions,
+        MemTableOptions(MutableCFOptions(options, ioptions), options));
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

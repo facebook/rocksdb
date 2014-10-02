@@ -103,14 +103,18 @@ class Version {
   // We use compaction scores to figure out which compaction to do next
   // REQUIRES: If Version is not yet saved to current_, it can be called without
   // a lock. Once a version is saved to current_, call only with mutex held
-  void ComputeCompactionScore(std::vector<uint64_t>& size_being_compacted);
+  void ComputeCompactionScore(
+      const MutableCFOptions& mutable_cf_options,
+      std::vector<uint64_t>& size_being_compacted);
 
   // Generate file_levels_ from files_
   void GenerateFileLevels();
 
   // Update scores, pre-calculated variables. It needs to be called before
   // applying the version to the version set.
-  void PrepareApply(std::vector<uint64_t>& size_being_compacted);
+  void PrepareApply(
+      const MutableCFOptions& mutable_cf_options,
+      std::vector<uint64_t>& size_being_compacted);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -169,7 +173,8 @@ class Version {
 
   // Return the level at which we should place a new memtable compaction
   // result that covers the range [smallest_user_key,largest_user_key].
-  int PickLevelForMemTableOutput(const Slice& smallest_user_key,
+  int PickLevelForMemTableOutput(const MutableCFOptions& mutable_cf_options,
+                                 const Slice& smallest_user_key,
                                  const Slice& largest_user_key);
 
   int NumberLevels() const { return num_levels_; }
@@ -178,7 +183,7 @@ class Version {
   int NumLevelFiles(int level) const { return files_[level].size(); }
 
   // Return the combined file size of all files at the specified level.
-  int64_t NumLevelBytes(int level) const;
+  uint64_t NumLevelBytes(int level) const;
 
   // Return a human-readable short (single-line) summary of the number
   // of files per level.  Uses *scratch as backing store.
@@ -369,7 +374,9 @@ class VersionSet {
   // column_family_options has to be set if edit is column family add
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
-  Status LogAndApply(ColumnFamilyData* column_family_data, VersionEdit* edit,
+  Status LogAndApply(ColumnFamilyData* column_family_data,
+                     const MutableCFOptions& mutable_cf_options,
+                     VersionEdit* edit,
                      port::Mutex* mu, Directory* db_directory = nullptr,
                      bool new_descriptor_log = false,
                      const ColumnFamilyOptions* column_family_options =

@@ -18,7 +18,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     blockSizeDeviation_ = 10;
     blockRestartInterval_ = 16;
     wholeKeyFiltering_ = true;
-    bitsPerKey_ = 10;
+    filter_ = null;
     cacheIndexAndFilterBlocks_ = false;
     hashIndexAllowCollision_ = true;
     blockCacheCompressedSize_ = 0;
@@ -182,30 +182,30 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *
    * Filter instance can be re-used in multiple options instances.
    *
-   * @param Filter policy java instance.
+   * @param Filter Filter Policy java instance.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setFilterBitsPerKey(int bitsPerKey) {
-    bitsPerKey_ = bitsPerKey;
+  public BlockBasedTableConfig setFilter(Filter filter) {
+    filter_ = filter;
     return this;
   }
-  
+
   /**
    * Indicating if we'd put index/filter blocks to the block cache.
      If not specified, each "table reader" object will pre-load index/filter
      block during table initialization.
-   * 
+   *
    * @return if index and filter blocks should be put in block cache.
    */
   public boolean cacheIndexAndFilterBlocks() {
     return cacheIndexAndFilterBlocks_;
   }
-  
+
   /**
    * Indicating if we'd put index/filter blocks to the block cache.
      If not specified, each "table reader" object will pre-load index/filter
      block during table initialization.
-   * 
+   *
    * @param index and filter blocks should be put in block cache.
    * @return the reference to the current config.
    */
@@ -214,25 +214,25 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     cacheIndexAndFilterBlocks_ = cacheIndexAndFilterBlocks;
     return this;
   }
-  
+
   /**
    * Influence the behavior when kHashSearch is used.
      if false, stores a precise prefix to block range mapping
      if true, does not store prefix and allows prefix hash collision
      (less memory consumption)
-   * 
+   *
    * @return if hash collisions should be allowed.
    */
   public boolean hashIndexAllowCollision() {
     return hashIndexAllowCollision_;
   }
-  
+
   /**
    * Influence the behavior when kHashSearch is used.
      if false, stores a precise prefix to block range mapping
      if true, does not store prefix and allows prefix hash collision
      (less memory consumption)
-   * 
+   *
    * @param if hash collisions should be allowed.
    * @return the reference to the current config.
    */
@@ -241,21 +241,21 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     hashIndexAllowCollision_ = hashIndexAllowCollision;
     return this;
   }
-  
+
   /**
    * Size of compressed block cache. If 0, then block_cache_compressed is set
    * to null.
-   * 
+   *
    * @return size of compressed block cache.
    */
   public long blockCacheCompressedSize() {
     return blockCacheCompressedSize_;
   }
-  
+
   /**
    * Size of compressed block cache. If 0, then block_cache_compressed is set
    * to null.
-   * 
+   *
    * @param size of compressed block cache.
    * @return the reference to the current config.
    */
@@ -264,7 +264,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     blockCacheCompressedSize_ = blockCacheCompressedSize;
     return this;
   }
-  
+
   /**
    * Controls the number of shards for the block compressed cache.
    * This is applied only if blockCompressedCacheSize is set to non-negative.
@@ -276,7 +276,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public int blockCacheCompressedNumShardBits() {
     return blockCacheCompressedNumShardBits_;
   }
-  
+
   /**
    * Controls the number of shards for the block compressed cache.
    * This is applied only if blockCompressedCacheSize is set to non-negative.
@@ -293,17 +293,23 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   @Override protected long newTableFactoryHandle() {
+    long filterHandle = 0;
+    if (filter_ != null) {
+      filterHandle = filter_.nativeHandle_;
+    }
+
     return newTableFactoryHandle(noBlockCache_, blockCacheSize_,
         blockCacheNumShardBits_, blockSize_, blockSizeDeviation_,
-        blockRestartInterval_, wholeKeyFiltering_, bitsPerKey_,
-        cacheIndexAndFilterBlocks_, hashIndexAllowCollision_,
-        blockCacheCompressedSize_, blockCacheCompressedNumShardBits_);
+        blockRestartInterval_, wholeKeyFiltering_,
+        filterHandle, cacheIndexAndFilterBlocks_,
+        hashIndexAllowCollision_, blockCacheCompressedSize_,
+        blockCacheCompressedNumShardBits_);
   }
 
   private native long newTableFactoryHandle(
       boolean noBlockCache, long blockCacheSize, int blockCacheNumShardBits,
       long blockSize, int blockSizeDeviation, int blockRestartInterval,
-      boolean wholeKeyFiltering, int bitsPerKey,
+      boolean wholeKeyFiltering, long filterPolicyHandle,
       boolean cacheIndexAndFilterBlocks, boolean hashIndexAllowCollision,
       long blockCacheCompressedSize, int blockCacheCompressedNumShardBits);
 
@@ -315,7 +321,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private int blockSizeDeviation_;
   private int blockRestartInterval_;
   private boolean wholeKeyFiltering_;
-  private int bitsPerKey_;
+  private Filter filter_;
   private boolean cacheIndexAndFilterBlocks_;
   private boolean hashIndexAllowCollision_;
   private long blockCacheCompressedSize_;

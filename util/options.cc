@@ -35,6 +35,7 @@ namespace rocksdb {
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
   : compaction_style(options.compaction_style),
     compaction_options_universal(options.compaction_options_universal),
+    compaction_options_fifo(options.compaction_options_fifo),
     prefix_extractor(options.prefix_extractor.get()),
     comparator(options.comparator),
     merge_operator(options.merge_operator.get()),
@@ -60,7 +61,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     compression(options.compression),
     compression_per_level(options.compression_per_level),
     compression_opts(options.compression_opts),
-    access_hint_on_compaction_start(options.access_hint_on_compaction_start) {}
+    access_hint_on_compaction_start(options.access_hint_on_compaction_start),
+    num_levels(options.num_levels) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),

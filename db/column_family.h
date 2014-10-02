@@ -203,11 +203,14 @@ class ColumnFamilyData {
   TableCache* table_cache() const { return table_cache_.get(); }
 
   // See documentation in compaction_picker.h
-  Compaction* PickCompaction(LogBuffer* log_buffer);
-  Compaction* CompactRange(int input_level, int output_level,
-                           uint32_t output_path_id, const InternalKey* begin,
-                           const InternalKey* end,
-                           InternalKey** compaction_end);
+  // REQUIRES: DB mutex held
+  Compaction* PickCompaction(const MutableCFOptions& mutable_options,
+                             LogBuffer* log_buffer);
+  Compaction* CompactRange(
+      const MutableCFOptions& mutable_cf_options,
+      int input_level, int output_level, uint32_t output_path_id,
+      const InternalKey* begin, const InternalKey* end,
+      InternalKey** compaction_end);
 
   CompactionPicker* compaction_picker() { return compaction_picker_.get(); }
   // thread-safe
@@ -260,7 +263,8 @@ class ColumnFamilyData {
   // recalculation of compaction score. These values are used in
   // DBImpl::MakeRoomForWrite function to decide, if it need to make
   // a write stall
-  void RecalculateWriteStallConditions();
+  void RecalculateWriteStallConditions(
+      const MutableCFOptions& mutable_cf_options);
 
   uint32_t id_;
   const std::string name_;

@@ -148,7 +148,6 @@ class DeleteFileTest {
 TEST(DeleteFileTest, AddKeysAndQueryLevels) {
   CreateTwoLevels();
   std::vector<LiveFileMetaData> metadata;
-  std::vector<int> keysinlevel;
   db_->GetLiveFilesMetaData(&metadata);
 
   std::string level1file = "";

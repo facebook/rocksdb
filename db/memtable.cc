@@ -413,7 +413,6 @@ static bool SaveValue(void* arg, const char* entry) {
           *(s->found_final_value) = true;
           return false;
         }
-        std::string merge_result;  // temporary area for merge results later
         Slice v = GetLengthPrefixedSlice(key_ptr + key_length);
         *(s->merge_in_progress) = true;
         merge_context->PushOperand(v);

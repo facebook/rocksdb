@@ -874,6 +874,18 @@ class DBTest {
     return atoi(property.c_str());
   }
 
+  uint64_t SizeAtLevel(int level) {
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    uint64_t sum = 0;
+    for (const auto& m : metadata) {
+      if (m.level == level) {
+        sum += m.size;
+      }
+    }
+    return sum;
+  }
+
   int TotalTableFiles(int cf = 0, int levels = -1) {
     if (levels == -1) {
       levels = CurrentOptions().num_levels;
@@ -4672,9 +4684,9 @@ TEST(DBTest, CompactionFilterContextManual) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
 
   // Verify total number of keys is correct after manual compaction.
-  int count = 0;
-  int total = 0;
   {
+    int count = 0;
+    int total = 0;
     Arena arena;
     ScopedArenaIterator iter(dbfull()->TEST_NewInternalIterator(&arena));
     iter->SeekToFirst();
@@ -6138,7 +6150,7 @@ class WrappedBloom : public FilterPolicy {
   const FilterPolicy* filter_;
   mutable uint32_t counter_;
 
-  rocksdb::Slice convertKey(const rocksdb::Slice key) const {
+  rocksdb::Slice convertKey(const rocksdb::Slice& key) const {
     return key;
   }
 };
@@ -8193,7 +8205,6 @@ static void RandomTimeoutWriter(void* arg) {
     if (write_opt.timeout_hint_us == 0 ||
         put_duration + kTimerBias < write_opt.timeout_hint_us) {
       ASSERT_OK(s);
-      std::string result;
     }
     if (s.IsTimedOut()) {
       timeout_count++;
@@ -8527,6 +8538,102 @@ TEST(DBTest, DisableDataSyncTest) {
   }
 }
 
+TEST(DBTest, DynamicCompactionOptions) {
+  const uint64_t k64KB = 1 << 16;
+  const uint64_t k128KB = 1 << 17;
+  const uint64_t k256KB = 1 << 18;
+  const uint64_t k5KB = 5 * 1024;
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.max_background_compactions = 4;
+  options.hard_rate_limit = 1.1;
+  options.write_buffer_size = k128KB;
+  options.max_write_buffer_number = 2;
+  // Compaction related options
+  options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 10;
+  options.level0_stop_writes_trigger = 20;
+  options.max_grandparent_overlap_factor = 10;
+  options.expanded_compaction_factor = 25;
+  options.source_compaction_factor = 1;
+  options.target_file_size_base = k128KB;
+  options.target_file_size_multiplier = 1;
+  options.max_bytes_for_level_base = k256KB;
+  options.max_bytes_for_level_multiplier = 4;
+  DestroyAndReopen(&options);
+
+  auto gen_l0_kb = [this](int start, int size, int stride = 1) {
+    Random rnd(301);
+    std::vector<std::string> values;
+    for (int i = 0; i < size; i++) {
+      values.push_back(RandomString(&rnd, 1024));
+      ASSERT_OK(Put(Key(start + stride * i), values[i]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+  };
+
+  // Write 3 files that have the same key range, trigger compaction and
+  // result in one L1 file
+  gen_l0_kb(0, 128);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  gen_l0_kb(0, 128);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  gen_l0_kb(0, 128);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,1", FilesPerLevel());
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(1U, metadata.size());
+  ASSERT_LE(metadata[0].size, k128KB + k5KB);  // < 128KB + 5KB
+  ASSERT_GE(metadata[0].size, k128KB - k5KB);  // > 128B - 5KB
+
+  // Make compaction trigger and file size smaller
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"level0_file_num_compaction_trigger", "2"},
+    {"target_file_size_base", "65536"}
+  }));
+
+  gen_l0_kb(0, 128);
+  ASSERT_EQ("1,1", FilesPerLevel());
+  gen_l0_kb(0, 128);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,2", FilesPerLevel());
+  metadata.clear();
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(2U, metadata.size());
+  ASSERT_LE(metadata[0].size, k64KB + k5KB);  // < 64KB + 5KB
+  ASSERT_GE(metadata[0].size, k64KB - k5KB);  // > 64KB - 5KB
+
+  // Change base level size to 1MB
+  ASSERT_TRUE(dbfull()->SetOptions({ {"max_bytes_for_level_base", "1048576"} }));
+
+  // writing 56 x 128KB => 7MB
+  // (L1 + L2) = (1 + 4) * 1MB = 5MB
+  for (int i = 0; i < 56; ++i) {
+    gen_l0_kb(i, 128, 56);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(SizeAtLevel(1) < 1048576 * 1.1);
+  ASSERT_TRUE(SizeAtLevel(2) < 4 * 1048576 * 1.1);
+
+  // Change multiplier to 2 with smaller base
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_bytes_for_level_multiplier", "2"},
+    {"max_bytes_for_level_base", "262144"}
+  }));
+
+  // writing 16 x 128KB
+  // (L1 + L2 + L3) = (1 + 2 + 4) * 256KB
+  for (int i = 0; i < 16; ++i) {
+    gen_l0_kb(i, 128, 50);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(SizeAtLevel(1) < 262144 * 1.1);
+  ASSERT_TRUE(SizeAtLevel(2) < 2 * 262144 * 1.1);
+  ASSERT_TRUE(SizeAtLevel(3) < 4 * 262144 * 1.1);
+}
 
 }  // namespace rocksdb
 

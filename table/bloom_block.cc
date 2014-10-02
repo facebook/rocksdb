@@ -11,7 +11,7 @@
 
 namespace rocksdb {
 
-void BloomBlockBuilder::AddKeysHashes(const std::vector<uint32_t> keys_hashes) {
+void BloomBlockBuilder::AddKeysHashes(const std::vector<uint32_t>& keys_hashes) {
   for (auto hash : keys_hashes) {
     bloom_.AddHash(hash);
   }

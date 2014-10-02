@@ -10,6 +10,7 @@
 #pragma once
 #include "util/arena.h"
 #include "util/autovector.h"
+#include "util/mutable_cf_options.h"
 #include "db/version_set.h"
 
 namespace rocksdb {
@@ -151,10 +152,14 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
+  // Return the MutableCFOptions that should be used throughout the compaction
+  // procedure
+  const MutableCFOptions* mutable_cf_options() { return &mutable_cf_options_; }
+
   // Returns the size in bytes that the output file should be preallocated to.
   // In level compaction, that is max_file_size_. In universal compaction, that
   // is the sum of all input file sizes.
-  uint64_t OutputFilePreallocationSize();
+  uint64_t OutputFilePreallocationSize(const MutableCFOptions& mutable_options);
 
  private:
   friend class CompactionPicker;
@@ -171,6 +176,7 @@ class Compaction {
   const int output_level_;  // levels to which output files are stored
   uint64_t max_output_file_size_;
   uint64_t max_grandparent_overlap_bytes_;
+  MutableCFOptions mutable_cf_options_;
   Version* input_version_;
   VersionEdit* edit_;
   int number_levels_;
