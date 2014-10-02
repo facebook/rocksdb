@@ -4,9 +4,8 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
-// Also update Makefile if you change these
 #define ROCKSDB_MAJOR 3
-#define ROCKSDB_MINOR 5
+#define ROCKSDB_MINOR 6
 #define ROCKSDB_PATCH 0
 
 // Do not use these. We made the mistake of declaring macros starting with
