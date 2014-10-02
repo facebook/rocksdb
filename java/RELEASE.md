@@ -27,4 +27,30 @@ You can find all native binaries and JARs in the java directory upon completion:
 
 ## Maven publication
 
-TODO
+Set ~/.m2/settings.xml to contain:
+
+    <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 http://maven.apache.org/xsd/settings-1.0.0.xsd">
+      <servers>
+        <server>
+          <id>sonatype-nexus-staging</id>
+          <username>your-sonatype-jira-username</username>
+          <password>your-sonatype-jira-password</password>
+        </server>
+      </servers>
+    </settings>
+
+From RocksDB's root directory, first build the Java static JARs:
+
+    make jclean clean rocksdbjavastaticrelease
+
+Then publish the release to Sonatype:
+
+    make rocksdbjavastaticpublish
+
+This command will [stage the JAR artifacts on the Sonatype staging repository](http://central.sonatype.org/pages/manual-staging-bundle-creation-and-deployment.html). To release the staged artifacts.
+
+1. Go to [https://oss.sonatype.org/#stagingRepositories](https://oss.sonatype.org/#stagingRepositories) and search for "rocksdb" in the upper right hand search box.
+2. Select the rocksdb staging repository, and inspect its contents.
+3. If all is well, follow [these steps](https://oss.sonatype.org/#stagingRepositories) to close the repository and release it.
+
+After the release has occurred, the artifacts will be synced to Maven central within 24-48 hours.
