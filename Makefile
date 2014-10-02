@@ -164,8 +164,9 @@ endif
 LIBRARY = ${LIBNAME}.a
 MEMENVLIBRARY = libmemenv.a
 
-ROCKSDB_MAJOR = 3
-ROCKSDB_MINOR = 4
+ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
+ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
+ROCKSDB_PATCH = $(shell egrep "ROCKSDB_PATCH.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 
 default: all
 
@@ -515,12 +516,12 @@ JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ARCH := $(shell getconf LONG_BIT)
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
-ROCKSDB_JAR = rocksdbjni-linux$(ARCH).jar
-ROCKSDB_JAR_ALL = rocksdbjni-all.jar
+ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
+ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-all.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDBJNILIB = librocksdbjni-osx.jnilib
-ROCKSDB_JAR = rocksdbjni-osx.jar
+ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 
