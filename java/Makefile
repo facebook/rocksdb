@@ -18,7 +18,7 @@ clean:
 	rm -rf javadocs/*
 
 javadocs:
-	mkdir -p javadocs; javadoc -d javadocs -sourcepath . -subpackages org
+	mkdir -p javadoc; javadoc -d javadoc -sourcepath . -subpackages org
 
 java: javadocs
 	javac org/rocksdb/util/*.java org/rocksdb/*.java

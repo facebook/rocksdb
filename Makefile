@@ -560,7 +560,7 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
-	mkdir -p java/javadocs;cd java/javadocs;jar -cf ../$(ROCKSDB_JAVADOCS_JAR) *
+	cd java/javadoc;jar -cf ../$(ROCKSDB_JAVADOCS_JAR) *
 	cd java;jar -cf $(ROCKSDB_SOURCES_JAR) org
 
 rocksdbjavastaticrelease: rocksdbjavastatic
