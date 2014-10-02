@@ -28,6 +28,7 @@ ColumnFamilyData* FlushScheduler::GetNextColumnFamily() {
     if (cfd->IsDropped()) {
       if (cfd->Unref()) {
         delete cfd;
+        cfd = nullptr;
       }
     } else {
       break;
