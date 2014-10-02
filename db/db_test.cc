@@ -8586,7 +8586,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_EQ("0,1", FilesPerLevel());
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
-  ASSERT_EQ(1, metadata.size());
+  ASSERT_EQ(1U, metadata.size());
   ASSERT_LE(metadata[0].size, k128KB + k5KB);  // < 128KB + 5KB
   ASSERT_GE(metadata[0].size, k128KB - k5KB);  // > 128B - 5KB
 
@@ -8603,7 +8603,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_EQ("0,2", FilesPerLevel());
   metadata.clear();
   db_->GetLiveFilesMetaData(&metadata);
-  ASSERT_EQ(2, metadata.size());
+  ASSERT_EQ(2U, metadata.size());
   ASSERT_LE(metadata[0].size, k64KB + k5KB);  // < 64KB + 5KB
   ASSERT_GE(metadata[0].size, k64KB - k5KB);  // > 64KB - 5KB
 
