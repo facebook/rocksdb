@@ -114,9 +114,6 @@ class CompactionPicker {
 
  private:
   const InternalKeyComparator* const icmp_;
-
-  int max_grandparent_overlap_factor_;
-  int expanded_compaction_factor_;
 };
 
 class UniversalCompactionPicker : public CompactionPicker {
