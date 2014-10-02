@@ -20,10 +20,12 @@ You can find all native binaries and JARs in the java directory upon completion:
     librocksdbjni-linux32.so
     librocksdbjni-linux64.so
     librocksdbjni-osx.jnilib
-    rocksdbjni-all.jar
-    rocksdbjni-linux32.jar
-    rocksdbjni-linux64.jar
-    rocksdbjni-osx.jar
+    rocksdbjni-3.5.0-javadoc.jar
+    rocksdbjni-3.5.0-linux32.jar
+    rocksdbjni-3.5.0-linux64.jar
+    rocksdbjni-3.5.0-osx.jar
+    rocksdbjni-3.5.0-sources.jar
+    rocksdbjni-3.5.0.jar
 
 ## Maven publication
 
