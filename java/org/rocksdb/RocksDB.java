@@ -103,8 +103,6 @@ public class RocksDB extends RocksObject {
    * @see Options.createIfMissing()
    */
   public static RocksDB open(String path) throws RocksDBException {
-    RocksDB db = new RocksDB();
-
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     Options options = new Options();

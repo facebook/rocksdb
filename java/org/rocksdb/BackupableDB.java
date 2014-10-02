@@ -82,6 +82,7 @@ public class BackupableDB extends RocksDB {
 
   @Override protected void finalize() {
     close();
+    super.finalize();
   }
 
   protected native void open(long rocksDBHandle, long backupDBOptionsHandle);
