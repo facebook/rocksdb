@@ -41,6 +41,8 @@ Set ~/.m2/settings.xml to contain:
       </servers>
     </settings>
 
+Then update rocksjni.pom's version tag to reflect the release version.
+
 From RocksDB's root directory, first build the Java static JARs:
 
     make jclean clean rocksdbjavastaticrelease
