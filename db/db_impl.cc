@@ -1614,7 +1614,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   Status s = WriteLevel0Table(cfd, mutable_cf_options, mems, edit,
                               &file_number, log_buffer);
 
-  if (s.ok() && shutting_down_.Acquire_Load() && cfd->IsDropped()) {
+  if (s.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
     s = Status::ShutdownInProgress(
         "Database shutdown or Column family drop during flush");
   }
