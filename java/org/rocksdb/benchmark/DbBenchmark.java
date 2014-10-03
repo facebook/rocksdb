@@ -523,8 +523,8 @@ public class DbBenchmark {
       BlockBasedTableConfig table_options = new BlockBasedTableConfig();
       table_options.setBlockSize((Long)flags_.get(Flag.block_size))
                    .setBlockCacheSize((Long)flags_.get(Flag.cache_size))
-                   .setFilterBitsPerKey((Integer)flags_.get(Flag.bloom_bits))
-                   .setCacheNumShardBits((Integer)flags_.get(Flag.cache_numshardbits));
+                   .setCacheNumShardBits(
+                      (Integer)flags_.get(Flag.cache_numshardbits));
       options.setTableFormatConfig(table_options);
     }
     options.setWriteBufferSize(
