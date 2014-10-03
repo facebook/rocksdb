@@ -517,7 +517,6 @@ ROCKSDBJNILIB = librocksdbjni.so
 ROCKSDB_JAR = rocksdbjni.jar
 
 ifeq ($(PLATFORM), OS_MACOSX)
-ROCKSDBJNILIB = librocksdbjni.jnilib
 JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
 endif
 
