@@ -21,7 +21,7 @@ public abstract class MemTableConfig {
    * which will create a c++ shared-pointer to the c++ MemTableRepFactory
    * that associated with the Java MemTableConfig.
    *
-   * @see Options.setMemTableFactory()
+   * @see Options#setMemTableConfig(MemTableConfig) 
    */
   abstract protected long newMemTableFactoryHandle();
 }

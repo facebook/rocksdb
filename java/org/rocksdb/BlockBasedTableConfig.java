@@ -27,7 +27,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /**
    * Disable block cache. If this is set to true,
    * then no block cache should be used, and the block_cache should
-   * point to a nullptr object.
+   * point to a {@code nullptr} object.
    * Default: false
    *
    * @param noBlockCache if use block cache
@@ -69,7 +69,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * Controls the number of shards for the block cache.
    * This is applied only if cacheSize is set to non-negative.
    *
-   * @param numShardBits the number of shard bits.  The resulting
+   * @param blockCacheNumShardBits the number of shard bits. The resulting
    *     number of shards would be 2 ^ numShardBits.  Any negative
    *     number means use default settings."
    * @return the reference to the current option.
@@ -176,13 +176,14 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   /**
    * Use the specified filter policy to reduce disk reads.
    *
-   * Filter should not be disposed before options instances using this filter is
-   * disposed. If dispose() function is not called, then filter object will be
-   * GC'd automatically.
+   * {@link org.rocksdb.Filter} should not be disposed before options instances
+   * using this filter is disposed. If {@link Filter#dispose()} function is not
+   * called, then filter object will be GC'd automatically.
    *
-   * Filter instance can be re-used in multiple options instances.
+   * {@link org.rocksdb.Filter} instance can be re-used in multiple options
+   * instances.
    *
-   * @param Filter Filter Policy java instance.
+   * @param filter {@link org.rocksdb.Filter} Filter Policy java instance.
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setFilter(Filter filter) {
@@ -206,7 +207,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
      If not specified, each "table reader" object will pre-load index/filter
      block during table initialization.
    *
-   * @param index and filter blocks should be put in block cache.
+   * @param cacheIndexAndFilterBlocks and filter blocks should be put in block cache.
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setCacheIndexAndFilterBlocks(
@@ -233,7 +234,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
      if true, does not store prefix and allows prefix hash collision
      (less memory consumption)
    *
-   * @param if hash collisions should be allowed.
+   * @param hashIndexAllowCollision points out if hash collisions should be allowed.
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setHashIndexAllowCollision(
@@ -256,7 +257,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * Size of compressed block cache. If 0, then block_cache_compressed is set
    * to null.
    *
-   * @param size of compressed block cache.
+   * @param blockCacheCompressedSize of compressed block cache.
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setBlockCacheCompressedSize(
@@ -281,7 +282,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * Controls the number of shards for the block compressed cache.
    * This is applied only if blockCompressedCacheSize is set to non-negative.
    *
-   * @param numShardBits the number of shard bits.  The resulting
+   * @param blockCacheCompressedNumShardBits the number of shard bits.  The resulting
    *     number of shards would be 2 ^ numShardBits.  Any negative
    *     number means use default settings."
    * @return the reference to the current option.

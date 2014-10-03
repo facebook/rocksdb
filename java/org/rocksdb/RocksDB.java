@@ -17,7 +17,7 @@ import org.rocksdb.NativeLibraryLoader;
  * A RocksDB is a persistent ordered map from keys to values.  It is safe for
  * concurrent access from multiple threads without any external synchronization.
  * All methods of this class could potentially throw RocksDBException, which
- * indicates sth wrong at the rocksdb library side and the call failed.
+ * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
   public static final int NOT_FOUND = -1;
@@ -95,12 +95,11 @@ public class RocksDB extends RocksObject {
    * set to true.
    *
    * @param path the path to the rocksdb.
-   * @param status an out value indicating the status of the Open().
    * @return a rocksdb instance on success, null if the specified rocksdb can
    *     not be opened.
    *
-   * @see Options.setCreateIfMissing()
-   * @see Options.createIfMissing()
+   * @see Options#setCreateIfMissing(boolean)
+   * @see org.rocksdb.Options#createIfMissing()
    */
   public static RocksDB open(String path) throws RocksDBException {
     RocksDB db = new RocksDB();
@@ -280,8 +279,8 @@ public class RocksDB extends RocksObject {
   /**
    * Returns a map of keys for which values were found in DB.
    *
-   * @param List of keys for which values need to be retrieved.
    * @param opt Read options.
+   * @param keys of keys for which values need to be retrieved.
    * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
    *

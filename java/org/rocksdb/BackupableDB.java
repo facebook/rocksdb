@@ -8,19 +8,19 @@ package org.rocksdb;
 /**
  * A subclass of RocksDB which supports backup-related operations.
  *
- * @see BackupableDBOptions
+ * @see org.rocksdb.BackupableDBOptions
  */
 public class BackupableDB extends RocksDB {
   /**
-   * Open a BackupableDB under the specified path.
+   * Open a {@code BackupableDB} under the specified path.
    * Note that the backup path should be set properly in the
    * input BackupableDBOptions.
    *
-   * @param opt options for db.
-   * @param bopt backup related options.
-   * @param the db path for storing data.  The path for storing
-   *     backup should be specified in the BackupableDBOptions.
-   * @return reference to the opened BackupableDB.
+   * @param opt {@link org.rocksdb.Options} to set for the database.
+   * @param bopt {@link org.rocksdb.BackupableDBOptions} to use.
+   * @param db_path Path to store data to. The path for storing the backup should be
+   *     specified in the {@link org.rocksdb.BackupableDBOptions}.
+   * @return BackupableDB reference to the opened database.
    */
   public static BackupableDB open(
       Options opt, BackupableDBOptions bopt, String db_path)
@@ -61,10 +61,9 @@ public class BackupableDB extends RocksDB {
   /**
    * Close the BackupableDB instance and release resource.
    *
-   * Internally, BackupableDB owns the rocksdb::DB pointer to its
-   * associated RocksDB.  The release of that RocksDB pointer is
-   * handled in the destructor of the c++ rocksdb::BackupableDB and
-   * should be transparent to Java developers.
+   * Internally, BackupableDB owns the {@code rocksdb::DB} pointer to its associated
+   * {@link org.rocksdb.RocksDB}. The release of that RocksDB pointer is handled in the destructor
+   * of the c++ {@code rocksdb::BackupableDB} and should be transparent to Java developers.
    */
   @Override public synchronized void close() {
     if (isInitialized()) {
@@ -74,7 +73,7 @@ public class BackupableDB extends RocksDB {
 
   /**
    * A protected construction that will be used in the static factory
-   * method BackupableDB.open().
+   * method {@link #open(Options, BackupableDBOptions, String)}.
    */
   protected BackupableDB() {
     super();
