@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <iostream>
 #include <vector>
-#include "/usr/include/valgrind/callgrind.h"
 
 #include "rocksdb/db.h"
 #include "rocksdb/perf_context.h"
@@ -29,7 +28,7 @@ const std::string kDbName = rocksdb::test::TmpDir() + "/perf_context_test";
 
 namespace rocksdb {
 
-std::shared_ptr<DB> OpenDb() {
+std::shared_ptr<DB> OpenDb(bool read_only = false) {
     DB* db;
     Options options;
     options.create_if_missing = true;
@@ -39,12 +38,16 @@ std::shared_ptr<DB> OpenDb() {
       FLAGS_min_write_buffer_number_to_merge;
 
     if (FLAGS_use_set_based_memetable) {
-      auto prefix_extractor = rocksdb::NewFixedPrefixTransform(0);
-      options.memtable_factory.reset(
-          NewHashSkipListRepFactory(prefix_extractor));
+      options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(0));
+      options.memtable_factory.reset(NewHashSkipListRepFactory());
     }
 
-    Status s = DB::Open(options, kDbName,  &db);
+    Status s;
+    if (!read_only) {
+      s = DB::Open(options, kDbName, &db);
+    } else {
+      s = DB::OpenForReadOnly(options, kDbName, &db);
+    }
     ASSERT_OK(s);
     return std::shared_ptr<DB>(db);
 }
@@ -76,7 +79,8 @@ TEST(PerfContextTest, SeekIntoDeletion) {
     std::string value;
 
     perf_context.Reset();
-    StopWatchNano timer(Env::Default(), true);
+    StopWatchNano timer(Env::Default());
+    timer.Start();
     auto status = db->Get(read_options, key, &value);
     auto elapsed_nanos = timer.ElapsedNanos();
     ASSERT_TRUE(status.IsNotFound());
@@ -149,11 +153,12 @@ TEST(PerfContextTest, StopWatchNanoOverhead) {
 TEST(PerfContextTest, StopWatchOverhead) {
   // profile the timer cost by itself!
   const int kTotalIterations = 1000000;
+  uint64_t elapsed = 0;
   std::vector<uint64_t> timings(kTotalIterations);
 
-  StopWatch timer(Env::Default());
+  StopWatch timer(Env::Default(), nullptr, 0, &elapsed);
   for (auto& timing : timings) {
-    timing = timer.ElapsedMicros();
+    timing = elapsed;
   }
 
   HistogramImpl histogram;
@@ -166,7 +171,7 @@ TEST(PerfContextTest, StopWatchOverhead) {
   std::cout << histogram.ToString();
 }
 
-void ProfileKeyComparison() {
+void ProfileQueries(bool enabled_time = false) {
   DestroyDB(kDbName, Options());    // Start this test with a fresh DB
 
   auto db = OpenDb();
@@ -175,11 +180,21 @@ void ProfileKeyComparison() {
   ReadOptions read_options;
 
   HistogramImpl hist_put;
+
   HistogramImpl hist_get;
   HistogramImpl hist_get_snapshot;
   HistogramImpl hist_get_memtable;
+  HistogramImpl hist_get_files;
   HistogramImpl hist_get_post_process;
   HistogramImpl hist_num_memtable_checked;
+
+  HistogramImpl hist_mget;
+  HistogramImpl hist_mget_snapshot;
+  HistogramImpl hist_mget_memtable;
+  HistogramImpl hist_mget_files;
+  HistogramImpl hist_mget_post_process;
+  HistogramImpl hist_mget_num_memtable_checked;
+
   HistogramImpl hist_write_pre_post;
   HistogramImpl hist_write_wal_time;
   HistogramImpl hist_write_memtable_time;
@@ -187,8 +202,13 @@ void ProfileKeyComparison() {
   std::cout << "Inserting " << FLAGS_total_keys << " key/value pairs\n...\n";
 
   std::vector<int> keys;
+  const int kFlushFlag = -1;
   for (int i = 0; i < FLAGS_total_keys; ++i) {
     keys.push_back(i);
+    if (i == FLAGS_total_keys / 2) {
+      // Issuing a flush in the middle.
+      keys.push_back(kFlushFlag);
+    }
   }
 
   if (FLAGS_random_key) {
@@ -196,8 +216,16 @@ void ProfileKeyComparison() {
   }
 
   for (const int i : keys) {
+    if (i == kFlushFlag) {
+      FlushOptions fo;
+      db->Flush(fo);
+      continue;
+    }
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
+
+    std::vector<Slice> keys = {Slice(key)};
+    std::vector<std::string> values;
 
     perf_context.Reset();
     db->Put(write_options, key, value);
@@ -205,18 +233,37 @@ void ProfileKeyComparison() {
     hist_write_wal_time.Add(perf_context.write_wal_time);
     hist_write_memtable_time.Add(perf_context.write_memtable_time);
     hist_put.Add(perf_context.user_key_comparison_count);
+  }
+
+  for (const int i : keys) {
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
+
+    std::vector<Slice> keys = {Slice(key)};
+    std::vector<std::string> values;
 
     perf_context.Reset();
     db->Get(read_options, key, &value);
     hist_get_snapshot.Add(perf_context.get_snapshot_time);
     hist_get_memtable.Add(perf_context.get_from_memtable_time);
+    hist_get_files.Add(perf_context.get_from_output_files_time);
     hist_num_memtable_checked.Add(perf_context.get_from_memtable_count);
     hist_get_post_process.Add(perf_context.get_post_process_time);
     hist_get.Add(perf_context.user_key_comparison_count);
+
+    perf_context.Reset();
+    db->MultiGet(read_options, keys, &values);
+    hist_mget_snapshot.Add(perf_context.get_snapshot_time);
+    hist_mget_memtable.Add(perf_context.get_from_memtable_time);
+    hist_mget_files.Add(perf_context.get_from_output_files_time);
+    hist_mget_num_memtable_checked.Add(perf_context.get_from_memtable_count);
+    hist_mget_post_process.Add(perf_context.get_post_process_time);
+    hist_mget.Add(perf_context.user_key_comparison_count);
   }
 
   std::cout << "Put uesr key comparison: \n" << hist_put.ToString()
-            << "Get uesr key comparison: \n" << hist_get.ToString();
+            << "Get uesr key comparison: \n" << hist_get.ToString()
+            << "MultiGet uesr key comparison: \n" << hist_get.ToString();
   std::cout << "Put(): Pre and Post Process Time: \n"
             << hist_write_pre_post.ToString()
             << " Writing WAL time: \n"
@@ -224,25 +271,139 @@ void ProfileKeyComparison() {
             << " Writing Mem Table time: \n"
             << hist_write_memtable_time.ToString() << "\n";
 
-  std::cout << "Get(): Time to get snapshot: \n"
+  std::cout << "Get(): Time to get snapshot: \n" << hist_get_snapshot.ToString()
+            << " Time to get value from memtables: \n"
+            << hist_get_memtable.ToString() << "\n"
+            << " Time to get value from output files: \n"
+            << hist_get_files.ToString() << "\n"
+            << " Number of memtables checked: \n"
+            << hist_num_memtable_checked.ToString() << "\n"
+            << " Time to post process: \n" << hist_get_post_process.ToString()
+            << "\n";
+
+  std::cout << "MultiGet(): Time to get snapshot: \n"
+            << hist_mget_snapshot.ToString()
+            << " Time to get value from memtables: \n"
+            << hist_mget_memtable.ToString() << "\n"
+            << " Time to get value from output files: \n"
+            << hist_mget_files.ToString() << "\n"
+            << " Number of memtables checked: \n"
+            << hist_mget_num_memtable_checked.ToString() << "\n"
+            << " Time to post process: \n" << hist_mget_post_process.ToString()
+            << "\n";
+
+  if (enabled_time) {
+    ASSERT_GT(hist_get.Average(), 0);
+    ASSERT_GT(hist_get_snapshot.Average(), 0);
+    ASSERT_GT(hist_get_memtable.Average(), 0);
+    ASSERT_GT(hist_get_files.Average(), 0);
+    ASSERT_GT(hist_get_post_process.Average(), 0);
+    ASSERT_GT(hist_num_memtable_checked.Average(), 0);
+
+    ASSERT_GT(hist_mget.Average(), 0);
+    ASSERT_GT(hist_mget_snapshot.Average(), 0);
+    ASSERT_GT(hist_mget_memtable.Average(), 0);
+    ASSERT_GT(hist_mget_files.Average(), 0);
+    ASSERT_GT(hist_mget_post_process.Average(), 0);
+    ASSERT_GT(hist_mget_num_memtable_checked.Average(), 0);
+  }
+
+  db.reset();
+  db = OpenDb(true);
+
+  hist_get.Clear();
+  hist_get_snapshot.Clear();
+  hist_get_memtable.Clear();
+  hist_get_files.Clear();
+  hist_get_post_process.Clear();
+  hist_num_memtable_checked.Clear();
+
+  hist_mget.Clear();
+  hist_mget_snapshot.Clear();
+  hist_mget_memtable.Clear();
+  hist_mget_files.Clear();
+  hist_mget_post_process.Clear();
+  hist_mget_num_memtable_checked.Clear();
+
+  for (const int i : keys) {
+    std::string key = "k" + std::to_string(i);
+    std::string value = "v" + std::to_string(i);
+
+    std::vector<Slice> keys = {Slice(key)};
+    std::vector<std::string> values;
+
+    perf_context.Reset();
+    db->Get(read_options, key, &value);
+    hist_get_snapshot.Add(perf_context.get_snapshot_time);
+    hist_get_memtable.Add(perf_context.get_from_memtable_time);
+    hist_get_files.Add(perf_context.get_from_output_files_time);
+    hist_num_memtable_checked.Add(perf_context.get_from_memtable_count);
+    hist_get_post_process.Add(perf_context.get_post_process_time);
+    hist_get.Add(perf_context.user_key_comparison_count);
+
+    perf_context.Reset();
+    db->MultiGet(read_options, keys, &values);
+    hist_mget_snapshot.Add(perf_context.get_snapshot_time);
+    hist_mget_memtable.Add(perf_context.get_from_memtable_time);
+    hist_mget_files.Add(perf_context.get_from_output_files_time);
+    hist_mget_num_memtable_checked.Add(perf_context.get_from_memtable_count);
+    hist_mget_post_process.Add(perf_context.get_post_process_time);
+    hist_mget.Add(perf_context.user_key_comparison_count);
+  }
+
+  std::cout << "ReadOnly Get uesr key comparison: \n" << hist_get.ToString()
+            << "ReadOnly MultiGet uesr key comparison: \n"
+            << hist_mget.ToString();
+
+  std::cout << "ReadOnly Get(): Time to get snapshot: \n"
             << hist_get_snapshot.ToString()
             << " Time to get value from memtables: \n"
             << hist_get_memtable.ToString() << "\n"
+            << " Time to get value from output files: \n"
+            << hist_get_files.ToString() << "\n"
             << " Number of memtables checked: \n"
             << hist_num_memtable_checked.ToString() << "\n"
-            << " Time to post process: \n"
-            << hist_get_post_process.ToString() << "\n";
+            << " Time to post process: \n" << hist_get_post_process.ToString()
+            << "\n";
+
+  std::cout << "ReadOnly MultiGet(): Time to get snapshot: \n"
+            << hist_mget_snapshot.ToString()
+            << " Time to get value from memtables: \n"
+            << hist_mget_memtable.ToString() << "\n"
+            << " Time to get value from output files: \n"
+            << hist_mget_files.ToString() << "\n"
+            << " Number of memtables checked: \n"
+            << hist_mget_num_memtable_checked.ToString() << "\n"
+            << " Time to post process: \n" << hist_mget_post_process.ToString()
+            << "\n";
+
+  if (enabled_time) {
+    ASSERT_GT(hist_get.Average(), 0);
+    ASSERT_GT(hist_get_memtable.Average(), 0);
+    ASSERT_GT(hist_get_files.Average(), 0);
+    ASSERT_GT(hist_num_memtable_checked.Average(), 0);
+    // In read-only mode Get(), no super version operation is needed
+    ASSERT_EQ(hist_get_post_process.Average(), 0);
+    ASSERT_EQ(hist_get_snapshot.Average(), 0);
+
+    ASSERT_GT(hist_mget.Average(), 0);
+    ASSERT_GT(hist_mget_snapshot.Average(), 0);
+    ASSERT_GT(hist_mget_memtable.Average(), 0);
+    ASSERT_GT(hist_mget_files.Average(), 0);
+    ASSERT_GT(hist_mget_post_process.Average(), 0);
+    ASSERT_GT(hist_mget_num_memtable_checked.Average(), 0);
+  }
 }
 
 TEST(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableCount);
-  ProfileKeyComparison();
+  ProfileQueries();
 
   SetPerfLevel(kDisable);
-  ProfileKeyComparison();
+  ProfileQueries();
 
   SetPerfLevel(kEnableTime);
-  ProfileKeyComparison();
+  ProfileQueries(true);
 }
 
 // make perf_context_test

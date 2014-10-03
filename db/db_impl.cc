@@ -3602,6 +3602,7 @@ std::vector<Status> DBImpl::MultiGet(
     } else if (super_version->imm->Get(lkey, value, &s, &merge_context)) {
       // Done
     } else {
+      PERF_TIMER_GUARD(get_from_output_files_time);
       super_version->current->Get(options, lkey, value, &s, &merge_context);
     }
 

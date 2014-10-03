@@ -8,6 +8,7 @@
 #include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/db_iter.h"
+#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -34,6 +35,7 @@ Status DBImplReadOnly::Get(const ReadOptions& read_options,
   LookupKey lkey(key, snapshot);
   if (super_version->mem->Get(lkey, value, &s, &merge_context)) {
   } else {
+    PERF_TIMER_GUARD(get_from_output_files_time);
     super_version->current->Get(read_options, lkey, value, &s, &merge_context);
   }
   return s;
