@@ -52,12 +52,12 @@ public class GenericRateLimiterConfig extends RateLimiterConfig {
   public GenericRateLimiterConfig(long rateBytesPerSecond) {
     this(rateBytesPerSecond, DEFAULT_REFILL_PERIOD_MICROS, DEFAULT_FAIRNESS);
   }
-  
+
   @Override protected long newRateLimiterHandle() {
     return newRateLimiterHandle(rateBytesPerSecond_, refillPeriodMicros_,
         fairness_);
   }
-    
+
   private native long newRateLimiterHandle(long rateBytesPerSecond,
       long refillPeriodMicros, int fairness);
   private final long rateBytesPerSecond_;

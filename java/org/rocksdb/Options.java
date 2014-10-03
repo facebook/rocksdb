@@ -20,7 +20,7 @@ public class Options extends RocksObject {
   static final int DEFAULT_NUM_SHARD_BITS = -1;
 
   /**
-   * Builtin RocksDB comparators 
+   * Builtin RocksDB comparators
    */
   public enum BuiltinComparator {
       BYTEWISE_COMPARATOR, REVERSE_BYTEWISE_COMPARATOR;
@@ -1115,7 +1115,7 @@ public class Options extends RocksObject {
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
   }
-  
+
   /**
    * Use to control write rate of flush and compaction. Flush has higher
    * priority than compaction. Rate limiting is disabled if nullptr.

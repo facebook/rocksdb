@@ -12,7 +12,7 @@ public enum CompressionType {
   BZLIB2_COMPRESSION((byte) 3),
   LZ4_COMPRESSION((byte) 4),
   LZ4HC_COMPRESSION((byte) 5);
-  
+
   private final byte value_;
 
   private CompressionType(byte value) {

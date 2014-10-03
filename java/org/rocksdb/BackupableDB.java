@@ -47,10 +47,10 @@ public class BackupableDB extends RocksDB {
   public void createNewBackup(boolean flushBeforeBackup) {
     createNewBackup(nativeHandle_, flushBeforeBackup);
   }
-  
+
   /**
    * Deletes old backups, keeping latest numBackupsToKeep alive.
-   * 
+   *
    * @param numBackupsToKeep Number of latest backups to keep.
    */
   public void purgeOldBackups(int numBackupsToKeep) {
