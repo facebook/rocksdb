@@ -29,9 +29,9 @@ public class StatisticsCollector {
 
   /**
    * Constructor for statistics collector.
-   * 
+   *
    * @param statsCollectorInputList List of statistics collector input.
-   * @param statsCollectionIntervalInMilliSeconds Statistics collection time 
+   * @param statsCollectionIntervalInMilliSeconds Statistics collection time
    *        period (specified in milliseconds).
    */
   public StatisticsCollector(List<StatsCollectorInput> statsCollectorInputList,
@@ -48,7 +48,7 @@ public class StatisticsCollector {
 
   /**
    * Shuts down statistics collector.
-   * 
+   *
    * @param shutdownTimeout Time in milli-seconds to wait for shutdown before
    *        killing the collection process.
    */
@@ -70,13 +70,13 @@ public class StatisticsCollector {
           try {
             if(Thread.currentThread().isInterrupted()) {
               break;
-            }  
+            }
             for(StatsCollectorInput statsCollectorInput :
                 _statsCollectorInputList) {
               Statistics statistics = statsCollectorInput.getStatistics();
               StatisticsCollectorCallback statsCallback =
                   statsCollectorInput.getCallback();
-              
+
                 // Collect ticker data
               for(TickerType ticker : TickerType.values()) {
                 long tickerValue = statistics.getTickerCount(ticker);
