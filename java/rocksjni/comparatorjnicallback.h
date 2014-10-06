@@ -41,7 +41,8 @@ struct ComparatorJniCallbackOptions {
  * method callbacks. Instead of creating new objects for each callback
  * of those functions, by reuse via setHandle we are a lot
  * faster; Unfortunately this means that we have to
- * introduce locking in regions of those methods via mutex_.
+ * introduce independent locking in regions of each of those methods
+ * via the mutexs mtx_compare and mtx_findShortestSeparator respectively
  */
 class BaseComparatorJniCallback : public Comparator {
  public:
@@ -56,16 +57,19 @@ class BaseComparatorJniCallback : public Comparator {
     virtual void FindShortSuccessor(std::string* key) const;
 
  private:
-    port::Mutex* mutex_;
+    // used for synchronisation in compare method
+    port::Mutex* mtx_compare;
+    // used for synchronisation in findShortestSeparator method
+    port::Mutex* mtx_findShortestSeparator;
     JavaVM* m_jvm;
     jobject m_jComparator;
     std::string m_name;
     jmethodID m_jCompareMethodId;
     jmethodID m_jFindShortestSeparatorMethodId;
     jmethodID m_jFindShortSuccessorMethodId;
-    JNIEnv* getJniEnv() const;
 
  protected:
+    JNIEnv* getJniEnv() const;
     jobject m_jSliceA;
     jobject m_jSliceB;
     jobject m_jSliceLimit;
@@ -76,6 +80,7 @@ class ComparatorJniCallback : public BaseComparatorJniCallback {
       ComparatorJniCallback(
         JNIEnv* env, jobject jComparator,
         const ComparatorJniCallbackOptions* copt);
+      ~ComparatorJniCallback();
 };
 
 class DirectComparatorJniCallback : public BaseComparatorJniCallback {
@@ -83,6 +88,7 @@ class DirectComparatorJniCallback : public BaseComparatorJniCallback {
       DirectComparatorJniCallback(
         JNIEnv* env, jobject jComparator,
         const ComparatorJniCallbackOptions* copt);
+      ~DirectComparatorJniCallback();
 };
 }  // namespace rocksdb
 

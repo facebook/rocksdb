@@ -16,11 +16,18 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
-
   /**
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set
    * at creation time.
+   *
+   * Note: You should be aware that
+   * {@see org.rocksdb.RocksObject#disOwnNativeHandle()} is intentionally
+   * called from the default DirectSlice constructor, and that it is marked as
+   * private. This is so that developers cannot construct their own default
+   * DirectSlice objects (at present). As developers cannot construct their own
+   * DirectSlice objects through this, they are not creating underlying C++
+   * DirectSlice objects, and so there is nothing to free (dispose) from Java.
    */
   private DirectSlice() {
     super();
@@ -31,6 +38,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Constructs a slice
    * where the data is taken from
    * a String.
+   *
+   * @param str The string
    */
   public DirectSlice(final String str) {
     super();
@@ -41,6 +50,9 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Constructs a slice where the data is
    * read from the provided
    * ByteBuffer up to a certain length
+   *
+   * @param data The buffer containing the data
+   * @param length The length of the data to use for the slice
    */
   public DirectSlice(final ByteBuffer data, final int length) {
     super();
@@ -51,6 +63,8 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Constructs a slice where the data is
    * read from the provided
    * ByteBuffer
+   *
+   * @param data The bugger containing the data
    */
   public DirectSlice(final ByteBuffer data) {
     super();
@@ -79,7 +93,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
   }
 
   /**
-   * Drops the specified n
+   * Drops the specified {@code n}
    * number of bytes from the start
    * of the backing slice
    *

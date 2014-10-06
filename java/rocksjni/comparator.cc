@@ -18,27 +18,6 @@
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 
-// <editor-fold desc="org.rocksdb.ComparatorOptions">
-
-void Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
-    JNIEnv* env, jobject jobj, jstring jpath, jboolean jshare_table_files,
-    jboolean jsync, jboolean jdestroy_old_data, jboolean jbackup_log_files,
-    jlong jbackup_rate_limit, jlong jrestore_rate_limit) {
-  jbackup_rate_limit = (jbackup_rate_limit <= 0) ? 0 : jbackup_rate_limit;
-  jrestore_rate_limit = (jrestore_rate_limit <= 0) ? 0 : jrestore_rate_limit;
-
-  const char* cpath = env->GetStringUTFChars(jpath, 0);
-
-  auto bopt = new rocksdb::BackupableDBOptions(cpath, nullptr,
-      jshare_table_files, nullptr, jsync, jdestroy_old_data, jbackup_log_files,
-      jbackup_rate_limit, jrestore_rate_limit);
-
-  env->ReleaseStringUTFChars(jpath, cpath);
-
-  rocksdb::BackupableDBOptionsJni::setHandle(env, jobj, bopt);
-}
-// </editor-fold>
-
 // <editor-fold desc="org.rocksdb.AbstractComparator>
 
 /*

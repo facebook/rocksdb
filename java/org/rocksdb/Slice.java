@@ -14,11 +14,18 @@ package org.rocksdb;
  * values consider using @see org.rocksdb.DirectSlice
  */
 public class Slice extends AbstractSlice<byte[]> {
-
   /**
    * Called from JNI to construct a new Java Slice
    * without an underlying C++ object set
    * at creation time.
+   *
+   * Note: You should be aware that
+   * {@see org.rocksdb.RocksObject#disOwnNativeHandle()} is intentionally
+   * called from the default Slice constructor, and that it is marked as
+   * private. This is so that developers cannot construct their own default
+   * Slice objects (at present). As developers cannot construct their own
+   * Slice objects through this, they are not creating underlying C++ Slice
+   * objects, and so there is nothing to free (dispose) from Java.
    */
   private Slice() {
     super();

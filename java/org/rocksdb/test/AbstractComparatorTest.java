@@ -52,9 +52,9 @@ public abstract class AbstractComparatorTest {
 
       db = RocksDB.open(opt, db_path.toString());
       final Random random = new Random();
-      for(int i = 0; i < ITERATIONS; i++) {
+      for (int i = 0; i < ITERATIONS; i++) {
         final byte key[] = intToByte(random.nextInt());
-        if(i > 0 && db.get(key) != null) { // does key already exist (avoid duplicates)
+        if (i > 0 && db.get(key) != null) { // does key already exist (avoid duplicates)
           i--; // generate a different key
         } else {
           db.put(key, "value".getBytes());
@@ -71,7 +71,7 @@ public abstract class AbstractComparatorTest {
       it.seekToFirst();
       int lastKey = Integer.MIN_VALUE;
       int count = 0;
-      for(it.seekToFirst(); it.isValid(); it.next()) {
+      for (it.seekToFirst(); it.isValid(); it.next()) {
         final int thisKey = byteToInt(it.key());
         assert(thisKey > lastKey);
         lastKey = thisKey;
@@ -85,11 +85,11 @@ public abstract class AbstractComparatorTest {
       System.err.format("[ERROR]: %s%n", e);
       e.printStackTrace();
     } finally {
-      if(db != null) {
+      if (db != null) {
         db.close();
       }
 
-      if(opt != null) {
+      if (opt != null) {
         opt.dispose();
       }
 
@@ -114,7 +114,7 @@ public abstract class AbstractComparatorTest {
     // protect against int key calculation overflow
     final double diff = (double)iA - iB;
     final int result;
-    if(diff < Integer.MIN_VALUE) {
+    if (diff < Integer.MIN_VALUE) {
       result = Integer.MIN_VALUE;
     } else if(diff > Integer.MAX_VALUE) {
       result = Integer.MAX_VALUE;

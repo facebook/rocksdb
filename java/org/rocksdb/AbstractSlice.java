@@ -13,13 +13,23 @@ package org.rocksdb;
  * should extend either of the public abstract classes:
  *   @see org.rocksdb.Slice
  *   @see org.rocksdb.DirectSlice
+ *
+ * Regards the lifecycle of Java Slices in RocksDB:
+ *   At present when you configure a Comparator from Java, it creates an
+ *   instance of a C++ BaseComparatorJniCallback subclass and
+ *   passes that to RocksDB as the comparator. That subclass of
+ *   BaseComparatorJniCallback creates the Java
+ *   {@see org.rocksdb.AbstractSlice} subclass Objects. When you dispose
+ *   the Java {@see org.rocksdb.AbstractComparator} subclass, it disposes the
+ *   C++ BaseComparatorJniCallback subclass, which in turn destroys the
+ *   Java {@see org.rocksdb.AbstractSlice} subclass Objects.
  */
 abstract class AbstractSlice<T> extends RocksObject {
 
   /**
-   * Returns the data.
+   * Returns the data of the slice.
    *
-   * @return The data. Note, the type of access is
+   * @return The slice data. Note, the type of access is
    *   determined by the subclass
    *   @see org.rocksdb.AbstractSlice#data0(long).
    */
@@ -65,7 +75,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    * Creates a string representation of the data
    *
    * @param hex When true, the representation
-   *   will be encoded in hexidecimal.
+   *   will be encoded in hexadecimal.
    *
    * @return The string representation of the data.
    */
@@ -96,13 +106,13 @@ abstract class AbstractSlice<T> extends RocksObject {
   }
 
   /**
-   * If other is a slice, then
-   * we defer to compare to check equality,
-   * otherwise we return false.
+   * If other is a slice object, then
+   * we defer to {@link #compare(AbstractSlice) compare}
+   * to check equality, otherwise we return false.
    *
    * @param other Object to test for equality
    *
-   * @return true when this.compare(other) == 0,
+   * @return true when {@code this.compare(other) == 0},
    *   false otherwise.
    */
   @Override
@@ -115,13 +125,14 @@ abstract class AbstractSlice<T> extends RocksObject {
   }
 
   /**
-   * Determines whether this starts with prefix
+   * Determines whether this slice starts with
+   * another slice
    *
    * @param prefix Another slice which may of may not
-   *   be the prefix of this slice.
+   *   be a prefix of this slice.
    *
-   * @return true when slice `prefix` is a prefix
-   *   of this slice
+   * @return true when this slice starts with the
+   *   {@code prefix} slice
    */
   public boolean startsWith(final AbstractSlice prefix) {
     if (prefix != null) {

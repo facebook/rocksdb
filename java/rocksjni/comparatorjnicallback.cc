@@ -12,11 +12,9 @@
 namespace rocksdb {
 BaseComparatorJniCallback::BaseComparatorJniCallback(
     JNIEnv* env, jobject jComparator,
-    const ComparatorJniCallbackOptions* copt) {
-
-  // mutex is used for synchronisation when we are re-using
-  // the global java slice objects
-  mutex_ = new port::Mutex(copt->use_adaptive_mutex);
+    const ComparatorJniCallbackOptions* copt)
+    : mtx_compare(new port::Mutex(copt->use_adaptive_mutex)),
+    mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)) {
 
   // Note: Comparator methods may be accessed by multiple threads,
   // so we ref the jvm not the env
@@ -57,7 +55,10 @@ const char* BaseComparatorJniCallback::Name() const {
 int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
   JNIEnv* m_env = getJniEnv();
 
-  mutex_->Lock();
+  // TODO(adamretter): slice objects can potentially be cached using thread
+  // local variables to avoid locking. Could make this configurable depending on
+  // performance.
+  mtx_compare->Lock();
 
   AbstractSliceJni::setHandle(m_env, m_jSliceA, &a);
   AbstractSliceJni::setHandle(m_env, m_jSliceB, &b);
@@ -65,7 +66,7 @@ int BaseComparatorJniCallback::Compare(const Slice& a, const Slice& b) const {
     m_env->CallIntMethod(m_jComparator, m_jCompareMethodId, m_jSliceA,
       m_jSliceB);
 
-  mutex_->Unlock();
+  mtx_compare->Unlock();
 
   m_jvm->DetachCurrentThread();
 
@@ -83,14 +84,17 @@ void BaseComparatorJniCallback::FindShortestSeparator(
   const char* startUtf = start->c_str();
   jstring jsStart = m_env->NewStringUTF(startUtf);
 
-  mutex_->Lock();
+  // TODO(adamretter): slice object can potentially be cached using thread local
+  // variable to avoid locking. Could make this configurable depending on
+  // performance.
+  mtx_findShortestSeparator->Lock();
 
   AbstractSliceJni::setHandle(m_env, m_jSliceLimit, &limit);
   jstring jsResultStart =
     (jstring)m_env->CallObjectMethod(m_jComparator,
       m_jFindShortestSeparatorMethodId, jsStart, m_jSliceLimit);
 
-  mutex_->Unlock();
+  mtx_findShortestSeparator->Unlock();
 
   m_env->DeleteLocalRef(jsStart);
 
@@ -120,9 +124,8 @@ void BaseComparatorJniCallback::FindShortSuccessor(std::string* key) const {
   m_env->DeleteLocalRef(jsKey);
 
   if (jsResultKey != nullptr) {
-    // update key with result
-    *key =
-      JniUtil::copyString(m_env, jsResultKey);  // also releases jsResultKey
+    // updates key with result, also releases jsResultKey.
+    *key = JniUtil::copyString(m_env, jsResultKey);
   }
 
   m_jvm->DetachCurrentThread();
@@ -132,9 +135,6 @@ BaseComparatorJniCallback::~BaseComparatorJniCallback() {
   JNIEnv* m_env = getJniEnv();
 
   m_env->DeleteGlobalRef(m_jComparator);
-  m_env->DeleteGlobalRef(m_jSliceA);
-  m_env->DeleteGlobalRef(m_jSliceB);
-  m_env->DeleteGlobalRef(m_jSliceLimit);
 
   // Note: do not need to explicitly detach, as this function is effectively
   // called from the Java class's disposeInternal method, and so already
@@ -151,6 +151,13 @@ ComparatorJniCallback::ComparatorJniCallback(
   m_jSliceLimit = env->NewGlobalRef(SliceJni::construct0(env));
 }
 
+ComparatorJniCallback::~ComparatorJniCallback() {
+  JNIEnv* m_env = getJniEnv();
+  m_env->DeleteGlobalRef(m_jSliceA);
+  m_env->DeleteGlobalRef(m_jSliceB);
+  m_env->DeleteGlobalRef(m_jSliceLimit);
+}
+
 DirectComparatorJniCallback::DirectComparatorJniCallback(
     JNIEnv* env, jobject jComparator,
     const ComparatorJniCallbackOptions* copt) :
@@ -158,5 +165,12 @@ DirectComparatorJniCallback::DirectComparatorJniCallback(
   m_jSliceA = env->NewGlobalRef(DirectSliceJni::construct0(env));
   m_jSliceB = env->NewGlobalRef(DirectSliceJni::construct0(env));
   m_jSliceLimit = env->NewGlobalRef(DirectSliceJni::construct0(env));
+}
+
+DirectComparatorJniCallback::~DirectComparatorJniCallback() {
+  JNIEnv* m_env = getJniEnv();
+  m_env->DeleteGlobalRef(m_jSliceA);
+  m_env->DeleteGlobalRef(m_jSliceB);
+  m_env->DeleteGlobalRef(m_jSliceLimit);
 }
 }  // namespace rocksdb

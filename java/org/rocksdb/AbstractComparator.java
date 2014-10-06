@@ -14,8 +14,22 @@ package org.rocksdb;
  *   @see org.rocksdb.Comparator
  *   @see org.rocksdb.DirectComparator
  */
-public abstract class AbstractComparator<T extends AbstractSlice> extends RocksObject {
+public abstract class AbstractComparator<T extends AbstractSlice>
+    extends RocksObject {
 
+  /**
+   * The name of the comparator.  Used to check for comparator
+   * mismatches (i.e., a DB created with one comparator is
+   * accessed using a different comparator).
+   *
+   * A new name should be used whenever
+   * the comparator implementation changes in a way that will cause
+   * the relative ordering of any two keys to change.
+   *
+   * Names starting with "rocksdb." are reserved and should not be used.
+   *
+   * @return The name of this comparator implementation
+   */
   public abstract String name();
 
   /**
