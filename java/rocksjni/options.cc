@@ -73,11 +73,13 @@ void Java_org_rocksdb_Options_setBuiltinComparator(
     JNIEnv* env, jobject jobj, jlong jhandle, jint builtinComparator) {
   switch (builtinComparator){
     case 1:
-    	reinterpret_cast<rocksdb::Options*>(jhandle)->comparator = rocksdb::ReverseBytewiseComparator();
-    	break;
+      reinterpret_cast<rocksdb::Options*>(jhandle)->comparator =
+          rocksdb::ReverseBytewiseComparator();
+      break;
     default:
-    	reinterpret_cast<rocksdb::Options*>(jhandle)->comparator = rocksdb::BytewiseComparator();
-	break;
+      reinterpret_cast<rocksdb::Options*>(jhandle)->comparator =
+          rocksdb::BytewiseComparator();
+      break;
   }
 }
 

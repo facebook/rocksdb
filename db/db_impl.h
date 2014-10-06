@@ -419,6 +419,7 @@ class DBImpl : public DB {
     Iterator* input,
     CompactionState* compact,
     bool is_compaction_v2,
+    int* num_output_records,
     LogBuffer* log_buffer);
 
   // Call compaction_filter_v2->Filter() on kv-pairs in compact

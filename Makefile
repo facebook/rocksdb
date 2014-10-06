@@ -154,7 +154,7 @@ TOOLS = \
   options_test \
 	blob_store_bench
 
-PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench cache_bench $(TOOLS)
+PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench cache_bench perf_context_test $(TOOLS)
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.

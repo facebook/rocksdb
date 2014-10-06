@@ -11,9 +11,13 @@ package org.rocksdb;
  * Note that dispose() must be called before this instance become out-of-scope
  * to release the allocated memory in c++.
  *
- * @param options Instance of BackupableDBOptions.
  */
 public class RestoreBackupableDB extends RocksObject {
+  /**
+   * Constructor
+   *
+   * @param options {@link org.rocksdb.BackupableDBOptions} instance
+   */
   public RestoreBackupableDB(BackupableDBOptions options) {
     super();
     nativeHandle_ = newRestoreBackupableDB(options.nativeHandle_);
@@ -30,6 +34,12 @@ public class RestoreBackupableDB extends RocksObject {
    * database will diverge from backups 4 and 5 and the new backup will fail.
    * If you want to create new backup, you will first have to delete backups 4
    * and 5.
+   *
+   * @param backupId id pointing to backup
+   * @param dbDir database directory to restore to
+   * @param walDir directory where wal files are located
+   * @param restoreOptions {@link org.rocksdb.RestoreOptions} instance
+   * @throws RocksDBException
    */
   public void restoreDBFromBackup(long backupId, String dbDir, String walDir,
       RestoreOptions restoreOptions) throws RocksDBException {
@@ -39,6 +49,11 @@ public class RestoreBackupableDB extends RocksObject {
 
   /**
    * Restore from the latest backup.
+   *
+   * @param dbDir database directory to restore to
+   * @param walDir directory where wal files are located
+   * @param restoreOptions {@link org.rocksdb.RestoreOptions} instance
+   * @throws RocksDBException
    */
   public void restoreDBFromLatestBackup(String dbDir, String walDir,
       RestoreOptions restoreOptions) throws RocksDBException {
@@ -49,7 +64,7 @@ public class RestoreBackupableDB extends RocksObject {
   /**
    * Deletes old backups, keeping latest numBackupsToKeep alive.
    *
-   * @param Number of latest backups to keep
+   * @param numBackupsToKeep of latest backups to keep
    */
   public void purgeOldBackups(int numBackupsToKeep) throws RocksDBException {
     purgeOldBackups0(nativeHandle_, numBackupsToKeep);
@@ -58,7 +73,7 @@ public class RestoreBackupableDB extends RocksObject {
   /**
    * Deletes a specific backup.
    *
-   * @param ID of backup to delete.
+   * @param backupId of backup to delete.
    */
   public void deleteBackup(long backupId) throws RocksDBException {
     deleteBackup0(nativeHandle_, backupId);

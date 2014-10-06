@@ -9,7 +9,7 @@ public enum CompactionStyle {
   LEVEL((byte) 0),
   UNIVERSAL((byte) 1),
   FIFO((byte) 2);
-  
+
   private final byte value_;
 
   private CompactionStyle(byte value) {

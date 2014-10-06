@@ -64,7 +64,7 @@ public class ReadOptions extends RocksObject {
   private native boolean fillCache(long handle);
 
   /**
-   * Fill the cache when loading the block-based sst formated db.
+   * Fill the cache when loading the block-based sst formatted db.
    * Callers may wish to set this field to false for bulk scans.
    * Default: true
    *
@@ -86,7 +86,8 @@ public class ReadOptions extends RocksObject {
    * added data) and is optimized for sequential reads. It will return records
    * that were inserted into the database after the creation of the iterator.
    * Default: false
-   * Not supported in ROCKSDB_LITE mode!
+   *
+   * Not supported in {@code ROCKSDB_LITE} mode!
    *
    * @return true if tailing iterator is enabled.
    */

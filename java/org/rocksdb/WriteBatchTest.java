@@ -53,9 +53,9 @@ public class WriteBatchTest {
       WriteBatchInternal.setSequence(batch, 100);
       assert(100 == WriteBatchInternal.sequence(batch));
       assert(3 == batch.count());
-      assert(new String("Put(baz, boo)@102" +
-                        "Delete(box)@101" +
-                        "Put(foo, bar)@100")
+      assert(("Put(baz, boo)@102" +
+              "Delete(box)@101" +
+              "Put(foo, bar)@100")
                 .equals(new String(getContents(batch), "US-ASCII")));
     } catch (UnsupportedEncodingException e) {
       System.err.println(e);
@@ -79,16 +79,16 @@ public class WriteBatchTest {
       b2.clear();
       b2.put("b".getBytes("US-ASCII"), "vb".getBytes("US-ASCII"));
       WriteBatchInternal.append(b1, b2);
-      assert(new String("Put(a, va)@200" +
-                        "Put(b, vb)@201")
+      assert(("Put(a, va)@200" +
+              "Put(b, vb)@201")
                 .equals(new String(getContents(b1), "US-ASCII")));
       assert(2 == b1.count());
       b2.remove("foo".getBytes("US-ASCII"));
       WriteBatchInternal.append(b1, b2);
-      assert(new String("Put(a, va)@200" +
-                        "Put(b, vb)@202" +
-                        "Put(b, vb)@201" +
-                        "Delete(foo)@203")
+      assert(("Put(a, va)@200" +
+              "Put(b, vb)@202" +
+              "Put(b, vb)@201" +
+              "Delete(foo)@203")
                  .equals(new String(getContents(b1), "US-ASCII")));
       assert(4 == b1.count());
     } catch (UnsupportedEncodingException e) {
@@ -108,11 +108,11 @@ public class WriteBatchTest {
       batch.putLogData("blob2".getBytes("US-ASCII"));
       batch.merge("foo".getBytes("US-ASCII"), "bar".getBytes("US-ASCII"));
       assert(5 == batch.count());
-      assert(new String("Merge(foo, bar)@4" +
-                        "Put(k1, v1)@0" +
-                        "Delete(k2)@3" +
-                        "Put(k2, v2)@1" +
-                        "Put(k3, v3)@2")
+      assert(("Merge(foo, bar)@4" +
+              "Put(k1, v1)@0" +
+              "Delete(k2)@3" +
+              "Put(k2, v2)@1" +
+              "Put(k3, v3)@2")
                 .equals(new String(getContents(batch), "US-ASCII")));
     } catch (UnsupportedEncodingException e) {
       System.err.println(e);
