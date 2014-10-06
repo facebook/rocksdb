@@ -235,27 +235,9 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   }
 }
 
-class ReverseComparator : public Comparator {
- public:
-  ReverseComparator() {}
-
-  virtual const char* Name() const override {
-    return "rocksdb.ReverseComparator";
-  }
-
-  virtual int Compare(const Slice& a, const Slice& b) const override {
-    return 0 - BytewiseComparator()->Compare(a, b);
-  }
-
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
-  virtual void FindShortSuccessor(std::string* key) const {}
-};
-
 TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
-  ReverseComparator reverse_cmp;
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
-  ColumnFamilyHandleImplDummy reverse_cf(66, &reverse_cmp);
+  ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20);
 
