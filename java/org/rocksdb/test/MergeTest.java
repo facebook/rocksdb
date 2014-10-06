@@ -9,80 +9,77 @@ import java.util.Collections;
 import org.rocksdb.*;
 
 public class MergeTest {
-  static final String db_path_string = "/tmp/mergestringjni_db";
-  static final String db_path_function = "/tmp/mergefunctionjni_db";
-  static {
-	RocksDB.loadLibrary();
-  }
+        static final String db_path_string = "/tmp/mergestringjni_db";
+        static final String db_path_function = "/tmp/mergefunctionjni_db";
+        static {
+                RocksDB.loadLibrary();
+        }
 
-  public static void testStringOption()
-	  throws InterruptedException, RocksDBException {
+        public static void testStringOption()
+                throws InterruptedException, RocksDBException {
 
-	System.out.println("Testing merge function string option ===");
+                System.out.println("Testing merge function string option ===");
 
-	Options opt = new Options();
-	opt.setCreateIfMissing(true);
-	opt.setMergeOperatorName("stringappend");
+                Options opt = new Options();
+                opt.setCreateIfMissing(true);
+                opt.setMergeOperatorName("stringappend");
 
-	RocksDB db = RocksDB.open(opt, db_path_string);
+                RocksDB db = RocksDB.open(opt, db_path_string);
 
-	System.out.println("Writing aa under key...");
-	db.put("key".getBytes(), "aa".getBytes());
+                System.out.println("Writing aa under key...");
+                db.put("key".getBytes(), "aa".getBytes());
 
-	System.out.println("Writing bb under key...");
-	db.merge("key".getBytes(), "bb".getBytes());
+                System.out.println("Writing bb under key...");
+                db.merge("key".getBytes(), "bb".getBytes());
 
-	byte[] value = db.get("key".getBytes());
-	String strValue = new String(value);
+                byte[] value = db.get("key".getBytes());
+                String strValue = new String(value);
 
-	System.out.println("Retrieved value: " + strValue);
+                System.out.println("Retrieved value: " + strValue);
 
-	db.close();
-	opt.dispose();
+                db.close();
+                opt.dispose();
 
-	assert(strValue.equals("aa,bb"));
+                assert(strValue.equals("aa,bb"));
 
-	System.out.println("Merge function string option passed!");
+                System.out.println("Merge function string option passed!");
+        }
 
-  }
+        public static void testOperatorOption()
+                throws InterruptedException, RocksDBException {
 
-  public static void testOperatorOption()
-	  throws InterruptedException, RocksDBException {
+                System.out.println("Testing merge function operator option ===");
 
-	System.out.println("Testing merge function operator option ===");
+                Options opt = new Options();
+                opt.setCreateIfMissing(true);
 
-	Options opt = new Options();
-	opt.setCreateIfMissing(true);
+                StringAppendOperator stringAppendOperator = new StringAppendOperator();
+                opt.setMergeOperator(stringAppendOperator);
 
-	StringAppendOperator stringAppendOperator = new StringAppendOperator();
-	opt.setMergeOperator(stringAppendOperator);
+                RocksDB db = RocksDB.open(opt, db_path_string);
 
-	RocksDB db = RocksDB.open(opt, db_path_string);
+                System.out.println("Writing aa under key...");
+                db.put("key".getBytes(), "aa".getBytes());
 
-	System.out.println("Writing aa under key...");
-	db.put("key".getBytes(), "aa".getBytes());
+                System.out.println("Writing bb under key...");
+                db.merge("key".getBytes(), "bb".getBytes());
 
-	System.out.println("Writing bb under key...");
-	db.merge("key".getBytes(), "bb".getBytes());
+                byte[] value = db.get("key".getBytes());
+                String strValue = new String(value);
 
-	byte[] value = db.get("key".getBytes());
-	String strValue = new String(value);
+                System.out.println("Retrieved value: " + strValue);
 
-	System.out.println("Retrieved value: " + strValue);
+                db.close();
+                opt.dispose();
 
-	db.close();
-	opt.dispose();
+                assert(strValue.equals("aa,bb"));
 
-	assert(strValue.equals("aa,bb"));
+                System.out.println("Merge function operator option passed!");
+        }
 
-	System.out.println("Merge function operator option passed!");
-
-  }
-
-  public static void main(String[] args)
-	  throws InterruptedException, RocksDBException {
-	testStringOption();
-	testOperatorOption();
-
-  }
+        public static void main(String[] args)
+                throws InterruptedException, RocksDBException {
+                testStringOption();
+                testOperatorOption();
+        }
 }

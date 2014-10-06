@@ -6,16 +6,12 @@
 package org.rocksdb;
 
 /**
- * MergeOperator holds an operator to be applied when compacting
- * two values held under the same key in order to obtain a single
- * value.
+ * StringAppendOperator is a merge operator that concatenates
+ * two strings.
  */
-public class StringAppendOperator extends MergeOperator {
-
-	@Override protected long newMergeOperatorHandle() {
-		return newMergeOperatorHandleImpl();
-	}
-
+public class StringAppendOperator implements MergeOperator {
+    @Override public long newMergeOperatorHandle() {
+        return newMergeOperatorHandleImpl();
+    }
     private native long newMergeOperatorHandleImpl();
-
 }

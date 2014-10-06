@@ -473,7 +473,7 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Set the database entry for "key" to "value".
+   * Add merge operand for key/value pair.
    *
    * @param key the specified key to be merged.
    * @param value the value to be nerged with the current value for
@@ -484,8 +484,9 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Merge the database entry for "key" with "value".
+   * Add merge operand for key/value pair.
    *
+   * @param writeOpts {@link WriteOptions} for this write.
    * @param key the specified key to be merged.
    * @param value the value to be merged with the current value for
    * the specified key.

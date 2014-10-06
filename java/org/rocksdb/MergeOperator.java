@@ -9,11 +9,9 @@ import java.util.*;
 
 /**
  * MergeOperator holds an operator to be applied when compacting
- * two values held under the same key in order to obtain a single
+ * two merge operands held under the same key in order to obtain a single
  * value.
  */
-public abstract class MergeOperator {
-
-    abstract protected long newMergeOperatorHandle();
-
+public interface MergeOperator {
+    public long newMergeOperatorHandle();
 }

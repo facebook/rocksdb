@@ -3,7 +3,8 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 //
-// This file implements the "bridge" between Java and C++ for rocksdb::MergeOperator.
+// This file implements the "bridge" between Java and C++
+// for rocksdb::MergeOperator.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,9 +28,10 @@
  * Method:    newMergeOperatorHandle
  * Signature: ()J
  */
-jlong Java_org_rocksdb_StringAppendOperator_newMergeOperatorHandleImpl(JNIEnv* env, jobject jobj) {
-  std::shared_ptr<rocksdb::MergeOperator> *op = new std::shared_ptr<rocksdb::MergeOperator>();
+jlong Java_org_rocksdb_StringAppendOperator_newMergeOperatorHandleImpl
+(JNIEnv* env, jobject jobj) {
+  std::shared_ptr<rocksdb::MergeOperator> *op =
+    new std::shared_ptr<rocksdb::MergeOperator>();
   *op = rocksdb::MergeOperators::CreateFromStringId("stringappend");
   return reinterpret_cast<jlong>(op);
 }
-
