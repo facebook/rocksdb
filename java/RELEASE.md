@@ -45,11 +45,7 @@ Then update rocksjni.pom's version tag to reflect the release version.
 
 From RocksDB's root directory, first build the Java static JARs:
 
-    make jclean clean rocksdbjavastaticrelease
-
-Then publish the release to Sonatype:
-
-    make rocksdbjavastaticpublish
+    make jclean clean rocksdbjavastaticpublish
 
 This command will [stage the JAR artifacts on the Sonatype staging repository](http://central.sonatype.org/pages/manual-staging-bundle-creation-and-deployment.html). To release the staged artifacts.
 
