@@ -18,12 +18,14 @@
 
 /*
  * Class:     org_rocksdb_BloomFilter
- * Method:    createNewFilter0
- * Signature: (I)V
+ * Method:    createBloomFilter
+ * Signature: (IZ)V
  */
-void Java_org_rocksdb_BloomFilter_createNewFilter0(
-    JNIEnv* env, jobject jobj, jint bits_per_key) {
-  const rocksdb::FilterPolicy* fp = rocksdb::NewBloomFilterPolicy(bits_per_key);
+void Java_org_rocksdb_BloomFilter_createNewBloomFilter(
+    JNIEnv* env, jobject jobj, jint bits_per_key,
+    jboolean use_block_base_builder) {
+  const rocksdb::FilterPolicy* fp = rocksdb::NewBloomFilterPolicy(bits_per_key,
+       use_block_base_builder);
   rocksdb::FilterJni::setHandle(env, jobj, fp);
 }
 
