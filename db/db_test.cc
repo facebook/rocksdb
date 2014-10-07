@@ -8538,6 +8538,57 @@ TEST(DBTest, DisableDataSyncTest) {
   }
 }
 
+TEST(DBTest, DynamicMemtableOptions) {
+  const uint64_t k64KB = 1 << 16;
+  const uint64_t k128KB = 1 << 17;
+  const uint64_t k5KB = 5 * 1024;
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.compression = kNoCompression;
+  options.max_background_compactions = 4;
+  options.max_mem_compaction_level = 0;
+  options.write_buffer_size = k64KB;
+  options.max_write_buffer_number = 2;
+  // Don't trigger compact/slowdown/stop
+  options.level0_file_num_compaction_trigger = 1024;
+  options.level0_slowdown_writes_trigger = 1024;
+  options.level0_stop_writes_trigger = 1024;
+  DestroyAndReopen(&options);
+
+  auto gen_l0_kb = [this](int size) {
+    Random rnd(301);
+    std::vector<std::string> values;
+    for (int i = 0; i < size; i++) {
+      values.push_back(RandomString(&rnd, 1024));
+      ASSERT_OK(Put(Key(i), values[i]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+  };
+
+  gen_l0_kb(64);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  ASSERT_TRUE(SizeAtLevel(0) < k64KB + k5KB);
+  ASSERT_TRUE(SizeAtLevel(0) > k64KB - k5KB);
+
+  // Clean up L0
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  // Increase buffer size
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"write_buffer_size", "131072"},
+  }));
+
+  // The existing memtable is still 64KB in size, after it becomes immutable,
+  // the next memtable will be 128KB in size. Write 256KB total, we should
+  // have a 64KB L0 file, a 128KB L0 file, and a memtable with 64KB data
+  gen_l0_kb(256);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_TRUE(SizeAtLevel(0) < k128KB + k64KB + 2 * k5KB);
+  ASSERT_TRUE(SizeAtLevel(0) > k128KB + k64KB - 2 * k5KB);
+}
+
 TEST(DBTest, DynamicCompactionOptions) {
   const uint64_t k64KB = 1 << 16;
   const uint64_t k128KB = 1 << 17;
