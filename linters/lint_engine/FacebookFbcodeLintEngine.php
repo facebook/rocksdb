@@ -44,10 +44,6 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
     if (!$this->getCommitHookMode()) {
       $cpp_linters = array();
       $google_linter = new ArcanistCpplintLinter();
-      $google_linter->setConfig(array(
-        'lint.cpplint.prefix' => '',
-        'lint.cpplint.bin' => 'cpplint',
-      ));
       $cpp_linters[] = $linters[] = $google_linter;
       $cpp_linters[] = $linters[] = new FbcodeCppLinter();
       $cpp_linters[] = $linters[] = new PfffCppLinter();
