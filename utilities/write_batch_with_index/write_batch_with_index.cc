@@ -10,6 +10,7 @@
 #include "util/arena.h"
 
 namespace rocksdb {
+
 class ReadableWriteBatch : public WriteBatch {
  public:
   explicit ReadableWriteBatch(size_t reserved_bytes = 0)
@@ -120,7 +121,6 @@ class WBWIIteratorImpl : public WBWIIterator {
     }
   }
 };
-}  // namespace
 
 struct WriteBatchWithIndex::Rep {
   Rep(const Comparator* index_comparator, size_t reserved_bytes = 0)
