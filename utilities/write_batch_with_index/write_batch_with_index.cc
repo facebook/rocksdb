@@ -10,7 +10,6 @@
 #include "util/arena.h"
 
 namespace rocksdb {
-namespace {
 class ReadableWriteBatch : public WriteBatch {
  public:
   explicit ReadableWriteBatch(size_t reserved_bytes = 0)
