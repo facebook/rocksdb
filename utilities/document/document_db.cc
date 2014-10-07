@@ -385,13 +385,13 @@ class SimpleSortedIndex : public Index {
       override {
     auto value = document.Get(field_);
     if (value == nullptr) {
-      // null
       if (!EncodeJSONPrimitive(JSONDocument(JSONDocument::kNull), key)) {
         assert(false);
       }
-    }
-    if (!EncodeJSONPrimitive(*value, key)) {
-      assert(false);
+    } else {
+      if (!EncodeJSONPrimitive(*value, key)) {
+        assert(false);
+      }
     }
   }
   virtual const Comparator* GetComparator() const override {
