@@ -6,7 +6,17 @@
 package org.rocksdb;
 
 /**
- * BloomFilter
+ * Bloom filter policy that uses a bloom filter with approximately
+ * the specified number of bits per key.
+ *
+ * <p>
+ * Note: if you are using a custom comparator that ignores some parts
+ * of the keys being compared, you must not use this {@code BloomFilter}
+ * and must provide your own FilterPolicy that also ignores the
+ * corresponding parts of the keys. For example, if the comparator
+ * ignores trailing spaces, it would be incorrect to use a
+ * FilterPolicy (like {@code BloomFilter}) that does not ignore
+ * trailing spaces in keys.</p>
  */
 public class BloomFilter extends Filter {
 
@@ -16,57 +26,26 @@ public class BloomFilter extends Filter {
   private final boolean useBlockBasedMode_;
 
   /**
-   * Bloom filter policy that uses a bloom filter with approximately
-   * the specified number of bits per key.
+   * BloomFilter constructor
    *
-   * <p>
-   * bits_per_key: bits per key in bloom filter. A good value for bits_per_key
-   * is 10, which yields a filter with ~ 1% false positive rate.
-   * <p><strong>default bits_per_key</strong>: 10</p>
-   * </p>
-   * <p>use_block_based_builder: use block based filter rather than full filter.
-   * If you want to builder full filter, it needs to be set to false.
-   * </p>
-   * <p><strong>default mode: block based filter</strong></p>
    * <p>
    * Callers must delete the result after any database that is using the
    * result has been closed.</p>
-   * <p>
-   * Note: if you are using a custom comparator that ignores some parts
-   * of the keys being compared, you must not use this {@code BloomFilter}
-   * and must provide your own FilterPolicy that also ignores the
-   * corresponding parts of the keys. For example, if the comparator
-   * ignores trailing spaces, it would be incorrect to use a
-   * FilterPolicy (like {@code BloomFilter}) that does not ignore
-   * trailing spaces in keys.</p>
    */
   public BloomFilter() {
     this(DEFAULT_BITS_PER_KEY, DEFAULT_MODE);
   }
 
   /**
-   * Bloom filter policy that uses a bloom filter with approximately
-   * the specified number of bits per key.
+   * BloomFilter constructor
    *
    * <p>
    * bits_per_key: bits per key in bloom filter. A good value for bits_per_key
    * is 10, which yields a filter with ~ 1% false positive rate.
    * </p>
-   * <p>use_block_based_builder: use block based filter rather than full filter.
-   * If you want to builder full filter, it needs to be set to false.
-   * </p>
-   * <p><strong>default mode: block based filter</strong></p>
    * <p>
    * Callers must delete the result after any database that is using the
    * result has been closed.</p>
-   * <p>
-   * Note: if you are using a custom comparator that ignores some parts
-   * of the keys being compared, you must not use this {@code BloomFilter}
-   * and must provide your own FilterPolicy that also ignores the
-   * corresponding parts of the keys. For example, if the comparator
-   * ignores trailing spaces, it would be incorrect to use a
-   * FilterPolicy (like {@code BloomFilter}) that does not ignore
-   * trailing spaces in keys.</p>
    *
    * @param bitsPerKey number of bits to use
    */
@@ -75,8 +54,7 @@ public class BloomFilter extends Filter {
   }
 
   /**
-   * Bloom filter policy that uses a bloom filter with approximately
-   * the specified number of bits per key.
+   * BloomFilter constructor
    *
    * <p>
    * bits_per_key: bits per key in bloom filter. A good value for bits_per_key
@@ -90,14 +68,6 @@ public class BloomFilter extends Filter {
    * <p>
    * Callers must delete the result after any database that is using the
    * result has been closed.</p>
-   * <p>
-   * Note: if you are using a custom comparator that ignores some parts
-   * of the keys being compared, you must not use this {@code BloomFilter}
-   * and must provide your own FilterPolicy that also ignores the
-   * corresponding parts of the keys. For example, if the comparator
-   * ignores trailing spaces, it would be incorrect to use a
-   * FilterPolicy (like {@code BloomFilter}) that does not ignore
-   * trailing spaces in keys.</p>
    *
    * @param bitsPerKey number of bits to use
    * @param useBlockBasedMode use block based mode or full filter mode
