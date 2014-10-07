@@ -49,6 +49,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/version.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -75,7 +76,7 @@ namespace rocksdb {
 
 const std::string kDefaultColumnFamilyName("default");
 
-void DumpLeveldbBuildVersion(Logger * log);
+void DumpRocksDBBuildVersion(Logger * log);
 
 struct DBImpl::WriteContext {
   autovector<SuperVersion*> superversions_to_free_;
@@ -364,7 +365,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   column_family_memtables_.reset(new ColumnFamilyMemTablesImpl(
       versions_->GetColumnFamilySet(), &flush_scheduler_));
 
-  DumpLeveldbBuildVersion(db_options_.info_log.get());
+  DumpRocksDBBuildVersion(db_options_.info_log.get());
   DumpDBFileSummary(db_options_, dbname_);
   db_options_.Dump(db_options_.info_log.get());
 
@@ -4883,9 +4884,12 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 
 //
 // A global method that can dump out the build version
-void DumpLeveldbBuildVersion(Logger * log) {
+void DumpRocksDBBuildVersion(Logger * log) {
 #if !defined(IOS_CROSS_COMPILE)
-  // if we compile with Xcode, we don't run build_detect_vesion, so we don't generate util/build_version.cc
+  // if we compile with Xcode, we don't run build_detect_vesion, so we don't
+  // generate util/build_version.cc
+  Log(log, "RocksDB version: %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
+      ROCKSDB_PATCH);
   Log(log, "Git sha %s", rocksdb_build_git_sha);
   Log(log, "Compile time %s %s",
       rocksdb_build_compile_time, rocksdb_build_compile_date);
