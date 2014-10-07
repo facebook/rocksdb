@@ -34,4 +34,7 @@ tags
 java/*.log
 java/include/org_rocksdb_*.h
 unity.cc
+java/crossbuild/.vagrant
 .vagrant/
+java/**.asc
+java/javadoc

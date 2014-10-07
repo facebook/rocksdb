@@ -1,16 +1,16 @@
 package org.rocksdb;
 
 import java.io.*;
-
+import org.rocksdb.util.Environment;
 
 /**
  * This class is used to load the RocksDB shared library from within the jar.
  * The shared library is extracted to a temp folder and loaded from there.
  */
 public class NativeLibraryLoader {
-  private static String sharedLibraryName = "librocksdbjni.so";
+  private static String sharedLibraryName = Environment.getJniLibraryName("rocksdb");
   private static String tempFilePrefix = "librocksdbjni";
-  private static String tempFileSuffix = ".so";
+  private static String tempFileSuffix = "." + Environment.getJniLibraryExtension();
 
   public static void loadLibraryFromJar(String tmpDir)
       throws IOException {
