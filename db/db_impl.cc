@@ -4163,15 +4163,19 @@ void DBImpl::BuildBatchGroup(Writer** last_writer,
       break;
     }
 
-    if (w->batch != nullptr) {
-      size += WriteBatchInternal::ByteSize(w->batch);
-      if (size > max_size) {
-        // Do not make batch too big
-        break;
-      }
-
-      write_batch_group->push_back(w->batch);
+    if (w->batch == nullptr) {
+      // Do not include those writes with nullptr batch. Those are not writes,
+      // those are something else. They want to be alone
+      break;
     }
+
+    size += WriteBatchInternal::ByteSize(w->batch);
+    if (size > max_size) {
+      // Do not make batch too big
+      break;
+    }
+
+    write_batch_group->push_back(w->batch);
     w->in_batch_group = true;
     *last_writer = w;
   }
