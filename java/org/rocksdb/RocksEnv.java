@@ -25,7 +25,7 @@ public class RocksEnv extends RocksObject {
    * <p>Returns the default environment suitable for the current operating
    * system.</p>
    *
-   * <p>The result of {@see #getDefault()} is a singleton whose ownership
+   * <p>The result of {@code getDefault()} is a singleton whose ownership
    * belongs to rocksdb c++.  As a result, the returned RocksEnv will not
    * have the ownership of its c++ resource, and calling its dispose()
    * will be no-op.</p>
@@ -79,7 +79,7 @@ public class RocksEnv extends RocksObject {
    * <p>Note that the ownership of the input handle
    * belongs to the caller, and the newly created RocksEnv will not take
    * the ownership of the input handle.  As a result, calling
-   * {@see #dispose()} of the created RocksEnv will be no-op.</p>
+   * {@code dispose()} of the created RocksEnv will be no-op.</p>
    */
   RocksEnv(long handle) {
     super();
