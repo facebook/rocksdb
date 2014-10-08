@@ -13,13 +13,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Helper class to collect DB statistics periodically at a period specified in
+ * <p>Helper class to collect DB statistics periodically at a period specified in
  * constructor. Callback function (provided in constructor) is called with
- * every statistics collection.
+ * every statistics collection.</p>
  *
- * Caller should call start() to start statistics collection. Shutdown() should
+ * <p>Caller should call start() to start statistics collection. Shutdown() should
  * be called to stop stats collection and should be called before statistics (
- * provided in constructor) reference has been disposed.
+ * provided in constructor) reference has been disposed.</p>
  */
 public class StatisticsCollector {
   private final List<StatsCollectorInput> _statsCollectorInputList;
