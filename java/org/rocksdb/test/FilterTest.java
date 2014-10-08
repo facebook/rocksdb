@@ -22,6 +22,10 @@ public class FilterTest {
     blockConfig = new BlockBasedTableConfig();
     blockConfig.setFilter(new BloomFilter());
     options.setTableFormatConfig(blockConfig);
+    blockConfig.setFilter(new BloomFilter(10));
+    options.setTableFormatConfig(blockConfig);
+    blockConfig.setFilter(new BloomFilter(10, false));
+    options.setTableFormatConfig(blockConfig);
     System.out.println("Filter test passed");
   }
 }
