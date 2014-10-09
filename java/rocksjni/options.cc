@@ -71,7 +71,7 @@ jboolean Java_org_rocksdb_Options_createIfMissing(
  */
 void Java_org_rocksdb_Options_setBuiltinComparator(
     JNIEnv* env, jobject jobj, jlong jhandle, jint builtinComparator) {
-  switch (builtinComparator){
+  switch (builtinComparator) {
     case 1:
       reinterpret_cast<rocksdb::Options*>(jhandle)->comparator =
           rocksdb::ReverseBytewiseComparator();
@@ -90,10 +90,14 @@ void Java_org_rocksdb_Options_setBuiltinComparator(
  */
 void Java_org_rocksdb_Options_setWriteBufferSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jwrite_buffer_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
-          rocksdb::jlong_to_size_t(jwrite_buffer_size);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jwrite_buffer_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
+        jwrite_buffer_size;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
-
 
 /*
  * Class:     org_rocksdb_Options
@@ -382,8 +386,13 @@ jlong Java_org_rocksdb_Options_maxLogFileSize(
  */
 void Java_org_rocksdb_Options_setMaxLogFileSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong max_log_file_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->max_log_file_size =
-      rocksdb::jlong_to_size_t(max_log_file_size);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(max_log_file_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->max_log_file_size =
+        max_log_file_size;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -403,8 +412,14 @@ jlong Java_org_rocksdb_Options_logFileTimeToRoll(
  */
 void Java_org_rocksdb_Options_setLogFileTimeToRoll(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong log_file_time_to_roll) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->log_file_time_to_roll =
-      rocksdb::jlong_to_size_t(log_file_time_to_roll);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(
+      log_file_time_to_roll);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->log_file_time_to_roll =
+        log_file_time_to_roll;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -424,8 +439,13 @@ jlong Java_org_rocksdb_Options_keepLogFileNum(
  */
 void Java_org_rocksdb_Options_setKeepLogFileNum(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong keep_log_file_num) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->keep_log_file_num =
-      rocksdb::jlong_to_size_t(keep_log_file_num);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(keep_log_file_num);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->keep_log_file_num =
+        keep_log_file_num;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -542,7 +562,7 @@ void Java_org_rocksdb_Options_useFixedLengthPrefixExtractor(
     JNIEnv* env, jobject jobj, jlong jhandle, jint jprefix_length) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->prefix_extractor.reset(
       rocksdb::NewFixedPrefixTransform(
-          rocksdb::jlong_to_size_t(jprefix_length)));
+          static_cast<int>(jprefix_length)));
 }
 
 /*
@@ -605,8 +625,13 @@ jlong Java_org_rocksdb_Options_manifestPreallocationSize(
  */
 void Java_org_rocksdb_Options_setManifestPreallocationSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong preallocation_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->manifest_preallocation_size =
-      rocksdb::jlong_to_size_t(preallocation_size);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(preallocation_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->manifest_preallocation_size =
+        preallocation_size;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -1256,8 +1281,13 @@ jlong Java_org_rocksdb_Options_arenaBlockSize(
  */
 void Java_org_rocksdb_Options_setArenaBlockSize(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jarena_block_size) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->arena_block_size =
-      rocksdb::jlong_to_size_t(jarena_block_size);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jarena_block_size);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->arena_block_size =
+        jarena_block_size;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -1420,9 +1450,14 @@ jlong Java_org_rocksdb_Options_inplaceUpdateNumLocks(
 void Java_org_rocksdb_Options_setInplaceUpdateNumLocks(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jlong jinplace_update_num_locks) {
-  reinterpret_cast<rocksdb::Options*>(
-      jhandle)->inplace_update_num_locks =
-          rocksdb::jlong_to_size_t(jinplace_update_num_locks);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(
+      jinplace_update_num_locks);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->inplace_update_num_locks =
+        jinplace_update_num_locks;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*
@@ -1512,8 +1547,14 @@ jlong Java_org_rocksdb_Options_maxSuccessiveMerges(
 void Java_org_rocksdb_Options_setMaxSuccessiveMerges(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jlong jmax_successive_merges) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->max_successive_merges =
-      rocksdb::jlong_to_size_t(jmax_successive_merges);
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(
+      jmax_successive_merges);
+  if (s.ok()) {
+    reinterpret_cast<rocksdb::Options*>(jhandle)->max_successive_merges =
+        jmax_successive_merges;
+  } else {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
 }
 
 /*

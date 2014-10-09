@@ -14,7 +14,7 @@ public class StatisticsCollectorTest {
     RocksDB.loadLibrary();
   }
 
-  public static void main(String[] args) 
+  public static void main(String[] args)
       throws InterruptedException, RocksDBException {
     Options opt = new Options().createStatistics().setCreateIfMissing(true);
     Statistics stats = opt.statisticsPtr();
@@ -23,7 +23,7 @@ public class StatisticsCollectorTest {
 
     StatsCallbackMock callback = new StatsCallbackMock();
     StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);
-    
+
     StatisticsCollector statsCollector = new StatisticsCollector(
         Collections.singletonList(statsInput), 100);
     statsCollector.start();

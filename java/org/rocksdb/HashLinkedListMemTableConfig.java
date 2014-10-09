@@ -42,11 +42,13 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
     return bucketCount_;
   }
 
-  @Override protected long newMemTableFactoryHandle() {
+  @Override protected long newMemTableFactoryHandle()
+       throws RocksDBException {
     return newMemTableFactoryHandle(bucketCount_);
   }
 
-  private native long newMemTableFactoryHandle(long bucketCount);
+  private native long newMemTableFactoryHandle(long bucketCount)
+      throws RocksDBException;
 
   private long bucketCount_;
 }

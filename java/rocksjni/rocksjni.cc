@@ -246,7 +246,7 @@ jobject multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
       jkey_list, rocksdb::ListJni::getIteratorMethod(env));
 
   // iterate over keys and convert java byte array to slice
-  while(env->CallBooleanMethod(
+  while (env->CallBooleanMethod(
       iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
     jbyteArray jkey = (jbyteArray) env->CallObjectMethod(
        iteratorObj, rocksdb::ListJni::getNextMethod(env));
@@ -272,23 +272,22 @@ jobject multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
   jobject jvalue_list = env->NewObject(jclazz, mid, jkeys_count);
 
   // insert in java list
-  for(std::vector<rocksdb::Status>::size_type i = 0; i != s.size(); i++) {
-    if(s[i].ok()) {
+  for (std::vector<rocksdb::Status>::size_type i = 0; i != s.size(); i++) {
+    if (s[i].ok()) {
       jbyteArray jvalue = env->NewByteArray(values[i].size());
       env->SetByteArrayRegion(
           jvalue, 0, values[i].size(),
           reinterpret_cast<const jbyte*>(values[i].c_str()));
       env->CallBooleanMethod(
           jvalue_list, rocksdb::ListJni::getListAddMethodId(env), jvalue);
-    }
-    else {
+    } else {
       env->CallBooleanMethod(
           jvalue_list, rocksdb::ListJni::getListAddMethodId(env), nullptr);
     }
   }
 
   // free up allocated byte arrays
-  for(std::vector<jbyte*>::size_type i = 0; i != keys_to_free.size(); i++) {
+  for (std::vector<jbyte*>::size_type i = 0; i != keys_to_free.size(); i++) {
     delete[] keys_to_free[i];
   }
   keys_to_free.clear();
@@ -435,17 +434,17 @@ jstring Java_org_rocksdb_RocksDB_getProperty0(
     JNIEnv* env, jobject jdb, jlong db_handle, jstring jproperty,
     jint jproperty_len) {
   auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
-  
+
   const char* property = env->GetStringUTFChars(jproperty, 0);
   rocksdb::Slice property_slice(property, jproperty_len);
-  
+
   std::string property_value;
   bool retCode = db->GetProperty(property_slice, &property_value);
   env->ReleaseStringUTFChars(jproperty, property);
-  
+
   if (!retCode) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, rocksdb::Status::NotFound());
   }
-  
+
   return env->NewStringUTF(property_value.data());
 }
