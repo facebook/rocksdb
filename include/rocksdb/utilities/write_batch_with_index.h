@@ -19,7 +19,6 @@
 namespace rocksdb {
 
 class ColumnFamilyHandle;
-struct SliceParts;
 class Comparator;
 
 enum WriteType { kPutRecord, kMergeRecord, kDeleteRecord, kLogDataRecord };
@@ -62,9 +61,12 @@ class WriteBatchWithIndex {
   // interface, or we can't find a column family from the column family handle
   // passed in, backup_index_comparator will be used for the column family.
   // reserved_bytes: reserved bytes in underlying WriteBatch
+  // overwrite_key: if true, overwrite the key in the index when inserting
+  //                the same key as previously, so iterator will never
+  //                show two entries with the same key.
   explicit WriteBatchWithIndex(
       const Comparator* backup_index_comparator = BytewiseComparator(),
-      size_t reserved_bytes = 0);
+      size_t reserved_bytes = 0, bool overwrite_key = false);
   virtual ~WriteBatchWithIndex();
 
   WriteBatch* GetWriteBatch();
@@ -83,10 +85,6 @@ class WriteBatchWithIndex {
 
   virtual void Delete(ColumnFamilyHandle* column_family, const Slice& key);
   virtual void Delete(const Slice& key);
-
-  virtual void Delete(ColumnFamilyHandle* column_family, const SliceParts& key);
-
-  virtual void Delete(const SliceParts& key);
 
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the

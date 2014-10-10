@@ -4,6 +4,7 @@
 
 ### Public API changes
 * Introduce 4 new convenient functions for converting Options from string: GetColumnFamilyOptionsFromMap(), GetColumnFamilyOptionsFromString(), GetDBOptionsFromMap(), GetDBOptionsFromString()
+* Remove WriteBatchWithIndex.Delete() overloads using SliceParts
 
 
 ## 3.6.0 (10/7/2014)

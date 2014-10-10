@@ -318,6 +318,82 @@ TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
   }
 }
 
+TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
+  ColumnFamilyHandleImplDummy cf1(6, nullptr);
+  ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  batch.Put(&cf1, "ddd", "");
+  batch.Merge(&cf1, "ddd", "");
+  batch.Delete(&cf1, "ddd");
+  batch.Put(&cf2, "aaa", "");
+  batch.Delete(&cf2, "aaa");
+  batch.Put(&cf2, "aaa", "aaa");
+  batch.Put(&cf2, "eee", "eee");
+  batch.Put(&cf1, "ccc", "");
+  batch.Put(&reverse_cf, "a11", "");
+  batch.Delete(&cf1, "ccc");
+  batch.Put(&reverse_cf, "a33", "a33");
+  batch.Put(&reverse_cf, "a11", "a11");
+  batch.Delete(&reverse_cf, "a33");
+
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
+    iter->Seek("");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("ccc", iter->Entry().key.ToString());
+    ASSERT_TRUE(iter->Entry().type == WriteType::kDeleteRecord);
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("ddd", iter->Entry().key.ToString());
+    ASSERT_TRUE(iter->Entry().type == WriteType::kDeleteRecord);
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf2));
+    iter->Seek("");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("aaa", iter->Entry().key.ToString());
+    ASSERT_EQ("aaa", iter->Entry().value.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("eee", iter->Entry().key.ToString());
+    ASSERT_EQ("eee", iter->Entry().value.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  {
+    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&reverse_cf));
+    iter->Seek("");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("z");
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a33", iter->Entry().key.ToString());
+    ASSERT_TRUE(iter->Entry().type == WriteType::kDeleteRecord);
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a11", iter->Entry().key.ToString());
+    ASSERT_EQ("a11", iter->Entry().value.ToString());
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
