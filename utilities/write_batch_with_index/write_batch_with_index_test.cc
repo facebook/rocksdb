@@ -120,18 +120,39 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   // Iterator all keys
   {
     std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&data));
-    iter->Seek("");
-    for (auto pair : data_map) {
-      for (auto v : pair.second) {
+    for (int seek_to_first : {0, 1}) {
+      if (seek_to_first) {
+        iter->SeekToFirst();
+      } else {
+        iter->Seek("");
+      }
+      for (auto pair : data_map) {
+        for (auto v : pair.second) {
+          ASSERT_OK(iter->status());
+          ASSERT_TRUE(iter->Valid());
+          auto& write_entry = iter->Entry();
+          ASSERT_EQ(pair.first, write_entry.key.ToString());
+          ASSERT_EQ(v->type, write_entry.type);
+          if (write_entry.type != kDeleteRecord) {
+            ASSERT_EQ(v->value, write_entry.value.ToString());
+          }
+          iter->Next();
+        }
+      }
+      ASSERT_TRUE(!iter->Valid());
+    }
+    iter->SeekToLast();
+    for (auto pair = data_map.rbegin(); pair != data_map.rend(); ++pair) {
+      for (auto v = pair->second.rbegin(); v != pair->second.rend(); v++) {
         ASSERT_OK(iter->status());
         ASSERT_TRUE(iter->Valid());
         auto& write_entry = iter->Entry();
-        ASSERT_EQ(pair.first, write_entry.key.ToString());
-        ASSERT_EQ(v->type, write_entry.type);
+        ASSERT_EQ(pair->first, write_entry.key.ToString());
+        ASSERT_EQ((*v)->type, write_entry.type);
         if (write_entry.type != kDeleteRecord) {
-          ASSERT_EQ(v->value, write_entry.value.ToString());
+          ASSERT_EQ((*v)->value, write_entry.value.ToString());
         }
-        iter->Next();
+        iter->Prev();
       }
     }
     ASSERT_TRUE(!iter->Valid());
@@ -140,18 +161,40 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   // Iterator all indexes
   {
     std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&index));
-    iter->Seek("");
-    for (auto pair : index_map) {
-      for (auto v : pair.second) {
+    for (int seek_to_first : {0, 1}) {
+      if (seek_to_first) {
+        iter->SeekToFirst();
+      } else {
+        iter->Seek("");
+      }
+      for (auto pair : index_map) {
+        for (auto v : pair.second) {
+          ASSERT_OK(iter->status());
+          ASSERT_TRUE(iter->Valid());
+          auto& write_entry = iter->Entry();
+          ASSERT_EQ(pair.first, write_entry.key.ToString());
+          if (v->type != kDeleteRecord) {
+            ASSERT_EQ(v->key, write_entry.value.ToString());
+            ASSERT_EQ(v->value, write_entry.key.ToString());
+          }
+          iter->Next();
+        }
+      }
+      ASSERT_TRUE(!iter->Valid());
+    }
+
+    iter->SeekToLast();
+    for (auto pair = index_map.rbegin(); pair != index_map.rend(); ++pair) {
+      for (auto v = pair->second.rbegin(); v != pair->second.rend(); v++) {
         ASSERT_OK(iter->status());
         ASSERT_TRUE(iter->Valid());
         auto& write_entry = iter->Entry();
-        ASSERT_EQ(pair.first, write_entry.key.ToString());
-        if (v->type != kDeleteRecord) {
-          ASSERT_EQ(v->key, write_entry.value.ToString());
-          ASSERT_EQ(v->value, write_entry.key.ToString());
+        ASSERT_EQ(pair->first, write_entry.key.ToString());
+        if ((*v)->type != kDeleteRecord) {
+          ASSERT_EQ((*v)->key, write_entry.value.ToString());
+          ASSERT_EQ((*v)->value, write_entry.key.ToString());
         }
-        iter->Next();
+        iter->Prev();
       }
     }
     ASSERT_TRUE(!iter->Valid());
@@ -357,7 +400,21 @@ TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
 
   {
     std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf2));
-    iter->Seek("");
+    iter->SeekToLast();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("eee", iter->Entry().key.ToString());
+    ASSERT_EQ("eee", iter->Entry().value.ToString());
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("aaa", iter->Entry().key.ToString());
+    ASSERT_EQ("aaa", iter->Entry().value.ToString());
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToFirst();
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ("aaa", iter->Entry().key.ToString());
@@ -390,6 +447,19 @@ TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
     ASSERT_EQ("a11", iter->Entry().value.ToString());
     iter->Next();
     ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a11", iter->Entry().key.ToString());
+    ASSERT_EQ("a11", iter->Entry().value.ToString());
+    iter->Prev();
+
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("a33", iter->Entry().key.ToString());
+    ASSERT_TRUE(iter->Entry().type == WriteType::kDeleteRecord);
+    iter->Prev();
     ASSERT_TRUE(!iter->Valid());
   }
 }

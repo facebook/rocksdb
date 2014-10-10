@@ -76,6 +76,25 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   virtual bool Valid() const override { return valid_; }
 
+  virtual void SeekToFirst() {
+    valid_ = true;
+    WriteBatchIndexEntry search_entry(nullptr, column_family_id_);
+    skip_list_iter_.Seek(&search_entry);
+    ReadEntry();
+  }
+
+  virtual void SeekToLast() {
+    valid_ = true;
+    WriteBatchIndexEntry search_entry(nullptr, column_family_id_ + 1);
+    skip_list_iter_.Seek(&search_entry);
+    if (!skip_list_iter_.Valid()) {
+      skip_list_iter_.SeekToLast();
+    } else {
+      skip_list_iter_.Prev();
+    }
+    ReadEntry();
+  }
+
   virtual void Seek(const Slice& key) override {
     valid_ = true;
     WriteBatchIndexEntry search_entry(&key, column_family_id_);
@@ -85,6 +104,11 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   virtual void Next() override {
     skip_list_iter_.Next();
+    ReadEntry();
+  }
+
+  virtual void Prev() override {
+    skip_list_iter_.Prev();
     ReadEntry();
   }
 
