@@ -10,7 +10,7 @@ G=$((1024 * M))
 
 n=$((1 * G))
 wps=$((80 * K))
-duration=$((6 * 60 * 60))
+duration=$((12 * 60 * 60))
 num_read_threads=24
 
 # Update these parameters before execution !!!

@@ -28,7 +28,7 @@ fi
 
 num_read_threads=${NUM_READ_THREADS:-16}
 writes_per_second=${WRITES_PER_SEC:-$((80 * K))}  # (only for readwhilewriting)
-cache_size=$((16 * G))
+cache_size=$((1 * G))
 duration=${DURATION:-0}
 
 num_keys=${NUM_KEYS:-$((1 * G))}
@@ -45,13 +45,14 @@ const_params="
   --block_size=4096 \
   --cache_size=$cache_size \
   --cache_numshardbits=6 \
-  --compression_type=snappy \
+  --compression_type=zlib \
+  --min_level_to_compress=2 \
   --compression_ratio=0.5 \
   \
   --hard_rate_limit=2 \
   --rate_limit_delay_max_milliseconds=1000000 \
   --write_buffer_size=$((128 * M)) \
-  --max_write_buffer_number=2 \
+  --max_write_buffer_number=3 \
   --target_file_size_base=$((128 * M)) \
   --max_bytes_for_level_base=$((1 * G)) \
   \
@@ -71,9 +72,9 @@ const_params="
   --open_files=$((20 * K))"
 
 l0_config="
-  --level0_file_num_compaction_trigger=8 \
-  --level0_slowdown_writes_trigger=16 \
-  --level0_stop_writes_trigger=24"
+  --level0_file_num_compaction_trigger=4 \
+  --level0_slowdown_writes_trigger=8 \
+  --level0_stop_writes_trigger=12"
 
 if [ $duration -gt 0 ]; then
   const_params="$const_params --duration=$duration"
@@ -82,9 +83,9 @@ fi
 params_r="$const_params $l0_config --max_background_compactions=4 --max_background_flushes=1"
 params_w="$const_params $l0_config --max_background_compactions=16 --max_background_flushes=16"
 params_bulkload="$const_params --max_background_compactions=16 --max_background_flushes=16 \
-                 --level0_file_num_compaction_trigger=$((100 * M)) \
-                 --level0_slowdown_writes_trigger=$((100 * M)) \
-                 --level0_stop_writes_trigger=$((100 * M))"
+                 --level0_file_num_compaction_trigger=$((10 * M)) \
+                 --level0_slowdown_writes_trigger=$((10 * M)) \
+                 --level0_stop_writes_trigger=$((10 * M))"
 
 function run_bulkload {
   echo "Bulk loading $num_keys random keys into database..."
