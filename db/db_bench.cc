@@ -2904,6 +2904,9 @@ int main(int argc, char** argv) {
   // The number of background threads should be at least as much the
   // max number of concurrent compactions.
   FLAGS_env->SetBackgroundThreads(FLAGS_max_background_compactions);
+  FLAGS_env->SetBackgroundThreads(FLAGS_max_background_flushes,
+                                  rocksdb::Env::Priority::HIGH);
+
   // Choose a location for the test database if none given with --db=<path>
   if (FLAGS_db.empty()) {
     std::string default_db_path;
