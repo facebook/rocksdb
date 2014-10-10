@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include <cassert>
+#include <cctype>
 #include <unordered_set>
 #include "rocksdb/options.h"
 #include "util/options_helper.h"
@@ -161,13 +162,61 @@ bool GetMutableOptionsFromStrings(
   return true;
 }
 
-bool GetOptionsFromStrings(
-    const Options& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    Options* new_options) {
+namespace {
+
+std::string trim(const std::string& str) {
+  size_t start = 0;
+  size_t end = str.size() - 1;
+  while (isspace(str[start]) != 0 && start <= end) {
+    ++start;
+  }
+  while (isspace(str[end]) != 0 && start <= end) {
+    --end;
+  }
+  if (start <= end) {
+    return str.substr(start, end - start + 1);
+  }
+  return std::string();
+}
+
+bool StringToMap(const std::string& opts_str,
+                 std::unordered_map<std::string, std::string>* opts_map) {
+  assert(opts_map);
+  // Example:
+  //   opts_str = "write_buffer_size=1024;max_write_buffer_number=2"
+  size_t pos = 0;
+
+  std::string opts = trim(opts_str);
+  while (pos < opts.size()) {
+    size_t eq_pos = opts.find('=', pos);
+    if (eq_pos == std::string::npos) {
+      return false;
+    }
+    std::string key = trim(opts.substr(pos, eq_pos - pos));
+
+    size_t sc_pos = opts.find(';', eq_pos + 1);
+    if (sc_pos == std::string::npos) {
+      (*opts_map)[key] = trim(opts.substr(eq_pos + 1));
+      // It either ends with a trailing semi-colon or the last key-value pair
+      break;
+    } else {
+      (*opts_map)[key] = trim(opts.substr(eq_pos + 1, sc_pos - eq_pos - 1));
+    }
+    pos = sc_pos + 1;
+  }
+
+  return true;
+}
+
+}  // anonymous namespace
+
+bool GetColumnFamilyOptionsFromMap(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
-  for (const auto& o : options_map) {
+  for (const auto& o : opts_map) {
     try {
       if (ParseMemtableOptions(o.first, o.second, new_options)) {
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
@@ -247,7 +296,36 @@ bool GetOptionsFromStrings(
         new_options->bloom_locality = ParseUint32(o.second);
       } else if (o.first == "min_partial_merge_operands") {
         new_options->min_partial_merge_operands = ParseUint32(o.second);
-      } else if (o.first == "create_if_missing") {
+      } else {
+        return false;
+      }
+    } catch (std::exception) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool GetColumnFamilyOptionsFromString(
+    const ColumnFamilyOptions& base_options,
+    const std::string& opts_str,
+    ColumnFamilyOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  if (!StringToMap(opts_str, &opts_map)) {
+    return false;
+  }
+  return GetColumnFamilyOptionsFromMap(base_options, opts_map, new_options);
+}
+
+bool GetDBOptionsFromMap(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  for (const auto& o : opts_map) {
+    try {
+      if (o.first == "create_if_missing") {
         new_options->create_if_missing = ParseBoolean(o.first, o.second);
       } else if (o.first == "create_missing_column_families") {
         new_options->create_missing_column_families =
@@ -323,6 +401,17 @@ bool GetOptionsFromStrings(
     }
   }
   return true;
+}
+
+bool GetDBOptionsFromString(
+    const DBOptions& base_options,
+    const std::string& opts_str,
+    DBOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  if (!StringToMap(opts_str, &opts_map)) {
+    return false;
+  }
+  return GetDBOptionsFromMap(base_options, opts_map, new_options);
 }
 
 }  // namespace rocksdb

@@ -1,5 +1,11 @@
 # Rocksdb Change Log
 
+## Unreleased
+
+### Public API changes
+* Introduce 4 new convenient functions for converting Options from string: GetColumnFamilyOptionsFromMap(), GetColumnFamilyOptionsFromString(), GetDBOptionsFromMap(), GetDBOptionsFromString()
+
+
 ## 3.6.0 (10/7/2014)
 ### Disk format changes
 * If you're using RocksDB on ARM platforms and you're using default bloom filter, there is a disk format change you need to be aware of. There are three steps you need to do when you convert to new release: 1. turn off filter policy, 2. compact the whole database, 3. turn on filter policy
