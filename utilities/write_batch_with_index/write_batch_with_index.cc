@@ -4,12 +4,288 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "rocksdb/utilities/write_batch_with_index.h"
+
+#include <memory>
+
 #include "rocksdb/comparator.h"
+#include "rocksdb/iterator.h"
 #include "db/column_family.h"
 #include "db/skiplist.h"
 #include "util/arena.h"
 
 namespace rocksdb {
+
+// when direction == forward
+// * current_at_base_ <=> base_iterator > delta_iterator
+// when direction == backwards
+// * current_at_base_ <=> base_iterator < delta_iterator
+// always:
+// * equal_keys_ <=> base_iterator == delta_iterator
+class BaseDeltaIterator : public Iterator {
+ public:
+  BaseDeltaIterator(Iterator* base_iterator, WBWIIterator* delta_iterator,
+                    const Comparator* comparator)
+      : forward_(true),
+        current_at_base_(true),
+        equal_keys_(false),
+        status_(Status::OK()),
+        base_iterator_(base_iterator),
+        delta_iterator_(delta_iterator),
+        comparator_(comparator) {}
+
+  virtual ~BaseDeltaIterator() {}
+
+  bool Valid() const override {
+    return current_at_base_ ? BaseValid() : DeltaValid();
+  }
+
+  void SeekToFirst() override {
+    forward_ = true;
+    base_iterator_->SeekToFirst();
+    delta_iterator_->SeekToFirst();
+    UpdateCurrent();
+  }
+
+  void SeekToLast() override {
+    forward_ = false;
+    base_iterator_->SeekToLast();
+    delta_iterator_->SeekToLast();
+    UpdateCurrent();
+  }
+
+  void Seek(const Slice& key) override {
+    forward_ = true;
+    base_iterator_->Seek(key);
+    delta_iterator_->Seek(key);
+    UpdateCurrent();
+  }
+
+  void Next() override {
+    if (!Valid()) {
+      status_ = Status::NotSupported("Next() on invalid iterator");
+    }
+
+    if (!forward_) {
+      // Need to change direction
+      // if our direction was backward and we're not equal, we have two states:
+      // * both iterators are valid: we're already in a good state (current
+      // shows to smaller)
+      // * only one iterator is valid: we need to advance that iterator
+      forward_ = true;
+      equal_keys_ = false;
+      if (!BaseValid()) {
+        assert(DeltaValid());
+        base_iterator_->SeekToFirst();
+      } else if (!DeltaValid()) {
+        delta_iterator_->SeekToFirst();
+      } else if (current_at_base_) {
+        // Change delta from larger than base to smaller
+        AdvanceDelta();
+      } else {
+        // Change base from larger than delta to smaller
+        AdvanceBase();
+      }
+      if (DeltaValid() && BaseValid()) {
+        if (Compare() == 0) {
+          equal_keys_ = true;
+        }
+      }
+    }
+    Advance();
+  }
+
+  void Prev() override {
+    if (!Valid()) {
+      status_ = Status::NotSupported("Prev() on invalid iterator");
+    }
+
+    if (forward_) {
+      // Need to change direction
+      // if our direction was backward and we're not equal, we have two states:
+      // * both iterators are valid: we're already in a good state (current
+      // shows to smaller)
+      // * only one iterator is valid: we need to advance that iterator
+      forward_ = false;
+      equal_keys_ = false;
+      if (!BaseValid()) {
+        assert(DeltaValid());
+        base_iterator_->SeekToLast();
+      } else if (!DeltaValid()) {
+        delta_iterator_->SeekToLast();
+      } else if (current_at_base_) {
+        // Change delta from less advanced than base to more advanced
+        AdvanceDelta();
+      } else {
+        // Change base from less advanced than delta to more advanced
+        AdvanceBase();
+      }
+      if (DeltaValid() && BaseValid()) {
+        if (Compare() == 0) {
+          equal_keys_ = true;
+        }
+      }
+    }
+
+    Advance();
+  }
+
+  Slice key() const override {
+    return current_at_base_ ? base_iterator_->key()
+                            : delta_iterator_->Entry().key;
+  }
+
+  Slice value() const override {
+    return current_at_base_ ? base_iterator_->value()
+                            : delta_iterator_->Entry().value;
+  }
+
+  Status status() const {
+    if (!status_.ok()) {
+      return status_;
+    }
+    if (!base_iterator_->status().ok()) {
+      return base_iterator_->status();
+    }
+    return delta_iterator_->status();
+  }
+
+ private:
+  // -1 -- delta less advanced than base
+  // 0 -- delta == base
+  // 1 -- delta more advanced than base
+  int Compare() const {
+    assert(delta_iterator_->Valid() && base_iterator_->Valid());
+    int cmp = comparator_->Compare(delta_iterator_->Entry().key,
+                                   base_iterator_->key());
+    if (forward_) {
+      return cmp;
+    } else {
+      return -cmp;
+    }
+  }
+  bool IsDeltaDelete() {
+    assert(DeltaValid());
+    return delta_iterator_->Entry().type == kDeleteRecord;
+  }
+  void AssertInvariants() {
+#ifndef NDEBUG
+    if (!Valid()) {
+      return;
+    }
+    if (!BaseValid()) {
+      assert(!current_at_base_ && delta_iterator_->Valid());
+      return;
+    }
+    if (!DeltaValid()) {
+      assert(current_at_base_ && base_iterator_->Valid());
+      return;
+    }
+    // we don't support those yet
+    assert(delta_iterator_->Entry().type != kMergeRecord &&
+           delta_iterator_->Entry().type != kLogDataRecord);
+    int compare = comparator_->Compare(delta_iterator_->Entry().key,
+                                       base_iterator_->key());
+    if (forward_) {
+      // current_at_base -> compare < 0
+      assert(!current_at_base_ || compare < 0);
+      // !current_at_base -> compare <= 0
+      assert(current_at_base_ && compare >= 0);
+    } else {
+      // current_at_base -> compare > 0
+      assert(!current_at_base_ || compare > 0);
+      // !current_at_base -> compare <= 0
+      assert(current_at_base_ && compare <= 0);
+    }
+    // equal_keys_ <=> compare == 0
+    assert((equal_keys_ || compare != 0) && (!equal_keys_ || compare == 0));
+#endif
+  }
+
+  void Advance() {
+    if (equal_keys_) {
+      assert(BaseValid() && DeltaValid());
+      AdvanceBase();
+      AdvanceDelta();
+    } else {
+      if (current_at_base_) {
+        assert(BaseValid());
+        AdvanceBase();
+      } else {
+        assert(DeltaValid());
+        AdvanceDelta();
+      }
+    }
+    UpdateCurrent();
+  }
+
+  void AdvanceDelta() {
+    if (forward_) {
+      delta_iterator_->Next();
+    } else {
+      delta_iterator_->Prev();
+    }
+  }
+  void AdvanceBase() {
+    if (forward_) {
+      base_iterator_->Next();
+    } else {
+      base_iterator_->Prev();
+    }
+  }
+  bool BaseValid() const { return base_iterator_->Valid(); }
+  bool DeltaValid() const { return delta_iterator_->Valid(); }
+  void UpdateCurrent() {
+    while (true) {
+      equal_keys_ = false;
+      if (!BaseValid()) {
+        // Base has finished.
+        if (!DeltaValid()) {
+          // Finished
+          return;
+        }
+        if (IsDeltaDelete()) {
+          AdvanceDelta();
+        } else {
+          current_at_base_ = false;
+          return;
+        }
+      } else if (!DeltaValid()) {
+        // Delta has finished.
+        current_at_base_ = true;
+        return;
+      } else {
+        int compare = Compare();
+        if (compare <= 0) {  // delta bigger or equal
+          if (compare == 0) {
+            equal_keys_ = true;
+          }
+          if (!IsDeltaDelete()) {
+            current_at_base_ = false;
+            return;
+          }
+          // Delta is less advanced and is delete.
+          AdvanceDelta();
+          if (equal_keys_) {
+            AdvanceBase();
+          }
+        } else {
+          current_at_base_ = true;
+          return;
+        }
+      }
+    }
+
+    AssertInvariants();
+  }
+
+  bool forward_;
+  bool current_at_base_;
+  bool equal_keys_;
+  Status status_;
+  std::unique_ptr<Iterator> base_iterator_;
+  std::unique_ptr<WBWIIterator> delta_iterator_;
+  const Comparator* comparator_;  // not owned
+};
 
 class ReadableWriteBatch : public WriteBatch {
  public:
@@ -296,6 +572,16 @@ WBWIIterator* WriteBatchWithIndex::NewIterator(
     ColumnFamilyHandle* column_family) {
   return new WBWIIteratorImpl(GetColumnFamilyID(column_family),
                               &(rep->skip_list), &rep->write_batch);
+}
+
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(
+    ColumnFamilyHandle* column_family, Iterator* base_iterator) {
+  if (rep->overwrite_key == false) {
+    assert(false);
+    return nullptr;
+  }
+  return new BaseDeltaIterator(base_iterator, NewIterator(column_family),
+                               GetColumnFamilyUserComparator(column_family));
 }
 
 void WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,

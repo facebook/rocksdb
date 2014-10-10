@@ -12,6 +12,7 @@
 #pragma once
 
 #include "rocksdb/comparator.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
@@ -100,6 +101,11 @@ class WriteBatchWithIndex {
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
   // Create an iterator of the default column family.
   WBWIIterator* NewIterator();
+
+  // Will create a new Iterator that will use WBWIIterator as a delta and
+  // base_iterator as base
+  Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
+                                Iterator* base_iterator);
 
  private:
   struct Rep;

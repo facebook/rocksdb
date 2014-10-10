@@ -464,6 +464,305 @@ TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
   }
 }
 
+namespace {
+typedef std::map<std::string, std::string> KVMap;
+
+class KVIter : public Iterator {
+ public:
+  explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
+  virtual bool Valid() const { return iter_ != map_->end(); }
+  virtual void SeekToFirst() { iter_ = map_->begin(); }
+  virtual void SeekToLast() {
+    if (map_->empty()) {
+      iter_ = map_->end();
+    } else {
+      iter_ = map_->find(map_->rbegin()->first);
+    }
+  }
+  virtual void Seek(const Slice& k) { iter_ = map_->lower_bound(k.ToString()); }
+  virtual void Next() { ++iter_; }
+  virtual void Prev() {
+    if (iter_ == map_->begin()) {
+      iter_ = map_->end();
+      return;
+    }
+    --iter_;
+  }
+
+  virtual Slice key() const { return iter_->first; }
+  virtual Slice value() const { return iter_->second; }
+  virtual Status status() const { return Status::OK(); }
+
+ private:
+  const KVMap* const map_;
+  KVMap::const_iterator iter_;
+};
+
+void AssertIter(Iterator* iter, const std::string& key,
+                const std::string& value) {
+  ASSERT_OK(iter->status());
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key, iter->key().ToString());
+  ASSERT_EQ(value, iter->value().ToString());
+}
+
+void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
+  ASSERT_EQ(iter1->Valid(), iter2->Valid());
+  if (iter1->Valid()) {
+    ASSERT_EQ(iter1->key().ToString(), iter2->key().ToString());
+    ASSERT_EQ(iter1->value().ToString(), iter2->value().ToString());
+  }
+}
+}  // namespace
+
+TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
+  std::vector<std::string> source_strings = {"a", "b", "c", "d", "e",
+                                             "f", "g", "h", "i", "j"};
+  for (int rand_seed = 301; rand_seed < 366; rand_seed++) {
+    Random rnd(rand_seed);
+
+    ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+    WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+    KVMap map;
+    KVMap merged_map;
+    for (auto key : source_strings) {
+      std::string value = key + key;
+      int type = rnd.Uniform(6);
+      switch (type) {
+        case 0:
+          // only base has it
+          map[key] = value;
+          merged_map[key] = value;
+          break;
+        case 1:
+          // only delta has it
+          batch.Put(&cf1, key, value);
+          map[key] = value;
+          merged_map[key] = value;
+          break;
+        case 2:
+          // both has it. Delta should win
+          batch.Put(&cf1, key, value);
+          map[key] = "wrong_value";
+          merged_map[key] = value;
+          break;
+        case 3:
+          // both has it. Delta is delete
+          batch.Delete(&cf1, key);
+          map[key] = "wrong_value";
+          break;
+        case 4:
+          // only delta has it. Delta is delete
+          batch.Delete(&cf1, key);
+          map[key] = "wrong_value";
+          break;
+        default:
+          // Neither iterator has it.
+          break;
+      }
+    }
+
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+    std::unique_ptr<Iterator> result_iter(new KVIter(&merged_map));
+
+    bool is_valid = false;
+    for (int i = 0; i < 128; i++) {
+      // Random walk and make sure iter and result_iter returns the
+      // same key and value
+      int type = rnd.Uniform(5);
+      ASSERT_OK(iter->status());
+      switch (type) {
+        case 0:
+          // Seek to First
+          iter->SeekToFirst();
+          result_iter->SeekToFirst();
+          break;
+        case 1:
+          // Seek to last
+          iter->SeekToLast();
+          result_iter->SeekToLast();
+          break;
+        case 2: {
+          // Seek to random key
+          auto key_idx = rnd.Uniform(source_strings.size());
+          auto key = source_strings[key_idx];
+          iter->Seek(key);
+          result_iter->Seek(key);
+          break;
+        }
+        case 3:
+          // Next
+          if (is_valid) {
+            iter->Next();
+            result_iter->Next();
+          } else {
+            continue;
+          }
+          break;
+        default:
+          assert(type == 4);
+          // Prev
+          if (is_valid) {
+            iter->Prev();
+            result_iter->Prev();
+          } else {
+            continue;
+          }
+          break;
+      }
+      AssertItersEqual(iter.get(), result_iter.get());
+      is_valid = iter->Valid();
+    }
+  }
+}
+
+TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
+  ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  {
+    KVMap map;
+    map["a"] = "aa";
+    map["c"] = "cc";
+    map["e"] = "ee";
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    AssertIter(iter.get(), "e", "ee");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    AssertIter(iter.get(), "e", "ee");
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Prev();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("b");
+    AssertIter(iter.get(), "c", "cc");
+
+    iter->Prev();
+    AssertIter(iter.get(), "a", "aa");
+
+    iter->Seek("a");
+    AssertIter(iter.get(), "a", "aa");
+  }
+
+  batch.Put(&cf1, "a", "aa");
+  batch.Delete(&cf1, "b");
+  batch.Put(&cf1, "c", "cc");
+  batch.Put(&cf1, "d", "dd");
+  batch.Delete(&cf1, "e");
+
+  {
+    KVMap map;
+    map["b"] = "";
+    map["cc"] = "cccc";
+    map["f"] = "ff";
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    AssertIter(iter.get(), "cc", "cccc");
+    iter->Next();
+    AssertIter(iter.get(), "d", "dd");
+    iter->Next();
+    AssertIter(iter.get(), "f", "ff");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    AssertIter(iter.get(), "f", "ff");
+    iter->Prev();
+    AssertIter(iter.get(), "d", "dd");
+    iter->Prev();
+    AssertIter(iter.get(), "cc", "cccc");
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    AssertIter(iter.get(), "cc", "cccc");
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Prev();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("c");
+    AssertIter(iter.get(), "c", "cc");
+
+    iter->Seek("cb");
+    AssertIter(iter.get(), "cc", "cccc");
+
+    iter->Seek("cc");
+    AssertIter(iter.get(), "cc", "cccc");
+    iter->Next();
+    AssertIter(iter.get(), "d", "dd");
+
+    iter->Seek("e");
+    AssertIter(iter.get(), "f", "ff");
+
+    iter->Prev();
+    AssertIter(iter.get(), "d", "dd");
+
+    iter->Next();
+    AssertIter(iter.get(), "f", "ff");
+  }
+  {
+    KVMap empty_map;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    AssertIter(iter.get(), "d", "dd");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    AssertIter(iter.get(), "d", "dd");
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Prev();
+    AssertIter(iter.get(), "a", "aa");
+
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("aa");
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    AssertIter(iter.get(), "d", "dd");
+
+    iter->Seek("ca");
+    AssertIter(iter.get(), "d", "dd");
+
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+  }
+}
 }  // namespace
 
 int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
