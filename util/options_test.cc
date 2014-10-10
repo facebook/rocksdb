@@ -266,24 +266,24 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt, "", &new_cf_opt));
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
               "write_buffer_size=5", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 5);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 5U);
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
               "write_buffer_size=6;", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 6);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 6U);
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
               "  write_buffer_size =  7  ", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 7);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 7U);
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
               "  write_buffer_size =  8 ; ", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 8);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 8U);
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
               "write_buffer_size=9;max_write_buffer_number=10", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 9);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 9U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 10);
   ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
               "write_buffer_size=11; max_write_buffer_number  =  12 ;",
               &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 11);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 11U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 12);
   // Wrong name "max_write_buffer_number_"
   ASSERT_TRUE(!GetColumnFamilyOptionsFromString(base_cf_opt,
