@@ -14,14 +14,18 @@
 #include <limits>
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
 
 namespace rocksdb {
 
-inline size_t jlong_to_size_t(const jlong& jvalue) {
-  return static_cast<uint64_t>(jvalue) <=
-      static_cast<uint64_t>(std::numeric_limits<size_t>::max()) ?
-      static_cast<size_t>(jvalue) : std::numeric_limits<size_t>::max();
+// detect if jlong overflows size_t
+inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
+  Status s = Status::OK();
+  if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
+    s = Status::InvalidArgument(Slice("jlong overflows 32 bit value."));
+  }
+  return s;
 }
 
 // The portal class for org.rocksdb.RocksDB

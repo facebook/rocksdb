@@ -83,13 +83,15 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
     return branchingFactor_;
   }
 
-  @Override protected long newMemTableFactoryHandle() {
+  @Override protected long newMemTableFactoryHandle()
+      throws RocksDBException {
     return newMemTableFactoryHandle(
         bucketCount_, height_, branchingFactor_);
   }
 
   private native long newMemTableFactoryHandle(
-      long bucketCount, int height, int branchingFactor);
+      long bucketCount, int height, int branchingFactor)
+      throws RocksDBException;
 
   private long bucketCount_;
   private int branchingFactor_;

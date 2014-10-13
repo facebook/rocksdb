@@ -7,15 +7,19 @@ package org.rocksdb.test;
 
 import java.util.Random;
 import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
 import org.rocksdb.Options;
+import org.rocksdb.test.PlatformRandomHelper;
 
 public class OptionsTest {
+
   static {
     RocksDB.loadLibrary();
   }
   public static void main(String[] args) {
     Options opt = new Options();
-    Random rand = new Random();
+    Random rand = PlatformRandomHelper.
+        getPlatformSpecificRandomFactory();
     { // CreateIfMissing test
       boolean boolValue = rand.nextBoolean();
       opt.setCreateIfMissing(boolValue);
@@ -83,21 +87,34 @@ public class OptionsTest {
     }
 
     { // MaxLogFileSize test
-      long longValue = rand.nextLong();
-      opt.setMaxLogFileSize(longValue);
-      assert(opt.maxLogFileSize() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setMaxLogFileSize(longValue);
+        assert(opt.maxLogFileSize() == longValue);
+      } catch (RocksDBException e) {
+        System.out.println(e.getMessage());
+        assert(false);
+      }
     }
 
     { // LogFileTimeToRoll test
-      long longValue = rand.nextLong();
-      opt.setLogFileTimeToRoll(longValue);
-      assert(opt.logFileTimeToRoll() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setLogFileTimeToRoll(longValue);
+        assert(opt.logFileTimeToRoll() == longValue);
+      } catch (RocksDBException e) {
+        assert(false);
+      }
     }
 
     { // KeepLogFileNum test
-      long longValue = rand.nextLong();
-      opt.setKeepLogFileNum(longValue);
-      assert(opt.keepLogFileNum() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setKeepLogFileNum(longValue);
+        assert(opt.keepLogFileNum() == longValue);
+      } catch (RocksDBException e) {
+        assert(false);
+      }
     }
 
     { // MaxManifestFileSize test
@@ -125,9 +142,13 @@ public class OptionsTest {
     }
 
     { // ManifestPreallocationSize test
-      long longValue = rand.nextLong();
-      opt.setManifestPreallocationSize(longValue);
-      assert(opt.manifestPreallocationSize() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setManifestPreallocationSize(longValue);
+        assert(opt.manifestPreallocationSize() == longValue);
+      } catch (RocksDBException e) {
+        assert(false);
+      }
     }
 
     { // AllowOsBuffer test
@@ -185,9 +206,13 @@ public class OptionsTest {
     }
 
     { // WriteBufferSize test
-      long longValue = rand.nextLong();
-      opt.setWriteBufferSize(longValue);
-      assert(opt.writeBufferSize() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setWriteBufferSize(longValue);
+        assert(opt.writeBufferSize() == longValue);
+      } catch (RocksDBException e) {
+        assert(false);
+      }
     }
 
     { // MaxWriteBufferNumber test
@@ -293,9 +318,13 @@ public class OptionsTest {
     }
 
     { // ArenaBlockSize test
-      long longValue = rand.nextLong();
-      opt.setArenaBlockSize(longValue);
-      assert(opt.arenaBlockSize() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setArenaBlockSize(longValue);
+        assert(opt.arenaBlockSize() == longValue);
+      } catch (RocksDBException e) {
+        assert(false);
+      }
     }
 
     { // DisableAutoCompactions test
@@ -335,9 +364,13 @@ public class OptionsTest {
     }
 
     { // InplaceUpdateNumLocks test
-      long longValue = rand.nextLong();
-      opt.setInplaceUpdateNumLocks(longValue);
-      assert(opt.inplaceUpdateNumLocks() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setInplaceUpdateNumLocks(longValue);
+        assert(opt.inplaceUpdateNumLocks() == longValue);
+      } catch (RocksDBException e) {
+        assert(false);
+      }
     }
 
     { // MemtablePrefixBloomBits test
@@ -359,9 +392,13 @@ public class OptionsTest {
     }
 
     { // MaxSuccessiveMerges test
-      long longValue = rand.nextLong();
-      opt.setMaxSuccessiveMerges(longValue);
-      assert(opt.maxSuccessiveMerges() == longValue);
+      try {
+        long longValue = rand.nextLong();
+        opt.setMaxSuccessiveMerges(longValue);
+        assert(opt.maxSuccessiveMerges() == longValue);
+      } catch (RocksDBException e){
+        assert(false);
+      }
     }
 
     { // MinPartialMergeOperands test

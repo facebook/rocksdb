@@ -23,5 +23,6 @@ public abstract class MemTableConfig {
    *
    * @see Options#setMemTableConfig(MemTableConfig)
    */
-  abstract protected long newMemTableFactoryHandle();
+  abstract protected long newMemTableFactoryHandle()
+      throws RocksDBException;
 }

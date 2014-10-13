@@ -489,7 +489,7 @@ public class DbBenchmark {
     options.setDisableWAL((Boolean)flags_.get(Flag.disable_wal));
   }
 
-  private void prepareOptions(Options options) {
+  private void prepareOptions(Options options) throws RocksDBException {
     if (!useExisting_) {
       options.setCreateIfMissing(true);
     } else {

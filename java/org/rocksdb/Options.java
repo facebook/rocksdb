@@ -118,8 +118,10 @@ public class Options extends RocksObject {
    * @param writeBufferSize the size of write buffer.
    * @return the instance of the current Options.
    * @see org.rocksdb.RocksDB#open(Options, String)
+   * @throws RocksDBException
    */
-  public Options setWriteBufferSize(long writeBufferSize) {
+  public Options setWriteBufferSize(long writeBufferSize)
+      throws RocksDBException {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
@@ -561,13 +563,16 @@ public class Options extends RocksObject {
    *
    * @param maxLogFileSize the maximum size of a info log file.
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setMaxLogFileSize(long maxLogFileSize) {
+  public Options setMaxLogFileSize(long maxLogFileSize)
+      throws RocksDBException {
     assert(isInitialized());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
   }
-  private native void setMaxLogFileSize(long handle, long maxLogFileSize);
+  private native void setMaxLogFileSize(long handle, long maxLogFileSize)
+      throws RocksDBException;
 
   /**
    * Returns the time interval for the info log file to roll (in seconds).
@@ -591,14 +596,16 @@ public class Options extends RocksObject {
    *
    * @param logFileTimeToRoll the time interval in seconds.
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setLogFileTimeToRoll(long logFileTimeToRoll) {
+  public Options setLogFileTimeToRoll(long logFileTimeToRoll)
+      throws RocksDBException{
     assert(isInitialized());
     setLogFileTimeToRoll(nativeHandle_, logFileTimeToRoll);
     return this;
   }
   private native void setLogFileTimeToRoll(
-      long handle, long logFileTimeToRoll);
+      long handle, long logFileTimeToRoll) throws RocksDBException;
 
   /**
    * Returns the maximum number of info log files to be kept.
@@ -618,13 +625,16 @@ public class Options extends RocksObject {
    *
    * @param keepLogFileNum the maximum number of info log files to be kept.
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setKeepLogFileNum(long keepLogFileNum) {
+  public Options setKeepLogFileNum(long keepLogFileNum)
+      throws RocksDBException{
     assert(isInitialized());
     setKeepLogFileNum(nativeHandle_, keepLogFileNum);
     return this;
   }
-  private native void setKeepLogFileNum(long handle, long keepLogFileNum);
+  private native void setKeepLogFileNum(long handle, long keepLogFileNum)
+      throws RocksDBException;
 
   /**
    * Manifest file is rolled over on reaching this limit.
@@ -844,14 +854,16 @@ public class Options extends RocksObject {
    *
    * @param size the size in byte
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setManifestPreallocationSize(long size) {
+  public Options setManifestPreallocationSize(long size)
+      throws RocksDBException {
     assert(isInitialized());
     setManifestPreallocationSize(nativeHandle_, size);
     return this;
   }
   private native void setManifestPreallocationSize(
-      long handle, long size);
+      long handle, long size) throws RocksDBException;
 
   /**
    * Data being read from file storage may be buffered in the OS
@@ -1110,8 +1122,10 @@ public class Options extends RocksObject {
    *
    * @param config the mem-table config.
    * @return the instance of the current Options.
+   * @throws RocksDBException
    */
-  public Options setMemTableConfig(MemTableConfig config) {
+  public Options setMemTableConfig(MemTableConfig config)
+      throws RocksDBException {
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
   }
@@ -1123,6 +1137,7 @@ public class Options extends RocksObject {
    *
    * @param config rate limiter config.
    * @return the instance of the current Options.
+   * @throws RocksDBException
    */
   public Options setRateLimiterConfig(RateLimiterConfig config) {
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
@@ -1768,13 +1783,15 @@ public class Options extends RocksObject {
    *
    * @param arenaBlockSize the size of an arena block
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setArenaBlockSize(long arenaBlockSize) {
+  public Options setArenaBlockSize(long arenaBlockSize)
+      throws RocksDBException {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
     return this;
   }
   private native void setArenaBlockSize(
-      long handle, long arenaBlockSize);
+      long handle, long arenaBlockSize) throws RocksDBException;
 
   /**
    * Disable automatic compactions. Manual compactions can still
@@ -1977,13 +1994,15 @@ public class Options extends RocksObject {
    * @param inplaceUpdateNumLocks the number of locks used for
    *     inplace updates.
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setInplaceUpdateNumLocks(long inplaceUpdateNumLocks) {
+  public Options setInplaceUpdateNumLocks(long inplaceUpdateNumLocks)
+      throws RocksDBException {
     setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
     return this;
   }
   private native void setInplaceUpdateNumLocks(
-      long handle, long inplaceUpdateNumLocks);
+      long handle, long inplaceUpdateNumLocks) throws RocksDBException;
 
   /**
    * Returns the number of bits used in the prefix bloom filter.
@@ -2108,13 +2127,15 @@ public class Options extends RocksObject {
    *
    * @param maxSuccessiveMerges the maximum number of successive merges.
    * @return the reference to the current option.
+   * @throws RocksDBException
    */
-  public Options setMaxSuccessiveMerges(long maxSuccessiveMerges) {
+  public Options setMaxSuccessiveMerges(long maxSuccessiveMerges)
+      throws RocksDBException {
     setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
     return this;
   }
   private native void setMaxSuccessiveMerges(
-      long handle, long maxSuccessiveMerges);
+      long handle, long maxSuccessiveMerges) throws RocksDBException;
 
   /**
    * The minimum number of write buffers that will be merged together
@@ -2204,7 +2225,8 @@ public class Options extends RocksObject {
   private native void disposeInternal(long handle);
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
-  private native void setWriteBufferSize(long handle, long writeBufferSize);
+  private native void setWriteBufferSize(long handle, long writeBufferSize)
+      throws RocksDBException;
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);

@@ -10,7 +10,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <jni.h>
-#include <iostream>
 #include <string>
 
 #include "include/org_rocksdb_RestoreOptions.h"
@@ -72,7 +71,7 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromBackup0(JNIEnv* env,
   env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
   env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
 
-  if(!s.ok()) {
+  if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
@@ -97,7 +96,7 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromLatestBackup0(
   env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
   env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
 
-  if(!s.ok()) {
+  if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
@@ -112,7 +111,7 @@ void Java_org_rocksdb_RestoreBackupableDB_purgeOldBackups0(JNIEnv* env,
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s = rdb->PurgeOldBackups(jnum_backups_to_keep);
 
-  if(!s.ok()) {
+  if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }
@@ -127,7 +126,7 @@ void Java_org_rocksdb_RestoreBackupableDB_deleteBackup0(JNIEnv* env,
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s = rdb->DeleteBackup(jbackup_id);
 
-  if(!s.ok()) {
+  if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
 }

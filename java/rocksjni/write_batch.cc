@@ -30,7 +30,7 @@
 void Java_org_rocksdb_WriteBatch_newWriteBatch(
     JNIEnv* env, jobject jobj, jint jreserved_bytes) {
   rocksdb::WriteBatch* wb = new rocksdb::WriteBatch(
-      rocksdb::jlong_to_size_t(jreserved_bytes));
+      static_cast<size_t>(jreserved_bytes));
 
   rocksdb::WriteBatchJni::setHandle(env, jobj, wb);
 }

@@ -35,13 +35,18 @@ public class RocksDBSample {
       assert(db == null);
     }
 
-    options.setCreateIfMissing(true)
-        .createStatistics()
-        .setWriteBufferSize(8 * SizeUnit.KB)
-        .setMaxWriteBufferNumber(3)
-        .setMaxBackgroundCompactions(10)
-        .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
-        .setCompactionStyle(CompactionStyle.UNIVERSAL);
+    try {
+      options.setCreateIfMissing(true)
+          .createStatistics()
+          .setWriteBufferSize(8 * SizeUnit.KB)
+          .setMaxWriteBufferNumber(3)
+          .setMaxBackgroundCompactions(10)
+          .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
+          .setCompactionStyle(CompactionStyle.UNIVERSAL);
+    } catch (RocksDBException e) {
+      assert(false);
+    }
+
     Statistics stats = options.statisticsPtr();
 
     assert(options.createIfMissing() == true);
@@ -50,36 +55,38 @@ public class RocksDBSample {
     assert(options.maxBackgroundCompactions() == 10);
     assert(options.compressionType() == CompressionType.SNAPPY_COMPRESSION);
     assert(options.compactionStyle() == CompactionStyle.UNIVERSAL);
+    try {
+      assert(options.memTableFactoryName().equals("SkipListFactory"));
+      options.setMemTableConfig(
+          new HashSkipListMemTableConfig()
+              .setHeight(4)
+              .setBranchingFactor(4)
+              .setBucketCount(2000000));
+      assert(options.memTableFactoryName().equals("HashSkipListRepFactory"));
 
-    assert(options.memTableFactoryName().equals("SkipListFactory"));
-    options.setMemTableConfig(
-        new HashSkipListMemTableConfig()
-            .setHeight(4)
-            .setBranchingFactor(4)
-            .setBucketCount(2000000));
-    assert(options.memTableFactoryName().equals("HashSkipListRepFactory"));
+      options.setMemTableConfig(
+          new HashLinkedListMemTableConfig()
+              .setBucketCount(100000));
+      assert(options.memTableFactoryName().equals("HashLinkedListRepFactory"));
 
-    options.setMemTableConfig(
-        new HashLinkedListMemTableConfig()
-            .setBucketCount(100000));
-    assert(options.memTableFactoryName().equals("HashLinkedListRepFactory"));
+      options.setMemTableConfig(
+          new VectorMemTableConfig().setReservedSize(10000));
+      assert(options.memTableFactoryName().equals("VectorRepFactory"));
 
-    options.setMemTableConfig(
-        new VectorMemTableConfig().setReservedSize(10000));
-    assert(options.memTableFactoryName().equals("VectorRepFactory"));
+      options.setMemTableConfig(new SkipListMemTableConfig());
+      assert(options.memTableFactoryName().equals("SkipListFactory"));
 
-    options.setMemTableConfig(new SkipListMemTableConfig());
-    assert(options.memTableFactoryName().equals("SkipListFactory"));
+      options.setTableFormatConfig(new PlainTableConfig());
+      // Plain-Table requires mmap read
+      options.setAllowMmapReads(true);
+      assert(options.tableFactoryName().equals("PlainTable"));
 
-    options.setTableFormatConfig(new PlainTableConfig());
-    // Plain-Table requires mmap read
-    options.setAllowMmapReads(true);
-    assert(options.tableFactoryName().equals("PlainTable"));
-    
-    options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000,
-            10000, 10));
-    options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
-
+      options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000,
+          10000, 10));
+      options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
+    } catch (RocksDBException e) {
+      assert(false);
+    }
     Filter bloomFilter = new BloomFilter(10);
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
     table_options.setBlockCacheSize(64 * SizeUnit.KB)
@@ -91,7 +98,7 @@ public class RocksDBSample {
                  .setHashIndexAllowCollision(false)
                  .setBlockCacheCompressedSize(64 * SizeUnit.KB)
                  .setBlockCacheCompressedNumShardBits(10);
-                 
+
     assert(table_options.blockCacheSize() == 64 * SizeUnit.KB);
     assert(table_options.cacheNumShardBits() == 6);
     assert(table_options.blockSizeDeviation() == 5);
@@ -100,7 +107,7 @@ public class RocksDBSample {
     assert(table_options.hashIndexAllowCollision() == false);
     assert(table_options.blockCacheCompressedSize() == 64 * SizeUnit.KB);
     assert(table_options.blockCacheCompressedNumShardBits() == 10);
-    
+
     options.setTableFormatConfig(table_options);
     assert(options.tableFactoryName().equals("BlockBasedTable"));
 
