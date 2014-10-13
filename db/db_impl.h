@@ -367,7 +367,7 @@ class DBImpl : public DB {
       const autovector<MemTable*>& mems,
       VersionEdit* edit, uint64_t* filenumber, LogBuffer* log_buffer);
 
-  void DelayWrite(uint64_t expiration_time);
+  Status DelayWrite(uint64_t expiration_time);
 
   Status ScheduleFlushes(WriteContext* context);
 
