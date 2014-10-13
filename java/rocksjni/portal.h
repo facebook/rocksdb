@@ -327,6 +327,39 @@ class FilterJni {
   }
 };
 
+class ColumnFamilyHandleJni {
+ public:
+  // Get the java class id of org.rocksdb.ColumnFamilyHandle.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/ColumnFamilyHandle");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.ColumnFamilyHandle.
+  // that stores the pointer to rocksdb::ColumnFamilyHandle.
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::ColumnFamilyHandle.
+  static rocksdb::ColumnFamilyHandle* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::ColumnFamilyHandle*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::ColumnFamilyHandle pointer to the java side.
+  static void setHandle(
+      JNIEnv* env, jobject jobj, const rocksdb::ColumnFamilyHandle* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
 class ListJni {
  public:
   // Get the java class id of java.util.List.

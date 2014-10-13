@@ -48,6 +48,16 @@ public class WriteBatch extends RocksObject {
   }
 
   /**
+   * Store the mapping "key->value" within given column
+   * family.
+   */
+  public void put(ColumnFamilyHandle columnFamilyHandle,
+      byte[] key, byte[] value) {
+    put(key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * Merge "value" with the existing value of "key" in the database.
    * "key->merge(existing, value)"
    */
@@ -56,10 +66,27 @@ public class WriteBatch extends RocksObject {
   }
 
   /**
+   * Merge "value" with the existing value of "key" in given column family.
+   * "key->merge(existing, value)"
+   */
+  public void merge(ColumnFamilyHandle columnFamilyHandle,
+      byte[] key, byte[] value) {
+    merge(key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * If the database contains a mapping for "key", erase it.  Else do nothing.
    */
   public void remove(byte[] key) {
     remove(key, key.length);
+  }
+
+  /**
+   * If column family contains a mapping for "key", erase it.  Else do nothing.
+   */
+  public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
+    remove(key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
   /**
@@ -94,9 +121,17 @@ public class WriteBatch extends RocksObject {
   private native void newWriteBatch(int reserved_bytes);
   private native void put(byte[] key, int keyLen,
                           byte[] value, int valueLen);
+  private native void put(byte[] key, int keyLen,
+                          byte[] value, int valueLen,
+                          long cfHandle);
   private native void merge(byte[] key, int keyLen,
                             byte[] value, int valueLen);
+  private native void merge(byte[] key, int keyLen,
+                            byte[] value, int valueLen,
+                            long cfHandle);
   private native void remove(byte[] key, int keyLen);
+  private native void remove(byte[] key, int keyLen,
+                            long cfHandle);
   private native void putLogData(byte[] blob, int blobLen);
   private native void disposeInternal(long handle);
 }

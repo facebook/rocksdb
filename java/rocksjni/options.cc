@@ -8,7 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <jni.h>
-#include <string>
+#include <strings.h>
 #include <memory>
 
 #include "include/org_rocksdb_Options.h"
@@ -62,6 +62,28 @@ void Java_org_rocksdb_Options_setCreateIfMissing(
 jboolean Java_org_rocksdb_Options_createIfMissing(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::Options*>(jhandle)->create_if_missing;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setCreateMissingColumnFamilies
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setCreateMissingColumnFamilies(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
+  reinterpret_cast<rocksdb::Options*>
+      (jhandle)->create_missing_column_families = flag;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    createMissingColumnFamilies
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_createMissingColumnFamilies(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>
+      (jhandle)->create_missing_column_families;
 }
 
 /*

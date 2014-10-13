@@ -55,6 +55,7 @@ public class RocksDBSample {
     assert(options.maxBackgroundCompactions() == 10);
     assert(options.compressionType() == CompressionType.SNAPPY_COMPRESSION);
     assert(options.compactionStyle() == CompactionStyle.UNIVERSAL);
+
     try {
       assert(options.memTableFactoryName().equals("SkipListFactory"));
       options.setMemTableConfig(
@@ -87,6 +88,7 @@ public class RocksDBSample {
     } catch (RocksDBException e) {
       assert(false);
     }
+
     Filter bloomFilter = new BloomFilter(10);
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
     table_options.setBlockCacheSize(64 * SizeUnit.KB)

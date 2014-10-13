@@ -26,6 +26,12 @@ public class OptionsTest {
       assert(opt.createIfMissing() == boolValue);
     }
 
+    { // CreateMissingColumnFamilies test
+      boolean boolValue = rand.nextBoolean();
+      opt.setCreateMissingColumnFamilies(boolValue);
+      assert(opt.createMissingColumnFamilies() == boolValue);
+    }
+
     { // ErrorIfExists test
       boolean boolValue = rand.nextBoolean();
       opt.setErrorIfExists(boolValue);
