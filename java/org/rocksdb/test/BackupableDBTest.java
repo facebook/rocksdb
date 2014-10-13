@@ -8,8 +8,8 @@ package org.rocksdb.test;
 import org.rocksdb.*;
 
 public class BackupableDBTest {
-  static final String db_path = "/tmp/backupablejni_db";
-  static final String backup_path = "/tmp/backupablejni_db_backup";
+  static final String db_path = "/tmp/rocksdbjni_backupable_db_test";
+  static final String backup_path = "/tmp/rocksdbjni_backupable_db_backup_test";
   static {
     RocksDB.loadLibrary();
   }

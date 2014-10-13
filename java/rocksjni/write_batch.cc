@@ -60,14 +60,13 @@ void Java_org_rocksdb_WriteBatch_clear(JNIEnv* env, jobject jobj) {
 }
 
 /*
- * Class:     org_rocksdb_WriteBatch
- * Method:    put
- * Signature: ([BI[BI)V
+ * Helper for WriteBatch put operations
  */
-void Java_org_rocksdb_WriteBatch_put(
+void write_batch_put_helper(
     JNIEnv* env, jobject jobj,
     jbyteArray jkey, jint jkey_len,
-    jbyteArray jvalue, jint jvalue_len) {
+    jbyteArray jvalue, jint jvalue_len,
+    rocksdb::ColumnFamilyHandle* cf_handle) {
   rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(wb != nullptr);
 
@@ -75,7 +74,64 @@ void Java_org_rocksdb_WriteBatch_put(
   jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
   rocksdb::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
-  wb->Put(key_slice, value_slice);
+  if (cf_handle != nullptr) {
+    wb->Put(cf_handle, key_slice, value_slice);
+  } else {
+    // backwards compatibility
+    wb->Put(key_slice, value_slice);
+  }
+  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    put
+ * Signature: ([BI[BI)V
+ */
+void Java_org_rocksdb_WriteBatch_put___3BI_3BI(
+    JNIEnv* env, jobject jobj,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len) {
+  write_batch_put_helper(env, jobj, jkey, jkey_len, jvalue,
+      jvalue_len, nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    put
+ * Signature: ([BI[BIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_put___3BI_3BIJ(
+    JNIEnv* env, jobject jobj,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len, jlong jcf_handle) {
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  write_batch_put_helper(env, jobj, jkey, jkey_len, jvalue,
+      jvalue_len, cf_handle);
+}
+
+/*
+ * Helper for write batch merge operations
+ */
+void write_batch_merge_helper(
+    JNIEnv* env, jobject jobj,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len,
+    rocksdb::ColumnFamilyHandle* cf_handle) {
+  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
+  assert(wb != nullptr);
+
+  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+  jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
+  rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+  rocksdb::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
+  if (cf_handle != nullptr) {
+    wb->Merge(cf_handle, key_slice, value_slice);
+  } else {
+    // backwards compatibility
+    wb->Merge(key_slice, value_slice);
+  }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
   env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
 }
@@ -85,20 +141,46 @@ void Java_org_rocksdb_WriteBatch_put(
  * Method:    merge
  * Signature: ([BI[BI)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_WriteBatch_merge(
+void Java_org_rocksdb_WriteBatch_merge___3BI_3BI(
     JNIEnv* env, jobject jobj,
     jbyteArray jkey, jint jkey_len,
     jbyteArray jvalue, jint jvalue_len) {
+  write_batch_merge_helper(env, jobj, jkey, jkey_len,
+      jvalue, jvalue_len, nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    merge
+ * Signature: ([BI[BIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_merge___3BI_3BIJ(
+    JNIEnv* env, jobject jobj,
+    jbyteArray jkey, jint jkey_len,
+    jbyteArray jvalue, jint jvalue_len, jlong jcf_handle) {
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  write_batch_merge_helper(env, jobj, jkey, jkey_len,
+      jvalue, jvalue_len, cf_handle);
+}
+
+/*
+ * Helper for write batch remove operations
+ */
+void write_batch_remove_helper(
+    JNIEnv* env, jobject jobj,
+    jbyteArray jkey, jint jkey_len,
+    rocksdb::ColumnFamilyHandle* cf_handle) {
   rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(wb != nullptr);
 
   jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  jbyte* value = env->GetByteArrayElements(jvalue, nullptr);
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  rocksdb::Slice value_slice(reinterpret_cast<char*>(value), jvalue_len);
-  wb->Merge(key_slice, value_slice);
+  if (cf_handle != nullptr) {
+    wb->Delete(cf_handle, key_slice);
+  } else {
+    wb->Delete(key_slice);
+  }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-  env->ReleaseByteArrayElements(jvalue, value, JNI_ABORT);
 }
 
 /*
@@ -106,16 +188,22 @@ JNIEXPORT void JNICALL Java_org_rocksdb_WriteBatch_merge(
  * Method:    remove
  * Signature: ([BI)V
  */
-JNIEXPORT void JNICALL Java_org_rocksdb_WriteBatch_remove(
+void Java_org_rocksdb_WriteBatch_remove___3BI(
     JNIEnv* env, jobject jobj,
     jbyteArray jkey, jint jkey_len) {
-  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
-  assert(wb != nullptr);
+  write_batch_remove_helper(env, jobj, jkey, jkey_len, nullptr);
+}
 
-  jbyte* key = env->GetByteArrayElements(jkey, nullptr);
-  rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  wb->Delete(key_slice);
-  env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+/*
+ * Class:     org_rocksdb_WriteBatch
+ * Method:    remove
+ * Signature: ([BIJ)V
+ */
+void Java_org_rocksdb_WriteBatch_remove___3BIJ(
+    JNIEnv* env, jobject jobj,
+    jbyteArray jkey, jint jkey_len, jlong jcf_handle) {
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  write_batch_remove_helper(env, jobj, jkey, jkey_len, cf_handle);
 }
 
 /*

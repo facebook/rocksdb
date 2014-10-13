@@ -9,7 +9,7 @@ import java.util.Collections;
 import org.rocksdb.*;
 
 public class StatisticsCollectorTest {
-  static final String db_path = "/tmp/backupablejni_db";
+  static final String db_path = "/tmp/rocksdbjni_statistics_collector_test";
   static {
     RocksDB.loadLibrary();
   }
@@ -19,7 +19,7 @@ public class StatisticsCollectorTest {
     Options opt = new Options().createStatistics().setCreateIfMissing(true);
     Statistics stats = opt.statisticsPtr();
 
-    RocksDB db = RocksDB.open(db_path);
+    RocksDB db = RocksDB.open(opt, db_path);
 
     StatsCallbackMock callback = new StatsCallbackMock();
     StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);

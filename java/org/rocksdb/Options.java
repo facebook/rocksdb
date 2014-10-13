@@ -58,6 +58,21 @@ public class Options extends RocksObject {
   }
 
   /**
+   * <p>If true, missing column families will be automatically created</p>
+   *
+   * <p>Default: false</p>
+   *
+   * @param flag
+   * @return true if missing column families shall be created automatically
+   *     on open.
+   */
+  public Options setCreateMissingColumnFamilies(boolean flag) {
+    assert(isInitialized());
+    setCreateMissingColumnFamilies(nativeHandle_, flag);
+    return this;
+  }
+
+  /**
    * Use the specified object to interact with the environment,
    * e.g. to read/write files, schedule background work, etc.
    * Default: {@link RocksEnv#getDefault()}
@@ -83,6 +98,19 @@ public class Options extends RocksObject {
    * @see #setCreateIfMissing(boolean)
    */
   public boolean createIfMissing() {
+    assert(isInitialized());
+    return createIfMissing(nativeHandle_);
+  }
+
+  /**
+   * Return true if the create_missing_column_families flag is set
+   * to true. If true column families be created if missing.
+   *
+   * @return true if the createMissingColumnFamilies is set to
+   *     true.
+   * @see #setCreateMissingColumnFamilies(boolean)
+   */
+  public boolean createMissingColumnFamilies() {
     assert(isInitialized());
     return createIfMissing(nativeHandle_);
   }
@@ -781,7 +809,7 @@ public class Options extends RocksObject {
   private native void setWalTtlSeconds(long handle, long walTtlSeconds);
 
   /**
-   * {@link #walTtlSeconds()} and {@link #walSizeLimitMB()} affect how archived logs
+   * {@link #walTtlSeconds()} and {@code #walSizeLimitMB()} affect how archived logs
    * will be deleted.
    * <ol>
    * <li>If both set to 0, logs will be deleted asap and will not get into
@@ -1515,8 +1543,6 @@ public class Options extends RocksObject {
    * and total file size for level-3 will be 2GB.
    * by default 'maxBytesForLevelBase' is 10MB.
    *
-   * @return maxBytesForLevelBase the upper-bound of the total size of
-   *     leve-1 files in bytes.
    * @return the reference to the current option.
    * @see #setMaxBytesForLevelMultiplier(int)
    */
@@ -2227,6 +2253,9 @@ public class Options extends RocksObject {
   private native boolean createIfMissing(long handle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws RocksDBException;
+  private native void setCreateMissingColumnFamilies(
+      long handle, boolean flag);
+  private native boolean createMissingColumnFamilies(long handle);
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
