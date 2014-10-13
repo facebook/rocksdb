@@ -46,6 +46,7 @@ public:
   static const string ARG_TO;
   static const string ARG_MAX_KEYS;
   static const string ARG_BLOOM_BITS;
+  static const string ARG_FIX_PREFIX_LEN;
   static const string ARG_COMPRESSION_TYPE;
   static const string ARG_BLOCK_SIZE;
   static const string ARG_AUTO_COMPACTION;
@@ -284,9 +285,10 @@ protected:
    * passed in.
    */
   vector<string> BuildCmdLineOptions(vector<string> options) {
-    vector<string> ret = {ARG_DB, ARG_BLOOM_BITS, ARG_BLOCK_SIZE,
-                          ARG_AUTO_COMPACTION, ARG_COMPRESSION_TYPE,
-                          ARG_WRITE_BUFFER_SIZE, ARG_FILE_SIZE};
+    vector<string> ret = {ARG_DB,               ARG_BLOOM_BITS,
+                          ARG_BLOCK_SIZE,       ARG_AUTO_COMPACTION,
+                          ARG_COMPRESSION_TYPE, ARG_WRITE_BUFFER_SIZE,
+                          ARG_FILE_SIZE,        ARG_FIX_PREFIX_LEN};
     ret.insert(ret.end(), options.begin(), options.end());
     return ret;
   }

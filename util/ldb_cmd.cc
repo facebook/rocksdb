@@ -40,6 +40,7 @@ const string LDBCommand::ARG_FROM = "from";
 const string LDBCommand::ARG_TO = "to";
 const string LDBCommand::ARG_MAX_KEYS = "max_keys";
 const string LDBCommand::ARG_BLOOM_BITS = "bloom_bits";
+const string LDBCommand::ARG_FIX_PREFIX_LEN = "fix_prefix_len";
 const string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
 const string LDBCommand::ARG_BLOCK_SIZE = "block_size";
 const string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
@@ -221,9 +222,11 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   map<string, string>::const_iterator itr;
 
   BlockBasedTableOptions table_options;
+  bool use_table_options = false;
   int bits;
   if (ParseIntOption(option_map_, ARG_BLOOM_BITS, bits, exec_state_)) {
     if (bits > 0) {
+      use_table_options = true;
       table_options.filter_policy.reset(NewBloomFilterPolicy(bits));
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_BLOOM_BITS +
@@ -234,12 +237,16 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
   int block_size;
   if (ParseIntOption(option_map_, ARG_BLOCK_SIZE, block_size, exec_state_)) {
     if (block_size > 0) {
+      use_table_options = true;
       table_options.block_size = block_size;
-      opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
     } else {
       exec_state_ = LDBCommandExecuteResult::FAILED(ARG_BLOCK_SIZE +
                       " must be > 0.");
     }
+  }
+
+  if (use_table_options) {
+    opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
 
   itr = option_map_.find(ARG_AUTO_COMPACTION);
@@ -292,6 +299,18 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
 
   if (opt.db_paths.size() == 0) {
     opt.db_paths.emplace_back(db_path_, std::numeric_limits<uint64_t>::max());
+  }
+
+  int fix_prefix_len;
+  if (ParseIntOption(option_map_, ARG_FIX_PREFIX_LEN, fix_prefix_len,
+                     exec_state_)) {
+    if (fix_prefix_len > 0) {
+      opt.prefix_extractor.reset(
+          NewFixedPrefixTransform(static_cast<size_t>(fix_prefix_len)));
+    } else {
+      exec_state_ =
+          LDBCommandExecuteResult::FAILED(ARG_FIX_PREFIX_LEN + " must be > 0.");
+    }
   }
 
   return opt;
