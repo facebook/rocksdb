@@ -1774,8 +1774,6 @@ void Java_org_rocksdb_ReadOptions_setTailing(
       static_cast<bool>(jtailing);
 }
 
-/////////////////////////////////////////////////////////////////////
-// rocksdb::ComparatorOptions
 /*
  * Class:     org_rocksdb_ComparatorOptions
  * Method:    newComparatorOptions
@@ -1818,4 +1816,27 @@ void Java_org_rocksdb_ComparatorOptions_disposeInternal(
     JNIEnv * env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
   rocksdb::ComparatorOptionsJni::setHandle(env, jobj, nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setSnapshot
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ReadOptions_setSnapshot(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jsnapshot) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot =
+      reinterpret_cast<rocksdb::Snapshot*>(jsnapshot);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    snapshot
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_snapshot(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto& snapshot =
+      reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot;
+  return reinterpret_cast<jlong>(snapshot);
 }
