@@ -6,11 +6,11 @@
 package org.rocksdb;
 
 /**
- * A RocksEnv is an interface used by the rocksdb implementation to access
- * operating system functionality like the filesystem etc.
+ * <p>A RocksEnv is an interface used by the rocksdb implementation to access
+ * operating system functionality like the filesystem etc.</p>
  *
- * All Env implementations are safe for concurrent access from
- * multiple threads without any external synchronization.
+ * <p>All Env implementations are safe for concurrent access from
+ * multiple threads without any external synchronization.</p>
  */
 public class RocksEnv extends RocksObject {
   public static final int FLUSH_POOL = 0;
@@ -22,35 +22,36 @@ public class RocksEnv extends RocksObject {
   private static native long getDefaultEnvInternal();
 
   /**
-   * Returns the default environment suitable for the current operating
-   * system.
+   * <p>Returns the default environment suitable for the current operating
+   * system.</p>
    *
-   * The result of getDefault() is a singleton whose ownership belongs
-   * to rocksdb c++.  As a result, the returned RocksEnv will not
+   * <p>The result of {@code getDefault()} is a singleton whose ownership
+   * belongs to rocksdb c++.  As a result, the returned RocksEnv will not
    * have the ownership of its c++ resource, and calling its dispose()
-   * will be no-op.
+   * will be no-op.</p>
    */
   public static RocksEnv getDefault() {
     return default_env_;
   }
 
   /**
-   * Sets the number of background worker threads of the flush pool
-   * for this environment.
-   * default number: 1
+   * <p>Sets the number of background worker threads of the flush pool
+   * for this environment.</p>
+   * <p>Default number: 1</p>
    */
   public RocksEnv setBackgroundThreads(int num) {
     return setBackgroundThreads(num, FLUSH_POOL);
   }
 
   /**
-   * Sets the number of background worker threads of the specified thread
-   * pool for this environment.
+   * <p>Sets the number of background worker threads of the specified thread
+   * pool for this environment.</p>
    *
    * @param num the number of threads
    * @param poolID the id to specified a thread pool.  Should be either
    *     FLUSH_POOL or COMPACTION_POOL.
-   * Default number: 1
+   *
+   * <p>Default number: 1</p>
    */
   public RocksEnv setBackgroundThreads(int num, int poolID) {
     setBackgroundThreads(nativeHandle_, num, poolID);
@@ -60,8 +61,8 @@ public class RocksEnv extends RocksObject {
       long handle, int num, int priority);
 
   /**
-   * Returns the length of the queue associated with the specified
-   * thread pool.
+   * <p>Returns the length of the queue associated with the specified
+   * thread pool.</p>
    *
    * @param poolID the id to specified a thread pool.  Should be either
    *     FLUSH_POOL or COMPACTION_POOL.
@@ -72,11 +73,13 @@ public class RocksEnv extends RocksObject {
   private native int getThreadPoolQueueLen(long handle, int poolID);
 
   /**
-   * Package-private constructor that uses the specified native handle
-   * to construct a RocksEnv.  Note that the ownership of the input handle
+   * <p>Package-private constructor that uses the specified native handle
+   * to construct a RocksEnv.</p>
+   *
+   * <p>Note that the ownership of the input handle
    * belongs to the caller, and the newly created RocksEnv will not take
-   * the ownership of the input handle.  As a result, calling dispose()
-   * of the created RocksEnv will be no-op.
+   * the ownership of the input handle.  As a result, calling
+   * {@code dispose()} of the created RocksEnv will be no-op.</p>
    */
   RocksEnv(long handle) {
     super();
@@ -85,8 +88,9 @@ public class RocksEnv extends RocksObject {
   }
 
   /**
-   * The helper function of dispose() which all subclasses of RocksObject
-   * must implement to release their associated C++ resource.
+   * The helper function of {@link #dispose()} which all subclasses of
+   * {@link RocksObject} must implement to release their associated C++
+   * resource.
    */
   protected void disposeInternal() {
     disposeInternal(nativeHandle_);
@@ -94,9 +98,9 @@ public class RocksEnv extends RocksObject {
   private native void disposeInternal(long handle);
 
   /**
-   * The static default RocksEnv.  The ownership of its native handle
+   * <p>The static default RocksEnv. The ownership of its native handle
    * belongs to rocksdb c++ and is not able to be released on the Java
-   * side.
+   * side.</p>
    */
   static RocksEnv default_env_;
 }

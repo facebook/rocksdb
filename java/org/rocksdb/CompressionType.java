@@ -5,6 +5,14 @@
 
 package org.rocksdb;
 
+/**
+ * Enum CompressionType
+ *
+ * <p>DB contents are stored in a set of blocks, each of which holds a
+ * sequence of key,value pairs. Each block may be compressed before
+ * being stored in a file. The following enum describes which
+ * compression method (if any) is used to compress a block.</p>
+ */
 public enum CompressionType {
   NO_COMPRESSION((byte) 0),
   SNAPPY_COMPRESSION((byte) 1),
@@ -19,6 +27,11 @@ public enum CompressionType {
     value_ = value;
   }
 
+  /**
+   * Returns the byte value of the enumerations value
+   *
+   * @return byte representation
+   */
   public byte getValue() {
     return value_;
   }

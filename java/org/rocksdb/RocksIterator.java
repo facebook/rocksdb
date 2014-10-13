@@ -6,15 +6,17 @@
 package org.rocksdb;
 
 /**
- * An iterator yields a sequence of key/value pairs from a source.
- * The following class defines the interface.  Multiple implementations
+ * <p>An iterator yields a sequence of key/value pairs from a source.
+ * The following class defines the interface. Multiple implementations
  * are provided by this library.  In particular, iterators are provided
- * to access the contents of a Table or a DB.
+ * to access the contents of a Table or a DB.</p>
  *
- * Multiple threads can invoke const methods on an RocksIterator without
+ * <p>Multiple threads can invoke const methods on an RocksIterator without
  * external synchronization, but if any of the threads may call a
  * non-const method, all threads accessing the same RocksIterator must use
- * external synchronization.
+ * external synchronization.</p>
+ *
+ * @see org.rocksdb.RocksObject
  */
 public class RocksIterator extends RocksObject {
   public RocksIterator(long nativeHandle) {
@@ -25,6 +27,7 @@ public class RocksIterator extends RocksObject {
   /**
    * An iterator is either positioned at a key/value pair, or
    * not valid.  This method returns true iff the iterator is valid.
+   *
    * @return true if iterator is valid.
    */
   public boolean isValid() {
@@ -43,7 +46,7 @@ public class RocksIterator extends RocksObject {
 
   /**
    * Position at the last key in the source.  The iterator is
-   * Valid() after this call iff the source is not empty.
+   * valid after this call iff the source is not empty.
    */
   public void seekToLast() {
     assert(isInitialized());
@@ -51,9 +54,10 @@ public class RocksIterator extends RocksObject {
   }
 
   /**
-   * Moves to the next entry in the source.  After this call, Valid() is
-   * true iff the iterator was not positioned at the last entry in the source.
-   * REQUIRES: Valid()
+   * <p>Moves to the next entry in the source.  After this call, Valid() is
+   * true iff the iterator was not positioned at the last entry in the source.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}<p>
    */
   public void next() {
     assert(isInitialized());
@@ -61,9 +65,10 @@ public class RocksIterator extends RocksObject {
   }
 
   /**
-   * Moves to the previous entry in the source.  After this call, Valid() is
-   * true iff the iterator was not positioned at the first entry in source.
-   * REQUIRES: Valid()
+   * <p>Moves to the previous entry in the source.  After this call, Valid() is
+   * true iff the iterator was not positioned at the first entry in source.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}<p>
    */
   public void prev() {
     assert(isInitialized());
@@ -71,10 +76,12 @@ public class RocksIterator extends RocksObject {
   }
 
   /**
-   * Return the key for the current entry.  The underlying storage for
+   * <p>Return the key for the current entry.  The underlying storage for
    * the returned slice is valid only until the next modification of
-   * the iterator.
-   * REQUIRES: Valid()
+   * the iterator.</p>
+   *
+   * <p>REQUIRES: {@link #isValid()}<p>
+   *
    * @return key for the current entry.
    */
   public byte[] key() {
@@ -83,10 +90,11 @@ public class RocksIterator extends RocksObject {
   }
 
   /**
-   * Return the value for the current entry.  The underlying storage for
+   * <p>Return the value for the current entry.  The underlying storage for
    * the returned slice is valid only until the next modification of
-   * the iterator.
-   * REQUIRES: !AtEnd() && !AtStart()
+   * the iterator.</p>
+   *
+   * <p>REQUIRES: !AtEnd() && !AtStart()</p>
    * @return value for the current entry.
    */
   public byte[] value() {
@@ -95,9 +103,9 @@ public class RocksIterator extends RocksObject {
   }
 
   /**
-   * Position at the first key in the source that at or past target
-   * The iterator is Valid() after this call iff the source contains
-   * an entry that comes at or past target.
+   * <p>Position at the first key in the source that at or past target
+   * The iterator is valid after this call iff the source contains
+   * an entry that comes at or past target.</p>
    */
   public void seek(byte[] target) {
     assert(isInitialized());
@@ -109,6 +117,7 @@ public class RocksIterator extends RocksObject {
    * If non-blocking IO is requested and this operation cannot be
    * satisfied without doing some IO, then this returns Status::Incomplete().
    *
+   * @throws org.rocksdb.RocksDBException
    */
   public void status() throws RocksDBException {
     assert(isInitialized());
