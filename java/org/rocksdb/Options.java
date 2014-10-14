@@ -112,7 +112,7 @@ public class Options extends RocksObject {
    */
   public boolean createMissingColumnFamilies() {
     assert(isInitialized());
-    return createIfMissing(nativeHandle_);
+    return createMissingColumnFamilies(nativeHandle_);
   }
 
   /**
