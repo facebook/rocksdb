@@ -4234,6 +4234,9 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
       new_superversion = new SuperVersion();
     }
   }
+  Log(db_options_.info_log,
+      "[%s] New memtable created with log file: #%" PRIu64 "\n",
+      cfd->GetName().c_str(), new_log_number);
   mutex_.Lock();
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
@@ -4266,9 +4269,6 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   cfd->imm()->Add(cfd->mem());
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
-  Log(db_options_.info_log,
-      "[%s] New memtable created with log file: #%" PRIu64 "\n",
-      cfd->GetName().c_str(), logfile_number_);
   context->superversions_to_free_.push_back(
       cfd->InstallSuperVersion(new_superversion, &mutex_, mutable_cf_options));
   return s;
