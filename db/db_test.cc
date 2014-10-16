@@ -8137,7 +8137,7 @@ TEST(DBTest, SimpleWriteTimeoutTest) {
   options.max_background_flushes = 0;
   options.max_write_buffer_number = 2;
   options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
-  WriteOptions write_opt = WriteOptions();
+  WriteOptions write_opt;
   write_opt.timeout_hint_us = 0;
   DestroyAndReopen(&options);
   // fill the two write buffers
@@ -8173,7 +8173,7 @@ static void RandomTimeoutWriter(void* arg) {
   DB* db = state->db;
 
   Random rnd(1000 + thread_id);
-  WriteOptions write_opt = WriteOptions();
+  WriteOptions write_opt;
   write_opt.timeout_hint_us = 500;
   int timeout_count = 0;
   int num_keys = kNumKeys * 5;
@@ -8558,14 +8558,13 @@ TEST(DBTest, DynamicMemtableOptions) {
 
   auto gen_l0_kb = [this](int size) {
     Random rnd(301);
-    std::vector<std::string> values;
     for (int i = 0; i < size; i++) {
-      values.push_back(RandomString(&rnd, 1024));
-      ASSERT_OK(Put(Key(i), values[i]));
+      ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
     }
     dbfull()->TEST_WaitForFlushMemTable();
   };
 
+  // Test write_buffer_size
   gen_l0_kb(64);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   ASSERT_TRUE(SizeAtLevel(0) < k64KB + k5KB);
@@ -8587,6 +8586,68 @@ TEST(DBTest, DynamicMemtableOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
   ASSERT_TRUE(SizeAtLevel(0) < k128KB + k64KB + 2 * k5KB);
   ASSERT_TRUE(SizeAtLevel(0) > k128KB + k64KB - 2 * k5KB);
+
+  // Test max_write_buffer_number
+  // Block compaction thread, which will also block the flushes because
+  // max_background_flushes == 0, so flushes are getting executed by the
+  // compaction thread
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  // Start from scratch and disable compaction/flush. Flush can only happen
+  // during compaction but trigger is pretty high
+  options.max_background_flushes = 0;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(&options);
+
+  // Put until timeout, bounded by 256 puts. We should see timeout at ~128KB
+  int count = 0;
+  Random rnd(301);
+  WriteOptions wo;
+  wo.timeout_hint_us = 1000;
+
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 256) {
+    count++;
+  }
+  ASSERT_TRUE(count > (128 * 0.9) && count < (128 * 1.1));
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+
+  // Increase
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_write_buffer_number", "8"},
+  }));
+  // Clean up memtable and L0
+  dbfull()->CompactRange(nullptr, nullptr);
+
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  count = 0;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
+    count++;
+  }
+  ASSERT_TRUE(count > (512 * 0.9) && count < (512 * 1.1));
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+
+  // Decrease
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_write_buffer_number", "4"},
+  }));
+  // Clean up memtable and L0
+  dbfull()->CompactRange(nullptr, nullptr);
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  count = 0;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
+    count++;
+  }
+  ASSERT_TRUE(count > (256 * 0.9) && count < (256 * 1.1));
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 }
 
 TEST(DBTest, DynamicCompactionOptions) {
@@ -8617,10 +8678,8 @@ TEST(DBTest, DynamicCompactionOptions) {
 
   auto gen_l0_kb = [this](int start, int size, int stride) {
     Random rnd(301);
-    std::vector<std::string> values;
     for (int i = 0; i < size; i++) {
-      values.push_back(RandomString(&rnd, 1024));
-      ASSERT_OK(Put(Key(start + stride * i), values[i]));
+      ASSERT_OK(Put(Key(start + stride * i), RandomString(&rnd, 1024)));
     }
     dbfull()->TEST_WaitForFlushMemTable();
   };
@@ -8666,8 +8725,10 @@ TEST(DBTest, DynamicCompactionOptions) {
     gen_l0_kb(i, 128, 56);
   }
   dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(SizeAtLevel(1) < 1048576 * 1.1);
-  ASSERT_TRUE(SizeAtLevel(2) < 4 * 1048576 * 1.1);
+  ASSERT_TRUE(SizeAtLevel(1) > 1048576 * 0.9 &&
+              SizeAtLevel(1) < 1048576 * 1.1);
+  ASSERT_TRUE(SizeAtLevel(2) > 4 * 1048576 * 0.9 &&
+              SizeAtLevel(2) < 4 * 1048576 * 1.1);
 
   // Change multiplier to 2 with smaller base
   ASSERT_TRUE(dbfull()->SetOptions({

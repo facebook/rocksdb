@@ -14,6 +14,7 @@ namespace rocksdb {
 struct MutableCFOptions {
   MutableCFOptions(const Options& options, const ImmutableCFOptions& ioptions)
     : write_buffer_size(options.write_buffer_size),
+      max_write_buffer_number(options.max_write_buffer_number),
       arena_block_size(options.arena_block_size),
       memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
       memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
@@ -39,6 +40,7 @@ struct MutableCFOptions {
   }
   MutableCFOptions()
     : write_buffer_size(0),
+      max_write_buffer_number(0),
       arena_block_size(0),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(0),
@@ -72,6 +74,7 @@ struct MutableCFOptions {
 
   // Memtable related options
   size_t write_buffer_size;
+  int max_write_buffer_number;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
   uint32_t memtable_prefix_bloom_probes;

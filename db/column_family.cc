@@ -326,13 +326,14 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
 
     auto write_controller = column_family_set_->write_controller_;
 
-    if (imm()->size() == options_.max_write_buffer_number) {
+    if (imm()->size() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
       Log(ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
-          "(waiting for flush)",
-          name_.c_str(), imm()->size());
+          "(waiting for flush), max_write_buffer_number is set to %d",
+          name_.c_str(), imm()->size(),
+          mutable_cf_options.max_write_buffer_number);
     } else if (current_->NumLevelFiles(0) >=
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();

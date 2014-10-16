@@ -92,6 +92,8 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
     new_options->max_successive_merges = ParseInt64(value);
   } else if (name == "filter_deletes") {
     new_options->filter_deletes = ParseBoolean(name, value);
+  } else if (name == "max_write_buffer_number") {
+    new_options->max_write_buffer_number = ParseInt(value);
   } else {
     return false;
   }
@@ -220,8 +222,6 @@ bool GetColumnFamilyOptionsFromMap(
     try {
       if (ParseMemtableOptions(o.first, o.second, new_options)) {
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
-      } else if (o.first == "max_write_buffer_number") {
-        new_options->max_write_buffer_number = ParseInt(o.second);
       } else if (o.first == "min_write_buffer_number_to_merge") {
         new_options->min_write_buffer_number_to_merge = ParseInt(o.second);
       } else if (o.first == "compression") {

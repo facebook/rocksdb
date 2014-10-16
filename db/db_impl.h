@@ -630,6 +630,10 @@ class DBImpl : public DB {
                            DeletionState& deletion_state,
                            const MutableCFOptions& mutable_cf_options);
 
+  SuperVersion* InstallSuperVersion(
+    ColumnFamilyData* cfd, SuperVersion* new_sv,
+    const MutableCFOptions& mutable_cf_options);
+
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.
   inline SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
