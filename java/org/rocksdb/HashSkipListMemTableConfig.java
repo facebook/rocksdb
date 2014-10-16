@@ -18,6 +18,9 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
   public static final int DEFAULT_HEIGHT = 4;
 
+  /**
+   * HashSkipListMemTableConfig constructor
+   */
   public HashSkipListMemTableConfig() {
     bucketCount_ = DEFAULT_BUCKET_COUNT;
     branchingFactor_ = DEFAULT_BRANCHING_FACTOR;

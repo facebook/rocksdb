@@ -34,16 +34,26 @@ jlong Java_org_rocksdb_HashSkipListMemTableConfig_newMemTableFactoryHandle(
 /*
  * Class:     org_rocksdb_HashLinkedListMemTableConfig
  * Method:    newMemTableFactoryHandle
- * Signature: (J)J
+ * Signature: (JJIZI)J
  */
 jlong Java_org_rocksdb_HashLinkedListMemTableConfig_newMemTableFactoryHandle(
-    JNIEnv* env, jobject jobj, jlong jbucket_count) {
-  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jbucket_count);
-  if (s.ok()) {
+    JNIEnv* env, jobject jobj, jlong jbucket_count, jlong jhuge_page_tlb_size,
+    jint jbucket_entries_logging_threshold,
+    jboolean jif_log_bucket_dist_when_flash, jint jthreshold_use_skiplist) {
+  rocksdb::Status statusBucketCount =
+      rocksdb::check_if_jlong_fits_size_t(jbucket_count);
+  rocksdb::Status statusHugePageTlb =
+      rocksdb::check_if_jlong_fits_size_t(jhuge_page_tlb_size);
+  if (statusBucketCount.ok() && statusHugePageTlb.ok()) {
     return reinterpret_cast<jlong>(rocksdb::NewHashLinkListRepFactory(
-        static_cast<size_t>(jbucket_count)));
+        static_cast<size_t>(jbucket_count),
+        static_cast<size_t>(jhuge_page_tlb_size),
+        static_cast<int32_t>(jbucket_entries_logging_threshold),
+        static_cast<bool>(jif_log_bucket_dist_when_flash),
+        static_cast<int32_t>(jthreshold_use_skiplist)));
   }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  rocksdb::RocksDBExceptionJni::ThrowNew(env,
+      !statusBucketCount.ok()?statusBucketCount:statusHugePageTlb);
   return 0;
 }
 
@@ -66,9 +76,15 @@ jlong Java_org_rocksdb_VectorMemTableConfig_newMemTableFactoryHandle(
 /*
  * Class:     org_rocksdb_SkipListMemTableConfig
  * Method:    newMemTableFactoryHandle0
- * Signature: ()J
+ * Signature: (J)J
  */
 jlong Java_org_rocksdb_SkipListMemTableConfig_newMemTableFactoryHandle0(
-    JNIEnv* env, jobject jobj) {
-  return reinterpret_cast<jlong>(new rocksdb::SkipListFactory());
+    JNIEnv* env, jobject jobj, jlong jlookahead) {
+  rocksdb::Status s = rocksdb::check_if_jlong_fits_size_t(jlookahead);
+  if (s.ok()) {
+    return reinterpret_cast<jlong>(new rocksdb::SkipListFactory(
+        static_cast<size_t>(jlookahead)));
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  return 0;
 }
