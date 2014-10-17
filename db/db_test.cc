@@ -8683,7 +8683,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   env_->SetBackgroundThreads(1, Env::HIGH);
   DestroyAndReopen(&options);
 
-  auto gen_l0_kb = [this](int start, int size, int stride = 1) {
+  auto gen_l0_kb = [this](int start, int size, int stride) {
     Random rnd(301);
     for (int i = 0; i < size; i++) {
       ASSERT_OK(Put(Key(start + stride * i), RandomString(&rnd, 1024)));
@@ -8693,11 +8693,11 @@ TEST(DBTest, DynamicCompactionOptions) {
 
   // Write 3 files that have the same key range, trigger compaction and
   // result in one L1 file
-  gen_l0_kb(0, 64);
+  gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
-  gen_l0_kb(0, 64);
+  gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
-  gen_l0_kb(0, 64);
+  gen_l0_kb(0, 64, 1);
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,1", FilesPerLevel());
   std::vector<LiveFileMetaData> metadata;
@@ -8712,9 +8712,9 @@ TEST(DBTest, DynamicCompactionOptions) {
     {"target_file_size_base", std::to_string(k32KB) }
   }));
 
-  gen_l0_kb(0, 64);
+  gen_l0_kb(0, 64, 1);
   ASSERT_EQ("1,1", FilesPerLevel());
-  gen_l0_kb(0, 64);
+  gen_l0_kb(0, 64, 1);
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,2", FilesPerLevel());
   metadata.clear();
