@@ -2323,12 +2323,14 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress,
   } else {
     // no need to refcount in iteration since it's always under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->options()->disable_auto_compactions) {
+      // Pick up latest mutable CF Options and use it throughout the
+      // compaction job
+      auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
+      if (!mutable_cf_options->disable_auto_compactions) {
         // NOTE: try to avoid unnecessary copy of MutableCFOptions if
         // compaction is not necessary. Need to make sure mutex is held
         // until we make a copy in the following code
-        c.reset(cfd->PickCompaction(
-              *cfd->GetLatestMutableCFOptions(), log_buffer));
+        c.reset(cfd->PickCompaction(*mutable_cf_options, log_buffer));
         if (c != nullptr) {
           // update statistics
           MeasureTime(stats_, NUM_FILES_IN_SINGLE_COMPACTION,

@@ -103,7 +103,9 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
 template<typename OptionsType>
 bool ParseCompactionOptions(const std::string& name, const std::string& value,
                             OptionsType* new_options) {
-  if (name == "level0_file_num_compaction_trigger") {
+  if (name == "disable_auto_compactions") {
+    new_options->disable_auto_compactions = ParseBoolean(name, value);
+  } else if (name == "level0_file_num_compaction_trigger") {
     new_options->level0_file_num_compaction_trigger = ParseInt(value);
   } else if (name == "level0_slowdown_writes_trigger") {
     new_options->level0_slowdown_writes_trigger = ParseInt(value);
@@ -270,8 +272,6 @@ bool GetColumnFamilyOptionsFromMap(
         new_options->soft_rate_limit = ParseDouble(o.second);
       } else if (o.first == "hard_rate_limit") {
         new_options->hard_rate_limit = ParseDouble(o.second);
-      } else if (o.first == "disable_auto_compactions") {
-        new_options->disable_auto_compactions = ParseBoolean(o.first, o.second);
       } else if (o.first == "purge_redundant_kvs_while_flush") {
         new_options->purge_redundant_kvs_while_flush =
           ParseBoolean(o.first, o.second);

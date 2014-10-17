@@ -8659,14 +8659,13 @@ TEST(DBTest, DynamicCompactionOptions) {
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
-  options.max_background_compactions = 4;
   options.hard_rate_limit = 1.1;
   options.write_buffer_size = k128KB;
   options.max_write_buffer_number = 2;
   // Compaction related options
   options.level0_file_num_compaction_trigger = 3;
-  options.level0_slowdown_writes_trigger = 10;
-  options.level0_stop_writes_trigger = 20;
+  options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 8;
   options.max_grandparent_overlap_factor = 10;
   options.expanded_compaction_factor = 25;
   options.source_compaction_factor = 1;
@@ -8674,6 +8673,10 @@ TEST(DBTest, DynamicCompactionOptions) {
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = k256KB;
   options.max_bytes_for_level_multiplier = 4;
+
+  // Block flush thread and disable compaction thread
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->SetBackgroundThreads(1, Env::HIGH);
   DestroyAndReopen(&options);
 
   auto gen_l0_kb = [this](int start, int size, int stride) {
@@ -8745,6 +8748,78 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_TRUE(SizeAtLevel(1) < 262144 * 1.1);
   ASSERT_TRUE(SizeAtLevel(2) < 2 * 262144 * 1.1);
   ASSERT_TRUE(SizeAtLevel(3) < 4 * 262144 * 1.1);
+
+  // Clean up memtable and L0
+  dbfull()->CompactRange(nullptr, nullptr);
+  // Block compaction
+  SleepingBackgroundTask sleeping_task_low1;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
+                 Env::Priority::LOW);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  int count = 0;
+  Random rnd(301);
+  WriteOptions wo;
+  wo.timeout_hint_us = 10000;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 64) {
+    // Wait for compaction so that put won't timeout
+    dbfull()->TEST_FlushMemTable(true);
+    count++;
+  }
+  ASSERT_EQ(count, 8);
+  // Unblock
+  sleeping_task_low1.WakeUp();
+  sleeping_task_low1.WaitUntilDone();
+
+  // Reduce stop trigger
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"level0_stop_writes_trigger", "6"}
+  }));
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  // Block compaction
+  SleepingBackgroundTask sleeping_task_low2;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
+                 Env::Priority::LOW);
+  count = 0;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 64) {
+    // Wait for compaction so that put won't timeout
+    dbfull()->TEST_FlushMemTable(true);
+    count++;
+  }
+  ASSERT_EQ(count, 6);
+  // Unblock
+  sleeping_task_low2.WakeUp();
+  sleeping_task_low2.WaitUntilDone();
+
+  // Test disable_auto_compactions
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"disable_auto_compactions", "true"}
+  }));
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    // Wait for compaction so that put won't timeout
+    dbfull()->TEST_FlushMemTable(true);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
+
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"disable_auto_compactions", "false"}
+  }));
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    // Wait for compaction so that put won't timeout
+    dbfull()->TEST_FlushMemTable(true);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_LT(NumTableFilesAtLevel(0), 4);
 }
 
 }  // namespace rocksdb
