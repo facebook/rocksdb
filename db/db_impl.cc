@@ -1727,9 +1727,37 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
 
 bool DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  MutexLock l(&mutex_);
-  return cfh->cfd()->SetOptions(options_map);
+  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  if (options_map.empty()) {
+    Log(db_options_.info_log, "SetOptions() on column family [%s], empty input",
+        cfd->GetName().c_str());
+    return false;
+  }
+
+  MutableCFOptions new_options;
+  bool succeed = false;
+  {
+    MutexLock l(&mutex_);
+    if (cfd->SetOptions(options_map)) {
+      new_options = *cfd->GetLatestMutableCFOptions();
+      succeed = true;
+    }
+  }
+
+  Log(db_options_.info_log, "SetOptions() on column family [%s], inputs:",
+      cfd->GetName().c_str());
+  for (const auto& o : options_map) {
+    Log(db_options_.info_log, "%s: %s\n", o.first.c_str(), o.second.c_str());
+  }
+  if (succeed) {
+    Log(db_options_.info_log, "[%s] SetOptions succeeded",
+        cfd->GetName().c_str());
+    new_options.Dump(db_options_.info_log.get());
+  } else {
+    Log(db_options_.info_log, "[%s] SetOptions failed",
+        cfd->GetName().c_str());
+  }
+  return succeed;
 }
 
 // return the same level if it cannot be moved

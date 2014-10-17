@@ -78,6 +78,8 @@ struct MutableCFOptions {
   uint64_t MaxGrandParentOverlapBytes(int level) const;
   uint64_t ExpandedCompactionByteSizeLimit(int level) const;
 
+  void Dump(Logger* log) const;
+
   // Memtable related options
   size_t write_buffer_size;
   int max_write_buffer_number;
