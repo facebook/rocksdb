@@ -23,6 +23,8 @@ struct MutableCFOptions {
       max_successive_merges(options.max_successive_merges),
       filter_deletes(options.filter_deletes),
       disable_auto_compactions(options.disable_auto_compactions),
+      soft_rate_limit(options.soft_rate_limit),
+      hard_rate_limit(options.hard_rate_limit),
       level0_file_num_compaction_trigger(
           options.level0_file_num_compaction_trigger),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
@@ -49,6 +51,8 @@ struct MutableCFOptions {
       max_successive_merges(0),
       filter_deletes(false),
       disable_auto_compactions(false),
+      soft_rate_limit(0),
+      hard_rate_limit(0),
       level0_file_num_compaction_trigger(0),
       level0_slowdown_writes_trigger(0),
       level0_stop_writes_trigger(0),
@@ -86,6 +90,8 @@ struct MutableCFOptions {
 
   // Compaction related options
   bool disable_auto_compactions;
+  double soft_rate_limit;
+  double hard_rate_limit;
   int level0_file_num_compaction_trigger;
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;

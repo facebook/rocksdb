@@ -354,8 +354,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
           "us)",
           name_.c_str(), current_->NumLevelFiles(0), slowdown);
-    } else if (options_.hard_rate_limit > 1.0 &&
-               score > options_.hard_rate_limit) {
+    } else if (mutable_cf_options.hard_rate_limit > 1.0 &&
+               score > mutable_cf_options.hard_rate_limit) {
       uint64_t kHardLimitSlowdown = 1000;
       write_controller_token_ =
           write_controller->GetDelayToken(kHardLimitSlowdown);
@@ -365,10 +365,11 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "[%s] Stalling writes because we hit hard limit on level %d. "
           "(%" PRIu64 "us)",
           name_.c_str(), max_level, kHardLimitSlowdown);
-    } else if (options_.soft_rate_limit > 0.0 &&
-               score > options_.soft_rate_limit) {
-      uint64_t slowdown = SlowdownAmount(score, options_.soft_rate_limit,
-                                         options_.hard_rate_limit);
+    } else if (mutable_cf_options.soft_rate_limit > 0.0 &&
+               score > mutable_cf_options.soft_rate_limit) {
+      uint64_t slowdown = SlowdownAmount(score,
+          mutable_cf_options.soft_rate_limit,
+          mutable_cf_options.hard_rate_limit);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
       internal_stats_->RecordLevelNSlowdown(max_level, slowdown, true);
       Log(ioptions_.info_log,
