@@ -14,6 +14,7 @@ namespace rocksdb {
 struct MutableCFOptions {
   MutableCFOptions(const Options& options, const ImmutableCFOptions& ioptions)
     : write_buffer_size(options.write_buffer_size),
+      max_write_buffer_number(options.max_write_buffer_number),
       arena_block_size(options.arena_block_size),
       memtable_prefix_bloom_bits(options.memtable_prefix_bloom_bits),
       memtable_prefix_bloom_probes(options.memtable_prefix_bloom_probes),
@@ -21,6 +22,9 @@ struct MutableCFOptions {
           options.memtable_prefix_bloom_huge_page_tlb_size),
       max_successive_merges(options.max_successive_merges),
       filter_deletes(options.filter_deletes),
+      disable_auto_compactions(options.disable_auto_compactions),
+      soft_rate_limit(options.soft_rate_limit),
+      hard_rate_limit(options.hard_rate_limit),
       level0_file_num_compaction_trigger(
           options.level0_file_num_compaction_trigger),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
@@ -39,12 +43,16 @@ struct MutableCFOptions {
   }
   MutableCFOptions()
     : write_buffer_size(0),
+      max_write_buffer_number(0),
       arena_block_size(0),
       memtable_prefix_bloom_bits(0),
       memtable_prefix_bloom_probes(0),
       memtable_prefix_bloom_huge_page_tlb_size(0),
       max_successive_merges(0),
       filter_deletes(false),
+      disable_auto_compactions(false),
+      soft_rate_limit(0),
+      hard_rate_limit(0),
       level0_file_num_compaction_trigger(0),
       level0_slowdown_writes_trigger(0),
       level0_stop_writes_trigger(0),
@@ -70,8 +78,11 @@ struct MutableCFOptions {
   uint64_t MaxGrandParentOverlapBytes(int level) const;
   uint64_t ExpandedCompactionByteSizeLimit(int level) const;
 
+  void Dump(Logger* log) const;
+
   // Memtable related options
   size_t write_buffer_size;
+  int max_write_buffer_number;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
   uint32_t memtable_prefix_bloom_probes;
@@ -80,6 +91,9 @@ struct MutableCFOptions {
   bool filter_deletes;
 
   // Compaction related options
+  bool disable_auto_compactions;
+  double soft_rate_limit;
+  double hard_rate_limit;
   int level0_file_num_compaction_trigger;
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;

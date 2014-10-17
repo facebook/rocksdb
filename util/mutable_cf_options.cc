@@ -3,8 +3,15 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <limits>
 #include <cassert>
+#include <string>
+#include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
 #include "util/mutable_cf_options.h"
@@ -67,6 +74,58 @@ uint64_t MutableCFOptions::MaxGrandParentOverlapBytes(int level) const {
 }
 uint64_t MutableCFOptions::ExpandedCompactionByteSizeLimit(int level) const {
   return MaxFileSizeForLevel(level) * expanded_compaction_factor;
+}
+
+void MutableCFOptions::Dump(Logger* log) const {
+  // Memtable related options
+  Log(log, "                        write_buffer_size: %zu", write_buffer_size);
+  Log(log, "                  max_write_buffer_number: %d",
+      max_write_buffer_number);
+  Log(log, "                         arena_block_size: %zu", arena_block_size);
+  Log(log, "               memtable_prefix_bloom_bits: %" PRIu32,
+      memtable_prefix_bloom_bits);
+  Log(log, "             memtable_prefix_bloom_probes: %" PRIu32,
+      memtable_prefix_bloom_probes);
+  Log(log, " memtable_prefix_bloom_huge_page_tlb_size: %zu",
+      memtable_prefix_bloom_huge_page_tlb_size);
+  Log(log, "                    max_successive_merges: %zu",
+      max_successive_merges);
+  Log(log, "                           filter_deletes: %d",
+      filter_deletes);
+  Log(log, "                 disable_auto_compactions: %d",
+      disable_auto_compactions);
+  Log(log, "                          soft_rate_limit: %lf",
+      soft_rate_limit);
+  Log(log, "                          hard_rate_limit: %lf",
+      hard_rate_limit);
+  Log(log, "       level0_file_num_compaction_trigger: %d",
+      level0_file_num_compaction_trigger);
+  Log(log, "           level0_slowdown_writes_trigger: %d",
+      level0_slowdown_writes_trigger);
+  Log(log, "               level0_stop_writes_trigger: %d",
+      level0_stop_writes_trigger);
+  Log(log, "           max_grandparent_overlap_factor: %d",
+      max_grandparent_overlap_factor);
+  Log(log, "               expanded_compaction_factor: %d",
+      expanded_compaction_factor);
+  Log(log, "                 source_compaction_factor: %d",
+      source_compaction_factor);
+  Log(log, "                    target_file_size_base: %d",
+      target_file_size_base);
+  Log(log, "              target_file_size_multiplier: %d",
+      target_file_size_multiplier);
+  Log(log, "                 max_bytes_for_level_base: %" PRIu64,
+      max_bytes_for_level_base);
+  Log(log, "           max_bytes_for_level_multiplier: %d",
+      max_bytes_for_level_multiplier);
+  std::string result;
+  char buf[10];
+  for (const auto m : max_bytes_for_level_multiplier_additional) {
+    snprintf(buf, sizeof(buf), "%d, ", m);
+    result += buf;
+  }
+  result.resize(result.size() - 2);
+  Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
 }
 
 }  // namespace rocksdb

@@ -212,13 +212,15 @@ class Version {
   uint64_t GetVersionNumber() const { return version_number_; }
 
   uint64_t GetAverageValueSize() const {
-    if (num_non_deletions_ == 0) {
+    if (accumulated_num_non_deletions_ == 0) {
       return 0;
     }
-    assert(total_raw_key_size_ + total_raw_value_size_ > 0);
-    assert(total_file_size_ > 0);
-    return total_raw_value_size_ / num_non_deletions_ * total_file_size_ /
-           (total_raw_key_size_ + total_raw_value_size_);
+    assert(accumulated_raw_key_size_ + accumulated_raw_value_size_ > 0);
+    assert(accumulated_file_size_ > 0);
+    return accumulated_raw_value_size_ /
+           accumulated_num_non_deletions_ *
+           accumulated_file_size_ /
+           (accumulated_raw_key_size_ + accumulated_raw_value_size_);
   }
 
   // REQUIRES: lock is held
@@ -268,14 +270,17 @@ class Version {
   // Update num_non_empty_levels_.
   void UpdateNumNonEmptyLevels();
 
-  // The helper function of UpdateTemporaryStats, which may fill the missing
+  // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_mata from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.
   bool MaybeInitializeFileMetaData(FileMetaData* file_meta);
 
-  // Update the temporary stats associated with the current version.
-  // This temporary stats will be used in compaction.
-  void UpdateTemporaryStats();
+  // Update the accumulated stats from a file-meta.
+  void UpdateAccumulatedStats(FileMetaData* file_meta);
+
+  // Update the accumulated stats associated with the current version.
+  // This accumulated stats will be used in compaction.
+  void UpdateAccumulatedStats();
 
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.
@@ -337,16 +342,19 @@ class Version {
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
 
-  // total file size
-  uint64_t total_file_size_;
-  // the total size of all raw keys.
-  uint64_t total_raw_key_size_;
-  // the total size of all raw values.
-  uint64_t total_raw_value_size_;
+  // the following are the sampled temporary stats.
+  // the current accumulated size of sampled files.
+  uint64_t accumulated_file_size_;
+  // the current accumulated size of all raw keys based on the sampled files.
+  uint64_t accumulated_raw_key_size_;
+  // the current accumulated size of all raw keys based on the sampled files.
+  uint64_t accumulated_raw_value_size_;
   // total number of non-deletion entries
-  uint64_t num_non_deletions_;
+  uint64_t accumulated_num_non_deletions_;
   // total number of deletion entries
-  uint64_t num_deletions_;
+  uint64_t accumulated_num_deletions_;
+  // the number of samples
+  uint64_t num_samples_;
 
   ~Version();
 

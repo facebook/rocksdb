@@ -522,7 +522,18 @@ TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
     Random rnd(rand_seed);
 
     ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+    ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
+    ColumnFamilyHandleImplDummy cf3(8, BytewiseComparator());
+
     WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+    if (rand_seed % 2 == 0) {
+      batch.Put(&cf2, "zoo", "bar");
+    }
+    if (rand_seed % 4 == 1) {
+      batch.Put(&cf3, "zoo", "bar");
+    }
+
     KVMap map;
     KVMap merged_map;
     for (auto key : source_strings) {
@@ -619,6 +630,7 @@ TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
 
 TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
 
   {
@@ -659,7 +671,21 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     AssertIter(iter.get(), "a", "aa");
   }
 
+  // Test the case that there is one element in the write batch
+  batch.Put(&cf2, "zoo", "bar");
   batch.Put(&cf1, "a", "aa");
+  {
+    KVMap empty_map;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+
   batch.Delete(&cf1, "b");
   batch.Put(&cf1, "c", "cc");
   batch.Put(&cf1, "d", "dd");
@@ -725,6 +751,7 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     iter->Next();
     AssertIter(iter.get(), "f", "ff");
   }
+
   {
     KVMap empty_map;
     std::unique_ptr<Iterator> iter(
@@ -763,6 +790,60 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
     AssertIter(iter.get(), "c", "cc");
   }
 }
+
+TEST(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
+  ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
+  ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
+
+  // Test the case that there is one element in the write batch
+  batch.Put(&cf2, "zoo", "bar");
+  batch.Put(&cf1, "a", "aa");
+  {
+    KVMap empty_map;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&empty_map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+  }
+
+  batch.Put(&cf1, "c", "cc");
+  {
+    KVMap map;
+    std::unique_ptr<Iterator> iter(
+        batch.NewIteratorWithBase(&cf1, new KVIter(&map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Next();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    AssertIter(iter.get(), "a", "aa");
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("b");
+    AssertIter(iter.get(), "a", "aa");
+
+    iter->Prev();
+    AssertIter(iter.get(), "c", "cc");
+
+    iter->Seek("a");
+    AssertIter(iter.get(), "a", "aa");
+  }
+}
+
 }  // namespace
 
 int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }

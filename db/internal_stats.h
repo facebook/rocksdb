@@ -36,6 +36,8 @@ enum DBPropertyType : uint32_t {
   kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,       // Return accumulated background errors encountered.
   kCurSizeActiveMemTable,  // Return current size of the active memtable
+  kCurSizeAllMemTables,    // Return current size of all (active + immutable)
+                           // memtables
   kNumEntriesInMutableMemtable,    // Return number of entries in the mutable
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all

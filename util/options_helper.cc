@@ -92,6 +92,8 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
     new_options->max_successive_merges = ParseInt64(value);
   } else if (name == "filter_deletes") {
     new_options->filter_deletes = ParseBoolean(name, value);
+  } else if (name == "max_write_buffer_number") {
+    new_options->max_write_buffer_number = ParseInt(value);
   } else {
     return false;
   }
@@ -101,7 +103,13 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
 template<typename OptionsType>
 bool ParseCompactionOptions(const std::string& name, const std::string& value,
                             OptionsType* new_options) {
-  if (name == "level0_file_num_compaction_trigger") {
+  if (name == "disable_auto_compactions") {
+    new_options->disable_auto_compactions = ParseBoolean(name, value);
+  } else if (name == "soft_rate_limit") {
+    new_options->soft_rate_limit = ParseDouble(value);
+  } else if (name == "hard_rate_limit") {
+    new_options->hard_rate_limit = ParseDouble(value);
+  } else if (name == "level0_file_num_compaction_trigger") {
     new_options->level0_file_num_compaction_trigger = ParseInt(value);
   } else if (name == "level0_slowdown_writes_trigger") {
     new_options->level0_slowdown_writes_trigger = ParseInt(value);
@@ -220,8 +228,6 @@ bool GetColumnFamilyOptionsFromMap(
     try {
       if (ParseMemtableOptions(o.first, o.second, new_options)) {
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
-      } else if (o.first == "max_write_buffer_number") {
-        new_options->max_write_buffer_number = ParseInt(o.second);
       } else if (o.first == "min_write_buffer_number_to_merge") {
         new_options->min_write_buffer_number_to_merge = ParseInt(o.second);
       } else if (o.first == "compression") {
@@ -266,12 +272,6 @@ bool GetColumnFamilyOptionsFromMap(
         new_options->num_levels = ParseInt(o.second);
       } else if (o.first == "max_mem_compaction_level") {
         new_options->max_mem_compaction_level = ParseInt(o.second);
-      } else if (o.first == "soft_rate_limit") {
-        new_options->soft_rate_limit = ParseDouble(o.second);
-      } else if (o.first == "hard_rate_limit") {
-        new_options->hard_rate_limit = ParseDouble(o.second);
-      } else if (o.first == "disable_auto_compactions") {
-        new_options->disable_auto_compactions = ParseBoolean(o.first, o.second);
       } else if (o.first == "purge_redundant_kvs_while_flush") {
         new_options->purge_redundant_kvs_while_flush =
           ParseBoolean(o.first, o.second);

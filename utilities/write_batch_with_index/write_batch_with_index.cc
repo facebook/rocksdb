@@ -304,6 +304,10 @@ struct WriteBatchIndexEntry {
   WriteBatchIndexEntry(const Slice* sk, uint32_t c)
       : offset(0), column_family(c), search_key(sk) {}
 
+  // If this flag appears in the offset, it indicates a key that is smaller
+  // than any other entry for the same column family
+  static const size_t kFlagMin = std::numeric_limits<size_t>::max();
+
   size_t offset;           // offset of an entry in write batch's string buffer.
   uint32_t column_family;  // column family of the entry
   const Slice* search_key;  // if not null, instead of reading keys from
@@ -354,14 +358,16 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   virtual void SeekToFirst() {
     valid_ = true;
-    WriteBatchIndexEntry search_entry(nullptr, column_family_id_);
+    WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
+                                      column_family_id_);
     skip_list_iter_.Seek(&search_entry);
     ReadEntry();
   }
 
   virtual void SeekToLast() {
     valid_ = true;
-    WriteBatchIndexEntry search_entry(nullptr, column_family_id_ + 1);
+    WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
+                                      column_family_id_ + 1);
     skip_list_iter_.Seek(&search_entry);
     if (!skip_list_iter_.Valid()) {
       skip_list_iter_.SeekToLast();
@@ -634,6 +640,12 @@ int WriteBatchEntryComparator::operator()(
     return 1;
   } else if (entry1->column_family < entry2->column_family) {
     return -1;
+  }
+
+  if (entry1->offset == WriteBatchIndexEntry::kFlagMin) {
+    return -1;
+  } else if (entry2->offset == WriteBatchIndexEntry::kFlagMin) {
+    return 1;
   }
 
   Status s;

@@ -112,7 +112,7 @@ public class Options extends RocksObject {
    */
   public boolean createMissingColumnFamilies() {
     assert(isInitialized());
-    return createIfMissing(nativeHandle_);
+    return createMissingColumnFamilies(nativeHandle_);
   }
 
   /**
@@ -1154,6 +1154,7 @@ public class Options extends RocksObject {
    */
   public Options setMemTableConfig(MemTableConfig config)
       throws RocksDBException {
+    memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
   }
@@ -1168,6 +1169,7 @@ public class Options extends RocksObject {
    * @throws RocksDBException
    */
   public Options setRateLimiterConfig(RateLimiterConfig config) {
+    rateLimiterConfig_ = config;
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
   }
@@ -1191,6 +1193,7 @@ public class Options extends RocksObject {
    * @return the reference of the current Options.
    */
   public Options setTableFormatConfig(TableFormatConfig config) {
+    tableFormatConfig_ = config;
     setTableFactory(nativeHandle_, config.newTableFactoryHandle());
     return this;
   }
@@ -2316,4 +2319,7 @@ public class Options extends RocksObject {
   long cacheSize_;
   int numShardBits_;
   RocksEnv env_;
+  MemTableConfig memTableConfig_;
+  TableFormatConfig tableFormatConfig_;
+  RateLimiterConfig rateLimiterConfig_;
 }

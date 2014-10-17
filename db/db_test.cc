@@ -8137,7 +8137,7 @@ TEST(DBTest, SimpleWriteTimeoutTest) {
   options.max_background_flushes = 0;
   options.max_write_buffer_number = 2;
   options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
-  WriteOptions write_opt = WriteOptions();
+  WriteOptions write_opt;
   write_opt.timeout_hint_us = 0;
   DestroyAndReopen(&options);
   // fill the two write buffers
@@ -8173,7 +8173,7 @@ static void RandomTimeoutWriter(void* arg) {
   DB* db = state->db;
 
   Random rnd(1000 + thread_id);
-  WriteOptions write_opt = WriteOptions();
+  WriteOptions write_opt;
   write_opt.timeout_hint_us = 500;
   int timeout_count = 0;
   int num_keys = kNumKeys * 5;
@@ -8558,14 +8558,13 @@ TEST(DBTest, DynamicMemtableOptions) {
 
   auto gen_l0_kb = [this](int size) {
     Random rnd(301);
-    std::vector<std::string> values;
     for (int i = 0; i < size; i++) {
-      values.push_back(RandomString(&rnd, 1024));
-      ASSERT_OK(Put(Key(i), values[i]));
+      ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
     }
     dbfull()->TEST_WaitForFlushMemTable();
   };
 
+  // Test write_buffer_size
   gen_l0_kb(64);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   ASSERT_TRUE(SizeAtLevel(0) < k64KB + k5KB);
@@ -8587,103 +8586,299 @@ TEST(DBTest, DynamicMemtableOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
   ASSERT_TRUE(SizeAtLevel(0) < k128KB + k64KB + 2 * k5KB);
   ASSERT_TRUE(SizeAtLevel(0) > k128KB + k64KB - 2 * k5KB);
+
+  // Test max_write_buffer_number
+  // Block compaction thread, which will also block the flushes because
+  // max_background_flushes == 0, so flushes are getting executed by the
+  // compaction thread
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low1;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
+                 Env::Priority::LOW);
+  // Start from scratch and disable compaction/flush. Flush can only happen
+  // during compaction but trigger is pretty high
+  options.max_background_flushes = 0;
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(&options);
+
+  // Put until timeout, bounded by 256 puts. We should see timeout at ~128KB
+  int count = 0;
+  Random rnd(301);
+  WriteOptions wo;
+  wo.timeout_hint_us = 1000;
+
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 256) {
+    count++;
+  }
+  ASSERT_TRUE(count > (128 * 0.9) && count < (128 * 1.1));
+
+  sleeping_task_low1.WakeUp();
+  sleeping_task_low1.WaitUntilDone();
+
+  // Increase
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_write_buffer_number", "8"},
+  }));
+  // Clean up memtable and L0
+  dbfull()->CompactRange(nullptr, nullptr);
+
+  SleepingBackgroundTask sleeping_task_low2;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
+                 Env::Priority::LOW);
+  count = 0;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
+    count++;
+  }
+  ASSERT_TRUE(count > (512 * 0.9) && count < (512 * 1.1));
+  sleeping_task_low2.WakeUp();
+  sleeping_task_low2.WaitUntilDone();
+
+  // Decrease
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_write_buffer_number", "4"},
+  }));
+  // Clean up memtable and L0
+  dbfull()->CompactRange(nullptr, nullptr);
+
+  SleepingBackgroundTask sleeping_task_low3;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low3,
+                 Env::Priority::LOW);
+  count = 0;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
+    count++;
+  }
+  ASSERT_TRUE(count > (256 * 0.9) && count < (256 * 1.1));
+  sleeping_task_low3.WakeUp();
+  sleeping_task_low3.WaitUntilDone();
 }
 
 TEST(DBTest, DynamicCompactionOptions) {
+  // minimum write buffer size is enforced at 64KB
+  const uint64_t k32KB = 1 << 15;
   const uint64_t k64KB = 1 << 16;
   const uint64_t k128KB = 1 << 17;
   const uint64_t k256KB = 1 << 18;
-  const uint64_t k5KB = 5 * 1024;
+  const uint64_t k4KB = 1 << 12;
   Options options;
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
-  options.max_background_compactions = 4;
   options.hard_rate_limit = 1.1;
-  options.write_buffer_size = k128KB;
+  options.write_buffer_size = k64KB;
   options.max_write_buffer_number = 2;
   // Compaction related options
   options.level0_file_num_compaction_trigger = 3;
-  options.level0_slowdown_writes_trigger = 10;
-  options.level0_stop_writes_trigger = 20;
+  options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 8;
   options.max_grandparent_overlap_factor = 10;
   options.expanded_compaction_factor = 25;
   options.source_compaction_factor = 1;
-  options.target_file_size_base = k128KB;
+  options.target_file_size_base = k64KB;
   options.target_file_size_multiplier = 1;
-  options.max_bytes_for_level_base = k256KB;
+  options.max_bytes_for_level_base = k128KB;
   options.max_bytes_for_level_multiplier = 4;
+
+  // Block flush thread and disable compaction thread
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->SetBackgroundThreads(1, Env::HIGH);
   DestroyAndReopen(&options);
 
   auto gen_l0_kb = [this](int start, int size, int stride) {
     Random rnd(301);
-    std::vector<std::string> values;
     for (int i = 0; i < size; i++) {
-      values.push_back(RandomString(&rnd, 1024));
-      ASSERT_OK(Put(Key(start + stride * i), values[i]));
+      ASSERT_OK(Put(Key(start + stride * i), RandomString(&rnd, 1024)));
     }
     dbfull()->TEST_WaitForFlushMemTable();
   };
 
   // Write 3 files that have the same key range, trigger compaction and
   // result in one L1 file
-  gen_l0_kb(0, 128, 1);
+  gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
-  gen_l0_kb(0, 128, 1);
+  gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
-  gen_l0_kb(0, 128, 1);
+  gen_l0_kb(0, 64, 1);
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,1", FilesPerLevel());
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(1U, metadata.size());
-  ASSERT_LE(metadata[0].size, k128KB + k5KB);  // < 128KB + 5KB
-  ASSERT_GE(metadata[0].size, k128KB - k5KB);  // > 128B - 5KB
+  ASSERT_LE(metadata[0].size, k64KB + k4KB);
+  ASSERT_GE(metadata[0].size, k64KB - k4KB);
 
-  // Make compaction trigger and file size smaller
+  // Test compaction trigger and target_file_size_base
   ASSERT_TRUE(dbfull()->SetOptions({
     {"level0_file_num_compaction_trigger", "2"},
-    {"target_file_size_base", "65536"}
+    {"target_file_size_base", std::to_string(k32KB) }
   }));
 
-  gen_l0_kb(0, 128, 1);
+  gen_l0_kb(0, 64, 1);
   ASSERT_EQ("1,1", FilesPerLevel());
-  gen_l0_kb(0, 128, 1);
+  gen_l0_kb(0, 64, 1);
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,2", FilesPerLevel());
   metadata.clear();
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(2U, metadata.size());
-  ASSERT_LE(metadata[0].size, k64KB + k5KB);  // < 64KB + 5KB
-  ASSERT_GE(metadata[0].size, k64KB - k5KB);  // > 64KB - 5KB
+  ASSERT_LE(metadata[0].size, k32KB + k4KB);
+  ASSERT_GE(metadata[0].size, k32KB - k4KB);
 
-  // Change base level size to 1MB
-  ASSERT_TRUE(dbfull()->SetOptions({ {"max_bytes_for_level_base", "1048576"} }));
-
-  // writing 56 x 128KB => 7MB
-  // (L1 + L2) = (1 + 4) * 1MB = 5MB
-  for (int i = 0; i < 56; ++i) {
-    gen_l0_kb(i, 128, 56);
-  }
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(SizeAtLevel(1) < 1048576 * 1.1);
-  ASSERT_TRUE(SizeAtLevel(2) < 4 * 1048576 * 1.1);
-
-  // Change multiplier to 2 with smaller base
+  // Test max_bytes_for_level_base
   ASSERT_TRUE(dbfull()->SetOptions({
-    {"max_bytes_for_level_multiplier", "2"},
-    {"max_bytes_for_level_base", "262144"}
+    {"max_bytes_for_level_base", std::to_string(k256KB) }
   }));
 
-  // writing 16 x 128KB
-  // (L1 + L2 + L3) = (1 + 2 + 4) * 256KB
-  for (int i = 0; i < 16; ++i) {
-    gen_l0_kb(i, 128, 50);
+  // writing 24 x 64KB => 6 * 256KB
+  // (L1 + L2) = (1 + 4) * 256KB
+  for (int i = 0; i < 24; ++i) {
+    gen_l0_kb(i, 64, 32);
   }
   dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(SizeAtLevel(1) < 262144 * 1.1);
-  ASSERT_TRUE(SizeAtLevel(2) < 2 * 262144 * 1.1);
-  ASSERT_TRUE(SizeAtLevel(3) < 4 * 262144 * 1.1);
+  ASSERT_TRUE(SizeAtLevel(1) > k256KB * 0.8 &&
+              SizeAtLevel(1) < k256KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(2) > 4 * k256KB * 0.8 &&
+              SizeAtLevel(2) < 4 * k256KB * 1.2);
+
+  // Test max_bytes_for_level_multiplier and
+  // max_bytes_for_level_base (reduce)
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_bytes_for_level_multiplier", "2"},
+    {"max_bytes_for_level_base", std::to_string(k128KB) }
+  }));
+
+  // writing 20 x 64KB = 10 x 128KB
+  // (L1 + L2 + L3) = (1 + 2 + 4) * 128KB
+  for (int i = 0; i < 20; ++i) {
+    gen_l0_kb(i, 64, 32);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(SizeAtLevel(1) > k128KB * 0.8 &&
+              SizeAtLevel(1) < k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(2) > 2 * k128KB * 0.8 &&
+              SizeAtLevel(2) < 2 * k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(3) > 4 * k128KB * 0.8 &&
+              SizeAtLevel(3) < 4 * k128KB * 1.2);
+
+  // Clean up memtable and L0
+  dbfull()->CompactRange(nullptr, nullptr);
+  // Block compaction
+  SleepingBackgroundTask sleeping_task_low1;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
+                 Env::Priority::LOW);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  int count = 0;
+  Random rnd(301);
+  WriteOptions wo;
+  wo.timeout_hint_us = 10000;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 64) {
+    dbfull()->TEST_FlushMemTable(true);
+    count++;
+  }
+  // Stop trigger = 8
+  ASSERT_EQ(count, 8);
+  // Unblock
+  sleeping_task_low1.WakeUp();
+  sleeping_task_low1.WaitUntilDone();
+
+  // Test: stop trigger (reduce)
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"level0_stop_writes_trigger", "6"}
+  }));
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  // Block compaction
+  SleepingBackgroundTask sleeping_task_low2;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
+                 Env::Priority::LOW);
+  count = 0;
+  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 64) {
+    dbfull()->TEST_FlushMemTable(true);
+    count++;
+  }
+  ASSERT_EQ(count, 6);
+  // Unblock
+  sleeping_task_low2.WakeUp();
+  sleeping_task_low2.WaitUntilDone();
+
+  // Test disable_auto_compactions
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"disable_auto_compactions", "true"}
+  }));
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    // Wait for compaction so that put won't timeout
+    dbfull()->TEST_FlushMemTable(true);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(0), 4);
+
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"disable_auto_compactions", "false"}
+  }));
+  dbfull()->CompactRange(nullptr, nullptr);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  for (int i = 0; i < 4; ++i) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+    // Wait for compaction so that put won't timeout
+    dbfull()->TEST_FlushMemTable(true);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_LT(NumTableFilesAtLevel(0), 4);
+
+  // Test for hard_rate_limit, change max_bytes_for_level_base to make level
+  // size big
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_bytes_for_level_base", std::to_string(k256KB) }
+  }));
+  // writing 40 x 64KB = 10 x 256KB
+  // (L1 + L2 + L3) = (1 + 2 + 4) * 256KB
+  for (int i = 0; i < 40; ++i) {
+    gen_l0_kb(i, 64, 32);
+  }
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(SizeAtLevel(1) > k256KB * 0.8 &&
+              SizeAtLevel(1) < k256KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(2) > 2 * k256KB * 0.8 &&
+              SizeAtLevel(2) < 2 * k256KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(3) > 4 * k256KB * 0.8 &&
+              SizeAtLevel(3) < 4 * k256KB * 1.2);
+  // Reduce max_bytes_for_level_base and disable compaction at the same time
+  // This should cause score to increase
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"disable_auto_compactions", "true"},
+    {"max_bytes_for_level_base", "65536"},
+  }));
+  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024)));
+  dbfull()->TEST_FlushMemTable(true);
+
+  // Check score is above 2
+  ASSERT_TRUE(SizeAtLevel(1) / k64KB > 2 ||
+              SizeAtLevel(2) / k64KB > 4 ||
+              SizeAtLevel(3) / k64KB > 8);
+
+  // Enfoce hard rate limit, L0 score is not regulated by this limit
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"hard_rate_limit", "2"}
+  }));
+  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024)));
+  dbfull()->TEST_FlushMemTable(true);
+
+  // Hard rate limit slow down for 1000 us, so default 10ms should be ok
+  ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).ok());
+  wo.timeout_hint_us = 500;
+  ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).IsTimedOut());
+
+  // Bump up limit
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"hard_rate_limit", "100"}
+  }));
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).ok());
 }
 
 }  // namespace rocksdb

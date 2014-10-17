@@ -367,7 +367,7 @@ class DBImpl : public DB {
       const autovector<MemTable*>& mems,
       VersionEdit* edit, uint64_t* filenumber, LogBuffer* log_buffer);
 
-  void DelayWrite(uint64_t expiration_time);
+  Status DelayWrite(uint64_t expiration_time);
 
   Status ScheduleFlushes(WriteContext* context);
 
@@ -629,6 +629,10 @@ class DBImpl : public DB {
   void InstallSuperVersion(ColumnFamilyData* cfd,
                            DeletionState& deletion_state,
                            const MutableCFOptions& mutable_cf_options);
+
+  SuperVersion* InstallSuperVersion(
+    ColumnFamilyData* cfd, SuperVersion* new_sv,
+    const MutableCFOptions& mutable_cf_options);
 
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.

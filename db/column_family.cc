@@ -326,13 +326,14 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
 
     auto write_controller = column_family_set_->write_controller_;
 
-    if (imm()->size() == options_.max_write_buffer_number) {
+    if (imm()->size() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
       Log(ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
-          "(waiting for flush)",
-          name_.c_str(), imm()->size());
+          "(waiting for flush), max_write_buffer_number is set to %d",
+          name_.c_str(), imm()->size(),
+          mutable_cf_options.max_write_buffer_number);
     } else if (current_->NumLevelFiles(0) >=
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
@@ -353,8 +354,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
           "us)",
           name_.c_str(), current_->NumLevelFiles(0), slowdown);
-    } else if (options_.hard_rate_limit > 1.0 &&
-               score > options_.hard_rate_limit) {
+    } else if (mutable_cf_options.hard_rate_limit > 1.0 &&
+               score > mutable_cf_options.hard_rate_limit) {
       uint64_t kHardLimitSlowdown = 1000;
       write_controller_token_ =
           write_controller->GetDelayToken(kHardLimitSlowdown);
@@ -364,10 +365,11 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "[%s] Stalling writes because we hit hard limit on level %d. "
           "(%" PRIu64 "us)",
           name_.c_str(), max_level, kHardLimitSlowdown);
-    } else if (options_.soft_rate_limit > 0.0 &&
-               score > options_.soft_rate_limit) {
-      uint64_t slowdown = SlowdownAmount(score, options_.soft_rate_limit,
-                                         options_.hard_rate_limit);
+    } else if (mutable_cf_options.soft_rate_limit > 0.0 &&
+               score > mutable_cf_options.soft_rate_limit) {
+      uint64_t slowdown = SlowdownAmount(score,
+          mutable_cf_options.soft_rate_limit,
+          mutable_cf_options.hard_rate_limit);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
       internal_stats_->RecordLevelNSlowdown(max_level, slowdown, true);
       Log(ioptions_.info_log,

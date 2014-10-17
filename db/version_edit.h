@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <algorithm>
 #include <set>
 #include <utility>
 #include <vector>
@@ -74,7 +75,7 @@ struct FileMetaData {
   // Stats for compensating deletion entries during compaction
 
   // File size compensated by deletion entry.
-  // This is updated in Version::UpdateTemporaryStats() first time when the
+  // This is updated in Version::UpdateAccumulatedStats() first time when the
   // file is created or loaded.  After it is updated, it is immutable.
   uint64_t compensated_file_size;
   uint64_t num_entries;            // the number of entries.
