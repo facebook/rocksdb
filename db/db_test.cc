@@ -8592,8 +8592,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   // max_background_flushes == 0, so flushes are getting executed by the
   // compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  SleepingBackgroundTask sleeping_task_low1;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
                  Env::Priority::LOW);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
@@ -8612,8 +8612,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   }
   ASSERT_TRUE(count > (128 * 0.9) && count < (128 * 1.1));
 
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
+  sleeping_task_low1.WakeUp();
+  sleeping_task_low1.WaitUntilDone();
 
   // Increase
   ASSERT_TRUE(dbfull()->SetOptions({
@@ -8622,15 +8622,16 @@ TEST(DBTest, DynamicMemtableOptions) {
   // Clean up memtable and L0
   dbfull()->CompactRange(nullptr, nullptr);
 
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  SleepingBackgroundTask sleeping_task_low2;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
                  Env::Priority::LOW);
   count = 0;
   while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
     count++;
   }
   ASSERT_TRUE(count > (512 * 0.9) && count < (512 * 1.1));
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
+  sleeping_task_low2.WakeUp();
+  sleeping_task_low2.WaitUntilDone();
 
   // Decrease
   ASSERT_TRUE(dbfull()->SetOptions({
@@ -8638,16 +8639,17 @@ TEST(DBTest, DynamicMemtableOptions) {
   }));
   // Clean up memtable and L0
   dbfull()->CompactRange(nullptr, nullptr);
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
 
+  SleepingBackgroundTask sleeping_task_low3;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low3,
+                 Env::Priority::LOW);
   count = 0;
   while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
     count++;
   }
   ASSERT_TRUE(count > (256 * 0.9) && count < (256 * 1.1));
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
+  sleeping_task_low3.WakeUp();
+  sleeping_task_low3.WaitUntilDone();
 }
 
 TEST(DBTest, DynamicCompactionOptions) {
