@@ -168,8 +168,9 @@ DEFINE_int32(duration, 0, "Time in seconds for the random-ops tests to run."
 
 DEFINE_int32(value_size, 100, "Size of each value");
 
-DEFINE_int32(seekseq_next, 0, "How many times to call Next() after Seek() in "
-             "fillseekseq");
+DEFINE_int32(seek_nexts, 0,
+             "How many times to call Next() after Seek() in "
+             "fillseekseq and seekrandom");
 
 DEFINE_bool(use_uint64_comparator, false, "use Uint64 user comparator");
 
@@ -2265,6 +2266,7 @@ class Benchmark {
     std::unique_ptr<const char[]> key_guard(key.data());
 
     Duration duration(FLAGS_duration, reads_);
+    char value_buffer[256];
     while (!duration.Done(1)) {
       if (!FLAGS_use_tailing_iterator && FLAGS_iter_refresh_interval_us >= 0) {
         uint64_t now = FLAGS_env->NowMicros();
@@ -2296,6 +2298,16 @@ class Benchmark {
       if (iter_to_use->Valid() && iter_to_use->key().compare(key) == 0) {
         found++;
       }
+
+      for (int j = 0; j < FLAGS_seek_nexts && iter_to_use->Valid(); ++j) {
+        // Copy out iterator's value to make sure we read them.
+        Slice value = iter_to_use->value();
+        memcpy(value_buffer, value.data(),
+               std::min(value.size(), sizeof(value_buffer)));
+        iter_to_use->Next();
+        assert(iter_to_use->status().ok());
+      }
+
       thread->stats.FinishedOps(&db_, db_.db, 1);
     }
     delete single_iter;
@@ -2820,7 +2832,7 @@ class Benchmark {
       assert(iter->Valid() && iter->key() == key);
       thread->stats.FinishedOps(nullptr, db, 1);
 
-      for (int j = 0; j < FLAGS_seekseq_next && i+1 < FLAGS_num; ++j) {
+      for (int j = 0; j < FLAGS_seek_nexts && i + 1 < FLAGS_num; ++j) {
         iter->Next();
         GenerateKeyFromInt(++i, FLAGS_num, &key);
         assert(iter->Valid() && iter->key() == key);
