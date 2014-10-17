@@ -597,7 +597,19 @@ uint64_t Version::GetEstimatedActiveKeys() {
   // (1) there is merge keys
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
-  return num_non_deletions_ - num_deletions_;
+  // (4) low number of samples
+  if (num_samples_ == 0) {
+    return 0;
+  }
+
+  if (num_samples_ < files_->size()) {
+    // casting to avoid overflowing
+    return static_cast<uint64_t>(static_cast<double>(
+        accumulated_num_non_deletions_ - accumulated_num_deletions_) *
+        files_->size() / num_samples_);
+  } else {
+    return accumulated_num_non_deletions_ - accumulated_num_deletions_;
+  }
 }
 
 void Version::AddIterators(const ReadOptions& read_options,
@@ -658,17 +670,21 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
       version_number_(version_number),
-      total_file_size_(0),
-      total_raw_key_size_(0),
-      total_raw_value_size_(0),
-      num_non_deletions_(0),
-      num_deletions_(0) {
+      accumulated_file_size_(0),
+      accumulated_raw_key_size_(0),
+      accumulated_raw_value_size_(0),
+      accumulated_num_non_deletions_(0),
+      accumulated_num_deletions_(0),
+      num_samples_(0) {
   if (cfd != nullptr && cfd->current() != nullptr) {
-      total_file_size_ = cfd->current()->total_file_size_;
-      total_raw_key_size_ = cfd->current()->total_raw_key_size_;
-      total_raw_value_size_ = cfd->current()->total_raw_value_size_;
-      num_non_deletions_ = cfd->current()->num_non_deletions_;
-      num_deletions_ = cfd->current()->num_deletions_;
+      accumulated_file_size_ = cfd->current()->accumulated_file_size_;
+      accumulated_raw_key_size_ = cfd->current()->accumulated_raw_key_size_;
+      accumulated_raw_value_size_ =
+          cfd->current()->accumulated_raw_value_size_;
+      accumulated_num_non_deletions_ =
+          cfd->current()->accumulated_num_non_deletions_;
+      accumulated_num_deletions_ = cfd->current()->accumulated_num_deletions_;
+      num_samples_ = cfd->current()->num_samples_;
   }
 }
 
@@ -748,7 +764,7 @@ void Version::GenerateFileLevels() {
 
 void Version::PrepareApply(const MutableCFOptions& mutable_cf_options,
                            std::vector<uint64_t>& size_being_compacted) {
-  UpdateTemporaryStats();
+  UpdateAccumulatedStats();
   ComputeCompactionScore(mutable_cf_options, size_being_compacted);
   UpdateFilesBySize();
   UpdateNumNonEmptyLevels();
@@ -757,7 +773,8 @@ void Version::PrepareApply(const MutableCFOptions& mutable_cf_options,
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
-  if (file_meta->init_stats_from_file) {
+  if (file_meta->init_stats_from_file ||
+      file_meta->compensated_file_size > 0) {
     return false;
   }
   std::shared_ptr<const TableProperties> tp;
@@ -778,26 +795,55 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   return true;
 }
 
-void Version::UpdateTemporaryStats() {
+void Version::UpdateAccumulatedStats(FileMetaData* file_meta) {
+  assert(file_meta->init_stats_from_file);
+  accumulated_file_size_ += file_meta->fd.GetFileSize();
+  accumulated_raw_key_size_ += file_meta->raw_key_size;
+  accumulated_raw_value_size_ += file_meta->raw_value_size;
+  accumulated_num_non_deletions_ +=
+      file_meta->num_entries - file_meta->num_deletions;
+  accumulated_num_deletions_ += file_meta->num_deletions;
+  num_samples_++;
+}
+
+void Version::UpdateAccumulatedStats() {
   static const int kDeletionWeightOnCompaction = 2;
 
-  // incrementally update the average value size by
-  // including newly added files into the global stats
+  // maximum number of table properties loaded from files.
+  const int kMaxInitCount = 20;
   int init_count = 0;
-  int total_count = 0;
-  for (int level = 0; level < num_levels_; level++) {
+  // here only the first kMaxInitCount files which haven't been
+  // initialized from file will be updated with num_deletions.
+  // The motivation here is to cap the maximum I/O per Version creation.
+  // The reason for choosing files from lower-level instead of higher-level
+  // is that such design is able to propagate the initialization from
+  // lower-level to higher-level:  When the num_deletions of lower-level
+  // files are updated, it will make the lower-level files have accurate
+  // compensated_file_size, making lower-level to higher-level compaction
+  // will be triggered, which creates higher-level files whose num_deletions
+  // will be updated here.
+  for (int level = 0;
+       level < num_levels_ && init_count < kMaxInitCount; ++level) {
     for (auto* file_meta : files_[level]) {
       if (MaybeInitializeFileMetaData(file_meta)) {
         // each FileMeta will be initialized only once.
-        total_file_size_ += file_meta->fd.GetFileSize();
-        total_raw_key_size_ += file_meta->raw_key_size;
-        total_raw_value_size_ += file_meta->raw_value_size;
-        num_non_deletions_ +=
-            file_meta->num_entries - file_meta->num_deletions;
-        num_deletions_ += file_meta->num_deletions;
-        init_count++;
+        UpdateAccumulatedStats(file_meta);
+        if (++init_count >= kMaxInitCount) {
+          break;
+        }
       }
-      total_count++;
+    }
+  }
+  // In case all sampled-files contain only deletion entries, then we
+  // load the table-property of a file in higher-level to initialize
+  // that value.
+  for (int level = num_levels_ - 1;
+       accumulated_raw_value_size_ == 0 && level >= 0; --level) {
+    for (int i = static_cast<int>(files_[level].size()) - 1;
+        accumulated_raw_value_size_ == 0 && i >= 0; --i) {
+      if (MaybeInitializeFileMetaData(files_[level][i])) {
+        UpdateAccumulatedStats(files_[level][i]);
+      }
     }
   }
 
