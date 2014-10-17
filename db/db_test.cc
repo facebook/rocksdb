@@ -8681,7 +8681,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   env_->SetBackgroundThreads(1, Env::HIGH);
   DestroyAndReopen(&options);
 
-  auto gen_l0_kb = [this](int start, int size, int stride) {
+  auto gen_l0_kb = [this](int start, int size, int stride = 1) {
     Random rnd(301);
     for (int i = 0; i < size; i++) {
       ASSERT_OK(Put(Key(start + stride * i), RandomString(&rnd, 1024)));
