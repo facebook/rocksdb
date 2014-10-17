@@ -78,7 +78,7 @@ uint64_t MutableCFOptions::ExpandedCompactionByteSizeLimit(int level) const {
 
 void MutableCFOptions::Dump(Logger* log) const {
   // Memtable related options
-  Log(log, "                        write_buffer_size: zu%", write_buffer_size);
+  Log(log, "                        write_buffer_size: %zu", write_buffer_size);
   Log(log, "                  max_write_buffer_number: %d",
       max_write_buffer_number);
   Log(log, "                         arena_block_size: %zu", arena_block_size);
