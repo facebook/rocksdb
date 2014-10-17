@@ -13,19 +13,30 @@ public class FilterTest {
   }
   public static void main(String[] args) {
     Options options = new Options();
-    // test table config without filter
+    // test table config
     BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
-    options.setTableFormatConfig(blockConfig);
+    options.setTableFormatConfig(new BlockBasedTableConfig().
+        setFilter(new BloomFilter()));
     options.dispose();
+    System.gc();
+    System.runFinalization();
     // new Bloom filter
     options = new Options();
     blockConfig = new BlockBasedTableConfig();
     blockConfig.setFilter(new BloomFilter());
     options.setTableFormatConfig(blockConfig);
-    blockConfig.setFilter(new BloomFilter(10));
+    BloomFilter bloomFilter = new BloomFilter(10);
+    blockConfig.setFilter(bloomFilter);
     options.setTableFormatConfig(blockConfig);
+    System.gc();
+    System.runFinalization();
     blockConfig.setFilter(new BloomFilter(10, false));
     options.setTableFormatConfig(blockConfig);
+    options.dispose();
+    options = null;
+    blockConfig = null;
+    System.gc();
+    System.runFinalization();
     System.out.println("Filter test passed");
   }
 }

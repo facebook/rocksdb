@@ -56,8 +56,10 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.block_restart_interval = block_restart_interval;
   options.whole_key_filtering = whole_key_filtering;
   if (jfilterPolicy > 0) {
-    options.filter_policy.reset(
-        reinterpret_cast<rocksdb::FilterPolicy*>(jfilterPolicy));
+    std::shared_ptr<rocksdb::FilterPolicy> *pFilterPolicy =
+        reinterpret_cast<std::shared_ptr<rocksdb::FilterPolicy> *>(
+            jfilterPolicy);
+    options.filter_policy = *pFilterPolicy;
   }
   options.cache_index_and_filter_blocks = cache_index_and_filter_blocks;
   options.hash_index_allow_collision = hash_index_allow_collision;

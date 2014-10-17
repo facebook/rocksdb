@@ -313,14 +313,16 @@ class FilterJni {
   }
 
   // Get the pointer to rocksdb::FilterPolicy.
-  static rocksdb::FilterPolicy* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::FilterPolicy*>(
+  static std::shared_ptr<rocksdb::FilterPolicy>* getHandle(
+      JNIEnv* env, jobject jobj) {
+    return reinterpret_cast
+        <std::shared_ptr<rocksdb::FilterPolicy> *>(
         env->GetLongField(jobj, getHandleFieldID(env)));
   }
 
   // Pass the rocksdb::FilterPolicy pointer to the java side.
   static void setHandle(
-      JNIEnv* env, jobject jobj, const rocksdb::FilterPolicy* op) {
+      JNIEnv* env, jobject jobj, std::shared_ptr<rocksdb::FilterPolicy>* op) {
     env->SetLongField(
         jobj, getHandleFieldID(env),
         reinterpret_cast<jlong>(op));
