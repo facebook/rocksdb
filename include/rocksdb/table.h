@@ -355,11 +355,13 @@ class TableFactory {
       WritableFile* file, const CompressionType compression_type,
       const CompressionOptions& compression_opts) const = 0;
 
-  // Sanitizes the specified DB Options.
+  // Sanitizes the specified DB Options and ColumnFamilyOptions.
   //
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
-  virtual Status SanitizeDBOptions(const DBOptions* db_opts) const = 0;
+  virtual Status SanitizeOptions(
+      const DBOptions& db_opts,
+      const ColumnFamilyOptions& cf_opts) const = 0;
 
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().

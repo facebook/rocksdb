@@ -8354,6 +8354,17 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   options.prefix_extractor.reset(NewNoopTransform());
   Destroy(&options);
   ASSERT_TRUE(TryReopen(&options).IsNotSupported());
+
+  // Test for check of prefix_extractor when hash index is used for
+  // block-based table
+  BlockBasedTableOptions to;
+  to.index_type = BlockBasedTableOptions::kHashSearch;
+  options = Options();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(to));
+  ASSERT_TRUE(TryReopen(&options).IsInvalidArgument());
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  ASSERT_OK(TryReopen(&options));
 }
 
 TEST(DBTest, DBIteratorBoundTest) {

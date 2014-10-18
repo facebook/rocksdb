@@ -170,8 +170,9 @@ class PlainTableFactory : public TableFactory {
   static const char kValueTypeSeqId0 = 0xFF;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
-    if (db_opts->allow_mmap_reads == false) {
+  Status SanitizeOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override {
+    if (db_opts.allow_mmap_reads == false) {
       return Status::NotSupported(
           "PlainTable with allow_mmap_reads == false is not supported.");
     }

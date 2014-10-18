@@ -46,9 +46,8 @@ class BlockBasedTableFactory : public TableFactory {
       const CompressionOptions& compression_opts) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
-    return Status::OK();
-  }
+  Status SanitizeOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override;
 
   std::string GetPrintableTableOptions() const override;
 

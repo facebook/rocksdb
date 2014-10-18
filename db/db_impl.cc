@@ -282,12 +282,12 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 
 namespace {
 
-Status SanitizeDBOptionsByCFOptions(
-    const DBOptions* db_opts,
+Status SanitizeOptionsByTable(
+    const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
   for (auto cf : column_families) {
-    s = cf.options.table_factory->SanitizeDBOptions(db_opts);
+    s = cf.options.table_factory->SanitizeOptions(db_opts, cf.options);
     if (!s.ok()) {
       return s;
     }
@@ -4703,7 +4703,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-  Status s = SanitizeDBOptionsByCFOptions(&db_options, column_families);
+  Status s = SanitizeOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
   }
