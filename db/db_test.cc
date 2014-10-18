@@ -8763,12 +8763,9 @@ TEST(DBTest, DynamicCompactionOptions) {
     gen_l0_kb(i, 64, 32);
   }
   dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(SizeAtLevel(1) > k128KB * 0.8 &&
-              SizeAtLevel(1) < k128KB * 1.2);
-  ASSERT_TRUE(SizeAtLevel(2) > 2 * k128KB * 0.8 &&
-              SizeAtLevel(2) < 2 * k128KB * 1.2);
-  ASSERT_TRUE(SizeAtLevel(3) > 4 * k128KB * 0.8 &&
-              SizeAtLevel(3) < 4 * k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(1) < k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(2) < 2 * k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(3) < 4 * k128KB * 1.2);
 
   // Clean up memtable and L0
   dbfull()->CompactRange(nullptr, nullptr);
