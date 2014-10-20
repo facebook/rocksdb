@@ -22,6 +22,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     cacheIndexAndFilterBlocks_ = false;
     hashIndexAllowCollision_ = true;
     blockCacheCompressedSize_ = 0;
+    checksumType_ = ChecksumType.kCRC32c;
+    indexType_ = IndexType.kBinarySearch;
   }
 
   /**
@@ -293,6 +295,44 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return this;
   }
 
+  /**
+   * Sets the checksum type to be used with this table.
+   *
+   * @param checksumType {@link org.rocksdb.ChecksumType} value.
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setChecksumType(ChecksumType checksumType) {
+    checksumType_ = checksumType;
+    return this;
+  }
+
+  /**
+   *
+   * @return the currently set checksum type
+   */
+  public ChecksumType checksumType() {
+    return checksumType_;
+  }
+
+  /**
+   * Sets the index type to used with this table.
+   *
+   * @param indexType {@link org.rocksdb.IndexType} value
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setIndexType(IndexType indexType) {
+    indexType_ = indexType;
+    return this;
+  }
+
+  /**
+   *
+   * @return the currently set index type
+   */
+  public IndexType indexType() {
+    return indexType_;
+  }
+
   @Override protected long newTableFactoryHandle() {
     long filterHandle = 0;
     if (filter_ != null) {
@@ -304,7 +344,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         blockRestartInterval_, wholeKeyFiltering_,
         filterHandle, cacheIndexAndFilterBlocks_,
         hashIndexAllowCollision_, blockCacheCompressedSize_,
-        blockCacheCompressedNumShardBits_);
+        blockCacheCompressedNumShardBits_,
+        checksumType_.getValue(), indexType_.getValue());
   }
 
   private native long newTableFactoryHandle(
@@ -312,19 +353,21 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       long blockSize, int blockSizeDeviation, int blockRestartInterval,
       boolean wholeKeyFiltering, long filterPolicyHandle,
       boolean cacheIndexAndFilterBlocks, boolean hashIndexAllowCollision,
-      long blockCacheCompressedSize, int blockCacheCompressedNumShardBits);
+      long blockCacheCompressedSize, int blockCacheCompressedNumShardBits,
+      byte checkSumType, byte indexType);
 
+  private boolean cacheIndexAndFilterBlocks_;
+  private IndexType indexType_;
+  private boolean hashIndexAllowCollision_;
+  private ChecksumType checksumType_;
   private boolean noBlockCache_;
+  private long blockSize_;
   private long blockCacheSize_;
   private int blockCacheNumShardBits_;
-  private long shard;
-  private long blockSize_;
-  private int blockSizeDeviation_;
-  private int blockRestartInterval_;
-  private boolean wholeKeyFiltering_;
-  private Filter filter_;
-  private boolean cacheIndexAndFilterBlocks_;
-  private boolean hashIndexAllowCollision_;
   private long blockCacheCompressedSize_;
   private int blockCacheCompressedNumShardBits_;
+  private int blockSizeDeviation_;
+  private int blockRestartInterval_;
+  private Filter filter_;
+  private boolean wholeKeyFiltering_;
 }
