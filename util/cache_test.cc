@@ -190,25 +190,30 @@ TEST(CacheTest, EntriesArePinned) {
   Insert(100, 101);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(101, DecodeValue(cache_->Value(h1)));
+  ASSERT_EQ(1, cache_->GetUsage());
 
   Insert(100, 102);
   Cache::Handle* h2 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(102, DecodeValue(cache_->Value(h2)));
   ASSERT_EQ(0U, deleted_keys_.size());
+  ASSERT_EQ(2, cache_->GetUsage());
 
   cache_->Release(h1);
   ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
   ASSERT_EQ(101, deleted_values_[0]);
+  ASSERT_EQ(1, cache_->GetUsage());
 
   Erase(100);
   ASSERT_EQ(-1, Lookup(100));
   ASSERT_EQ(1U, deleted_keys_.size());
+  ASSERT_EQ(1, cache_->GetUsage());
 
   cache_->Release(h2);
   ASSERT_EQ(2U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[1]);
   ASSERT_EQ(102, deleted_values_[1]);
+  ASSERT_EQ(0, cache_->GetUsage());
 }
 
 TEST(CacheTest, EvictionPolicy) {
@@ -273,75 +278,27 @@ TEST(CacheTest, EvictionPolicyRef) {
   cache_->Release(h204);
 }
 
-TEST(CacheTest, EvictionPolicyRef2) {
-  std::vector<Cache::Handle*> handles;
+TEST(CacheTest, ErasedHandleState) {
+  // insert a key and get two handles
+  Insert(100, 1000);
+  Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
+  Cache::Handle* h2 = cache_->Lookup(EncodeKey(100));
+  ASSERT_EQ(h1, h2);
+  ASSERT_EQ(DecodeValue(cache_->Value(h1)), 1000);
+  ASSERT_EQ(DecodeValue(cache_->Value(h2)), 1000);
 
-  Insert(100, 101);
-  // Insert entries much more than Cache capacity
-  for (int i = 0; i < kCacheSize + 100; i++) {
-    Insert(1000 + i, 2000 + i);
-    if (i < kCacheSize ) {
-      handles.push_back(cache_->Lookup(EncodeKey(1000 + i)));
-    }
-  }
-
-  // Make sure referenced keys are also possible to be deleted
-  // if there are not sufficient non-referenced keys
-  for (int i = 0; i < 5; i++) {
-    ASSERT_EQ(-1, Lookup(1000 + i));
-  }
-
-  for (int i = kCacheSize; i < kCacheSize + 100; i++) {
-    ASSERT_EQ(2000 + i, Lookup(1000 + i));
-  }
+  // delete the key from the cache
+  Erase(100);
+  // can no longer find in the cache
   ASSERT_EQ(-1, Lookup(100));
 
-  // Cleaning up all the handles
-  while (handles.size() > 0) {
-    cache_->Release(handles.back());
-    handles.pop_back();
-  }
+  // release one handle
+  cache_->Release(h1);
+  // still can't find in cache
+  ASSERT_EQ(-1, Lookup(100));
+
+  cache_->Release(h2);
 }
-
-TEST(CacheTest, EvictionPolicyRefLargeScanLimit) {
-  std::vector<Cache::Handle*> handles2;
-
-  // Cache2 has a cache RemoveScanCountLimit higher than cache size
-  // so it would trigger a boundary condition.
-
-  // Populate the cache with 10 more keys than its size.
-  // Reference all keys except one close to the end.
-  for (int i = 0; i < kCacheSize2 + 10; i++) {
-    Insert2(1000 + i, 2000+i);
-    if (i != kCacheSize2 ) {
-      handles2.push_back(cache2_->Lookup(EncodeKey(1000 + i)));
-    }
-  }
-
-  // Make sure referenced keys are also possible to be deleted
-  // if there are not sufficient non-referenced keys
-  for (int i = 0; i < 3; i++) {
-    ASSERT_EQ(-1, Lookup2(1000 + i));
-  }
-  // The non-referenced value is deleted even if it's accessed
-  // recently.
-  ASSERT_EQ(-1, Lookup2(1000 + kCacheSize2));
-  // Other values recently accessed are not deleted since they
-  // are referenced.
-  for (int i = kCacheSize2 - 10; i < kCacheSize2 + 10; i++) {
-    if (i != kCacheSize2) {
-      ASSERT_EQ(2000 + i, Lookup2(1000 + i));
-    }
-  }
-
-  // Cleaning up all the handles
-  while (handles2.size() > 0) {
-    cache2_->Release(handles2.back());
-    handles2.pop_back();
-  }
-}
-
-
 
 TEST(CacheTest, HeavyEntries) {
   // Add a bunch of light and heavy entries and then count the combined
@@ -392,7 +349,7 @@ void deleter(const Slice& key, void* value) {
 }
 }  // namespace
 
-TEST(CacheTest, BadEviction) {
+TEST(CacheTest, OverCapacity) {
   int n = 10;
 
   // a LRUCache with n entries and one shard only
@@ -411,15 +368,32 @@ TEST(CacheTest, BadEviction) {
     std::string key = ToString(i+1);
     auto h = cache->Lookup(key);
     std::cout << key << (h?" found\n":" not found\n");
-    // Only the first entry should be missing
-    ASSERT_TRUE(h || i == 0);
+    ASSERT_TRUE(h != nullptr);
     if (h) cache->Release(h);
   }
 
+  // the cache is over capacity since nothing could be evicted
+  ASSERT_EQ(n + 1, cache->GetUsage());
   for (int i = 0; i < n+1; i++) {
     cache->Release(handles[i]);
   }
-  std::cout << "Poor entries\n";
+
+  // cache is under capacity now since elements were released
+  ASSERT_EQ(n, cache->GetUsage());
+
+  // element 0 is evicted and the rest is there
+  // This is consistent with the LRU policy since the element 0
+  // was released first
+  for (int i = 0; i < n+1; i++) {
+    std::string key = ToString(i+1);
+    auto h = cache->Lookup(key);
+    if (h) {
+      ASSERT_NE(i, 0);
+      cache->Release(h);
+    } else {
+      ASSERT_EQ(i, 0);
+    }
+  }
 }
 
 namespace {

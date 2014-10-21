@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 
+### Unreleased Features
+* Changed the LRU caching algorithm so that referenced blocks (by iterators) are never evicted
+
 ### 3.9.0 (12/8/2014)
 
 ### New Features

@@ -26,8 +26,27 @@ namespace {
 
 // LRU cache implementation
 
-// An entry is a variable length heap-allocated structure.  Entries
-// are kept in a circular doubly linked list ordered by access time.
+// An entry is a variable length heap-allocated structure.
+// Entries are referenced by cache and/or by any external entity.
+// The cache keeps all its entries in table. Some elements
+// are also stored on LRU list.
+//
+// LRUHandle can be in these states:
+// 1. Referenced externally AND in hash table.
+//  In that case the entry is *not* in the LRU. (refs > 1 && in_cache == true)
+// 2. Not referenced externally and in hash table. In that case the entry is
+// in the LRU and can be freed. (refs == 1 && in_cache == true)
+// 3. Referenced externally and not in hash table. In that case the entry is
+// in not on LRU and not in table. (refs >= 1 && in_cache == false)
+//
+// All newly created LRUHandles are in state 1. If you call LRUCache::Release
+// on entry in state 1, it will go into state 2. To move from state 1 to
+// state 3, either call LRUCache::Erase or LRUCache::Insert with the same key.
+// To move from state 2 to state 1, use LRUCache::Lookup.
+// Before destruction, make sure that no handles are in state 1. This means
+// that any successful LRUCache::Lookup/LRUCache::Insert have a matching
+// RUCache::Release (to move into state 2) or LRUCache::Erase (for state 3)
+
 struct LRUHandle {
   void* value;
   void (*deleter)(const Slice&, void* value);
@@ -36,7 +55,9 @@ struct LRUHandle {
   LRUHandle* prev;
   size_t charge;      // TODO(opt): Only allow uint32_t?
   size_t key_length;
-  uint32_t refs;
+  uint32_t refs;      // a number of refs to this entry
+                      // cache itself is counted as 1
+  bool in_cache;      // true, if this entry is referenced by the hash table
   uint32_t hash;      // Hash of key(); used for fast sharding and comparisons
   char key_data[1];   // Beginning of key
 
@@ -49,6 +70,12 @@ struct LRUHandle {
       return Slice(key_data, key_length);
     }
   }
+
+  void Free() {
+    assert((refs == 1 && in_cache) || (refs == 0 && !in_cache));
+    (*deleter)(key(), value);
+    free(this);
+  }
 };
 
 // We provide our own simple hash table since it removes a whole bunch
@@ -59,7 +86,28 @@ struct LRUHandle {
 class HandleTable {
  public:
   HandleTable() : length_(0), elems_(0), list_(nullptr) { Resize(); }
-  ~HandleTable() { delete[] list_; }
+
+  template <typename T>
+  void ApplyToAllCacheEntries(T func) {
+    for (uint32_t i = 0; i < length_; i++) {
+      LRUHandle* h = list_[i];
+      while (h != nullptr) {
+        auto n = h->next_hash;
+        assert(h->in_cache);
+        func(h);
+        h = n;
+      }
+    }
+  }
+
+  ~HandleTable() {
+    ApplyToAllCacheEntries([](LRUHandle* h) {
+      if (h->refs == 1) {
+        h->Free();
+      }
+    });
+    delete[] list_;
+  }
 
   LRUHandle* Lookup(const Slice& key, uint32_t hash) {
     return *FindPointer(key, hash);
@@ -173,8 +221,6 @@ class LRUCache {
   // Just reduce the reference count by 1.
   // Return true if last reference
   bool Unref(LRUHandle* e);
-  // Call deleter and free
-  void FreeEntry(LRUHandle* e);
 
   // Initialized before use.
   size_t capacity_;
@@ -188,6 +234,7 @@ class LRUCache {
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
+  // LRU contains items which can be evicted, ie reference only by cache
   LRUHandle lru_;
 
   HandleTable table_;
@@ -200,16 +247,7 @@ LRUCache::LRUCache()
   lru_.prev = &lru_;
 }
 
-LRUCache::~LRUCache() {
-  for (LRUHandle* e = lru_.next; e != &lru_; ) {
-    LRUHandle* next = e->next;
-    assert(e->refs == 1);  // Error if caller has an unreleased handle
-    if (Unref(e)) {
-      FreeEntry(e);
-    }
-    e = next;
-  }
-}
+LRUCache::~LRUCache() {}
 
 bool LRUCache::Unref(LRUHandle* e) {
   assert(e->refs > 0);
@@ -217,47 +255,48 @@ bool LRUCache::Unref(LRUHandle* e) {
   return e->refs == 0;
 }
 
-void LRUCache::FreeEntry(LRUHandle* e) {
-  assert(e->refs == 0);
-  (*e->deleter)(e->key(), e->value);
-  free(e);
-}
+// Call deleter and free
 
 void LRUCache::ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) {
   if (thread_safe) {
     mutex_.Lock();
   }
-  for (auto e = lru_.next; e != &lru_; e = e->next) {
-    callback(e->value, e->charge);
-  }
+  table_.ApplyToAllCacheEntries([callback](LRUHandle* h) {
+    callback(h->value, h->charge);
+  });
   if (thread_safe) {
     mutex_.Unlock();
   }
 }
 
 void LRUCache::LRU_Remove(LRUHandle* e) {
+  assert(e->next != nullptr);
+  assert(e->prev != nullptr);
   e->next->prev = e->prev;
   e->prev->next = e->next;
-  usage_ -= e->charge;
+  e->prev = e->next = nullptr;
 }
 
 void LRUCache::LRU_Append(LRUHandle* e) {
   // Make "e" newest entry by inserting just before lru_
+  assert(e->next == nullptr);
+  assert(e->prev == nullptr);
   e->next = &lru_;
   e->prev = lru_.prev;
   e->prev->next = e;
   e->next->prev = e;
-  usage_ += e->charge;
 }
 
 Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
   MutexLock l(&mutex_);
   LRUHandle* e = table_.Lookup(key, hash);
   if (e != nullptr) {
+    assert(e->in_cache);
+    if (e->refs == 1) {
+      LRU_Remove(e);
+    }
     e->refs++;
-    LRU_Remove(e);
-    LRU_Append(e);
   }
   return reinterpret_cast<Cache::Handle*>(e);
 }
@@ -268,9 +307,31 @@ void LRUCache::Release(Cache::Handle* handle) {
   {
     MutexLock l(&mutex_);
     last_reference = Unref(e);
+    if (last_reference) {
+      usage_ -= e->charge;
+    }
+    if (e->refs == 1 && e->in_cache) {
+      // The item is still in cache, and nobody else holds a reference to it
+      if (usage_ > capacity_) {
+        // the cache is full
+        // The LRU list must be empty since the cache is full
+        assert(lru_.next == &lru_);
+        // take this opportunity and remove the item
+        table_.Remove(e->key(), e->hash);
+        e->in_cache = false;
+        Unref(e);
+        usage_ -= e->charge;
+        last_reference = true;
+      } else {
+        // put the item on the list to be potentially freed
+        LRU_Append(e);
+      }
+    }
   }
+
+  // free outside of mutex
   if (last_reference) {
-    FreeEntry(e);
+    e->Free();
   }
 }
 
@@ -278,8 +339,11 @@ Cache::Handle* LRUCache::Insert(
     const Slice& key, uint32_t hash, void* value, size_t charge,
     void (*deleter)(const Slice& key, void* value)) {
 
-  LRUHandle* e = reinterpret_cast<LRUHandle*>(
-      malloc(sizeof(LRUHandle)-1 + key.size()));
+  // Allocate the memory here outside of the mutex
+  // If the cache is full, we'll have to release it
+  // It shouldn't happen very often though.
+  LRUHandle* e =
+      reinterpret_cast<LRUHandle*>(malloc(sizeof(LRUHandle) - 1 + key.size()));
   autovector<LRUHandle*> last_reference_list;
 
   e->value = value;
@@ -288,47 +352,40 @@ Cache::Handle* LRUCache::Insert(
   e->key_length = key.size();
   e->hash = hash;
   e->refs = 2;  // One from LRUCache, one for the returned handle
+  e->next = e->prev = nullptr;
+  e->in_cache = true;
   memcpy(e->key_data, key.data(), key.size());
 
   {
     MutexLock l(&mutex_);
 
-    LRU_Append(e);
-
-    LRUHandle* old = table_.Insert(e);
-    if (old != nullptr) {
-      LRU_Remove(old);
-      if (Unref(old)) {
-        last_reference_list.push_back(old);
-      }
-    }
-
-    if (remove_scan_count_limit_ > 0) {
-      // Try to free the space by evicting the entries that are only
-      // referenced by the cache first.
-      LRUHandle* cur = lru_.next;
-      for (unsigned int scanCount = 0;
-           usage_ > capacity_ && cur != &lru_
-           && scanCount < remove_scan_count_limit_; scanCount++) {
-        LRUHandle* next = cur->next;
-        if (cur->refs <= 1) {
-          LRU_Remove(cur);
-          table_.Remove(cur->key(), cur->hash);
-          if (Unref(cur)) {
-            last_reference_list.push_back(cur);
-          }
-        }
-        cur = next;
-      }
-    }
-
     // Free the space following strict LRU policy until enough space
-    // is freed.
-    while (usage_ > capacity_ && lru_.next != &lru_) {
-      old = lru_.next;
+    // is freed or the lru list is empty
+    while (usage_ + charge > capacity_ && lru_.next != &lru_) {
+      LRUHandle* old = lru_.next;
+      assert(old->in_cache);
+      assert(old->refs ==
+             1);  // LRU list contains elements which may be evicted
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
+      old->in_cache = false;
+      Unref(old);
+      usage_ -= old->charge;
+      last_reference_list.push_back(old);
+    }
+
+    // insert into the cache
+    // note that the cache might get larger than its capacity if not enough
+    // space was freed
+    LRUHandle* old = table_.Insert(e);
+    usage_ += e->charge;
+    if (old != nullptr) {
+      old->in_cache = false;
       if (Unref(old)) {
+        usage_ -= old->charge;
+        // old is on LRU because it's in cache and its reference count
+        // was just 1 (Unref returned 0)
+        LRU_Remove(old);
         last_reference_list.push_back(old);
       }
     }
@@ -337,7 +394,7 @@ Cache::Handle* LRUCache::Insert(
   // we free the entries here outside of mutex for
   // performance reasons
   for (auto entry : last_reference_list) {
-    FreeEntry(entry);
+    entry->Free();
   }
 
   return reinterpret_cast<Cache::Handle*>(e);
@@ -350,14 +407,21 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
     MutexLock l(&mutex_);
     e = table_.Remove(key, hash);
     if (e != nullptr) {
-      LRU_Remove(e);
       last_reference = Unref(e);
+      if (last_reference) {
+        usage_ -= e->charge;
+      }
+      if (last_reference && e->in_cache) {
+        LRU_Remove(e);
+      }
+      e->in_cache = false;
     }
   }
+
   // mutex not held here
   // last_reference will only be true if e != nullptr
   if (last_reference) {
-    FreeEntry(e);
+    e->Free();
   }
 }
 
