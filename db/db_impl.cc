@@ -4542,7 +4542,7 @@ Status DBImpl::DeleteFile(std::string name) {
                              name.c_str());
       return Status::InvalidArgument("File not found");
     }
-    assert((level > 0) && (level < cfd->NumberLevels()));
+    assert(level < cfd->NumberLevels());
 
     // If the file is being compacted no need to delete.
     if (metadata->being_compacted) {
@@ -4561,6 +4561,12 @@ Status DBImpl::DeleteFile(std::string name) {
         return Status::InvalidArgument("File not in last level");
       }
     }
+    // if level == 0, it has to be the oldest file
+    if (level == 0 &&
+        cfd->current()->files_[0].back()->fd.GetNumber() != number) {
+      return Status::InvalidArgument("File in level 0, but not oldest");
+    }
+    edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, number);
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, db_directory_.get());
