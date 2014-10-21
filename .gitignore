@@ -31,8 +31,14 @@ coverage/COVERAGE_REPORT
 package/
 .phutil_module_cache
 tags
+
+java/out
 java/*.log
 java/include/org_rocksdb_*.h
+
+.idea/
+*.iml
+
 unity.cc
 java/crossbuild/.vagrant
 .vagrant/
