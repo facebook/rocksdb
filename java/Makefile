@@ -49,6 +49,7 @@ test: java
 	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.ComparatorOptionsTest
 	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.ComparatorTest
 	java -ea -Djava.library.path=.:../ -cp "$(ROCKSDB_JAR):.:./*" org.rocksdb.test.DirectComparatorTest
+	@rm -rf /tmp/rocksdbjni_*
 
 db_bench: java
 	javac org/rocksdb/benchmark/*.java
