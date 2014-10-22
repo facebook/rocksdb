@@ -183,10 +183,10 @@ class BlockBasedTable : public TableReader {
       std::unique_ptr<Iterator>* iter);
 
   // Create the filter from the filter block.
-  static FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
-                                       Rep* rep,
-                                       const std::string& filter_block_prefix,
-                                       size_t* filter_size = nullptr);
+  static FilterBlockReader* ReadFilter(
+      Rep* rep,
+      Iterator* meta_index_iter,
+      size_t* filter_size = nullptr);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
