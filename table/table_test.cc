@@ -1606,7 +1606,9 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   TableConstructor c3(BytewiseComparator());
-  c3.Add("k01", "hello");
+  std::string user_key = "k01";
+  InternalKey internal_key(user_key, 0, kTypeValue);
+  c3.Add(internal_key.Encode().ToString(), "hello");
   ImmutableCFOptions ioptions3(options);
   // Generate table without filter policy
   c3.Finish(options, ioptions3, table_options,
@@ -1619,10 +1621,12 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_OK(c3.Reopen(ioptions4));
   reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  std::string value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, Slice(), nullptr,
+                         GetContext::kNotFound, user_key, &value,
                          nullptr, nullptr);
-  ASSERT_OK(reader->Get(ReadOptions(), "k01", &get_context));
+  ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context));
+  ASSERT_EQ(value, "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
 }
