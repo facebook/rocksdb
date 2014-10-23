@@ -553,8 +553,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       if ((c = PickCompactionUniversalReadAmp(
                mutable_cf_options, version, score, UINT_MAX,
                num_files, log_buffer)) != nullptr) {
-        LogToBuffer(log_buffer, "[%s] Universal: compacting for file num\n",
-                    version->cfd_->GetName().c_str());
+        LogToBuffer(log_buffer, "[%s] Universal: compacting for file num -- %u\n",
+                    version->cfd_->GetName().c_str(), num_files);
       }
     }
   }
