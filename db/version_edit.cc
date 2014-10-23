@@ -293,7 +293,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
-            msg = "new-file2 entry";
+            msg = "new-file3 entry";
           }
         }
         break;
