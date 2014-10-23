@@ -4129,7 +4129,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
       const uint64_t batch_size = WriteBatchInternal::ByteSize(updates);
       // Record statistics
       RecordTick(stats_, NUMBER_KEYS_WRITTEN, my_batch_count);
-      RecordTick(stats_, BYTES_WRITTEN, WriteBatchInternal::ByteSize(updates));
+      RecordTick(stats_, BYTES_WRITTEN, batch_size);
       if (write_options.disableWAL) {
         flush_on_destroy_ = true;
       }
@@ -4179,6 +4179,8 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
       // internal stats
       default_cf_internal_stats_->AddDBStats(
           InternalStats::BYTES_WRITTEN, batch_size);
+      default_cf_internal_stats_->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN,
+                                             my_batch_count);
       if (!write_options.disableWAL) {
         default_cf_internal_stats_->AddDBStats(
             InternalStats::WAL_FILE_SYNCED, 1);

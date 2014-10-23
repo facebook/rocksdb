@@ -293,16 +293,25 @@ void InternalStats::DumpDBStats(std::string* value) {
   value->append(buf);
   // Cumulative
   uint64_t user_bytes_written = db_stats_[InternalStats::BYTES_WRITTEN];
+  uint64_t num_keys_written = db_stats_[InternalStats::NUMBER_KEYS_WRITTEN];
   uint64_t write_other = db_stats_[InternalStats::WRITE_DONE_BY_OTHER];
   uint64_t write_self = db_stats_[InternalStats::WRITE_DONE_BY_SELF];
   uint64_t wal_bytes = db_stats_[InternalStats::WAL_FILE_BYTES];
   uint64_t wal_synced = db_stats_[InternalStats::WAL_FILE_SYNCED];
   uint64_t write_with_wal = db_stats_[InternalStats::WRITE_WITH_WAL];
   // Data
+  // writes: total number of write requests.
+  // keys: total number of key updates issued by all the write requests
+  // batches: number of group commits issued to the DB. Each group can contain
+  //          one or more writes.
+  // so writes/keys is the average number of put in multi-put or put
+  // writes/batches is the average group commit size.
+  //
+  // The format is the same for interval stats.
   snprintf(buf, sizeof(buf),
-           "Cumulative writes: %" PRIu64 " writes, %" PRIu64 " batches, "
-           "%.1f writes per batch, %.2f GB user ingest\n",
-           write_other + write_self, write_self,
+           "Cumulative writes: %" PRIu64 " writes, %" PRIu64 " keys, %" PRIu64
+           " batches, %.1f writes per batch, %.2f GB user ingest\n",
+           write_other + write_self, num_keys_written, write_self,
            (write_other + write_self) / static_cast<double>(write_self + 1),
            user_bytes_written / kGB);
   value->append(buf);
@@ -318,11 +327,13 @@ void InternalStats::DumpDBStats(std::string* value) {
   // Interval
   uint64_t interval_write_other = write_other - db_stats_snapshot_.write_other;
   uint64_t interval_write_self = write_self - db_stats_snapshot_.write_self;
+  uint64_t interval_num_keys_written =
+      num_keys_written - db_stats_snapshot_.num_keys_written;
   snprintf(buf, sizeof(buf),
-           "Interval writes: %" PRIu64 " writes, %" PRIu64 " batches, "
-           "%.1f writes per batch, %.1f MB user ingest\n",
+           "Interval writes: %" PRIu64 " writes, %" PRIu64 " keys, %" PRIu64
+           " batches, %.1f writes per batch, %.1f MB user ingest\n",
            interval_write_other + interval_write_self,
-           interval_write_self,
+           interval_num_keys_written, interval_write_self,
            static_cast<double>(interval_write_other + interval_write_self) /
                (interval_write_self + 1),
            (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB);
@@ -347,6 +358,7 @@ void InternalStats::DumpDBStats(std::string* value) {
   db_stats_snapshot_.ingest_bytes = user_bytes_written;
   db_stats_snapshot_.write_other = write_other;
   db_stats_snapshot_.write_self = write_self;
+  db_stats_snapshot_.num_keys_written = num_keys_written;
   db_stats_snapshot_.wal_bytes = wal_bytes;
   db_stats_snapshot_.wal_synced = wal_synced;
   db_stats_snapshot_.write_with_wal = write_with_wal;
