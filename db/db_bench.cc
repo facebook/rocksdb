@@ -1232,7 +1232,7 @@ class Benchmark {
       writes_ = (FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes);
       value_size_ = FLAGS_value_size;
       key_size_ = FLAGS_key_size;
-      entries_per_batch_ = 1;
+      entries_per_batch_ = FLAGS_batch_size;
       write_options_ = WriteOptions();
       if (FLAGS_sync) {
         write_options_.sync = true;
@@ -1287,7 +1287,6 @@ class Benchmark {
       } else if (name == Slice("readrandomfast")) {
         method = &Benchmark::ReadRandomFast;
       } else if (name == Slice("multireadrandom")) {
-        entries_per_batch_ = FLAGS_batch_size;
         fprintf(stderr, "entries_per_batch = %" PRIi64 "\n",
                 entries_per_batch_);
         method = &Benchmark::MultiReadRandom;
