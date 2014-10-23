@@ -92,8 +92,6 @@ void MutableCFOptions::Dump(Logger* log) const {
       max_successive_merges);
   Log(log, "                           filter_deletes: %d",
       filter_deletes);
-  Log(log, "                 inplace_update_num_locks: %zu",
-      inplace_update_num_locks);
   Log(log, "                 disable_auto_compactions: %d",
       disable_auto_compactions);
   Log(log, "                          soft_rate_limit: %lf",
