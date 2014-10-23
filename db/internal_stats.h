@@ -279,6 +279,7 @@ class InternalStats {
           write_with_wal(0),
           write_other(0),
           write_self(0),
+          num_keys_written(0),
           seconds_up(0) {}
   } db_stats_snapshot_;
 
