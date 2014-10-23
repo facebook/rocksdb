@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.*;
-
 /**
  * WriteBatch holds a collection of updates to apply atomically to a DB.
  *
@@ -106,6 +104,13 @@ public class WriteBatch extends RocksObject {
   }
 
   /**
+   * Support for iterating over the contents of a batch.
+   */
+  public void iterate(Handler handler) {
+    iterate(handler.nativeHandle_);
+  }
+
+  /**
    * Clear all updates buffered in this batch
    */
   public native void clear();
@@ -133,7 +138,46 @@ public class WriteBatch extends RocksObject {
   private native void remove(byte[] key, int keyLen,
                             long cfHandle);
   private native void putLogData(byte[] blob, int blobLen);
+  private native void iterate(long handlerHandle);
   private native void disposeInternal(long handle);
+
+  /**
+   * Handler callback for iterating over the contents of a batch.
+   */
+  public static abstract class Handler extends RocksObject {
+    public Handler() {
+      super();
+      createNewHandler0();
+    }
+
+    public abstract void put(byte[] key, byte[] value);
+    public abstract void merge(byte[] key, byte[] value);
+    public abstract void delete(byte[] key);
+    public abstract void logData(byte[] blob);
+
+    /**
+     * shouldContinue is called by the underlying iterator
+     * (WriteBatch::Iterate.If it returns false,
+     * iteration is halted. Otherwise, it continues
+     * iterating. The default implementation always
+     * returns true.
+     */
+    public boolean shouldContinue() {
+      return true;
+    }
+
+    /**
+     * Deletes underlying C++ handler pointer.
+     */
+    @Override
+    protected void disposeInternal() {
+      assert(isInitialized());
+      disposeInternal(nativeHandle_);
+    }
+
+    private native void createNewHandler0();
+    private native void disposeInternal(long handle);
+  }
 }
 
 /**

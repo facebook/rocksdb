@@ -20,6 +20,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/writebatchhandlerjnicallback.h"
 
 namespace rocksdb {
 
@@ -285,6 +286,79 @@ class WriteBatchJni {
     env->SetLongField(
         jwb, getHandleFieldID(env),
         reinterpret_cast<jlong>(wb));
+  }
+};
+
+class WriteBatchHandlerJni {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/WriteBatch$Handler");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the java method `put` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getPutMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "put", "([B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `merge` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getMergeMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "merge", "([B[B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `delete` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getDeleteMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "delete", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `logData` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getLogDataMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "logData", "([B)V");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method `shouldContinue` of org.rocksdb.WriteBatch.Handler.
+  static jmethodID getContinueMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "shouldContinue", "()Z");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the pointer to rocksdb::WriteBatchHandlerJniCallback of the specified
+  // org.rocksdb.WriteBatchHandler.
+  static rocksdb::WriteBatchHandlerJniCallback* getHandle(
+      JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::WriteBatchHandlerJniCallback pointer to the java side.
+  static void setHandle(
+      JNIEnv* env, jobject jobj,
+      const rocksdb::WriteBatchHandlerJniCallback* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
   }
 };
 
