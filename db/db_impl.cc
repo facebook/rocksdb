@@ -1863,12 +1863,16 @@ int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
 
 int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return cfh->cfd()->options()->max_mem_compaction_level;
+  MutexLock l(&mutex_);
+  return cfh->cfd()->GetSuperVersion()->
+      mutable_cf_options.max_mem_compaction_level;
 }
 
 int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return cfh->cfd()->options()->level0_stop_writes_trigger;
+  MutexLock l(&mutex_);
+  return cfh->cfd()->GetSuperVersion()->
+      mutable_cf_options.level0_stop_writes_trigger;
 }
 
 Status DBImpl::Flush(const FlushOptions& flush_options,

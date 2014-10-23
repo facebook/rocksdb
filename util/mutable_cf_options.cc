@@ -92,6 +92,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       max_successive_merges);
   Log(log, "                           filter_deletes: %d",
       filter_deletes);
+  Log(log, "                 inplace_update_num_locks: %zu",
+      inplace_update_num_locks);
   Log(log, "                 disable_auto_compactions: %d",
       disable_auto_compactions);
   Log(log, "                          soft_rate_limit: %lf",
@@ -126,6 +128,10 @@ void MutableCFOptions::Dump(Logger* log) const {
   }
   result.resize(result.size() - 2);
   Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
+  Log(log, "                 max_mem_compaction_level: %d",
+      max_mem_compaction_level);
+  Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,
+      max_sequential_skip_in_iterations);
 }
 
 }  // namespace rocksdb

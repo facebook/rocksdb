@@ -38,6 +38,7 @@ struct MutableCFOptions {
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
+      max_mem_compaction_level(options.max_mem_compaction_level),
       max_sequential_skip_in_iterations(
           options.max_sequential_skip_in_iterations)
   {
@@ -65,6 +66,7 @@ struct MutableCFOptions {
       target_file_size_multiplier(0),
       max_bytes_for_level_base(0),
       max_bytes_for_level_multiplier(0),
+      max_mem_compaction_level(0),
       max_sequential_skip_in_iterations(0)
   {}
 
@@ -108,6 +110,7 @@ struct MutableCFOptions {
   uint64_t max_bytes_for_level_base;
   int max_bytes_for_level_multiplier;
   std::vector<int> max_bytes_for_level_multiplier_additional;
+  int max_mem_compaction_level;
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;

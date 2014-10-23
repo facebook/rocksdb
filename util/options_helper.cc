@@ -144,6 +144,8 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
         start = end + 1;
       }
     }
+  } else if (name == "max_mem_compaction_level") {
+    new_options->max_mem_compaction_level = ParseInt(value);
   } else {
     return false;
   }
@@ -283,8 +285,6 @@ bool GetColumnFamilyOptionsFromMap(
             ParseInt(o.second.substr(start, o.second.size() - start));
       } else if (o.first == "num_levels") {
         new_options->num_levels = ParseInt(o.second);
-      } else if (o.first == "max_mem_compaction_level") {
-        new_options->max_mem_compaction_level = ParseInt(o.second);
       } else if (o.first == "purge_redundant_kvs_while_flush") {
         new_options->purge_redundant_kvs_while_flush =
           ParseBoolean(o.first, o.second);

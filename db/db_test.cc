@@ -8914,6 +8914,45 @@ TEST(DBTest, DynamicCompactionOptions) {
   }));
   dbfull()->TEST_FlushMemTable(true);
   ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).ok());
+
+  // Test max_mem_compaction_level.
+  // Destory DB and start from scratch
+  options.max_background_compactions = 1;
+  options.max_background_flushes = 0;
+  options.max_mem_compaction_level = 2;
+  DestroyAndReopen(&options);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+
+  ASSERT_TRUE(Put("max_mem_compaction_level_key",
+              RandomString(&rnd, 8)).ok());
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+
+  ASSERT_TRUE(Put("max_mem_compaction_level_key",
+              RandomString(&rnd, 8)).ok());
+  // Set new value and it becomes effective in this flush
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_mem_compaction_level", "1"}
+  }));
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+
+  ASSERT_TRUE(Put("max_mem_compaction_level_key",
+              RandomString(&rnd, 8)).ok());
+  // Set new value and it becomes effective in this flush
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_mem_compaction_level", "0"}
+  }));
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
 }
 
 TEST(DBTest, DynamicMiscOptions) {
