@@ -5272,7 +5272,7 @@ TEST(DBTest, CompactBetweenSnapshots) {
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, &options);
     Random rnd(301);
     FillLevels("a", "z", 1);
 
