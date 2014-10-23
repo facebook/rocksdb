@@ -37,7 +37,9 @@ struct MutableCFOptions {
       max_bytes_for_level_base(options.max_bytes_for_level_base),
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
       max_bytes_for_level_multiplier_additional(
-          options.max_bytes_for_level_multiplier_additional)
+          options.max_bytes_for_level_multiplier_additional),
+      max_sequential_skip_in_iterations(
+          options.max_sequential_skip_in_iterations)
   {
     RefreshDerivedOptions(ioptions);
   }
@@ -62,7 +64,8 @@ struct MutableCFOptions {
       target_file_size_base(0),
       target_file_size_multiplier(0),
       max_bytes_for_level_base(0),
-      max_bytes_for_level_multiplier(0)
+      max_bytes_for_level_multiplier(0),
+      max_sequential_skip_in_iterations(0)
   {}
 
   // Must be called after any change to MutableCFOptions
@@ -105,6 +108,9 @@ struct MutableCFOptions {
   uint64_t max_bytes_for_level_base;
   int max_bytes_for_level_multiplier;
   std::vector<int> max_bytes_for_level_multiplier_additional;
+
+  // Misc options
+  uint64_t max_sequential_skip_in_iterations;
 
   // Derived options
   // Per-level target file size.

@@ -8889,6 +8889,56 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).ok());
 }
 
+TEST(DBTest, DynamicMiscOptions) {
+  // Test max_sequential_skip_in_iterations
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_sequential_skip_in_iterations = 16;
+  options.compression = kNoCompression;
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(&options);
+
+  auto assert_reseek_count = [this, &options](int key_start, int num_reseek) {
+    int key0 = key_start;
+    int key1 = key_start + 1;
+    int key2 = key_start + 2;
+    Random rnd(301);
+    ASSERT_OK(Put(Key(key0), RandomString(&rnd, 8)));
+    for (int i = 0; i < 10; ++i) {
+      ASSERT_OK(Put(Key(key1), RandomString(&rnd, 8)));
+    }
+    ASSERT_OK(Put(Key(key2), RandomString(&rnd, 8)));
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(Key(key1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Key(key1)), 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Key(key2)), 0);
+    ASSERT_EQ(num_reseek,
+              TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION));
+  };
+  // No reseek
+  assert_reseek_count(100, 0);
+
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_sequential_skip_in_iterations", "4"}
+  }));
+  // Clear memtable and make new option effective
+  dbfull()->TEST_FlushMemTable(true);
+  // Trigger reseek
+  assert_reseek_count(200, 1);
+
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_sequential_skip_in_iterations", "16"}
+  }));
+  // Clear memtable and make new option effective
+  dbfull()->TEST_FlushMemTable(true);
+  // No reseek
+  assert_reseek_count(300, 1);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

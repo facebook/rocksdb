@@ -51,7 +51,7 @@ typedef std::priority_queue<Iterator*,
 class ForwardIterator : public Iterator {
  public:
   ForwardIterator(DBImpl* db, const ReadOptions& read_options,
-                  ColumnFamilyData* cfd);
+                  ColumnFamilyData* cfd, SuperVersion* current_sv = nullptr);
   virtual ~ForwardIterator();
 
   void SeekToLast() override {
@@ -72,8 +72,8 @@ class ForwardIterator : public Iterator {
   virtual Status status() const override;
 
  private:
-  void Cleanup();
-  void RebuildIterators();
+  void Cleanup(bool release_sv);
+  void RebuildIterators(bool refresh_sv);
   void ResetIncompleteIterators();
   void SeekInternal(const Slice& internal_key, bool seek_to_first);
   void UpdateCurrent();

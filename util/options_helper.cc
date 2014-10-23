@@ -150,6 +150,17 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
   return true;
 }
 
+template<typename OptionsType>
+bool ParseMiscOptions(const std::string& name, const std::string& value,
+                      OptionsType* new_options) {
+  if (name == "max_sequential_skip_in_iterations") {
+    new_options->max_sequential_skip_in_iterations = ParseUint64(value);
+  } else {
+    return false;
+  }
+  return true;
+}
+
 bool GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
@@ -160,6 +171,7 @@ bool GetMutableOptionsFromStrings(
     for (const auto& o : options_map) {
       if (ParseMemtableOptions(o.first, o.second, new_options)) {
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
+      } else if (ParseMiscOptions(o.first, o.second, new_options)) {
       } else {
         return false;
       }
@@ -228,6 +240,7 @@ bool GetColumnFamilyOptionsFromMap(
     try {
       if (ParseMemtableOptions(o.first, o.second, new_options)) {
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
+      } else if (ParseMiscOptions(o.first, o.second, new_options)) {
       } else if (o.first == "min_write_buffer_number_to_merge") {
         new_options->min_write_buffer_number_to_merge = ParseInt(o.second);
       } else if (o.first == "compression") {
@@ -286,8 +299,6 @@ bool GetColumnFamilyOptionsFromMap(
       } else if (o.first == "compaction_options_fifo") {
         new_options->compaction_options_fifo.max_table_files_size
           = ParseUint64(o.second);
-      } else if (o.first == "max_sequential_skip_in_iterations") {
-        new_options->max_sequential_skip_in_iterations = ParseUint64(o.second);
       } else if (o.first == "inplace_update_support") {
         new_options->inplace_update_support = ParseBoolean(o.first, o.second);
       } else if (o.first == "inplace_update_num_locks") {

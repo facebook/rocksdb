@@ -3828,16 +3828,16 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // not supported in lite version
     return nullptr;
 #else
-    auto iter = new ForwardIterator(this, read_options, cfd);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+    auto iter = new ForwardIterator(this, read_options, cfd, sv);
     return NewDBIterator(env_, *cfd->ioptions(), cfd->user_comparator(), iter,
-                         kMaxSequenceNumber,
-                         cfd->options()->max_sequential_skip_in_iterations,
-                         read_options.iterate_upper_bound);
+        kMaxSequenceNumber,
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        read_options.iterate_upper_bound);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
-    SuperVersion* sv = nullptr;
-    sv = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
     auto snapshot =
         read_options.snapshot != nullptr
@@ -3889,7 +3889,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // that they are likely to be in the same cache line and/or page.
     ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
         env_, *cfd->ioptions(), cfd->user_comparator(),
-        snapshot, cfd->options()->max_sequential_skip_in_iterations,
+        snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
         read_options.iterate_upper_bound);
 
     Iterator* internal_iter =
@@ -3908,19 +3908,6 @@ Status DBImpl::NewIterators(
     std::vector<Iterator*>* iterators) {
   iterators->clear();
   iterators->reserve(column_families.size());
-  SequenceNumber latest_snapshot = 0;
-  std::vector<SuperVersion*> super_versions;
-  super_versions.reserve(column_families.size());
-
-  if (!read_options.tailing) {
-    mutex_.Lock();
-    latest_snapshot = versions_->LastSequence();
-    for (auto cfh : column_families) {
-      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      super_versions.push_back(cfd->GetSuperVersion()->Ref());
-    }
-    mutex_.Unlock();
-  }
 
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
@@ -3929,17 +3916,21 @@ Status DBImpl::NewIterators(
 #else
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      auto iter = new ForwardIterator(this, read_options, cfd);
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+      auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(
           NewDBIterator(env_, *cfd->ioptions(), cfd->user_comparator(), iter,
-                        kMaxSequenceNumber,
-                        cfd->options()->max_sequential_skip_in_iterations));
+              kMaxSequenceNumber,
+              sv->mutable_cf_options.max_sequential_skip_in_iterations));
     }
 #endif
   } else {
+    SequenceNumber latest_snapshot = versions_->LastSequence();
+
     for (size_t i = 0; i < column_families.size(); ++i) {
-      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_families[i]);
-      auto cfd = cfh->cfd();
+      auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+          column_families[i])->cfd();
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
       auto snapshot =
           read_options.snapshot != nullptr
@@ -3949,9 +3940,9 @@ Status DBImpl::NewIterators(
 
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
           env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
-          cfd->options()->max_sequential_skip_in_iterations);
+          sv->mutable_cf_options.max_sequential_skip_in_iterations);
       Iterator* internal_iter = NewInternalIterator(
-          read_options, cfd, super_versions[i], db_iter->GetArena());
+          read_options, cfd, sv, db_iter->GetArena());
       db_iter->SetIterUnderDBIter(internal_iter);
       iterators->push_back(db_iter);
     }
