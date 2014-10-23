@@ -807,8 +807,8 @@ class DBTest {
   }
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0) {
-    ScopedArenaIterator iter;
     Arena arena;
+    ScopedArenaIterator iter;
     if (cf == 0) {
       iter.set(dbfull()->TEST_NewInternalIterator(&arena));
     } else {
