@@ -1351,8 +1351,8 @@ class PosixEnv : public Env {
   }
 
   virtual uint64_t NowMicros() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
   }
 
   virtual uint64_t NowNanos() {
