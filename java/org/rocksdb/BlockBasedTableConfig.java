@@ -14,6 +14,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   public BlockBasedTableConfig() {
     noBlockCache_ = false;
     blockCacheSize_ = 8 * 1024 * 1024;
+    blockCacheNumShardBits_ = 0;
     blockSize_ = 4 * 1024;
     blockSizeDeviation_ = 10;
     blockRestartInterval_ = 16;
@@ -22,6 +23,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     cacheIndexAndFilterBlocks_ = false;
     hashIndexAllowCollision_ = true;
     blockCacheCompressedSize_ = 0;
+    blockCacheCompressedNumShardBits_ = 0;
     checksumType_ = ChecksumType.kCRC32c;
     indexType_ = IndexType.kBinarySearch;
   }

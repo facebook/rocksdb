@@ -22,7 +22,7 @@ public enum EncodingType {
   /**
    * Always write full keys without any special encoding.
    */
-  kPlain((byte)0),
+  kPlain((byte) 0),
   /**
    * <p>Find opportunity to write the same prefix once for multiple rows.
    * In some cases, when a key follows a previous key with the same prefix,
@@ -36,7 +36,7 @@ public enum EncodingType {
    * bitwise compared to the prefix extractors stored in the file. An error
    * will be returned if the two don't match.</p>
    */
-  kPrefix((byte)1);
+  kPrefix((byte) 1);
 
   private final byte value_;
 

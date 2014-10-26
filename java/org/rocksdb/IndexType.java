@@ -18,7 +18,7 @@ public enum IndexType {
    * The hash index, if enabled, will do the hash lookup when
    * {@code Options.prefix_extractor} is provided.
    */
-  kHashSearch((byte)1);
+  kHashSearch((byte) 1);
 
   private final byte value_;
 

@@ -16,11 +16,11 @@ public enum ChecksumType {
   /**
    * CRC32 Checksum
    */
-  kCRC32c((byte)1),
+  kCRC32c((byte) 1),
   /**
    * XX Hash
    */
-  kxxHash((byte)2);
+  kxxHash((byte) 2);
 
   private final byte value_;
 

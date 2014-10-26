@@ -1,0 +1,64 @@
+// Copyright (c) 2014, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
+
+package org.rocksdb.test;
+
+import org.rocksdb.BlockBasedTableConfig;
+import org.rocksdb.ChecksumType;
+import org.rocksdb.IndexType;
+
+public class BlockBasedTableConfigTest {
+
+  public static void main(String[] args) {
+    BlockBasedTableConfig blockBasedTableConfig =
+        new BlockBasedTableConfig();
+    assert(!blockBasedTableConfig.noBlockCache());
+    blockBasedTableConfig.setNoBlockCache(true);
+    assert(blockBasedTableConfig.noBlockCache());
+    assert(blockBasedTableConfig.blockCacheSize() == (8*1024*1024));
+    blockBasedTableConfig.setBlockCacheSize(8*1024);
+    assert(blockBasedTableConfig.blockCacheSize() == (8*1024));
+    assert(blockBasedTableConfig.blockSizeDeviation() == 10);
+    blockBasedTableConfig.setBlockSizeDeviation(12);
+    assert(blockBasedTableConfig.blockSizeDeviation() == 12);
+    assert(blockBasedTableConfig.blockRestartInterval() == 16);
+    blockBasedTableConfig.setBlockRestartInterval(15);
+    assert(blockBasedTableConfig.blockRestartInterval() == 15);
+    assert(blockBasedTableConfig.wholeKeyFiltering());
+    blockBasedTableConfig.setWholeKeyFiltering(false);
+    assert(!blockBasedTableConfig.wholeKeyFiltering());
+    assert(!blockBasedTableConfig.cacheIndexAndFilterBlocks());
+    blockBasedTableConfig.setCacheIndexAndFilterBlocks(true);
+    assert(blockBasedTableConfig.cacheIndexAndFilterBlocks());
+    assert(blockBasedTableConfig.hashIndexAllowCollision());
+    blockBasedTableConfig.setHashIndexAllowCollision(false);
+    assert(!blockBasedTableConfig.hashIndexAllowCollision());
+    assert(blockBasedTableConfig.blockCacheCompressedSize() == 0);
+    blockBasedTableConfig.setBlockCacheCompressedSize(40);
+    assert(blockBasedTableConfig.blockCacheCompressedSize() == 40);
+    assert(blockBasedTableConfig.checksumType().equals(
+        ChecksumType.kCRC32c));
+    blockBasedTableConfig.setChecksumType(ChecksumType.kNoChecksum);
+    assert(blockBasedTableConfig.checksumType().equals(
+        ChecksumType.kNoChecksum));
+    blockBasedTableConfig.setChecksumType(ChecksumType.kxxHash);
+    assert(blockBasedTableConfig.checksumType().equals(
+        ChecksumType.kxxHash));
+    assert(blockBasedTableConfig.indexType().equals(
+        IndexType.kBinarySearch));
+    blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
+    assert(blockBasedTableConfig.indexType().equals(
+        IndexType.kHashSearch));
+    assert(blockBasedTableConfig.blockCacheCompressedNumShardBits()
+        == 0);
+    blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
+    assert(blockBasedTableConfig.blockCacheCompressedNumShardBits()
+        == 4);
+    assert(blockBasedTableConfig.cacheNumShardBits() == 0);
+    blockBasedTableConfig.setCacheNumShardBits(5);
+    assert(blockBasedTableConfig.cacheNumShardBits() == 5);
+    System.out.println("BlockBasedTableConfig test passed");
+  }
+}
