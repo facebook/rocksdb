@@ -69,6 +69,11 @@ public class SnapshotTest
       // null
       assert(db.get(readOptions, "newkey".getBytes())
           == null);
+      // setting null to snapshot in ReadOptions leads
+      // to no Snapshot being used.
+      readOptions.setSnapshot(null);
+      assert(new String(db.get(readOptions,
+          "newkey".getBytes())).equals("newvalue"));
       // release Snapshot
       db.releaseSnapshot(snapshot);
       // Close database

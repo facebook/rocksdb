@@ -92,7 +92,11 @@ public class ReadOptions extends RocksObject {
    */
   public ReadOptions setSnapshot(Snapshot snapshot) {
     assert(isInitialized());
-    setSnapshot(nativeHandle_, snapshot.nativeHandle_);
+    if (snapshot != null) {
+      setSnapshot(nativeHandle_, snapshot.nativeHandle_);
+    } else {
+      setSnapshot(nativeHandle_, 0l);
+    }
     return this;
   }
   private native void setSnapshot(long handle, long snapshotHandle);
