@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <jni.h>
 #include <string>
+#include <vector>
 
 #include "include/org_rocksdb_BackupableDB.h"
 #include "include/org_rocksdb_BackupableDBOptions.h"
@@ -53,13 +54,42 @@ void Java_org_rocksdb_BackupableDB_createNewBackup(
  * Signature: (JI)V
  */
 void Java_org_rocksdb_BackupableDB_purgeOldBackups(
-    JNIEnv* env, jobject jbdb, jlong jhandle, jboolean jnumBackupsToKeep) {
+    JNIEnv* env, jobject jbdb, jlong jhandle, jint jnumBackupsToKeep) {
   rocksdb::Status s =
       reinterpret_cast<rocksdb::BackupableDB*>(jhandle)->
       PurgeOldBackups(jnumBackupsToKeep);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDB
+ * Method:    deleteBackup0
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDB_deleteBackup0(JNIEnv* env,
+    jobject jobj, jlong jhandle, jlong jbackup_id) {
+  auto rdb = reinterpret_cast<rocksdb::BackupableDB*>(jhandle);
+  rocksdb::Status s = rdb->DeleteBackup(jbackup_id);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_BackupableDB
+ * Method:    getBackupInfo
+ * Signature: (J)Ljava/util/List;
+ */
+jobject Java_org_rocksdb_BackupableDB_getBackupInfo(
+    JNIEnv* env, jobject jbdb, jlong jhandle) {
+  std::vector<rocksdb::BackupInfo> backup_infos;
+  reinterpret_cast<rocksdb::BackupableDB*>(jhandle)->
+      GetBackupInfo(&backup_infos);
+  return rocksdb::BackupInfoListJni::getBackupInfo(env,
+      backup_infos);
 }
 
 ///////////////////////////////////////////////////////////////////////////

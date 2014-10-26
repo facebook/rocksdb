@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.List;
+
 /**
  * A subclass of RocksDB which supports backup-related operations.
  *
@@ -43,8 +45,10 @@ public class BackupableDB extends RocksDB {
    *
    * @param flushBeforeBackup if true, then all data will be flushed
    *     before creating backup.
+   * @throws org.rocksdb.RocksDBException
    */
-  public void createNewBackup(boolean flushBeforeBackup) {
+  public void createNewBackup(boolean flushBeforeBackup)
+      throws RocksDBException {
     createNewBackup(nativeHandle_, flushBeforeBackup);
   }
 
@@ -52,11 +56,32 @@ public class BackupableDB extends RocksDB {
    * Deletes old backups, keeping latest numBackupsToKeep alive.
    *
    * @param numBackupsToKeep Number of latest backups to keep.
+   * @throws org.rocksdb.RocksDBException
    */
-  public void purgeOldBackups(int numBackupsToKeep) {
+  public void purgeOldBackups(int numBackupsToKeep)
+      throws RocksDBException {
     purgeOldBackups(nativeHandle_, numBackupsToKeep);
   }
 
+  /**
+   * Deletes a specific backup.
+   *
+   * @param backupId of backup to delete.
+   * @throws org.rocksdb.RocksDBException
+   */
+  public void deleteBackup(long backupId) throws RocksDBException {
+    deleteBackup0(nativeHandle_, backupId);
+  }
+
+  /**
+   * Returns a list of {@link BackupInfo} instances, which describe
+   * already made backups.
+   *
+   * @return List of {@link BackupInfo} instances.
+   */
+  public List<BackupInfo> getBackupInfos() {
+    return getBackupInfo(nativeHandle_);
+  }
 
   /**
    * Close the BackupableDB instance and release resource.
@@ -85,6 +110,11 @@ public class BackupableDB extends RocksDB {
   }
 
   protected native void open(long rocksDBHandle, long backupDBOptionsHandle);
-  protected native void createNewBackup(long handle, boolean flag);
-  protected native void purgeOldBackups(long handle, int numBackupsToKeep);
+  protected native void createNewBackup(long handle, boolean flag)
+      throws RocksDBException;
+  protected native void purgeOldBackups(long handle, int numBackupsToKeep)
+      throws RocksDBException;
+  private native void deleteBackup0(long nativeHandle, long backupId)
+      throws RocksDBException;
+  protected native List<BackupInfo> getBackupInfo(long handle);
 }

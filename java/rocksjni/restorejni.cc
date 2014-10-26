@@ -133,6 +133,20 @@ void Java_org_rocksdb_RestoreBackupableDB_deleteBackup0(JNIEnv* env,
 
 /*
  * Class:     org_rocksdb_RestoreBackupableDB
+ * Method:    getBackupInfo
+ * Signature: (J)Ljava/util/List;
+ */
+jobject Java_org_rocksdb_RestoreBackupableDB_getBackupInfo(
+    JNIEnv* env, jobject jbdb, jlong jhandle) {
+  std::vector<rocksdb::BackupInfo> backup_infos;
+  reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle)->
+      GetBackupInfo(&backup_infos);
+  return rocksdb::BackupInfoListJni::getBackupInfo(env,
+      backup_infos);
+}
+
+/*
+ * Class:     org_rocksdb_RestoreBackupableDB
  * Method:    dispose
  * Signature: (J)V
  */

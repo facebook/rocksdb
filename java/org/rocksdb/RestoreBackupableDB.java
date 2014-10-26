@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.List;
+
 /**
  * This class is used to access information about backups and restore from them.
  *
@@ -65,6 +67,7 @@ public class RestoreBackupableDB extends RocksObject {
    * Deletes old backups, keeping latest numBackupsToKeep alive.
    *
    * @param numBackupsToKeep of latest backups to keep
+   * @throws org.rocksdb.RocksDBException
    */
   public void purgeOldBackups(int numBackupsToKeep) throws RocksDBException {
     purgeOldBackups0(nativeHandle_, numBackupsToKeep);
@@ -74,9 +77,20 @@ public class RestoreBackupableDB extends RocksObject {
    * Deletes a specific backup.
    *
    * @param backupId of backup to delete.
+   * @throws org.rocksdb.RocksDBException
    */
   public void deleteBackup(long backupId) throws RocksDBException {
     deleteBackup0(nativeHandle_, backupId);
+  }
+
+  /**
+   * Returns a list of {@link BackupInfo} instances, which describe
+   * already made backups.
+   *
+   * @return List of {@link BackupInfo} instances.
+   */
+  public List<BackupInfo> getBackupInfos() {
+    return getBackupInfo(nativeHandle_);
   }
 
   /**
@@ -90,10 +104,15 @@ public class RestoreBackupableDB extends RocksObject {
 
   private native long newRestoreBackupableDB(long options);
   private native void restoreDBFromBackup0(long nativeHandle, long backupId,
-      String dbDir, String walDir, long restoreOptions) throws RocksDBException;
+      String dbDir, String walDir, long restoreOptions)
+      throws RocksDBException;
   private native void restoreDBFromLatestBackup0(long nativeHandle,
-      String dbDir, String walDir, long restoreOptions) throws RocksDBException;
-  private native void purgeOldBackups0(long nativeHandle, int numBackupsToKeep);
-  private native void deleteBackup0(long nativeHandle, long backupId);
+      String dbDir, String walDir, long restoreOptions)
+      throws RocksDBException;
+  private native void purgeOldBackups0(long nativeHandle, int numBackupsToKeep)
+      throws RocksDBException;
+  private native void deleteBackup0(long nativeHandle, long backupId)
+      throws RocksDBException;
+  protected native List<BackupInfo> getBackupInfo(long handle);
   private native void dispose(long nativeHandle);
 }
