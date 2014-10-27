@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <chrono>
 #include <deque>
 #include <set>
 #include <dirent.h>
@@ -1350,25 +1351,13 @@ class PosixEnv : public Env {
   }
 
   virtual uint64_t NowMicros() {
-    struct timeval tv;
-    // TODO(kailiu) MAC DON'T HAVE THIS
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
   }
 
   virtual uint64_t NowNanos() {
-#ifdef OS_LINUX
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#elif __MACH__
-    clock_serv_t cclock;
-    mach_timespec_t ts;
-    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
-    clock_get_time(cclock, &ts);
-    mach_port_deallocate(mach_task_self(), cclock);
-#endif
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
   }
 
   virtual void SleepForMicroseconds(int micros) {

@@ -807,8 +807,8 @@ class DBTest {
   }
 
   std::string AllEntriesFor(const Slice& user_key, int cf = 0) {
-    ScopedArenaIterator iter;
     Arena arena;
+    ScopedArenaIterator iter;
     if (cf == 0) {
       iter.set(dbfull()->TEST_NewInternalIterator(&arena));
     } else {
@@ -5272,7 +5272,7 @@ TEST(DBTest, CompactBetweenSnapshots) {
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, &options);
     Random rnd(301);
     FillLevels("a", "z", 1);
 
@@ -8354,6 +8354,17 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   options.prefix_extractor.reset(NewNoopTransform());
   Destroy(&options);
   ASSERT_TRUE(TryReopen(&options).IsNotSupported());
+
+  // Test for check of prefix_extractor when hash index is used for
+  // block-based table
+  BlockBasedTableOptions to;
+  to.index_type = BlockBasedTableOptions::kHashSearch;
+  options = Options();
+  options.create_if_missing = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(to));
+  ASSERT_TRUE(TryReopen(&options).IsInvalidArgument());
+  options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+  ASSERT_OK(TryReopen(&options));
 }
 
 TEST(DBTest, DBIteratorBoundTest) {
@@ -8691,8 +8702,9 @@ TEST(DBTest, DynamicCompactionOptions) {
     dbfull()->TEST_WaitForFlushMemTable();
   };
 
-  // Write 3 files that have the same key range, trigger compaction and
-  // result in one L1 file
+  // Write 3 files that have the same key range.
+  // Since level0_file_num_compaction_trigger is 3, compaction should be
+  // triggered. The compaction should result in one L1 file
   gen_l0_kb(0, 64, 1);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   gen_l0_kb(0, 64, 1);
@@ -8707,6 +8719,10 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_GE(metadata[0].size, k64KB - k4KB);
 
   // Test compaction trigger and target_file_size_base
+  // Reduce compaction trigger to 2, and reduce L1 file size to 32KB.
+  // Writing to 64KB L0 files should trigger a compaction. Since these
+  // 2 L0 files have the same key range, compaction merge them and should
+  // result in 2 32KB L1 files.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"level0_file_num_compaction_trigger", "2"},
     {"target_file_size_base", std::to_string(k32KB) }
@@ -8722,8 +8738,13 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_EQ(2U, metadata.size());
   ASSERT_LE(metadata[0].size, k32KB + k4KB);
   ASSERT_GE(metadata[0].size, k32KB - k4KB);
+  ASSERT_LE(metadata[1].size, k32KB + k4KB);
+  ASSERT_GE(metadata[1].size, k32KB - k4KB);
 
   // Test max_bytes_for_level_base
+  // Increase level base size to 256KB and write enough data that will
+  // fill L1 and L2. L1 size should be around 256KB while L2 size should be
+  // around 256KB x 4.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"max_bytes_for_level_base", std::to_string(k256KB) }
   }));
@@ -8740,7 +8761,9 @@ TEST(DBTest, DynamicCompactionOptions) {
               SizeAtLevel(2) < 4 * k256KB * 1.2);
 
   // Test max_bytes_for_level_multiplier and
-  // max_bytes_for_level_base (reduce)
+  // max_bytes_for_level_base. Now, reduce both mulitplier and level base,
+  // After filling enough data that can fit in L1 - L3, we should see L1 size
+  // reduces to 128KB from 256KB which was asserted previously. Same for L2.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"max_bytes_for_level_multiplier", "2"},
     {"max_bytes_for_level_base", std::to_string(k128KB) }
@@ -8752,14 +8775,14 @@ TEST(DBTest, DynamicCompactionOptions) {
     gen_l0_kb(i, 64, 32);
   }
   dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(SizeAtLevel(1) > k128KB * 0.8 &&
-              SizeAtLevel(1) < k128KB * 1.2);
-  ASSERT_TRUE(SizeAtLevel(2) > 2 * k128KB * 0.8 &&
-              SizeAtLevel(2) < 2 * k128KB * 1.2);
-  ASSERT_TRUE(SizeAtLevel(3) > 4 * k128KB * 0.8 &&
-              SizeAtLevel(3) < 4 * k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(1) < k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(2) < 2 * k128KB * 1.2);
+  ASSERT_TRUE(SizeAtLevel(3) < 4 * k128KB * 1.2);
 
-  // Clean up memtable and L0
+  // Test level0_stop_writes_trigger.
+  // Clean up memtable and L0. Block compaction threads. If continue to write
+  // and flush memtables. We should see put timeout after 8 memtable flushes
+  // since level0_stop_writes_trigger = 8
   dbfull()->CompactRange(nullptr, nullptr);
   // Block compaction
   SleepingBackgroundTask sleeping_task_low1;
@@ -8780,7 +8803,9 @@ TEST(DBTest, DynamicCompactionOptions) {
   sleeping_task_low1.WakeUp();
   sleeping_task_low1.WaitUntilDone();
 
-  // Test: stop trigger (reduce)
+  // Now reduce level0_stop_writes_trigger to 6. Clear up memtables and L0.
+  // Block compaction thread again. Perform the put and memtable flushes
+  // until we see timeout after 6 memtable flushes.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"level0_stop_writes_trigger", "6"}
   }));
@@ -8802,6 +8827,10 @@ TEST(DBTest, DynamicCompactionOptions) {
   sleeping_task_low2.WaitUntilDone();
 
   // Test disable_auto_compactions
+  // Compaction thread is unblocked but auto compaction is disabled. Write
+  // 4 L0 files and compaction should be triggered. If auto compaction is
+  // disabled, then TEST_WaitForCompact will be waiting for nothing. Number of
+  // L0 files do not change after the call.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"disable_auto_compactions", "true"}
   }));
@@ -8816,6 +8845,8 @@ TEST(DBTest, DynamicCompactionOptions) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ(NumTableFilesAtLevel(0), 4);
 
+  // Enable auto compaction and perform the same test, # of L0 files should be
+  // reduced after compaction.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"disable_auto_compactions", "false"}
   }));
@@ -8830,8 +8861,10 @@ TEST(DBTest, DynamicCompactionOptions) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
 
-  // Test for hard_rate_limit, change max_bytes_for_level_base to make level
-  // size big
+  // Test for hard_rate_limit.
+  // First change max_bytes_for_level_base to a big value and populate
+  // L1 - L3. Then thrink max_bytes_for_level_base and disable auto compaction
+  // at the same time, we should see some level with score greater than 2.
   ASSERT_TRUE(dbfull()->SetOptions({
     {"max_bytes_for_level_base", std::to_string(k256KB) }
   }));
@@ -8861,7 +8894,9 @@ TEST(DBTest, DynamicCompactionOptions) {
               SizeAtLevel(2) / k64KB > 4 ||
               SizeAtLevel(3) / k64KB > 8);
 
-  // Enfoce hard rate limit, L0 score is not regulated by this limit
+  // Enfoce hard rate limit. Now set hard_rate_limit to 2,
+  // we should start to see put delay (1000 us) and timeout as a result
+  // (L0 score is not regulated by this limit).
   ASSERT_TRUE(dbfull()->SetOptions({
     {"hard_rate_limit", "2"}
   }));
@@ -8873,12 +8908,101 @@ TEST(DBTest, DynamicCompactionOptions) {
   wo.timeout_hint_us = 500;
   ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).IsTimedOut());
 
-  // Bump up limit
+  // Lift the limit and no timeout
   ASSERT_TRUE(dbfull()->SetOptions({
     {"hard_rate_limit", "100"}
   }));
   dbfull()->TEST_FlushMemTable(true);
   ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).ok());
+
+  // Test max_mem_compaction_level.
+  // Destory DB and start from scratch
+  options.max_background_compactions = 1;
+  options.max_background_flushes = 0;
+  options.max_mem_compaction_level = 2;
+  DestroyAndReopen(&options);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+
+  ASSERT_TRUE(Put("max_mem_compaction_level_key",
+              RandomString(&rnd, 8)).ok());
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+
+  ASSERT_TRUE(Put("max_mem_compaction_level_key",
+              RandomString(&rnd, 8)).ok());
+  // Set new value and it becomes effective in this flush
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_mem_compaction_level", "1"}
+  }));
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+
+  ASSERT_TRUE(Put("max_mem_compaction_level_key",
+              RandomString(&rnd, 8)).ok());
+  // Set new value and it becomes effective in this flush
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_mem_compaction_level", "0"}
+  }));
+  dbfull()->TEST_FlushMemTable(true);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+}
+
+TEST(DBTest, DynamicMiscOptions) {
+  // Test max_sequential_skip_in_iterations
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_sequential_skip_in_iterations = 16;
+  options.compression = kNoCompression;
+  options.statistics = rocksdb::CreateDBStatistics();
+  DestroyAndReopen(&options);
+
+  auto assert_reseek_count = [this, &options](int key_start, int num_reseek) {
+    int key0 = key_start;
+    int key1 = key_start + 1;
+    int key2 = key_start + 2;
+    Random rnd(301);
+    ASSERT_OK(Put(Key(key0), RandomString(&rnd, 8)));
+    for (int i = 0; i < 10; ++i) {
+      ASSERT_OK(Put(Key(key1), RandomString(&rnd, 8)));
+    }
+    ASSERT_OK(Put(Key(key2), RandomString(&rnd, 8)));
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(Key(key1));
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Key(key1)), 0);
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Key(key2)), 0);
+    ASSERT_EQ(num_reseek,
+              TestGetTickerCount(options, NUMBER_OF_RESEEKS_IN_ITERATION));
+  };
+  // No reseek
+  assert_reseek_count(100, 0);
+
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_sequential_skip_in_iterations", "4"}
+  }));
+  // Clear memtable and make new option effective
+  dbfull()->TEST_FlushMemTable(true);
+  // Trigger reseek
+  assert_reseek_count(200, 1);
+
+  ASSERT_TRUE(dbfull()->SetOptions({
+    {"max_sequential_skip_in_iterations", "16"}
+  }));
+  // Clear memtable and make new option effective
+  dbfull()->TEST_FlushMemTable(true);
+  // No reseek
+  assert_reseek_count(300, 1);
 }
 
 }  // namespace rocksdb

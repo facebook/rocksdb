@@ -63,6 +63,22 @@ TableBuilder* BlockBasedTableFactory::NewTableBuilder(
   return table_builder;
 }
 
+Status BlockBasedTableFactory::SanitizeOptions(
+    const DBOptions& db_opts,
+    const ColumnFamilyOptions& cf_opts) const {
+  if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
+      cf_opts.prefix_extractor == nullptr) {
+    return Status::InvalidArgument("Hash index is specified for block-based "
+        "table, but prefix_extractor is not given");
+  }
+  if (table_options_.cache_index_and_filter_blocks &&
+      table_options_.no_block_cache) {
+    return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
+        ", but block cache is disabled");
+  }
+  return Status::OK();
+}
+
 std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   std::string ret;
   ret.reserve(20000);

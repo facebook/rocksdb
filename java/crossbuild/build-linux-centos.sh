@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # install all required packages for rocksdb that are available through yum
 ARCH=$(uname -i)
-sudo yum -y install java-1.6.0-openjdk-devel.$ARCH zlib zlib-devel bzip2 bzip2-devel
+sudo yum -y install java-1.7.0-openjdk-devel.$ARCH zlib zlib-devel bzip2 bzip2-devel
 
 # install gcc/g++ 4.7 via CERN (http://linux.web.cern.ch/linux/devtoolset/)
 sudo wget -O /etc/yum.repos.d/slc5-devtoolset.repo http://linuxsoft.cern.ch/cern/devtoolset/slc5-devtoolset.repo
@@ -12,7 +12,7 @@ tar xvfz gflags-1.6.tar.gz; cd gflags-1.6; scl enable devtoolset-1.1 ./configure
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
 
 # set java home so we can build rocksdb jars
-export JAVA_HOME=/usr/lib/jvm/java-1.6.0
+export JAVA_HOME=/usr/lib/jvm/java-1.7.0
 
 # build rocksdb
 cd /rocksdb

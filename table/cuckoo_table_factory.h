@@ -64,7 +64,8 @@ class CuckooTableFactory : public TableFactory {
       const CompressionType, const CompressionOptions&) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
+  Status SanitizeOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override {
     return Status::OK();
   }
 

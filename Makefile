@@ -528,7 +528,11 @@ ROCKSDB_SOURCES_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PAT
 ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDBJNILIB = librocksdbjni-osx.jnilib
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
-JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
+ifneq ("$(wildcard $(JAVA_HOME)/include/darwin)","")
+	JAVA_INCLUDE = -I$(JAVA_HOME)/include -I $(JAVA_HOME)/include/darwin
+else
+	JAVA_INCLUDE = -I/System/Library/Frameworks/JavaVM.framework/Headers/
+endif
 endif
 
 libz.a:

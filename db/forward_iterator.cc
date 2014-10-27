@@ -114,25 +114,29 @@ class LevelIterator : public Iterator {
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
-                                 ColumnFamilyData* cfd)
+    ColumnFamilyData* cfd, SuperVersion* current_sv)
     : db_(db),
       read_options_(read_options),
       cfd_(cfd),
       prefix_extractor_(cfd->options()->prefix_extractor.get()),
       user_comparator_(cfd->user_comparator()),
       immutable_min_heap_(MinIterComparator(&cfd_->internal_comparator())),
-      sv_(nullptr),
+      sv_(current_sv),
       mutable_iter_(nullptr),
       current_(nullptr),
       valid_(false),
       is_prev_set_(false),
-      is_prev_inclusive_(false) {}
-
-ForwardIterator::~ForwardIterator() {
-  Cleanup();
+      is_prev_inclusive_(false) {
+  if (sv_) {
+    RebuildIterators(false);
+  }
 }
 
-void ForwardIterator::Cleanup() {
+ForwardIterator::~ForwardIterator() {
+  Cleanup(true);
+}
+
+void ForwardIterator::Cleanup(bool release_sv) {
   if (mutable_iter_ != nullptr) {
     mutable_iter_->~Iterator();
   }
@@ -149,15 +153,17 @@ void ForwardIterator::Cleanup() {
   }
   level_iters_.clear();
 
-  if (sv_ != nullptr && sv_->Unref()) {
-    DBImpl::DeletionState deletion_state;
-    db_->mutex_.Lock();
-    sv_->Cleanup();
-    db_->FindObsoleteFiles(deletion_state, false, true);
-    db_->mutex_.Unlock();
-    delete sv_;
-    if (deletion_state.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(deletion_state);
+  if (release_sv) {
+    if (sv_ != nullptr && sv_->Unref()) {
+      DBImpl::DeletionState deletion_state;
+      db_->mutex_.Lock();
+      sv_->Cleanup();
+      db_->FindObsoleteFiles(deletion_state, false, true);
+      db_->mutex_.Unlock();
+      delete sv_;
+      if (deletion_state.HaveSomethingToDelete()) {
+        db_->PurgeObsoleteFiles(deletion_state);
+      }
     }
   }
 }
@@ -169,7 +175,7 @@ bool ForwardIterator::Valid() const {
 void ForwardIterator::SeekToFirst() {
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
-    RebuildIterators();
+    RebuildIterators(true);
   } else if (status_.IsIncomplete()) {
     ResetIncompleteIterators();
   }
@@ -179,7 +185,7 @@ void ForwardIterator::SeekToFirst() {
 void ForwardIterator::Seek(const Slice& internal_key) {
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
-    RebuildIterators();
+    RebuildIterators(true);
   } else if (status_.IsIncomplete()) {
     ResetIncompleteIterators();
   }
@@ -188,6 +194,7 @@ void ForwardIterator::Seek(const Slice& internal_key) {
 
 void ForwardIterator::SeekInternal(const Slice& internal_key,
                                    bool seek_to_first) {
+  assert(mutable_iter_);
   // mutable
   seek_to_first ? mutable_iter_->SeekToFirst() :
                   mutable_iter_->Seek(internal_key);
@@ -338,7 +345,7 @@ void ForwardIterator::Next() {
     std::string current_key = key().ToString();
     Slice old_key(current_key.data(), current_key.size());
 
-    RebuildIterators();
+    RebuildIterators(true);
     SeekInternal(old_key, false);
     if (!valid_ || key().compare(old_key) != 0) {
       return;
@@ -412,11 +419,13 @@ Status ForwardIterator::status() const {
   return Status::OK();
 }
 
-void ForwardIterator::RebuildIterators() {
+void ForwardIterator::RebuildIterators(bool refresh_sv) {
   // Clean up
-  Cleanup();
-  // New
-  sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
+  Cleanup(refresh_sv);
+  if (refresh_sv) {
+    // New
+    sv_ = cfd_->GetReferencedSuperVersion(&(db_->mutex_));
+  }
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
   const auto& l0_files = sv_->current->files_[0];

@@ -14,6 +14,9 @@
 #include "include/org_rocksdb_Options.h"
 #include "include/org_rocksdb_WriteOptions.h"
 #include "include/org_rocksdb_ReadOptions.h"
+#include "include/org_rocksdb_ComparatorOptions.h"
+
+#include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
@@ -164,6 +167,17 @@ jlong Java_org_rocksdb_Options_statisticsPtr(
     JNIEnv* env, jobject jobj, jlong jOptHandle) {
   auto st = reinterpret_cast<rocksdb::Options*>(jOptHandle)->statistics.get();
   return reinterpret_cast<jlong>(st);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setComparatorHandle
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setComparatorHandle(
+    JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
+  reinterpret_cast<rocksdb::Options*>(jopt_handle)->comparator =
+      reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
 }
 
 /*
@@ -1784,4 +1798,50 @@ void Java_org_rocksdb_ReadOptions_setTailing(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean jtailing) {
   reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->tailing =
       static_cast<bool>(jtailing);
+}
+
+/////////////////////////////////////////////////////////////////////
+// rocksdb::ComparatorOptions
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    newComparatorOptions
+ * Signature: ()V
+ */
+void Java_org_rocksdb_ComparatorOptions_newComparatorOptions(
+    JNIEnv* env, jobject jobj) {
+  auto comparator_opt = new rocksdb::ComparatorJniCallbackOptions();
+  rocksdb::ComparatorOptionsJni::setHandle(env, jobj, comparator_opt);
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    useAdaptiveMutex
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ComparatorOptions_useAdaptiveMutex(
+    JNIEnv * env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+    ->use_adaptive_mutex;
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    setUseAdaptiveMutex
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ComparatorOptions_setUseAdaptiveMutex(
+    JNIEnv * env, jobject jobj, jlong jhandle, jboolean juse_adaptive_mutex) {
+  reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle)
+    ->use_adaptive_mutex = static_cast<bool>(juse_adaptive_mutex);
+}
+
+/*
+ * Class:     org_rocksdb_ComparatorOptions
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_ComparatorOptions_disposeInternal(
+    JNIEnv * env, jobject jobj, jlong jhandle) {
+  delete reinterpret_cast<rocksdb::ComparatorJniCallbackOptions*>(jhandle);
+  rocksdb::ComparatorOptionsJni::setHandle(env, jobj, nullptr);
 }

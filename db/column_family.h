@@ -166,7 +166,7 @@ class ColumnFamilyData {
   bool IsDropped() const { return dropped_; }
 
   // thread-safe
-  int NumberLevels() const { return options_.num_levels; }
+  int NumberLevels() const { return ioptions_.num_levels; }
 
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }

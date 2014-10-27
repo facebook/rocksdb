@@ -1461,8 +1461,6 @@ TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
   BlockBasedTableOptions table_options;
-  // Intentionally commented out: table_options.cache_index_and_filter_blocks =
-  // true;
   table_options.block_cache = NewLRUCache(1024);
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
@@ -1521,7 +1519,7 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   c.Finish(options, ioptions, table_options,
            GetPlainInternalComparator(options.comparator), &keys, &kvmap);
   // preloading filter/index blocks is prohibited.
-  auto reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
+  auto* reader = dynamic_cast<BlockBasedTable*>(c.GetTableReader());
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
   ASSERT_TRUE(!reader->TEST_index_reader_preloaded());
 
@@ -1567,28 +1565,11 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   // release the iterator so that the block cache can reset correctly.
   iter.reset();
 
-  // -- PART 2: Open without block cache
-  table_options.no_block_cache = true;
-  table_options.block_cache.reset();
-  options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  options.statistics = CreateDBStatistics();  // reset the stats
-  const ImmutableCFOptions ioptions1(options);
-  c.Reopen(ioptions1);
-  table_options.no_block_cache = false;
-
-  {
-    iter.reset(c.NewIterator());
-    iter->SeekToFirst();
-    ASSERT_EQ("key", iter->key().ToString());
-    BlockCachePropertiesSnapshot props(options.statistics.get());
-    // Nothing is affected at all
-    props.AssertEqual(0, 0, 0, 0);
-  }
-
-  // -- PART 3: Open with very small block cache
+  // -- PART 2: Open with very small block cache
   // In this test, no block will ever get hit since the block cache is
   // too small to fit even one entry.
   table_options.block_cache = NewLRUCache(1);
+  options.statistics = CreateDBStatistics();
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   const ImmutableCFOptions ioptions2(options);
   c.Reopen(ioptions2);
@@ -1597,7 +1578,6 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
     props.AssertEqual(1,  // index block miss
                       0, 0, 0);
   }
-
 
   {
     // Both index and data block get accessed.
@@ -1618,6 +1598,37 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
     props.AssertEqual(2, 0, 0 + 1,  // data block miss
                       0);
   }
+  iter.reset();
+
+  // -- PART 3: Open table with bloom filter enabled but not in SST file
+  table_options.block_cache = NewLRUCache(4096);
+  table_options.cache_index_and_filter_blocks = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  TableConstructor c3(BytewiseComparator());
+  std::string user_key = "k01";
+  InternalKey internal_key(user_key, 0, kTypeValue);
+  c3.Add(internal_key.Encode().ToString(), "hello");
+  ImmutableCFOptions ioptions3(options);
+  // Generate table without filter policy
+  c3.Finish(options, ioptions3, table_options,
+           GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+  // Open table with filter policy
+  table_options.filter_policy.reset(NewBloomFilterPolicy(1));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  options.statistics = CreateDBStatistics();
+  ImmutableCFOptions ioptions4(options);
+  ASSERT_OK(c3.Reopen(ioptions4));
+  reader = dynamic_cast<BlockBasedTable*>(c3.GetTableReader());
+  ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
+  std::string value;
+  GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                         GetContext::kNotFound, user_key, &value,
+                         nullptr, nullptr);
+  ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context));
+  ASSERT_EQ(value, "hello");
+  BlockCachePropertiesSnapshot props(options.statistics.get());
+  props.AssertFilterBlockStat(0, 0);
 }
 
 TEST(BlockBasedTableTest, BlockCacheLeak) {

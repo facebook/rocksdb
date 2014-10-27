@@ -67,6 +67,7 @@ class InternalStats {
     WAL_FILE_BYTES,
     WAL_FILE_SYNCED,
     BYTES_WRITTEN,
+    NUMBER_KEYS_WRITTEN,
     WRITE_DONE_BY_OTHER,
     WRITE_DONE_BY_SELF,
     WRITE_WITH_WAL,
@@ -264,6 +265,11 @@ class InternalStats {
     // another thread.
     uint64_t write_other;
     uint64_t write_self;
+    // Total number of keys written. write_self and write_other measure number
+    // of write requests written, Each of the write request can contain updates
+    // to multiple keys. num_keys_written is total number of keys updated by all
+    // those writes.
+    uint64_t num_keys_written;
     double seconds_up;
 
     DBStatsSnapshot()
@@ -273,6 +279,7 @@ class InternalStats {
           write_with_wal(0),
           write_other(0),
           write_self(0),
+          num_keys_written(0),
           seconds_up(0) {}
   } db_stats_snapshot_;
 

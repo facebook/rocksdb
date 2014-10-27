@@ -282,12 +282,12 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 
 namespace {
 
-Status SanitizeDBOptionsByCFOptions(
-    const DBOptions* db_opts,
+Status SanitizeOptionsByTable(
+    const DBOptions& db_opts,
     const std::vector<ColumnFamilyDescriptor>& column_families) {
   Status s;
   for (auto cf : column_families) {
-    s = cf.options.table_factory->SanitizeDBOptions(db_opts);
+    s = cf.options.table_factory->SanitizeOptions(db_opts, cf.options);
     if (!s.ok()) {
       return s;
     }
@@ -1863,12 +1863,16 @@ int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
 
 int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return cfh->cfd()->options()->max_mem_compaction_level;
+  MutexLock l(&mutex_);
+  return cfh->cfd()->GetSuperVersion()->
+      mutable_cf_options.max_mem_compaction_level;
 }
 
 int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  return cfh->cfd()->options()->level0_stop_writes_trigger;
+  MutexLock l(&mutex_);
+  return cfh->cfd()->GetSuperVersion()->
+      mutable_cf_options.level0_stop_writes_trigger;
 }
 
 Status DBImpl::Flush(const FlushOptions& flush_options,
@@ -3828,16 +3832,16 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // not supported in lite version
     return nullptr;
 #else
-    auto iter = new ForwardIterator(this, read_options, cfd);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+    auto iter = new ForwardIterator(this, read_options, cfd, sv);
     return NewDBIterator(env_, *cfd->ioptions(), cfd->user_comparator(), iter,
-                         kMaxSequenceNumber,
-                         cfd->options()->max_sequential_skip_in_iterations,
-                         read_options.iterate_upper_bound);
+        kMaxSequenceNumber,
+        sv->mutable_cf_options.max_sequential_skip_in_iterations,
+        read_options.iterate_upper_bound);
 #endif
   } else {
     SequenceNumber latest_snapshot = versions_->LastSequence();
-    SuperVersion* sv = nullptr;
-    sv = cfd->GetReferencedSuperVersion(&mutex_);
+    SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
     auto snapshot =
         read_options.snapshot != nullptr
@@ -3889,7 +3893,7 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // that they are likely to be in the same cache line and/or page.
     ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
         env_, *cfd->ioptions(), cfd->user_comparator(),
-        snapshot, cfd->options()->max_sequential_skip_in_iterations,
+        snapshot, sv->mutable_cf_options.max_sequential_skip_in_iterations,
         read_options.iterate_upper_bound);
 
     Iterator* internal_iter =
@@ -3908,19 +3912,6 @@ Status DBImpl::NewIterators(
     std::vector<Iterator*>* iterators) {
   iterators->clear();
   iterators->reserve(column_families.size());
-  SequenceNumber latest_snapshot = 0;
-  std::vector<SuperVersion*> super_versions;
-  super_versions.reserve(column_families.size());
-
-  if (!read_options.tailing) {
-    mutex_.Lock();
-    latest_snapshot = versions_->LastSequence();
-    for (auto cfh : column_families) {
-      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      super_versions.push_back(cfd->GetSuperVersion()->Ref());
-    }
-    mutex_.Unlock();
-  }
 
   if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
@@ -3929,17 +3920,21 @@ Status DBImpl::NewIterators(
 #else
     for (auto cfh : column_families) {
       auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-      auto iter = new ForwardIterator(this, read_options, cfd);
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
+      auto iter = new ForwardIterator(this, read_options, cfd, sv);
       iterators->push_back(
           NewDBIterator(env_, *cfd->ioptions(), cfd->user_comparator(), iter,
-                        kMaxSequenceNumber,
-                        cfd->options()->max_sequential_skip_in_iterations));
+              kMaxSequenceNumber,
+              sv->mutable_cf_options.max_sequential_skip_in_iterations));
     }
 #endif
   } else {
+    SequenceNumber latest_snapshot = versions_->LastSequence();
+
     for (size_t i = 0; i < column_families.size(); ++i) {
-      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_families[i]);
-      auto cfd = cfh->cfd();
+      auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(
+          column_families[i])->cfd();
+      SuperVersion* sv = cfd->GetReferencedSuperVersion(&mutex_);
 
       auto snapshot =
           read_options.snapshot != nullptr
@@ -3949,9 +3944,9 @@ Status DBImpl::NewIterators(
 
       ArenaWrappedDBIter* db_iter = NewArenaWrappedDbIterator(
           env_, *cfd->ioptions(), cfd->user_comparator(), snapshot,
-          cfd->options()->max_sequential_skip_in_iterations);
+          sv->mutable_cf_options.max_sequential_skip_in_iterations);
       Iterator* internal_iter = NewInternalIterator(
-          read_options, cfd, super_versions[i], db_iter->GetArena());
+          read_options, cfd, sv, db_iter->GetArena());
       db_iter->SetIterUnderDBIter(internal_iter);
       iterators->push_back(db_iter);
     }
@@ -4129,7 +4124,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
       const uint64_t batch_size = WriteBatchInternal::ByteSize(updates);
       // Record statistics
       RecordTick(stats_, NUMBER_KEYS_WRITTEN, my_batch_count);
-      RecordTick(stats_, BYTES_WRITTEN, WriteBatchInternal::ByteSize(updates));
+      RecordTick(stats_, BYTES_WRITTEN, batch_size);
       if (write_options.disableWAL) {
         flush_on_destroy_ = true;
       }
@@ -4179,6 +4174,8 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
       // internal stats
       default_cf_internal_stats_->AddDBStats(
           InternalStats::BYTES_WRITTEN, batch_size);
+      default_cf_internal_stats_->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN,
+                                             my_batch_count);
       if (!write_options.disableWAL) {
         default_cf_internal_stats_->AddDBStats(
             InternalStats::WAL_FILE_SYNCED, 1);
@@ -4542,7 +4539,7 @@ Status DBImpl::DeleteFile(std::string name) {
                              name.c_str());
       return Status::InvalidArgument("File not found");
     }
-    assert((level > 0) && (level < cfd->NumberLevels()));
+    assert(level < cfd->NumberLevels());
 
     // If the file is being compacted no need to delete.
     if (metadata->being_compacted) {
@@ -4561,6 +4558,12 @@ Status DBImpl::DeleteFile(std::string name) {
         return Status::InvalidArgument("File not in last level");
       }
     }
+    // if level == 0, it has to be the oldest file
+    if (level == 0 &&
+        cfd->current()->files_[0].back()->fd.GetNumber() != number) {
+      return Status::InvalidArgument("File in level 0, but not oldest");
+    }
+    edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, number);
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                     &edit, &mutex_, db_directory_.get());
@@ -4703,7 +4706,7 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
 Status DB::Open(const DBOptions& db_options, const std::string& dbname,
                 const std::vector<ColumnFamilyDescriptor>& column_families,
                 std::vector<ColumnFamilyHandle*>* handles, DB** dbptr) {
-  Status s = SanitizeDBOptionsByCFOptions(&db_options, column_families);
+  Status s = SanitizeOptionsByTable(db_options, column_families);
   if (!s.ok()) {
     return s;
   }

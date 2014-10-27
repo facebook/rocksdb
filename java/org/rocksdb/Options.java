@@ -194,6 +194,27 @@ public class Options extends RocksObject {
   }
 
   /**
+   * Use the specified comparator for key ordering.
+   *
+   * Comparator should not be disposed before options instances using this comparator is
+   * disposed. If dispose() function is not called, then comparator object will be
+   * GC'd automatically.
+   *
+   * Comparator instance can be re-used in multiple options instances.
+   *
+   * @param comparator java instance.
+   * @return the instance of the current Options.
+   * @see RocksDB.open()
+   */
+  public Options setComparator(AbstractComparator comparator) {
+      assert (isInitialized());
+      setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
+      comparator_ = comparator;
+      return this;
+  }
+  private native void setComparatorHandle(long optHandle, long comparatorHandle);
+
+  /**
    * If true, an error will be thrown during RocksDB.open() if the
    * database already exists.
    *
@@ -2318,6 +2339,7 @@ public class Options extends RocksObject {
 
   long cacheSize_;
   int numShardBits_;
+  AbstractComparator comparator_;
   RocksEnv env_;
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;

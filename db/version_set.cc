@@ -895,7 +895,7 @@ void Version::ComputeCompactionScore(
       }
       if (cfd_->ioptions()->compaction_style == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
-                cfd_->options()->compaction_options_fifo.max_table_files_size;
+                cfd_->ioptions()->compaction_options_fifo.max_table_files_size;
       } else if (numfiles >= mutable_cf_options.level0_stop_writes_trigger) {
         // If we are slowing down writes, then we better compact that first
         score = 1000000;
@@ -1051,8 +1051,8 @@ int Version::PickLevelForMemTableOutput(
     InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
     std::vector<FileMetaData*> overlaps;
-    int max_mem_compact_level = cfd_->options()->max_mem_compaction_level;
-    while (max_mem_compact_level > 0 && level < max_mem_compact_level) {
+    while (mutable_cf_options.max_mem_compaction_level > 0 &&
+           level < mutable_cf_options.max_mem_compaction_level) {
       if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
         break;
       }
