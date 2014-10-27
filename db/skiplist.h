@@ -32,6 +32,7 @@
 
 #pragma once
 #include <assert.h>
+#include <atomic>
 #include <stdlib.h>
 #include "util/arena.h"
 #include "port/port.h"
