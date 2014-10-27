@@ -12,13 +12,13 @@ int main() {
 #else
 
 #include <cstdio>
+#include <atomic>
 
 #include <gflags/gflags.h>
 
 #include "db/write_batch_internal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/types.h"
-#include "port/atomic_pointer.h"
 #include "util/testutil.h"
 
 // Run a thread to perform Put's.

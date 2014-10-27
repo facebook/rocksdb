@@ -18,7 +18,6 @@ int main() {
 #include "rocksdb/table.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "port/atomic_pointer.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
