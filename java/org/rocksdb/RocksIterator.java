@@ -23,7 +23,7 @@ public class RocksIterator extends RocksObject {
     super();
     nativeHandle_ = nativeHandle;
     // rocksDB must point to a valid RocksDB instance.
-    assert(rocksDB);
+    assert(rocksDB != null);
     // RocksIterator must hold a reference to the related RocksDB instance
     // to guarantee that while a GC cycle starts RocksDBIterator instances
     // are freed prior to RocksDB instances.
