@@ -26,6 +26,8 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/merge_operator.h"
+#include "utilities/merge_operators.h"
 
 /*
  * Class:     org_rocksdb_Options
@@ -1615,6 +1617,30 @@ void Java_org_rocksdb_Options_setMinPartialMergeOperands(
   reinterpret_cast<rocksdb::Options*>(
       jhandle)->min_partial_merge_operands =
           static_cast<int32_t>(jmin_partial_merge_operands);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMergeOperatorName
+ * Signature: (JJjava/lang/String)V
+ */
+void Java_org_rocksdb_Options_setMergeOperatorName(
+    JNIEnv* env, jobject jobj, jlong jhandle, jstring name) {
+  const char* op_name = env->GetStringUTFChars(name, 0);
+  reinterpret_cast<rocksdb::Options*>(jhandle)->merge_operator =
+    rocksdb::MergeOperators::CreateFromStringId(op_name);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMergeOperator
+ * Signature: (JJjava/lang/String)V
+ */
+void Java_org_rocksdb_Options_setMergeOperator(
+  JNIEnv* env, jobject jobj, jlong jhandle, jlong mergeOperatorHandle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->merge_operator =
+    *(reinterpret_cast<std::shared_ptr<rocksdb::MergeOperator>*>
+      (mergeOperatorHandle));
 }
 
 //////////////////////////////////////////////////////////////////////////////
