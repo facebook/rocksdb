@@ -29,7 +29,17 @@ uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-Compaction::Compaction(Version* input_version, int start_level, int out_level,
+void Compaction::SetInputVersion(Version* input_version) {
+  input_version_ = input_version;
+  cfd_ = input_version_->cfd();
+
+  cfd_->Ref();
+  input_version_->Ref();
+  edit_ = new VersionEdit();
+  edit_->SetColumnFamily(cfd_->GetID());
+}
+
+Compaction::Compaction(int number_levels, int start_level, int out_level,
                        uint64_t target_file_size,
                        uint64_t max_grandparent_overlap_bytes,
                        uint32_t output_path_id,
@@ -39,9 +49,10 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
       output_level_(out_level),
       max_output_file_size_(target_file_size),
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
-      input_version_(input_version),
-      number_levels_(input_version_->NumberLevels()),
-      cfd_(input_version_->cfd()),
+      input_version_(nullptr),
+      edit_(nullptr),
+      number_levels_(number_levels),
+      cfd_(nullptr),
       output_path_id_(output_path_id),
       output_compression_(output_compression),
       seek_compaction_(seek_compaction),
@@ -56,10 +67,6 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
       is_full_compaction_(false),
       is_manual_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels_)) {
-  cfd_->Ref();
-  input_version_->Ref();
-  edit_ = new VersionEdit();
-  edit_->SetColumnFamily(cfd_->GetID());
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }
@@ -113,6 +120,7 @@ void Compaction::AddInputDeletions(VersionEdit* edit) {
 }
 
 bool Compaction::KeyNotExistsBeyondOutputLevel(const Slice& user_key) {
+  assert(input_version_ != nullptr);
   assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return bottommost_level_;
@@ -120,7 +128,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(const Slice& user_key) {
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files = input_version_->LevelFiles(lvl);
+    const std::vector<FileMetaData*>& files =
+        input_version_->GetStorageInfo()->LevelFiles(lvl);
     for (; level_ptrs_[lvl] < files.size(); ) {
       FileMetaData* f = files[level_ptrs_[lvl]];
       if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
@@ -176,9 +185,9 @@ void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
 }
 
 // Is this compaction producing files at the bottommost level?
-void Compaction::SetupBottomMostLevel(bool is_manual) {
-  assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
+void Compaction::SetupBottomMostLevel(VersionStorageInfo* vstorage,
+                                      bool is_manual, bool level0_only) {
+  if (level0_only) {
     // If universal compaction style is used and manual
     // compaction is occuring, then we are guaranteed that
     // all files will be picked in a single compaction
@@ -193,7 +202,7 @@ void Compaction::SetupBottomMostLevel(bool is_manual) {
   bottommost_level_ = true;
   // checks whether there are files living beyond the output_level.
   for (int i = output_level_ + 1; i < number_levels_; i++) {
-    if (input_version_->NumLevelFiles(i) > 0) {
+    if (vstorage->NumLevelFiles(i) > 0) {
       bottommost_level_ = false;
       break;
     }
@@ -218,7 +227,8 @@ void Compaction::ReleaseCompactionFiles(Status status) {
 }
 
 void Compaction::ResetNextCompactionIndex() {
-  input_version_->SetNextCompactionIndex(start_level_, 0);
+  assert(input_version_ != nullptr);
+  input_version_->GetStorageInfo()->ResetNextCompactionIndex(start_level_);
 }
 
 namespace {

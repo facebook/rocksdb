@@ -17,7 +17,8 @@ void DBImpl::TEST_PurgeObsoleteteWAL() { PurgeObsoleteWALFiles(); }
 
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   MutexLock l(&mutex_);
-  return default_cf_handle_->cfd()->current()->NumLevelBytes(0);
+  return default_cf_handle_->cfd()->current()->GetStorageInfo()->NumLevelBytes(
+      0);
 }
 
 Iterator* DBImpl::TEST_NewInternalIterator(Arena* arena,
@@ -47,7 +48,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     cfd = cfh->cfd();
   }
   MutexLock l(&mutex_);
-  return cfd->current()->MaxNextLevelOverlappingBytes();
+  return cfd->current()->GetStorageInfo()->MaxNextLevelOverlappingBytes();
 }
 
 void DBImpl::TEST_GetFilesMetaData(
@@ -58,7 +59,8 @@ void DBImpl::TEST_GetFilesMetaData(
   MutexLock l(&mutex_);
   metadata->resize(NumberLevels());
   for (int level = 0; level < NumberLevels(); level++) {
-    const std::vector<FileMetaData*>& files = cfd->current()->files_[level];
+    const std::vector<FileMetaData*>& files =
+        cfd->current()->GetStorageInfo()->LevelFiles(level);
 
     (*metadata)[level].clear();
     for (const auto& f : files) {

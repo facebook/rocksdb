@@ -202,8 +202,8 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     if (base != nullptr && db_options_.max_background_compactions <= 1 &&
         db_options_.max_background_flushes == 0 &&
         cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-      level = base->PickLevelForMemTableOutput(mutable_cf_options_,
-                                               min_user_key, max_user_key);
+      level = base->GetStorageInfo()->PickLevelForMemTableOutput(
+          mutable_cf_options_, min_user_key, max_user_key);
     }
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,

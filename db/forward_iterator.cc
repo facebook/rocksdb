@@ -220,7 +220,8 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     if (!seek_to_first) {
       user_key = ExtractUserKey(internal_key);
     }
-    const std::vector<FileMetaData*>& l0 = sv_->current->LevelFiles(0);
+    VersionStorageInfo* vstorage = sv_->current->GetStorageInfo();
+    const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
     for (uint32_t i = 0; i < l0.size(); ++i) {
       if (seek_to_first) {
         l0_iters_[i]->SeekToFirst();
@@ -248,9 +249,9 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
     int32_t search_left_bound = 0;
     int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
-    for (int32_t level = 1; level < sv_->current->NumberLevels(); ++level) {
+    for (int32_t level = 1; level < vstorage->NumberLevels(); ++level) {
       const std::vector<FileMetaData*>& level_files =
-        sv_->current->LevelFiles(level);
+          vstorage->LevelFiles(level);
       if (level_files.empty()) {
         search_left_bound = 0;
         search_right_bound = FileIndexer::kLevelMaxIndex;
@@ -258,7 +259,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
       assert(level_iters_[level - 1] != nullptr);
       uint32_t f_idx = 0;
-      const auto& indexer = sv_->current->GetIndexer();
+      const auto& indexer = vstorage->GetIndexer();
       if (!seek_to_first) {
         if (search_left_bound == search_right_bound) {
           f_idx = search_left_bound;
@@ -428,15 +429,18 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
-  const auto& l0_files = sv_->current->LevelFiles(0);
+
+  auto* vstorage = sv_->current->GetStorageInfo();
+  const auto& l0_files = vstorage->LevelFiles(0);
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
   }
-  level_iters_.reserve(sv_->current->NumberLevels() - 1);
-  for (int32_t level = 1; level < sv_->current->NumberLevels(); ++level) {
-    const auto& level_files = sv_->current->LevelFiles(level);
+  level_iters_.reserve(vstorage->NumberLevels() - 1);
+  for (int32_t level = 1; level < vstorage->NumberLevels(); ++level) {
+    const auto& level_files = vstorage->LevelFiles(level);
+
     if (level_files.empty()) {
       level_iters_.push_back(nullptr);
     } else {
@@ -450,7 +454,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
 }
 
 void ForwardIterator::ResetIncompleteIterators() {
-  const auto& l0_files = sv_->current->LevelFiles(0);
+  const auto& l0_files = sv_->current->GetStorageInfo()->LevelFiles(0);
   for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
     assert(i < l0_files.size());
     if (!l0_iters_[i]->status().IsIncomplete()) {

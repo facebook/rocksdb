@@ -28,6 +28,7 @@ struct CompactionInputFiles {
 
 class Version;
 class ColumnFamilyData;
+class VersionStorageInfo;
 
 // A Compaction encapsulates information about a compaction.
 class Compaction {
@@ -161,13 +162,15 @@ class Compaction {
   // is the sum of all input file sizes.
   uint64_t OutputFilePreallocationSize(const MutableCFOptions& mutable_options);
 
+  void SetInputVersion(Version* input_version);
+
  private:
   friend class CompactionPicker;
   friend class UniversalCompactionPicker;
   friend class FIFOCompactionPicker;
   friend class LevelCompactionPicker;
 
-  Compaction(Version* input_version, int start_level, int out_level,
+  Compaction(int num_levels, int start_level, int out_level,
              uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
              uint32_t output_path_id, CompressionType output_compression,
              bool seek_compaction = false, bool deletion_compaction = false);
@@ -230,7 +233,8 @@ class Compaction {
   // bottommost level.
   //
   // @see BottomMostLevel()
-  void SetupBottomMostLevel(bool is_manual);
+  void SetupBottomMostLevel(VersionStorageInfo* vstorage, bool is_manual,
+                            bool level0_only);
 
   // In case of compaction error, reset the nextIndex that is used
   // to pick up the next file to be compacted from files_by_size_

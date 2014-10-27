@@ -38,7 +38,9 @@
 
 namespace rocksdb {
 
-namespace log { class Writer; }
+namespace log {
+class Writer;
+}
 
 class Compaction;
 class Iterator;
@@ -81,45 +83,45 @@ extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
         const std::vector<FileMetaData*>& files,
         Arena* arena);
 
-class Version {
+class VersionStorageInfo {
  public:
-  // Append to *iters a sequence of iterators that will
-  // yield the contents of this Version when merged together.
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  void AddIterators(const ReadOptions&, const EnvOptions& soptions,
-                    MergeIteratorBuilder* merger_iter_builder);
+  VersionStorageInfo(const InternalKeyComparator* internal_comparator,
+                     const Comparator* user_comparator, int num_levels,
+                     CompactionStyle compaction_style,
+                     VersionStorageInfo* src_vstorage);
+  ~VersionStorageInfo();
 
-  // Lookup the value for key.  If found, store it in *val and
-  // return OK.  Else return a non-OK status.
-  // Uses *operands to store merge_operator operations to apply later
-  // REQUIRES: lock is not held
-  void Get(const ReadOptions&, const LookupKey& key, std::string* val,
-           Status* status, MergeContext* merge_context,
-           bool* value_found = nullptr);
+  void SetFinalized() { finalized_ = true; }
+
+  // Update num_non_empty_levels_.
+  void UpdateNumNonEmptyLevels();
+
+  void GenerateFileIndexer() {
+    file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
+  }
+
+  // Update the accumulated stats from a file-meta.
+  void UpdateAccumulatedStats(FileMetaData* file_meta);
+
+  void ComputeCompensatedSizes();
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
   // REQUIRES: If Version is not yet saved to current_, it can be called without
   // a lock. Once a version is saved to current_, call only with mutex held
+  // TODO find a better way to pass compaction_options_fifo.
   void ComputeCompactionScore(
       const MutableCFOptions& mutable_cf_options,
+      const CompactionOptionsFIFO& compaction_options_fifo,
       std::vector<uint64_t>& size_being_compacted);
 
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
+  // Sort all files for this version based on their file size and
+  // record results in files_by_size_. The largest files are listed first.
+  void UpdateFilesBySize();
 
-  // Update scores, pre-calculated variables. It needs to be called before
-  // applying the version to the version set.
-  void PrepareApply(
-      const MutableCFOptions& mutable_cf_options,
-      std::vector<uint64_t>& size_being_compacted);
-
-  // Reference count management (so Versions do not disappear out from
-  // under live iterators)
-  void Ref();
-  // Decrease reference count. Delete the object if no reference left
-  // and return true. Otherwise, return false.
-  bool Unref();
+  int MaxInputLevel() const;
 
   // Returns true iff some level needs a compaction.
   bool NeedsCompaction() const;
@@ -137,34 +139,30 @@ class Version {
   double CompactionScore(int idx) const { return compaction_score_[idx]; }
 
   void GetOverlappingInputs(
-      int level,
-      const InternalKey* begin,         // nullptr means before all keys
-      const InternalKey* end,           // nullptr means after all keys
+      int level, const InternalKey* begin,  // nullptr means before all keys
+      const InternalKey* end,               // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index = -1,              // index of overlap file
-      int* file_index = nullptr);          // return index of overlap file
+      int hint_index = -1,         // index of overlap file
+      int* file_index = nullptr);  // return index of overlap file
 
   void GetOverlappingInputsBinarySearch(
-      int level,
-      const Slice& begin,         // nullptr means before all keys
-      const Slice& end,           // nullptr means after all keys
+      int level, const Slice& begin,  // nullptr means before all keys
+      const Slice& end,               // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      int hint_index,             // index of overlap file
-      int* file_index);           // return index of overlap file
+      int hint_index,    // index of overlap file
+      int* file_index);  // return index of overlap file
 
   void ExtendOverlappingInputs(
-      int level,
-      const Slice& begin,         // nullptr means before all keys
-      const Slice& end,           // nullptr means after all keys
+      int level, const Slice& begin,  // nullptr means before all keys
+      const Slice& end,               // nullptr means after all keys
       std::vector<FileMetaData*>* inputs,
-      unsigned int index);                 // start extending from this index
+      unsigned int index);  // start extending from this index
 
   // Returns true iff some file in the specified level overlaps
   // some part of [*smallest_user_key,*largest_user_key].
   // smallest_user_key==NULL represents a key smaller than all keys in the DB.
   // largest_user_key==NULL represents a key largest than all keys in the DB.
-  bool OverlapInLevel(int level,
-                      const Slice* smallest_user_key,
+  bool OverlapInLevel(int level, const Slice* smallest_user_key,
                       const Slice* largest_user_key);
 
   // Returns true iff the first or last file in inputs contains
@@ -173,7 +171,6 @@ class Version {
   // REQUIRES: "*inputs" is a sorted list of non-overlapping files
   bool HasOverlappingUserKey(const std::vector<FileMetaData*>* inputs,
                              int level);
-
 
   // Return the level at which we should place a new memtable compaction
   // result that covers the range [smallest_user_key,largest_user_key].
@@ -198,6 +195,47 @@ class Version {
   // Return the combined file size of all files at the specified level.
   uint64_t NumLevelBytes(int level) const;
 
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  const std::vector<FileMetaData*>& LevelFiles(int level) const {
+    assert(finalized_);
+    return files_[level];
+  }
+
+  const rocksdb::LevelFilesBrief& LevelFilesBrief(int level) const {
+    return level_files_brief_[level];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  const std::vector<int>& FilesBySize(int level) const {
+    assert(finalized_);
+    return files_by_size_[level];
+  }
+
+  // REQUIRES: lock is held
+  // Set the index that is used to offset into files_by_size_ to find
+  // the next compaction candidate file.
+  void SetNextCompactionIndex(int level, int index) {
+    next_file_to_compact_by_size_[level] = index;
+  }
+
+  // REQUIRES: lock is held
+  int NextCompactionIndex(int level) const {
+    return next_file_to_compact_by_size_[level];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  const FileIndexer& GetIndexer() const {
+    assert(finalized_);
+    return file_indexer_;
+  }
+
+  // Only the first few entries of files_by_size_ are sorted.
+  // There is no need to sort all the files because it is likely
+  // that on a running system, we need to look at only the first
+  // few largest files because a new version is created every few
+  // seconds/minutes (because of concurrent compactions).
+  static const size_t kNumberFilesToSort = 50;
+
   // Return a human-readable short (single-line) summary of the number
   // of files per level.  Uses *scratch as backing store.
   struct LevelSummaryStorage {
@@ -211,9 +249,132 @@ class Version {
   // in a specified level.  Uses *scratch as backing store.
   const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
 
+  std::vector<FileMetaData*>* GetFiles() { return files_; }
+
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t MaxNextLevelOverlappingBytes();
+
+  // Return a human readable string that describes this version's contents.
+  std::string DebugString(bool hex = false) const;
+
+  uint64_t GetAverageValueSize() const {
+    if (accumulated_num_non_deletions_ == 0) {
+      return 0;
+    }
+    assert(accumulated_raw_key_size_ + accumulated_raw_value_size_ > 0);
+    assert(accumulated_file_size_ > 0);
+    return accumulated_raw_value_size_ / accumulated_num_non_deletions_ *
+           accumulated_file_size_ /
+           (accumulated_raw_key_size_ + accumulated_raw_value_size_);
+  }
+
+  uint64_t GetEstimatedActiveKeys();
+
+  // re-initializes the index that is used to offset into files_by_size_
+  // to find the next compaction candidate file.
+  void ResetNextCompactionIndex(int level) {
+    next_file_to_compact_by_size_[level] = 0;
+  }
+
+ private:
+  const InternalKeyComparator* internal_comparator_;
+  const Comparator* user_comparator_;
+  int num_levels_;            // Number of levels
+  int num_non_empty_levels_;  // Number of levels. Any level larger than it
+                              // is guaranteed to be empty.
+  // A short brief metadata of files per level
+  autovector<rocksdb::LevelFilesBrief> level_files_brief_;
+  FileIndexer file_indexer_;
+  Arena arena_;  // Used to allocate space for file_levels_
+
+  CompactionStyle compaction_style_;
+
+  // List of files per level, files in each level are arranged
+  // in increasing order of keys
+  std::vector<FileMetaData*>* files_;
+
+  // A list for the same set of files that are stored in files_,
+  // but files in each level are now sorted based on file
+  // size. The file with the largest size is at the front.
+  // This vector stores the index of the file from files_.
+  std::vector<std::vector<int>> files_by_size_;
+
+  // An index into files_by_size_ that specifies the first
+  // file that is not yet compacted
+  std::vector<int> next_file_to_compact_by_size_;
+
+  // Only the first few entries of files_by_size_ are sorted.
+  // There is no need to sort all the files because it is likely
+  // that on a running system, we need to look at only the first
+  // few largest files because a new version is created every few
+  // seconds/minutes (because of concurrent compactions).
+  static const size_t number_of_files_to_sort_ = 50;
+
+  // Level that should be compacted next and its compaction score.
+  // Score < 1 means compaction is not strictly needed.  These fields
+  // are initialized by Finalize().
+  // The most critical level to be compacted is listed first
+  // These are used to pick the best compaction level
+  std::vector<double> compaction_score_;
+  std::vector<int> compaction_level_;
+  double max_compaction_score_ = 0.0;   // max score in l1 to ln-1
+  int max_compaction_score_level_ = 0;  // level on which max score occurs
+
+  // the following are the sampled temporary stats.
+  // the current accumulated size of sampled files.
+  uint64_t accumulated_file_size_;
+  // the current accumulated size of all raw keys based on the sampled files.
+  uint64_t accumulated_raw_key_size_;
+  // the current accumulated size of all raw keys based on the sampled files.
+  uint64_t accumulated_raw_value_size_;
+  // total number of non-deletion entries
+  uint64_t accumulated_num_non_deletions_;
+  // total number of deletion entries
+  uint64_t accumulated_num_deletions_;
+  // the number of samples
+  uint64_t num_samples_;
+
+  bool finalized_;
+
+  friend class Version;
+  friend class VersionSet;
+  friend class DBImpl;
+  friend class InternalStats;
+  // No copying allowed
+  VersionStorageInfo(const VersionStorageInfo&) = delete;
+  void operator=(const VersionStorageInfo&) = delete;
+};
+
+class Version {
+ public:
+  // Append to *iters a sequence of iterators that will
+  // yield the contents of this Version when merged together.
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  void AddIterators(const ReadOptions&, const EnvOptions& soptions,
+                    MergeIteratorBuilder* merger_iter_builder);
+
+  // Lookup the value for key.  If found, store it in *val and
+  // return OK.  Else return a non-OK status.
+  // Uses *operands to store merge_operator operations to apply later
+  // REQUIRES: lock is not held
+  void Get(const ReadOptions&, const LookupKey& key, std::string* val,
+           Status* status, MergeContext* merge_context,
+           bool* value_found = nullptr);
+
+  // Update scores, pre-calculated variables. It needs to be called before
+  // applying the version to the version set.
+  void PrepareApply(const MutableCFOptions& mutable_cf_options,
+                    std::vector<uint64_t>& size_being_compacted);
+
+  // Reference count management (so Versions do not disappear out from
+  // under live iterators)
+  void Ref();
+  // Decrease reference count. Delete the object if no reference left
+  // and return true. Otherwise, return false.
+  bool Unref();
+
+  std::vector<FileMetaData*>* GetFiles() { return vstorage_.GetFiles(); }
 
   // Add all files listed in the current version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live);
@@ -225,15 +386,7 @@ class Version {
   uint64_t GetVersionNumber() const { return version_number_; }
 
   uint64_t GetAverageValueSize() const {
-    if (accumulated_num_non_deletions_ == 0) {
-      return 0;
-    }
-    assert(accumulated_raw_key_size_ + accumulated_raw_value_size_ > 0);
-    assert(accumulated_file_size_ > 0);
-    return accumulated_raw_value_size_ /
-           accumulated_num_non_deletions_ *
-           accumulated_file_size_ /
-           (accumulated_raw_key_size_ + accumulated_raw_value_size_);
+    return vstorage_.GetAverageValueSize();
   }
 
   // REQUIRES: lock is held
@@ -251,76 +404,39 @@ class Version {
   // tables' propertis, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
 
-  uint64_t GetEstimatedActiveKeys();
+  uint64_t GetEstimatedActiveKeys() {
+    return vstorage_.GetEstimatedActiveKeys();
+  }
 
   size_t GetMemoryUsageByTableReaders();
 
   ColumnFamilyData* cfd() const { return cfd_; }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  const std::vector<FileMetaData*>& LevelFiles(int level) const {
-    assert(finalized_);
-    return files_[level];
-  }
-
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  const std::vector<int>& FilesBySize(int level) const {
-    assert(finalized_);
-    return files_by_size_[level];
-  }
-
-  const LevelFilesBrief& GetLevelFilesBrief(int level) const {
-    return level_files_brief_[level];
-  }
-
-  // REQUIRES: lock is held
-  // Set the index that is used to offset into files_by_size_ to find
-  // the next compaction candidate file.
-  void SetNextCompactionIndex(int level, int index) {
-    next_file_to_compact_by_size_[level] = index;
-  }
-
-  // REQUIRES: lock is held
-  int NextCompactionIndex(int level) const {
-    return next_file_to_compact_by_size_[level];
-  }
-
-  // Only the first few entries of files_by_size_ are sorted.
-  // There is no need to sort all the files because it is likely
-  // that on a running system, we need to look at only the first
-  // few largest files because a new version is created every few
-  // seconds/minutes (because of concurrent compactions).
-  static const size_t kNumberFilesToSort = 50;
 
   // Return the next Version in the linked list. Used for debug only
   Version* TEST_Next() const {
     return next_;
   }
 
-  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  const FileIndexer& GetIndexer() const {
-    assert(finalized_);
-    return file_indexer_;
-  }
+  VersionStorageInfo* GetStorageInfo() { return &vstorage_; }
 
  private:
   friend class VersionSet;
-  friend class DBImpl;
-  friend class InternalStats;
+
+  const InternalKeyComparator* GetInternalComparator() const {
+    return vstorage_.internal_comparator_;
+  }
+  const Comparator* GetUserComparator() const {
+    return vstorage_.user_comparator_;
+  }
 
   bool PrefixMayMatch(const ReadOptions& read_options, Iterator* level_iter,
                       const Slice& internal_prefix) const;
-
-  // Update num_non_empty_levels_.
-  void UpdateNumNonEmptyLevels();
 
   // The helper function of UpdateAccumulatedStats, which may fill the missing
   // fields of file_mata from its associated TableProperties.
   // Returns true if it does initialize FileMetaData.
   bool MaybeInitializeFileMetaData(FileMetaData* file_meta);
-
-  // Update the accumulated stats from a file-meta.
-  void UpdateAccumulatedStats(FileMetaData* file_meta);
 
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
@@ -330,73 +446,25 @@ class Version {
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize();
 
+  VersionSet* GetVersionSet() { return vset_; }
+
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
-  const InternalKeyComparator* internal_comparator_;
-  const Comparator* user_comparator_;
+  Logger* info_log_;
+  Statistics* db_statistics_;
   TableCache* table_cache_;
   const MergeOperator* merge_operator_;
 
-  // A short brief metadata of files per level
-  autovector<LevelFilesBrief> level_files_brief_;
-  Logger* info_log_;
-  Statistics* db_statistics_;
-  int num_levels_;              // Number of levels
-  int num_non_empty_levels_;    // Number of levels. Any level larger than it
-                                // is guaranteed to be empty.
-  FileIndexer file_indexer_;
+  VersionStorageInfo vstorage_;
   VersionSet* vset_;            // VersionSet to which this Version belongs
-  Arena arena_;                 // Used to allocate space for level_files_brief_
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version
-
-  // List of files per level, files in each level are arranged
-  // in increasing order of keys
-  std::vector<FileMetaData*>* files_;
-
-  // A list for the same set of files that are stored in files_,
-  // but files in each level are now sorted based on file
-  // size. The file with the largest size is at the front.
-  // This vector stores the index of the file from files_.
-  std::vector<std::vector<int>> files_by_size_;
-
-  // An index into files_by_size_ that specifies the first
-  // file that is not yet compacted
-  std::vector<int> next_file_to_compact_by_size_;
-
-  // Level that should be compacted next and its compaction score.
-  // Score < 1 means compaction is not strictly needed.  These fields
-  // are initialized by Finalize().
-  // The most critical level to be compacted is listed first
-  // These are used to pick the best compaction level
-  std::vector<double> compaction_score_;
-  std::vector<int> compaction_level_;
-  double max_compaction_score_ = 0.0;   // max score in l1 to ln-1
-  int max_compaction_score_level_ = 0;  // level on which max score occurs
 
   // A version number that uniquely represents this version. This is
   // used for debugging and logging purposes only.
   uint64_t version_number_;
 
   Version(ColumnFamilyData* cfd, VersionSet* vset, uint64_t version_number = 0);
-
-  // the following are the sampled temporary stats.
-  // the current accumulated size of sampled files.
-  uint64_t accumulated_file_size_;
-  // the current accumulated size of all raw keys based on the sampled files.
-  uint64_t accumulated_raw_key_size_;
-  // the current accumulated size of all raw keys based on the sampled files.
-  uint64_t accumulated_raw_value_size_;
-  // total number of non-deletion entries
-  uint64_t accumulated_num_non_deletions_;
-  // total number of deletion entries
-  uint64_t accumulated_num_deletions_;
-  // the number of samples
-  uint64_t num_samples_;
-
-  // Used to assert APIs that are only safe to use after the version
-  // is finalized
-  bool finalized_;
 
   ~Version();
 
@@ -418,13 +486,12 @@ class VersionSet {
   // column_family_options has to be set if edit is column family add
   // REQUIRES: *mu is held on entry.
   // REQUIRES: no other thread concurrently calls LogAndApply()
-  Status LogAndApply(ColumnFamilyData* column_family_data,
-                     const MutableCFOptions& mutable_cf_options,
-                     VersionEdit* edit,
-                     port::Mutex* mu, Directory* db_directory = nullptr,
-                     bool new_descriptor_log = false,
-                     const ColumnFamilyOptions* column_family_options =
-                         nullptr);
+  Status LogAndApply(
+      ColumnFamilyData* column_family_data,
+      const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
+      port::Mutex* mu, Directory* db_directory = nullptr,
+      bool new_descriptor_log = false,
+      const ColumnFamilyOptions* column_family_options = nullptr);
 
   // Recover the last saved descriptor from persistent storage.
   // If read_only == true, Recover() will not complain if some column families
@@ -530,8 +597,7 @@ class VersionSet {
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
-  void GetLiveFilesMetaData(
-    std::vector<LiveFileMetaData> *metadata);
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 

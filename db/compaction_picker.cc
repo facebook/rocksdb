@@ -15,6 +15,7 @@
 
 #include <inttypes.h>
 #include <limits>
+#include <string>
 #include "db/filename.h"
 #include "util/log_buffer.h"
 #include "util/statistics.h"
@@ -121,7 +122,9 @@ void CompactionPicker::GetRange(const std::vector<FileMetaData*>& inputs1,
   GetRange(all, smallest, largest);
 }
 
-bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
+bool CompactionPicker::ExpandWhileOverlapping(const std::string& cf_name,
+                                              VersionStorageInfo* vstorage,
+                                              Compaction* c) {
   assert(c != nullptr);
   // If inputs are empty then there is nothing to expand.
   if (c->inputs_[0].empty()) {
@@ -148,9 +151,9 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
     old_size = c->inputs_[0].size();
     GetRange(c->inputs_[0].files, &smallest, &largest);
     c->inputs_[0].clear();
-    c->input_version_->GetOverlappingInputs(
-        level, &smallest, &largest, &c->inputs_[0].files,
-        hint_index, &hint_index);
+    vstorage->GetOverlappingInputs(level, &smallest, &largest,
+                                   &c->inputs_[0].files, hint_index,
+                                   &hint_index);
   } while(c->inputs_[0].size() > old_size);
 
   // Get the new range
@@ -162,11 +165,11 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
   if (c->inputs_[0].empty()) {
     Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
         "[%s] ExpandWhileOverlapping() failure because zero input files",
-        c->column_family_data()->GetName().c_str());
+        cf_name.c_str());
   }
   if (c->inputs_[0].empty() || FilesInCompaction(c->inputs_[0].files) ||
       (c->level() != c->output_level() &&
-       ParentRangeInCompaction(c->input_version_, &smallest, &largest, level,
+       ParentRangeInCompaction(vstorage, &smallest, &largest, level,
                                &parent_index))) {
     c->inputs_[0].clear();
     c->inputs_[1].clear();
@@ -192,15 +195,15 @@ bool CompactionPicker::FilesInCompaction(std::vector<FileMetaData*>& files) {
 }
 
 // Returns true if any one of the parent files are being compacted
-bool CompactionPicker::ParentRangeInCompaction(Version* version,
+bool CompactionPicker::ParentRangeInCompaction(VersionStorageInfo* vstorage,
                                                const InternalKey* smallest,
                                                const InternalKey* largest,
                                                int level, int* parent_index) {
   std::vector<FileMetaData*> inputs;
   assert(level + 1 < NumberLevels());
 
-  version->GetOverlappingInputs(level + 1, smallest, largest, &inputs,
-                                *parent_index, parent_index);
+  vstorage->GetOverlappingInputs(level + 1, smallest, largest, &inputs,
+                                 *parent_index, parent_index);
   return FilesInCompaction(inputs);
 }
 
@@ -209,7 +212,8 @@ bool CompactionPicker::ParentRangeInCompaction(Version* version,
 // or cause "level" to include a file for compaction that has an overlapping
 // user-key with another file.
 void CompactionPicker::SetupOtherInputs(
-    const MutableCFOptions& mutable_cf_options, Compaction* c) {
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, Compaction* c) {
   // If inputs are empty, then there is nothing to expand.
   // If both input and output levels are the same, no need to consider
   // files at level "level+1"
@@ -224,10 +228,9 @@ void CompactionPicker::SetupOtherInputs(
   GetRange(c->inputs_[0].files, &smallest, &largest);
 
   // Populate the set of next-level files (inputs_[1]) to include in compaction
-  c->input_version_->GetOverlappingInputs(
-      level + 1, &smallest, &largest,
-      &c->inputs_[1].files, c->parent_index_,
-      &c->parent_index_);
+  vstorage->GetOverlappingInputs(level + 1, &smallest, &largest,
+                                 &c->inputs_[1].files, c->parent_index_,
+                                 &c->parent_index_);
 
   // Get entire range covered by compaction
   InternalKey all_start, all_limit;
@@ -240,8 +243,8 @@ void CompactionPicker::SetupOtherInputs(
   // can happen when one user key spans multiple files.
   if (!c->inputs_[1].empty()) {
     std::vector<FileMetaData*> expanded0;
-    c->input_version_->GetOverlappingInputs(
-        level, &all_start, &all_limit, &expanded0, c->base_index_, nullptr);
+    vstorage->GetOverlappingInputs(level, &all_start, &all_limit, &expanded0,
+                                   c->base_index_, nullptr);
     const uint64_t inputs0_size = TotalCompensatedFileSize(c->inputs_[0].files);
     const uint64_t inputs1_size = TotalCompensatedFileSize(c->inputs_[1].files);
     const uint64_t expanded0_size = TotalCompensatedFileSize(expanded0);
@@ -249,22 +252,21 @@ void CompactionPicker::SetupOtherInputs(
     if (expanded0.size() > c->inputs_[0].size() &&
         inputs1_size + expanded0_size < limit &&
         !FilesInCompaction(expanded0) &&
-        !c->input_version_->HasOverlappingUserKey(&expanded0, level)) {
+        !vstorage->HasOverlappingUserKey(&expanded0, level)) {
       InternalKey new_start, new_limit;
       GetRange(expanded0, &new_start, &new_limit);
       std::vector<FileMetaData*> expanded1;
-      c->input_version_->GetOverlappingInputs(level + 1, &new_start, &new_limit,
-                                              &expanded1, c->parent_index_,
-                                              &c->parent_index_);
+      vstorage->GetOverlappingInputs(level + 1, &new_start, &new_limit,
+                                     &expanded1, c->parent_index_,
+                                     &c->parent_index_);
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
         Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
             "[%s] Expanding@%d %zu+%zu (%" PRIu64 "+%" PRIu64
             " bytes) to %zu+%zu (%" PRIu64 "+%" PRIu64 "bytes)\n",
-            c->column_family_data()->GetName().c_str(), level,
-            c->inputs_[0].size(), c->inputs_[1].size(), inputs0_size,
-            inputs1_size, expanded0.size(), expanded1.size(), expanded0_size,
-            inputs1_size);
+            cf_name.c_str(), level, c->inputs_[0].size(), c->inputs_[1].size(),
+            inputs0_size, inputs1_size, expanded0.size(), expanded1.size(),
+            expanded0_size, inputs1_size);
         smallest = new_start;
         largest = new_limit;
         c->inputs_[0].files = expanded0;
@@ -278,15 +280,15 @@ void CompactionPicker::SetupOtherInputs(
   // Compute the set of grandparent files that overlap this compaction
   // (parent == level+1; grandparent == level+2)
   if (level + 2 < NumberLevels()) {
-    c->input_version_->GetOverlappingInputs(level + 2, &all_start, &all_limit,
-                                            &c->grandparents_);
+    vstorage->GetOverlappingInputs(level + 2, &all_start, &all_limit,
+                                   &c->grandparents_);
   }
 }
 
 Compaction* CompactionPicker::CompactRange(
-    const MutableCFOptions& mutable_cf_options, Version* version,
-    int input_level, int output_level, uint32_t output_path_id,
-    const InternalKey* begin, const InternalKey* end,
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, int input_level, int output_level,
+    uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
@@ -300,7 +302,7 @@ Compaction* CompactionPicker::CompactRange(
     begin = nullptr;
     end = nullptr;
   }
-  version->GetOverlappingInputs(input_level, begin, end, &inputs);
+  vstorage->GetOverlappingInputs(input_level, begin, end, &inputs);
   if (inputs.empty()) {
     return nullptr;
   }
@@ -326,24 +328,20 @@ Compaction* CompactionPicker::CompactRange(
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.db_paths.size()));
   Compaction* c = new Compaction(
-      version, input_level, output_level,
+      vstorage->NumberLevels(), input_level, output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
       mutable_cf_options.MaxGrandParentOverlapBytes(input_level),
-      output_path_id,
-      GetCompressionType(ioptions_, output_level));
+      output_path_id, GetCompressionType(ioptions_, output_level));
 
   c->inputs_[0].files = inputs;
-  if (ExpandWhileOverlapping(c) == false) {
+  if (ExpandWhileOverlapping(cf_name, vstorage, c) == false) {
     delete c;
     Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-        "[%s] Unable to perform CompactRange compact due to expansion"
-        " failure.  Possible causes include some of the necessary "
-        " compaction input files are currently being compacted.\n",
-        version->cfd()->GetName().c_str());
+        "[%s] Could not compact due to expansion failure.\n", cf_name.c_str());
     return nullptr;
   }
 
-  SetupOtherInputs(mutable_cf_options, c);
+  SetupOtherInputs(cf_name, mutable_cf_options, vstorage, c);
 
   if (covering_the_whole_range) {
     *compaction_end = nullptr;
@@ -355,7 +353,8 @@ Compaction* CompactionPicker::CompactRange(
   c->MarkFilesBeingCompacted(true);
 
   // Is this compaction creating a file at the bottommost level
-  c->SetupBottomMostLevel(true);
+  c->SetupBottomMostLevel(
+      vstorage, true, ioptions_.compaction_style == kCompactionStyleUniversal);
 
   c->is_manual_compaction_ = true;
   c->mutable_cf_options_ = mutable_cf_options;
@@ -364,8 +363,8 @@ Compaction* CompactionPicker::CompactRange(
 }
 
 Compaction* LevelCompactionPicker::PickCompaction(
-    const MutableCFOptions& mutable_cf_options,
-    Version* version, LogBuffer* log_buffer) {
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
   Compaction* c = nullptr;
   int level = -1;
 
@@ -373,19 +372,23 @@ Compaction* LevelCompactionPicker::PickCompaction(
   // and also in LogAndApply(), otherwise the values could be stale.
   std::vector<uint64_t> size_being_compacted(NumberLevels() - 1);
   SizeBeingCompacted(size_being_compacted);
-  version->ComputeCompactionScore(mutable_cf_options, size_being_compacted);
+
+  CompactionOptionsFIFO dummy_compaction_options_fifo;
+  vstorage->ComputeCompactionScore(
+      mutable_cf_options, dummy_compaction_options_fifo, size_being_compacted);
 
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   //
   // Find the compactions by size on all levels.
   for (int i = 0; i < NumberLevels() - 1; i++) {
-    double score = version->CompactionScore(i);
-    assert(i == 0 || score <= version->CompactionScore(i - 1));
-    level = version->CompactionScoreLevel(i);
-    if (score >= 1) {
-      c = PickCompactionBySize(mutable_cf_options, version, level, score);
-      if (c == nullptr || ExpandWhileOverlapping(c) == false) {
+    double score = vstorage->CompactionScore(i);
+    level = vstorage->CompactionScoreLevel(i);
+    assert(i == 0 || score <= vstorage->CompactionScore(i - 1));
+    if ((score >= 1)) {
+      c = PickCompactionBySize(mutable_cf_options, vstorage, level, score);
+      if (c == nullptr ||
+          ExpandWhileOverlapping(cf_name, vstorage, c) == false) {
         delete c;
         c = nullptr;
       } else {
@@ -408,14 +411,14 @@ Compaction* LevelCompactionPicker::PickCompaction(
     // c->inputs_[0] earlier and replace it with an overlapping set
     // which will include the picked file.
     c->inputs_[0].clear();
-    c->input_version_->GetOverlappingInputs(0, &smallest, &largest,
-                                            &c->inputs_[0].files);
+    vstorage->GetOverlappingInputs(0, &smallest, &largest,
+                                   &c->inputs_[0].files);
 
     // If we include more L0 files in the same compaction run it can
     // cause the 'smallest' and 'largest' key to get extended to a
     // larger range. So, re-invoke GetRange to get the new key range
     GetRange(c->inputs_[0].files, &smallest, &largest);
-    if (ParentRangeInCompaction(c->input_version_, &smallest, &largest, level,
+    if (ParentRangeInCompaction(vstorage, &smallest, &largest, level,
                                 &c->parent_index_)) {
       delete c;
       return nullptr;
@@ -424,13 +427,13 @@ Compaction* LevelCompactionPicker::PickCompaction(
   }
 
   // Setup "level+1" files (inputs_[1])
-  SetupOtherInputs(mutable_cf_options, c);
+  SetupOtherInputs(cf_name, mutable_cf_options, vstorage, c);
 
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);
 
   // Is this compaction creating a file at the bottommost level
-  c->SetupBottomMostLevel(false);
+  c->SetupBottomMostLevel(vstorage, false, false);
 
   // remember this currently undergoing compaction
   compactions_in_progress_[level].insert(c);
@@ -440,8 +443,8 @@ Compaction* LevelCompactionPicker::PickCompaction(
 }
 
 Compaction* LevelCompactionPicker::PickCompactionBySize(
-    const MutableCFOptions& mutable_cf_options,
-    Version* version, int level, double score) {
+    const MutableCFOptions& mutable_cf_options, VersionStorageInfo* vstorage,
+    int level, double score) {
   Compaction* c = nullptr;
 
   // level 0 files are overlapping. So we cannot pick more
@@ -454,7 +457,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
 
   assert(level >= 0);
   assert(level + 1 < NumberLevels());
-  c = new Compaction(version, level, level + 1,
+  c = new Compaction(vstorage->NumberLevels(), level, level + 1,
                      mutable_cf_options.MaxFileSizeForLevel(level + 1),
                      mutable_cf_options.MaxGrandParentOverlapBytes(level), 0,
                      GetCompressionType(ioptions_, level + 1));
@@ -462,20 +465,19 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
 
   // Pick the largest file in this level that is not already
   // being compacted
-  const std::vector<int>& file_size = version->FilesBySize(level);
-  const std::vector<FileMetaData*>& level_files = version->LevelFiles(level);
+  const std::vector<int>& file_size = vstorage->FilesBySize(level);
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(level);
 
   // record the first file that is not yet compacted
   int nextIndex = -1;
 
-  for (unsigned int i = version->NextCompactionIndex(level);
+  for (unsigned int i = vstorage->NextCompactionIndex(level);
        i < file_size.size(); i++) {
     int index = file_size[i];
     FileMetaData* f = level_files[index];
 
-    // Check to verify files are arranged in descending compensated size.
     assert((i == file_size.size() - 1) ||
-           (i >= Version::kNumberFilesToSort - 1) ||
+           (i >= VersionStorageInfo::kNumberFilesToSort - 1) ||
            (f->compensated_file_size >=
             level_files[file_size[i + 1]]->compensated_file_size));
 
@@ -493,8 +495,8 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
     // Do not pick this file if its parents at level+1 are being compacted.
     // Maybe we can avoid redoing this work in SetupOtherInputs
     int parent_index = -1;
-    if (ParentRangeInCompaction(version, &f->smallest, &f->largest,
-                                level, &parent_index)) {
+    if (ParentRangeInCompaction(vstorage, &f->smallest, &f->largest, level,
+                                &parent_index)) {
       continue;
     }
     c->inputs_[0].files.push_back(f);
@@ -509,7 +511,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   }
 
   // store where to start the iteration in the next call to PickCompaction
-  version->SetNextCompactionIndex(level,  nextIndex);
+  vstorage->SetNextCompactionIndex(level, nextIndex);
 
   return c;
 }
@@ -518,39 +520,38 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
 // time-range to compact.
 //
 Compaction* UniversalCompactionPicker::PickCompaction(
-    const MutableCFOptions& mutable_cf_options,
-    Version* version, LogBuffer* log_buffer) {
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
   const int kLevel0 = 0;
-  double score = version->CompactionScore(kLevel0);
-  const std::vector<FileMetaData*>& level_files = version->LevelFiles(kLevel0);
+  double score = vstorage->CompactionScore(kLevel0);
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
 
   if ((level_files.size() <
        (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger)) {
-    LogToBuffer(log_buffer, "[%s] Universal: nothing to do\n",
-                version->cfd()->GetName().c_str());
+    LogToBuffer(log_buffer, "[%s] Universal: nothing to do\n", cf_name.c_str());
     return nullptr;
   }
-  Version::FileSummaryStorage tmp;
+  VersionStorageInfo::FileSummaryStorage tmp;
   LogToBuffer(log_buffer, 3072, "[%s] Universal: candidate files(%zu): %s\n",
-              version->cfd()->GetName().c_str(), level_files.size(),
-              version->LevelFileSummary(&tmp, kLevel0));
+              cf_name.c_str(), level_files.size(),
+              vstorage->LevelFileSummary(&tmp, kLevel0));
 
   // Check for size amplification first.
   Compaction* c;
-  if ((c = PickCompactionUniversalSizeAmp(
-          mutable_cf_options, version, score, log_buffer)) != nullptr) {
+  if ((c = PickCompactionUniversalSizeAmp(cf_name, mutable_cf_options, vstorage,
+                                          score, log_buffer)) != nullptr) {
     LogToBuffer(log_buffer, "[%s] Universal: compacting for size amp\n",
-                version->cfd()->GetName().c_str());
+                cf_name.c_str());
   } else {
     // Size amplification is within limits. Try reducing read
     // amplification while maintaining file size ratios.
     unsigned int ratio = ioptions_.compaction_options_universal.size_ratio;
 
-    if ((c = PickCompactionUniversalReadAmp(
-            mutable_cf_options, version, score, ratio,
-            UINT_MAX, log_buffer)) != nullptr) {
+    if ((c = PickCompactionUniversalReadAmp(cf_name, mutable_cf_options,
+                                            vstorage, score, ratio, UINT_MAX,
+                                            log_buffer)) != nullptr) {
       LogToBuffer(log_buffer, "[%s] Universal: compacting for size ratio\n",
-                  version->cfd()->GetName().c_str());
+                  cf_name.c_str());
     } else {
       // Size amplification and file size ratios are within configured limits.
       // If max read amplification is exceeding configured limits, then force
@@ -559,10 +560,11 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       unsigned int num_files = level_files.size() -
           mutable_cf_options.level0_file_num_compaction_trigger;
       if ((c = PickCompactionUniversalReadAmp(
-               mutable_cf_options, version, score, UINT_MAX,
+               cf_name, mutable_cf_options, vstorage, score, UINT_MAX,
                num_files, log_buffer)) != nullptr) {
-        LogToBuffer(log_buffer, "[%s] Universal: compacting for file num -- %u\n",
-                    version->cfd()->GetName().c_str(), num_files);
+        LogToBuffer(log_buffer,
+                    "[%s] Universal: compacting for file num -- %u\n",
+                    cf_name.c_str(), num_files);
       }
     }
   }
@@ -639,8 +641,8 @@ uint32_t UniversalCompactionPicker::GetPathId(
 // the next file in time order.
 //
 Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
-    const MutableCFOptions& mutable_cf_options, Version* version,
-    double score, unsigned int ratio,
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, double score, unsigned int ratio,
     unsigned int max_number_of_files_to_compact, LogBuffer* log_buffer) {
   const int kLevel0 = 0;
 
@@ -650,7 +652,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     ioptions_.compaction_options_universal.max_merge_width;
 
   // The files are sorted from newest first to oldest last.
-  const auto& files = version->LevelFiles(kLevel0);
+  const auto& files = vstorage->LevelFiles(kLevel0);
 
   FileMetaData* f = nullptr;
   bool done = false;
@@ -677,7 +679,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       }
       LogToBuffer(log_buffer, "[%s] Universal: file %" PRIu64
                               "[%d] being compacted, skipping",
-                  version->cfd()->GetName().c_str(), f->fd.GetNumber(), loop);
+                  cf_name.c_str(), f->fd.GetNumber(), loop);
       f = nullptr;
     }
 
@@ -689,7 +691,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       FormatFileNumber(f->fd.GetNumber(), f->fd.GetPathId(), file_num_buf,
                        sizeof(file_num_buf));
       LogToBuffer(log_buffer, "[%s] Universal: Possible candidate file %s[%d].",
-                  version->cfd()->GetName().c_str(), file_num_buf, loop);
+                  cf_name.c_str(), file_num_buf, loop);
     }
 
     // Check if the suceeding files need compaction.
@@ -740,9 +742,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
         LogToBuffer(log_buffer, "[%s] Universal: Skipping file %" PRIu64
                                 "[%d] with size %" PRIu64
                                 " (compensated size %" PRIu64 ") %d\n",
-                    version->cfd()->GetName().c_str(), f->fd.GetNumber(), i,
-                    f->fd.GetFileSize(), f->compensated_file_size,
-                    f->being_compacted);
+                    cf_name.c_str(), f->fd.GetNumber(), i, f->fd.GetFileSize(),
+                    f->compensated_file_size, f->being_compacted);
       }
     }
   }
@@ -756,7 +757,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   int ratio_to_compress =
       ioptions_.compaction_options_universal.compression_size_percent;
   if (ratio_to_compress >= 0) {
-    uint64_t total_size = version->NumLevelBytes(kLevel0);
+    uint64_t total_size = vstorage->NumLevelBytes(kLevel0);
     uint64_t older_file_size = 0;
     for (unsigned int i = files.size() - 1;
          i >= first_index_after; i--) {
@@ -774,10 +775,10 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   }
   uint32_t path_id = GetPathId(ioptions_, estimated_total_size);
 
-  Compaction* c = new Compaction(version, kLevel0, kLevel0,
-      mutable_cf_options.MaxFileSizeForLevel(kLevel0),
-      LLONG_MAX, path_id, GetCompressionType(ioptions_, kLevel0,
-      enable_compression));
+  Compaction* c = new Compaction(
+      vstorage->NumberLevels(), kLevel0, kLevel0,
+      mutable_cf_options.MaxFileSizeForLevel(kLevel0), LLONG_MAX, path_id,
+      GetCompressionType(ioptions_, kLevel0, enable_compression));
   c->score_ = score;
 
   for (unsigned int i = start_index; i < first_index_after; i++) {
@@ -789,8 +790,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     LogToBuffer(log_buffer,
                 "[%s] Universal: Picking file %s[%d] "
                 "with size %" PRIu64 " (compensated size %" PRIu64 ")\n",
-                version->cfd()->GetName().c_str(), file_num_buf, i,
-                f->fd.GetFileSize(), f->compensated_file_size);
+                cf_name.c_str(), file_num_buf, i, f->fd.GetFileSize(),
+                f->compensated_file_size);
   }
   return c;
 }
@@ -802,8 +803,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
 // min_merge_width and max_merge_width).
 //
 Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
-    const MutableCFOptions& mutable_cf_options, Version* version,
-    double score, LogBuffer* log_buffer) {
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, double score, LogBuffer* log_buffer) {
   const int kLevel = 0;
 
   // percentage flexibilty while reducing size amplification
@@ -811,7 +812,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
                      max_size_amplification_percent;
 
   // The files are sorted from newest first to oldest last.
-  const auto& files = version->LevelFiles(kLevel);
+  const auto& files = vstorage->LevelFiles(kLevel);
 
   unsigned int candidate_count = 0;
   uint64_t candidate_size = 0;
@@ -829,7 +830,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
     FormatFileNumber(f->fd.GetNumber(), f->fd.GetPathId(), file_num_buf,
                      sizeof(file_num_buf));
     LogToBuffer(log_buffer, "[%s] Universal: skipping file %s[%d] compacted %s",
-                version->cfd()->GetName().c_str(), file_num_buf, loop,
+                cf_name.c_str(), file_num_buf, loop,
                 " cannot be a candidate to reduce size amp.\n");
     f = nullptr;
   }
@@ -842,7 +843,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   FormatFileNumber(f->fd.GetNumber(), f->fd.GetPathId(), file_num_buf,
                    sizeof(file_num_buf));
   LogToBuffer(log_buffer, "[%s] Universal: First candidate file %s[%d] %s",
-              version->cfd()->GetName().c_str(), file_num_buf, start_index,
+              cf_name.c_str(), file_num_buf, start_index,
               " to reduce size amp.\n");
 
   // keep adding up all the remaining files
@@ -854,7 +855,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
                        sizeof(file_num_buf));
       LogToBuffer(
           log_buffer, "[%s] Universal: Possible candidate file %s[%d] %s.",
-          version->cfd()->GetName().c_str(), file_num_buf, loop,
+          cf_name.c_str(), file_num_buf, loop,
           " is already being compacted. No size amp reduction possible.\n");
       return nullptr;
     }
@@ -874,14 +875,14 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
         log_buffer,
         "[%s] Universal: size amp not needed. newer-files-total-size %" PRIu64
         "earliest-file-size %" PRIu64,
-        version->cfd()->GetName().c_str(), candidate_size, earliest_file_size);
+        cf_name.c_str(), candidate_size, earliest_file_size);
     return nullptr;
   } else {
     LogToBuffer(
         log_buffer,
         "[%s] Universal: size amp needed. newer-files-total-size %" PRIu64
         "earliest-file-size %" PRIu64,
-        version->cfd()->GetName().c_str(), candidate_size, earliest_file_size);
+        cf_name.c_str(), candidate_size, earliest_file_size);
   }
   assert(start_index < files.size() - 1);
 
@@ -895,29 +896,29 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   // create a compaction request
   // We always compact all the files, so always compress.
   Compaction* c =
-      new Compaction(version, kLevel, kLevel,
-                     mutable_cf_options.MaxFileSizeForLevel(kLevel),
-                     LLONG_MAX, path_id, GetCompressionType(ioptions_, kLevel));
+      new Compaction(vstorage->NumberLevels(), kLevel, kLevel,
+                     mutable_cf_options.MaxFileSizeForLevel(kLevel), LLONG_MAX,
+                     path_id, GetCompressionType(ioptions_, kLevel));
   c->score_ = score;
   for (unsigned int loop = start_index; loop < files.size(); loop++) {
     f = files[loop];
     c->inputs_[0].files.push_back(f);
     LogToBuffer(log_buffer,
-        "[%s] Universal: size amp picking file %" PRIu64 "[%d] "
-        "with size %" PRIu64 " (compensated size %" PRIu64 ")",
-        version->cfd()->GetName().c_str(),
-        f->fd.GetNumber(), loop,
-        f->fd.GetFileSize(), f->compensated_file_size);
+                "[%s] Universal: size amp picking file %" PRIu64
+                "[%d] "
+                "with size %" PRIu64 " (compensated size %" PRIu64 ")",
+                cf_name.c_str(), f->fd.GetNumber(), loop, f->fd.GetFileSize(),
+                f->compensated_file_size);
   }
   return c;
 }
 
 Compaction* FIFOCompactionPicker::PickCompaction(
-    const MutableCFOptions& mutable_cf_options,
-    Version* version, LogBuffer* log_buffer) {
-  assert(version->NumberLevels() == 1);
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
+  assert(vstorage->NumberLevels() == 1);
   const int kLevel0 = 0;
-  const std::vector<FileMetaData*>& level_files = version->LevelFiles(kLevel0);
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
   uint64_t total_size = 0;
   for (const auto& file : level_files) {
     total_size += file->compensated_file_size;
@@ -929,7 +930,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     LogToBuffer(log_buffer,
                 "[%s] FIFO compaction: nothing to do. Total size %" PRIu64
                 ", max size %" PRIu64 "\n",
-                version->cfd()->GetName().c_str(), total_size,
+                cf_name.c_str(), total_size,
                 ioptions_.compaction_options_fifo.max_table_files_size);
     return nullptr;
   }
@@ -938,11 +939,11 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     LogToBuffer(log_buffer,
                 "[%s] FIFO compaction: Already executing compaction. No need "
                 "to run parallel compactions since compactions are very fast",
-                version->cfd()->GetName().c_str());
+                cf_name.c_str());
     return nullptr;
   }
 
-  Compaction* c = new Compaction(version, 0, 0, 0, 0, 0, kNoCompression, false,
+  Compaction* c = new Compaction(1, 0, 0, 0, 0, 0, kNoCompression, false,
                                  true /* is deletion compaction */);
   // delete old files (FIFO)
   for (auto ritr = level_files.rbegin(); ritr != level_files.rend(); ++ritr) {
@@ -953,8 +954,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     AppendHumanBytes(f->fd.GetFileSize(), tmp_fsize, sizeof(tmp_fsize));
     LogToBuffer(log_buffer, "[%s] FIFO compaction: picking file %" PRIu64
                             " with size %s for deletion",
-                version->cfd()->GetName().c_str(), f->fd.GetNumber(),
-                tmp_fsize);
+                cf_name.c_str(), f->fd.GetNumber(), tmp_fsize);
     if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size) {
       break;
     }
@@ -967,15 +967,16 @@ Compaction* FIFOCompactionPicker::PickCompaction(
 }
 
 Compaction* FIFOCompactionPicker::CompactRange(
-    const MutableCFOptions& mutable_cf_options,
-    Version* version, int input_level, int output_level,
+    const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
+    VersionStorageInfo* vstorage, int input_level, int output_level,
     uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end) {
   assert(input_level == 0);
   assert(output_level == 0);
   *compaction_end = nullptr;
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, ioptions_.info_log);
-  Compaction* c = PickCompaction(mutable_cf_options, version, &log_buffer);
+  Compaction* c =
+      PickCompaction(cf_name, mutable_cf_options, vstorage, &log_buffer);
   if (c != nullptr) {
     assert(output_path_id < static_cast<uint32_t>(ioptions_.db_paths.size()));
     c->output_path_id_ = output_path_id;

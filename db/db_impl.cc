@@ -1497,9 +1497,9 @@ Status DBImpl::FlushMemTableToOutputFile(
     if (madeProgress) {
       *madeProgress = 1;
     }
-    Version::LevelSummaryStorage tmp;
+    VersionStorageInfo::LevelSummaryStorage tmp;
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
-                cfd->current()->LevelSummary(&tmp));
+                cfd->current()->GetStorageInfo()->LevelSummary(&tmp));
 
     if (disable_delete_obsolete_files_ == 0) {
       // add to deletion state
@@ -1545,7 +1545,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     MutexLock l(&mutex_);
     Version* base = cfd->current();
     for (int level = 1; level < cfd->NumberLevels(); level++) {
-      if (base->OverlapInLevel(level, begin, end)) {
+      if (base->GetStorageInfo()->OverlapInLevel(level, begin, end)) {
         max_level_with_files = level;
       }
     }
@@ -1623,14 +1623,14 @@ bool DBImpl::SetOptions(ColumnFamilyHandle* column_family,
 int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
     const MutableCFOptions& mutable_cf_options, int level) {
   mutex_.AssertHeld();
-  Version* current = cfd->current();
+  auto* vstorage = cfd->current()->GetStorageInfo();
   int minimum_level = level;
   for (int i = level - 1; i > 0; --i) {
     // stop if level i is not empty
-    if (current->NumLevelFiles(i) > 0) break;
+    if (vstorage->NumLevelFiles(i) > 0) break;
     // stop if level i is too small (cannot fit the level files)
     if (mutable_cf_options.MaxBytesForLevel(i) <
-        current->NumLevelBytes(level)) {
+        vstorage->NumLevelBytes(level)) {
       break;
     }
 
@@ -1682,7 +1682,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
-    for (const auto& f : cfd->current()->files_[level]) {
+    for (const auto& f : cfd->current()->GetStorageInfo()->files_[level]) {
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
@@ -1898,7 +1898,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bool is_compaction_needed = false;
     // no need to refcount since we're under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->current()->NeedsCompaction()) {
+      if (cfd->current()->GetStorageInfo()->NeedsCompaction()) {
         is_compaction_needed = true;
         break;
       }
@@ -2269,14 +2269,12 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     InstallSuperVersionBackground(c->column_family_data(), job_context,
                                   *c->mutable_cf_options());
 
-    Version::LevelSummaryStorage tmp;
-    LogToBuffer(
-        log_buffer,
-        "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes %s: %s\n",
-        c->column_family_data()->GetName().c_str(),
-        f->fd.GetNumber(), c->level() + 1,
-        f->fd.GetFileSize(),
-        status.ToString().c_str(), c->input_version()->LevelSummary(&tmp));
+    VersionStorageInfo::LevelSummaryStorage tmp;
+    LogToBuffer(log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64
+                            " bytes %s: %s\n",
+                c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
+                c->level() + 1, f->fd.GetFileSize(), status.ToString().c_str(),
+                c->input_version()->GetStorageInfo()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else {
@@ -3008,7 +3006,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   LogToBuffer(log_buffer, "[%s] Compaction start summary: %s\n",
               cfd->GetName().c_str(), scratch);
 
-  assert(cfd->current()->NumLevelFiles(compact->compaction->level()) > 0);
+  assert(cfd->current()->GetStorageInfo()->NumLevelFiles(
+             compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
   assert(!compact->outfile);
 
@@ -3246,26 +3245,26 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     status = InstallCompactionResults(compact, mutable_cf_options, log_buffer);
     InstallSuperVersionBackground(cfd, job_context, mutable_cf_options);
   }
-  Version::LevelSummaryStorage tmp;
-  LogToBuffer(
-      log_buffer,
-      "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
-      "files in(%d, %d) out(%d) "
-      "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
-      "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
-      cfd->GetName().c_str(), cfd->current()->LevelSummary(&tmp),
-      (stats.bytes_readn + stats.bytes_readnp1) /
-          static_cast<double>(stats.micros),
-      stats.bytes_written / static_cast<double>(stats.micros),
-      compact->compaction->output_level(), stats.files_in_leveln,
-      stats.files_in_levelnp1, stats.files_out_levelnp1,
-      stats.bytes_readn / 1048576.0, stats.bytes_readnp1 / 1048576.0,
-      stats.bytes_written / 1048576.0,
-      (stats.bytes_written + stats.bytes_readnp1 + stats.bytes_readn) /
-          (double)stats.bytes_readn,
-      stats.bytes_written / (double)stats.bytes_readn,
-      status.ToString().c_str(), stats.num_input_records,
-      stats.num_dropped_records);
+  VersionStorageInfo::LevelSummaryStorage tmp;
+  LogToBuffer(log_buffer,
+              "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
+              "files in(%d, %d) out(%d) "
+              "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
+              "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
+              cfd->GetName().c_str(),
+              cfd->current()->GetStorageInfo()->LevelSummary(&tmp),
+              (stats.bytes_readn + stats.bytes_readnp1) /
+                  static_cast<double>(stats.micros),
+              stats.bytes_written / static_cast<double>(stats.micros),
+              compact->compaction->output_level(), stats.files_in_leveln,
+              stats.files_in_levelnp1, stats.files_out_levelnp1,
+              stats.bytes_readn / 1048576.0, stats.bytes_readnp1 / 1048576.0,
+              stats.bytes_written / 1048576.0,
+              (stats.bytes_written + stats.bytes_readnp1 + stats.bytes_readn) /
+                  (double)stats.bytes_readn,
+              stats.bytes_written / (double)stats.bytes_readn,
+              status.ToString().c_str(), stats.num_input_records,
+              stats.num_dropped_records);
 
   return status;
 }
@@ -4375,16 +4374,16 @@ Status DBImpl::DeleteFile(std::string name) {
     // Only the files in the last level can be deleted externally.
     // This is to make sure that any deletion tombstones are not
     // lost. Check that the level passed is the last level.
+    auto* vstoreage = cfd->current()->GetStorageInfo();
     for (int i = level + 1; i < cfd->NumberLevels(); i++) {
-      if (cfd->current()->NumLevelFiles(i) != 0) {
+      if (vstoreage->NumLevelFiles(i) != 0) {
         Log(db_options_.info_log,
             "DeleteFile %s FAILED. File not in last level\n", name.c_str());
         return Status::InvalidArgument("File not in last level");
       }
     }
     // if level == 0, it has to be the oldest file
-    if (level == 0 &&
-        cfd->current()->files_[0].back()->fd.GetNumber() != number) {
+    if (level == 0 && vstoreage->files_[0].back()->fd.GetNumber() != number) {
       return Status::InvalidArgument("File in level 0, but not oldest");
     }
     edit.SetColumnFamily(cfd->GetID());
@@ -4637,9 +4636,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        Version* current = cfd->current();
-        for (int i = 1; i < current->NumberLevels(); ++i) {
-          int num_files = current->NumLevelFiles(i);
+        auto* vstorage = cfd->current()->GetStorageInfo();
+        for (int i = 1; i < vstorage->NumberLevels(); ++i) {
+          int num_files = vstorage->NumLevelFiles(i);
           if (num_files > 0) {
             s = Status::InvalidArgument(
                 "Not all files are at level 0. Cannot "

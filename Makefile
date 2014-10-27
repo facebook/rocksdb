@@ -131,6 +131,7 @@ TESTS = \
 	spatial_db_test \
 	version_edit_test \
 	version_set_test \
+  compaction_picker_test \
 	file_indexer_test \
 	write_batch_test \
 	write_controller_test\
@@ -451,6 +452,9 @@ version_edit_test: db/version_edit_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 version_set_test: db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/version_set_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+compaction_picker_test: db/compaction_picker_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/compaction_picker_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 file_indexer_test : db/file_indexer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/file_indexer_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
