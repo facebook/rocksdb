@@ -22,6 +22,11 @@ public class RocksIterator extends RocksObject {
   public RocksIterator(RocksDB rocksDB, long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
+    // rocksDB must point to a valid RocksDB instance.
+    assert(rocksDB);
+    // RocksIterator must hold a reference to the related RocksDB instance
+    // to guarantee that while a GC cycle starts RocksDBIterator instances
+    // are freed prior to RocksDB instances.
     rocksDB_ = rocksDB;
   }
 
@@ -126,7 +131,12 @@ public class RocksIterator extends RocksObject {
   }
 
   /**
-   * Deletes underlying C++ iterator pointer.
+   * <p>Deletes underlying C++ iterator pointer.</p>
+   *
+   * <p>Note: the underlying handle can only be safely deleted if the RocksDB
+   * instance related to a certain RocksIterator is still valid and initialized.
+   * Therefore {@code disposeInternal()} checks if the RocksDB is initialized
+   * before freeing the native handle.</p>
    */
   @Override protected void disposeInternal() {
     assert(isInitialized());
