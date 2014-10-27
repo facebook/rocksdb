@@ -191,6 +191,9 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
 
+DEFINE_int32(set_options_one_in, 0,
+             "With a chance of 1/N, change some random options");
+
 DEFINE_int64(cache_size, 2 * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
@@ -372,7 +375,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
-static const bool FLAGS_prefix_size_dummy =
+static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
@@ -787,8 +790,129 @@ class StressTest {
     delete db_;
   }
 
+  bool BuildOptionsTable() {
+    if (FLAGS_set_options_one_in <= 0) {
+      return true;
+    }
+    options_table_ = {
+      {"write_buffer_size",
+        {
+          std::to_string(FLAGS_write_buffer_size),
+          std::to_string(FLAGS_write_buffer_size * 2),
+          std::to_string(FLAGS_write_buffer_size * 4)
+        }
+      },
+      {"max_write_buffer_number",
+        {
+          std::to_string(FLAGS_max_write_buffer_number),
+          std::to_string(FLAGS_max_write_buffer_number * 2),
+          std::to_string(FLAGS_max_write_buffer_number * 4)
+        }
+      },
+      {"arena_block_size",
+        {
+          std::to_string(Options().arena_block_size),
+          std::to_string(FLAGS_write_buffer_size / 4),
+          std::to_string(FLAGS_write_buffer_size / 8),
+        }
+      },
+      {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
+      {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
+      {"memtable_prefix_bloom_huge_page_tlb_size",
+        {
+          "0",
+          std::to_string(2 * 1024 * 1024)
+        }
+      },
+      {"max_successive_merges", {"0", "2", "4"}},
+      {"filter_deletes", {"0", "1"}},
+      {"inplace_update_num_locks", {"100", "200", "300"}},
+      // TODO(ljin): enable test for this option
+      // {"disable_auto_compactions", {"100", "200", "300"}},
+      {"soft_rate_limit", {"0", "0.5", "0.9"}},
+      {"hard_rate_limit", {"0", "1.1", "2.0"}},
+      {"level0_file_num_compaction_trigger",
+        {
+          std::to_string(FLAGS_level0_file_num_compaction_trigger),
+          std::to_string(FLAGS_level0_file_num_compaction_trigger + 2),
+          std::to_string(FLAGS_level0_file_num_compaction_trigger + 4),
+        }
+      },
+      {"level0_slowdown_writes_trigger",
+        {
+          std::to_string(FLAGS_level0_slowdown_writes_trigger),
+          std::to_string(FLAGS_level0_slowdown_writes_trigger + 2),
+          std::to_string(FLAGS_level0_slowdown_writes_trigger + 4),
+        }
+      },
+      {"level0_stop_writes_trigger",
+        {
+          std::to_string(FLAGS_level0_stop_writes_trigger),
+          std::to_string(FLAGS_level0_stop_writes_trigger + 2),
+          std::to_string(FLAGS_level0_stop_writes_trigger + 4),
+        }
+      },
+      {"max_grandparent_overlap_factor",
+        {
+          std::to_string(Options().max_grandparent_overlap_factor - 5),
+          std::to_string(Options().max_grandparent_overlap_factor),
+          std::to_string(Options().max_grandparent_overlap_factor + 5),
+        }
+      },
+      {"expanded_compaction_factor",
+        {
+          std::to_string(Options().expanded_compaction_factor - 5),
+          std::to_string(Options().expanded_compaction_factor),
+          std::to_string(Options().expanded_compaction_factor + 5),
+        }
+      },
+      {"source_compaction_factor",
+        {
+          std::to_string(Options().source_compaction_factor),
+          std::to_string(Options().source_compaction_factor * 2),
+          std::to_string(Options().source_compaction_factor * 4),
+        }
+      },
+      {"target_file_size_base",
+        {
+          std::to_string(FLAGS_target_file_size_base),
+          std::to_string(FLAGS_target_file_size_base * 2),
+          std::to_string(FLAGS_target_file_size_base * 4),
+        }
+      },
+      {"target_file_size_multiplier",
+        {
+          std::to_string(FLAGS_target_file_size_multiplier),
+          "1",
+          "2",
+        }
+      },
+      {"max_bytes_for_level_base",
+        {
+          std::to_string(FLAGS_max_bytes_for_level_base / 2),
+          std::to_string(FLAGS_max_bytes_for_level_base),
+          std::to_string(FLAGS_max_bytes_for_level_base * 2),
+        }
+      },
+      {"max_bytes_for_level_multiplier",
+        {
+          std::to_string(FLAGS_max_bytes_for_level_multiplier),
+          "1",
+          "2",
+        }
+      },
+      {"max_mem_compaction_level", {"0", "1", "2"}},
+      {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+    };
+    for (const auto& iter : options_table_) {
+      options_index_.push_back(iter.first);
+    }
+    return true;
+  }
+
   bool Run() {
     PrintEnv();
+    BuildOptionsTable();
     Open();
     SharedState shared(this);
     uint32_t n = shared.GetNumThreads();
@@ -1169,6 +1293,33 @@ class StressTest {
     return s;
   }
 
+  bool SetOptions(ThreadState* thread) {
+    assert(FLAGS_set_options_one_in > 0);
+    std::unordered_map<std::string, std::string> opts;
+    std::string name = options_index_[
+      thread->rand.Next() % options_index_.size()];
+    int value_idx = thread->rand.Next() % options_table_[name].size();
+    if (name == "soft_rate_limit" || name == "hard_rate_limit") {
+      opts["soft_rate_limit"] = options_table_["soft_rate_limit"][value_idx];
+      opts["hard_rate_limit"] = options_table_["hard_rate_limit"][value_idx];
+    } else if (name == "level0_file_num_compaction_trigger" ||
+               name == "level0_slowdown_writes_trigger" ||
+               name == "level0_stop_writes_trigger") {
+      opts["level0_file_num_compaction_trigger"] =
+        options_table_["level0_file_num_compaction_trigger"][value_idx];
+      opts["level0_slowdown_writes_trigger"] =
+        options_table_["level0_slowdown_writes_trigger"][value_idx];
+      opts["level0_stop_writes_trigger"] =
+        options_table_["level0_stop_writes_trigger"][value_idx];
+    } else {
+      opts[name] = options_table_[name][value_idx];
+    }
+
+    int rand_cf_idx = thread->rand.Next() % FLAGS_column_families;
+    auto cfh = column_families_[rand_cf_idx];
+    return db_->SetOptions(cfh, opts);
+  }
+
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
@@ -1203,6 +1354,12 @@ class StressTest {
           // Commenting this out as we don't want to reset stats on each open.
           // thread->stats.Start();
         }
+      }
+
+      // Change Options
+      if (FLAGS_set_options_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_set_options_one_in)) {
+        SetOptions(thread);
       }
 
       if (!FLAGS_test_batches_snapshots &&
@@ -1751,6 +1908,8 @@ class StressTest {
   std::vector<std::string> column_family_names_;
   std::atomic<int> new_column_family_name_;
   int num_times_reopened_;
+  std::unordered_map<std::string, std::vector<std::string>> options_table_;
+  std::vector<std::string> options_index_;
 };
 
 }  // namespace rocksdb
