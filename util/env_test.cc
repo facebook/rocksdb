@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <unordered_set>
+#include <atomic>
 
 #ifdef OS_LINUX
 #include <sys/stat.h>

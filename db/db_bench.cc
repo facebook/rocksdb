@@ -1533,7 +1533,7 @@ class Benchmark {
 
   void AcquireLoad(ThreadState* thread) {
     int dummy;
-    std::atomic<void*> ap;
+    std::atomic<void*> ap(&dummy);
     int count = 0;
     void *ptr = nullptr;
     thread->stats.AddMessage("(each op is 1000 loads)");
