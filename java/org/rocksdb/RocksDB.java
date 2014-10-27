@@ -888,7 +888,7 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator() {
-    return new RocksIterator(iterator0(nativeHandle_));
+    return new RocksIterator(this, iterator0(nativeHandle_));
   }
 
 
@@ -936,7 +936,8 @@ public class RocksDB extends RocksObject {
    * @return instance of iterator object.
    */
   public RocksIterator newIterator(ColumnFamilyHandle columnFamilyHandle) {
-    return new RocksIterator(iterator0(nativeHandle_, columnFamilyHandle.nativeHandle_));
+    return new RocksIterator(this, iterator0(nativeHandle_,
+        columnFamilyHandle.nativeHandle_));
   }
 
   /**
@@ -958,7 +959,7 @@ public class RocksDB extends RocksObject {
 
     long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandleList);
     for (int i=0; i<columnFamilyHandleList.size(); i++){
-      iterators.add(new RocksIterator(iteratorRefs[i]));
+      iterators.add(new RocksIterator(this, iteratorRefs[i]));
     }
     return iterators;
   }

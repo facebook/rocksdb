@@ -19,9 +19,10 @@ package org.rocksdb;
  * @see org.rocksdb.RocksObject
  */
 public class RocksIterator extends RocksObject {
-  public RocksIterator(long nativeHandle) {
+  public RocksIterator(RocksDB rocksDB, long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
+    rocksDB_ = rocksDB;
   }
 
   /**
@@ -129,7 +130,9 @@ public class RocksIterator extends RocksObject {
    */
   @Override protected void disposeInternal() {
     assert(isInitialized());
-    disposeInternal(nativeHandle_);
+    if (rocksDB_.isInitialized()) {
+      disposeInternal(nativeHandle_);
+    }
   }
 
   private native boolean isValid0(long handle);
@@ -142,4 +145,6 @@ public class RocksIterator extends RocksObject {
   private native byte[] value0(long handle);
   private native void seek0(long handle, byte[] target, int targetLen);
   private native void status0(long handle);
+
+  RocksDB rocksDB_;
 }
