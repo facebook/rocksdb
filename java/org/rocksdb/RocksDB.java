@@ -891,6 +891,38 @@ public class RocksDB extends RocksObject {
     return new RocksIterator(iterator0(nativeHandle_));
   }
 
+
+  /**
+   * <p>Return a handle to the current DB state. Iterators created with
+   * this handle will all observe a stable snapshot of the current DB
+   * state. The caller must call ReleaseSnapshot(result) when the
+   * snapshot is no longer needed.</p>
+   *
+   * <p>nullptr will be returned if the DB fails to take a snapshot or does
+   * not support snapshot.</p>
+   *
+   * @return Snapshot
+   */
+  public Snapshot getSnapshot() {
+    long snapshotHandle = getSnapshot(nativeHandle_);
+    if (snapshotHandle != 0) {
+      return new Snapshot(snapshotHandle);
+    }
+    return null;
+  }
+
+  /**
+   * Release a previously acquired snapshot.  The caller must not
+   * use "snapshot" after this call.
+   *
+   * @param snapshot {@link Snapshot} instance
+   */
+  public void releaseSnapshot(final Snapshot snapshot) {
+    if (snapshot != null) {
+      releaseSnapshot(nativeHandle_, snapshot.nativeHandle_);
+    }
+  }
+
   /**
    * Return a heap-allocated iterator over the contents of the database.
    * The result of newIterator() is initially invalid (caller must
@@ -1052,6 +1084,9 @@ public class RocksDB extends RocksObject {
   protected native long iterator0(long handle, long cfHandle);
   protected native long[] iterators(long handle,
       List<ColumnFamilyHandle> columnFamilyNames) throws RocksDBException;
+  protected native long getSnapshot(long nativeHandle);
+  protected native void releaseSnapshot(
+      long nativeHandle, long snapshotHandle);
   private native void disposeInternal(long handle);
 
   private native long createColumnFamily(long handle, String name) throws RocksDBException;

@@ -1032,6 +1032,28 @@ void Java_org_rocksdb_RocksDB_dropColumnFamily(
 }
 
 /*
+ * Method:    getSnapshot
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_RocksDB_getSnapshot(
+    JNIEnv* env, jobject jdb, jlong db_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  const rocksdb::Snapshot* snapshot = db->GetSnapshot();
+  return reinterpret_cast<jlong>(snapshot);
+}
+
+/*
+ * Method:    releaseSnapshot
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_RocksDB_releaseSnapshot(
+    JNIEnv* env, jobject jdb, jlong db_handle, jlong snapshot_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  auto snapshot = reinterpret_cast<rocksdb::Snapshot*>(snapshot_handle);
+  db->ReleaseSnapshot(snapshot);
+}
+
+/*
  * Class:     org_rocksdb_RocksDB
  * Method:    getProperty0
  * Signature: (JLjava/lang/String;I)Ljava/lang/String;
