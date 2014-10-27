@@ -58,7 +58,7 @@ static void DataPumpThreadBody(void* arg) {
 }
 
 struct ReplicationThread {
-  port::AtomicPointer stop;
+  std::atomic<bool> stop;
   DB* db;
   volatile size_t no_read;
 };
@@ -68,11 +68,11 @@ static void ReplicationThreadBody(void* arg) {
   DB* db = t->db;
   unique_ptr<TransactionLogIterator> iter;
   SequenceNumber currentSeqNum = 1;
-  while (t->stop.Acquire_Load() != nullptr) {
+  while (!t->stop.load(std::memory_order_acquire)) {
     iter.reset();
     Status s;
     while(!db->GetUpdatesSince(currentSeqNum, &iter).ok()) {
-      if (t->stop.Acquire_Load() == nullptr) {
+      if (t->stop.load(std::memory_order_acquire)) {
         return;
       }
     }
@@ -129,11 +129,11 @@ int main(int argc, const char** argv) {
   ReplicationThread replThread;
   replThread.db = db;
   replThread.no_read = 0;
-  replThread.stop.Release_Store(env); // store something to make it non-null.
+  replThread.stop.store(false, std::memory_order_release);
 
   env->StartThread(ReplicationThreadBody, &replThread);
   while(replThread.no_read < FLAGS_num_inserts);
-  replThread.stop.Release_Store(nullptr);
+  replThread.stop.store(true, std::memory_order_release);
   if (replThread.no_read < dataPump.no_records) {
     // no. read should be => than inserted.
     fprintf(stderr, "No. of Record's written and read not same\nRead : %zu"

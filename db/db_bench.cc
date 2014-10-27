@@ -1533,13 +1533,13 @@ class Benchmark {
 
   void AcquireLoad(ThreadState* thread) {
     int dummy;
-    port::AtomicPointer ap(&dummy);
+    std::atomic<void*> ap;
     int count = 0;
     void *ptr = nullptr;
     thread->stats.AddMessage("(each op is 1000 loads)");
     while (count < 100000) {
       for (int i = 0; i < 1000; i++) {
-        ptr = ap.Acquire_Load();
+        ptr = ap.load(std::memory_order_acquire);
       }
       count++;
       thread->stats.FinishedOps(nullptr, nullptr, 1);

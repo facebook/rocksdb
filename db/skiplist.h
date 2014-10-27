@@ -115,15 +115,14 @@ class SkipList {
 
   // Modified only by Insert().  Read racily by readers, but stale
   // values are ok.
-  port::AtomicPointer max_height_;   // Height of the entire list
+  std::atomic<int> max_height_;  // Height of the entire list
 
   // Used for optimizing sequential insert patterns
   Node** prev_;
   int32_t prev_height_;
 
   inline int GetMaxHeight() const {
-    return static_cast<int>(
-        reinterpret_cast<intptr_t>(max_height_.NoBarrier_Load()));
+    return max_height_.load(std::memory_order_relaxed);
   }
 
   // Read/written only by Insert().
@@ -169,35 +168,35 @@ struct SkipList<Key, Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return reinterpret_cast<Node*>(next_[n].Acquire_Load());
+    return (next_[n].load(std::memory_order_acquire));
   }
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    next_[n].Release_Store(x);
+    next_[n].store(x, std::memory_order_release);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return reinterpret_cast<Node*>(next_[n].NoBarrier_Load());
+    return next_[n].load(std::memory_order_relaxed);
   }
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    next_[n].NoBarrier_Store(x);
+    next_[n].store(x, std::memory_order_relaxed);
   }
 
  private:
   // Array of length equal to the node height.  next_[0] is lowest level link.
-  port::AtomicPointer next_[1];
+  std::atomic<Node*> next_[1];
 };
 
 template<typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node*
 SkipList<Key, Comparator>::NewNode(const Key& key, int height) {
   char* mem = arena_->AllocateAligned(
-      sizeof(Node) + sizeof(port::AtomicPointer) * (height - 1));
+      sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
   return new (mem) Node(key);
 }
 
@@ -364,7 +363,7 @@ SkipList<Key, Comparator>::SkipList(const Comparator cmp, Arena* arena,
       compare_(cmp),
       arena_(arena),
       head_(NewNode(0 /* any key will do */, max_height)),
-      max_height_(reinterpret_cast<void*>(1)),
+      max_height_(1),
       prev_height_(1),
       rnd_(0xdeadbeef) {
   assert(kMaxHeight_ > 0);
@@ -402,7 +401,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
     // the loop below.  In the former case the reader will
     // immediately drop to the next level since nullptr sorts after all
     // keys.  In the latter case the reader will use the new node.
-    max_height_.NoBarrier_Store(reinterpret_cast<void*>(height));
+    max_height_.store(height, std::memory_order_relaxed);
   }
 
   x = NewNode(key, height);

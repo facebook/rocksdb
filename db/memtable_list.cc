@@ -114,7 +114,7 @@ void MemTableListVersion::Remove(MemTable* m) {
 bool MemTableList::IsFlushPending() const {
   if ((flush_requested_ && num_flush_not_started_ >= 1) ||
       (num_flush_not_started_ >= min_write_buffer_number_to_merge_)) {
-    assert(imm_flush_needed.NoBarrier_Load() != nullptr);
+    assert(imm_flush_needed.load(std::memory_order_relaxed));
     return true;
   }
   return false;
@@ -129,7 +129,7 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
       assert(!m->flush_completed_);
       num_flush_not_started_--;
       if (num_flush_not_started_ == 0) {
-        imm_flush_needed.Release_Store(nullptr);
+        imm_flush_needed.store(false, std::memory_order_release);
       }
       m->flush_in_progress_ = true;  // flushing will start very soon
       ret->push_back(m);
@@ -155,7 +155,7 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
     num_flush_not_started_++;
   }
   pending_outputs->erase(file_number);
-  imm_flush_needed.Release_Store(reinterpret_cast<void *>(1));
+  imm_flush_needed.store(true, std::memory_order_release);
 }
 
 // Record a successful flush in the manifest file
@@ -236,7 +236,7 @@ Status MemTableList::InstallMemtableFlushResults(
         num_flush_not_started_++;
         pending_outputs->erase(m->file_number_);
         m->file_number_ = 0;
-        imm_flush_needed.Release_Store((void *)1);
+        imm_flush_needed.store(true, std::memory_order_release);
       }
       ++mem_id;
     } while (!current_->memlist_.empty() && (m = current_->memlist_.back()) &&
@@ -259,7 +259,7 @@ void MemTableList::Add(MemTable* m) {
   m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {
-    imm_flush_needed.Release_Store((void *)1);
+    imm_flush_needed.store(true, std::memory_order_release);
   }
 }
 

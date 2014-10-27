@@ -78,12 +78,12 @@ class MemTableList {
  public:
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge)
-      : min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
+      : imm_flush_needed(false),
+        min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
         current_(new MemTableListVersion()),
         num_flush_not_started_(0),
         commit_in_progress_(false),
         flush_requested_(false) {
-    imm_flush_needed.Release_Store(nullptr);
     current_->Ref();
   }
   ~MemTableList() {}
@@ -92,7 +92,7 @@ class MemTableList {
 
   // so that background threads can detect non-nullptr pointer to
   // determine whether there is anything more to start flushing.
-  port::AtomicPointer imm_flush_needed;
+  std::atomic<bool> imm_flush_needed;
 
   // Returns the total number of memtables in the list
   int size() const;

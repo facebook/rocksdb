@@ -188,15 +188,6 @@ if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Also don't need any compilation tests if compiling on fbcode
     true
 else
-    # If -std=c++0x works, use <atomic>.  Otherwise use port_posix.h.
-    $CXX $CFLAGS -std=c++0x -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <atomic>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_ATOMIC_PRESENT"
-    fi
-
     # Test whether fallocate is available
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <fcntl.h>

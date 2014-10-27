@@ -121,25 +121,25 @@ static std::string Key(int i) {
 class SpecialEnv : public EnvWrapper {
  public:
   // sstable Sync() calls are blocked while this pointer is non-nullptr.
-  port::AtomicPointer delay_sstable_sync_;
+  std::atomic<bool> delay_sstable_sync_;
 
   // Drop writes on the floor while this pointer is non-nullptr.
-  port::AtomicPointer drop_writes_;
+  std::atomic<bool> drop_writes_;
 
   // Simulate no-space errors while this pointer is non-nullptr.
-  port::AtomicPointer no_space_;
+  std::atomic<bool> no_space_;
 
   // Simulate non-writable file system while this pointer is non-nullptr
-  port::AtomicPointer non_writable_;
+  std::atomic<bool> non_writable_;
 
   // Force sync of manifest files to fail while this pointer is non-nullptr
-  port::AtomicPointer manifest_sync_error_;
+  std::atomic<bool> manifest_sync_error_;
 
   // Force write to manifest files to fail while this pointer is non-nullptr
-  port::AtomicPointer manifest_write_error_;
+  std::atomic<bool> manifest_write_error_;
 
   // Force write to log files to fail while this pointer is non-nullptr
-  port::AtomicPointer log_write_error_;
+  std::atomic<bool> log_write_error_;
 
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
@@ -154,15 +154,15 @@ class SpecialEnv : public EnvWrapper {
   std::atomic<int> sync_counter_;
 
   explicit SpecialEnv(Env* base) : EnvWrapper(base) {
-    delay_sstable_sync_.Release_Store(nullptr);
-    drop_writes_.Release_Store(nullptr);
-    no_space_.Release_Store(nullptr);
-    non_writable_.Release_Store(nullptr);
+    delay_sstable_sync_.store(false, std::memory_order_release);
+    drop_writes_.store(false, std::memory_order_release);
+    no_space_.store(false, std::memory_order_release);
+    non_writable_.store(false, std::memory_order_release);
     count_random_reads_ = false;
     count_sequential_reads_ = false;
-    manifest_sync_error_.Release_Store(nullptr);
-    manifest_write_error_.Release_Store(nullptr);
-    log_write_error_.Release_Store(nullptr);
+    manifest_sync_error_.store(false, std::memory_order_release);
+    manifest_write_error_.store(false, std::memory_order_release);
+    log_write_error_.store(false, std::memory_order_release);
     bytes_written_ = 0;
     sync_counter_ = 0;
   }
@@ -180,10 +180,10 @@ class SpecialEnv : public EnvWrapper {
             base_(std::move(base)) {
       }
       Status Append(const Slice& data) {
-        if (env_->drop_writes_.Acquire_Load() != nullptr) {
+        if (env_->drop_writes_.load(std::memory_order_acquire)) {
           // Drop writes on the floor
           return Status::OK();
-        } else if (env_->no_space_.Acquire_Load() != nullptr) {
+        } else if (env_->no_space_.load(std::memory_order_acquire)) {
           return Status::IOError("No space left on device");
         } else {
           env_->bytes_written_ += data.size();
@@ -194,7 +194,7 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() { return base_->Flush(); }
       Status Sync() {
         ++env_->sync_counter_;
-        while (env_->delay_sstable_sync_.Acquire_Load() != nullptr) {
+        while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
         return base_->Sync();
@@ -211,7 +211,7 @@ class SpecialEnv : public EnvWrapper {
       ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) { }
       Status Append(const Slice& data) {
-        if (env_->manifest_write_error_.Acquire_Load() != nullptr) {
+        if (env_->manifest_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
         } else {
           return base_->Append(data);
@@ -221,7 +221,7 @@ class SpecialEnv : public EnvWrapper {
       Status Flush() { return base_->Flush(); }
       Status Sync() {
         ++env_->sync_counter_;
-        if (env_->manifest_sync_error_.Acquire_Load() != nullptr) {
+        if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated sync error");
         } else {
           return base_->Sync();
@@ -236,7 +236,7 @@ class SpecialEnv : public EnvWrapper {
       LogFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) { }
       Status Append(const Slice& data) {
-        if (env_->log_write_error_.Acquire_Load() != nullptr) {
+        if (env_->log_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
         } else {
           return base_->Append(data);
@@ -250,7 +250,7 @@ class SpecialEnv : public EnvWrapper {
       }
     };
 
-    if (non_writable_.Acquire_Load() != nullptr) {
+    if (non_writable_.load(std::memory_order_acquire)) {
       return Status::IOError("simulated write error");
     }
 
@@ -1211,7 +1211,8 @@ TEST(DBTest, Empty) {
         handles_[1], "rocksdb.num-entries-active-mem-table", &num));
     ASSERT_EQ("1", num);
 
-    env_->delay_sstable_sync_.Release_Store(env_);  // Block sync calls
+    // Block sync calls
+    env_->delay_sstable_sync_.store(true, std::memory_order_release);
     Put(1, "k1", std::string(100000, 'x'));         // Fill memtable
     ASSERT_TRUE(dbfull()->GetProperty(
         handles_[1], "rocksdb.num-entries-active-mem-table", &num));
@@ -1223,7 +1224,8 @@ TEST(DBTest, Empty) {
     ASSERT_EQ("1", num);
 
     ASSERT_EQ("v1", Get(1, "foo"));
-    env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
+    // Release sync calls
+    env_->delay_sstable_sync_.store(false, std::memory_order_release);
 
     ASSERT_OK(db_->DisableFileDeletions());
     ASSERT_TRUE(
@@ -1539,12 +1541,14 @@ TEST(DBTest, GetFromImmutableLayer) {
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_EQ("v1", Get(1, "foo"));
 
-    env_->delay_sstable_sync_.Release_Store(env_);   // Block sync calls
+    // Block sync calls
+    env_->delay_sstable_sync_.store(true, std::memory_order_release);
     Put(1, "k1", std::string(100000, 'x'));          // Fill memtable
     Put(1, "k2", std::string(100000, 'y'));          // Trigger flush
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("NOT_FOUND", Get(0, "foo"));
-    env_->delay_sstable_sync_.Release_Store(nullptr);   // Release sync calls
+    // Release sync calls
+    env_->delay_sstable_sync_.store(false, std::memory_order_release);
   } while (ChangeOptions());
 }
 
@@ -5776,7 +5780,8 @@ TEST(DBTest, DropWrites) {
     ASSERT_EQ("v1", Get("foo"));
     Compact("a", "z");
     const int num_files = CountFiles();
-    env_->drop_writes_.Release_Store(env_);   // Force out-of-space errors
+    // Force out-of-space errors
+    env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
     for (int i = 0; i < 5; i++) {
       for (int level = 0; level < dbfull()->NumberLevels()-1; level++) {
@@ -5788,7 +5793,7 @@ TEST(DBTest, DropWrites) {
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("5", property_value);
 
-    env_->drop_writes_.Release_Store(nullptr);
+    env_->drop_writes_.store(false, std::memory_order_release);
     ASSERT_LT(CountFiles(), num_files + 3);
 
     // Check that compaction attempts slept after errors
@@ -5805,7 +5810,8 @@ TEST(DBTest, DropWritesFlush) {
     Reopen(&options);
 
     ASSERT_OK(Put("foo", "v1"));
-    env_->drop_writes_.Release_Store(env_);  // Force out-of-space errors
+    // Force out-of-space errors
+    env_->drop_writes_.store(true, std::memory_order_release);
 
     std::string property_value;
     // Background error count is 0 now.
@@ -5829,7 +5835,7 @@ TEST(DBTest, DropWritesFlush) {
     }
     ASSERT_EQ("1", property_value);
 
-    env_->drop_writes_.Release_Store(nullptr);
+    env_->drop_writes_.store(false, std::memory_order_release);
   } while (ChangeCompactOptions());
 }
 
@@ -5848,12 +5854,13 @@ TEST(DBTest, NoSpaceCompactRange) {
       ASSERT_OK(Flush());
     }
 
-    env_->no_space_.Release_Store(env_);  // Force out-of-space errors
+    // Force out-of-space errors
+    env_->no_space_.store(true, std::memory_order_release);
 
     Status s = db_->CompactRange(nullptr, nullptr);
     ASSERT_TRUE(s.IsIOError());
 
-    env_->no_space_.Release_Store(nullptr);
+    env_->no_space_.store(false, std::memory_order_release);
   } while (ChangeCompactOptions());
 }
 
@@ -5864,7 +5871,8 @@ TEST(DBTest, NonWritableFileSystem) {
     options.env = env_;
     Reopen(&options);
     ASSERT_OK(Put("foo", "v1"));
-    env_->non_writable_.Release_Store(env_); // Force errors for new files
+    // Force errors for new files
+    env_->non_writable_.store(true, std::memory_order_release);
     std::string big(100000, 'x');
     int errors = 0;
     for (int i = 0; i < 20; i++) {
@@ -5874,7 +5882,7 @@ TEST(DBTest, NonWritableFileSystem) {
       }
     }
     ASSERT_GT(errors, 0);
-    env_->non_writable_.Release_Store(nullptr);
+    env_->non_writable_.store(false, std::memory_order_release);
   } while (ChangeCompactOptions());
 }
 
@@ -5888,7 +5896,7 @@ TEST(DBTest, ManifestWriteError) {
   // We iterate twice.  In the second iteration, everything is the
   // same except the log record never makes it to the MANIFEST file.
   for (int iter = 0; iter < 2; iter++) {
-    port::AtomicPointer* error_type = (iter == 0)
+    std::atomic<bool>* error_type = (iter == 0)
         ? &env_->manifest_sync_error_
         : &env_->manifest_write_error_;
 
@@ -5909,12 +5917,12 @@ TEST(DBTest, ManifestWriteError) {
     ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo=>bar is now in last level
 
     // Merging compaction (will fail)
-    error_type->Release_Store(env_);
+    error_type->store(true, std::memory_order_release);
     dbfull()->TEST_CompactRange(last, nullptr, nullptr);  // Should fail
     ASSERT_EQ("bar", Get("foo"));
 
     // Recovery: should not lose data
-    error_type->Release_Store(nullptr);
+    error_type->store(false, std::memory_order_release);
     Reopen(&options);
     ASSERT_EQ("bar", Get("foo"));
   }
@@ -5938,10 +5946,10 @@ TEST(DBTest, PutFailsParanoid) {
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo1", "bar1"));
   // simulate error
-  env_->log_write_error_.Release_Store(env_);
+  env_->log_write_error_.store(true, std::memory_order_release);
   s = Put(1, "foo2", "bar2");
   ASSERT_TRUE(!s.ok());
-  env_->log_write_error_.Release_Store(nullptr);
+  env_->log_write_error_.store(false, std::memory_order_release);
   s = Put(1, "foo3", "bar3");
   // the next put should fail, too
   ASSERT_TRUE(!s.ok());
@@ -5956,10 +5964,10 @@ TEST(DBTest, PutFailsParanoid) {
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo1", "bar1"));
   // simulate error
-  env_->log_write_error_.Release_Store(env_);
+  env_->log_write_error_.store(true, std::memory_order_release);
   s = Put(1, "foo2", "bar2");
   ASSERT_TRUE(!s.ok());
-  env_->log_write_error_.Release_Store(nullptr);
+  env_->log_write_error_.store(false, std::memory_order_release);
   s = Put(1, "foo3", "bar3");
   // the next put should NOT fail
   ASSERT_TRUE(s.ok());
@@ -6005,7 +6013,7 @@ TEST(DBTest, BloomFilter) {
     Flush(1);
 
     // Prevent auto compactions triggered by seeks
-    env_->delay_sstable_sync_.Release_Store(env_);
+    env_->delay_sstable_sync_.store(true, std::memory_order_release);
 
     // Lookup present keys.  Should rarely read from small sstable.
     env_->random_read_counter_.Reset();
@@ -6026,7 +6034,7 @@ TEST(DBTest, BloomFilter) {
     fprintf(stderr, "%d missing => %d reads\n", N, reads);
     ASSERT_LE(reads, 3*N/100);
 
-    env_->delay_sstable_sync_.Release_Store(nullptr);
+    env_->delay_sstable_sync_.store(false, std::memory_order_release);
     Close();
   } while (ChangeCompactOptions());
 }
@@ -7047,9 +7055,9 @@ static const int kNumKeys = 1000;
 
 struct MTState {
   DBTest* test;
-  port::AtomicPointer stop;
-  port::AtomicPointer counter[kNumThreads];
-  port::AtomicPointer thread_done[kNumThreads];
+  std::atomic<bool> stop;
+  std::atomic<int> counter[kNumThreads];
+  std::atomic<bool> thread_done[kNumThreads];
 };
 
 struct MTThread {
@@ -7061,12 +7069,12 @@ static void MTThreadBody(void* arg) {
   MTThread* t = reinterpret_cast<MTThread*>(arg);
   int id = t->id;
   DB* db = t->state->test->db_;
-  uintptr_t counter = 0;
+  int counter = 0;
   fprintf(stderr, "... starting thread %d\n", id);
   Random rnd(1000 + id);
   char valbuf[1500];
-  while (t->state->stop.Acquire_Load() == nullptr) {
-    t->state->counter[id].Release_Store(reinterpret_cast<void*>(counter));
+  while (t->state->stop.load(std::memory_order_acquire) == false) {
+    t->state->counter[id].store(counter, std::memory_order_release);
 
     int key = rnd.Uniform(kNumKeys);
     char keybuf[20];
@@ -7126,8 +7134,7 @@ static void MTThreadBody(void* arg) {
           ASSERT_EQ(k, key);
           ASSERT_GE(w, 0);
           ASSERT_LT(w, kNumThreads);
-          ASSERT_LE((unsigned int)c, reinterpret_cast<uintptr_t>(
-                                         t->state->counter[w].Acquire_Load()));
+          ASSERT_LE(c, t->state->counter[w].load(std::memory_order_acquire));
           ASSERT_EQ(cf, i);
           if (i == 0) {
             unique_id = u;
@@ -7141,7 +7148,7 @@ static void MTThreadBody(void* arg) {
     }
     counter++;
   }
-  t->state->thread_done[id].Release_Store(t);
+  t->state->thread_done[id].store(true, std::memory_order_release);
   fprintf(stderr, "... stopping thread %d after %d ops\n", id, int(counter));
 }
 
@@ -7157,10 +7164,10 @@ TEST(DBTest, MultiThreaded) {
     // Initialize state
     MTState mt;
     mt.test = this;
-    mt.stop.Release_Store(0);
+    mt.stop.store(false, std::memory_order_release);
     for (int id = 0; id < kNumThreads; id++) {
-      mt.counter[id].Release_Store(0);
-      mt.thread_done[id].Release_Store(0);
+      mt.counter[id].store(0, std::memory_order_release);
+      mt.thread_done[id].store(false, std::memory_order_release);
     }
 
     // Start threads
@@ -7175,9 +7182,9 @@ TEST(DBTest, MultiThreaded) {
     env_->SleepForMicroseconds(kTestSeconds * 1000000);
 
     // Stop the threads and wait for them to finish
-    mt.stop.Release_Store(&mt);
+    mt.stop.store(true, std::memory_order_release);
     for (int id = 0; id < kNumThreads; id++) {
-      while (mt.thread_done[id].Acquire_Load() == nullptr) {
+      while (mt.thread_done[id].load(std::memory_order_acquire) == false) {
         env_->SleepForMicroseconds(100000);
       }
     }

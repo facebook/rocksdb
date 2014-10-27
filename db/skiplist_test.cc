@@ -191,13 +191,11 @@ class ConcurrentTest {
 
   // Per-key generation
   struct State {
-    port::AtomicPointer generation[K];
-    void Set(int k, intptr_t v) {
-      generation[k].Release_Store(reinterpret_cast<void*>(v));
+    std::atomic<int> generation[K];
+    void Set(int k, int v) {
+      generation[k].store(v, std::memory_order_release);
     }
-    intptr_t Get(int k) {
-      return reinterpret_cast<intptr_t>(generation[k].Acquire_Load());
-    }
+    int Get(int k) { return generation[k].load(std::memory_order_acquire); }
 
     State() {
       for (unsigned int k = 0; k < K; k++) {
@@ -221,7 +219,7 @@ class ConcurrentTest {
   // REQUIRES: External synchronization
   void WriteStep(Random* rnd) {
     const uint32_t k = rnd->Next() % K;
-    const intptr_t g = current_.Get(k) + 1;
+    const int g = current_.Get(k) + 1;
     const Key key = MakeKey(k, g);
     list_.Insert(key);
     current_.Set(k, g);
@@ -303,7 +301,7 @@ class TestState {
  public:
   ConcurrentTest t_;
   int seed_;
-  port::AtomicPointer quit_flag_;
+  std::atomic<bool> quit_flag_;
 
   enum ReaderState {
     STARTING,
@@ -312,10 +310,7 @@ class TestState {
   };
 
   explicit TestState(int s)
-      : seed_(s),
-        quit_flag_(nullptr),
-        state_(STARTING),
-        state_cv_(&mu_) {}
+      : seed_(s), quit_flag_(false), state_(STARTING), state_cv_(&mu_) {}
 
   void Wait(ReaderState s) {
     mu_.Lock();
@@ -343,7 +338,7 @@ static void ConcurrentReader(void* arg) {
   Random rnd(state->seed_);
   int64_t reads = 0;
   state->Change(TestState::RUNNING);
-  while (!state->quit_flag_.Acquire_Load()) {
+  while (!state->quit_flag_.load(std::memory_order_acquire)) {
     state->t_.ReadStep(&rnd);
     ++reads;
   }
@@ -365,7 +360,7 @@ static void RunConcurrent(int run) {
     for (int i = 0; i < kSize; i++) {
       state.t_.WriteStep(&rnd);
     }
-    state.quit_flag_.Release_Store(&state);  // Any non-nullptr arg will do
+    state.quit_flag_.store(true, std::memory_order_release);
     state.Wait(TestState::DONE);
   }
 }

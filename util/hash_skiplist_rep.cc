@@ -7,12 +7,13 @@
 #ifndef ROCKSDB_LITE
 #include "util/hash_skiplist_rep.h"
 
+#include <atomic>
+
 #include "rocksdb/memtablerep.h"
 #include "util/arena.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "port/port.h"
-#include "port/atomic_pointer.h"
 #include "util/murmurhash.h"
 #include "db/memtable.h"
 #include "db/skiplist.h"
@@ -54,7 +55,7 @@ class HashSkipListRep : public MemTableRep {
 
   // Maps slices (which are transformed user keys) to buckets of keys sharing
   // the same transform.
-  port::AtomicPointer* buckets_;
+  std::atomic<Bucket*>* buckets_;
 
   // The user-supplied transform whose domain is the user keys.
   const SliceTransform* transform_;
@@ -67,7 +68,7 @@ class HashSkipListRep : public MemTableRep {
     return MurmurHash(slice.data(), slice.size(), 0) % bucket_size_;
   }
   inline Bucket* GetBucket(size_t i) const {
-    return static_cast<Bucket*>(buckets_[i].Acquire_Load());
+    return buckets_[i].load(std::memory_order_acquire);
   }
   inline Bucket* GetBucket(const Slice& slice) const {
     return GetBucket(GetHash(slice));
@@ -229,12 +230,11 @@ HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
       transform_(transform),
       compare_(compare),
       arena_(arena) {
-  auto mem =
-      arena->AllocateAligned(sizeof(port::AtomicPointer) * bucket_size);
-  buckets_ = new (mem) port::AtomicPointer[bucket_size];
+  auto mem = arena->AllocateAligned(sizeof(std::atomic<void*>) * bucket_size);
+  buckets_ = new (mem) std::atomic<Bucket*>[bucket_size];
 
   for (size_t i = 0; i < bucket_size_; ++i) {
-    buckets_[i].NoBarrier_Store(nullptr);
+    buckets_[i].store(nullptr, std::memory_order_relaxed);
   }
 }
 
@@ -249,7 +249,7 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
     auto addr = arena_->AllocateAligned(sizeof(Bucket));
     bucket = new (addr) Bucket(compare_, arena_, skiplist_height_,
                                skiplist_branching_factor_);
-    buckets_[hash].Release_Store(static_cast<void*>(bucket));
+    buckets_[hash].store(bucket, std::memory_order_release);
   }
   return bucket;
 }

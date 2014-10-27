@@ -44,30 +44,31 @@ class EnvPosixTest {
 };
 
 static void SetBool(void* ptr) {
-  reinterpret_cast<port::AtomicPointer*>(ptr)->NoBarrier_Store(ptr);
+  reinterpret_cast<std::atomic<bool>*>(ptr)
+      ->store(true, std::memory_order_relaxed);
 }
 
 TEST(EnvPosixTest, RunImmediately) {
-  port::AtomicPointer called (nullptr);
+  std::atomic<bool> called(false);
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_TRUE(called.NoBarrier_Load() != nullptr);
+  ASSERT_TRUE(called.load(std::memory_order_relaxed));
 }
 
 TEST(EnvPosixTest, RunMany) {
-  port::AtomicPointer last_id (nullptr);
+  std::atomic<int> last_id(0);
 
   struct CB {
-    port::AtomicPointer* last_id_ptr;   // Pointer to shared slot
-    uintptr_t id;             // Order# for the execution of this callback
+    std::atomic<int>* last_id_ptr;  // Pointer to shared slot
+    int id;                         // Order# for the execution of this callback
 
-    CB(port::AtomicPointer* p, int i) : last_id_ptr(p), id(i) { }
+    CB(std::atomic<int>* p, int i) : last_id_ptr(p), id(i) {}
 
     static void Run(void* v) {
       CB* cb = reinterpret_cast<CB*>(v);
-      void* cur = cb->last_id_ptr->NoBarrier_Load();
-      ASSERT_EQ(cb->id-1, reinterpret_cast<uintptr_t>(cur));
-      cb->last_id_ptr->Release_Store(reinterpret_cast<void*>(cb->id));
+      int cur = cb->last_id_ptr->load(std::memory_order_relaxed);
+      ASSERT_EQ(cb->id - 1, cur);
+      cb->last_id_ptr->store(cb->id, std::memory_order_release);
     }
   };
 
@@ -82,8 +83,8 @@ TEST(EnvPosixTest, RunMany) {
   env_->Schedule(&CB::Run, &cb4);
 
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  void* cur = last_id.Acquire_Load();
-  ASSERT_EQ(4U, reinterpret_cast<uintptr_t>(cur));
+  int cur = last_id.load(std::memory_order_acquire);
+  ASSERT_EQ(4, cur);
 }
 
 struct State {

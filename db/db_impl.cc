@@ -326,7 +326,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       stats_(db_options_.statistics.get()),
       db_lock_(nullptr),
       mutex_(options.use_adaptive_mutex),
-      shutting_down_(nullptr),
+      shutting_down_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
       log_empty_(true),
@@ -388,7 +388,7 @@ DBImpl::~DBImpl() {
   }
 
   // Wait for background work to finish
-  shutting_down_.Release_Store(this);  // Any non-nullptr value is ok
+  shutting_down_.store(true, std::memory_order_release);
   while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
@@ -1615,7 +1615,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   Status s = WriteLevel0Table(cfd, mutable_cf_options, mems, edit,
                               &file_number, log_buffer);
 
-  if (s.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
+  if (s.ok() &&
+      (shutting_down_.load(std::memory_order_acquire) || cfd->IsDropped())) {
     s = Status::ShutdownInProgress(
         "Database shutdown or Column family drop during flush");
   }
@@ -2014,7 +2015,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   bg_schedule_needed_ = false;
   if (bg_work_gate_closed_) {
     // gate closed for backgrond work
-  } else if (shutting_down_.Acquire_Load()) {
+  } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
   } else {
     bool is_flush_pending = false;
@@ -2129,7 +2130,7 @@ void DBImpl::BackgroundCallFlush() {
     MutexLock l(&mutex_);
 
     Status s;
-    if (!shutting_down_.Acquire_Load()) {
+    if (!shutting_down_.load(std::memory_order_acquire)) {
       s = BackgroundFlush(&madeProgress, deletion_state, &log_buffer);
       if (!s.ok()) {
         // Wait a little bit before retrying background compaction in
@@ -2196,7 +2197,7 @@ void DBImpl::BackgroundCallCompaction() {
     MutexLock l(&mutex_);
     assert(bg_compaction_scheduled_);
     Status s;
-    if (!shutting_down_.Acquire_Load()) {
+    if (!shutting_down_.load(std::memory_order_acquire)) {
       s = BackgroundCompaction(&madeProgress, deletion_state, &log_buffer);
       if (!s.ok()) {
         // Wait a little bit before retrying background compaction in
@@ -2700,7 +2701,7 @@ uint64_t DBImpl::CallFlushDuringCompaction(ColumnFamilyData* cfd,
     // flush thread will take care of this
     return 0;
   }
-  if (cfd->imm()->imm_flush_needed.NoBarrier_Load() != nullptr) {
+  if (cfd->imm()->imm_flush_needed.load(std::memory_order_relaxed)) {
     const uint64_t imm_start = env_->NowMicros();
     mutex_.Lock();
     if (cfd->imm()->IsFlushPending()) {
@@ -2762,7 +2763,7 @@ Status DBImpl::ProcessKeyValueCompaction(
   int64_t key_drop_newer_entry = 0;
   int64_t key_drop_obsolete = 0;
   int64_t loop_cnt = 0;
-  while (input->Valid() && !shutting_down_.Acquire_Load() &&
+  while (input->Valid() && !shutting_down_.load(std::memory_order_acquire) &&
          !cfd->IsDropped()) {
     if (++loop_cnt > 1000) {
       if (key_drop_user > 0) {
@@ -3222,7 +3223,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
     shared_ptr<Iterator> backup_input(
         versions_->MakeInputIterator(compact->compaction));
     backup_input->SeekToFirst();
-    while (backup_input->Valid() && !shutting_down_.Acquire_Load() &&
+    while (backup_input->Valid() &&
+           !shutting_down_.load(std::memory_order_acquire) &&
            !cfd->IsDropped()) {
       // FLUSH preempts compaction
       // TODO(icanadi) this currently only checks if flush is necessary on
@@ -3356,7 +3358,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
         log_buffer);
   }  // checking for compaction filter v2
 
-  if (status.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
+  if (status.ok() &&
+      (shutting_down_.load(std::memory_order_acquire) || cfd->IsDropped())) {
     status = Status::ShutdownInProgress(
         "Database shutdown or Column family drop during compaction");
   }
