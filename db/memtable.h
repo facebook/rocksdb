@@ -32,8 +32,8 @@ class MergeContext;
 
 struct MemTableOptions {
   explicit MemTableOptions(
-      const MutableCFOptions& mutable_cf_options,
-      const Options& options);
+      const ImmutableCFOptions& ioptions,
+      const MutableCFOptions& mutable_cf_options);
   size_t write_buffer_size;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
@@ -47,6 +47,9 @@ struct MemTableOptions {
                                    std::string* merged_value);
   size_t max_successive_merges;
   bool filter_deletes;
+  Statistics* statistics;
+  MergeOperator* merge_operator;
+  Logger* info_log;
 };
 
 class MemTable {
@@ -64,7 +67,7 @@ class MemTable {
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
-                    const MemTableOptions& moptions);
+                    const MutableCFOptions& mutable_cf_options);
 
   ~MemTable();
 
@@ -199,7 +202,6 @@ class MemTable {
 
   const Arena& TEST_GetArena() const { return arena_; }
 
-  const ImmutableCFOptions* GetImmutableOptions() const { return &ioptions_; }
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
 
  private:
@@ -211,7 +213,6 @@ class MemTable {
   friend class MemTableList;
 
   KeyComparator comparator_;
-  const ImmutableCFOptions& ioptions_;
   const MemTableOptions moptions_;
   int refs_;
   const size_t kArenaBlockSize;

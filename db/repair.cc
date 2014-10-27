@@ -220,7 +220,7 @@ class Repairer {
     Slice record;
     WriteBatch batch;
     MemTable* mem = new MemTable(icmp_, ioptions_,
-        MemTableOptions(MutableCFOptions(options_, ioptions_), options_));
+                                 MutableCFOptions(options_, ioptions_));
     auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem, &options_);
     mem->Ref();
     int counter = 0;

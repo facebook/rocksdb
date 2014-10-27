@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 #include "rocksdb/options.h"
 
@@ -35,6 +36,13 @@ struct ImmutableCFOptions {
   CompactionFilterFactory* compaction_filter_factory;
 
   CompactionFilterFactoryV2* compaction_filter_factory_v2;
+
+  bool inplace_update_support;
+
+  UpdateStatus (*inplace_callback)(char* existing_value,
+                                   uint32_t* existing_value_size,
+                                   Slice delta_value,
+                                   std::string* merged_value);
 
   Logger* info_log;
 

@@ -388,12 +388,13 @@ const EnvOptions* ColumnFamilyData::soptions() const {
 
 void ColumnFamilyData::SetCurrent(Version* current) { current_ = current; }
 
-void ColumnFamilyData::CreateNewMemtable(const MemTableOptions& moptions) {
+void ColumnFamilyData::CreateNewMemtable(
+    const MutableCFOptions& mutable_cf_options) {
   assert(current_ != nullptr);
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  mem_ = new MemTable(internal_comparator_, ioptions_, moptions);
+  mem_ = new MemTable(internal_comparator_, ioptions_, mutable_cf_options);
   mem_->Ref();
 }
 

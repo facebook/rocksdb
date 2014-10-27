@@ -32,7 +32,8 @@
 namespace rocksdb {
 
 MemTableOptions::MemTableOptions(
-    const MutableCFOptions& mutable_cf_options, const Options& options)
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options)
   : write_buffer_size(mutable_cf_options.write_buffer_size),
     arena_block_size(mutable_cf_options.arena_block_size),
     memtable_prefix_bloom_bits(mutable_cf_options.memtable_prefix_bloom_bits),
@@ -40,21 +41,23 @@ MemTableOptions::MemTableOptions(
         mutable_cf_options.memtable_prefix_bloom_probes),
     memtable_prefix_bloom_huge_page_tlb_size(
         mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size),
-    inplace_update_support(options.inplace_update_support),
-    inplace_update_num_locks(options.inplace_update_num_locks),
-    inplace_callback(options.inplace_callback),
+    inplace_update_support(ioptions.inplace_update_support),
+    inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
+    inplace_callback(ioptions.inplace_callback),
     max_successive_merges(mutable_cf_options.max_successive_merges),
-    filter_deletes(mutable_cf_options.filter_deletes) {}
+    filter_deletes(mutable_cf_options.filter_deletes),
+    statistics(ioptions.statistics),
+    merge_operator(ioptions.merge_operator),
+    info_log(ioptions.info_log) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
-                   const MemTableOptions& moptions)
+                   const MutableCFOptions& mutable_cf_options)
     : comparator_(cmp),
-      ioptions_(ioptions),
-      moptions_(moptions),
+      moptions_(ioptions, mutable_cf_options),
       refs_(0),
-      kArenaBlockSize(OptimizeBlockSize(moptions.arena_block_size)),
-      arena_(moptions.arena_block_size),
+      kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
+      arena_(moptions_.arena_block_size),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &arena_, ioptions.prefix_extractor, ioptions.info_log)),
       num_entries_(0),
@@ -63,20 +66,20 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       file_number_(0),
       first_seqno_(0),
       mem_next_logfile_number_(0),
-      locks_(moptions.inplace_update_support ? moptions.inplace_update_num_locks
-                                             : 0),
+      locks_(moptions_.inplace_update_support ?
+             moptions_.inplace_update_num_locks : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       should_flush_(ShouldFlushNow()),
       flush_scheduled_(false) {
   // if should_flush_ == true without an entry inserted, something must have
   // gone wrong already.
   assert(!should_flush_);
-  if (prefix_extractor_ && moptions.memtable_prefix_bloom_bits > 0) {
+  if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
         &arena_,
-        moptions.memtable_prefix_bloom_bits, ioptions.bloom_locality,
-        moptions.memtable_prefix_bloom_probes, nullptr,
-        moptions.memtable_prefix_bloom_huge_page_tlb_size,
+        moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
+        moptions_.memtable_prefix_bloom_probes, nullptr,
+        moptions_.memtable_prefix_bloom_huge_page_tlb_size,
         ioptions.info_log));
   }
 }
@@ -454,10 +457,10 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.status = s;
     saver.mem = this;
     saver.merge_context = merge_context;
-    saver.merge_operator = ioptions_.merge_operator;
-    saver.logger = ioptions_.info_log;
+    saver.merge_operator = moptions_.merge_operator;
+    saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;
-    saver.statistics = ioptions_.statistics;
+    saver.statistics = moptions_.statistics;
     table_->Get(key, &saver, SaveValue);
   }
 
@@ -578,12 +581,12 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
                 memcpy(p, prev_buffer, new_prev_size);
               }
             }
-            RecordTick(ioptions_.statistics, NUMBER_KEYS_UPDATED);
+            RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
             should_flush_ = ShouldFlushNow();
             return true;
           } else if (status == UpdateStatus::UPDATED) {
             Add(seq, kTypeValue, key, Slice(str_value));
-            RecordTick(ioptions_.statistics, NUMBER_KEYS_WRITTEN);
+            RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
             should_flush_ = ShouldFlushNow();
             return true;
           } else if (status == UpdateStatus::UPDATE_FAILED) {

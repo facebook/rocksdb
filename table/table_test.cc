@@ -439,7 +439,7 @@ class MemTableConstructor: public Constructor {
     options.memtable_factory = table_factory_;
     ImmutableCFOptions ioptions(options);
     memtable_ = new MemTable(internal_comparator_, ioptions,
-        MemTableOptions(MutableCFOptions(options, ioptions), options));
+                             MutableCFOptions(options, ioptions));
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -455,7 +455,7 @@ class MemTableConstructor: public Constructor {
     options.memtable_factory = table_factory_;
     ImmutableCFOptions mem_ioptions(options);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
-        MemTableOptions(MutableCFOptions(options, mem_ioptions), options));
+                             MutableCFOptions(options, mem_ioptions));
     memtable_->Ref();
     int seq = 1;
     for (KVMap::const_iterator it = data.begin();
@@ -1879,7 +1879,7 @@ TEST(MemTableTest, Simple) {
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
   MemTable* memtable = new MemTable(cmp, ioptions,
-        MemTableOptions(MutableCFOptions(options, ioptions), options));
+                                    MutableCFOptions(options, ioptions));
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

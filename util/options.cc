@@ -42,6 +42,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     compaction_filter(options.compaction_filter),
     compaction_filter_factory(options.compaction_filter_factory.get()),
     compaction_filter_factory_v2(options.compaction_filter_factory_v2.get()),
+    inplace_update_support(options.inplace_update_support),
+    inplace_callback(options.inplace_callback),
     info_log(options.info_log.get()),
     statistics(options.statistics.get()),
     env(options.env),

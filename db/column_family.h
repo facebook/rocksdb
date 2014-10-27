@@ -198,7 +198,7 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void SetCurrent(Version* current);
-  void CreateNewMemtable(const MemTableOptions& moptions);
+  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);
 
   TableCache* table_cache() const { return table_cache_.get(); }
 

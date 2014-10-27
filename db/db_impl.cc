@@ -1228,8 +1228,7 @@ Status DBImpl::Recover(
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
-          cfd->CreateNewMemtable(MemTableOptions(
-              *cfd->GetLatestMutableCFOptions(), *cfd->options()));
+          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
         }
       }
     }
@@ -1360,8 +1359,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             // file-systems cause the DB::Open() to fail.
             return status;
           }
-          cfd->CreateNewMemtable(MemTableOptions(
-              *cfd->GetLatestMutableCFOptions(), *cfd->options()));
+          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
         }
       }
     }
@@ -1398,8 +1396,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           // Recovery failed
           break;
         }
-        cfd->CreateNewMemtable(MemTableOptions(
-            *cfd->GetLatestMutableCFOptions(), *cfd->options()));
+        cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
       }
 
       // write MANIFEST with update
@@ -2749,7 +2746,7 @@ Status DBImpl::ProcessKeyValueCompaction(
   ColumnFamilyData* cfd = compact->compaction->column_family_data();
   MergeHelper merge(
       cfd->user_comparator(), cfd->ioptions()->merge_operator,
-      db_options_.info_log.get(), cfd->options()->min_partial_merge_operands,
+      db_options_.info_log.get(), cfd->ioptions()->min_partial_merge_operands,
       false /* internal key corruption is expected */);
   auto compaction_filter = cfd->ioptions()->compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
@@ -4281,9 +4278,8 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     }
 
     if (s.ok()) {
-      new_mem = new MemTable(cfd->internal_comparator(),
-          *cfd->ioptions(), MemTableOptions(mutable_cf_options,
-          *cfd->options()));
+      new_mem = new MemTable(cfd->internal_comparator(), *cfd->ioptions(),
+                             mutable_cf_options);
       new_superversion = new SuperVersion();
     }
   }

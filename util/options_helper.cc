@@ -94,6 +94,8 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
     new_options->filter_deletes = ParseBoolean(name, value);
   } else if (name == "max_write_buffer_number") {
     new_options->max_write_buffer_number = ParseInt(value);
+  } else if (name == "inplace_update_num_locks") {
+    new_options->inplace_update_num_locks = ParseInt64(value);
   } else {
     return false;
   }
@@ -299,14 +301,12 @@ bool GetColumnFamilyOptionsFromMap(
       } else if (o.first == "compaction_options_fifo") {
         new_options->compaction_options_fifo.max_table_files_size
           = ParseUint64(o.second);
-      } else if (o.first == "inplace_update_support") {
-        new_options->inplace_update_support = ParseBoolean(o.first, o.second);
-      } else if (o.first == "inplace_update_num_locks") {
-        new_options->inplace_update_num_locks = ParseInt64(o.second);
       } else if (o.first == "bloom_locality") {
         new_options->bloom_locality = ParseUint32(o.second);
       } else if (o.first == "min_partial_merge_operands") {
         new_options->min_partial_merge_operands = ParseUint32(o.second);
+      } else if (o.first == "inplace_update_support") {
+        new_options->inplace_update_support = ParseBoolean(o.first, o.second);
       } else {
         return false;
       }

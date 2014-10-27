@@ -349,13 +349,12 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* ioptions = mem->GetImmutableOptions();
     auto* moptions = mem->GetMemTableOptions();
     if (!moptions->inplace_update_support) {
       mem->Add(sequence_, kTypeValue, key, value);
     } else if (moptions->inplace_callback == nullptr) {
       mem->Update(sequence_, key, value);
-      RecordTick(ioptions->statistics, NUMBER_KEYS_UPDATED);
+      RecordTick(moptions->statistics, NUMBER_KEYS_UPDATED);
     } else {
       if (mem->UpdateCallback(sequence_, key, value)) {
       } else {
@@ -382,11 +381,11 @@ class MemTableInserter : public WriteBatch::Handler {
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
           mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
-          RecordTick(ioptions->statistics, NUMBER_KEYS_WRITTEN);
+          RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
           mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
-          RecordTick(ioptions->statistics, NUMBER_KEYS_WRITTEN);
+          RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
       }
     }
@@ -406,7 +405,6 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* ioptions = mem->GetImmutableOptions();
     auto* moptions = mem->GetMemTableOptions();
     bool perform_merge = false;
 
@@ -441,16 +439,16 @@ class MemTableInserter : public WriteBatch::Handler {
       Slice get_value_slice = Slice(get_value);
 
       // 2) Apply this merge
-      auto merge_operator = ioptions->merge_operator;
+      auto merge_operator = moptions->merge_operator;
       assert(merge_operator);
 
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
       if (!merge_operator->FullMerge(key, &get_value_slice, operands,
-                                     &new_value, ioptions->info_log)) {
+                                     &new_value, moptions->info_log)) {
           // Failed to merge!
-        RecordTick(ioptions->statistics, NUMBER_MERGE_FAILURES);
+        RecordTick(moptions->statistics, NUMBER_MERGE_FAILURES);
 
         // Store the delta in memtable
         perform_merge = false;
@@ -477,7 +475,6 @@ class MemTableInserter : public WriteBatch::Handler {
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* ioptions = mem->GetImmutableOptions();
     auto* moptions = mem->GetMemTableOptions();
     if (!dont_filter_deletes_ && moptions->filter_deletes) {
       SnapshotImpl read_from_snapshot;
@@ -490,7 +487,7 @@ class MemTableInserter : public WriteBatch::Handler {
         cf_handle = db_->DefaultColumnFamily();
       }
       if (!db_->KeyMayExist(ropts, cf_handle, key, &value)) {
-        RecordTick(ioptions->statistics, NUMBER_FILTERED_DELETES);
+        RecordTick(moptions->statistics, NUMBER_FILTERED_DELETES);
         return Status::OK();
       }
     }
