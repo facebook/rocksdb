@@ -13,6 +13,7 @@
 #include <jni.h>
 #include <limits>
 #include <string>
+#include <vector>
 
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
@@ -588,6 +589,50 @@ class ListJni {
         getListClass(env), "add", "(Ljava/lang/Object;)Z");
     assert(mid != nullptr);
     return mid;
+  }
+};
+
+class BackupInfoJni {
+ public:
+  // Get the java class id of org.rocksdb.BackupInfo.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/BackupInfo");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  static jobject construct0(JNIEnv* env, uint32_t backup_id, int64_t timestamp,
+      uint64_t size, uint32_t number_files) {
+    static jmethodID mid = env->GetMethodID(getJClass(env), "<init>",
+        "(IJJI)V");
+    assert(mid != nullptr);
+    return env->NewObject(getJClass(env), mid,
+        backup_id, timestamp, size, number_files);
+  }
+};
+
+class BackupInfoListJni {
+ public:
+  static jobject getBackupInfo(JNIEnv* env,
+      std::vector<BackupInfo> backup_infos) {
+    jclass jclazz = env->FindClass("java/util/ArrayList");
+    jmethodID mid = rocksdb::ListJni::getArrayListConstructorMethodId(
+        env, jclazz);
+    jobject jbackup_info_handle_list = env->NewObject(jclazz, mid,
+        backup_infos.size());
+    // insert in java list
+    for (std::vector<rocksdb::BackupInfo>::size_type i = 0;
+        i != backup_infos.size(); i++) {
+      rocksdb::BackupInfo backup_info = backup_infos[i];
+      jobject obj = rocksdb::BackupInfoJni::construct0(env,
+          backup_info.backup_id,
+          backup_info.timestamp,
+          backup_info.size,
+          backup_info.number_files);
+      env->CallBooleanMethod(jbackup_info_handle_list,
+          rocksdb::ListJni::getListAddMethodId(env), obj);
+    }
+    return jbackup_info_handle_list;
   }
 };
 

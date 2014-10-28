@@ -15,7 +15,6 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
     const ComparatorJniCallbackOptions* copt)
     : mtx_compare(new port::Mutex(copt->use_adaptive_mutex)),
     mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)) {
-
   // Note: Comparator methods may be accessed by multiple threads,
   // so we ref the jvm not the env
   const jint rs = env->GetJavaVM(&m_jvm);
