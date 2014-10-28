@@ -219,15 +219,15 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     if (!seek_to_first) {
       user_key = ExtractUserKey(internal_key);
     }
-    auto* files = sv_->current->files_;
-    for (uint32_t i = 0; i < files[0].size(); ++i) {
+    const std::vector<FileMetaData*>& l0 = sv_->current->LevelFiles(0);
+    for (uint32_t i = 0; i < l0.size(); ++i) {
       if (seek_to_first) {
         l0_iters_[i]->SeekToFirst();
       } else {
         // If the target key passes over the larget key, we are sure Next()
         // won't go over this file.
         if (user_comparator_->Compare(user_key,
-              files[0][i]->largest.user_key()) > 0) {
+              l0[i]->largest.user_key()) > 0) {
           continue;
         }
         l0_iters_[i]->Seek(internal_key);
@@ -248,64 +248,63 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     int32_t search_left_bound = 0;
     int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
     for (int32_t level = 1; level < sv_->current->NumberLevels(); ++level) {
-      if (files[level].empty()) {
+      const std::vector<FileMetaData*>& level_files =
+        sv_->current->LevelFiles(level);
+      if (level_files.empty()) {
         search_left_bound = 0;
         search_right_bound = FileIndexer::kLevelMaxIndex;
         continue;
       }
       assert(level_iters_[level - 1] != nullptr);
       uint32_t f_idx = 0;
+      const auto& indexer = sv_->current->GetIndexer();
       if (!seek_to_first) {
-        // TODO(ljin): remove before committing
-        // f_idx = FindFileInRange(
-        //    files[level], internal_key, 0, files[level].size());
-
         if (search_left_bound == search_right_bound) {
           f_idx = search_left_bound;
         } else if (search_left_bound < search_right_bound) {
           f_idx = FindFileInRange(
-              files[level], internal_key, search_left_bound,
+              level_files, internal_key, search_left_bound,
               search_right_bound == FileIndexer::kLevelMaxIndex ?
-                files[level].size() : search_right_bound);
+                level_files.size() : search_right_bound);
         } else {
           // search_left_bound > search_right_bound
           // There are only 2 cases this can happen:
           // (1) target key is smaller than left most file
           // (2) target key is larger than right most file
-          assert(search_left_bound == (int32_t)files[level].size() ||
+          assert(search_left_bound == (int32_t)level_files.size() ||
                  search_right_bound == -1);
           if (search_right_bound == -1) {
             assert(search_left_bound == 0);
             f_idx = 0;
           } else {
-            sv_->current->file_indexer_.GetNextLevelIndex(
-                level, files[level].size() - 1,
+            indexer.GetNextLevelIndex(
+                level, level_files.size() - 1,
                 1, 1, &search_left_bound, &search_right_bound);
             continue;
           }
         }
 
         // Prepare hints for the next level
-        if (f_idx < files[level].size()) {
+        if (f_idx < level_files.size()) {
           int cmp_smallest = user_comparator_->Compare(
-              user_key, files[level][f_idx]->smallest.user_key());
+              user_key, level_files[f_idx]->smallest.user_key());
           int cmp_largest = -1;
           if (cmp_smallest >= 0) {
             cmp_smallest = user_comparator_->Compare(
-                user_key, files[level][f_idx]->smallest.user_key());
+                user_key, level_files[f_idx]->smallest.user_key());
           }
-          sv_->current->file_indexer_.GetNextLevelIndex(level, f_idx,
+          indexer.GetNextLevelIndex(level, f_idx,
               cmp_smallest, cmp_largest,
               &search_left_bound, &search_right_bound);
         } else {
-          sv_->current->file_indexer_.GetNextLevelIndex(
-              level, files[level].size() - 1,
+          indexer.GetNextLevelIndex(
+              level, level_files.size() - 1,
               1, 1, &search_left_bound, &search_right_bound);
         }
       }
 
       // Seek
-      if (f_idx < files[level].size()) {
+      if (f_idx < level_files.size()) {
         level_iters_[level - 1]->SetFileIndex(f_idx);
         seek_to_first ? level_iters_[level - 1]->SeekToFirst() :
                         level_iters_[level - 1]->Seek(internal_key);
@@ -428,7 +427,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
-  const auto& l0_files = sv_->current->files_[0];
+  const auto& l0_files = sv_->current->LevelFiles(0);
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
@@ -436,11 +435,12 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   level_iters_.reserve(sv_->current->NumberLevels() - 1);
   for (int32_t level = 1; level < sv_->current->NumberLevels(); ++level) {
-    if (sv_->current->files_[level].empty()) {
+    const auto& level_files = sv_->current->LevelFiles(level);
+    if (level_files.empty()) {
       level_iters_.push_back(nullptr);
     } else {
-      level_iters_.push_back(new LevelIterator(cfd_, read_options_,
-          sv_->current->files_[level]));
+      level_iters_.push_back(
+          new LevelIterator(cfd_, read_options_, level_files));
     }
   }
 
@@ -449,7 +449,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
 }
 
 void ForwardIterator::ResetIncompleteIterators() {
-  const auto& l0_files = sv_->current->files_[0];
+  const auto& l0_files = sv_->current->LevelFiles(0);
   for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
     assert(i < l0_files.size());
     if (!l0_iters_[i]->status().IsIncomplete()) {

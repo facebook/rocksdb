@@ -42,9 +42,9 @@ class FileIndexer {
  public:
   explicit FileIndexer(const Comparator* ucmp);
 
-  uint32_t NumLevelIndex();
+  uint32_t NumLevelIndex() const;
 
-  uint32_t LevelIndexSize(uint32_t level);
+  uint32_t LevelIndexSize(uint32_t level) const;
 
   // Return a file index range in the next level to search for a key based on
   // smallest and largest key comparision for the current file specified by
@@ -52,7 +52,7 @@ class FileIndexer {
   // be valid and fit in the vector size.
   void GetNextLevelIndex(
     const uint32_t level, const uint32_t file_index, const int cmp_smallest,
-    const int cmp_largest, int32_t* left_bound, int32_t* right_bound);
+    const int cmp_largest, int32_t* left_bound, int32_t* right_bound) const;
 
   void UpdateIndex(Arena* arena, const uint32_t num_levels,
                    std::vector<FileMetaData*>* const files);

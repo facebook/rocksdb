@@ -297,10 +297,15 @@ class Version {
     return next_;
   }
 
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  const FileIndexer& GetIndexer() const {
+    assert(finalized_);
+    return file_indexer_;
+  }
+
  private:
   friend class VersionSet;
   friend class DBImpl;
-  friend class ForwardIterator;
   friend class InternalStats;
 
   class LevelFileNumIterator;
