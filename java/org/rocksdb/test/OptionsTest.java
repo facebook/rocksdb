@@ -44,6 +44,13 @@ public class OptionsTest {
       assert(opt.paranoidChecks() == boolValue);
     }
 
+    {
+      // MaxTotalWalSize test
+      long longValue = rand.nextLong();
+      opt.setMaxTotalWalSize(longValue);
+      assert(opt.maxTotalWalSize() == longValue);
+    }
+
     { // MaxOpenFiles test
       int intValue = rand.nextInt();
       opt.setMaxOpenFiles(intValue);
@@ -264,9 +271,9 @@ public class OptionsTest {
     }
 
     { // TargetFileSizeBase test
-      int intValue = rand.nextInt();
-      opt.setTargetFileSizeBase(intValue);
-      assert(opt.targetFileSizeBase() == intValue);
+      long longValue = rand.nextLong();
+      opt.setTargetFileSizeBase(longValue);
+      assert(opt.targetFileSizeBase() == longValue);
     }
 
     { // TargetFileSizeMultiplier test
