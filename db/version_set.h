@@ -41,7 +41,6 @@ namespace rocksdb {
 namespace log { class Writer; }
 
 class Compaction;
-class CompactionPicker;
 class Iterator;
 class LogBuffer;
 class LookupKey;
@@ -87,7 +86,6 @@ class Version {
   // Append to *iters a sequence of iterators that will
   // yield the contents of this Version when merged together.
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-
   void AddIterators(const ReadOptions&, const EnvOptions& soptions,
                     MergeIteratorBuilder* merger_iter_builder);
 
@@ -179,8 +177,11 @@ class Version {
 
   int NumberLevels() const { return num_levels_; }
 
-  // REQUIRES: lock is held
-  int NumLevelFiles(int level) const { return files_[level].size(); }
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  int NumLevelFiles(int level) const {
+    assert(finalized_);
+    return files_[level].size();
+  }
 
   // Return the combined file size of all files at the specified level.
   uint64_t NumLevelBytes(int level) const;
@@ -242,19 +243,31 @@ class Version {
 
   size_t GetMemoryUsageByTableReaders();
 
-  // used to sort files by size
-  struct Fsize {
-    int index;
-    FileMetaData* file;
-  };
+  ColumnFamilyData* cfd() const { return cfd_; }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  const std::vector<FileMetaData*>& LevelFiles(int level) const {
+    assert(finalized_);
+    return files_[level];
+  }
+
+  // REQUIRES: lock is held
+  // Set the index that is used to offset into files_by_size_ to find
+  // the next compaction candidate file.
+  void SetNextCompactionIndex(int level, int index) {
+    next_file_to_compact_by_size_[level] = index;
+  }
+
+  // REQUIRES: lock is held
+  int NextCompactionIndex(int level) const {
+    return next_file_to_compact_by_size_[level];
+  }
 
  private:
-  friend class Compaction;
   friend class VersionSet;
   friend class DBImpl;
   friend class CompactedDBImpl;
   friend class ColumnFamilyData;
-  friend class CompactionPicker;
   friend class LevelCompactionPicker;
   friend class UniversalCompactionPicker;
   friend class FIFOCompactionPicker;
@@ -356,13 +369,11 @@ class Version {
   // the number of samples
   uint64_t num_samples_;
 
-  ~Version();
+  // Used to assert APIs that are only safe to use after the version
+  // is finalized
+  bool finalized_;
 
-  // re-initializes the index that is used to offset into files_by_size_
-  // to find the next compaction candidate file.
-  void ResetNextCompactionIndex(int level) {
-    next_file_to_compact_by_size_[level] = 0;
-  }
+  ~Version();
 
   // No copying allowed
   Version(const Version&);

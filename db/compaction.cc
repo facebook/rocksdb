@@ -41,7 +41,7 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
       input_version_(input_version),
       number_levels_(input_version_->NumberLevels()),
-      cfd_(input_version_->cfd_),
+      cfd_(input_version_->cfd()),
       output_path_id_(output_path_id),
       output_compression_(output_compression),
       seek_compaction_(seek_compaction),
@@ -119,7 +119,7 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(const Slice& user_key) {
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files = input_version_->files_[lvl];
+    const std::vector<FileMetaData*>& files = input_version_->LevelFiles(lvl);
     for (; level_ptrs_[lvl] < files.size(); ) {
       FileMetaData* f = files[level_ptrs_[lvl]];
       if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
@@ -217,7 +217,7 @@ void Compaction::ReleaseCompactionFiles(Status status) {
 }
 
 void Compaction::ResetNextCompactionIndex() {
-  input_version_->ResetNextCompactionIndex(start_level_);
+  input_version_->SetNextCompactionIndex(start_level_, 0);
 }
 
 namespace {

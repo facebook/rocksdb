@@ -331,7 +331,7 @@ Compaction* CompactionPicker::CompactRange(
     delete c;
     Log(ioptions_.info_log,
         "[%s] Could not compact due to expansion failure.\n",
-        version->cfd_->GetName().c_str());
+        version->cfd()->GetName().c_str());
     return nullptr;
   }
 
@@ -455,22 +455,21 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
 
   // Pick the largest file in this level that is not already
   // being compacted
-  std::vector<int>& file_size = c->input_version_->files_by_size_[level];
+  std::vector<int>& file_size = version->files_by_size_[level];
 
   // record the first file that is not yet compacted
   int nextIndex = -1;
 
-  for (unsigned int i = c->input_version_->next_file_to_compact_by_size_[level];
+  for (unsigned int i = version->NextCompactionIndex(level);
        i < file_size.size(); i++) {
     int index = file_size[i];
-    FileMetaData* f = c->input_version_->files_[level][index];
+    FileMetaData* f = version->files_[level][index];
 
     // Check to verify files are arranged in descending compensated size.
     assert((i == file_size.size() - 1) ||
            (i >= Version::number_of_files_to_sort_ - 1) ||
            (f->compensated_file_size >=
-            c->input_version_->files_[level][file_size[i + 1]]->
-                compensated_file_size));
+            version->files_[level][file_size[i + 1]]->compensated_file_size));
 
     // do not pick a file to compact if it is being compacted
     // from n-1 level.
@@ -486,7 +485,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
     // Do not pick this file if its parents at level+1 are being compacted.
     // Maybe we can avoid redoing this work in SetupOtherInputs
     int parent_index = -1;
-    if (ParentRangeInCompaction(c->input_version_, &f->smallest, &f->largest,
+    if (ParentRangeInCompaction(version, &f->smallest, &f->largest,
                                 level, &parent_index)) {
       continue;
     }
@@ -502,7 +501,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   }
 
   // store where to start the iteration in the next call to PickCompaction
-  version->next_file_to_compact_by_size_[level] = nextIndex;
+  version->SetNextCompactionIndex(level,  nextIndex);
 
   return c;
 }

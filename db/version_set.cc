@@ -615,6 +615,8 @@ uint64_t Version::GetEstimatedActiveKeys() {
 void Version::AddIterators(const ReadOptions& read_options,
                            const EnvOptions& soptions,
                            MergeIteratorBuilder* merge_iter_builder) {
+  assert(finalized_);
+
   // Merge all level zero files together since they may overlap
   for (size_t i = 0; i < file_levels_[0].num_files; i++) {
     const auto& file = file_levels_[0].files[i];
@@ -675,7 +677,8 @@ Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
       accumulated_raw_value_size_(0),
       accumulated_num_non_deletions_(0),
       accumulated_num_deletions_(0),
-      num_samples_(0) {
+      num_samples_(0),
+      finalized_(false) {
   if (cfd != nullptr && cfd->current() != nullptr) {
       accumulated_file_size_ = cfd->current()->accumulated_file_size_;
       accumulated_raw_key_size_ = cfd->current()->accumulated_raw_key_size_;
@@ -942,13 +945,20 @@ void Version::ComputeCompactionScore(
 }
 
 namespace {
+
+// used to sort files by size
+struct Fsize {
+  int index;
+  FileMetaData* file;
+};
+
 // Compator that is used to sort files based on their size
 // In normal mode: descending size
-bool CompareCompensatedSizeDescending(const Version::Fsize& first,
-                                      const Version::Fsize& second) {
+bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
   return (first.file->compensated_file_size >
       second.file->compensated_file_size);
 }
+
 } // anonymous namespace
 
 void Version::UpdateNumNonEmptyLevels() {
@@ -1683,6 +1693,9 @@ VersionSet::~VersionSet() {
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
+  // Mark v finalized
+  v->finalized_ = true;
+
   // Make "v" current
   assert(v->refs_ == 0);
   Version* current = column_family_data->current();
