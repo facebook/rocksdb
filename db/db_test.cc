@@ -9072,7 +9072,7 @@ TEST(DBTest, PartialCompactionFailure) {
   // all flushes succeeed.
   env_->periodic_non_writable_ =
       kNumInitialNewWritableFiles + kNumLevel0FlushNewWritableFiles +
-      kNumLevel1NewWritableFiles - 3;
+      kNumLevel1NewWritableFiles - 2;
   options.env = env_;
 
   DestroyAndReopen(&options);
@@ -9080,7 +9080,7 @@ TEST(DBTest, PartialCompactionFailure) {
   const int kNumKeys =
       options.level0_file_num_compaction_trigger *
       (options.max_write_buffer_number - 1) *
-      kKeysPerBuffer * 1.0;
+      kKeysPerBuffer * 0.95;
 
   Random rnd(301);
   std::vector<std::string> keys;
