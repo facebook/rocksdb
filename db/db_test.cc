@@ -9061,18 +9061,6 @@ TEST(DBTest, PartialCompactionFailure) {
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
 
-  // The number of NewWritableFiles calls required by each operation.
-  const int kNumInitialNewWritableFiles = 4;
-  const int kNumLevel0FlushNewWritableFiles =
-      options.level0_file_num_compaction_trigger * 2;
-  const int kNumLevel1NewWritableFiles =
-      options.level0_file_num_compaction_trigger + 1;
-  // This setting will make one of the file-creation fail
-  // in the first L0 -> L1 compaction while making sure
-  // all flushes succeeed.
-  env_->periodic_non_writable_ =
-      kNumInitialNewWritableFiles + kNumLevel0FlushNewWritableFiles +
-      kNumLevel1NewWritableFiles - 2;
   options.env = env_;
 
   DestroyAndReopen(&options);
@@ -9080,7 +9068,7 @@ TEST(DBTest, PartialCompactionFailure) {
   const int kNumKeys =
       options.level0_file_num_compaction_trigger *
       (options.max_write_buffer_number - 1) *
-      kKeysPerBuffer * 0.95;
+      kKeysPerBuffer;
 
   Random rnd(301);
   std::vector<std::string> keys;
@@ -9096,6 +9084,15 @@ TEST(DBTest, PartialCompactionFailure) {
   ASSERT_GE(NumTableFilesAtLevel(0),
             options.level0_file_num_compaction_trigger);
   auto previous_num_level0_files = NumTableFilesAtLevel(0);
+
+  // The number of NewWritableFiles calls required by each operation.
+  const int kNumLevel1NewWritableFiles =
+      options.level0_file_num_compaction_trigger + 1;
+  // This setting will make one of the file-creation fail
+  // in the first L0 -> L1 compaction while making sure
+  // all flushes succeeed.
+  env_->periodic_non_writable_ = kNumLevel1NewWritableFiles - 2;
+
   // Expect compaction to fail here as one file will fail its
   // creation.
   dbfull()->TEST_WaitForCompact();
@@ -9108,6 +9105,8 @@ TEST(DBTest, PartialCompactionFailure) {
   for (int k = 0; k < kNumKeys; ++k) {
     ASSERT_EQ(values[k], Get(keys[k]));
   }
+
+  env_->periodic_non_writable_ = 0;
 
   // Make sure RocksDB will not get into corrupted state.
   Reopen(&options);
