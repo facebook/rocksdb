@@ -1740,9 +1740,8 @@ void Java_org_rocksdb_Options_prepareForBulkLoad(
  */
 void Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
     JNIEnv* env, jobject jobj) {
-  // TODO(fyrz) needs to be enabled back when ColumnFamilyOptions are available
-  // rocksdb::ColumnFamilyOptions* op = new rocksdb::ColumnFamilyOptions();
-  // rocksdb::ColumnFamilyOptionsJni::setHandle(env, jobj, op);
+  rocksdb::ColumnFamilyOptions* op = new rocksdb::ColumnFamilyOptions();
+  rocksdb::ColumnFamilyOptionsJni::setHandle(env, jobj, op);
 }
 
 /*
