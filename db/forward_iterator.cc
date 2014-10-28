@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 
+#include "db/job_context.h"
 #include "db/db_impl.h"
 #include "db/db_iter.h"
 #include "db/column_family.h"
@@ -155,14 +156,14 @@ void ForwardIterator::Cleanup(bool release_sv) {
 
   if (release_sv) {
     if (sv_ != nullptr && sv_->Unref()) {
-      DBImpl::DeletionState deletion_state;
+      JobContext job_context;
       db_->mutex_.Lock();
       sv_->Cleanup();
-      db_->FindObsoleteFiles(deletion_state, false, true);
+      db_->FindObsoleteFiles(&job_context, false, true);
       db_->mutex_.Unlock();
       delete sv_;
-      if (deletion_state.HaveSomethingToDelete()) {
-        db_->PurgeObsoleteFiles(deletion_state);
+      if (job_context.HaveSomethingToDelete()) {
+        db_->PurgeObsoleteFiles(job_context);
       }
     }
   }

@@ -35,6 +35,7 @@
 #include "db/write_controller.h"
 #include "db/flush_scheduler.h"
 #include "db/write_thread.h"
+#include "db/job_context.h"
 
 namespace rocksdb {
 
@@ -223,88 +224,19 @@ class DBImpl : public DB {
   void TEST_EndWrite(void* w);
 #endif  // NDEBUG
 
-  // Structure to store information for candidate files to delete.
-  struct CandidateFileInfo {
-    std::string file_name;
-    uint32_t path_id;
-    CandidateFileInfo(std::string name, uint32_t path)
-        : file_name(name), path_id(path) {}
-    bool operator==(const CandidateFileInfo& other) const {
-      return file_name == other.file_name && path_id == other.path_id;
-    }
-  };
-
-  // needed for CleanupIteratorState
-  struct DeletionState {
-    inline bool HaveSomethingToDelete() const {
-      return  candidate_files.size() ||
-        sst_delete_files.size() ||
-        log_delete_files.size();
-    }
-
-    // a list of all files that we'll consider deleting
-    // (every once in a while this is filled up with all files
-    // in the DB directory)
-    std::vector<CandidateFileInfo> candidate_files;
-
-    // the list of all live sst files that cannot be deleted
-    std::vector<FileDescriptor> sst_live;
-
-    // a list of sst files that we need to delete
-    std::vector<FileMetaData*> sst_delete_files;
-
-    // a list of log files that we need to delete
-    std::vector<uint64_t> log_delete_files;
-
-    // a list of memtables to be free
-    autovector<MemTable*> memtables_to_free;
-
-    autovector<SuperVersion*> superversions_to_free;
-
-    SuperVersion* new_superversion;  // if nullptr no new superversion
-
-    // the current manifest_file_number, log_number and prev_log_number
-    // that corresponds to the set of files in 'live'.
-    uint64_t manifest_file_number, pending_manifest_file_number, log_number,
-        prev_log_number;
-
-    explicit DeletionState(bool create_superversion = false) {
-      manifest_file_number = 0;
-      pending_manifest_file_number = 0;
-      log_number = 0;
-      prev_log_number = 0;
-      new_superversion = create_superversion ? new SuperVersion() : nullptr;
-    }
-
-    ~DeletionState() {
-      // free pending memtables
-      for (auto m : memtables_to_free) {
-        delete m;
-      }
-      // free superversions
-      for (auto s : superversions_to_free) {
-        delete s;
-      }
-      // if new_superversion was not used, it will be non-nullptr and needs
-      // to be freed here
-      delete new_superversion;
-    }
-  };
-
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
   // If force == false and the last call was less than
   // db_options_.delete_obsolete_files_period_micros microseconds ago,
-  // it will not fill up the deletion_state
-  void FindObsoleteFiles(DeletionState& deletion_state,
-                         bool force,
+  // it will not fill up the job_context
+  void FindObsoleteFiles(JobContext* job_context, bool force,
                          bool no_full_scan = false);
 
   // Diffs the files listed in filenames and those that do not
   // belong to live files are posibly removed. Also, removes all the
   // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
-  void PurgeObsoleteFiles(DeletionState& deletion_state);
+  void PurgeObsoleteFiles(const JobContext& background_contet);
 
   ColumnFamilyHandle* DefaultColumnFamily() const;
 
@@ -347,9 +279,10 @@ class DBImpl : public DB {
 
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
-  Status FlushMemTableToOutputFile(
-      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-      bool* madeProgress, DeletionState& deletion_state, LogBuffer* log_buffer);
+  Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
+                                   const MutableCFOptions& mutable_cf_options,
+                                   bool* madeProgress, JobContext* job_context,
+                                   LogBuffer* log_buffer);
 
   // REQUIRES: log_numbers are sorted in ascending order
   Status RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
@@ -362,11 +295,6 @@ class DBImpl : public DB {
   // concurrent flush memtables to storage.
   Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
                                      VersionEdit* edit);
-  Status WriteLevel0Table(ColumnFamilyData* cfd,
-      const MutableCFOptions& mutable_cf_options,
-      const autovector<MemTable*>& mems,
-      VersionEdit* edit, uint64_t* filenumber, LogBuffer* log_buffer);
-
   Status DelayWrite(uint64_t expiration_time);
 
   Status ScheduleFlushes(WriteContext* context);
@@ -388,39 +316,32 @@ class DBImpl : public DB {
   static void BGWorkFlush(void* db);
   void BackgroundCallCompaction();
   void BackgroundCallFlush();
-  Status BackgroundCompaction(bool* madeProgress, DeletionState& deletion_state,
+  Status BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                               LogBuffer* log_buffer);
-  Status BackgroundFlush(bool* madeProgress, DeletionState& deletion_state,
+  Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
   void CleanupCompaction(CompactionState* compact, Status status);
   Status DoCompactionWork(CompactionState* compact,
                           const MutableCFOptions& mutable_cf_options,
-                          DeletionState& deletion_state,
-                          LogBuffer* log_buffer);
+                          JobContext* job_context, LogBuffer* log_buffer);
 
   // This function is called as part of compaction. It enables Flush process to
   // preempt compaction, since it's higher prioirty
   // Returns: micros spent executing
   uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
-      const MutableCFOptions& mutable_cf_options, DeletionState& deletion_state,
-      LogBuffer* log_buffer);
+                                     const MutableCFOptions& mutable_cf_options,
+                                     JobContext* job_context,
+                                     LogBuffer* log_buffer);
 
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs
   Status ProcessKeyValueCompaction(
-    const MutableCFOptions& mutable_cf_options,
-    bool is_snapshot_supported,
-    SequenceNumber visible_at_tip,
-    SequenceNumber earliest_snapshot,
-    SequenceNumber latest_snapshot,
-    DeletionState& deletion_state,
-    bool bottommost_level,
-    int64_t& imm_micros,
-    Iterator* input,
-    CompactionState* compact,
-    bool is_compaction_v2,
-    int* num_output_records,
-    LogBuffer* log_buffer);
+      const MutableCFOptions& mutable_cf_options, bool is_snapshot_supported,
+      SequenceNumber visible_at_tip, SequenceNumber earliest_snapshot,
+      SequenceNumber latest_snapshot, JobContext* job_context,
+      bool bottommost_level, int64_t* imm_micros, Iterator* input,
+      CompactionState* compact, bool is_compaction_v2, int* num_output_records,
+      LogBuffer* log_buffer);
 
   // Call compaction_filter_v2->Filter() on kv-pairs in compact
   void CallCompactionFilterV2(CompactionState* compact,
@@ -624,11 +545,12 @@ class DBImpl : public DB {
     SequenceNumber* prev_snapshot);
 
   // Background threads call this function, which is just a wrapper around
-  // the cfd->InstallSuperVersion() function. Background threads carry
-  // deletion_state which can have new_superversion already allocated.
-  void InstallSuperVersion(ColumnFamilyData* cfd,
-                           DeletionState& deletion_state,
-                           const MutableCFOptions& mutable_cf_options);
+  // the InstallSuperVersion() function. Background threads carry
+  // job_context which can have new_superversion already
+  // allocated.
+  void InstallSuperVersionBackground(
+      ColumnFamilyData* cfd, JobContext* job_context,
+      const MutableCFOptions& mutable_cf_options);
 
   SuperVersion* InstallSuperVersion(
     ColumnFamilyData* cfd, SuperVersion* new_sv,

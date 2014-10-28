@@ -5,6 +5,11 @@
 //
 #include "db/memtable_list.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <string>
 #include "rocksdb/db.h"
 #include "db/memtable.h"
@@ -161,10 +166,10 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    const autovector<MemTable*>& mems, VersionSet* vset,
-    port::Mutex* mu, Logger* info_log, uint64_t file_number,
-    FileNumToPathIdMap* pending_outputs, autovector<MemTable*>* to_delete,
-    Directory* db_directory, LogBuffer* log_buffer) {
+    const autovector<MemTable*>& mems, VersionSet* vset, port::Mutex* mu,
+    uint64_t file_number, FileNumToPathIdMap* pending_outputs,
+    autovector<MemTable*>* to_delete, Directory* db_directory,
+    LogBuffer* log_buffer) {
   mu->AssertHeld();
 
   // flush was sucessful
@@ -194,8 +199,8 @@ Status MemTableList::InstallMemtableFlushResults(
       break;
     }
 
-    LogToBuffer(log_buffer, "[%s] Level-0 commit table #%lu started",
-                cfd->GetName().c_str(), (unsigned long)m->file_number_);
+    LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64 " started",
+                cfd->GetName().c_str(), m->file_number_);
 
     // this can release and reacquire the mutex.
     s = vset->LogAndApply(cfd, mutable_cf_options, &m->edit_, mu, db_directory);
@@ -209,10 +214,9 @@ Status MemTableList::InstallMemtableFlushResults(
     uint64_t mem_id = 1;  // how many memtables has been flushed.
     do {
       if (s.ok()) { // commit new state
-        LogToBuffer(log_buffer,
-                    "[%s] Level-0 commit table #%lu: memtable #%lu done",
-                    cfd->GetName().c_str(), (unsigned long)m->file_number_,
-                    (unsigned long)mem_id);
+        LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
+                                ": memtable #%" PRIu64 " done",
+                    cfd->GetName().c_str(), m->file_number_, mem_id);
         current_->Remove(m);
         assert(m->file_number_ > 0);
 
@@ -226,10 +230,9 @@ Status MemTableList::InstallMemtableFlushResults(
         }
       } else {
         //commit failed. setup state so that we can flush again.
-        Log(info_log,
-            "Level-0 commit table #%lu: memtable #%lu failed",
-            (unsigned long)m->file_number_,
-            (unsigned long)mem_id);
+        LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
+                                ": memtable #%" PRIu64 " failed",
+                    m->file_number_, mem_id);
         m->flush_completed_ = false;
         m->flush_in_progress_ = false;
         m->edit_.Clear();

@@ -42,7 +42,7 @@ Status DBImpl::DisableFileDeletions() {
 }
 
 Status DBImpl::EnableFileDeletions(bool force) {
-  DeletionState deletion_state;
+  JobContext job_context;
   bool should_purge_files = false;
   {
     MutexLock l(&mutex_);
@@ -55,7 +55,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
     if (disable_delete_obsolete_files_ == 0)  {
       Log(db_options_.info_log, "File Deletions Enabled");
       should_purge_files = true;
-      FindObsoleteFiles(deletion_state, true);
+      FindObsoleteFiles(&job_context, true);
     } else {
       Log(db_options_.info_log,
           "File Deletions Enable, but not really enabled. Counter: %d",
@@ -63,7 +63,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
     }
   }
   if (should_purge_files)  {
-    PurgeObsoleteFiles(deletion_state);
+    PurgeObsoleteFiles(job_context);
   }
   LogFlush(db_options_.info_log);
   return Status::OK();

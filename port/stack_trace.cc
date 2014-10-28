@@ -74,7 +74,7 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
   // out source to atos, for the address translation
   const int kLineMax = 256;
   char cmd[kLineMax];
-  snprintf(cmd, kLineMax, "xcrun atos %p -p %d  2>&1", frame, pid);
+  snprintf(cmd, kLineMax, "xcrun atos -d %p -p %d  2>&1", frame, pid);
   auto f = popen(cmd, "r");
   if (f) {
     char line[kLineMax];

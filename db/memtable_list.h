@@ -114,10 +114,10 @@ class MemTableList {
   // Commit a successful flush in the manifest file
   Status InstallMemtableFlushResults(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-      const autovector<MemTable*>& m, VersionSet* vset,
-      port::Mutex* mu, Logger* info_log, uint64_t file_number,
-      FileNumToPathIdMap* pending_outputs, autovector<MemTable*>* to_delete,
-      Directory* db_directory, LogBuffer* log_buffer);
+      const autovector<MemTable*>& m, VersionSet* vset, port::Mutex* mu,
+      uint64_t file_number, FileNumToPathIdMap* pending_outputs,
+      autovector<MemTable*>* to_delete, Directory* db_directory,
+      LogBuffer* log_buffer);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

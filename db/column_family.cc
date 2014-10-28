@@ -20,6 +20,7 @@
 #include <limits>
 
 #include "db/db_impl.h"
+#include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/internal_stats.h"
 #include "db/compaction_picker.h"
@@ -71,15 +72,15 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(ColumnFamilyData* cfd,
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
-    DBImpl::DeletionState deletion_state;
+    JobContext job_context;
     mutex_->Lock();
     if (cfd_->Unref()) {
       delete cfd_;
     }
-    db_->FindObsoleteFiles(deletion_state, false, true);
+    db_->FindObsoleteFiles(&job_context, false, true);
     mutex_->Unlock();
-    if (deletion_state.HaveSomethingToDelete()) {
-      db_->PurgeObsoleteFiles(deletion_state);
+    if (job_context.HaveSomethingToDelete()) {
+      db_->PurgeObsoleteFiles(job_context);
     }
   }
 }
