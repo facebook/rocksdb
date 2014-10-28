@@ -308,9 +308,6 @@ class Version {
   friend class DBImpl;
   friend class InternalStats;
 
-  class LevelFileNumIterator;
-  class LevelFileIteratorState;
-
   bool PrefixMayMatch(const ReadOptions& read_options, Iterator* level_iter,
                       const Slice& internal_prefix) const;
 

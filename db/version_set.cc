@@ -417,12 +417,14 @@ bool SomeFileOverlapsRange(
   return !BeforeFile(ucmp, largest_user_key, &file_level.files[index]);
 }
 
+namespace {
+
 // An internal iterator.  For a given version/level pair, yields
 // information about the files in the level.  For a given entry, key()
 // is the largest key that occurs in the file, and value() is an
 // 16-byte value containing the file number and file size, both
 // encoded using EncodeFixed64.
-class Version::LevelFileNumIterator : public Iterator {
+class LevelFileNumIterator : public Iterator {
  public:
   LevelFileNumIterator(const InternalKeyComparator& icmp,
                        const LevelFilesBrief* flevel)
@@ -473,7 +475,7 @@ class Version::LevelFileNumIterator : public Iterator {
   mutable FileDescriptor current_value_;
 };
 
-class Version::LevelFileIteratorState : public TwoLevelIteratorState {
+class LevelFileIteratorState : public TwoLevelIteratorState {
  public:
   LevelFileIteratorState(TableCache* table_cache,
     const ReadOptions& read_options, const EnvOptions& env_options,
@@ -508,6 +510,8 @@ class Version::LevelFileIteratorState : public TwoLevelIteratorState {
   const InternalKeyComparator& icomparator_;
   bool for_compaction_;
 };
+
+}  // anonymous namespace
 
 Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
                                    const FileMetaData* file_meta,
@@ -2811,12 +2815,12 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
         }
       } else {
         // Create concatenating iterator for the files from this level
-        list[num++] = NewTwoLevelIterator(new Version::LevelFileIteratorState(
+        list[num++] = NewTwoLevelIterator(new LevelFileIteratorState(
               cfd->table_cache(), read_options, env_options_,
               cfd->internal_comparator(), true /* for_compaction */,
               false /* prefix enabled */),
-            new Version::LevelFileNumIterator(cfd->internal_comparator(),
-                                              c->input_levels(which)));
+            new LevelFileNumIterator(cfd->internal_comparator(),
+                                     c->input_levels(which)));
       }
     }
   }
