@@ -60,13 +60,14 @@ public class Options extends RocksObject
   }
 
   /**
-   * Set appropriate parameters for bulk loading.
+   * <p>Set appropriate parameters for bulk loading.
    * The reason that this is a function that returns "this" instead of a
    * constructor is to enable chaining of multiple similar calls in the future.
+   * </p>
    *
-   * All data will be in level 0 without any automatic compaction.
+   * <p>All data will be in level 0 without any automatic compaction.
    * It's recommended to manually call CompactRange(NULL, NULL) before reading
-   * from the database, because otherwise the read can be very slow.
+   * from the database, because otherwise the read can be very slow.</p>
    *
    * @return the instance of the current Options.
    */
