@@ -20,12 +20,6 @@ public enum IndexType {
    */
   kHashSearch((byte) 1);
 
-  private final byte value_;
-
-  private IndexType(byte value) {
-    value_ = value;
-  }
-
   /**
    * Returns the byte value of the enumerations value
    *
@@ -34,4 +28,10 @@ public enum IndexType {
   public byte getValue() {
     return value_;
   }
+
+  private IndexType(byte value) {
+    value_ = value;
+  }
+
+  private final byte value_;
 }

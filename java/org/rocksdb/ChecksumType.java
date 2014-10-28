@@ -6,7 +6,7 @@
 package org.rocksdb;
 
 /**
- * Checksum types used in conjunction with BlockBasedTable..
+ * Checksum types used in conjunction with BlockBasedTable.
  */
 public enum ChecksumType {
   /**
@@ -22,12 +22,6 @@ public enum ChecksumType {
    */
   kxxHash((byte) 2);
 
-  private final byte value_;
-
-  private ChecksumType(byte value) {
-    value_ = value;
-  }
-
   /**
    * Returns the byte value of the enumerations value
    *
@@ -36,4 +30,10 @@ public enum ChecksumType {
   public byte getValue() {
     return value_;
   }
+
+  private ChecksumType(byte value) {
+    value_ = value;
+  }
+
+  private final byte value_;
 }

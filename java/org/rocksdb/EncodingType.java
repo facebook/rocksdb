@@ -38,12 +38,6 @@ public enum EncodingType {
    */
   kPrefix((byte) 1);
 
-  private final byte value_;
-
-  private EncodingType(byte value) {
-    value_ = value;
-  }
-
   /**
    * Returns the byte value of the enumerations value
    *
@@ -52,4 +46,10 @@ public enum EncodingType {
   public byte getValue() {
     return value_;
   }
+
+  private EncodingType(byte value) {
+    value_ = value;
+  }
+
+  private final byte value_;
 }
