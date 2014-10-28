@@ -58,7 +58,7 @@ class MergeIteratorBuilder;
 // REQUIRES: "file_level.files" contains a sorted list of
 // non-overlapping files.
 extern int FindFile(const InternalKeyComparator& icmp,
-                    const FileLevel& file_level,
+                    const LevelFilesBrief& file_level,
                     const Slice& key);
 
 // Returns true iff some file in "files" overlaps the user key range
@@ -70,14 +70,14 @@ extern int FindFile(const InternalKeyComparator& icmp,
 extern bool SomeFileOverlapsRange(
     const InternalKeyComparator& icmp,
     bool disjoint_sorted_files,
-    const FileLevel& file_level,
+    const LevelFilesBrief& file_level,
     const Slice* smallest_user_key,
     const Slice* largest_user_key);
 
-// Generate FileLevel from vector<FdWithKeyRange*>
+// Generate LevelFilesBrief from vector<FdWithKeyRange*>
 // Would copy smallest_key and largest_key data to sequential memory
 // arena: Arena used to allocate the memory
-extern void DoGenerateFileLevel(FileLevel* file_level,
+extern void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
         const std::vector<FileMetaData*>& files,
         Arena* arena);
 
@@ -105,8 +105,8 @@ class Version {
       const MutableCFOptions& mutable_cf_options,
       std::vector<uint64_t>& size_being_compacted);
 
-  // Generate file_levels_ from files_
-  void GenerateFileLevels();
+  // Generate level_files_brief_ from files_
+  void GenerateLevelFilesBrief();
 
   // Update scores, pre-calculated variables. It needs to be called before
   // applying the version to the version set.
@@ -182,6 +182,12 @@ class Version {
                                  const Slice& largest_user_key);
 
   int NumberLevels() const { return num_levels_; }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  int NumNonEmptyLevels() const {
+    assert(finalized_);
+    return num_non_empty_levels_;
+  }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   int NumLevelFiles(int level) const {
@@ -263,6 +269,10 @@ class Version {
     return files_by_size_[level];
   }
 
+  const LevelFilesBrief& GetLevelFilesBrief(int level) const {
+    return level_files_brief_[level];
+  }
+
   // REQUIRES: lock is held
   // Set the index that is used to offset into files_by_size_ to find
   // the next compaction candidate file.
@@ -285,7 +295,6 @@ class Version {
  private:
   friend class VersionSet;
   friend class DBImpl;
-  friend class CompactedDBImpl;
   friend class ColumnFamilyData;
   friend class ForwardIterator;
   friend class InternalStats;
@@ -321,7 +330,8 @@ class Version {
   TableCache* table_cache_;
   const MergeOperator* merge_operator_;
 
-  autovector<FileLevel> file_levels_;   // A copy of list of files per level
+  // A short brief metadata of files per level
+  autovector<LevelFilesBrief> level_files_brief_;
   Logger* info_log_;
   Statistics* db_statistics_;
   int num_levels_;              // Number of levels
@@ -329,7 +339,7 @@ class Version {
                                 // is guaranteed to be empty.
   FileIndexer file_indexer_;
   VersionSet* vset_;            // VersionSet to which this Version belongs
-  Arena arena_;                 // Used to allocate space for file_levels_
+  Arena arena_;                 // Used to allocate space for level_files_brief_
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
   int refs_;                    // Number of live refs to this version

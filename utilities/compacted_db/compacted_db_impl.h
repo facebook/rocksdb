@@ -86,7 +86,7 @@ class CompactedDBImpl : public DBImpl {
   ColumnFamilyData* cfd_;
   Version* version_;
   const Comparator* user_comparator_;
-  FileLevel files_;
+  LevelFilesBrief files_;
 
   // No copying allowed
   CompactedDBImpl(const CompactedDBImpl&);

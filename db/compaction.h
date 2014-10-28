@@ -89,8 +89,8 @@ class Compaction {
     return &inputs_[compaction_input_level].files;
   }
 
-  // Returns the FileLevel of the specified compaction input level.
-  FileLevel* input_levels(int compaction_input_level) {
+  // Returns the LevelFilesBrief of the specified compaction input level.
+  LevelFilesBrief* input_levels(int compaction_input_level) {
     return &input_levels_[compaction_input_level];
   }
 
@@ -193,7 +193,7 @@ class Compaction {
   autovector<CompactionInputFiles> inputs_;
 
   // A copy of inputs_, organized more closely in memory
-  autovector<FileLevel, 2> input_levels_;
+  autovector<LevelFilesBrief, 2> input_levels_;
 
   // State used to check for number of of overlapping grandparent files
   // (grandparent == "output_level_ + 1")

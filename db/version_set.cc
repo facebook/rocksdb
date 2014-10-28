@@ -46,10 +46,10 @@ namespace rocksdb {
 
 namespace {
 
-// Find File in FileLevel data structure
+// Find File in LevelFilesBrief data structure
 // Within an index range defined by left and right
 int FindFileInRange(const InternalKeyComparator& icmp,
-    const FileLevel& file_level,
+    const LevelFilesBrief& file_level,
     const Slice& key,
     uint32_t left,
     uint32_t right) {
@@ -102,7 +102,7 @@ class FilePicker {
       std::vector<FileMetaData*>* files,
       const Slice& user_key,
       const Slice& ikey,
-      autovector<FileLevel>* file_levels,
+      autovector<LevelFilesBrief>* file_levels,
       unsigned int num_levels,
       FileIndexer* file_indexer,
       const Comparator* user_comparator,
@@ -114,7 +114,7 @@ class FilePicker {
 #ifndef NDEBUG
         files_(files),
 #endif
-        file_levels_(file_levels),
+        level_files_brief_(file_levels),
         user_key_(user_key),
         ikey_(ikey),
         file_indexer_(file_indexer),
@@ -124,8 +124,8 @@ class FilePicker {
     search_ended_ = !PrepareNextLevel();
     if (!search_ended_) {
       // Prefetch Level 0 table data to avoid cache miss if possible.
-      for (unsigned int i = 0; i < (*file_levels_)[0].num_files; ++i) {
-        auto* r = (*file_levels_)[0].files[i].fd.table_reader;
+      for (unsigned int i = 0; i < (*level_files_brief_)[0].num_files; ++i) {
+        auto* r = (*level_files_brief_)[0].files[i].fd.table_reader;
         if (r) {
           r->Prepare(ikey);
         }
@@ -225,9 +225,9 @@ class FilePicker {
 #ifndef NDEBUG
   std::vector<FileMetaData*>* files_;
 #endif
-  autovector<FileLevel>* file_levels_;
+  autovector<LevelFilesBrief>* level_files_brief_;
   bool search_ended_;
-  FileLevel* curr_file_level_;
+  LevelFilesBrief* curr_file_level_;
   unsigned int curr_index_in_curr_level_;
   unsigned int start_index_in_curr_level_;
   Slice user_key_;
@@ -244,7 +244,7 @@ class FilePicker {
   bool PrepareNextLevel() {
     curr_level_++;
     while (curr_level_ < num_levels_) {
-      curr_file_level_ = &(*file_levels_)[curr_level_];
+      curr_file_level_ = &(*level_files_brief_)[curr_level_];
       if (curr_file_level_->num_files == 0) {
         // When current level is empty, the search bound generated from upper
         // level must be [0, -1] or [0, FileIndexer::kLevelMaxIndex] if it is
@@ -331,12 +331,12 @@ Version::~Version() {
 }
 
 int FindFile(const InternalKeyComparator& icmp,
-             const FileLevel& file_level,
+             const LevelFilesBrief& file_level,
              const Slice& key) {
   return FindFileInRange(icmp, file_level, key, 0, file_level.num_files);
 }
 
-void DoGenerateFileLevel(FileLevel* file_level,
+void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
         const std::vector<FileMetaData*>& files,
         Arena* arena) {
   assert(file_level);
@@ -383,7 +383,7 @@ static bool BeforeFile(const Comparator* ucmp,
 bool SomeFileOverlapsRange(
     const InternalKeyComparator& icmp,
     bool disjoint_sorted_files,
-    const FileLevel& file_level,
+    const LevelFilesBrief& file_level,
     const Slice* smallest_user_key,
     const Slice* largest_user_key) {
   const Comparator* ucmp = icmp.user_comparator();
@@ -425,7 +425,7 @@ bool SomeFileOverlapsRange(
 class Version::LevelFileNumIterator : public Iterator {
  public:
   LevelFileNumIterator(const InternalKeyComparator& icmp,
-                       const FileLevel* flevel)
+                       const LevelFilesBrief* flevel)
       : icmp_(icmp),
         flevel_(flevel),
         index_(flevel->num_files),
@@ -468,7 +468,7 @@ class Version::LevelFileNumIterator : public Iterator {
   virtual Status status() const { return Status::OK(); }
  private:
   const InternalKeyComparator icmp_;
-  const FileLevel* flevel_;
+  const LevelFilesBrief* flevel_;
   uint32_t index_;
   mutable FileDescriptor current_value_;
 };
@@ -582,7 +582,7 @@ Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
 
 size_t Version::GetMemoryUsageByTableReaders() {
   size_t total_usage = 0;
-  for (auto& file_level : file_levels_) {
+  for (auto& file_level : level_files_brief_) {
     for (size_t i = 0; i < file_level.num_files; i++) {
       total_usage += cfd_->table_cache()->GetMemoryUsageByTableReader(
           vset_->env_options_, cfd_->internal_comparator(),
@@ -618,8 +618,8 @@ void Version::AddIterators(const ReadOptions& read_options,
   assert(finalized_);
 
   // Merge all level zero files together since they may overlap
-  for (size_t i = 0; i < file_levels_[0].num_files; i++) {
-    const auto& file = file_levels_[0].files[i];
+  for (size_t i = 0; i < level_files_brief_[0].num_files; i++) {
+    const auto& file = level_files_brief_[0].files[i];
     merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
         read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
         false, merge_iter_builder->GetArena()));
@@ -629,14 +629,14 @@ void Version::AddIterators(const ReadOptions& read_options,
   // walks through the non-overlapping files in the level, opening them
   // lazily.
   for (int level = 1; level < num_levels_; level++) {
-    if (file_levels_[level].num_files != 0) {
+    if (level_files_brief_[level].num_files != 0) {
       merge_iter_builder->AddIterator(NewTwoLevelIterator(
           new LevelFileIteratorState(
               cfd_->table_cache(), read_options, soptions,
               cfd_->internal_comparator(), false /* for_compaction */,
               cfd_->ioptions()->prefix_extractor != nullptr),
           new LevelFileNumIterator(cfd_->internal_comparator(),
-              &file_levels_[level]), merge_iter_builder->GetArena()));
+              &level_files_brief_[level]), merge_iter_builder->GetArena()));
     }
   }
 }
@@ -706,8 +706,9 @@ void Version::Get(const ReadOptions& read_options,
       db_statistics_, status->ok() ? GetContext::kNotFound : GetContext::kMerge,
       user_key, value, value_found, merge_context);
 
-  FilePicker fp(files_, user_key, ikey, &file_levels_, num_non_empty_levels_,
-      &file_indexer_, user_comparator_, internal_comparator_);
+  FilePicker fp(files_, user_key, ikey, &level_files_brief_,
+      num_non_empty_levels_, &file_indexer_, user_comparator_,
+      internal_comparator_);
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
     *status = table_cache_->Get(read_options, *internal_comparator_, f->fd,
@@ -758,10 +759,11 @@ void Version::Get(const ReadOptions& read_options,
   }
 }
 
-void Version::GenerateFileLevels() {
-  file_levels_.resize(num_non_empty_levels_);
+void Version::GenerateLevelFilesBrief() {
+  level_files_brief_.resize(num_non_empty_levels_);
   for (int level = 0; level < num_non_empty_levels_; level++) {
-    DoGenerateFileLevel(&file_levels_[level], files_[level], &arena_);
+    DoGenerateLevelFilesBrief(
+        &level_files_brief_[level], files_[level], &arena_);
   }
 }
 
@@ -772,7 +774,7 @@ void Version::PrepareApply(const MutableCFOptions& mutable_cf_options,
   UpdateFilesBySize();
   UpdateNumNonEmptyLevels();
   file_indexer_.UpdateIndex(&arena_, num_non_empty_levels_, files_);
-  GenerateFileLevels();
+  GenerateLevelFilesBrief();
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
@@ -1046,7 +1048,7 @@ bool Version::OverlapInLevel(int level,
                              const Slice* smallest_user_key,
                              const Slice* largest_user_key) {
   return SomeFileOverlapsRange(cfd_->internal_comparator(), (level > 0),
-                               file_levels_[level], smallest_user_key,
+                               level_files_brief_[level], smallest_user_key,
                                largest_user_key);
 }
 
@@ -1109,8 +1111,8 @@ void Version::GetOverlappingInputs(int level,
       hint_index, file_index);
     return;
   }
-  for (size_t i = 0; i < file_levels_[level].num_files; ) {
-    FdWithKeyRange* f = &(file_levels_[level].files[i++]);
+  for (size_t i = 0; i < level_files_brief_[level].num_files; ) {
+    FdWithKeyRange* f = &(level_files_brief_[level].files[i++]);
     const Slice file_start = ExtractUserKey(f->smallest_key);
     const Slice file_limit = ExtractUserKey(f->largest_key);
     if (begin != nullptr && user_cmp->Compare(file_limit, user_begin) < 0) {
@@ -1166,7 +1168,7 @@ void Version::GetOverlappingInputsBinarySearch(
 
   while (!foundOverlap && min <= max) {
     mid = (min + max)/2;
-    FdWithKeyRange* f = &(file_levels_[level].files[mid]);
+    FdWithKeyRange* f = &(level_files_brief_[level].files[mid]);
     const Slice file_start = ExtractUserKey(f->smallest_key);
     const Slice file_limit = ExtractUserKey(f->largest_key);
     if (user_cmp->Compare(file_limit, user_begin) < 0) {
@@ -1194,7 +1196,7 @@ void Version::GetOverlappingInputsBinarySearch(
 // The midIndex specifies the index of at least one file that
 // overlaps the specified range. From that file, iterate backward
 // and forward to find all overlapping files.
-// Use FileLevel in searching, make it faster
+// Use LevelFilesBrief in searching, make it faster
 void Version::ExtendOverlappingInputs(
     int level,
     const Slice& user_begin,
@@ -1203,11 +1205,11 @@ void Version::ExtendOverlappingInputs(
     unsigned int midIndex) {
 
   const Comparator* user_cmp = cfd_->internal_comparator().user_comparator();
-  const FdWithKeyRange* files = file_levels_[level].files;
+  const FdWithKeyRange* files = level_files_brief_[level].files;
 #ifndef NDEBUG
   {
     // assert that the file at midIndex overlaps with the range
-    assert(midIndex < file_levels_[level].num_files);
+    assert(midIndex < level_files_brief_[level].num_files);
     const FdWithKeyRange* f = &files[midIndex];
     const Slice fstart = ExtractUserKey(f->smallest_key);
     const Slice flimit = ExtractUserKey(f->largest_key);
@@ -1234,7 +1236,8 @@ void Version::ExtendOverlappingInputs(
     }
   }
   // check forward from 'mid+1' to higher indices
-  for (unsigned int i = midIndex+1; i < file_levels_[level].num_files; i++) {
+  for (unsigned int i = midIndex+1;
+       i < level_files_brief_[level].num_files; i++) {
     const FdWithKeyRange* f = &files[i];
     const Slice file_start = ExtractUserKey(f->smallest_key);
     if (user_cmp->Compare(file_start, user_end) <= 0) {
@@ -1268,8 +1271,8 @@ bool Version::HasOverlappingUserKey(
   }
 
   const Comparator* user_cmp = cfd_->internal_comparator().user_comparator();
-  const FileLevel& file_level = file_levels_[level];
-  const FdWithKeyRange* files = file_levels_[level].files;
+  const LevelFilesBrief& file_level = level_files_brief_[level];
+  const FdWithKeyRange* files = level_files_brief_[level].files;
   const size_t kNumFiles = file_level.num_files;
 
   // Check the last file in inputs against the file after it
@@ -2799,7 +2802,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   for (int which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
       if (c->level(which) == 0) {
-        const FileLevel* flevel = c->input_levels(which);
+        const LevelFilesBrief* flevel = c->input_levels(which);
         for (size_t i = 0; i < flevel->num_files; i++) {
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, env_options_compactions_,

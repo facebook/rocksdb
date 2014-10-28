@@ -120,10 +120,10 @@ struct FdWithKeyRange {
 
 // Data structure to store an array of FdWithKeyRange in one level
 // Actual data is guaranteed to be stored closely
-struct FileLevel {
+struct LevelFilesBrief {
   size_t num_files;
   FdWithKeyRange* files;
-  FileLevel() {
+  LevelFilesBrief() {
     num_files = 0;
     files = nullptr;
   }
