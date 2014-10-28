@@ -66,10 +66,10 @@ void Java_org_rocksdb_BackupableDB_purgeOldBackups(
 /*
  * Class:     org_rocksdb_BackupableDB
  * Method:    deleteBackup0
- * Signature: (JJ)V
+ * Signature: (JI)V
  */
 void Java_org_rocksdb_BackupableDB_deleteBackup0(JNIEnv* env,
-    jobject jobj, jlong jhandle, jlong jbackup_id) {
+    jobject jobj, jlong jhandle, jint jbackup_id) {
   auto rdb = reinterpret_cast<rocksdb::BackupableDB*>(jhandle);
   rocksdb::Status s = rdb->DeleteBackup(jbackup_id);
 

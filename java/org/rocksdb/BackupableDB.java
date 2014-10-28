@@ -69,7 +69,7 @@ public class BackupableDB extends RocksDB {
    * @param backupId of backup to delete.
    * @throws org.rocksdb.RocksDBException
    */
-  public void deleteBackup(long backupId) throws RocksDBException {
+  public void deleteBackup(int backupId) throws RocksDBException {
     deleteBackup0(nativeHandle_, backupId);
   }
 
@@ -114,7 +114,7 @@ public class BackupableDB extends RocksDB {
       throws RocksDBException;
   protected native void purgeOldBackups(long handle, int numBackupsToKeep)
       throws RocksDBException;
-  private native void deleteBackup0(long nativeHandle, long backupId)
+  private native void deleteBackup0(long nativeHandle, int backupId)
       throws RocksDBException;
   protected native List<BackupInfo> getBackupInfo(long handle);
 }
