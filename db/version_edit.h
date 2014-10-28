@@ -213,7 +213,8 @@ class VersionEdit {
     is_column_family_drop_ = true;
   }
 
-  void EncodeTo(std::string* dst) const;
+  // return true on success.
+  bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 
   std::string DebugString(bool hex_key = false) const;

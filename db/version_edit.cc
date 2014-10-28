@@ -9,6 +9,7 @@
 
 #include "db/version_edit.h"
 
+#include "db/filename.h"
 #include "db/version_set.h"
 #include "util/coding.h"
 #include "rocksdb/slice.h"
@@ -64,7 +65,7 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
 }
 
-void VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -111,6 +112,9 @@ void VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint32(dst, f.fd.GetPathId());
     }
     PutVarint64(dst, f.fd.GetFileSize());
+    if (!f.smallest.Valid() || !f.largest.Valid()) {
+      return false;
+    }
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
     PutVarint64(dst, f.smallest_seqno);
@@ -131,6 +135,7 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
   }
+  return true;
 }
 
 static bool GetInternalKey(Slice* input, InternalKey* dst) {

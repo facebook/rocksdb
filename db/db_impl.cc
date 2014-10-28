@@ -2347,7 +2347,7 @@ void DBImpl::CleanupCompaction(CompactionState* compact, Status status) {
     compact->builder->Abandon();
     compact->builder.reset();
   } else {
-    assert(compact->outfile == nullptr);
+    assert(!status.ok() || compact->outfile == nullptr);
   }
   for (size_t i = 0; i < compact->outputs.size(); i++) {
     const CompactionState::Output& out = compact->outputs[i];
@@ -2402,30 +2402,37 @@ Status DBImpl::OpenCompactionOutputFile(
     pending_outputs_[file_number] = compact->compaction->GetOutputPathId();
     mutex_.Unlock();
   }
+  // Make the output file
+  std::string fname = TableFileName(db_options_.db_paths, file_number,
+                                    compact->compaction->GetOutputPathId());
+  Status s = env_->NewWritableFile(fname, &compact->outfile, env_options_);
+
+  if (!s.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "[%s] OpenCompactionOutputFiles for table #%" PRIu64 " "
+        "fails at NewWritableFile with status %s",
+        compact->compaction->column_family_data()->GetName().c_str(),
+        file_number, s.ToString().c_str());
+    LogFlush(db_options_.info_log);
+    return s;
+  }
   CompactionState::Output out;
   out.number = file_number;
   out.path_id = compact->compaction->GetOutputPathId();
   out.smallest.Clear();
   out.largest.Clear();
   out.smallest_seqno = out.largest_seqno = 0;
+
   compact->outputs.push_back(out);
+  compact->outfile->SetIOPriority(Env::IO_LOW);
+  compact->outfile->SetPreallocationBlockSize(
+      compact->compaction->OutputFilePreallocationSize(mutable_cf_options));
 
-  // Make the output file
-  std::string fname = TableFileName(db_options_.db_paths, file_number,
-                                    compact->compaction->GetOutputPathId());
-  Status s = env_->NewWritableFile(fname, &compact->outfile, env_options_);
-
-  if (s.ok()) {
-    compact->outfile->SetIOPriority(Env::IO_LOW);
-    compact->outfile->SetPreallocationBlockSize(
-        compact->compaction->OutputFilePreallocationSize(mutable_cf_options));
-
-    ColumnFamilyData* cfd = compact->compaction->column_family_data();
-    compact->builder.reset(NewTableBuilder(
-        *cfd->ioptions(), cfd->internal_comparator(), compact->outfile.get(),
-        compact->compaction->OutputCompressionType(),
-        cfd->ioptions()->compression_opts));
-  }
+  ColumnFamilyData* cfd = compact->compaction->column_family_data();
+  compact->builder.reset(NewTableBuilder(
+      *cfd->ioptions(), cfd->internal_comparator(), compact->outfile.get(),
+      compact->compaction->OutputCompressionType(),
+      cfd->ioptions()->compression_opts));
   LogFlush(db_options_.info_log);
   return s;
 }
@@ -2616,7 +2623,7 @@ Status DBImpl::ProcessKeyValueCompaction(
   int64_t key_drop_obsolete = 0;
   int64_t loop_cnt = 0;
   while (input->Valid() && !shutting_down_.load(std::memory_order_acquire) &&
-         !cfd->IsDropped()) {
+         !cfd->IsDropped() && status.ok()) {
     if (++loop_cnt > 1000) {
       if (key_drop_user > 0) {
         RecordTick(stats_, COMPACTION_KEY_DROP_USER, key_drop_user);
@@ -2891,8 +2898,8 @@ Status DBImpl::ProcessKeyValueCompaction(
           // Only had one item to begin with (Put/Delete)
           break;
         }
-      }
-    }
+      }  // while (true)
+    }  // if (!drop)
 
     // MergeUntil has moved input to the next entry
     if (!current_entry_is_merging) {
