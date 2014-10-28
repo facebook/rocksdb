@@ -991,8 +991,8 @@ void Version::UpdateFilesBySize() {
       temp[i].file = files[i];
     }
 
-    // sort the top number_of_files_to_sort_ based on file size
-    size_t num = Version::number_of_files_to_sort_;
+    // sort the top kNumberFilesToSort based on file size
+    size_t num = Version::kNumberFilesToSort;
     if (num > temp.size()) {
       num = temp.size();
     }
