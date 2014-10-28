@@ -292,10 +292,14 @@ class Version {
   // seconds/minutes (because of concurrent compactions).
   static const size_t kNumberFilesToSort = 50;
 
+  // Return the next Version in the linked list. Used for debug only
+  Version* TEST_Next() const {
+    return next_;
+  }
+
  private:
   friend class VersionSet;
   friend class DBImpl;
-  friend class ColumnFamilyData;
   friend class ForwardIterator;
   friend class InternalStats;
 

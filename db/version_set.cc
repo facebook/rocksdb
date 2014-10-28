@@ -2933,6 +2933,9 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   assert(edit->is_column_family_add_);
 
   Version* dummy_versions = new Version(nullptr, this);
+  // Ref() dummy version once so that later we can call Unref() to delete it
+  // by avoiding calling "delete" explicitly (~Version is private)
+  dummy_versions->Ref();
   auto new_cfd = column_family_set_->CreateColumnFamily(
       edit->column_family_name_, edit->column_family_, dummy_versions,
       cf_options);

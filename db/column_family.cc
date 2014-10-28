@@ -304,8 +304,9 @@ ColumnFamilyData::~ColumnFamilyData() {
 
   if (dummy_versions_ != nullptr) {
     // List must be empty
-    assert(dummy_versions_->next_ == dummy_versions_);
-    delete dummy_versions_;
+    assert(dummy_versions_->TEST_Next() == dummy_versions_);
+    bool deleted __attribute__((unused)) = dummy_versions_->Unref();
+    assert(deleted);
   }
 
   if (mem_ != nullptr) {
