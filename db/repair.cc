@@ -94,7 +94,7 @@ class Repairer {
       for (size_t i = 0; i < tables_.size(); i++) {
         bytes += tables_[i].meta.fd.GetFileSize();
       }
-      Log(options_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, options_.info_log,
           "**** Repaired rocksdb %s; "
           "recovered %zu files; %" PRIu64
           "bytes. "
@@ -175,7 +175,7 @@ class Repairer {
       std::string logname = LogFileName(dbname_, logs_[i]);
       Status status = ConvertLogToTable(logs_[i]);
       if (!status.ok()) {
-        Log(options_.info_log,
+        Log(InfoLogLevel::WARN_LEVEL, options_.info_log,
             "Log #%" PRIu64 ": ignoring conversion error: %s", logs_[i],
             status.ToString().c_str());
       }
@@ -190,7 +190,8 @@ class Repairer {
       uint64_t lognum;
       virtual void Corruption(size_t bytes, const Status& s) {
         // We print error messages for corruption, but continue repairing.
-        Log(info_log, "Log #%" PRIu64 ": dropping %d bytes; %s", lognum,
+        Log(InfoLogLevel::ERROR_LEVEL, info_log,
+            "Log #%" PRIu64 ": dropping %d bytes; %s", lognum,
             static_cast<int>(bytes), s.ToString().c_str());
       }
     };
@@ -235,7 +236,8 @@ class Repairer {
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {
-        Log(options_.info_log, "Log #%" PRIu64 ": ignoring %s", log,
+        Log(InfoLogLevel::WARN_LEVEL,
+            options_.info_log, "Log #%" PRIu64 ": ignoring %s", log,
             status.ToString().c_str());
         status = Status::OK();  // Keep going with rest of file
       }
@@ -262,9 +264,9 @@ class Repairer {
         table_fds_.push_back(meta.fd);
       }
     }
-    Log(options_.info_log,
-        "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s", log, counter,
-        meta.fd.GetNumber(), status.ToString().c_str());
+    Log(InfoLogLevel::INFO_LEVEL, options_.info_log,
+        "Log #%" PRIu64 ": %d ops saved to Table #%" PRIu64 " %s",
+        log, counter, meta.fd.GetNumber(), status.ToString().c_str());
     return status;
   }
 
@@ -279,7 +281,8 @@ class Repairer {
         char file_num_buf[kFormatFileNumberBufSize];
         FormatFileNumber(t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
                          file_num_buf, sizeof(file_num_buf));
-        Log(options_.info_log, "Table #%s: ignoring %s", file_num_buf,
+        Log(InfoLogLevel::WARN_LEVEL, options_.info_log,
+            "Table #%s: ignoring %s", file_num_buf,
             status.ToString().c_str());
         ArchiveFile(fname);
       } else {
@@ -306,7 +309,8 @@ class Repairer {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
         Slice key = iter->key();
         if (!ParseInternalKey(key, &parsed)) {
-          Log(options_.info_log, "Table #%" PRIu64 ": unparsable key %s",
+          Log(InfoLogLevel::ERROR_LEVEL,
+              options_.info_log, "Table #%" PRIu64 ": unparsable key %s",
               t->meta.fd.GetNumber(), EscapeString(key).c_str());
           continue;
         }
@@ -329,7 +333,8 @@ class Repairer {
       }
       delete iter;
     }
-    Log(options_.info_log, "Table #%" PRIu64 ": %d entries %s",
+    Log(InfoLogLevel::INFO_LEVEL,
+        options_.info_log, "Table #%" PRIu64 ": %d entries %s",
         t->meta.fd.GetNumber(), counter, status.ToString().c_str());
     return status;
   }
@@ -406,7 +411,8 @@ class Repairer {
     new_file.append("/");
     new_file.append((slash == nullptr) ? fname.c_str() : slash + 1);
     Status s = env_->RenameFile(fname, new_file);
-    Log(options_.info_log, "Archiving %s: %s\n",
+    Log(InfoLogLevel::INFO_LEVEL,
+        options_.info_log, "Archiving %s: %s\n",
         fname.c_str(), s.ToString().c_str());
   }
 };
