@@ -696,40 +696,12 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   delete iter;
 }
 
-// A test comparator which compare two strings in this way:
-// (1) first compare prefix of 8 bytes in alphabet order,
-// (2) if two strings share the same prefix, sort the other part of the string
-//     in the reverse alphabet order.
-class SimpleSuffixReverseComparator : public Comparator {
- public:
-  SimpleSuffixReverseComparator() {}
-
-  virtual const char* Name() const { return "SimpleSuffixReverseComparator"; }
-
-  virtual int Compare(const Slice& a, const Slice& b) const {
-    Slice prefix_a = Slice(a.data(), 8);
-    Slice prefix_b = Slice(b.data(), 8);
-    int prefix_comp = prefix_a.compare(prefix_b);
-    if (prefix_comp != 0) {
-      return prefix_comp;
-    } else {
-      Slice suffix_a = Slice(a.data() + 8, a.size() - 8);
-      Slice suffix_b = Slice(b.data() + 8, b.size() - 8);
-      return -(suffix_a.compare(suffix_b));
-    }
-  }
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
-
-  virtual void FindShortSuccessor(std::string* key) const {}
-};
-
 TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
   // Test index interval for the same prefix to be 1, 2 and 4
-  SimpleSuffixReverseComparator comp;
+  test::SimpleSuffixReverseComparator comp;
   options.comparator = &comp;
   DestroyAndReopen(&options);
 
@@ -892,7 +864,7 @@ TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
     for (unsigned char i = 1; i <= 3; i++) {
       Options options = CurrentOptions();
       options.create_if_missing = true;
-      SimpleSuffixReverseComparator comp;
+      test::SimpleSuffixReverseComparator comp;
       options.comparator = &comp;
       // Set only one bucket to force bucket conflict.
       // Test index interval for the same prefix to be 1, 2 and 4

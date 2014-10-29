@@ -121,6 +121,7 @@ TESTS = \
 	redis_test \
 	reduce_levels_test \
 	plain_table_db_test \
+	comparator_db_test \
 	prefix_test \
 	skiplist_test \
 	stringappend_test \
@@ -383,6 +384,9 @@ log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 
 plain_table_db_test: db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/plain_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+comparator_db_test: db/comparator_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/comparator_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS) -pg
