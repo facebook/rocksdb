@@ -9,6 +9,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "util/hash.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
@@ -165,6 +166,84 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
     is_valid = iter->Valid();
   }
 }
+
+class DoubleComparator : public Comparator {
+ public:
+  DoubleComparator() {}
+
+  virtual const char* Name() const { return "DoubleComparator"; }
+
+  virtual int Compare(const Slice& a, const Slice& b) const {
+    double da = std::stod(a.ToString());
+    double db = std::stod(b.ToString());
+    if (da == db) {
+      return a.compare(b);
+    } else if (da > db) {
+      return 1;
+    } else {
+      return -1;
+    }
+  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const {}
+
+  virtual void FindShortSuccessor(std::string* key) const {}
+};
+
+class HashComparator : public Comparator {
+ public:
+  HashComparator() {}
+
+  virtual const char* Name() const { return "HashComparator"; }
+
+  virtual int Compare(const Slice& a, const Slice& b) const {
+    uint32_t ha = Hash(a.data(), a.size(), 66);
+    uint32_t hb = Hash(b.data(), b.size(), 66);
+    if (ha == hb) {
+      return a.compare(b);
+    } else if (ha > hb) {
+      return 1;
+    } else {
+      return -1;
+    }
+  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const {}
+
+  virtual void FindShortSuccessor(std::string* key) const {}
+};
+
+class TwoStrComparator : public Comparator {
+ public:
+  TwoStrComparator() {}
+
+  virtual const char* Name() const { return "TwoStrComparator"; }
+
+  virtual int Compare(const Slice& a, const Slice& b) const {
+    assert(a.size() >= 2);
+    assert(b.size() >= 2);
+    size_t size_a1 = static_cast<size_t>(a[0]);
+    size_t size_b1 = static_cast<size_t>(b[0]);
+    size_t size_a2 = static_cast<size_t>(a[1]);
+    size_t size_b2 = static_cast<size_t>(b[1]);
+    assert(size_a1 + size_a2 + 2 == a.size());
+    assert(size_b1 + size_b2 + 2 == b.size());
+
+    Slice a1 = Slice(a.data() + 2, size_a1);
+    Slice b1 = Slice(b.data() + 2, size_b1);
+    Slice a2 = Slice(a.data() + 2 + size_a1, size_a2);
+    Slice b2 = Slice(b.data() + 2 + size_b1, size_b2);
+
+    if (a1 != b1) {
+      return a1.compare(b1);
+    }
+    return a2.compare(b2);
+  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const {}
+
+  virtual void FindShortSuccessor(std::string* key) const {}
+};
 }  // namespace
 
 class ComparatorDBTest {
@@ -255,6 +334,101 @@ TEST(ComparatorDBTest, SimpleSuffixReverseComparator) {
     DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 30, 600, 66);
   }
 }
+
+TEST(ComparatorDBTest, Uint64Comparator) {
+  SetOwnedComparator(test::Uint64Comparator());
+
+  for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
+    Options* opt = GetOptions();
+    opt->comparator = comparator;
+    DestroyAndReopen();
+    Random rnd(rnd_seed);
+    Random64 rnd64(rnd_seed);
+
+    std::vector<std::string> source_strings;
+    // Randomly generate source keys
+    for (int i = 0; i < 100; i++) {
+      uint64_t r = rnd64.Next();
+      std::string str;
+      str.resize(8);
+      memcpy(&str[0], static_cast<void*>(&r), 8);
+      source_strings.push_back(str);
+    }
+
+    DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);
+  }
+}
+
+TEST(ComparatorDBTest, DoubleComparator) {
+  SetOwnedComparator(new DoubleComparator());
+
+  for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
+    Options* opt = GetOptions();
+    opt->comparator = comparator;
+    DestroyAndReopen();
+    Random rnd(rnd_seed);
+
+    std::vector<std::string> source_strings;
+    // Randomly generate source keys
+    for (int i = 0; i < 100; i++) {
+      uint32_t r = rnd.Next();
+      uint32_t divide_order = rnd.Uniform(8);
+      double to_divide = 1.0;
+      for (uint32_t j = 0; j < divide_order; j++) {
+        to_divide *= 10.0;
+      }
+      source_strings.push_back(std::to_string(r / to_divide));
+    }
+
+    DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);
+  }
+}
+
+TEST(ComparatorDBTest, HashComparator) {
+  SetOwnedComparator(new HashComparator());
+
+  for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
+    Options* opt = GetOptions();
+    opt->comparator = comparator;
+    DestroyAndReopen();
+    Random rnd(rnd_seed);
+
+    std::vector<std::string> source_strings;
+    // Randomly generate source keys
+    for (int i = 0; i < 100; i++) {
+      source_strings.push_back(test::RandomKey(&rnd, 8));
+    }
+
+    DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);
+  }
+}
+
+TEST(ComparatorDBTest, TwoStrComparator) {
+  SetOwnedComparator(new TwoStrComparator());
+
+  for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
+    Options* opt = GetOptions();
+    opt->comparator = comparator;
+    DestroyAndReopen();
+    Random rnd(rnd_seed);
+
+    std::vector<std::string> source_strings;
+    // Randomly generate source keys
+    for (int i = 0; i < 100; i++) {
+      std::string str;
+      uint32_t size1 = rnd.Uniform(8);
+      uint32_t size2 = rnd.Uniform(8);
+      str.append(1, static_cast<char>(size1));
+      str.append(1, static_cast<char>(size2));
+      str.append(test::RandomKey(&rnd, size1));
+      str.append(test::RandomKey(&rnd, size2));
+      source_strings.push_back(str);
+    }
+
+    DoRandomIteraratorTest(GetDB(), source_strings, &rnd, 200, 1000, 66);
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
