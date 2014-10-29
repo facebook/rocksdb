@@ -469,10 +469,12 @@ class DBTest {
     }
 
     if (option_config_ >= kEnd) {
-      Destroy(&last_options_);
+      Destroy(last_options_);
       return false;
     } else {
-      DestroyAndReopen();
+      auto options = CurrentOptions();
+      options.create_if_missing = true;
+      DestroyAndReopen(options);
       return true;
     }
   }
@@ -484,8 +486,11 @@ class DBTest {
       if (prev_options == nullptr) {
         prev_options = &last_options_;
       }
-      Destroy(prev_options);
-      TryReopen();
+      Destroy(*prev_options);
+
+      auto options = CurrentOptions();
+      options.create_if_missing = true;
+      TryReopen(&options);
       return true;
     } else {
       return false;
@@ -497,23 +502,20 @@ class DBTest {
   bool ChangeFilterOptions(Options* prev_options = nullptr) {
     if (option_config_ == kDefault) {
       option_config_ = kFilter;
-      if (prev_options == nullptr) {
-        prev_options = &last_options_;
-      }
-      Destroy(prev_options);
-      TryReopen();
-      return true;
     } else if (option_config_ == kFilter) {
       option_config_ = kFullFilter;
-      if (prev_options == nullptr) {
-        prev_options = &last_options_;
-      }
-      Destroy(prev_options);
-      TryReopen();
-      return true;
     } else {
       return false;
     }
+    if (prev_options == nullptr) {
+      prev_options = &last_options_;
+    }
+    Destroy(*prev_options);
+
+    auto options = CurrentOptions();
+    options.create_if_missing = true;
+    TryReopen(&options);
+    return true;
   }
 
   // Return the current option configuration.
@@ -712,15 +714,15 @@ class DBTest {
     db_ = nullptr;
   }
 
-  void DestroyAndReopen(Options* options = nullptr) {
+  void DestroyAndReopen(const Options& options) {
     //Destroy using last options
-    Destroy(&last_options_);
-    ASSERT_OK(TryReopen(options));
+    Destroy(last_options_);
+    ASSERT_OK(TryReopen(&options));
   }
 
-  void Destroy(Options* options) {
+  void Destroy(const Options& options) {
     Close();
-    ASSERT_OK(DestroyDB(dbname_, *options));
+    ASSERT_OK(DestroyDB(dbname_, options));
   }
 
   Status ReadOnlyReopen(Options* options) {
@@ -2141,7 +2143,7 @@ TEST(DBTest, IterReseek) {
   options.max_sequential_skip_in_iterations = 3;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   // insert two keys with same userkey and verify that
@@ -2389,7 +2391,7 @@ TEST(DBTest, RecoverWithTableHandle) {
     options.write_buffer_size = 100;
     options.disable_auto_compactions = true;
     options = CurrentOptions(options);
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     ASSERT_OK(Put(1, "foo", "v1"));
@@ -2438,7 +2440,7 @@ TEST(DBTest, IgnoreRecoveredLog) {
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
     options.wal_dir = dbname_ + "/logs";
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
 
     // fill up the DB
     std::string one, two;
@@ -2476,7 +2478,7 @@ TEST(DBTest, IgnoreRecoveredLog) {
     ASSERT_EQ(two, Get("foo"));
     ASSERT_EQ(one, Get("bar"));
     Close();
-    Destroy(&options);
+    Destroy(options);
     Reopen(options);
     Close();
 
@@ -2494,7 +2496,7 @@ TEST(DBTest, IgnoreRecoveredLog) {
     ASSERT_EQ(one, Get("bar"));
 
     // Recovery will fail if DB directory doesn't exist.
-    Destroy(&options);
+    Destroy(options);
     // copy the logs from backup back to wal dir
     env_->CreateDirIfMissing(options.wal_dir);
     for (auto& log : logs) {
@@ -3170,7 +3172,7 @@ TEST(DBTest, CompactionDeletionTrigger) {
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[2];
 
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     Random rnd(301);
 
     const int kTestSize = kCDTKeysPerBuffer * 512;
@@ -3205,7 +3207,7 @@ TEST(DBTest, CompactionDeletionTriggerReopen) {
     Options options = DeletionTriggerOptions();
     options.create_if_missing = true;
 
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     Random rnd(301);
 
     // round 1 --- insert key/value pairs.
@@ -3752,7 +3754,7 @@ TEST(DBTest, CompressedCache) {
     }
 
     options.create_if_missing = true;
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
   }
 }
 
@@ -3956,7 +3958,7 @@ TEST(DBTest, UniversalCompactionSecondPathRatio) {
     ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
   }
 
-  Destroy(&options);
+  Destroy(options);
 }
 
 TEST(DBTest, UniversalCompactionFourPaths) {
@@ -4055,7 +4057,7 @@ TEST(DBTest, UniversalCompactionFourPaths) {
     ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
   }
 
-  Destroy(&options);
+  Destroy(options);
 }
 #endif
 
@@ -4249,7 +4251,7 @@ TEST(DBTest, MinLevelToCompress1) {
   for (int i = 2; i < options.num_levels; i++) {
     options.compression_per_level[i] = type;
   }
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   MinLevelHelper(this, options);
 }
 
@@ -4269,7 +4271,7 @@ TEST(DBTest, MinLevelToCompress2) {
   for (int i = 2; i < options.num_levels; i++) {
     options.compression_per_level[i] = type;
   }
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   MinLevelHelper(this, options);
 }
 
@@ -4535,7 +4537,7 @@ TEST(DBTest, CompactionFilter) {
   // filter in such a way that it deletes all keys
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.create_if_missing = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   // write all the keys once again.
@@ -4603,7 +4605,7 @@ TEST(DBTest, CompactionFilterDeletesAll) {
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   // put some data
   for (int table = 0; table < 4; ++table) {
@@ -4915,7 +4917,7 @@ TEST(DBTest, CompactionFilterV2) {
   options.compaction_filter_factory_v2 =
     std::make_shared<DeleteFilterFactoryV2>(prefix_extractor.get());
   options.create_if_missing = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   // write all the keys once again.
   for (int i = 0; i < 100000; i++) {
@@ -5098,8 +5100,9 @@ TEST(DBTest, ApproximateSizes) {
     Options options;
     options.write_buffer_size = 100000000;        // Large write buffer
     options.compression = kNoCompression;
+    options.create_if_missing = true;
     options = CurrentOptions(options);
-    DestroyAndReopen();
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
@@ -5575,7 +5578,7 @@ TEST(DBTest, CustomComparator) {
     new_options.comparator = &cmp;
     new_options.write_buffer_size = 1000;  // Compact more often
     new_options = CurrentOptions(new_options);
-    DestroyAndReopen(&new_options);
+    DestroyAndReopen(new_options);
     CreateAndReopenWithCF({"pikachu"}, &new_options);
     ASSERT_OK(Put(1, "[10]", "ten"));
     ASSERT_OK(Put(1, "[0x14]", "twenty"));
@@ -5644,7 +5647,7 @@ TEST(DBTest, ManualCompaction) {
       options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
-      DestroyAndReopen(&options);
+      DestroyAndReopen(options);
       CreateAndReopenWithCF({"pikachu"}, &options);
     }
   }
@@ -5658,8 +5661,8 @@ TEST(DBTest, ManualCompactionOutputPathId) {
   options.db_paths.emplace_back(dbname_ + "_2", 1000000000);
   options.compaction_style = kCompactionStyleUniversal;
   options.level0_file_num_compaction_trigger = 10;
-  Destroy(&options);
-  DestroyAndReopen(&options);
+  Destroy(options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
   MakeTables(3, "p", "q", 1);
   dbfull()->TEST_WaitForCompact();
@@ -5742,7 +5745,7 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   Options opts;
   opts.create_if_missing = true;
   opts.max_background_flushes = 0;
-  DestroyAndReopen(&opts);
+  DestroyAndReopen(opts);
   ASSERT_TRUE(db_ != nullptr);
   CreateAndReopenWithCF({"pikachu"}, &opts);
 
@@ -5929,7 +5932,7 @@ TEST(DBTest, ManifestWriteError) {
     options.create_if_missing = true;
     options.error_if_exists = false;
     options.max_background_flushes = 0;
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_EQ("bar", Get("foo"));
 
@@ -5962,7 +5965,7 @@ TEST(DBTest, PutFailsParanoid) {
   options.create_if_missing = true;
   options.error_if_exists = false;
   options.paranoid_checks = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
   Status s;
 
@@ -5981,7 +5984,7 @@ TEST(DBTest, PutFailsParanoid) {
 
   // do the same thing with paranoid checks off
   options.paranoid_checks = false;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   ASSERT_OK(Put(1, "foo", "bar"));
@@ -6615,7 +6618,7 @@ TEST(DBTest, WALArchivalTtl) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.WAL_ttl_seconds = 1000;
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
 
     //  TEST : Create DB with a ttl and no size limit.
     //  Put some keys. Count the log files present in the DB just after insert.
@@ -6690,7 +6693,7 @@ TEST(DBTest, WALArchivalSizeLimit) {
     // Set ttl and time_to_check_ to small values. Re-open db.
     // Assert that there are no archived logs left.
 
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     for (int i = 0; i < 128 * 128; ++i) {
       ASSERT_OK(Put(Key(i), DummyString(1024)));
     }
@@ -6744,7 +6747,7 @@ TEST(DBTest, PurgeInfoLogs) {
     }
     ASSERT_EQ(5, info_log_count);
 
-    Destroy(&options);
+    Destroy(options);
     // For mode (1), test DestroyDB() to delete all the logs under DB dir.
     // For mode (2), no info log file should have been put under DB dir.
     std::vector<std::string> db_files;
@@ -6794,7 +6797,7 @@ void ExpectRecords(
 TEST(DBTest, TransactionLogIterator) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
     Put(0, "key1", DummyString(1024));
     Put(1, "key2", DummyString(1024));
@@ -6838,7 +6841,7 @@ TEST(DBTest, TransactionLogIteratorRace) {
       rocksdb::SyncPoint::GetInstance()->ClearTrace();
       rocksdb::SyncPoint::GetInstance()->DisableProcessing();
       Options options = OptionsForLogIterTest();
-      DestroyAndReopen(&options);
+      DestroyAndReopen(options);
       Put("key1", DummyString(1024));
       dbfull()->Flush(FlushOptions());
       Put("key2", DummyString(1024));
@@ -6876,7 +6879,7 @@ TEST(DBTest, TransactionLogIteratorRace) {
 TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
     // Do a plain Reopen.
     Put(1, "key1", DummyString(1024));
@@ -6894,7 +6897,7 @@ TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
 TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     Put("key1", DummyString(1024));
     auto iter = OpenTransactionLogIter(0);
     ASSERT_OK(iter->status());
@@ -6912,7 +6915,7 @@ TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
 TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(0, &iter);
     // Check that an empty iterator is returned
@@ -6923,7 +6926,7 @@ TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
 TEST(DBTest, TransactionLogIteratorCheckAfterRestart) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     Put("key1", DummyString(1024));
     Put("key2", DummyString(1023));
     dbfull()->Flush(FlushOptions());
@@ -6936,7 +6939,7 @@ TEST(DBTest, TransactionLogIteratorCheckAfterRestart) {
 TEST(DBTest, TransactionLogIteratorCorruptedLog) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     for (int i = 0; i < 1024; i++) {
       Put("key"+std::to_string(i), DummyString(10));
     }
@@ -6965,7 +6968,7 @@ TEST(DBTest, TransactionLogIteratorCorruptedLog) {
 TEST(DBTest, TransactionLogIteratorBatchOperations) {
   do {
     Options options = OptionsForLogIterTest();
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
     WriteBatch batch;
     batch.Put(handles_[1], "key1", DummyString(1024));
@@ -6984,7 +6987,7 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
 
 TEST(DBTest, TransactionLogIteratorBlobs) {
   Options options = OptionsForLogIterTest();
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
   {
     WriteBatch batch;
@@ -7034,7 +7037,7 @@ TEST(DBTest, ReadFirstRecordCache) {
   Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   std::string path = dbname_ + "/000001.log";
   unique_ptr<WritableFile> file;
@@ -7727,7 +7730,9 @@ TEST(DBTest, MultiGetEmpty) {
     ASSERT_EQ(s.size(), 0U);
 
     // Empty Database, Empty Key Set
-    DestroyAndReopen();
+    Options options = CurrentOptions();
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"});
     s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(s.size(), 0U);
@@ -7823,7 +7828,7 @@ TEST(DBTest, PrefixScan) {
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
     // 11 RAND I/Os
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     PrefixScanInit(this);
     count = 0;
     env_->random_read_counter_.Reset();
@@ -7978,7 +7983,7 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   options.disable_auto_compactions = true;
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
   options.memtable_factory.reset(NewHashSkipListRepFactory(16));
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, &options);
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
@@ -8130,7 +8135,7 @@ TEST(DBTest, FIFOCompactionTest) {
     if (iter == 1) {
       options.disable_auto_compactions = true;
     }
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
 
     Random rnd(301);
     for (int i = 0; i < 6; ++i) {
@@ -8171,7 +8176,7 @@ TEST(DBTest, SimpleWriteTimeoutTest) {
   options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   WriteOptions write_opt;
   write_opt.timeout_hint_us = 0;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   // fill the two write buffers
   ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
   ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
@@ -8256,7 +8261,7 @@ TEST(DBTest, MTRandomTimeoutTest) {
   options.level0_slowdown_writes_trigger = 10;
   options.level0_stop_writes_trigger = 20;
   options.write_buffer_size = kWriteBufferSize;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   TimeoutWriterState thread_states[kNumThreads];
   for (int tid = 0; tid < kNumThreads; ++tid) {
@@ -8318,7 +8323,7 @@ TEST(DBTest, RateLimitingTest) {
   options.create_if_missing = true;
   options.env = env_;
   options.IncreaseParallelism(4);
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   WriteOptions wo;
   wo.disableWAL = true;
@@ -8339,7 +8344,7 @@ TEST(DBTest, RateLimitingTest) {
   options.rate_limiter.reset(
     NewGenericRateLimiter(static_cast<int64_t>(0.7 * raw_rate)));
   env_->bytes_written_ = 0;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   start = env_->NowMicros();
   // Write ~96M data
@@ -8359,7 +8364,7 @@ TEST(DBTest, RateLimitingTest) {
   options.rate_limiter.reset(
     NewGenericRateLimiter(static_cast<int64_t>(raw_rate / 2)));
   env_->bytes_written_ = 0;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   start = env_->NowMicros();
   // Write ~96M data
@@ -8379,12 +8384,12 @@ TEST(DBTest, RateLimitingTest) {
 TEST(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   ASSERT_EQ(db_->GetOptions().allow_mmap_reads, false);
 
   options.table_factory.reset(new PlainTableFactory());
   options.prefix_extractor.reset(NewNoopTransform());
-  Destroy(&options);
+  Destroy(options);
   ASSERT_TRUE(TryReopen(&options).IsNotSupported());
 
   // Test for check of prefix_extractor when hash index is used for
@@ -8405,7 +8410,7 @@ TEST(DBTest, DBIteratorBoundTest) {
   options.create_if_missing = true;
 
   options.prefix_extractor = nullptr;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   ASSERT_OK(Put("a", "0"));
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("foo1", "bar1"));
@@ -8459,7 +8464,7 @@ TEST(DBTest, DBIteratorBoundTest) {
   // prefix is the first letter of the key
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
 
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   ASSERT_OK(Put("a", "0"));
   ASSERT_OK(Put("foo", "bar"));
   ASSERT_OK(Put("foo1", "bar1"));
@@ -8485,7 +8490,7 @@ TEST(DBTest, DBIteratorBoundTest) {
   // if the bound has already reached
   {
     options.prefix_extractor = nullptr;
-    DestroyAndReopen(&options);
+    DestroyAndReopen(options);
     ASSERT_OK(Put("a", "0"));
     ASSERT_OK(Put("b", "0"));
     ASSERT_OK(Put("b1", "0"));
@@ -8577,7 +8582,7 @@ TEST(DBTest, DisableDataSyncTest) {
     } else {
       ASSERT_GT(env_->sync_counter_.load(), 0);
     }
-    Destroy(&options);
+    Destroy(options);
   }
 }
 
@@ -8597,7 +8602,7 @@ TEST(DBTest, DynamicMemtableOptions) {
   options.level0_file_num_compaction_trigger = 1024;
   options.level0_slowdown_writes_trigger = 1024;
   options.level0_stop_writes_trigger = 1024;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   auto gen_l0_kb = [this](int size) {
     Random rnd(301);
@@ -8642,7 +8647,7 @@ TEST(DBTest, DynamicMemtableOptions) {
   // during compaction but trigger is pretty high
   options.max_background_flushes = 0;
   options.disable_auto_compactions = true;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   // Put until timeout, bounded by 256 puts. We should see timeout at ~128KB
   int count = 0;
@@ -8724,7 +8729,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // Block flush thread and disable compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   auto gen_l0_kb = [this](int start, int size, int stride) {
     Random rnd(301);
@@ -8952,7 +8957,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   options.max_background_compactions = 1;
   options.max_background_flushes = 0;
   options.max_mem_compaction_level = 2;
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
@@ -8996,7 +9001,7 @@ TEST(DBTest, FileCreationRandomFailure) {
   options.max_bytes_for_level_base = 1000000;
   options.max_bytes_for_level_multiplier = 2;
 
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
   Random rnd(301);
 
   const int kTestSize = kCDTKeysPerBuffer * 4096;
@@ -9067,7 +9072,7 @@ TEST(DBTest, PartialCompactionFailure) {
 
   options.env = env_;
 
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   const int kNumKeys =
       options.level0_file_num_compaction_trigger *
@@ -9129,7 +9134,7 @@ TEST(DBTest, DynamicMiscOptions) {
   options.max_sequential_skip_in_iterations = 16;
   options.compression = kNoCompression;
   options.statistics = rocksdb::CreateDBStatistics();
-  DestroyAndReopen(&options);
+  DestroyAndReopen(options);
 
   auto assert_reseek_count = [this, &options](int key_start, int num_reseek) {
     int key0 = key_start;
