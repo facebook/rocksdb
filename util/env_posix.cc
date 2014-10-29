@@ -737,14 +737,28 @@ class PosixWritableFile : public WritableFile {
     GetPreallocationStatus(&block_size, &last_allocated_block);
     if (last_allocated_block > 0) {
       // trim the extra space preallocated at the end of the file
-      int dummy __attribute__((unused));
-      dummy = ftruncate(fd_, filesize_);  // ignore errors
+      // NOTE(ljin): we probably don't want to surface failure as an IOError,
+      // but it will be nice to log these errors.
+      ftruncate(fd_, filesize_);
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+      // in some file systems, ftruncate only trims trailing space if the
+      // new file size is smaller than the current size. Calling fallocate
+      // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
+      // blocks. FALLOC_FL_PUNCH_HOLE is supported on at least the following
+      // filesystems:
+      //   XFS (since Linux 2.6.38)
+      //   ext4 (since Linux 3.0)
+      //   Btrfs (since Linux 3.7)
+      //   tmpfs (since Linux 3.5)
+      // We ignore error since failure of this operation does not affect
+      // correctness.
+      fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+                filesize_, block_size * last_allocated_block - filesize_);
+#endif
     }
 
     if (close(fd_) < 0) {
-      if (s.ok()) {
-        s = IOError(filename_, errno);
-      }
+      s = IOError(filename_, errno);
     }
     fd_ = -1;
     return s;

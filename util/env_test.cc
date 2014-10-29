@@ -518,7 +518,7 @@ TEST(EnvPosixTest, AllocateTest) {
   // allocate 100 MB
   size_t kPreallocateSize = 100 * 1024 * 1024;
   size_t kBlockSize = 512;
-  std::string data = "test";
+  std::string data(1024 * 1024, 'a');
   wfile->SetPreallocationBlockSize(kPreallocateSize);
   ASSERT_OK(wfile->Append(Slice(data)));
   ASSERT_OK(wfile->Flush());
@@ -540,7 +540,7 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
-  ASSERT_GT(st_blocks, f_stat.st_blocks);
+  ASSERT_EQ((f_stat.st_size + kBlockSize - 1) / kBlockSize, f_stat.st_blocks);
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 
