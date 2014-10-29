@@ -129,9 +129,9 @@ TEST(CompactionPickerTest, Level1Trigger) {
 TEST(CompactionPickerTest, Level1Trigger2) {
   Add(1, 66U, "150", "200", 1000000000U);
   Add(1, 88U, "201", "300", 1000000000U);
-  Add(2, 6U, "150", "180", 1000000000U);
+  Add(2, 6U, "150", "179", 1000000000U);
   Add(2, 7U, "180", "220", 1000000000U);
-  Add(2, 8U, "220", "300", 1000000000U);
+  Add(2, 8U, "221", "300", 1000000000U);
   UpdateVersionStorageInfo();
 
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
@@ -142,6 +142,31 @@ TEST(CompactionPickerTest, Level1Trigger2) {
   ASSERT_EQ(66U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(6U, compaction->input(1, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 1)->fd.GetNumber());
+}
+
+TEST(CompactionPickerTest, LevelMaxScore) {
+  mutable_cf_options.target_file_size_base = 10000000;
+  mutable_cf_options.target_file_size_multiplier = 10;
+  Add(0, 1U, "150", "200", 1000000000U);
+  // Level 1 score 1.2
+  Add(1, 66U, "150", "200", 6000000U);
+  Add(1, 88U, "201", "300", 6000000U);
+  // Level 2 score 1.8. File 7 is the largest. Should be picked
+  Add(2, 6U, "150", "179", 60000000U);
+  Add(2, 7U, "180", "220", 60000001U);
+  Add(2, 8U, "221", "300", 60000000U);
+  // Level 3 score slightly larger than 1
+  Add(3, 26U, "150", "170", 260000000U);
+  Add(3, 27U, "171", "179", 260000000U);
+  Add(3, 28U, "191", "220", 260000000U);
+  Add(3, 29U, "221", "300", 260000000U);
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name, mutable_cf_options, &vstorage, &log_buffer));
+  ASSERT_TRUE(compaction.get() != nullptr);
+  ASSERT_EQ(1, compaction->num_input_files(0));
+  ASSERT_EQ(7U, compaction->input(0, 0)->fd.GetNumber());
 }
 
 }  // namespace rocksdb
