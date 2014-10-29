@@ -21,10 +21,12 @@ struct LogReporter : public log::Reader::Reporter {
   Env* env;
   Logger* info_log;
   virtual void Corruption(size_t bytes, const Status& s) {
-    Log(info_log, "dropping %zu bytes; %s", bytes, s.ToString().c_str());
+    Log(InfoLogLevel::ERROR_LEVEL, info_log,
+        "dropping %zu bytes; %s", bytes, s.ToString().c_str());
   }
   virtual void Info(const char* s) {
-    Log(info_log, "%s", s);
+    Log(InfoLogLevel::INFO_LEVEL,
+        info_log, "%s", s);
   }
 };
 
