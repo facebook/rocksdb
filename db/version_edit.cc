@@ -64,7 +64,7 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
 }
 
-void VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -98,6 +98,9 @@ void VersionEdit::EncodeTo(std::string* dst) const {
 
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
+    if (!f.smallest.Valid() || !f.largest.Valid()) {
+      return false;
+    }
     if (f.fd.GetPathId() == 0) {
       // Use older format to make sure user can roll back the build if they
       // don't config multiple DB paths.
@@ -131,6 +134,7 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
   }
+  return true;
 }
 
 static bool GetInternalKey(Slice* input, InternalKey* dst) {

@@ -44,6 +44,16 @@ TEST(VersionEditTest, EncodeDecode) {
   TestEncodeDecode(edit);
 }
 
+TEST(VersionEditTest, EncodeEmptyFile) {
+  VersionEdit edit;
+  edit.AddFile(0, 0, 0, 0,
+               InternalKey(),
+               InternalKey(),
+               0, 0);
+  std::string buffer;
+  ASSERT_TRUE(!edit.EncodeTo(&buffer));
+}
+
 TEST(VersionEditTest, ColumnFamilyTest) {
   VersionEdit edit;
   edit.SetColumnFamily(2);
