@@ -32,9 +32,10 @@ Status DBImpl::DisableFileDeletions() {
   MutexLock l(&mutex_);
   ++disable_delete_obsolete_files_;
   if (disable_delete_obsolete_files_ == 1) {
-    Log(db_options_.info_log, "File Deletions Disabled");
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "File Deletions Disabled");
   } else {
-    Log(db_options_.info_log,
+    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "File Deletions Disabled, but already disabled. Counter: %d",
         disable_delete_obsolete_files_);
   }
@@ -53,11 +54,12 @@ Status DBImpl::EnableFileDeletions(bool force) {
       --disable_delete_obsolete_files_;
     }
     if (disable_delete_obsolete_files_ == 0)  {
-      Log(db_options_.info_log, "File Deletions Enabled");
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "File Deletions Enabled");
       should_purge_files = true;
       FindObsoleteFiles(&job_context, true);
     } else {
-      Log(db_options_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
           "File Deletions Enable, but not really enabled. Counter: %d",
           disable_delete_obsolete_files_);
     }
@@ -98,8 +100,8 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
     if (!status.ok()) {
       mutex_.Unlock();
-      Log(db_options_.info_log, "Cannot Flush data %s\n",
-          status.ToString().c_str());
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Cannot Flush data %s\n", status.ToString().c_str());
       return status;
     }
   }
@@ -160,8 +162,8 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   uint64_t latest_archived_log_number = 0;
   if (!files.empty()) {
     latest_archived_log_number = files.back()->LogNumber();
-    Log(db_options_.info_log, "Latest Archived log: %" PRIu64,
-        latest_archived_log_number);
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "Latest Archived log: %" PRIu64, latest_archived_log_number);
   }
 
   files.reserve(files.size() + logs.size());
@@ -173,8 +175,8 @@ Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
       // same log in both db dir and archived dir. Simply
       // ignore the one in db dir. Note that, if we read
       // archived dir first, we would have missed the log file.
-      Log(db_options_.info_log, "%s already moved to archive",
-          log->PathName().c_str());
+      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+          "%s already moved to archive", log->PathName().c_str());
     }
   }
 
