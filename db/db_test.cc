@@ -490,7 +490,7 @@ class DBTest {
 
       auto options = CurrentOptions();
       options.create_if_missing = true;
-      TryReopen(&options);
+      TryReopen(options);
       return true;
     } else {
       return false;
@@ -514,7 +514,7 @@ class DBTest {
 
     auto options = CurrentOptions();
     options.create_if_missing = true;
-    TryReopen(&options);
+    TryReopen(options);
     return true;
   }
 
@@ -648,13 +648,8 @@ class DBTest {
   }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
-                            const ColumnFamilyOptions* options = nullptr) {
-    ColumnFamilyOptions cf_opts;
-    if (options != nullptr) {
-      cf_opts = ColumnFamilyOptions(*options);
-    } else {
-      cf_opts = ColumnFamilyOptions(CurrentOptions());
-    }
+                            const Options& options) {
+    ColumnFamilyOptions cf_opts(options);
     int cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
     for (auto cf : cfs) {
@@ -663,11 +658,11 @@ class DBTest {
   }
 
   void CreateAndReopenWithCF(const std::vector<std::string>& cfs,
-                             const Options* options = nullptr) {
+                             const Options& options) {
     CreateColumnFamilies(cfs, options);
     std::vector<std::string> cfs_plus_default = cfs;
     cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
-    ReopenWithColumnFamilies(cfs_plus_default, options);
+    ReopenWithColumnFamilies(cfs_plus_default, &options);
   }
 
   void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
@@ -702,7 +697,7 @@ class DBTest {
   }
 
   void Reopen(const Options& options) {
-    ASSERT_OK(TryReopen(&options));
+    ASSERT_OK(TryReopen(options));
   }
 
   void Close() {
@@ -717,7 +712,7 @@ class DBTest {
   void DestroyAndReopen(const Options& options) {
     //Destroy using last options
     Destroy(last_options_);
-    ASSERT_OK(TryReopen(&options));
+    ASSERT_OK(TryReopen(options));
   }
 
   void Destroy(const Options& options) {
@@ -729,8 +724,9 @@ class DBTest {
     return DB::OpenForReadOnly(*options, dbname_, &db_);
   }
 
-  Status TryReopen(const Options* options = nullptr) {
+  Status TryReopen(const Options& options) {
     Close();
+    /*
     Options opts;
     if (options != nullptr) {
       opts = *options;
@@ -738,8 +734,9 @@ class DBTest {
       opts = CurrentOptions();
       opts.create_if_missing = true;
     }
-    last_options_ = opts;
-    return DB::Open(opts, dbname_, &db_);
+    */
+    last_options_ = options;
+    return DB::Open(options, dbname_, &db_);
   }
 
   Status Flush(int cf = 0) {
@@ -1224,7 +1221,7 @@ TEST(DBTest, Empty) {
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     std::string num;
     ASSERT_TRUE(dbfull()->GetProperty(
@@ -1412,7 +1409,7 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
   table_options.cache_index_and_filter_blocks = true;
   table_options.filter_policy.reset(NewBloomFilterPolicy(20));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "key", "val"));
   // Create a new table.
@@ -1493,7 +1490,7 @@ TEST(DBTest, GetPropertiesOfAllTablesTest) {
 
 TEST(DBTest, LevelLimitReopen) {
   Options options = CurrentOptions();
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   const std::string value(1024 * 1024, ' ');
   int i = 0;
@@ -1545,7 +1542,7 @@ TEST(DBTest, Preallocation) {
 
 TEST(DBTest, PutDeleteGet) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_OK(Put(1, "foo", "v2"));
@@ -1562,7 +1559,7 @@ TEST(DBTest, GetFromImmutableLayer) {
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -1580,7 +1577,7 @@ TEST(DBTest, GetFromImmutableLayer) {
 
 TEST(DBTest, GetFromVersions) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Flush(1));
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -1590,7 +1587,7 @@ TEST(DBTest, GetFromVersions) {
 
 TEST(DBTest, GetSnapshot) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     // Try with both a short key and a long key
     for (int i = 0; i < 2; i++) {
       std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
@@ -1610,7 +1607,7 @@ TEST(DBTest, GetSnapshot) {
 
 TEST(DBTest, GetLevel0Ordering) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     // Check that we process level-0 files in correct order.  The code
     // below generates two level-0 files where the earlier one comes
     // before the later one in the level-0 file list since the earlier
@@ -1626,7 +1623,7 @@ TEST(DBTest, GetLevel0Ordering) {
 
 TEST(DBTest, GetOrderedByLevels) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     Compact(1, "a", "z");
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -1639,7 +1636,7 @@ TEST(DBTest, GetOrderedByLevels) {
 
 TEST(DBTest, GetPicksCorrectFile) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     // Arrange to have multiple files in a non-level-0 level.
     ASSERT_OK(Put(1, "a", "va"));
     Compact(1, "a", "b");
@@ -1658,7 +1655,7 @@ TEST(DBTest, GetEncountersEmptyLevel) {
     Options options = CurrentOptions();
     options.max_background_flushes = 0;
     options.disableDataSync = true;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     // Arrange for the following to happen:
     //   * sstable A in level 0
     //   * nothing in level 1
@@ -1706,7 +1703,7 @@ TEST(DBTest, KeyMayExist) {
     options_override.filter_policy.reset(NewBloomFilterPolicy(20));
     Options options = CurrentOptions(options_override);
     options.statistics = rocksdb::CreateDBStatistics();
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_TRUE(!db_->KeyMayExist(ropts, handles_[1], "a", &value));
 
@@ -1767,7 +1764,7 @@ TEST(DBTest, NonBlockingIteration) {
     Options options = CurrentOptions();
     options.statistics = rocksdb::CreateDBStatistics();
     non_blocking_opts.read_tier = kBlockCacheTier;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     // write one kv to the database.
     ASSERT_OK(Put(1, "a", "b"));
 
@@ -1833,7 +1830,7 @@ TEST(DBTest, FilterDeletes) {
     options_override.filter_policy.reset(NewBloomFilterPolicy(20));
     Options options = CurrentOptions(options_override);
     options.filter_deletes = true;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     WriteBatch batch;
 
     batch.Delete(handles_[1], "a");
@@ -1992,7 +1989,7 @@ TEST(DBTest, IterPrevWithNewerSeq2) {
 
 TEST(DBTest, IterEmpty) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     Iterator* iter = db_->NewIterator(ReadOptions(), handles_[1]);
 
     iter->SeekToFirst();
@@ -2010,7 +2007,7 @@ TEST(DBTest, IterEmpty) {
 
 TEST(DBTest, IterSingle) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "a", "va"));
     Iterator* iter = db_->NewIterator(ReadOptions(), handles_[1]);
 
@@ -2051,7 +2048,7 @@ TEST(DBTest, IterSingle) {
 
 TEST(DBTest, IterMulti) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "a", "va"));
     ASSERT_OK(Put(1, "b", "vb"));
     ASSERT_OK(Put(1, "c", "vc"));
@@ -2144,7 +2141,7 @@ TEST(DBTest, IterReseek) {
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // insert two keys with same userkey and verify that
   // reseek is not invoked. For each of these test cases,
@@ -2223,7 +2220,7 @@ TEST(DBTest, IterReseek) {
 
 TEST(DBTest, IterSmallAndLargeMix) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "a", "va"));
     ASSERT_OK(Put(1, "b", std::string(100000, 'b')));
     ASSERT_OK(Put(1, "c", "vc"));
@@ -2264,7 +2261,7 @@ TEST(DBTest, IterSmallAndLargeMix) {
 
 TEST(DBTest, IterMultiWithDelete) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "ka", "va"));
     ASSERT_OK(Put(1, "kb", "vb"));
     ASSERT_OK(Put(1, "kc", "vc"));
@@ -2289,7 +2286,7 @@ TEST(DBTest, IterMultiWithDelete) {
 
 TEST(DBTest, IterPrevMaxSkip) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     for (int i = 0; i < 2; i++) {
       ASSERT_OK(Put(1, "key1", "v1"));
       ASSERT_OK(Put(1, "key2", "v2"));
@@ -2319,7 +2316,7 @@ TEST(DBTest, IterPrevMaxSkip) {
 
 TEST(DBTest, IterWithSnapshot) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "key1", "val1"));
     ASSERT_OK(Put(1, "key2", "val2"));
     ASSERT_OK(Put(1, "key3", "val3"));
@@ -2363,7 +2360,7 @@ TEST(DBTest, IterWithSnapshot) {
 
 TEST(DBTest, Recover) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "baz", "v5"));
 
@@ -2392,7 +2389,7 @@ TEST(DBTest, RecoverWithTableHandle) {
     options.disable_auto_compactions = true;
     options = CurrentOptions(options);
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "bar", "v2"));
@@ -2506,14 +2503,14 @@ TEST(DBTest, IgnoreRecoveredLog) {
         env_->DeleteFile(backup_logs + "/" + log);
       }
     }
-    Status s = TryReopen(&options);
+    Status s = TryReopen(options);
     ASSERT_TRUE(!s.ok());
   } while (ChangeOptions(kSkipHashCuckoo));
 }
 
 TEST(DBTest, RollLog) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "baz", "v5"));
 
@@ -2530,7 +2527,7 @@ TEST(DBTest, RollLog) {
 
 TEST(DBTest, WAL) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
@@ -2566,7 +2563,7 @@ TEST(DBTest, CheckLock) {
   do {
     DB* localdb;
     Options options = CurrentOptions();
-    ASSERT_OK(TryReopen(&options));
+    ASSERT_OK(TryReopen(options));
 
     // second open should fail
     ASSERT_TRUE(!(DB::Open(options, dbname_, &localdb)).ok());
@@ -2580,7 +2577,7 @@ TEST(DBTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
@@ -2599,7 +2596,7 @@ TEST(DBTest, NumImmutableMemTable) {
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
     options.write_buffer_size = 1000000;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     std::string big_value(1000000 * 2, 'x');
     std::string num;
@@ -2724,7 +2721,7 @@ TEST(DBTest, FlushEmptyColumnFamily) {
   writeOpt.disableWAL = true;
   options.max_write_buffer_number = 2;
   options.min_write_buffer_number_to_merge = 1;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // Compaction can still go through even if no thread can flush the
   // mem table.
@@ -2862,7 +2859,7 @@ TEST(DBTest, GetProperty) {
 
 TEST(DBTest, FLUSH) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     WriteOptions writeOpt = WriteOptions();
     writeOpt.disableWAL = true;
     SetPerfLevel(kEnableTime);;
@@ -2907,7 +2904,7 @@ TEST(DBTest, FLUSH) {
 
 TEST(DBTest, RecoveryWithEmptyLog) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "foo", "v2"));
     ReopenWithColumnFamilies({"default", "pikachu"});
@@ -2926,7 +2923,7 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
     options.env = env_;
     options.write_buffer_size = 1000000;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Trigger a long memtable compaction and reopen the database during it
     ASSERT_OK(Put(1, "foo", "v1"));  // Goes to 1st log file
@@ -2950,7 +2947,7 @@ TEST(DBTest, FlushSchedule) {
   options.min_write_buffer_number_to_merge = 1;
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 100 * 1000;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   std::vector<std::thread> threads;
 
   std::atomic<int> thread_num(0);
@@ -2985,7 +2982,7 @@ TEST(DBTest, MinorCompactionsHappen) {
     Options options;
     options.write_buffer_size = 10000;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     const int N = 500;
 
@@ -3013,7 +3010,7 @@ TEST(DBTest, ManifestRollOver) {
     Options options;
     options.max_manifest_file_size = 10 ;  // 10 bytes
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     {
       ASSERT_OK(Put(1, "manifest_key1", std::string(1000, '1')));
       ASSERT_OK(Put(1, "manifest_key2", std::string(1000, '2')));
@@ -3058,7 +3055,7 @@ TEST(DBTest, RecoverWithLargeLog) {
   do {
     {
       Options options = CurrentOptions();
-      CreateAndReopenWithCF({"pikachu"}, &options);
+      CreateAndReopenWithCF({"pikachu"}, options);
       ASSERT_OK(Put(1, "big1", std::string(200000, '1')));
       ASSERT_OK(Put(1, "big2", std::string(200000, '2')));
       ASSERT_OK(Put(1, "small3", std::string(10, '3')));
@@ -3085,7 +3082,7 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
   Options options;
   options.write_buffer_size = 100000000;        // Large write buffer
   options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   Random rnd(301);
 
@@ -3115,7 +3112,7 @@ TEST(DBTest, CompactionTrigger) {
   options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
   options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   Random rnd(301);
 
@@ -3362,7 +3359,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   options.compaction_filter_factory.reset(filter);
 
   options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3494,7 +3491,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 3;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // Trigger compaction if size amplification exceeds 110%
   options.compaction_options_universal.max_size_amplification_percent = 110;
@@ -3536,7 +3533,7 @@ TEST(DBTest, UniversalCompactionOptions) {
   options.num_levels = 1;
   options.compaction_options_universal.compression_size_percent = -1;
   options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3691,7 +3688,7 @@ TEST(DBTest, CompressedCache) {
       default:
         ASSERT_TRUE(false);
     }
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     // default column family doesn't have block cache
     Options no_block_cache_opts;
     no_block_cache_opts.statistics = options.statistics;
@@ -3864,7 +3861,7 @@ TEST(DBTest, FailMoreDbPaths) {
   options.db_paths.emplace_back(dbname_ + "_3", 1000000);
   options.db_paths.emplace_back(dbname_ + "_4", 1000000);
   options.db_paths.emplace_back(dbname_ + "_5", 1000000);
-  ASSERT_TRUE(TryReopen(&options).IsNotSupported());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
 }
 
 TEST(DBTest, UniversalCompactionSecondPathRatio) {
@@ -4076,7 +4073,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options.target_file_size_base = 200<<10; // 200KB
   options.target_file_size_multiplier = 1;
   options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   for (int i = 0; i <= max_key_level_insert; i++) {
     // each value is 10K
@@ -4281,7 +4278,7 @@ TEST(DBTest, RepeatedWritesToSameKey) {
     options.env = env_;
     options.write_buffer_size = 100000;  // Small write buffer
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // We must have at most one file per level except for level-0,
     // which may have up to kL0_StopWritesTrigger files.
@@ -4305,7 +4302,7 @@ TEST(DBTest, InPlaceUpdate) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller size
     int numValues = 10;
@@ -4329,7 +4326,7 @@ TEST(DBTest, InPlaceUpdateLargeNewValue) {
     options.env = env_;
     options.write_buffer_size = 100000;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of larger size
     int numValues = 10;
@@ -4357,7 +4354,7 @@ TEST(DBTest, InPlaceUpdateCallbackSmallerSize) {
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceSmallerSize;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller size
     int numValues = 10;
@@ -4386,7 +4383,7 @@ TEST(DBTest, InPlaceUpdateCallbackSmallerVarintSize) {
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceSmallerVarintSize;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of smaller varint size
     int numValues = 265;
@@ -4415,7 +4412,7 @@ TEST(DBTest, InPlaceUpdateCallbackLargeNewValue) {
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceLargerSize;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Update key with values of larger size
     int numValues = 10;
@@ -4442,7 +4439,7 @@ TEST(DBTest, InPlaceUpdateCallbackNoAction) {
     options.inplace_callback =
       rocksdb::DBTest::updateInPlaceNoAction;
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Callback function requests no actions from db
     ASSERT_OK(Put(1, "key", DummyString(1, 'a')));
@@ -4458,7 +4455,7 @@ TEST(DBTest, CompactionFilter) {
   options.max_mem_compaction_level = 0;
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options = CurrentOptions(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // Write 100K keys, these are written to a few files in L0.
   const std::string value(10, 'x');
@@ -4538,7 +4535,7 @@ TEST(DBTest, CompactionFilter) {
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.create_if_missing = true;
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   // write all the keys once again.
   for (int i = 0; i < 100000; i++) {
@@ -4637,7 +4634,7 @@ TEST(DBTest, CompactionFilterWithValueChange) {
     options.compaction_filter_factory =
       std::make_shared<ChangeFilterFactory>();
     options = CurrentOptions(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Write 100K+1 keys, these are written to a few files
     // in L0. We do this so that the current snapshot points
@@ -5043,7 +5040,7 @@ TEST(DBTest, SparseMerge) {
   do {
     Options options = CurrentOptions();
     options.compression = kNoCompression;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     FillLevels("A", "Z", 1);
 
@@ -5103,7 +5100,7 @@ TEST(DBTest, ApproximateSizes) {
     options.create_if_missing = true;
     options = CurrentOptions(options);
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
     ReopenWithColumnFamilies({"default", "pikachu"}, &options);
@@ -5156,7 +5153,7 @@ TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
   do {
     Options options = CurrentOptions();
     options.compression = kNoCompression;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     Random rnd(301);
     std::string big1 = RandomString(&rnd, 100000);
@@ -5193,7 +5190,7 @@ TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
 
 TEST(DBTest, IteratorPinsRef) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     Put(1, "foo", "hello");
 
     // Get iterator that will yield the current contents of the DB.
@@ -5219,7 +5216,7 @@ TEST(DBTest, IteratorPinsRef) {
 
 TEST(DBTest, Snapshot) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     Put(0, "foo", "0v1");
     Put(1, "foo", "1v1");
     const Snapshot* s1 = db_->GetSnapshot();
@@ -5265,7 +5262,7 @@ TEST(DBTest, HiddenValuesAreRemoved) {
   do {
     Options options = CurrentOptions();
     options.max_background_flushes = 0;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     Random rnd(301);
     FillLevels("a", "z", 1);
 
@@ -5303,7 +5300,7 @@ TEST(DBTest, CompactBetweenSnapshots) {
   do {
     Options options = CurrentOptions();
     options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     Random rnd(301);
     FillLevels("a", "z", 1);
 
@@ -5358,7 +5355,7 @@ TEST(DBTest, CompactBetweenSnapshots) {
 TEST(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
   const int last = CurrentOptions().max_mem_compaction_level;
@@ -5395,7 +5392,7 @@ TEST(DBTest, DeletionMarkers1) {
 TEST(DBTest, DeletionMarkers2) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
   const int last = CurrentOptions().max_mem_compaction_level;
@@ -5426,7 +5423,7 @@ TEST(DBTest, OverlapInLevel0) {
   do {
     Options options = CurrentOptions();
     options.max_background_flushes = 0;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     int tmp = CurrentOptions().max_mem_compaction_level;
     ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
@@ -5469,7 +5466,7 @@ TEST(DBTest, OverlapInLevel0) {
 
 TEST(DBTest, L0_CompactionBug_Issue44_a) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "b", "v"));
     ReopenWithColumnFamilies({"default", "pikachu"});
     ASSERT_OK(Delete(1, "b"));
@@ -5488,7 +5485,7 @@ TEST(DBTest, L0_CompactionBug_Issue44_a) {
 
 TEST(DBTest, L0_CompactionBug_Issue44_b) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     Put(1, "", "");
     ReopenWithColumnFamilies({"default", "pikachu"});
     Delete(1, "e");
@@ -5531,8 +5528,8 @@ TEST(DBTest, ComparatorCheck) {
   Options new_options, options;
   NewComparator cmp;
   do {
-    CreateAndReopenWithCF({"pikachu"});
     options = CurrentOptions();
+    CreateAndReopenWithCF({"pikachu"}, options);
     new_options = CurrentOptions();
     new_options.comparator = &cmp;
     // only the non-default column family has non-matching comparator
@@ -5579,7 +5576,7 @@ TEST(DBTest, CustomComparator) {
     new_options.write_buffer_size = 1000;  // Compact more often
     new_options = CurrentOptions(new_options);
     DestroyAndReopen(new_options);
-    CreateAndReopenWithCF({"pikachu"}, &new_options);
+    CreateAndReopenWithCF({"pikachu"}, new_options);
     ASSERT_OK(Put(1, "[10]", "ten"));
     ASSERT_OK(Put(1, "[0x14]", "twenty"));
     for (int i = 0; i < 2; i++) {
@@ -5606,7 +5603,7 @@ TEST(DBTest, CustomComparator) {
 TEST(DBTest, ManualCompaction) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
       << "Need to update this test to match kMaxMemCompactLevel";
 
@@ -5648,7 +5645,7 @@ TEST(DBTest, ManualCompaction) {
       options.num_levels = 3;
       options.create_if_missing = true;
       DestroyAndReopen(options);
-      CreateAndReopenWithCF({"pikachu"}, &options);
+      CreateAndReopenWithCF({"pikachu"}, options);
     }
   }
 
@@ -5663,7 +5660,7 @@ TEST(DBTest, ManualCompactionOutputPathId) {
   options.level0_file_num_compaction_trigger = 10;
   Destroy(options);
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   MakeTables(3, "p", "q", 1);
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("3", FilesPerLevel(1));
@@ -5747,7 +5744,7 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
   opts.max_background_flushes = 0;
   DestroyAndReopen(opts);
   ASSERT_TRUE(db_ != nullptr);
-  CreateAndReopenWithCF({"pikachu"}, &opts);
+  CreateAndReopenWithCF({"pikachu"}, opts);
 
   ASSERT_OK(Put(1, "a", "123"));
   ASSERT_OK(Put(1, "b", "234"));
@@ -5966,7 +5963,7 @@ TEST(DBTest, PutFailsParanoid) {
   options.error_if_exists = false;
   options.paranoid_checks = true;
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   Status s;
 
   ASSERT_OK(Put(1, "foo", "bar"));
@@ -5985,7 +5982,7 @@ TEST(DBTest, PutFailsParanoid) {
   // do the same thing with paranoid checks off
   options.paranoid_checks = false;
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "foo", "bar"));
   ASSERT_OK(Put(1, "foo1", "bar1"));
@@ -6001,7 +5998,7 @@ TEST(DBTest, PutFailsParanoid) {
 
 TEST(DBTest, FilesDeletedAfterCompaction) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v2"));
     Compact(1, "a", "z");
     const int num_files = CountLiveFiles();
@@ -6025,7 +6022,7 @@ TEST(DBTest, BloomFilter) {
     table_options.filter_policy.reset(NewBloomFilterPolicy(10));
     options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     // Populate multiple layers
     const int N = 10000;
@@ -6069,7 +6066,7 @@ TEST(DBTest, BloomFilterRate) {
   while (ChangeFilterOptions()) {
     Options options = CurrentOptions();
     options.statistics = rocksdb::CreateDBStatistics();
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     const int maxKey = 10000;
     for (int i = 0; i < maxKey; i++) {
@@ -6101,7 +6098,7 @@ TEST(DBTest, BloomFilterCompatibility) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   // Create with block based filter
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   const int maxKey = 10000;
   for (int i = 0; i < maxKey; i++) {
@@ -6130,7 +6127,7 @@ TEST(DBTest, BloomFilterReverseCompatibility) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   // Create with full filter
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   const int maxKey = 10000;
   for (int i = 0; i < maxKey; i++) {
@@ -6199,7 +6196,7 @@ TEST(DBTest, BloomFilterWrapper) {
   table_options.filter_policy.reset(policy);
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   const int maxKey = 10000;
   for (int i = 0; i < maxKey; i++) {
@@ -6229,7 +6226,7 @@ TEST(DBTest, SnapshotFiles) {
   do {
     Options options = CurrentOptions();
     options.write_buffer_size = 100000000;        // Large write buffer
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     Random rnd(301);
 
@@ -6359,7 +6356,7 @@ TEST(DBTest, CompactOnFlush) {
     Options options = CurrentOptions();
     options.purge_redundant_kvs_while_flush = true;
     options.disable_auto_compactions = true;
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     Put(1, "foo", "v1");
     ASSERT_OK(Flush(1));
@@ -6471,7 +6468,7 @@ TEST(DBTest, FlushOneColumnFamily) {
   Options options;
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
-                        &options);
+                        options);
 
   ASSERT_OK(Put(0, "Default", "Default"));
   ASSERT_OK(Put(1, "pikachu", "pikachu"));
@@ -6497,7 +6494,7 @@ TEST(DBTest, FlushOneColumnFamily) {
 TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
   Options options;
   options.write_buffer_size = 5000000;
-  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, &options);
+  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
   // Since we will reopen DB with smaller write_buffer_size,
   // each key will go to new SST file
@@ -6552,7 +6549,7 @@ TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
 TEST(DBTest, RecoverCheckFileAmount) {
   Options options;
   options.write_buffer_size = 100000;
-  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, &options);
+  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
   ASSERT_OK(Put(1, Key(1), DummyString(1)));
@@ -6798,7 +6795,7 @@ TEST(DBTest, TransactionLogIterator) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     Put(0, "key1", DummyString(1024));
     Put(1, "key2", DummyString(1024));
     Put(1, "key2", DummyString(1024));
@@ -6880,7 +6877,7 @@ TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     // Do a plain Reopen.
     Put(1, "key1", DummyString(1024));
     // Two reopens should create a zero record WAL file.
@@ -6969,7 +6966,7 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
   do {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
     WriteBatch batch;
     batch.Put(handles_[1], "key1", DummyString(1024));
     batch.Put(handles_[0], "key2", DummyString(1024));
@@ -6988,7 +6985,7 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
 TEST(DBTest, TransactionLogIteratorBlobs) {
   Options options = OptionsForLogIterTest();
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
   {
     WriteBatch batch;
     batch.Put(handles_[1], "key1", DummyString(1024));
@@ -7186,7 +7183,7 @@ TEST(DBTest, MultiThreaded) {
     for (int i = 1; i < kColumnFamilies; ++i) {
       cfs.push_back(std::to_string(i));
     }
-    CreateAndReopenWithCF(cfs);
+    CreateAndReopenWithCF(cfs, CurrentOptions());
     // Initialize state
     MTState mt;
     mt.test = this;
@@ -7689,7 +7686,7 @@ TEST(DBTest, Randomized) {
 
 TEST(DBTest, MultiGetSimple) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "k1", "v1"));
     ASSERT_OK(Put(1, "k2", "v2"));
     ASSERT_OK(Put(1, "k3", "v3"));
@@ -7721,7 +7718,7 @@ TEST(DBTest, MultiGetSimple) {
 
 TEST(DBTest, MultiGetEmpty) {
   do {
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     // Empty Key Set
     std::vector<Slice> keys;
     std::vector<std::string> values;
@@ -7733,7 +7730,7 @@ TEST(DBTest, MultiGetEmpty) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"});
+    CreateAndReopenWithCF({"pikachu"}, options);
     s = db_->MultiGet(ReadOptions(), cfs, keys, &values);
     ASSERT_EQ(s.size(), 0U);
 
@@ -7866,7 +7863,7 @@ TEST(DBTest, TailingIteratorSingle) {
 }
 
 TEST(DBTest, TailingIteratorKeepAdding) {
-  CreateAndReopenWithCF({"pikachu"});
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
 
@@ -7888,7 +7885,7 @@ TEST(DBTest, TailingIteratorKeepAdding) {
 }
 
 TEST(DBTest, TailingIteratorSeekToNext) {
-  CreateAndReopenWithCF({"pikachu"});
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
 
@@ -7935,7 +7932,7 @@ TEST(DBTest, TailingIteratorSeekToNext) {
 }
 
 TEST(DBTest, TailingIteratorDeletes) {
-  CreateAndReopenWithCF({"pikachu"});
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
 
@@ -7984,7 +7981,7 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(2));
   options.memtable_factory.reset(NewHashSkipListRepFactory(16));
   DestroyAndReopen(options);
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
   ASSERT_OK(Put(1, "0101", "test"));
@@ -8006,7 +8003,7 @@ TEST(DBTest, TailingIteratorPrefixSeek) {
 }
 
 TEST(DBTest, TailingIteratorIncomplete) {
-  CreateAndReopenWithCF({"pikachu"});
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;
   read_options.tailing = true;
   read_options.read_tier = kBlockCacheTier;
@@ -8031,7 +8028,7 @@ TEST(DBTest, TailingIteratorSeekToSame) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 1000;
-  CreateAndReopenWithCF({"pikachu"}, &options);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   ReadOptions read_options;
   read_options.tailing = true;
@@ -8390,7 +8387,7 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   options.table_factory.reset(new PlainTableFactory());
   options.prefix_extractor.reset(NewNoopTransform());
   Destroy(options);
-  ASSERT_TRUE(TryReopen(&options).IsNotSupported());
+  ASSERT_TRUE(TryReopen(options).IsNotSupported());
 
   // Test for check of prefix_extractor when hash index is used for
   // block-based table
@@ -8399,9 +8396,9 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   options = Options();
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(to));
-  ASSERT_TRUE(TryReopen(&options).IsInvalidArgument());
+  ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
-  ASSERT_OK(TryReopen(&options));
+  ASSERT_OK(TryReopen(options));
 }
 
 TEST(DBTest, DBIteratorBoundTest) {
@@ -8572,7 +8569,7 @@ TEST(DBTest, DisableDataSyncTest) {
     options.create_if_missing = true;
     options.env = env_;
     Reopen(options);
-    CreateAndReopenWithCF({"pikachu"}, &options);
+    CreateAndReopenWithCF({"pikachu"}, options);
 
     MakeTables(10, "a", "z");
     Compact("a", "z");
