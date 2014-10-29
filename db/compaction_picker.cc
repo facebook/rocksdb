@@ -160,7 +160,7 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
   // compaction, then we must drop/cancel this compaction.
   int parent_index = -1;
   if (c->inputs_[0].empty()) {
-    Log(ioptions_.info_log,
+    Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
         "[%s] ExpandWhileOverlapping() failure because zero input files",
         c->column_family_data()->GetName().c_str());
   }
@@ -170,6 +170,12 @@ bool CompactionPicker::ExpandWhileOverlapping(Compaction* c) {
                                &parent_index))) {
     c->inputs_[0].clear();
     c->inputs_[1].clear();
+    if (!c->inputs_[0].empty()) {
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "[%s] ExpandWhileOverlapping() failure because some of the necessary"
+          " compaction input files are currently being compacted.",
+          c->column_family_data()->GetName().c_str());
+    }
     return false;
   }
   return true;
@@ -252,7 +258,7 @@ void CompactionPicker::SetupOtherInputs(
                                               &c->parent_index_);
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
-        Log(ioptions_.info_log,
+        Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
             "[%s] Expanding@%d %zu+%zu (%" PRIu64 "+%" PRIu64
             " bytes) to %zu+%zu (%" PRIu64 "+%" PRIu64 "bytes)\n",
             c->column_family_data()->GetName().c_str(), level,
@@ -329,8 +335,10 @@ Compaction* CompactionPicker::CompactRange(
   c->inputs_[0].files = inputs;
   if (ExpandWhileOverlapping(c) == false) {
     delete c;
-    Log(ioptions_.info_log,
-        "[%s] Could not compact due to expansion failure.\n",
+    Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+        "[%s] Unable to perform CompactRange compact due to expansion"
+        " failure.  Possible causes include some of the necessary "
+        " compaction input files are currently being compacted.\n",
         version->cfd()->GetName().c_str());
     return nullptr;
   }
