@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <set>
 #include <memory>
+#include <atomic>
 #include <map>
 #include <string>
 
