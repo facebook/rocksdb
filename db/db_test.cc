@@ -718,15 +718,6 @@ class DBTest {
 
   Status TryReopen(const Options& options) {
     Close();
-    /*
-    Options opts;
-    if (options != nullptr) {
-      opts = *options;
-    } else {
-      opts = CurrentOptions();
-      opts.create_if_missing = true;
-    }
-    */
     last_options_ = options;
     return DB::Open(options, dbname_, &db_);
   }
