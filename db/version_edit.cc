@@ -9,7 +9,6 @@
 
 #include "db/version_edit.h"
 
-#include "db/filename.h"
 #include "db/version_set.h"
 #include "util/coding.h"
 #include "rocksdb/slice.h"
