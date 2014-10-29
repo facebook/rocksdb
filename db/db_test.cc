@@ -406,9 +406,11 @@ class DBTest {
   DBTest() : option_config_(kDefault),
              env_(new SpecialEnv(Env::Default())) {
     dbname_ = test::TmpDir() + "/db_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    Options options;
+    options.create_if_missing = true;
+    ASSERT_OK(DestroyDB(dbname_, options));
     db_ = nullptr;
-    Reopen();
+    Reopen(options);
   }
 
   ~DBTest() {
@@ -697,8 +699,8 @@ class DBTest {
     return TryReopenWithColumnFamilies(cfs, v_opts);
   }
 
-  void Reopen(Options* options = nullptr) {
-    ASSERT_OK(TryReopen(options));
+  void Reopen(const Options& options) {
+    ASSERT_OK(TryReopen(&options));
   }
 
   void Close() {
@@ -725,7 +727,7 @@ class DBTest {
     return DB::OpenForReadOnly(*options, dbname_, &db_);
   }
 
-  Status TryReopen(Options* options = nullptr) {
+  Status TryReopen(const Options* options = nullptr) {
     Close();
     Options opts;
     if (options != nullptr) {
@@ -1297,7 +1299,7 @@ TEST(DBTest, ReadOnlyDB) {
   Close();
 
   // Reopen and flush memtable.
-  Reopen();
+  Reopen(options);
   Flush();
   Close();
   // Now check keys in read only mode.
@@ -1315,7 +1317,7 @@ TEST(DBTest, CompactedDB) {
   options.target_file_size_base = kFileSize;
   options.max_bytes_for_level_base = 1 << 30;
   options.compression = kNoCompression;
-  Reopen(&options);
+  Reopen(options);
   // 1 L0 file, use CompactedDB if max_open_files = -1
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
   Flush();
@@ -1333,7 +1335,7 @@ TEST(DBTest, CompactedDB) {
             "Not implemented: Not supported in compacted db mode.");
   ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
   Close();
-  Reopen(&options);
+  Reopen(options);
   // Add more L0 files
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, '2')));
   Flush();
@@ -1351,7 +1353,7 @@ TEST(DBTest, CompactedDB) {
   Close();
 
   // Full compaction
-  Reopen(&options);
+  Reopen(options);
   // Add more keys
   ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
@@ -1454,7 +1456,7 @@ TEST(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
 TEST(DBTest, GetPropertiesOfAllTablesTest) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
-  Reopen(&options);
+  Reopen(options);
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
@@ -1464,11 +1466,11 @@ TEST(DBTest, GetPropertiesOfAllTablesTest) {
   }
 
   // 1. Read table properties directly from file
-  Reopen(&options);
+  Reopen(options);
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
   // 2. Put two tables to table cache and
-  Reopen(&options);
+  Reopen(options);
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 2; ++i) {
@@ -1478,7 +1480,7 @@ TEST(DBTest, GetPropertiesOfAllTablesTest) {
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 
   // 3. Put all tables to table cache
-  Reopen(&options);
+  Reopen(options);
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 4; ++i) {
@@ -2456,7 +2458,7 @@ TEST(DBTest, IgnoreRecoveredLog) {
     }
 
     // recover the DB
-    Reopen(&options);
+    Reopen(options);
     ASSERT_EQ(two, Get("foo"));
     ASSERT_EQ(one, Get("bar"));
     Close();
@@ -2470,12 +2472,12 @@ TEST(DBTest, IgnoreRecoveredLog) {
     // this should ignore the log files, recovery should not happen again
     // if the recovery happens, the same merge operator would be called twice,
     // leading to incorrect results
-    Reopen(&options);
+    Reopen(options);
     ASSERT_EQ(two, Get("foo"));
     ASSERT_EQ(one, Get("bar"));
     Close();
     Destroy(&options);
-    Reopen(&options);
+    Reopen(options);
     Close();
 
     // copy the logs from backup back to wal dir
@@ -2487,7 +2489,7 @@ TEST(DBTest, IgnoreRecoveredLog) {
     }
     // assert that we successfully recovered only from logs, even though we
     // destroyed the DB
-    Reopen(&options);
+    Reopen(options);
     ASSERT_EQ(two, Get("foo"));
     ASSERT_EQ(one, Get("bar"));
 
@@ -2767,7 +2769,7 @@ TEST(DBTest, GetProperty) {
   options.max_write_buffer_number = 10;
   options.min_write_buffer_number_to_merge = 1;
   options.write_buffer_size = 1000000;
-  Reopen(&options);
+  Reopen(options);
 
   std::string big_value(1000000 * 2, 'x');
   std::string num;
@@ -2841,7 +2843,7 @@ TEST(DBTest, GetProperty) {
 
   dbfull()->TEST_WaitForFlushMemTable();
   options.max_open_files = 10;
-  Reopen(&options);
+  Reopen(options);
   // After reopening, no table reader is loaded, so no memory for table readers
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
@@ -3034,7 +3036,7 @@ TEST(DBTest, IdentityAcrossRestarts) {
     ASSERT_OK(db_->GetDbIdentity(id1));
 
     Options options = CurrentOptions();
-    Reopen(&options);
+    Reopen(options);
     std::string id2;
     ASSERT_OK(db_->GetDbIdentity(id2));
     // id1 should match id2 because identity was not regenerated
@@ -3042,7 +3044,7 @@ TEST(DBTest, IdentityAcrossRestarts) {
 
     std::string idfilename = IdentityFileName(dbname_);
     ASSERT_OK(env_->DeleteFile(idfilename));
-    Reopen(&options);
+    Reopen(options);
     std::string id3;
     ASSERT_OK(db_->GetDbIdentity(id3));
     // id1 should NOT match id3 because identity was regenerated
@@ -3221,7 +3223,7 @@ TEST(DBTest, CompactionDeletionTriggerReopen) {
     // round 2 --- disable auto-compactions and issue deletions.
     options.create_if_missing = false;
     options.disable_auto_compactions = true;
-    Reopen(&options);
+    Reopen(options);
 
     for (int k = 0; k < kTestSize; ++k) {
       ASSERT_OK(Delete(Key(k)));
@@ -3235,7 +3237,7 @@ TEST(DBTest, CompactionDeletionTriggerReopen) {
     // round 3 --- reopen db with auto_compaction on and see if
     // deletion compensation still work.
     options.disable_auto_compactions = false;
-    Reopen(&options);
+    Reopen(options);
     // insert relatively small amount of data to trigger auto compaction.
     for (int k = 0; k < kTestSize / 10; ++k) {
       ASSERT_OK(Put(Key(k), values[k]));
@@ -3566,7 +3568,7 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   options.compaction_options_universal.size_ratio = 10;
   options.compaction_options_universal.stop_style = kCompactionStopStyleSimilarSize;
   options.num_levels=1;
-  Reopen(&options);
+  Reopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3768,7 +3770,7 @@ TEST(DBTest, UniversalCompactionCompressRatio1) {
   options.num_levels = 1;
   options.compaction_options_universal.compression_size_percent = 70;
   options = CurrentOptions(options);
-  Reopen(&options);
+  Reopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3833,7 +3835,7 @@ TEST(DBTest, UniversalCompactionCompressRatio2) {
   options.num_levels = 1;
   options.compaction_options_universal.compression_size_percent = 95;
   options = CurrentOptions(options);
-  Reopen(&options);
+  Reopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3880,7 +3882,7 @@ TEST(DBTest, UniversalCompactionSecondPathRatio) {
     env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
   }
   env_->DeleteDir(options.db_paths[1].path);
-  Reopen(&options);
+  Reopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3946,7 +3948,7 @@ TEST(DBTest, UniversalCompactionSecondPathRatio) {
     ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
   }
 
-  Reopen(&options);
+  Reopen(options);
 
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
@@ -3976,7 +3978,7 @@ TEST(DBTest, UniversalCompactionFourPaths) {
     env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
   }
   env_->DeleteDir(options.db_paths[1].path);
-  Reopen(&options);
+  Reopen(options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -4045,7 +4047,7 @@ TEST(DBTest, UniversalCompactionFourPaths) {
     ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
   }
 
-  Reopen(&options);
+  Reopen(options);
 
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
@@ -4237,7 +4239,7 @@ TEST(DBTest, MinLevelToCompress1) {
   if (!MinLevelToCompress(type, options, -14, -1, 0)) {
     return;
   }
-  Reopen(&options);
+  Reopen(options);
   MinLevelHelper(this, options);
 
   // do not compress L0 and L1
@@ -4257,7 +4259,7 @@ TEST(DBTest, MinLevelToCompress2) {
   if (!MinLevelToCompress(type, options, 15, -1, 0)) {
     return;
   }
-  Reopen(&options);
+  Reopen(options);
   MinLevelHelper(this, options);
 
   // do not compress L0 and L1
@@ -4615,7 +4617,7 @@ TEST(DBTest, CompactionFilterDeletesAll) {
   ASSERT_OK(db_->CompactRange(nullptr, nullptr));
   ASSERT_EQ(0, CountLiveFiles());
 
-  Reopen(&options);
+  Reopen(options);
 
   Iterator* itr = db_->NewIterator(ReadOptions());
   itr->SeekToFirst();
@@ -4684,7 +4686,7 @@ TEST(DBTest, CompactionFilterContextManual) {
   options.compaction_filter_factory.reset(filter);
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 8;
-  Reopen(&options);
+  Reopen(options);
   int num_keys_per_file = 400;
   for (int j = 0; j < 3; j++) {
     // Write several keys.
@@ -4866,7 +4868,7 @@ TEST(DBTest, CompactionFilterV2) {
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
   options.compaction_style = (rocksdb::CompactionStyle)1;
-  Reopen(&options);
+  Reopen(options);
 
   // Write 100K keys, these are written to a few files in L0.
   const std::string value(10, 'x');
@@ -4955,7 +4957,7 @@ TEST(DBTest, CompactionFilterV2WithValueChange) {
   option_config_ = kUniversalCompaction;
   options.compaction_style = (rocksdb::CompactionStyle)1;
   options = CurrentOptions(options);
-  Reopen(&options);
+  Reopen(options);
 
   // Write 100K+1 keys, these are written to a few files
   // in L0. We do this so that the current snapshot points
@@ -4996,7 +4998,7 @@ TEST(DBTest, CompactionFilterV2NULLPrefix) {
   // compaction filter buffer using universal compaction
   option_config_ = kUniversalCompaction;
   options.compaction_style = (rocksdb::CompactionStyle)1;
-  Reopen(&options);
+  Reopen(options);
 
   // Write 100K+1 keys, these are written to a few files
   // in L0. We do this so that the current snapshot points
@@ -5796,7 +5798,7 @@ TEST(DBTest, DropWrites) {
     Options options = CurrentOptions();
     options.env = env_;
     options.paranoid_checks = false;
-    Reopen(&options);
+    Reopen(options);
 
     ASSERT_OK(Put("foo", "v1"));
     ASSERT_EQ("v1", Get("foo"));
@@ -5829,7 +5831,7 @@ TEST(DBTest, DropWritesFlush) {
     Options options = CurrentOptions();
     options.env = env_;
     options.max_background_flushes = 1;
-    Reopen(&options);
+    Reopen(options);
 
     ASSERT_OK(Put("foo", "v1"));
     // Force out-of-space errors
@@ -5868,7 +5870,7 @@ TEST(DBTest, NoSpaceCompactRange) {
     Options options = CurrentOptions();
     options.env = env_;
     options.disable_auto_compactions = true;
-    Reopen(&options);
+    Reopen(options);
 
     // generate 5 tables
     for (int i = 0; i < 5; ++i) {
@@ -5891,7 +5893,7 @@ TEST(DBTest, NonWritableFileSystem) {
     Options options = CurrentOptions();
     options.write_buffer_size = 1000;
     options.env = env_;
-    Reopen(&options);
+    Reopen(options);
     ASSERT_OK(Put("foo", "v1"));
     env_->non_writeable_rate_.store(100);
     std::string big(100000, 'x');
@@ -5944,7 +5946,7 @@ TEST(DBTest, ManifestWriteError) {
 
     // Recovery: should not lose data
     error_type->store(false, std::memory_order_release);
-    Reopen(&options);
+    Reopen(options);
     ASSERT_EQ("bar", Get("foo"));
   }
 }
@@ -6632,7 +6634,7 @@ TEST(DBTest, WALArchivalTtl) {
       std::vector<uint64_t> log_files = ListLogFiles(env_, dbname_);
 
       options.create_if_missing = false;
-      Reopen(&options);
+      Reopen(options);
 
       std::vector<uint64_t> logs = ListLogFiles(env_, archiveDir);
       std::set<uint64_t> archivedFiles(logs.begin(), logs.end());
@@ -6647,7 +6649,7 @@ TEST(DBTest, WALArchivalTtl) {
 
     options.WAL_ttl_seconds = 1;
     env_->SleepForMicroseconds(2 * 1000 * 1000);
-    Reopen(&options);
+    Reopen(options);
 
     log_files = ListLogFiles(env_, archiveDir);
     ASSERT_TRUE(log_files.empty());
@@ -6692,14 +6694,14 @@ TEST(DBTest, WALArchivalSizeLimit) {
     for (int i = 0; i < 128 * 128; ++i) {
       ASSERT_OK(Put(Key(i), DummyString(1024)));
     }
-    Reopen(&options);
+    Reopen(options);
 
     std::string archive_dir = ArchivalDirectory(dbname_);
     std::vector<std::uint64_t> log_files = ListLogFiles(env_, archive_dir);
     ASSERT_TRUE(log_files.size() > 2);
 
     options.WAL_size_limit_MB = 8;
-    Reopen(&options);
+    Reopen(options);
     dbfull()->TEST_PurgeObsoleteteWAL();
 
     uint64_t archive_size = GetLogDirSize(archive_dir, env_);
@@ -6708,7 +6710,7 @@ TEST(DBTest, WALArchivalSizeLimit) {
     options.WAL_ttl_seconds = 1;
     dbfull()->TEST_SetDefaultTimeToCheck(1);
     env_->SleepForMicroseconds(2 * 1000 * 1000);
-    Reopen(&options);
+    Reopen(options);
     dbfull()->TEST_PurgeObsoleteteWAL();
 
     log_files = ListLogFiles(env_, archive_dir);
@@ -6728,7 +6730,7 @@ TEST(DBTest, PurgeInfoLogs) {
       options.db_log_dir = "";
     }
     for (int i = 0; i < 8; i++) {
-      Reopen(&options);
+      Reopen(options);
     }
 
     std::vector<std::string> files;
@@ -6925,7 +6927,7 @@ TEST(DBTest, TransactionLogIteratorCheckAfterRestart) {
     Put("key1", DummyString(1024));
     Put("key2", DummyString(1023));
     dbfull()->Flush(FlushOptions());
-    Reopen(&options);
+    Reopen(options);
     auto iter = OpenTransactionLogIter(0);
     ExpectRecords(2, iter);
   } while (ChangeCompactOptions());
@@ -7244,7 +7246,7 @@ TEST(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
     options.statistics = rocksdb::CreateDBStatistics();
-    Reopen(&options);
+    Reopen(options);
 
     // Start threads
     GCThread thread[kGCNumThreads];
@@ -7660,7 +7662,9 @@ TEST(DBTest, Randomized) {
         if (model_snap != nullptr) model.ReleaseSnapshot(model_snap);
         if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 
-        Reopen();
+
+        auto options = CurrentOptions();
+        Reopen(options);
         ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
 
         model_snap = model.GetSnapshot();
@@ -8062,7 +8066,7 @@ TEST(DBTest, BlockBasedTablePrefixIndexTest) {
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
 
 
-  Reopen(&options);
+  Reopen(options);
   ASSERT_OK(Put("k1", "v1"));
   Flush();
   ASSERT_OK(Put("k2", "v2"));
@@ -8073,7 +8077,7 @@ TEST(DBTest, BlockBasedTablePrefixIndexTest) {
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
   options.prefix_extractor.reset();
 
-  Reopen(&options);
+  Reopen(options);
   ASSERT_EQ("v1", Get("k1"));
   ASSERT_EQ("v2", Get("k2"));
 }
@@ -8084,21 +8088,21 @@ TEST(DBTest, ChecksumTest) {
 
   table_options.checksum = kCRC32c;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(&options);
+  Reopen(options);
   ASSERT_OK(Put("a", "b"));
   ASSERT_OK(Put("c", "d"));
   ASSERT_OK(Flush());  // table with crc checksum
 
   table_options.checksum = kxxHash;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(&options);
+  Reopen(options);
   ASSERT_OK(Put("e", "f"));
   ASSERT_OK(Put("g", "h"));
   ASSERT_OK(Flush());  // table with xxhash checksum
 
   table_options.checksum = kCRC32c;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(&options);
+  Reopen(options);
   ASSERT_EQ("b", Get("a"));
   ASSERT_EQ("d", Get("c"));
   ASSERT_EQ("f", Get("e"));
@@ -8106,7 +8110,7 @@ TEST(DBTest, ChecksumTest) {
 
   table_options.checksum = kCRC32c;
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  Reopen(&options);
+  Reopen(options);
   ASSERT_EQ("b", Get("a"));
   ASSERT_EQ("d", Get("c"));
   ASSERT_EQ("f", Get("e"));
@@ -8284,7 +8288,7 @@ TEST(DBTest, Level0StopWritesTest) {
   options.level0_stop_writes_trigger = 4;
   options.disable_auto_compactions = 4;
   options.max_mem_compaction_level = 0;
-  Reopen(&options);
+  Reopen(options);
 
   // create 4 level0 tables
   for (int i = 0; i < 4; ++i) {
@@ -8562,7 +8566,7 @@ TEST(DBTest, DisableDataSyncTest) {
     options.disableDataSync = iter == 0;
     options.create_if_missing = true;
     options.env = env_;
-    Reopen(&options);
+    Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, &options);
 
     MakeTables(10, "a", "z");
@@ -9035,7 +9039,7 @@ TEST(DBTest, FileCreationRandomFailure) {
 
   // reopen and reverify we have the latest successful update
   env_->non_writeable_rate_.store(0);
-  Reopen(&options);
+  Reopen(options);
   for (int k = 0; k < kTestSize; ++k) {
     auto v = Get(Key(k));
     ASSERT_EQ(v, values[k]);
@@ -9109,7 +9113,7 @@ TEST(DBTest, PartialCompactionFailure) {
   env_->periodic_non_writable_ = 0;
 
   // Make sure RocksDB will not get into corrupted state.
-  Reopen(&options);
+  Reopen(options);
 
   // Verify again after reopen.
   for (int k = 0; k < kNumKeys; ++k) {
