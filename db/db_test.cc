@@ -480,14 +480,10 @@ class DBTest {
   }
 
   // Switch between different compaction styles (we have only 2 now).
-  bool ChangeCompactOptions(Options* prev_options = nullptr) {
+  bool ChangeCompactOptions() {
     if (option_config_ == kDefault) {
       option_config_ = kUniversalCompaction;
-      if (prev_options == nullptr) {
-        prev_options = &last_options_;
-      }
-      Destroy(*prev_options);
-
+      Destroy(last_options_);
       auto options = CurrentOptions();
       options.create_if_missing = true;
       TryReopen(options);
@@ -499,7 +495,7 @@ class DBTest {
 
   // Switch between different filter policy
   // Jump from kDefault to kFilter to kFullFilter
-  bool ChangeFilterOptions(Options* prev_options = nullptr) {
+  bool ChangeFilterOptions() {
     if (option_config_ == kDefault) {
       option_config_ = kFilter;
     } else if (option_config_ == kFilter) {
@@ -507,10 +503,7 @@ class DBTest {
     } else {
       return false;
     }
-    if (prev_options == nullptr) {
-      prev_options = &last_options_;
-    }
-    Destroy(*prev_options);
+    Destroy(last_options_);
 
     auto options = CurrentOptions();
     options.create_if_missing = true;
@@ -5537,7 +5530,7 @@ TEST(DBTest, ComparatorCheck) {
     ASSERT_TRUE(!s.ok());
     ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos)
         << s.ToString();
-  } while (ChangeCompactOptions(&new_options));
+  } while (ChangeCompactOptions());
 }
 
 TEST(DBTest, CustomComparator) {
@@ -5596,7 +5589,7 @@ TEST(DBTest, CustomComparator) {
       }
       Compact(1, "[0]", "[1000000]");
     }
-  } while (ChangeCompactOptions(&new_options));
+  } while (ChangeCompactOptions());
 }
 
 TEST(DBTest, ManualCompaction) {
