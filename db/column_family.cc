@@ -260,7 +260,8 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
           new FIFOCompactionPicker(ioptions_, &internal_comparator_));
     }
 
-    Log(ioptions_.info_log, "Options for column family \"%s\":\n",
+    Log(InfoLogLevel::INFO_LEVEL,
+        ioptions_.info_log, "Options for column family \"%s\":\n",
         name.c_str());
     const ColumnFamilyOptions* cf_options = &options_;
     cf_options->Dump(ioptions_.info_log);
@@ -331,7 +332,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     if (imm()->size() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
-      Log(ioptions_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d",
           name_.c_str(), imm()->size(),
@@ -340,7 +341,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
-      Log(ioptions_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), current_->NumLevelFiles(0));
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
@@ -352,7 +353,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           mutable_cf_options.level0_stop_writes_trigger);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
       internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, slowdown);
-      Log(ioptions_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
           "us)",
           name_.c_str(), current_->NumLevelFiles(0), slowdown);
@@ -363,7 +364,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           write_controller->GetDelayToken(kHardLimitSlowdown);
       internal_stats_->RecordLevelNSlowdown(max_level, kHardLimitSlowdown,
                                             false);
-      Log(ioptions_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we hit hard limit on level %d. "
           "(%" PRIu64 "us)",
           name_.c_str(), max_level, kHardLimitSlowdown);
@@ -374,7 +375,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           mutable_cf_options.hard_rate_limit);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
       internal_stats_->RecordLevelNSlowdown(max_level, slowdown, true);
-      Log(ioptions_.info_log,
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we hit soft limit on level %d (%" PRIu64
           "us)",
           name_.c_str(), max_level, slowdown);
