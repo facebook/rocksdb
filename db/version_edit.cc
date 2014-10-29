@@ -98,6 +98,9 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
 
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
+    if (!f.smallest.Valid() || !f.largest.Valid()) {
+      return false;
+    }
     if (f.fd.GetPathId() == 0) {
       // Use older format to make sure user can roll back the build if they
       // don't config multiple DB paths.
@@ -111,9 +114,6 @@ bool VersionEdit::EncodeTo(std::string* dst) const {
       PutVarint32(dst, f.fd.GetPathId());
     }
     PutVarint64(dst, f.fd.GetFileSize());
-    if (!f.smallest.Valid() || !f.largest.Valid()) {
-      return false;
-    }
     PutLengthPrefixedSlice(dst, f.smallest.Encode());
     PutLengthPrefixedSlice(dst, f.largest.Encode());
     PutVarint64(dst, f.smallest_seqno);
