@@ -21,9 +21,11 @@ namespace rocksdb {
 namespace test {
 
 // Run some of the tests registered by the TEST() macro.  If the
-// environment variable "ROCKSDB_TESTS" is not set, runs all tests.
-// Otherwise, runs only the tests whose name contains the value of
-// "ROCKSDB_TESTS" as a substring.  E.g., suppose the tests are:
+// environment variable "ROCKSDB_TESTS" and "ROCKSDB_TESTS_FROM"
+// are not set, runs all tests. Otherwise, run all tests after
+// ROCKSDB_TESTS_FROM and those specified by ROCKSDB_TESTS.
+// Partial name match also works for ROCKSDB_TESTS and
+// ROCKSDB_TESTS_FROM. E.g., suppose the tests are:
 //    TEST(Foo, Hello) { ... }
 //    TEST(Foo, World) { ... }
 // ROCKSDB_TESTS=Hello will run the first test
