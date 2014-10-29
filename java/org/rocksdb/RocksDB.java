@@ -214,7 +214,7 @@ public class RocksDB extends RocksObject {
     List<Long> cfReferences = db.open(options.nativeHandle_, path,
         columnFamilyNames, columnFamilyNames.size());
     for (int i=0; i<columnFamilyNames.size(); i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(cfReferences.get(i)));
+      columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
     }
     db.storeOptionsInstance(options);
     return db;
@@ -316,7 +316,7 @@ public class RocksDB extends RocksObject {
     List<Long> cfReferences = db.openROnly(options.nativeHandle_, path,
         columnFamilyNames, columnFamilyNames.size());
     for (int i=0; i<columnFamilyNames.size(); i++) {
-      columnFamilyHandles.add(new ColumnFamilyHandle(cfReferences.get(i)));
+      columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
     }
 
     db.storeOptionsInstance(options);
@@ -426,7 +426,7 @@ public class RocksDB extends RocksObject {
    * This check is potentially lighter-weight than invoking DB::Get(). One way
    * to make this lighter weight is to avoid doing any IOs.
    *
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instnace
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
    * @param value StringBuffer instance which is a out parameter if a value is
    *    found in block-cache.
@@ -446,7 +446,7 @@ public class RocksDB extends RocksObject {
    * to make this lighter weight is to avoid doing any IOs.
    *
    * @param readOptions {@link ReadOptions} instance
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instnace
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
    * @param value StringBuffer instance which is a out parameter if a value is
    *    found in block-cache.
@@ -484,6 +484,20 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Add merge operand for key/value pair in a ColumnFamily.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key the specified key to be merged.
+   * @param value the value to be nerged with the current value for
+   * the specified key.
+   */
+  public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
+      byte[] value) throws RocksDBException {
+    merge(nativeHandle_, key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * Add merge operand for key/value pair.
    *
    * @param writeOpts {@link WriteOptions} for this write.
@@ -497,6 +511,22 @@ public class RocksDB extends RocksObject {
         key, key.length, value, value.length);
   }
 
+  /**
+   * Add merge operand for key/value pair.
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param writeOpts {@link WriteOptions} for this write.
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   * the specified key.
+   */
+  public void merge(ColumnFamilyHandle columnFamilyHandle,
+      WriteOptions writeOpts, byte[] key, byte[] value)
+      throws RocksDBException {
+    merge(nativeHandle_, writeOpts.nativeHandle_,
+        key, key.length, value, value.length,
+        columnFamilyHandle.nativeHandle_);
+  }
 
   /**
    * Get the value associated with the specified key within column family*
@@ -1000,8 +1030,8 @@ public class RocksDB extends RocksObject {
    */
   public ColumnFamilyHandle createColumnFamily(String columnFamilyName)
       throws RocksDBException {
-    return new ColumnFamilyHandle(createColumnFamily(nativeHandle_,
-        columnFamilyName));
+    return new ColumnFamilyHandle(this, createColumnFamily(nativeHandle_,
+        options_.nativeHandle_, columnFamilyName));
   }
 
   /**
@@ -1064,9 +1094,16 @@ public class RocksDB extends RocksObject {
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
   protected native void merge(
+      long handle, byte[] key, int keyLen,
+      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
+  protected native void merge(
       long handle, long writeOptHandle,
       byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
+  protected native void merge(
+      long handle, long writeOptHandle,
+      byte[] key, int keyLen,
+      byte[] value, int valueLen, long cfHandle) throws RocksDBException;
   protected native int get(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
@@ -1122,7 +1159,8 @@ public class RocksDB extends RocksObject {
       long nativeHandle, long snapshotHandle);
   private native void disposeInternal(long handle);
 
-  private native long createColumnFamily(long handle, String name) throws RocksDBException;
+  private native long createColumnFamily(long handle, long opt_handle,
+      String name) throws RocksDBException;
   private native void dropColumnFamily(long handle, long cfHandle) throws RocksDBException;
 
   protected Options options_;

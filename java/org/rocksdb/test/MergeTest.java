@@ -5,81 +5,178 @@
 
 package org.rocksdb.test;
 
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Collections;
 import org.rocksdb.*;
 
 public class MergeTest {
-        static final String db_path_string = "/tmp/mergestringjni_db";
-        static final String db_path_function = "/tmp/mergefunctionjni_db";
-        static {
-                RocksDB.loadLibrary();
-        }
+  static final String db_path_string = "/tmp/rocksdbjni_mergestring_db";
+  static final String db_cf_path_string = "/tmp/rocksdbjni_mergecfstring_db";
+  static final String db_path_operator = "/tmp/rocksdbjni_mergeoperator_db";
 
-        public static void testStringOption()
-                throws InterruptedException, RocksDBException {
+  static {
+    RocksDB.loadLibrary();
+  }
 
-                System.out.println("Testing merge function string option ===");
+  public static void testStringOption()
+      throws InterruptedException, RocksDBException {
+    Options opt = new Options();
+    opt.setCreateIfMissing(true);
+    opt.setMergeOperatorName("stringappend");
 
-                Options opt = new Options();
-                opt.setCreateIfMissing(true);
-                opt.setMergeOperatorName("stringappend");
+    RocksDB db = RocksDB.open(opt, db_path_string);
+    // writing aa under key
+    db.put("key".getBytes(), "aa".getBytes());
+    // merge bb under key
+    db.merge("key".getBytes(), "bb".getBytes());
 
-                RocksDB db = RocksDB.open(opt, db_path_string);
+    byte[] value = db.get("key".getBytes());
+    String strValue = new String(value);
 
-                System.out.println("Writing aa under key...");
-                db.put("key".getBytes(), "aa".getBytes());
+    db.close();
+    opt.dispose();
+    assert(strValue.equals("aa,bb"));
+  }
 
-                System.out.println("Writing bb under key...");
-                db.merge("key".getBytes(), "bb".getBytes());
+  public static void testCFStringOption()
+      throws InterruptedException, RocksDBException {
+    Options opt = new Options();
+    opt.setCreateIfMissing(true);
+    opt.setCreateMissingColumnFamilies(true);
+    opt.setMergeOperatorName("stringappend");
 
-                byte[] value = db.get("key".getBytes());
-                String strValue = new String(value);
+    List<String> cfNames = new ArrayList<String>();
+    List<ColumnFamilyHandle> columnFamilyHandleList =
+    new ArrayList<ColumnFamilyHandle>();
+    cfNames.add("default");
+    cfNames.add("new_cf");
+    RocksDB db = RocksDB.open(opt, db_cf_path_string, cfNames, columnFamilyHandleList);
 
-                System.out.println("Retrieved value: " + strValue);
+    // writing aa under key
+    db.put(columnFamilyHandleList.get(1), "cfkey".getBytes(), "aa".getBytes());
+    // merge bb under key
+    db.merge(columnFamilyHandleList.get(1), "cfkey".getBytes(), "bb".getBytes());
 
-                db.close();
-                opt.dispose();
+    byte[] value = db.get(columnFamilyHandleList.get(1), "cfkey".getBytes());
+    String strValue = new String(value);
 
-                assert(strValue.equals("aa,bb"));
+    for (ColumnFamilyHandle handle : columnFamilyHandleList) {
+      handle.dispose();
+    }
+    db.close();
+    opt.dispose();
+    assert(strValue.equals("aa,bb"));
+  }
 
-                System.out.println("Merge function string option passed!");
-        }
+  public static void testOperatorOption()
+      throws InterruptedException, RocksDBException {
+    Options opt = new Options();
+    opt.setCreateIfMissing(true);
 
-        public static void testOperatorOption()
-                throws InterruptedException, RocksDBException {
+    StringAppendOperator stringAppendOperator = new StringAppendOperator();
+    opt.setMergeOperator(stringAppendOperator);
 
-                System.out.println("Testing merge function operator option ===");
+    RocksDB db = RocksDB.open(opt, db_path_string);
+    // Writing aa under key
+    db.put("key".getBytes(), "aa".getBytes());
 
-                Options opt = new Options();
-                opt.setCreateIfMissing(true);
+    // Writing bb under key
+    db.merge("key".getBytes(), "bb".getBytes());
 
-                StringAppendOperator stringAppendOperator = new StringAppendOperator();
-                opt.setMergeOperator(stringAppendOperator);
+    byte[] value = db.get("key".getBytes());
+    String strValue = new String(value);
 
-                RocksDB db = RocksDB.open(opt, db_path_string);
+    db.close();
+    opt.dispose();
+    assert(strValue.equals("aa,bb"));
+  }
 
-                System.out.println("Writing aa under key...");
-                db.put("key".getBytes(), "aa".getBytes());
+  public static void testCFOperatorOption()
+      throws InterruptedException, RocksDBException {
+    Options opt = new Options();
+    opt.setCreateIfMissing(true);
+    opt.setCreateMissingColumnFamilies(true);
+    StringAppendOperator stringAppendOperator = new StringAppendOperator();
+    opt.setMergeOperator(stringAppendOperator);
 
-                System.out.println("Writing bb under key...");
-                db.merge("key".getBytes(), "bb".getBytes());
+    List<String> cfNames = new ArrayList<String>();
+    List<ColumnFamilyHandle> columnFamilyHandleList =
+    new ArrayList<ColumnFamilyHandle>();
+    cfNames.add("default");
+    cfNames.add("new_cf");
+    RocksDB db = RocksDB.open(opt, db_path_operator, cfNames, columnFamilyHandleList);
 
-                byte[] value = db.get("key".getBytes());
-                String strValue = new String(value);
+    // writing aa under key
+    db.put(columnFamilyHandleList.get(1), "cfkey".getBytes(), "aa".getBytes());
+    // merge bb under key
+    db.merge(columnFamilyHandleList.get(1), "cfkey".getBytes(), "bb".getBytes());
+    byte[] value = db.get(columnFamilyHandleList.get(1), "cfkey".getBytes());
+    String strValue = new String(value);
 
-                System.out.println("Retrieved value: " + strValue);
+    // Test also with createColumnFamily
+    ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily("new_cf2");
+    // writing xx under cfkey2
+    db.put(columnFamilyHandle, "cfkey2".getBytes(), "xx".getBytes());
+    // merge yy under cfkey2
+    db.merge(columnFamilyHandle, "cfkey2".getBytes(), "yy".getBytes());
+    value = db.get(columnFamilyHandle, "cfkey2".getBytes());
+    String strValueTmpCf = new String(value);
 
-                db.close();
-                opt.dispose();
+    db.close();
+    opt.dispose();
+    assert(strValue.equals("aa,bb"));
+    assert(strValueTmpCf.equals("xx,yy"));
+  }
 
-                assert(strValue.equals("aa,bb"));
+  public static void testOperatorGcBehaviour()
+      throws RocksDBException {
+    Options opt = new Options();
+    opt.setCreateIfMissing(true);
+    StringAppendOperator stringAppendOperator = new StringAppendOperator();
+    opt.setMergeOperator(stringAppendOperator);
+    RocksDB db = RocksDB.open(opt, db_path_string);
+    db.close();
+    opt.dispose();
+    System.gc();
+    System.runFinalization();
+    // test reuse
+    opt = new Options();
+    opt.setMergeOperator(stringAppendOperator);
+    db = RocksDB.open(opt, db_path_string);
+    db.close();
+    opt.dispose();
+    System.gc();
+    System.runFinalization();
+    // test param init
+    opt = new Options();
+    opt.setMergeOperator(new StringAppendOperator());
+    db = RocksDB.open(opt, db_path_string);
+    db.close();
+    opt.dispose();
+    System.gc();
+    System.runFinalization();
+    // test replace one with another merge operator instance
+    opt = new Options();
+    opt.setMergeOperator(stringAppendOperator);
+    StringAppendOperator newStringAppendOperator = new StringAppendOperator();
+    opt.setMergeOperator(newStringAppendOperator);
+    db = RocksDB.open(opt, db_path_string);
+    db.close();
+    opt.dispose();
+    stringAppendOperator = null;
+    newStringAppendOperator = null;
+    System.gc();
+    System.runFinalization();
+  }
 
-                System.out.println("Merge function operator option passed!");
-        }
-
-        public static void main(String[] args)
-                throws InterruptedException, RocksDBException {
-                testStringOption();
-                testOperatorOption();
-        }
+  public static void main(String[] args)
+      throws InterruptedException, RocksDBException {
+    testStringOption();
+    testCFStringOption();
+    testOperatorOption();
+    testCFOperatorOption();
+    testOperatorGcBehaviour();
+    System.out.println("Passed MergeTest.");
+  }
 }
