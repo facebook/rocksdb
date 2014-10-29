@@ -145,7 +145,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     ro.total_order_seek = true;
     Arena arena;
     for (MemTable* m : mems) {
-      Log(db_options_.info_log,
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
@@ -154,7 +154,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
       ScopedArenaIterator iter(NewMergingIterator(&cfd_->internal_comparator(),
                                                   &memtables[0],
                                                   memtables.size(), &arena));
-      Log(db_options_.info_log,
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] Level-0 flush table #%" PRIu64 ": started",
           cfd_->GetName().c_str(), meta.fd.GetNumber());
 
@@ -165,7 +165,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                      cfd_->ioptions()->compression_opts, Env::IO_HIGH);
       LogFlush(db_options_.info_log);
     }
-    Log(db_options_.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "[%s] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd_->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
