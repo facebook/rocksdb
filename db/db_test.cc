@@ -662,37 +662,36 @@ class DBTest {
     CreateColumnFamilies(cfs, options);
     std::vector<std::string> cfs_plus_default = cfs;
     cfs_plus_default.insert(cfs_plus_default.begin(), kDefaultColumnFamilyName);
-    ReopenWithColumnFamilies(cfs_plus_default, &options);
+    ReopenWithColumnFamilies(cfs_plus_default, options);
   }
 
   void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
-                                const std::vector<const Options*>& options) {
+                                const std::vector<Options>& options) {
     ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
   }
 
   void ReopenWithColumnFamilies(const std::vector<std::string>& cfs,
-                                const Options* options = nullptr) {
+                                const Options& options) {
     ASSERT_OK(TryReopenWithColumnFamilies(cfs, options));
   }
 
   Status TryReopenWithColumnFamilies(
       const std::vector<std::string>& cfs,
-      const std::vector<const Options*>& options) {
+      const std::vector<Options>& options) {
     Close();
     ASSERT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
-      column_families.push_back(ColumnFamilyDescriptor(cfs[i], *options[i]));
+      column_families.push_back(ColumnFamilyDescriptor(cfs[i], options[i]));
     }
-    DBOptions db_opts = DBOptions(*options[0]);
+    DBOptions db_opts = DBOptions(options[0]);
     return DB::Open(db_opts, dbname_, column_families, &handles_, &db_);
   }
 
   Status TryReopenWithColumnFamilies(const std::vector<std::string>& cfs,
-                                     const Options* options = nullptr) {
+                                     const Options& options) {
     Close();
-    Options opts = (options == nullptr) ? CurrentOptions() : *options;
-    std::vector<const Options*> v_opts(cfs.size(), &opts);
+    std::vector<Options> v_opts(cfs.size(), options);
     return TryReopenWithColumnFamilies(cfs, v_opts);
   }
 
@@ -1500,14 +1499,14 @@ TEST(DBTest, LevelLimitReopen) {
 
   options.num_levels = 1;
   options.max_bytes_for_level_multiplier_additional.resize(1, 1);
-  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_EQ(s.IsInvalidArgument(), true);
   ASSERT_EQ(s.ToString(),
             "Invalid argument: db has more levels than options.num_levels");
 
   options.num_levels = 10;
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
-  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, &options));
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
 }
 
 TEST(DBTest, Preallocation) {
@@ -2364,7 +2363,7 @@ TEST(DBTest, Recover) {
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "baz", "v5"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
 
     ASSERT_EQ("v1", Get(1, "foo"));
@@ -2372,7 +2371,7 @@ TEST(DBTest, Recover) {
     ASSERT_OK(Put(1, "bar", "v2"));
     ASSERT_OK(Put(1, "foo", "v3"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v3", Get(1, "foo"));
     ASSERT_OK(Put(1, "foo", "v4"));
     ASSERT_EQ("v4", Get(1, "foo"));
@@ -2398,7 +2397,7 @@ TEST(DBTest, RecoverWithTableHandle) {
     ASSERT_OK(Put(1, "bar", "v4"));
     ASSERT_OK(Flush(1));
     ASSERT_OK(Put(1, "big", std::string(100, 'a')));
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
 
     std::vector<std::vector<FileMetaData>> files;
     dbfull()->TEST_GetFilesMetaData(handles_[1], &files);
@@ -2514,13 +2513,13 @@ TEST(DBTest, RollLog) {
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "baz", "v5"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     for (int i = 0; i < 10; i++) {
-      ReopenWithColumnFamilies({"default", "pikachu"});
+      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     }
     ASSERT_OK(Put(1, "foo", "v4"));
     for (int i = 0; i < 10; i++) {
-      ReopenWithColumnFamilies({"default", "pikachu"});
+      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     }
   } while (ChangeOptions());
 }
@@ -2533,7 +2532,7 @@ TEST(DBTest, WAL) {
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("v1", Get(1, "bar"));
 
@@ -2542,7 +2541,7 @@ TEST(DBTest, WAL) {
     writeOpt.disableWAL = true;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     // Both value's should be present.
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ("v2", Get(1, "foo"));
@@ -2552,7 +2551,7 @@ TEST(DBTest, WAL) {
     writeOpt.disableWAL = false;
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     // again both values should be present.
     ASSERT_EQ("v3", Get(1, "foo"));
     ASSERT_EQ("v3", Get(1, "bar"));
@@ -2872,7 +2871,7 @@ TEST(DBTest, FLUSH) {
     Get(1, "foo");
     ASSERT_TRUE((int) perf_context.get_from_output_files_time > 0);
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("v1", Get(1, "bar"));
 
@@ -2881,7 +2880,7 @@ TEST(DBTest, FLUSH) {
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
     ASSERT_OK(Flush(1));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v2", Get(1, "bar"));
     perf_context.Reset();
     ASSERT_EQ("v2", Get(1, "foo"));
@@ -2892,7 +2891,7 @@ TEST(DBTest, FLUSH) {
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
     ASSERT_OK(Flush(1));
 
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     // 'foo' should be there because its put
     // has WAL enabled.
     ASSERT_EQ("v3", Get(1, "foo"));
@@ -2907,10 +2906,10 @@ TEST(DBTest, RecoveryWithEmptyLog) {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v1"));
     ASSERT_OK(Put(1, "foo", "v2"));
-    ReopenWithColumnFamilies({"default", "pikachu"});
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v3"));
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("v3", Get(1, "foo"));
   } while (ChangeOptions());
 }
@@ -2931,7 +2930,7 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
     ASSERT_OK(Put(1, "big2", std::string(1000, 'y')));  // Triggers compaction
     ASSERT_OK(Put(1, "bar", "v2"));                     // Goes to new log file
 
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
     ASSERT_EQ("v1", Get(1, "foo"));
     ASSERT_EQ("v2", Get(1, "bar"));
     ASSERT_EQ(std::string(10000000, 'x'), Get(1, "big1"));
@@ -2997,7 +2996,7 @@ TEST(DBTest, MinorCompactionsHappen) {
       ASSERT_EQ(Key(i) + std::string(1000, 'v'), Get(1, Key(i)));
     }
 
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
     for (int i = 0; i < N; i++) {
       ASSERT_EQ(Key(i) + std::string(1000, 'v'), Get(1, Key(i)));
@@ -3019,7 +3018,7 @@ TEST(DBTest, ManifestRollOver) {
       ASSERT_OK(Flush(1));  // This should trigger LogAndApply.
       uint64_t manifest_after_flush = dbfull()->TEST_Current_Manifest_FileNo();
       ASSERT_GT(manifest_after_flush, manifest_before_flush);
-      ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+      ReopenWithColumnFamilies({"default", "pikachu"}, options);
       ASSERT_GT(dbfull()->TEST_Current_Manifest_FileNo(), manifest_after_flush);
       // check if a new manifest file got inserted or not.
       ASSERT_EQ(std::string(1000, '1'), Get(1, "manifest_key1"));
@@ -3068,7 +3067,7 @@ TEST(DBTest, RecoverWithLargeLog) {
     Options options;
     options.write_buffer_size = 100000;
     options = CurrentOptions(options);
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 3);
     ASSERT_EQ(std::string(200000, '1'), Get(1, "big1"));
     ASSERT_EQ(std::string(200000, '2'), Get(1, "big2"));
@@ -3095,7 +3094,7 @@ TEST(DBTest, CompactionsGenerateMultipleFiles) {
   }
 
   // Reopening moves updates to level-0
-  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
   dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
 
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
@@ -3496,7 +3495,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   // Trigger compaction if size amplification exceeds 110%
   options.compaction_options_universal.max_size_amplification_percent = 110;
   options = CurrentOptions(options);
-  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   Random rnd(301);
   int key_idx = 0;
@@ -3697,7 +3696,7 @@ TEST(DBTest, CompressedCache) {
     no_block_cache_opts.table_factory.reset(
         NewBlockBasedTableFactory(table_options_no_bc));
     ReopenWithColumnFamilies({"default", "pikachu"},
-                             {&no_block_cache_opts, &options});
+        std::vector<Options>({no_block_cache_opts, options}));
 
     Random rnd(301);
 
@@ -4093,7 +4092,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options = CurrentOptions(options);
-  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_TRUE(s.IsInvalidArgument());
 
   // Stage 3: compact into a single file and move the file to level 0
@@ -4104,7 +4103,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options.max_bytes_for_level_base = INT_MAX;
   options.max_bytes_for_level_multiplier = 1;
   options = CurrentOptions(options);
-  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   dbfull()->CompactRange(handles_[1], nullptr, nullptr, true /* reduce level */,
                          0 /* reduce to level 0 */);
@@ -4124,7 +4123,7 @@ TEST(DBTest, ConvertCompactionStyle) {
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 3;
   options = CurrentOptions(options);
-  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   for (int i = max_key_level_insert / 2; i <= max_key_universal_insert; i++) {
     ASSERT_OK(Put(1, Key(i), RandomString(&rnd, 10000)));
@@ -5103,7 +5102,7 @@ TEST(DBTest, ApproximateSizes) {
     CreateAndReopenWithCF({"pikachu"}, options);
 
     ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
     ASSERT_TRUE(Between(Size("", "xyz", 1), 0, 0));
 
     // Write 8MB (80 values, each 100K)
@@ -5121,7 +5120,7 @@ TEST(DBTest, ApproximateSizes) {
 
     // Check sizes across recovery by reopening a few times
     for (int run = 0; run < 3; run++) {
-      ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+      ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
       for (int compact_start = 0; compact_start < N; compact_start += 10) {
         for (int i = 0; i < N; i += 10) {
@@ -5168,7 +5167,7 @@ TEST(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
 
     // Check sizes across recovery by reopening a few times
     for (int run = 0; run < 3; run++) {
-      ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+      ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
       ASSERT_TRUE(Between(Size("", Key(0), 1), 0, 0));
       ASSERT_TRUE(Between(Size("", Key(1), 1), 10000, 11000));
@@ -5468,15 +5467,15 @@ TEST(DBTest, L0_CompactionBug_Issue44_a) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "b", "v"));
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_OK(Delete(1, "b"));
     ASSERT_OK(Delete(1, "a"));
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_OK(Delete(1, "a"));
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "a", "v"));
-    ReopenWithColumnFamilies({"default", "pikachu"});
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("(a->v)", Contents(1));
     env_->SleepForMicroseconds(1000000);  // Wait for compaction to finish
     ASSERT_EQ("(a->v)", Contents(1));
@@ -5487,24 +5486,24 @@ TEST(DBTest, L0_CompactionBug_Issue44_b) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     Put(1, "", "");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Delete(1, "e");
     Put(1, "", "");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Put(1, "c", "cv");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Put(1, "", "");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Put(1, "", "");
     env_->SleepForMicroseconds(1000000);  // Wait for compaction to finish
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Put(1, "d", "dv");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Put(1, "", "");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     Delete(1, "d");
     Delete(1, "b");
-    ReopenWithColumnFamilies({"default", "pikachu"});
+    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
     ASSERT_EQ("(->)(c->cv)", Contents(1));
     env_->SleepForMicroseconds(1000000);  // Wait for compaction to finish
     ASSERT_EQ("(->)(c->cv)", Contents(1));
@@ -5534,7 +5533,7 @@ TEST(DBTest, ComparatorCheck) {
     new_options.comparator = &cmp;
     // only the non-default column family has non-matching comparator
     Status s = TryReopenWithColumnFamilies({"default", "pikachu"},
-                                           {&options, &new_options});
+        std::vector<Options>({options, new_options}));
     ASSERT_TRUE(!s.ok());
     ASSERT_TRUE(s.ToString().find("comparator") != std::string::npos)
         << s.ToString();
@@ -5673,7 +5672,7 @@ TEST(DBTest, ManualCompactionOutputPathId) {
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
 
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, &options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
   ASSERT_EQ("1", FilesPerLevel(1));
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
@@ -5683,7 +5682,7 @@ TEST(DBTest, ManualCompactionOutputPathId) {
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
 
-  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, &options);
+  ReopenWithColumnFamilies({kDefaultColumnFamilyName, "pikachu"}, options);
   ASSERT_EQ("2", FilesPerLevel(1));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
@@ -5753,7 +5752,7 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
 
   opts.create_if_missing = false;
   opts.num_levels = 2;
-  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, &opts);
+  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, opts);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "Invalid argument") != nullptr);
   ASSERT_TRUE(db_ == nullptr);
 }
@@ -6110,7 +6109,7 @@ TEST(DBTest, BloomFilterCompatibility) {
   // Check db with full filter
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   // Check if they can be found
   for (int i = 0; i < maxKey; i++) {
@@ -6139,7 +6138,7 @@ TEST(DBTest, BloomFilterReverseCompatibility) {
   // Check db with block_based filter
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
   options.table_factory.reset(NewBlockBasedTableFactory(table_options));
-  ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   // Check if they can be found
   for (int i = 0; i < maxKey; i++) {
@@ -6524,7 +6523,7 @@ TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
 
   options.write_buffer_size = 10;
   ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
-                           &options);
+                           options);
   {
     // No inserts => default is empty
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
@@ -6592,7 +6591,7 @@ TEST(DBTest, RecoverCheckFileAmount) {
   }
 
   ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
-                           &options);
+                           options);
   {
     std::vector<uint64_t> table_files = ListTableFiles(env_, dbname_);
     // Check, that records for 'default', 'dobrynia' and 'pikachu' from
@@ -6804,7 +6803,7 @@ TEST(DBTest, TransactionLogIterator) {
       auto iter = OpenTransactionLogIter(0);
       ExpectRecords(3, iter);
     }
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
     env_->SleepForMicroseconds(2 * 1000 * 1000);
     {
       Put(0, "key4", DummyString(1024));
@@ -6881,8 +6880,8 @@ TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
     // Do a plain Reopen.
     Put(1, "key1", DummyString(1024));
     // Two reopens should create a zero record WAL file.
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
     Put(1, "key2", DummyString(1024));
 
@@ -6975,7 +6974,7 @@ TEST(DBTest, TransactionLogIteratorBatchOperations) {
     dbfull()->Write(WriteOptions(), &batch);
     Flush(1);
     Flush(0);
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
     Put(1, "key4", DummyString(1024));
     auto iter = OpenTransactionLogIter(3);
     ExpectRecords(2, iter);
@@ -6995,7 +6994,7 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
     batch.PutLogData(Slice("blob2"));
     batch.Delete(handles_[0], "key2");
     dbfull()->Write(WriteOptions(), &batch);
-    ReopenWithColumnFamilies({"default", "pikachu"}, &options);
+    ReopenWithColumnFamilies({"default", "pikachu"}, options);
   }
 
   auto res = OpenTransactionLogIter(0)->GetBatch();
