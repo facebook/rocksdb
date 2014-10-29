@@ -173,14 +173,15 @@ DIRS="util db table utilities"
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *bench*.cc -prune"
-PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
-PORTABLE_CPP=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
+PRUNE_MOCK="-name *mock*.cc -prune"
+PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o $PRUNE_MOCK -o -name '*.cc' -print | sort | tr "\n" " "`
+MOCK_SOURCES=`cd "$ROCKSDB_ROOT"; find $DIRS -name '*mock.cc' -print | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port
 # file.
 echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> "$OUTPUT"
-echo "SOURCESCPP=$PORTABLE_CPP" >> "$OUTPUT"
+echo "MOCK_SOURCES=$MOCK_SOURCES" >> "$OUTPUT"
 echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> "$OUTPUT"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then

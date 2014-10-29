@@ -3,19 +3,22 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include <map>
+#include <string>
+
 #include "db/flush_job.h"
 #include "db/column_family.h"
 #include "db/version_set.h"
 #include "rocksdb/cache.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
+#include "table/mock_table.h"
 
 namespace rocksdb {
 
 // TODO(icanadi) Mock out everything else:
 // 1. VersionSet
-// 2. TableBuilder
-// 3. Memtable
+// 2. Memtable
 class FlushJobTest {
  public:
   FlushJobTest()
@@ -24,14 +27,16 @@ class FlushJobTest {
         table_cache_(NewLRUCache(50000, 16, 8)),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_controller_)),
-        shutting_down_(false) {
+        shutting_down_(false),
+        mock_table_factory_(new MockTableFactory()) {
     ASSERT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
     // TODO(icanadi) Remove this once we mock out VersionSet
     NewDB();
     std::vector<ColumnFamilyDescriptor> column_families;
-    column_families.emplace_back();
+    cf_options_.table_factory = mock_table_factory_;
+    column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
 
     ASSERT_OK(versions_->Recover(column_families, false));
   }
@@ -69,6 +74,7 @@ class FlushJobTest {
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;
   FileNumToPathIdMap pending_outputs_;
+  std::shared_ptr<MockTableFactory> mock_table_factory_;
 };
 
 TEST(FlushJobTest, Empty) {
@@ -89,10 +95,13 @@ TEST(FlushJobTest, NonEmpty) {
   auto new_mem = new MemTable(cfd->internal_comparator(), *cfd->ioptions(),
                               *cfd->GetLatestMutableCFOptions());
   new_mem->Ref();
+  std::map<std::string, std::string> inserted_keys;
   for (int i = 1; i < 10000; ++i) {
     std::string key(std::to_string(i));
     std::string value("value" + std::to_string(i));
     new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
+    InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
+    inserted_keys.insert({internal_key.Encode().ToString(), value});
   }
   cfd->imm()->Add(new_mem);
 
@@ -104,8 +113,7 @@ TEST(FlushJobTest, NonEmpty) {
   mutex_.Lock();
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();
-  // TODO(icanadi) once you have TableMock, verify that key-values are as
-  // expected
+  mock_table_factory_->AssertSingleFile(inserted_keys);
 }
 
 }  // namespace rocksdb

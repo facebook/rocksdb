@@ -76,11 +76,11 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
 LIBOBJECTS = $(SOURCES:.cc=.o)
-LIBOBJECTS += $(SOURCESCPP:.cpp=.o)
 MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
+MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o
-TESTHARNESS = ./util/testharness.o $(TESTUTIL)
+TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS)
 BENCHHARNESS = ./util/benchharness.o
 VALGRIND_ERROR = 2
 VALGRIND_DIR = build_tools/VALGRIND_LOGS
