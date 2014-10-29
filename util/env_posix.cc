@@ -739,7 +739,8 @@ class PosixWritableFile : public WritableFile {
       // trim the extra space preallocated at the end of the file
       // NOTE(ljin): we probably don't want to surface failure as an IOError,
       // but it will be nice to log these errors.
-      ftruncate(fd_, filesize_);
+      int dummy __attribute__((unused));
+      dummy = ftruncate(fd_, filesize_);
 #ifdef ROCKSDB_FALLOCATE_PRESENT
       // in some file systems, ftruncate only trims trailing space if the
       // new file size is smaller than the current size. Calling fallocate
