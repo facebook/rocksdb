@@ -540,7 +540,7 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
-  ASSERT_EQ((f_stat.st_size + kBlockSize - 1) / kBlockSize, f_stat.st_blocks);
+  ASSERT_EQ((f_stat.st_size + kBlockSize - 1) / kBlockSize, (unsigned int)f_stat.st_blocks);
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 
