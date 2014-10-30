@@ -1737,8 +1737,9 @@ void Java_org_rocksdb_Options_prepareForBulkLoad(
  */
 void Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
     JNIEnv* env, jobject jobj) {
-  //rocksdb::ColumnFamilyOptions* op = new rocksdb::ColumnFamilyOptions();
-  //rocksdb::ColumnFamilyOptionsJni::setHandle(env, jobj, op);
+  // TODO(fyrz) needs to be enabled back when ColumnFamilyOptions are available
+  // rocksdb::ColumnFamilyOptions* op = new rocksdb::ColumnFamilyOptions();
+  // rocksdb::ColumnFamilyOptionsJni::setHandle(env, jobj, op);
 }
 
 /*
@@ -2712,8 +2713,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMinPartialMergeOperands(
  */
 void Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
     jobject jobj) {
-  //rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
-  //rocksdb::DBOptionsJni::setHandle(env, jobj, dbop);
+  // TODO(fyrz) needs to be enabled back when DBOptions are available
+  // rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
+  // rocksdb::DBOptionsJni::setHandle(env, jobj, dbop);
 }
 
 /*
