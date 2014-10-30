@@ -127,7 +127,7 @@ TEST(CompactionPickerTest, Level1Trigger) {
 }
 
 TEST(CompactionPickerTest, Level1Trigger2) {
-  Add(1, 66U, "150", "200", 1000000000U);
+  Add(1, 66U, "150", "200", 1000000001U);
   Add(1, 88U, "201", "300", 1000000000U);
   Add(2, 6U, "150", "179", 1000000000U);
   Add(2, 7U, "180", "220", 1000000000U);
