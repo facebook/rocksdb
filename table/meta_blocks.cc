@@ -86,9 +86,9 @@ void LogPropertiesCollectionError(
   assert(method == "Add" || method == "Finish");
 
   std::string msg =
-    "[Warning] encountered error when calling TablePropertiesCollector::" +
+    "Encountered error when calling TablePropertiesCollector::" +
     method + "() with collector name: " + name;
-  Log(info_log, "%s", msg.c_str());
+  Log(InfoLogLevel::ERROR_LEVEL, info_log, "%s", msg.c_str());
 }
 
 bool NotifyCollectTableCollectorsOnAdd(
@@ -192,9 +192,9 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
       if (!GetVarint64(&raw_val, &val)) {
         // skip malformed value
         auto error_msg =
-          "[Warning] detect malformed value in properties meta-block:"
+          "Detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(logger, "%s", error_msg.c_str());
+        Log(InfoLogLevel::ERROR_LEVEL, logger, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;
