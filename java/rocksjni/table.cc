@@ -15,23 +15,30 @@
 /*
  * Class:     org_rocksdb_PlainTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (IIDI)J
+ * Signature: (IIDIIBZZ)J
  */
 jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jint jkey_size, jint jbloom_bits_per_key,
-    jdouble jhash_table_ratio, jint jindex_sparseness) {
+    jdouble jhash_table_ratio, jint jindex_sparseness,
+    jint jhuge_page_tlb_size, jbyte jencoding_type,
+    jboolean jfull_scan_mode, jboolean jstore_index_in_file) {
   rocksdb::PlainTableOptions options = rocksdb::PlainTableOptions();
   options.user_key_len = jkey_size;
   options.bloom_bits_per_key = jbloom_bits_per_key;
   options.hash_table_ratio = jhash_table_ratio;
   options.index_sparseness = jindex_sparseness;
+  options.huge_page_tlb_size = jhuge_page_tlb_size;
+  options.encoding_type = static_cast<rocksdb::EncodingType>(
+      jencoding_type);
+  options.full_scan_mode = jfull_scan_mode;
+  options.store_index_in_file = jstore_index_in_file;
   return reinterpret_cast<jlong>(rocksdb::NewPlainTableFactory(options));
 }
 
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJIIZIZZJI)J
+ * Signature: (ZJIJIIZIZZJIBB)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jboolean no_block_cache, jlong block_cache_size,
@@ -39,7 +46,8 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jint block_restart_interval, jboolean whole_key_filtering,
     jlong jfilterPolicy, jboolean cache_index_and_filter_blocks,
     jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
-    jint block_cache_compressd_num_shard_bits) {
+    jint block_cache_compressd_num_shard_bits, jbyte jchecksum_type,
+    jbyte jindex_type) {
   rocksdb::BlockBasedTableOptions options;
   options.no_block_cache = no_block_cache;
 
@@ -72,6 +80,9 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
       options.block_cache = rocksdb::NewLRUCache(block_cache_compressed_size);
     }
   }
+  options.checksum = static_cast<rocksdb::ChecksumType>(jchecksum_type);
+  options.index_type = static_cast<
+      rocksdb::BlockBasedTableOptions::IndexType>(jindex_type);
 
   return reinterpret_cast<jlong>(rocksdb::NewBlockBasedTableFactory(options));
 }
