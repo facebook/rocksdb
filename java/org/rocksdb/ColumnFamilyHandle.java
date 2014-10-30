@@ -10,23 +10,33 @@ package org.rocksdb;
  * ColumnFamily Pointers.
  */
 public class ColumnFamilyHandle extends RocksObject {
-  ColumnFamilyHandle(long nativeHandle) {
+  ColumnFamilyHandle(RocksDB rocksDB, long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
+    // rocksDB must point to a valid RocksDB instance;
+    assert(rocksDB != null);
+    // ColumnFamilyHandle must hold a reference to the related RocksDB instance
+    // to guarantee that while a GC cycle starts ColumnFamilyHandle instances
+    // are freed prior to RocksDB instances.
+    rocksDB_ = rocksDB;
   }
 
   /**
-   * Deletes underlying C++ filter pointer.
+   * <p>Deletes underlying C++ iterator pointer.</p>
    *
-   * Note that this function should be called only after all
-   * RocksDB instances referencing the filter are closed.
-   * Otherwise an undefined behavior will occur.
+   * <p>Note: the underlying handle can only be safely deleted if the RocksDB
+   * instance related to a certain ColumnFamilyHandle is still valid and initialized.
+   * Therefore {@code disposeInternal()} checks if the RocksDB is initialized
+   * before freeing the native handle.</p>
    */
   @Override protected void disposeInternal() {
     assert(isInitialized());
-    disposeInternal(nativeHandle_);
+    if (rocksDB_.isInitialized()) {
+      disposeInternal(nativeHandle_);
+    }
   }
 
   private native void disposeInternal(long handle);
 
+  private RocksDB rocksDB_;
 }
