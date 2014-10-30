@@ -11,11 +11,11 @@ package org.rocksdb;
 public abstract class RateLimiterConfig {
   /**
    * This function should only be called by
-   * {@link org.rocksdb.Options#setRateLimiter(long, long)}, which will
+   * {@link org.rocksdb.DBOptions#setRateLimiter(long, long)}, which will
    * create a c++ shared-pointer to the c++ {@code RateLimiter} that is associated
    * with a Java RateLimiterConfig.
    *
-   * @see org.rocksdb.Options#setRateLimiter(long, long)
+   * @see org.rocksdb.DBOptions#setRateLimiter(long, long)
    */
   abstract protected long newRateLimiterHandle();
 }
