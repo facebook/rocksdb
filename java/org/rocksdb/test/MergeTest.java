@@ -51,12 +51,15 @@ public class MergeTest {
     new ArrayList<ColumnFamilyHandle>();
     cfNames.add("default");
     cfNames.add("new_cf");
-    RocksDB db = RocksDB.open(opt, db_cf_path_string, cfNames, columnFamilyHandleList);
+    RocksDB db = RocksDB.open(opt, db_cf_path_string,
+        cfNames, columnFamilyHandleList);
 
     // writing aa under key
-    db.put(columnFamilyHandleList.get(1), "cfkey".getBytes(), "aa".getBytes());
+    db.put(columnFamilyHandleList.get(1),
+        "cfkey".getBytes(), "aa".getBytes());
     // merge bb under key
-    db.merge(columnFamilyHandleList.get(1), "cfkey".getBytes(), "bb".getBytes());
+    db.merge(columnFamilyHandleList.get(1),
+        "cfkey".getBytes(), "bb".getBytes());
 
     byte[] value = db.get(columnFamilyHandleList.get(1), "cfkey".getBytes());
     String strValue = new String(value);
@@ -105,12 +108,15 @@ public class MergeTest {
     new ArrayList<ColumnFamilyHandle>();
     cfNames.add("default");
     cfNames.add("new_cf");
-    RocksDB db = RocksDB.open(opt, db_path_operator, cfNames, columnFamilyHandleList);
+    RocksDB db = RocksDB.open(opt, db_path_operator,
+        cfNames, columnFamilyHandleList);
 
     // writing aa under key
-    db.put(columnFamilyHandleList.get(1), "cfkey".getBytes(), "aa".getBytes());
+    db.put(columnFamilyHandleList.get(1),
+        "cfkey".getBytes(), "aa".getBytes());
     // merge bb under key
-    db.merge(columnFamilyHandleList.get(1), "cfkey".getBytes(), "bb".getBytes());
+    db.merge(columnFamilyHandleList.get(1),
+        "cfkey".getBytes(), "bb".getBytes());
     byte[] value = db.get(columnFamilyHandleList.get(1), "cfkey".getBytes());
     String strValue = new String(value);
 
