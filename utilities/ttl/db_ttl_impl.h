@@ -219,7 +219,8 @@ class TtlMergeOperator : public MergeOperator {
       override {
     const uint32_t ts_len = DBWithTTLImpl::kTSLength;
     if (existing_value && existing_value->size() < ts_len) {
-      Log(logger, "Error: Could not remove timestamp from existing value.");
+      Log(InfoLogLevel::ERROR_LEVEL, logger,
+          "Error: Could not remove timestamp from existing value.");
       return false;
     }
 
@@ -227,7 +228,8 @@ class TtlMergeOperator : public MergeOperator {
     std::deque<std::string> operands_without_ts;
     for (const auto& operand : operands) {
       if (operand.size() < ts_len) {
-        Log(logger, "Error: Could not remove timestamp from operand value.");
+        Log(InfoLogLevel::ERROR_LEVEL, logger,
+            "Error: Could not remove timestamp from operand value.");
         return false;
       }
       operands_without_ts.push_back(operand.substr(0, operand.size() - ts_len));
@@ -253,7 +255,7 @@ class TtlMergeOperator : public MergeOperator {
     // Augment the *new_value with the ttl time-stamp
     int64_t curtime;
     if (!env_->GetCurrentTime(&curtime).ok()) {
-      Log(logger,
+      Log(InfoLogLevel::ERROR_LEVEL, logger,
           "Error: Could not get current time to be attached internally "
           "to the new value.");
       return false;
@@ -274,7 +276,8 @@ class TtlMergeOperator : public MergeOperator {
 
     for (const auto& operand : operand_list) {
       if (operand.size() < ts_len) {
-        Log(logger, "Error: Could not remove timestamp from value.");
+        Log(InfoLogLevel::ERROR_LEVEL, logger,
+            "Error: Could not remove timestamp from value.");
         return false;
       }
 
@@ -292,7 +295,7 @@ class TtlMergeOperator : public MergeOperator {
     // Augment the *new_value with the ttl time-stamp
     int64_t curtime;
     if (!env_->GetCurrentTime(&curtime).ok()) {
-      Log(logger,
+      Log(InfoLogLevel::ERROR_LEVEL, logger,
           "Error: Could not get current time to be attached internally "
           "to the new value.");
       return false;
