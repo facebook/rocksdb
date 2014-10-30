@@ -21,6 +21,7 @@ struct MutableCFOptions {
           options.memtable_prefix_bloom_huge_page_tlb_size),
       max_successive_merges(options.max_successive_merges),
       filter_deletes(options.filter_deletes),
+      disable_auto_compactions(options.disable_auto_compactions),
       level0_file_num_compaction_trigger(
           options.level0_file_num_compaction_trigger),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
@@ -45,6 +46,7 @@ struct MutableCFOptions {
       memtable_prefix_bloom_huge_page_tlb_size(0),
       max_successive_merges(0),
       filter_deletes(false),
+      disable_auto_compactions(false),
       level0_file_num_compaction_trigger(0),
       level0_slowdown_writes_trigger(0),
       level0_stop_writes_trigger(0),
@@ -80,6 +82,7 @@ struct MutableCFOptions {
   bool filter_deletes;
 
   // Compaction related options
+  bool disable_auto_compactions;
   int level0_file_num_compaction_trigger;
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
