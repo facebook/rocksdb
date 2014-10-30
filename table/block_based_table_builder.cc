@@ -790,7 +790,7 @@ Status BlockBasedTableBuilder::Finish() {
       }
     }
 
-    Log(r->ioptions.info_log,
+    Log(InfoLogLevel::INFO_LEVEL, r->ioptions.info_log,
         "Table was constructed:\n"
         "  [basic properties]: %s\n"
         "  [user collected properties]: %s",
