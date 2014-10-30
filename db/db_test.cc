@@ -6438,10 +6438,6 @@ std::vector<std::uint64_t> ListSpecificFiles(
   return std::move(file_numbers);
 }
 
-std::vector<std::uint64_t> ListLogFiles(Env* env, const std::string& path) {
-  return ListSpecificFiles(env, path, kLogFile);
-}
-
 std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
   return ListSpecificFiles(env, path, kTableFile);
 }
@@ -6593,114 +6589,6 @@ TEST(DBTest, RecoverCheckFileAmount) {
   }
 }
 
-TEST(DBTest, WALArchivalTtl) {
-  do {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    options.WAL_ttl_seconds = 1000;
-    DestroyAndReopen(options);
-
-    //  TEST : Create DB with a ttl and no size limit.
-    //  Put some keys. Count the log files present in the DB just after insert.
-    //  Re-open db. Causes deletion/archival to take place.
-    //  Assert that the files moved under "/archive".
-    //  Reopen db with small ttl.
-    //  Assert that archive was removed.
-
-    std::string archiveDir = ArchivalDirectory(dbname_);
-
-    for (int i = 0; i < 10; ++i) {
-      for (int j = 0; j < 10; ++j) {
-        ASSERT_OK(Put(Key(10 * i + j), DummyString(1024)));
-      }
-
-      std::vector<uint64_t> log_files = ListLogFiles(env_, dbname_);
-
-      options.create_if_missing = false;
-      Reopen(options);
-
-      std::vector<uint64_t> logs = ListLogFiles(env_, archiveDir);
-      std::set<uint64_t> archivedFiles(logs.begin(), logs.end());
-
-      for (auto& log : log_files) {
-        ASSERT_TRUE(archivedFiles.find(log) != archivedFiles.end());
-      }
-    }
-
-    std::vector<uint64_t> log_files = ListLogFiles(env_, archiveDir);
-    ASSERT_TRUE(log_files.size() > 0);
-
-    options.WAL_ttl_seconds = 1;
-    env_->SleepForMicroseconds(2 * 1000 * 1000);
-    Reopen(options);
-
-    log_files = ListLogFiles(env_, archiveDir);
-    ASSERT_TRUE(log_files.empty());
-  } while (ChangeCompactOptions());
-}
-
-namespace {
-uint64_t GetLogDirSize(std::string dir_path, SpecialEnv* env) {
-  uint64_t dir_size = 0;
-  std::vector<std::string> files;
-  env->GetChildren(dir_path, &files);
-  for (auto& f : files) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == kLogFile) {
-      std::string const file_path = dir_path + "/" + f;
-      uint64_t file_size;
-      env->GetFileSize(file_path, &file_size);
-      dir_size += file_size;
-    }
-  }
-  return dir_size;
-}
-}  // namespace
-
-TEST(DBTest, WALArchivalSizeLimit) {
-  do {
-    Options options = CurrentOptions();
-    options.create_if_missing = true;
-    options.WAL_ttl_seconds = 0;
-    options.WAL_size_limit_MB = 1000;
-
-    // TEST : Create DB with huge size limit and no ttl.
-    // Put some keys. Count the archived log files present in the DB
-    // just after insert. Assert that there are many enough.
-    // Change size limit. Re-open db.
-    // Assert that archive is not greater than WAL_size_limit_MB.
-    // Set ttl and time_to_check_ to small values. Re-open db.
-    // Assert that there are no archived logs left.
-
-    DestroyAndReopen(options);
-    for (int i = 0; i < 128 * 128; ++i) {
-      ASSERT_OK(Put(Key(i), DummyString(1024)));
-    }
-    Reopen(options);
-
-    std::string archive_dir = ArchivalDirectory(dbname_);
-    std::vector<std::uint64_t> log_files = ListLogFiles(env_, archive_dir);
-    ASSERT_TRUE(log_files.size() > 2);
-
-    options.WAL_size_limit_MB = 8;
-    Reopen(options);
-    dbfull()->TEST_PurgeObsoleteteWAL();
-
-    uint64_t archive_size = GetLogDirSize(archive_dir, env_);
-    ASSERT_TRUE(archive_size <= options.WAL_size_limit_MB * 1024 * 1024);
-
-    options.WAL_ttl_seconds = 1;
-    dbfull()->TEST_SetDefaultTimeToCheck(1);
-    env_->SleepForMicroseconds(2 * 1000 * 1000);
-    Reopen(options);
-    dbfull()->TEST_PurgeObsoleteteWAL();
-
-    log_files = ListLogFiles(env_, archive_dir);
-    ASSERT_TRUE(log_files.empty());
-  } while (ChangeCompactOptions());
-}
-
 TEST(DBTest, PurgeInfoLogs) {
   Options options = CurrentOptions();
   options.keep_log_file_num = 5;
@@ -6804,11 +6692,13 @@ TEST(DBTest, TransactionLogIterator) {
 #ifndef NDEBUG // sync point is not included with DNDEBUG build
 TEST(DBTest, TransactionLogIteratorRace) {
   static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
-  static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] =
-    { { "DBImpl::GetSortedWalFiles:1", "DBImpl::PurgeObsoleteFiles:1",
-        "DBImpl::PurgeObsoleteFiles:2", "DBImpl::GetSortedWalFiles:2" },
-      { "DBImpl::GetSortedWalsOfType:1", "DBImpl::PurgeObsoleteFiles:1",
-        "DBImpl::PurgeObsoleteFiles:2", "DBImpl::GetSortedWalsOfType:2" }};
+  static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] = {
+      {"WalManager::GetSortedWalFiles:1",  "WalManager::PurgeObsoleteFiles:1",
+       "WalManager::PurgeObsoleteFiles:2", "WalManager::GetSortedWalFiles:2"},
+      {"WalManager::GetSortedWalsOfType:1",
+       "WalManager::PurgeObsoleteFiles:1",
+       "WalManager::PurgeObsoleteFiles:2",
+       "WalManager::GetSortedWalsOfType:2"}};
   for (int test = 0; test < LOG_ITERATOR_RACE_TEST_COUNT; ++test) {
     // Setup sync point dependency to reproduce the race condition of
     // a log file moved to archived dir, in the middle of GetSortedWalFiles
@@ -6856,24 +6746,6 @@ TEST(DBTest, TransactionLogIteratorRace) {
 }
 #endif
 
-TEST(DBTest, TransactionLogIteratorMoveOverZeroFiles) {
-  do {
-    Options options = OptionsForLogIterTest();
-    DestroyAndReopen(options);
-    CreateAndReopenWithCF({"pikachu"}, options);
-    // Do a plain Reopen.
-    Put(1, "key1", DummyString(1024));
-    // Two reopens should create a zero record WAL file.
-    ReopenWithColumnFamilies({"default", "pikachu"}, options);
-    ReopenWithColumnFamilies({"default", "pikachu"}, options);
-
-    Put(1, "key2", DummyString(1024));
-
-    auto iter = OpenTransactionLogIter(0);
-    ExpectRecords(2, iter);
-  } while (ChangeCompactOptions());
-}
-
 TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
   do {
     Options options = OptionsForLogIterTest();
@@ -6889,17 +6761,6 @@ TEST(DBTest, TransactionLogIteratorStallAtLastRecord) {
     iter->Next();
     ASSERT_OK(iter->status());
     ASSERT_TRUE(iter->Valid());
-  } while (ChangeCompactOptions());
-}
-
-TEST(DBTest, TransactionLogIteratorJustEmptyFile) {
-  do {
-    Options options = OptionsForLogIterTest();
-    DestroyAndReopen(options);
-    unique_ptr<TransactionLogIterator> iter;
-    Status status = dbfull()->GetUpdatesSince(0, &iter);
-    // Check that an empty iterator is returned
-    ASSERT_TRUE(!iter->Valid());
   } while (ChangeCompactOptions());
 }
 
@@ -7011,44 +6872,6 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
       "LogData(blob2)"
       "Delete(0, key2)",
       handler.seen);
-}
-
-TEST(DBTest, ReadFirstRecordCache) {
-  Options options = CurrentOptions();
-  options.env = env_;
-  options.create_if_missing = true;
-  DestroyAndReopen(options);
-
-  std::string path = dbname_ + "/000001.log";
-  unique_ptr<WritableFile> file;
-  ASSERT_OK(env_->NewWritableFile(path, &file, EnvOptions()));
-
-  SequenceNumber s;
-  ASSERT_OK(dbfull()->TEST_ReadFirstLine(path, &s));
-  ASSERT_EQ(s, 0U);
-
-  ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
-  ASSERT_EQ(s, 0U);
-
-  log::Writer writer(std::move(file));
-  WriteBatch batch;
-  batch.Put("foo", "bar");
-  WriteBatchInternal::SetSequence(&batch, 10);
-  writer.AddRecord(WriteBatchInternal::Contents(&batch));
-
-  env_->count_sequential_reads_ = true;
-  // sequential_read_counter_ sanity test
-  ASSERT_EQ(env_->sequential_read_counter_.Read(), 0);
-
-  ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
-  ASSERT_EQ(s, 10U);
-  // did a read
-  ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
-
-  ASSERT_OK(dbfull()->TEST_ReadFirstRecord(kAliveLogFile, 1, &s));
-  ASSERT_EQ(s, 10U);
-  // no new reads since the value is cached
-  ASSERT_EQ(env_->sequential_read_counter_.Read(), 1);
 }
 
 // Multi-threaded test:

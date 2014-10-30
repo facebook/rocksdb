@@ -11,7 +11,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
-#include "db/db_impl.h"
+#include "db/version_set.h"
 #include "db/log_reader.h"
 #include "db/filename.h"
 
@@ -73,7 +73,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const std::string& dir, const DBOptions* options,
       const TransactionLogIterator::ReadOptions& read_options,
       const EnvOptions& soptions, const SequenceNumber seqNum,
-      std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl);
+      std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions);
 
   virtual bool Valid();
 
@@ -100,7 +100,9 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   LogReporter reporter_;
   SequenceNumber currentBatchSeq_; // sequence number at start of current batch
   SequenceNumber currentLastSeq_; // last sequence in the current batch
-  DBImpl const * const dbimpl_; // The db on whose log files this iterates
+  // Used only to get latest seq. num
+  // TODO(icanadi) can this be just a callback?
+  VersionSet const* const versions_;
 
   // Reads from transaction log only if the writebatch record has been written
   bool RestrictedRead(Slice* record, std::string* scratch);

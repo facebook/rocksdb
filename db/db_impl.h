@@ -21,6 +21,7 @@
 #include "db/snapshot.h"
 #include "db/column_family.h"
 #include "db/version_edit.h"
+#include "db/wal_manager.h"
 #include "memtable_list.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -193,24 +194,11 @@ class DBImpl : public DB {
   // Return the current manifest file no.
   uint64_t TEST_Current_Manifest_FileNo();
 
-  // Trigger's a background call for testing.
-  void TEST_PurgeObsoleteteWAL();
-
   // get total level0 file size. Only for testing.
   uint64_t TEST_GetLevel0TotalSize();
 
-  void TEST_SetDefaultTimeToCheck(uint64_t default_interval_to_delete_obsolete_WAL)
-  {
-    default_interval_to_delete_obsolete_WAL_ = default_interval_to_delete_obsolete_WAL;
-  }
-
   void TEST_GetFilesMetaData(ColumnFamilyHandle* column_family,
                              std::vector<std::vector<FileMetaData>>* metadata);
-
-  Status TEST_ReadFirstRecord(const WalFileType type, const uint64_t number,
-                              SequenceNumber* sequence);
-
-  Status TEST_ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
 
   void TEST_LockMutex();
 
@@ -355,30 +343,6 @@ class DBImpl : public DB {
   void AllocateCompactionOutputFileNumbers(CompactionState* compact);
   void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
-#ifdef ROCKSDB_LITE
-  void PurgeObsoleteWALFiles() {
-    // this function is used for archiving WAL files. we don't need this in
-    // ROCKSDB_LITE
-  }
-#else
-  void PurgeObsoleteWALFiles();
-
-  Status GetSortedWalsOfType(const std::string& path,
-                             VectorLogPtr& log_files,
-                             WalFileType type);
-
-  // Requires: all_logs should be sorted with earliest log file first
-  // Retains all log files in all_logs which contain updates with seq no.
-  // Greater Than or Equal to the requested SequenceNumber.
-  Status RetainProbableWalFiles(VectorLogPtr& all_logs,
-                                const SequenceNumber target);
-
-  Status ReadFirstRecord(const WalFileType type, const uint64_t number,
-                         SequenceNumber* sequence);
-
-  Status ReadFirstLine(const std::string& fname, SequenceNumber* sequence);
-#endif  // ROCKSDB_LITE
-
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG
@@ -453,10 +417,6 @@ class DBImpl : public DB {
 
   SnapshotList snapshots_;
 
-  // cache for ReadFirstRecord() calls
-  std::unordered_map<uint64_t, SequenceNumber> read_first_record_cache_;
-  port::Mutex read_first_record_cache_mutex_;
-
   // Set of table files to protect from deletion because they are
   // part of ongoing compactions.
   // map from pending file number ID to their path IDs.
@@ -506,15 +466,8 @@ class DBImpl : public DB {
   // last time when DeleteObsoleteFiles was invoked
   uint64_t delete_obsolete_files_last_run_;
 
-  // last time when PurgeObsoleteWALFiles ran.
-  uint64_t purge_wal_files_last_run_;
-
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
-
-  // obsolete files will be deleted every this seconds if ttl deletion is
-  // enabled and archive size_limit is disabled.
-  uint64_t default_interval_to_delete_obsolete_WAL_;
 
   bool flush_on_destroy_; // Used when disableWAL is true.
 
@@ -523,6 +476,10 @@ class DBImpl : public DB {
 
   // The options to access storage files
   const EnvOptions env_options_;
+
+#ifndef ROCKSDB_LITE
+  WalManager wal_manager_;
+#endif  // ROCKSDB_LITE
 
   // A value of true temporarily disables scheduling of background work
   bool bg_work_gate_closed_;

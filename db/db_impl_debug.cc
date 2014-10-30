@@ -13,8 +13,6 @@
 
 namespace rocksdb {
 
-void DBImpl::TEST_PurgeObsoleteteWAL() { PurgeObsoleteWALFiles(); }
-
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
   MutexLock l(&mutex_);
   return default_cf_handle_->cfd()->current()->GetStorageInfo()->NumLevelBytes(
@@ -120,17 +118,6 @@ Status DBImpl::TEST_WaitForCompact() {
     bg_cv_.Wait();
   }
   return bg_error_;
-}
-
-Status DBImpl::TEST_ReadFirstRecord(const WalFileType type,
-                                    const uint64_t number,
-                                    SequenceNumber* sequence) {
-  return ReadFirstRecord(type, number, sequence);
-}
-
-Status DBImpl::TEST_ReadFirstLine(const std::string& fname,
-                                  SequenceNumber* sequence) {
-  return ReadFirstLine(fname, sequence);
 }
 
 void DBImpl::TEST_LockMutex() {

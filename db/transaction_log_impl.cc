@@ -4,6 +4,11 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #ifndef ROCKSDB_LITE
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
 
@@ -13,7 +18,7 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
     const std::string& dir, const DBOptions* options,
     const TransactionLogIterator::ReadOptions& read_options,
     const EnvOptions& soptions, const SequenceNumber seq,
-    std::unique_ptr<VectorLogPtr> files, DBImpl const* const dbimpl)
+    std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions)
     : dir_(dir),
       options_(options),
       read_options_(read_options),
@@ -25,9 +30,9 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
       currentFileIndex_(0),
       currentBatchSeq_(0),
       currentLastSeq_(0),
-      dbimpl_(dbimpl) {
+      versions_(versions) {
   assert(files_ != nullptr);
-  assert(dbimpl_ != nullptr);
+  assert(versions_ != nullptr);
 
   reporter_.env = options_->env;
   reporter_.info_log = options_->info_log.get();
@@ -74,7 +79,7 @@ bool TransactionLogIteratorImpl::RestrictedRead(
     Slice* record,
     std::string* scratch) {
   // Don't read if no more complete entries to read from logs
-  if (currentLastSeq_ >= dbimpl_->GetLatestSequenceNumber()) {
+  if (currentLastSeq_ >= versions_->LastSequence()) {
     return false;
   }
   return currentLogReader_->ReadRecord(record, scratch);
@@ -185,7 +190,7 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
       }
     } else {
       isValid_ = false;
-      if (currentLastSeq_ == dbimpl_->GetLatestSequenceNumber()) {
+      if (currentLastSeq_ == versions_->LastSequence()) {
         currentStatus_ = Status::OK();
       } else {
         currentStatus_ = Status::Corruption("NO MORE DATA LEFT");
@@ -203,12 +208,10 @@ bool TransactionLogIteratorImpl::IsBatchExpected(
   if (batchSeq != expectedSeq) {
     char buf[200];
     snprintf(buf, sizeof(buf),
-             "Discontinuity in log records. Got seq=%lu, Expected seq=%lu, "
-             "Last flushed seq=%lu.Log iterator will reseek the correct "
-             "batch.",
-             (unsigned long)batchSeq,
-             (unsigned long)expectedSeq,
-             (unsigned long)dbimpl_->GetLatestSequenceNumber());
+             "Discontinuity in log records. Got seq=%" PRIu64
+             ", Expected seq=%" PRIu64 ", Last flushed seq=%" PRIu64
+             ".Log iterator will reseek the correct batch.",
+             batchSeq, expectedSeq, versions_->LastSequence());
     reporter_.Info(buf);
     return false;
   }
@@ -240,7 +243,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
   currentLastSeq_ = currentBatchSeq_ +
                     WriteBatchInternal::Count(batch.get()) - 1;
   // currentBatchSeq_ can only change here
-  assert(currentLastSeq_ <= dbimpl_->GetLatestSequenceNumber());
+  assert(currentLastSeq_ <= versions_->LastSequence());
 
   currentBatch_ = move(batch);
   isValid_ = true;

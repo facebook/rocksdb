@@ -342,11 +342,12 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       manual_compaction_(nullptr),
       disable_delete_obsolete_files_(0),
       delete_obsolete_files_last_run_(options.env->NowMicros()),
-      purge_wal_files_last_run_(0),
       last_stats_dump_time_microsec_(0),
-      default_interval_to_delete_obsolete_WAL_(600),
       flush_on_destroy_(false),
       env_options_(options),
+#ifndef ROCKSDB_LITE
+      wal_manager_(db_options_, env_options_),
+#endif  // ROCKSDB_LITE
       bg_work_gate_closed_(false),
       refitting_level_(false),
       opened_successfully_(false) {
@@ -738,23 +739,20 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
           db_options_.wal_dir : dbname_) + "/" + to_delete;
     }
 
-    if (type == kLogFile &&
-        (db_options_.WAL_ttl_seconds > 0 ||
-         db_options_.WAL_size_limit_MB > 0)) {
-      auto archived_log_name = ArchivedLogFileName(db_options_.wal_dir, number);
-      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
-      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:1");
-      Status s = env_->RenameFile(fname, archived_log_name);
-      // The sync point below is used in (DBTest,TransactionLogIteratorRace)
-      TEST_SYNC_POINT("DBImpl::PurgeObsoleteFiles:2");
-      Log(db_options_.info_log,
-          "Move log file %s to %s -- %s\n",
-          fname.c_str(), archived_log_name.c_str(), s.ToString().c_str());
+#ifdef ROCKSDB_LITE
+    Status s = env_->DeleteFile(fname);
+    Log(db_options_.info_log, "Delete %s type=%d #%" PRIu64 " -- %s\n",
+        fname.c_str(), type, number, s.ToString().c_str());
+#else   // not ROCKSDB_LITE
+    if (type == kLogFile && (db_options_.WAL_ttl_seconds > 0 ||
+                             db_options_.WAL_size_limit_MB > 0)) {
+      wal_manager_.ArchiveWALFile(fname, number);
     } else {
       Status s = env_->DeleteFile(fname);
       Log(db_options_.info_log, "Delete %s type=%d #%" PRIu64 " -- %s\n",
           fname.c_str(), type, number, s.ToString().c_str());
     }
+#endif  // ROCKSDB_LITE
   }
 
   // Delete old info log files.
@@ -775,7 +773,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       }
     }
   }
-  PurgeObsoleteWALFiles();
+#ifndef ROCKSDB_LITE
+  wal_manager_.PurgeObsoleteWALFiles();
+#endif  // ROCKSDB_LITE
   LogFlush(db_options_.info_log);
 }
 
@@ -787,324 +787,6 @@ void DBImpl::DeleteObsoleteFiles() {
     PurgeObsoleteFiles(job_context);
   }
 }
-
-#ifndef ROCKSDB_LITE
-// 1. Go through all archived files and
-//    a. if ttl is enabled, delete outdated files
-//    b. if archive size limit is enabled, delete empty files,
-//        compute file number and size.
-// 2. If size limit is enabled:
-//    a. compute how many files should be deleted
-//    b. get sorted non-empty archived logs
-//    c. delete what should be deleted
-void DBImpl::PurgeObsoleteWALFiles() {
-  bool const ttl_enabled = db_options_.WAL_ttl_seconds > 0;
-  bool const size_limit_enabled =  db_options_.WAL_size_limit_MB > 0;
-  if (!ttl_enabled && !size_limit_enabled) {
-    return;
-  }
-
-  int64_t current_time;
-  Status s = env_->GetCurrentTime(&current_time);
-  if (!s.ok()) {
-    Log(db_options_.info_log, "Can't get current time: %s",
-        s.ToString().c_str());
-    assert(false);
-    return;
-  }
-  uint64_t const now_seconds = static_cast<uint64_t>(current_time);
-  uint64_t const time_to_check = (ttl_enabled && !size_limit_enabled) ?
-    db_options_.WAL_ttl_seconds / 2 : default_interval_to_delete_obsolete_WAL_;
-
-  if (purge_wal_files_last_run_ + time_to_check > now_seconds) {
-    return;
-  }
-
-  purge_wal_files_last_run_ = now_seconds;
-
-  std::string archival_dir = ArchivalDirectory(db_options_.wal_dir);
-  std::vector<std::string> files;
-  s = env_->GetChildren(archival_dir, &files);
-  if (!s.ok()) {
-    Log(db_options_.info_log, "Can't get archive files: %s",
-        s.ToString().c_str());
-    assert(false);
-    return;
-  }
-
-  size_t log_files_num = 0;
-  uint64_t log_file_size = 0;
-
-  for (auto& f : files) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == kLogFile) {
-      std::string const file_path = archival_dir + "/" + f;
-      if (ttl_enabled) {
-        uint64_t file_m_time;
-        Status const s = env_->GetFileModificationTime(file_path,
-          &file_m_time);
-        if (!s.ok()) {
-          Log(db_options_.info_log, "Can't get file mod time: %s: %s",
-              file_path.c_str(), s.ToString().c_str());
-          continue;
-        }
-        if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
-          Status const s = env_->DeleteFile(file_path);
-          if (!s.ok()) {
-            Log(db_options_.info_log, "Can't delete file: %s: %s",
-                file_path.c_str(), s.ToString().c_str());
-            continue;
-          } else {
-            MutexLock l(&read_first_record_cache_mutex_);
-            read_first_record_cache_.erase(number);
-          }
-          continue;
-        }
-      }
-
-      if (size_limit_enabled) {
-        uint64_t file_size;
-        Status const s = env_->GetFileSize(file_path, &file_size);
-        if (!s.ok()) {
-          Log(db_options_.info_log, "Can't get file size: %s: %s",
-              file_path.c_str(), s.ToString().c_str());
-          return;
-        } else {
-          if (file_size > 0) {
-            log_file_size = std::max(log_file_size, file_size);
-            ++log_files_num;
-          } else {
-            Status s = env_->DeleteFile(file_path);
-            if (!s.ok()) {
-              Log(db_options_.info_log, "Can't delete file: %s: %s",
-                  file_path.c_str(), s.ToString().c_str());
-              continue;
-            } else {
-              MutexLock l(&read_first_record_cache_mutex_);
-              read_first_record_cache_.erase(number);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  if (0 == log_files_num || !size_limit_enabled) {
-    return;
-  }
-
-  size_t const files_keep_num = db_options_.WAL_size_limit_MB *
-    1024 * 1024 / log_file_size;
-  if (log_files_num <= files_keep_num) {
-    return;
-  }
-
-  size_t files_del_num = log_files_num - files_keep_num;
-  VectorLogPtr archived_logs;
-  GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
-
-  if (files_del_num > archived_logs.size()) {
-    Log(db_options_.info_log, "Trying to delete more archived log files than "
-        "exist. Deleting all");
-    files_del_num = archived_logs.size();
-  }
-
-  for (size_t i = 0; i < files_del_num; ++i) {
-    std::string const file_path = archived_logs[i]->PathName();
-    Status const s = DeleteFile(file_path);
-    if (!s.ok()) {
-      Log(db_options_.info_log, "Can't delete file: %s: %s",
-          file_path.c_str(), s.ToString().c_str());
-      continue;
-    } else {
-      MutexLock l(&read_first_record_cache_mutex_);
-      read_first_record_cache_.erase(archived_logs[i]->LogNumber());
-    }
-  }
-}
-
-namespace {
-struct CompareLogByPointer {
-  bool operator()(const unique_ptr<LogFile>& a, const unique_ptr<LogFile>& b) {
-    LogFileImpl* a_impl = dynamic_cast<LogFileImpl*>(a.get());
-    LogFileImpl* b_impl = dynamic_cast<LogFileImpl*>(b.get());
-    return *a_impl < *b_impl;
-  }
-};
-}
-
-Status DBImpl::GetSortedWalsOfType(const std::string& path,
-                                   VectorLogPtr& log_files,
-                                   WalFileType log_type) {
-  std::vector<std::string> all_files;
-  const Status status = env_->GetChildren(path, &all_files);
-  if (!status.ok()) {
-    return status;
-  }
-  log_files.reserve(all_files.size());
-  for (const auto& f : all_files) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(f, &number, &type) && type == kLogFile) {
-      SequenceNumber sequence;
-      Status s = ReadFirstRecord(log_type, number, &sequence);
-      if (!s.ok()) {
-        return s;
-      }
-      if (sequence == 0) {
-        // empty file
-        continue;
-      }
-
-      // Reproduce the race condition where a log file is moved
-      // to archived dir, between these two sync points, used in
-      // (DBTest,TransactionLogIteratorRace)
-      TEST_SYNC_POINT("DBImpl::GetSortedWalsOfType:1");
-      TEST_SYNC_POINT("DBImpl::GetSortedWalsOfType:2");
-
-      uint64_t size_bytes;
-      s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
-      // re-try in case the alive log file has been moved to archive.
-      if (!s.ok() && log_type == kAliveLogFile &&
-          env_->FileExists(ArchivedLogFileName(path, number))) {
-        s = env_->GetFileSize(ArchivedLogFileName(path, number), &size_bytes);
-      }
-      if (!s.ok()) {
-        return s;
-      }
-
-      log_files.push_back(std::move(unique_ptr<LogFile>(
-          new LogFileImpl(number, log_type, sequence, size_bytes))));
-    }
-  }
-  CompareLogByPointer compare_log_files;
-  std::sort(log_files.begin(), log_files.end(), compare_log_files);
-  return status;
-}
-
-Status DBImpl::RetainProbableWalFiles(VectorLogPtr& all_logs,
-                                      const SequenceNumber target) {
-  int64_t start = 0;  // signed to avoid overflow when target is < first file.
-  int64_t end = static_cast<int64_t>(all_logs.size()) - 1;
-  // Binary Search. avoid opening all files.
-  while (end >= start) {
-    int64_t mid = start + (end - start) / 2;  // Avoid overflow.
-    SequenceNumber current_seq_num = all_logs.at(mid)->StartSequence();
-    if (current_seq_num == target) {
-      end = mid;
-      break;
-    } else if (current_seq_num < target) {
-      start = mid + 1;
-    } else {
-      end = mid - 1;
-    }
-  }
-  // end could be -ve.
-  size_t start_index = std::max(static_cast<int64_t>(0), end);
-  // The last wal file is always included
-  all_logs.erase(all_logs.begin(), all_logs.begin() + start_index);
-  return Status::OK();
-}
-
-Status DBImpl::ReadFirstRecord(const WalFileType type, const uint64_t number,
-                               SequenceNumber* sequence) {
-  if (type != kAliveLogFile && type != kArchivedLogFile) {
-    return Status::NotSupported("File Type Not Known " + std::to_string(type));
-  }
-  {
-    MutexLock l(&read_first_record_cache_mutex_);
-    auto itr = read_first_record_cache_.find(number);
-    if (itr != read_first_record_cache_.end()) {
-      *sequence = itr->second;
-      return Status::OK();
-    }
-  }
-  Status s;
-  if (type == kAliveLogFile) {
-    std::string fname = LogFileName(db_options_.wal_dir, number);
-    s = ReadFirstLine(fname, sequence);
-    if (env_->FileExists(fname) && !s.ok()) {
-      // return any error that is not caused by non-existing file
-      return s;
-    }
-  }
-
-  if (type == kArchivedLogFile || !s.ok()) {
-    //  check if the file got moved to archive.
-    std::string archived_file =
-        ArchivedLogFileName(db_options_.wal_dir, number);
-    s = ReadFirstLine(archived_file, sequence);
-  }
-
-  if (s.ok() && *sequence != 0) {
-    MutexLock l(&read_first_record_cache_mutex_);
-    read_first_record_cache_.insert({number, *sequence});
-  }
-  return s;
-}
-
-// the function returns status.ok() and sequence == 0 if the file exists, but is
-// empty
-Status DBImpl::ReadFirstLine(const std::string& fname,
-                             SequenceNumber* sequence) {
-  struct LogReporter : public log::Reader::Reporter {
-    Env* env;
-    Logger* info_log;
-    const char* fname;
-
-    Status* status;
-    bool ignore_error;  // true if db_options_.paranoid_checks==false
-    virtual void Corruption(size_t bytes, const Status& s) {
-      Log(info_log, "%s%s: dropping %d bytes; %s",
-          (this->ignore_error ? "(ignoring error) " : ""), fname,
-          static_cast<int>(bytes), s.ToString().c_str());
-      if (this->status->ok()) {
-        // only keep the first error
-        *this->status = s;
-      }
-    }
-  };
-
-  unique_ptr<SequentialFile> file;
-  Status status = env_->NewSequentialFile(fname, &file, env_options_);
-
-  if (!status.ok()) {
-    return status;
-  }
-
-  LogReporter reporter;
-  reporter.env = env_;
-  reporter.info_log = db_options_.info_log.get();
-  reporter.fname = fname.c_str();
-  reporter.status = &status;
-  reporter.ignore_error = !db_options_.paranoid_checks;
-  log::Reader reader(std::move(file), &reporter, true /*checksum*/,
-                     0 /*initial_offset*/);
-  std::string scratch;
-  Slice record;
-
-  if (reader.ReadRecord(&record, &scratch) &&
-      (status.ok() || !db_options_.paranoid_checks)) {
-    if (record.size() < 12) {
-      reporter.Corruption(record.size(),
-                          Status::Corruption("log record too small"));
-      // TODO read record's till the first no corrupt entry?
-    } else {
-      WriteBatch batch;
-      WriteBatchInternal::SetContents(&batch, record);
-      *sequence = WriteBatchInternal::Sequence(&batch);
-      return Status::OK();
-    }
-  }
-
-  // ReadRecord returns false on EOF, which means that the log file is empty. we
-  // return status.ok() in that case and set sequence number to 0
-  *sequence = 0;
-  return status;
-}
-
-#endif  // ROCKSDB_LITE
 
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
@@ -4304,23 +3986,7 @@ Status DBImpl::GetUpdatesSince(
   if (seq > versions_->LastSequence()) {
     return Status::NotFound("Requested sequence not yet written in the db");
   }
-  //  Get all sorted Wal Files.
-  //  Do binary search and open files and find the seq number.
-
-  std::unique_ptr<VectorLogPtr> wal_files(new VectorLogPtr);
-  Status s = GetSortedWalFiles(*wal_files);
-  if (!s.ok()) {
-    return s;
-  }
-
-  s = RetainProbableWalFiles(*wal_files, seq);
-  if (!s.ok()) {
-    return s;
-  }
-  iter->reset(new TransactionLogIteratorImpl(db_options_.wal_dir, &db_options_,
-                                             read_options, env_options_,
-                                             seq, std::move(wal_files), this));
-  return (*iter)->status();
+  return wal_manager_.GetUpdatesSince(seq, iter, read_options, versions_.get());
 }
 
 Status DBImpl::DeleteFile(std::string name) {

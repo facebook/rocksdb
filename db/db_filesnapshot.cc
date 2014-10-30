@@ -132,57 +132,8 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 }
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
-  // First get sorted files in db dir, then get sorted files from archived
-  // dir, to avoid a race condition where a log file is moved to archived
-  // dir in between.
-  Status s;
-  // list wal files in main db dir.
-  VectorLogPtr logs;
-  s = GetSortedWalsOfType(db_options_.wal_dir, logs, kAliveLogFile);
-  if (!s.ok()) {
-    return s;
-  }
-
-  // Reproduce the race condition where a log file is moved
-  // to archived dir, between these two sync points, used in
-  // (DBTest,TransactionLogIteratorRace)
-  TEST_SYNC_POINT("DBImpl::GetSortedWalFiles:1");
-  TEST_SYNC_POINT("DBImpl::GetSortedWalFiles:2");
-
-  files.clear();
-  // list wal files in archive dir.
-  std::string archivedir = ArchivalDirectory(db_options_.wal_dir);
-  if (env_->FileExists(archivedir)) {
-    s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-
-  uint64_t latest_archived_log_number = 0;
-  if (!files.empty()) {
-    latest_archived_log_number = files.back()->LogNumber();
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "Latest Archived log: %" PRIu64, latest_archived_log_number);
-  }
-
-  files.reserve(files.size() + logs.size());
-  for (auto& log : logs) {
-    if (log->LogNumber() > latest_archived_log_number) {
-      files.push_back(std::move(log));
-    } else {
-      // When the race condition happens, we could see the
-      // same log in both db dir and archived dir. Simply
-      // ignore the one in db dir. Note that, if we read
-      // archived dir first, we would have missed the log file.
-      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-          "%s already moved to archive", log->PathName().c_str());
-    }
-  }
-
-  return s;
+  return wal_manager_.GetSortedWalFiles(files);
 }
-
 }
 
 #endif  // ROCKSDB_LITE

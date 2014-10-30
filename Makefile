@@ -146,7 +146,8 @@ TESTS = \
 	cuckoo_table_reader_test \
 	cuckoo_table_db_test \
 	write_batch_with_index_test \
-	flush_job_test
+	flush_job_test \
+	wal_manager_test
 
 TOOLS = \
         sst_dump \
@@ -420,6 +421,9 @@ write_batch_with_index_test: utilities/write_batch_with_index/write_batch_with_i
 
 flush_job_test: db/flush_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/flush_job_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
+
+wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
