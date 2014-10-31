@@ -275,8 +275,8 @@ static void print_help() {
 }
 
 namespace {
-string HexToString(const string& str) {
-  string parsed;
+std::string HexToString(const std::string& str) {
+  std::string parsed;
   if (str[0] != '0' || str[1] != 'x') {
     fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
             str.c_str());
