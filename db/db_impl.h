@@ -308,40 +308,13 @@ class DBImpl : public DB {
                               LogBuffer* log_buffer);
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
-  void CleanupCompaction(CompactionState* compact, Status status);
-  Status DoCompactionWork(CompactionState* compact,
-                          const MutableCFOptions& mutable_cf_options,
-                          JobContext* job_context, LogBuffer* log_buffer);
 
   // This function is called as part of compaction. It enables Flush process to
   // preempt compaction, since it's higher prioirty
-  // Returns: micros spent executing
   uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
                                      const MutableCFOptions& mutable_cf_options,
                                      JobContext* job_context,
                                      LogBuffer* log_buffer);
-
-  // Call compaction filter if is_compaction_v2 is not true. Then iterate
-  // through input and compact the kv-pairs
-  Status ProcessKeyValueCompaction(
-      const MutableCFOptions& mutable_cf_options, bool is_snapshot_supported,
-      SequenceNumber visible_at_tip, SequenceNumber earliest_snapshot,
-      SequenceNumber latest_snapshot, JobContext* job_context,
-      bool bottommost_level, int64_t* imm_micros, Iterator* input,
-      CompactionState* compact, bool is_compaction_v2, int* num_output_records,
-      LogBuffer* log_buffer);
-
-  // Call compaction_filter_v2->Filter() on kv-pairs in compact
-  void CallCompactionFilterV2(CompactionState* compact,
-    CompactionFilterV2* compaction_filter_v2);
-
-  Status OpenCompactionOutputFile(CompactionState* compact,
-      const MutableCFOptions& mutable_cf_options);
-  Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
-  Status InstallCompactionResults(CompactionState* compact,
-      const MutableCFOptions& mutable_cf_options, LogBuffer* log_buffer);
-  void AllocateCompactionOutputFileNumbers(CompactionState* compact);
-  void ReleaseCompactionUnusedFileNumbers(CompactionState* compact);
 
   void PrintStatistics();
 
