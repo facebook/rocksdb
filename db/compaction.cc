@@ -129,7 +129,7 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(const Slice& user_key) {
   const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
     const std::vector<FileMetaData*>& files =
-        input_version_->GetStorageInfo()->LevelFiles(lvl);
+        input_version_->storage_info()->LevelFiles(lvl);
     for (; level_ptrs_[lvl] < files.size(); ) {
       FileMetaData* f = files[level_ptrs_[lvl]];
       if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
@@ -228,7 +228,7 @@ void Compaction::ReleaseCompactionFiles(Status status) {
 
 void Compaction::ResetNextCompactionIndex() {
   assert(input_version_ != nullptr);
-  input_version_->GetStorageInfo()->ResetNextCompactionIndex(start_level_);
+  input_version_->storage_info()->ResetNextCompactionIndex(start_level_);
 }
 
 namespace {

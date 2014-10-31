@@ -220,7 +220,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     if (!seek_to_first) {
       user_key = ExtractUserKey(internal_key);
     }
-    VersionStorageInfo* vstorage = sv_->current->GetStorageInfo();
+    const VersionStorageInfo* vstorage = sv_->current->storage_info();
     const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
     for (uint32_t i = 0; i < l0.size(); ++i) {
       if (seek_to_first) {
@@ -430,7 +430,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
 
-  auto* vstorage = sv_->current->GetStorageInfo();
+  const auto* vstorage = sv_->current->storage_info();
   const auto& l0_files = vstorage->LevelFiles(0);
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {
@@ -454,7 +454,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
 }
 
 void ForwardIterator::ResetIncompleteIterators() {
-  const auto& l0_files = sv_->current->GetStorageInfo()->LevelFiles(0);
+  const auto& l0_files = sv_->current->storage_info()->LevelFiles(0);
   for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
     assert(i < l0_files.size());
     if (!l0_iters_[i]->status().IsIncomplete()) {

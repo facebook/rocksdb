@@ -1125,7 +1125,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   int max = -1;
   auto default_cfd = versions.GetColumnFamilySet()->GetDefault();
   for (int i = 0; i < default_cfd->NumberLevels(); i++) {
-    if (default_cfd->current()->GetStorageInfo()->NumLevelFiles(i)) {
+    if (default_cfd->current()->storage_info()->NumLevelFiles(i)) {
       max = i;
     }
   }

@@ -26,6 +26,7 @@
 #include <atomic>
 #include <limits>
 #include "db/dbformat.h"
+#include "db/version_builder.h"
 #include "db/version_edit.h"
 #include "port/port.h"
 #include "db/table_cache.h"
@@ -90,6 +91,10 @@ class VersionStorageInfo {
                      CompactionStyle compaction_style,
                      VersionStorageInfo* src_vstorage);
   ~VersionStorageInfo();
+
+  void Reserve(int level, size_t size) { files_[level].reserve(size); }
+
+  void MaybeAddFile(int level, FileMetaData* f);
 
   void SetFinalized() { finalized_ = true; }
 
@@ -197,7 +202,6 @@ class VersionStorageInfo {
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   const std::vector<FileMetaData*>& LevelFiles(int level) const {
-    assert(finalized_);
     return files_[level];
   }
 
@@ -249,8 +253,6 @@ class VersionStorageInfo {
   // in a specified level.  Uses *scratch as backing store.
   const char* LevelFileSummary(FileSummaryStorage* scratch, int level) const;
 
-  std::vector<FileMetaData*>* GetFiles() { return files_; }
-
   // Return the maximum overlapping data (in bytes) at next level for any
   // file at a level >= 1.
   int64_t MaxNextLevelOverlappingBytes();
@@ -269,12 +271,16 @@ class VersionStorageInfo {
            (accumulated_raw_key_size_ + accumulated_raw_value_size_);
   }
 
-  uint64_t GetEstimatedActiveKeys();
+  uint64_t GetEstimatedActiveKeys() const;
 
   // re-initializes the index that is used to offset into files_by_size_
   // to find the next compaction candidate file.
   void ResetNextCompactionIndex(int level) {
     next_file_to_compact_by_size_[level] = 0;
+  }
+
+  const InternalKeyComparator* InternalComparator() {
+    return internal_comparator_;
   }
 
  private:
@@ -374,8 +380,6 @@ class Version {
   // and return true. Otherwise, return false.
   bool Unref();
 
-  std::vector<FileMetaData*>* GetFiles() { return vstorage_.GetFiles(); }
-
   // Add all files listed in the current version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live);
 
@@ -384,10 +388,6 @@ class Version {
 
   // Returns the version nuber of this version
   uint64_t GetVersionNumber() const { return version_number_; }
-
-  uint64_t GetAverageValueSize() const {
-    return vstorage_.GetAverageValueSize();
-  }
 
   // REQUIRES: lock is held
   // On success, "tp" will contains the table properties of the file
@@ -405,7 +405,7 @@ class Version {
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
 
   uint64_t GetEstimatedActiveKeys() {
-    return vstorage_.GetEstimatedActiveKeys();
+    return storage_info_.GetEstimatedActiveKeys();
   }
 
   size_t GetMemoryUsageByTableReaders();
@@ -418,16 +418,18 @@ class Version {
     return next_;
   }
 
-  VersionStorageInfo* GetStorageInfo() { return &vstorage_; }
+  VersionStorageInfo* storage_info() { return &storage_info_; }
+
+  VersionSet* version_set() { return vset_; }
 
  private:
   friend class VersionSet;
 
-  const InternalKeyComparator* GetInternalComparator() const {
-    return vstorage_.internal_comparator_;
+  const InternalKeyComparator* internal_comparator() const {
+    return storage_info_.internal_comparator_;
   }
-  const Comparator* GetUserComparator() const {
-    return vstorage_.user_comparator_;
+  const Comparator* user_comparator() const {
+    return storage_info_.user_comparator_;
   }
 
   bool PrefixMayMatch(const ReadOptions& read_options, Iterator* level_iter,
@@ -446,15 +448,13 @@ class Version {
   // record results in files_by_size_. The largest files are listed first.
   void UpdateFilesBySize();
 
-  VersionSet* GetVersionSet() { return vset_; }
-
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;
   Statistics* db_statistics_;
   TableCache* table_cache_;
   const MergeOperator* merge_operator_;
 
-  VersionStorageInfo vstorage_;
+  VersionStorageInfo storage_info_;
   VersionSet* vset_;            // VersionSet to which this Version belongs
   Version* next_;               // Next version in linked list
   Version* prev_;               // Previous version in linked list
@@ -602,9 +602,9 @@ class VersionSet {
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
+  const EnvOptions& GetEnvOptions() { return env_options_; }
 
  private:
-  class Builder;
   struct ManifestWriter;
 
   friend class Version;
@@ -664,7 +664,7 @@ class VersionSet {
   void operator=(const VersionSet&);
 
   void LogAndApplyCFHelper(VersionEdit* edit);
-  void LogAndApplyHelper(ColumnFamilyData* cfd, Builder* b, Version* v,
+  void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b, Version* v,
                          VersionEdit* edit, port::Mutex* mu);
 };
 

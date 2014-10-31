@@ -217,13 +217,18 @@ class VersionEdit {
   bool EncodeTo(std::string* dst) const;
   Status DecodeFrom(const Slice& src);
 
+  typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
+
+  const DeletedFileSet& GetDeletedFiles() { return deleted_files_; }
+  const std::vector<std::pair<int, FileMetaData>>& GetNewFiles() {
+    return new_files_;
+  }
+
   std::string DebugString(bool hex_key = false) const;
 
  private:
   friend class VersionSet;
   friend class Version;
-
-  typedef std::set< std::pair<int, uint64_t>> DeletedFileSet;
 
   bool GetLevel(Slice* input, int* level, const char** msg);
 

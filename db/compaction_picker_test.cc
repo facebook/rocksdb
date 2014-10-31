@@ -50,9 +50,8 @@ class CompactionPickerTest {
   }
 
   ~CompactionPickerTest() {
-    auto* files = vstorage.GetFiles();
     for (int i = 0; i < vstorage.NumberLevels(); i++) {
-      for (auto* f : files[i]) {
+      for (auto* f : vstorage.LevelFiles(i)) {
         delete f;
       }
     }
@@ -63,13 +62,13 @@ class CompactionPickerTest {
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
     assert(level < vstorage.NumberLevels());
-    auto& files = vstorage.GetFiles()[level];
     FileMetaData* f = new FileMetaData;
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
     f->largest = InternalKey(largest, largest_seq, kTypeValue);
     f->compensated_file_size = file_size;
-    files.push_back(f);
+    f->refs = 0;
+    vstorage.MaybeAddFile(level, f);
   }
 
   void UpdateVersionStorageInfo() {

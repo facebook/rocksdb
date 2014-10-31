@@ -324,7 +324,7 @@ ColumnFamilyData::~ColumnFamilyData() {
 void ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
   if (current_ != nullptr) {
-    auto* vstorage = current_->GetStorageInfo();
+    auto* vstorage = current_->storage_info();
     const double score = vstorage->MaxCompactionScore();
     const int max_level = vstorage->MaxCompactionScoreLevel();
 
@@ -405,7 +405,7 @@ void ColumnFamilyData::CreateNewMemtable(
 Compaction* ColumnFamilyData::PickCompaction(
     const MutableCFOptions& mutable_options, LogBuffer* log_buffer) {
   auto* result = compaction_picker_->PickCompaction(
-      GetName(), mutable_options, current_->GetStorageInfo(), log_buffer);
+      GetName(), mutable_options, current_->storage_info(), log_buffer);
   if (result != nullptr) {
     result->SetInputVersion(current_);
   }
@@ -418,7 +418,7 @@ Compaction* ColumnFamilyData::CompactRange(
     const InternalKey* begin, const InternalKey* end,
     InternalKey** compaction_end) {
   auto* result = compaction_picker_->CompactRange(
-      GetName(), mutable_cf_options, current_->GetStorageInfo(), input_level,
+      GetName(), mutable_cf_options, current_->storage_info(), input_level,
       output_level, output_path_id, begin, end, compaction_end);
   if (result != nullptr) {
     result->SetInputVersion(current_);

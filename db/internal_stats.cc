@@ -170,7 +170,7 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
                                       std::string* value) {
   assert(value != nullptr);
   auto* current = cfd_->current();
-  auto* vstorage = current->GetStorageInfo();
+  const auto* vstorage = current->storage_info();
   Slice in = property;
 
   switch (property_type) {
@@ -230,7 +230,7 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
 
 bool InternalStats::GetIntProperty(DBPropertyType property_type,
                                    uint64_t* value, DBImpl* db) const {
-  auto* vstorage = cfd_->current()->GetStorageInfo();
+  const auto* vstorage = cfd_->current()->storage_info();
 
   switch (property_type) {
     case kNumImmutableMemTable:
@@ -366,7 +366,7 @@ void InternalStats::DumpDBStats(std::string* value) {
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
-  VersionStorageInfo* vstorage = cfd_->current()->GetStorageInfo();
+  const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
 
   int num_levels_to_check =
       (cfd_->options()->compaction_style != kCompactionStyleUniversal &&

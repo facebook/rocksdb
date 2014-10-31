@@ -1181,7 +1181,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     }
     VersionStorageInfo::LevelSummaryStorage tmp;
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
-                cfd->current()->GetStorageInfo()->LevelSummary(&tmp));
+                cfd->current()->storage_info()->LevelSummary(&tmp));
 
     if (disable_delete_obsolete_files_ == 0) {
       // add to deletion state
@@ -1227,7 +1227,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     MutexLock l(&mutex_);
     Version* base = cfd->current();
     for (int level = 1; level < cfd->NumberLevels(); level++) {
-      if (base->GetStorageInfo()->OverlapInLevel(level, begin, end)) {
+      if (base->storage_info()->OverlapInLevel(level, begin, end)) {
         max_level_with_files = level;
       }
     }
@@ -1305,7 +1305,7 @@ bool DBImpl::SetOptions(ColumnFamilyHandle* column_family,
 int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
     const MutableCFOptions& mutable_cf_options, int level) {
   mutex_.AssertHeld();
-  auto* vstorage = cfd->current()->GetStorageInfo();
+  const auto* vstorage = cfd->current()->storage_info();
   int minimum_level = level;
   for (int i = level - 1; i > 0; --i) {
     // stop if level i is not empty
@@ -1364,7 +1364,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
-    for (const auto& f : cfd->current()->GetStorageInfo()->files_[level]) {
+    for (const auto& f : cfd->current()->storage_info()->LevelFiles(level)) {
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
@@ -1580,7 +1580,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bool is_compaction_needed = false;
     // no need to refcount since we're under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->current()->GetStorageInfo()->NeedsCompaction()) {
+      if (cfd->current()->storage_info()->NeedsCompaction()) {
         is_compaction_needed = true;
         break;
       }
@@ -1956,7 +1956,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                             " bytes %s: %s\n",
                 c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
                 c->level() + 1, f->fd.GetFileSize(), status.ToString().c_str(),
-                c->input_version()->GetStorageInfo()->LevelSummary(&tmp));
+                c->input_version()->storage_info()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else {
@@ -2688,7 +2688,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
   LogToBuffer(log_buffer, "[%s] Compaction start summary: %s\n",
               cfd->GetName().c_str(), scratch);
 
-  assert(cfd->current()->GetStorageInfo()->NumLevelFiles(
+  assert(cfd->current()->storage_info()->NumLevelFiles(
              compact->compaction->level()) > 0);
   assert(compact->builder == nullptr);
   assert(!compact->outfile);
@@ -2934,7 +2934,7 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
               "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
               "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
               cfd->GetName().c_str(),
-              cfd->current()->GetStorageInfo()->LevelSummary(&tmp),
+              cfd->current()->storage_info()->LevelSummary(&tmp),
               (stats.bytes_readn + stats.bytes_readnp1) /
                   static_cast<double>(stats.micros),
               stats.bytes_written / static_cast<double>(stats.micros),
@@ -4040,7 +4040,7 @@ Status DBImpl::DeleteFile(std::string name) {
     // Only the files in the last level can be deleted externally.
     // This is to make sure that any deletion tombstones are not
     // lost. Check that the level passed is the last level.
-    auto* vstoreage = cfd->current()->GetStorageInfo();
+    auto* vstoreage = cfd->current()->storage_info();
     for (int i = level + 1; i < cfd->NumberLevels(); i++) {
       if (vstoreage->NumLevelFiles(i) != 0) {
         Log(db_options_.info_log,
@@ -4049,7 +4049,8 @@ Status DBImpl::DeleteFile(std::string name) {
       }
     }
     // if level == 0, it has to be the oldest file
-    if (level == 0 && vstoreage->files_[0].back()->fd.GetNumber() != number) {
+    if (level == 0 &&
+        vstoreage->LevelFiles(0).back()->fd.GetNumber() != number) {
       return Status::InvalidArgument("File in level 0, but not oldest");
     }
     edit.SetColumnFamily(cfd->GetID());
@@ -4302,7 +4303,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        auto* vstorage = cfd->current()->GetStorageInfo();
+        auto* vstorage = cfd->current()->storage_info();
         for (int i = 1; i < vstorage->NumberLevels(); ++i) {
           int num_files = vstorage->NumLevelFiles(i);
           if (num_files > 0) {
