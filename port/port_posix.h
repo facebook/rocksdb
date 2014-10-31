@@ -212,7 +212,7 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
   int old_sz =0, new_sz =0, new_sz_delta =0;
   bool done = false;
   while (!done) {
-    int st = deflate(&_stream, Z_FINISH);
+    st = deflate(&_stream, Z_FINISH);
     switch (st) {
       case Z_STREAM_END:
         done = true;
@@ -274,7 +274,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
 
   //while(_stream.next_in != nullptr && _stream.avail_in != 0) {
   while (!done) {
-    int st = inflate(&_stream, Z_SYNC_FLUSH);
+    st = inflate(&_stream, Z_SYNC_FLUSH);
     switch (st) {
       case Z_STREAM_END:
         done = true;
@@ -337,7 +337,7 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
 
   int old_sz =0, new_sz =0;
   while(_stream.next_in != nullptr && _stream.avail_in != 0) {
-    int st = BZ2_bzCompress(&_stream, BZ_FINISH);
+    st = BZ2_bzCompress(&_stream, BZ_FINISH);
     switch (st) {
       case BZ_STREAM_END:
         break;
@@ -390,7 +390,7 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   char* tmp = nullptr;
 
   while(_stream.next_in != nullptr && _stream.avail_in != 0) {
-    int st = BZ2_bzDecompress(&_stream);
+    st = BZ2_bzDecompress(&_stream);
     switch (st) {
       case BZ_STREAM_END:
         break;

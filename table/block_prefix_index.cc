@@ -143,8 +143,8 @@ class BlockPrefixIndex::Builder {
         auto current = prefixes_per_bucket[i];
         // populate block ids from largest to smallest
         while (current != nullptr) {
-          for (uint32_t i = 0; i < current->num_blocks; i++) {
-            *last_block = current->end_block - i;
+          for (uint32_t iter = 0; iter < current->num_blocks; iter++) {
+            *last_block = current->end_block - iter;
             last_block--;
           }
           current = current->next;

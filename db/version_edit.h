@@ -39,10 +39,10 @@ struct FileDescriptor {
 
   FileDescriptor() : FileDescriptor(0, 0, 0) {}
 
-  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t file_size)
+  FileDescriptor(uint64_t number, uint32_t path_id, uint64_t _file_size)
       : table_reader(nullptr),
         packed_number_and_path_id(PackFileNumberAndPathId(number, path_id)),
-        file_size(file_size) {}
+        file_size(_file_size) {}
 
   FileDescriptor& operator=(const FileDescriptor& fd) {
     table_reader = fd.table_reader;
@@ -110,12 +110,8 @@ struct FdWithKeyRange {
         largest_key() {
   }
 
-  FdWithKeyRange(FileDescriptor fd,
-      Slice smallest_key, Slice largest_key)
-      : fd(fd),
-        smallest_key(smallest_key),
-        largest_key(largest_key) {
-  }
+  FdWithKeyRange(FileDescriptor _fd, Slice _smallest_key, Slice _largest_key)
+      : fd(_fd), smallest_key(_smallest_key), largest_key(_largest_key) {}
 };
 
 // Data structure to store an array of FdWithKeyRange in one level

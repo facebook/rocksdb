@@ -1455,9 +1455,9 @@ struct VersionSet::ManifestWriter {
   ColumnFamilyData* cfd;
   VersionEdit* edit;
 
-  explicit ManifestWriter(port::Mutex* mu, ColumnFamilyData* cfd,
+  explicit ManifestWriter(port::Mutex* mu, ColumnFamilyData* _cfd,
                           VersionEdit* e)
-      : done(false), cv(mu), cfd(cfd), edit(e) {}
+      : done(false), cv(mu), cfd(_cfd), edit(e) {}
 };
 
 class VersionBuilder::Rep {

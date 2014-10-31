@@ -407,14 +407,6 @@ void testSingleBatchSuccessiveMerge(
 }
 
 void runTest(int argc, const string& dbname, const bool use_ttl = false) {
-  auto db = OpenDb(dbname, use_ttl);
-
-  {
-    cout << "Test read-modify-write counters... \n";
-    Counters counters(db, 0);
-    testCounters(counters, db.get(), true);
-  }
-
   bool compact = false;
   if (argc > 1) {
     compact = true;
@@ -422,13 +414,22 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
   }
 
   {
-    cout << "Test merge-based counters... \n";
-    MergeBasedCounters counters(db, 0);
-    testCounters(counters, db.get(), compact);
+    auto db = OpenDb(dbname, use_ttl);
+
+    {
+      cout << "Test read-modify-write counters... \n";
+      Counters counters(db, 0);
+      testCounters(counters, db.get(), true);
+    }
+
+    {
+      cout << "Test merge-based counters... \n";
+      MergeBasedCounters counters(db, 0);
+      testCounters(counters, db.get(), compact);
+    }
   }
 
   DestroyDB(dbname, Options());
-  db.reset();
 
   {
     cout << "Test merge in memtable... \n";

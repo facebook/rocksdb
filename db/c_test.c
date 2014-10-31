@@ -576,7 +576,6 @@ int main(int argc, char** argv) {
 
   StartPhase("compaction_filter");
   {
-    rocksdb_options_t* options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(options, 1);
     rocksdb_compactionfilter_t* cfilter;
     cfilter = rocksdb_compactionfilter_create(NULL, CFilterDestroy,
@@ -589,12 +588,10 @@ int main(int argc, char** argv) {
 
     rocksdb_options_set_compaction_filter(options, NULL);
     rocksdb_compactionfilter_destroy(cfilter);
-    rocksdb_options_destroy(options);
   }
 
   StartPhase("compaction_filter_factory");
   {
-    rocksdb_options_t* options = rocksdb_options_create();
     rocksdb_options_set_create_if_missing(options, 1);
     rocksdb_compactionfilterfactory_t* factory;
     factory = rocksdb_compactionfilterfactory_create(
@@ -606,7 +603,6 @@ int main(int argc, char** argv) {
     db = CheckCompaction(db, options, roptions, woptions);
 
     rocksdb_options_set_compaction_filter_factory(options, NULL);
-    rocksdb_options_destroy(options);
   }
 
   StartPhase("compaction_filter_v2");

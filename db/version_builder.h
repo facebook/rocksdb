@@ -15,7 +15,7 @@ namespace rocksdb {
 class TableCache;
 class VersionStorageInfo;
 class VersionEdit;
-class FileMetaData;
+struct FileMetaData;
 
 // A helper class so we can efficiently apply a whole sequence
 // of edits to a particular state without creating intermediate

@@ -436,8 +436,8 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     uint64_t bucket_id;
     uint32_t depth;
     uint32_t parent_pos;
-    CuckooNode(uint64_t bucket_id, uint32_t depth, int parent_pos)
-      : bucket_id(bucket_id), depth(depth), parent_pos(parent_pos) {}
+    CuckooNode(uint64_t _bucket_id, uint32_t _depth, int _parent_pos)
+        : bucket_id(_bucket_id), depth(_depth), parent_pos(_parent_pos) {}
   };
   // This is BFS search tree that is stored simply as a vector.
   // Each node stores the index of parent node in the vector.
@@ -451,10 +451,9 @@ bool CuckooTableBuilder::MakeSpaceForKey(
   // It is unlikely for the increment operation to overflow because the maximum
   // no. of times this will be called is <= max_num_hash_func_ + num_entries_.
   for (uint32_t hash_cnt = 0; hash_cnt < num_hash_func_; ++hash_cnt) {
-    uint64_t bucket_id = hash_vals[hash_cnt];
-    (*buckets)[bucket_id].make_space_for_key_call_id =
-      make_space_for_key_call_id;
-    tree.push_back(CuckooNode(bucket_id, 0, 0));
+    uint64_t bid = hash_vals[hash_cnt];
+    (*buckets)[bid].make_space_for_key_call_id = make_space_for_key_call_id;
+    tree.push_back(CuckooNode(bid, 0, 0));
   }
   bool null_found = false;
   uint32_t curr_pos = 0;

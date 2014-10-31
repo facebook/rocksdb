@@ -72,11 +72,13 @@ Status BuildTable(const std::string& dbname, Env* env,
         ioptions, internal_comparator, file.get(),
         compression, compression_opts);
 
-    // the first key is the smallest key
-    Slice key = iter->key();
-    meta->smallest.DecodeFrom(key);
-    meta->smallest_seqno = GetInternalKeySeqno(key);
-    meta->largest_seqno = meta->smallest_seqno;
+    {
+      // the first key is the smallest key
+      Slice key = iter->key();
+      meta->smallest.DecodeFrom(key);
+      meta->smallest_seqno = GetInternalKeySeqno(key);
+      meta->largest_seqno = meta->smallest_seqno;
+    }
 
     MergeHelper merge(internal_comparator.user_comparator(),
                       ioptions.merge_operator, ioptions.info_log,

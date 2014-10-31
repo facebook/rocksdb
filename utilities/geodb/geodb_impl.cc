@@ -192,8 +192,8 @@ Status GeoDBImpl::SearchRadial(const GeoPosition& pos,
       // we are looking for.
       auto res = std::mismatch(qid.begin(), qid.end(), quadkey->begin());
       if (res.first == qid.end()) {
-        GeoPosition pos(atof(parts[3].c_str()), atof(parts[4].c_str()));
-        GeoObject obj(pos, parts[4], iter->value().ToString());
+        GeoPosition obj_pos(atof(parts[3].c_str()), atof(parts[4].c_str()));
+        GeoObject obj(obj_pos, parts[4], iter->value().ToString());
         values->push_back(obj);
         number_of_values--;
       } else {

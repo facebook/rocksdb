@@ -430,25 +430,26 @@ struct BlockBasedTableBuilder::Rep {
   std::vector<std::unique_ptr<TablePropertiesCollector>>
       table_properties_collectors;
 
-  Rep(const ImmutableCFOptions& ioptions,
+  Rep(const ImmutableCFOptions& _ioptions,
       const BlockBasedTableOptions& table_opt,
-      const InternalKeyComparator& icomparator,
-      WritableFile* f, const CompressionType compression_type,
-      const CompressionOptions& compression_opts)
-      : ioptions(ioptions),
+      const InternalKeyComparator& icomparator, WritableFile* f,
+      const CompressionType _compression_type,
+      const CompressionOptions& _compression_opts)
+      : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
         file(f),
         data_block(table_options.block_restart_interval),
-        internal_prefix_transform(ioptions.prefix_extractor),
-        index_builder(CreateIndexBuilder(
-              table_options.index_type, &internal_comparator,
-              &this->internal_prefix_transform)),
-        compression_type(compression_type),
-        filter_block(CreateFilterBlockBuilder(ioptions, table_options)),
+        internal_prefix_transform(_ioptions.prefix_extractor),
+        index_builder(CreateIndexBuilder(table_options.index_type,
+                                         &internal_comparator,
+                                         &this->internal_prefix_transform)),
+        compression_type(_compression_type),
+        compression_opts(_compression_opts),
+        filter_block(CreateFilterBlockBuilder(_ioptions, table_options)),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
-              table_options, data_block)) {
+                table_options, data_block)) {
     for (auto& collector_factories :
          ioptions.table_properties_collector_factories) {
       table_properties_collectors.emplace_back(

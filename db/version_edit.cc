@@ -168,7 +168,6 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
   // Temporary storage for parsing
   int level;
-  uint64_t number;
   FileMetaData f;
   Slice str;
   InternalKey key;
@@ -237,9 +236,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kDeletedFile:
-        if (GetLevel(&input, &level, &msg) &&
-            GetVarint64(&input, &number)) {
+      case kDeletedFile: {
+        uint64_t number;
+        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number)) {
           deleted_files_.insert(std::make_pair(level, number));
         } else {
           if (!msg) {
@@ -247,6 +246,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
+      }
 
       case kNewFile: {
         uint64_t number;

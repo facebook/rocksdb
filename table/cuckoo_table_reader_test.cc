@@ -72,8 +72,8 @@ class CuckooReaderTest {
     env_options = EnvOptions(options);
   }
 
-  void SetUp(int num_items) {
-    this->num_items = num_items;
+  void SetUp(int num) {
+    num_items = num;
     hash_map.clear();
     keys.clear();
     keys.resize(num_items);

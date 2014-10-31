@@ -15,8 +15,8 @@ namespace rocksdb {
 
 // Pending request
 struct GenericRateLimiter::Req {
-  explicit Req(int64_t bytes, port::Mutex* mu) :
-    bytes(bytes), cv(mu), granted(false) {}
+  explicit Req(int64_t _bytes, port::Mutex* _mu)
+      : bytes(_bytes), cv(_mu), granted(false) {}
   int64_t bytes;
   port::CondVar cv;
   bool granted;

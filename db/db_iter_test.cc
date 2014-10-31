@@ -217,7 +217,6 @@ TEST(DBIteratorTest, DBIteratorPrevNext) {
   }
 
   {
-    Options options;
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     internal_iter->AddPut("a", "val_a");
     internal_iter->AddPut("b", "val_b");
@@ -254,7 +253,6 @@ TEST(DBIteratorTest, DBIteratorPrevNext) {
   }
 
   {
-    Options options;
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     internal_iter->AddPut("a", "val_a");
     internal_iter->AddPut("a", "val_a");
@@ -364,8 +362,8 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddPut("c", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddPut("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -400,7 +398,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
-      for (size_t i = 0; i < 200; ++i) {
+      for (size_t k = 0; k < 200; ++k) {
         internal_iter->AddDeletion("c");
       }
       internal_iter->AddPut("c", "200");
@@ -463,7 +461,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
   {
     for (size_t i = 0; i < 200; ++i) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      for (size_t i = 0; i < 200; ++i) {
+      for (size_t k = 0; k < 200; ++k) {
         internal_iter->AddDeletion("c");
       }
       internal_iter->AddPut("c", "200");
@@ -511,12 +509,12 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddPut("d", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddPut("d", std::to_string(k));
       }
 
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddPut("c", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddPut("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -550,8 +548,8 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "b");
       internal_iter->AddMerge("a", "a");
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddMerge("c", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddMerge("c", std::to_string(k));
       }
       internal_iter->Finish();
 
@@ -1390,7 +1388,6 @@ TEST(DBIteratorTest, DBIterator) {
   }
 
   {
-    Options options;
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     internal_iter->AddDeletion("a");
     internal_iter->AddPut("a", "0");

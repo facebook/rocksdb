@@ -2953,8 +2953,8 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
 
 namespace {
 struct IterState {
-  IterState(DBImpl* db, port::Mutex* mu, SuperVersion* super_version)
-      : db(db), mu(mu), super_version(super_version) {}
+  IterState(DBImpl* _db, port::Mutex* _mu, SuperVersion* _super_version)
+      : db(_db), mu(_mu), super_version(_super_version) {}
 
   DBImpl* db;
   port::Mutex* mu;
@@ -3812,14 +3812,14 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     log_.reset(new_log);
     log_empty_ = true;
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
-    for (auto cfd : *versions_->GetColumnFamilySet()) {
+    for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
       // all this is just optimization to delete logs that
       // are no longer needed -- if CF is empty, that means it
       // doesn't need that particular log to stay alive, so we just
       // advance the log number. no need to persist this in the manifest
-      if (cfd->mem()->GetFirstSequenceNumber() == 0 &&
-          cfd->imm()->size() == 0) {
-        cfd->SetLogNumber(logfile_number_);
+      if (loop_cfd->mem()->GetFirstSequenceNumber() == 0 &&
+          loop_cfd->imm()->size() == 0) {
+        loop_cfd->SetLogNumber(logfile_number_);
       }
     }
   }
@@ -4398,8 +4398,6 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 
     for (auto& db_path : options.db_paths) {
       env->GetChildren(db_path.path, &filenames);
-      uint64_t number;
-      FileType type;
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end

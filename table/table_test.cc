@@ -1416,31 +1416,32 @@ class BlockCachePropertiesSnapshot {
     filter_block_cache_hit = statistics->getTickerCount(BLOCK_CACHE_FILTER_HIT);
   }
 
-  void AssertIndexBlockStat(int64_t index_block_cache_miss,
-                            int64_t index_block_cache_hit) {
-    ASSERT_EQ(index_block_cache_miss, this->index_block_cache_miss);
-    ASSERT_EQ(index_block_cache_hit, this->index_block_cache_hit);
+  void AssertIndexBlockStat(int64_t expected_index_block_cache_miss,
+                            int64_t expected_index_block_cache_hit) {
+    ASSERT_EQ(expected_index_block_cache_miss, index_block_cache_miss);
+    ASSERT_EQ(expected_index_block_cache_hit, index_block_cache_hit);
   }
 
-  void AssertFilterBlockStat(int64_t filter_block_cache_miss,
-                             int64_t filter_block_cache_hit) {
-    ASSERT_EQ(filter_block_cache_miss, this->filter_block_cache_miss);
-    ASSERT_EQ(filter_block_cache_hit, this->filter_block_cache_hit);
+  void AssertFilterBlockStat(int64_t expected_filter_block_cache_miss,
+                             int64_t expected_filter_block_cache_hit) {
+    ASSERT_EQ(expected_filter_block_cache_miss, filter_block_cache_miss);
+    ASSERT_EQ(expected_filter_block_cache_hit, filter_block_cache_hit);
   }
 
   // Check if the fetched props matches the expected ones.
   // TODO(kailiu) Use this only when you disabled filter policy!
-  void AssertEqual(int64_t index_block_cache_miss,
-                   int64_t index_block_cache_hit, int64_t data_block_cache_miss,
-                   int64_t data_block_cache_hit) const {
-    ASSERT_EQ(index_block_cache_miss, this->index_block_cache_miss);
-    ASSERT_EQ(index_block_cache_hit, this->index_block_cache_hit);
-    ASSERT_EQ(data_block_cache_miss, this->data_block_cache_miss);
-    ASSERT_EQ(data_block_cache_hit, this->data_block_cache_hit);
-    ASSERT_EQ(index_block_cache_miss + data_block_cache_miss,
-              this->block_cache_miss);
-    ASSERT_EQ(index_block_cache_hit + data_block_cache_hit,
-              this->block_cache_hit);
+  void AssertEqual(int64_t expected_index_block_cache_miss,
+                   int64_t expected_index_block_cache_hit,
+                   int64_t expected_data_block_cache_miss,
+                   int64_t expected_data_block_cache_hit) const {
+    ASSERT_EQ(expected_index_block_cache_miss, index_block_cache_miss);
+    ASSERT_EQ(expected_index_block_cache_hit, index_block_cache_hit);
+    ASSERT_EQ(expected_data_block_cache_miss, data_block_cache_miss);
+    ASSERT_EQ(expected_data_block_cache_hit, data_block_cache_hit);
+    ASSERT_EQ(expected_index_block_cache_miss + expected_data_block_cache_miss,
+              block_cache_miss);
+    ASSERT_EQ(expected_index_block_cache_hit + expected_data_block_cache_hit,
+              block_cache_hit);
   }
 
  private:

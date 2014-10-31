@@ -316,13 +316,14 @@ class HashIndexReader : public IndexReader {
 
 
 struct BlockBasedTable::Rep {
-  Rep(const ImmutableCFOptions& ioptions,
-      const EnvOptions& env_options,
-      const BlockBasedTableOptions& table_opt,
-      const InternalKeyComparator& internal_comparator)
-      : ioptions(ioptions), env_options(env_options), table_options(table_opt),
-        filter_policy(table_opt.filter_policy.get()),
-        internal_comparator(internal_comparator) {}
+  Rep(const ImmutableCFOptions& _ioptions, const EnvOptions& _env_options,
+      const BlockBasedTableOptions& _table_opt,
+      const InternalKeyComparator& _internal_comparator)
+      : ioptions(_ioptions),
+        env_options(_env_options),
+        table_options(_table_opt),
+        filter_policy(_table_opt.filter_policy.get()),
+        internal_comparator(_internal_comparator) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
@@ -364,11 +365,9 @@ BlockBasedTable::~BlockBasedTable() {
 //    was not read from cache, `cache_handle` will be nullptr.
 template <class TValue>
 struct BlockBasedTable::CachableEntry {
-  CachableEntry(TValue* value, Cache::Handle* cache_handle)
-    : value(value)
-    , cache_handle(cache_handle) {
-  }
-  CachableEntry(): CachableEntry(nullptr, nullptr) { }
+  CachableEntry(TValue* _value, Cache::Handle* _cache_handle)
+      : value(_value), cache_handle(_cache_handle) {}
+  CachableEntry() : CachableEntry(nullptr, nullptr) {}
   void Release(Cache* cache) {
     if (cache_handle) {
       cache->Release(cache_handle);

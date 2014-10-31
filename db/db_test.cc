@@ -4544,16 +4544,18 @@ TEST(DBTest, CompactionFilter) {
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 0);
 
-  // Scan the entire database to ensure that nothing is left
-  Iterator* iter = db_->NewIterator(ReadOptions(), handles_[1]);
-  iter->SeekToFirst();
-  count = 0;
-  while (iter->Valid()) {
-    count++;
-    iter->Next();
+  {
+    // Scan the entire database to ensure that nothing is left
+    std::unique_ptr<Iterator> iter(
+        db_->NewIterator(ReadOptions(), handles_[1]));
+    iter->SeekToFirst();
+    count = 0;
+    while (iter->Valid()) {
+      count++;
+      iter->Next();
+    }
+    ASSERT_EQ(count, 0);
   }
-  ASSERT_EQ(count, 0);
-  delete iter;
 
   // The sequence number of the remaining record
   // is not zeroed out even though it is at the
@@ -5014,7 +5016,7 @@ TEST(DBTest, CompactionFilterV2NULLPrefix) {
   for (int i = 1; i < 100000; i++) {
     char key[100];
     snprintf(key, sizeof(key), "%08d%010d", i, i);
-    std::string newvalue = Get(key);
+    newvalue = Get(key);
     ASSERT_EQ(newvalue.compare(NEW_VALUE), 0);
   }
 }
@@ -5623,7 +5625,7 @@ TEST(DBTest, ManualCompaction) {
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
     if (iter == 0) {
-      Options options = CurrentOptions();
+      options = CurrentOptions();
       options.max_background_flushes = 0;
       options.num_levels = 3;
       options.create_if_missing = true;
@@ -7591,7 +7593,6 @@ void PrefixScanInit(DBTest *dbtest) {
 
   // GROUP 2
   for (int i = 1; i <= big_range_sstfiles; i++) {
-    std::string keystr;
     snprintf(buf, sizeof(buf), "%02d______:start", 0);
     keystr = std::string(buf);
     ASSERT_OK(dbtest->Put(keystr, keystr));
@@ -8877,7 +8878,7 @@ TEST(DBTest, PartialCompactionFailure) {
 
   DestroyAndReopen(options);
 
-  const int kNumKeys =
+  const int kNumInsertedKeys =
       options.level0_file_num_compaction_trigger *
       (options.max_write_buffer_number - 1) *
       kKeysPerBuffer;
@@ -8885,7 +8886,7 @@ TEST(DBTest, PartialCompactionFailure) {
   Random rnd(301);
   std::vector<std::string> keys;
   std::vector<std::string> values;
-  for (int k = 0; k < kNumKeys; ++k) {
+  for (int k = 0; k < kNumInsertedKeys; ++k) {
     keys.emplace_back(RandomString(&rnd, kKeySize));
     values.emplace_back(RandomString(&rnd, kKvSize - kKeySize));
     ASSERT_OK(Put(Slice(keys[k]), Slice(values[k])));
@@ -8914,7 +8915,7 @@ TEST(DBTest, PartialCompactionFailure) {
   ASSERT_EQ(NumTableFilesAtLevel(0), previous_num_level0_files);
 
   // All key-values must exist after compaction fails.
-  for (int k = 0; k < kNumKeys; ++k) {
+  for (int k = 0; k < kNumInsertedKeys; ++k) {
     ASSERT_EQ(values[k], Get(keys[k]));
   }
 
@@ -8924,7 +8925,7 @@ TEST(DBTest, PartialCompactionFailure) {
   Reopen(options);
 
   // Verify again after reopen.
-  for (int k = 0; k < kNumKeys; ++k) {
+  for (int k = 0; k < kNumInsertedKeys; ++k) {
     ASSERT_EQ(values[k], Get(keys[k]));
   }
 }

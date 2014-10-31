@@ -325,7 +325,7 @@ Cache::Handle* LRUCache::Insert(
     // Free the space following strict LRU policy until enough space
     // is freed.
     while (usage_ > capacity_ && lru_.next != &lru_) {
-      LRUHandle* old = lru_.next;
+      old = lru_.next;
       LRU_Remove(old);
       table_.Remove(old->key(), old->hash);
       if (Unref(old)) {

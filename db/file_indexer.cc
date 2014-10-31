@@ -100,7 +100,7 @@ void FileIndexer::UpdateIndex(Arena* arena, const uint32_t num_levels,
     }
     IndexLevel& index_level = next_level_index_[level];
     index_level.num_index = upper_size;
-    char* mem = arena->AllocateAligned(upper_size * sizeof(IndexUnit));
+    mem = arena->AllocateAligned(upper_size * sizeof(IndexUnit));
     index_level.index_units = new (mem) IndexUnit[upper_size];
 
     CalculateLB(

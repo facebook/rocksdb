@@ -697,8 +697,8 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     // Check if the suceeding files need compaction.
     for (unsigned int i = loop + 1;
          candidate_count < max_files_to_compact && i < files.size(); i++) {
-      FileMetaData* f = files[i];
-      if (f->being_compacted) {
+      FileMetaData* suceeding_file = files[i];
+      if (suceeding_file->being_compacted) {
         break;
       }
       // Pick files if the total/last candidate file size (increased by the
@@ -708,14 +708,14 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       // kCompactionStopStyleSimilarSize, it's simply the size of the last
       // picked file.
       double sz = candidate_size * (100.0 + ratio) / 100.0;
-      if (sz < static_cast<double>(f->fd.GetFileSize())) {
+      if (sz < static_cast<double>(suceeding_file->fd.GetFileSize())) {
         break;
       }
       if (ioptions_.compaction_options_universal.stop_style ==
           kCompactionStopStyleSimilarSize) {
         // Similar-size stopping rule: also check the last picked file isn't
         // far larger than the next candidate file.
-        sz = (f->fd.GetFileSize() * (100.0 + ratio)) / 100.0;
+        sz = (suceeding_file->fd.GetFileSize() * (100.0 + ratio)) / 100.0;
         if (sz < static_cast<double>(candidate_size)) {
           // If the small file we've encountered begins a run of similar-size
           // files, we'll pick them up on a future iteration of the outer
@@ -723,9 +723,9 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
           // by the last-resort read amp strategy which disregards size ratios.
           break;
         }
-        candidate_size = f->compensated_file_size;
-      } else { // default kCompactionStopStyleTotalSize
-        candidate_size += f->compensated_file_size;
+        candidate_size = suceeding_file->compensated_file_size;
+      } else {  // default kCompactionStopStyleTotalSize
+        candidate_size += suceeding_file->compensated_file_size;
       }
       candidate_count++;
     }
@@ -738,12 +738,14 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
     } else {
       for (unsigned int i = loop;
            i < loop + candidate_count && i < files.size(); i++) {
-        FileMetaData* f = files[i];
+        FileMetaData* skipping_file = files[i];
         LogToBuffer(log_buffer, "[%s] Universal: Skipping file %" PRIu64
                                 "[%d] with size %" PRIu64
                                 " (compensated size %" PRIu64 ") %d\n",
-                    cf_name.c_str(), f->fd.GetNumber(), i, f->fd.GetFileSize(),
-                    f->compensated_file_size, f->being_compacted);
+                    cf_name.c_str(), f->fd.GetNumber(), i,
+                    skipping_file->fd.GetFileSize(),
+                    skipping_file->compensated_file_size,
+                    skipping_file->being_compacted);
       }
     }
   }
@@ -782,16 +784,17 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   c->score_ = score;
 
   for (unsigned int i = start_index; i < first_index_after; i++) {
-    FileMetaData* f = files[i];
-    c->inputs_[0].files.push_back(f);
+    FileMetaData* picking_file = files[i];
+    c->inputs_[0].files.push_back(picking_file);
     char file_num_buf[kFormatFileNumberBufSize];
-    FormatFileNumber(f->fd.GetNumber(), f->fd.GetPathId(), file_num_buf,
-                     sizeof(file_num_buf));
+    FormatFileNumber(picking_file->fd.GetNumber(), picking_file->fd.GetPathId(),
+                     file_num_buf, sizeof(file_num_buf));
     LogToBuffer(log_buffer,
                 "[%s] Universal: Picking file %s[%d] "
                 "with size %" PRIu64 " (compensated size %" PRIu64 ")\n",
-                cf_name.c_str(), file_num_buf, i, f->fd.GetFileSize(),
-                f->compensated_file_size);
+                cf_name.c_str(), file_num_buf, i,
+                picking_file->fd.GetFileSize(),
+                picking_file->compensated_file_size);
   }
   return c;
 }
@@ -850,7 +853,6 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   for (unsigned int loop = start_index; loop < files.size() - 1; loop++) {
     f = files[loop];
     if (f->being_compacted) {
-      char file_num_buf[kFormatFileNumberBufSize];
       FormatFileNumber(f->fd.GetNumber(), f->fd.GetPathId(), file_num_buf,
                        sizeof(file_num_buf));
       LogToBuffer(

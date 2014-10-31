@@ -52,7 +52,8 @@ struct TestKey {
   uint64_t prefix;
   uint64_t sorted;
 
-  TestKey(uint64_t prefix, uint64_t sorted) : prefix(prefix), sorted(sorted) {}
+  TestKey(uint64_t _prefix, uint64_t _sorted)
+      : prefix(_prefix), sorted(_sorted) {}
 };
 
 // return a slice backed by test_key

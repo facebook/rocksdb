@@ -263,8 +263,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     Log(InfoLogLevel::INFO_LEVEL,
         ioptions_.info_log, "Options for column family \"%s\":\n",
         name.c_str());
-    const ColumnFamilyOptions* cf_options = &options_;
-    cf_options->Dump(ioptions_.info_log);
+    options_.Dump(ioptions_.info_log);
   }
 
   RecalculateWriteStallConditions(mutable_cf_options_);

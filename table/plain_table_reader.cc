@@ -358,12 +358,12 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   std::vector<uint32_t> prefix_hashes;
   if (!index_in_file) {
-    Status s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
+    s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
     if (!s.ok()) {
       return s;
     }
   } else {
-    Status s = index_.InitFromRawData(*index_block);
+    s = index_.InitFromRawData(*index_block);
     if (!s.ok()) {
       return s;
     }
@@ -566,7 +566,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   PlainTableKeyDecoder decoder(encoding_type_, user_key_len_,
                                ioptions_.prefix_extractor);
   while (offset < data_end_offset_) {
-    Status s = Next(&decoder, &offset, &found_key, nullptr, &found_value);
+    s = Next(&decoder, &offset, &found_key, nullptr, &found_value);
     if (!s.ok()) {
       return s;
     }

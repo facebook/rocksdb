@@ -166,14 +166,14 @@ void WalManager::PurgeObsoleteWALFiles() {
       std::string const file_path = archival_dir + "/" + f;
       if (ttl_enabled) {
         uint64_t file_m_time;
-        Status const s = env_->GetFileModificationTime(file_path, &file_m_time);
+        s = env_->GetFileModificationTime(file_path, &file_m_time);
         if (!s.ok()) {
           Log(db_options_.info_log, "Can't get file mod time: %s: %s",
               file_path.c_str(), s.ToString().c_str());
           continue;
         }
         if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
-          Status const s = env_->DeleteFile(file_path);
+          s = env_->DeleteFile(file_path);
           if (!s.ok()) {
             Log(db_options_.info_log, "Can't delete file: %s: %s",
                 file_path.c_str(), s.ToString().c_str());
@@ -188,7 +188,7 @@ void WalManager::PurgeObsoleteWALFiles() {
 
       if (size_limit_enabled) {
         uint64_t file_size;
-        Status const s = env_->GetFileSize(file_path, &file_size);
+        s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
           Log(db_options_.info_log, "Can't get file size: %s: %s",
               file_path.c_str(), s.ToString().c_str());
@@ -198,7 +198,7 @@ void WalManager::PurgeObsoleteWALFiles() {
             log_file_size = std::max(log_file_size, file_size);
             ++log_files_num;
           } else {
-            Status s = env_->DeleteFile(file_path);
+            s = env_->DeleteFile(file_path);
             if (!s.ok()) {
               Log(db_options_.info_log, "Can't delete file: %s: %s",
                   file_path.c_str(), s.ToString().c_str());
@@ -236,7 +236,7 @@ void WalManager::PurgeObsoleteWALFiles() {
 
   for (size_t i = 0; i < files_del_num; ++i) {
     std::string const file_path = archived_logs[i]->PathName();
-    Status const s = env_->DeleteFile(db_options_.wal_dir + "/" + file_path);
+    s = env_->DeleteFile(db_options_.wal_dir + "/" + file_path);
     if (!s.ok()) {
       Log(db_options_.info_log, "Can't delete file: %s: %s", file_path.c_str(),
           s.ToString().c_str());

@@ -136,7 +136,7 @@ class InternalStats {
     // Number of compactions done
     int count;
 
-    explicit CompactionStats(int count = 0)
+    explicit CompactionStats(int _count = 0)
         : micros(0),
           bytes_readn(0),
           bytes_readnp1(0),
@@ -146,7 +146,7 @@ class InternalStats {
           files_out_levelnp1(0),
           num_input_records(0),
           num_dropped_records(0),
-          count(count) {}
+          count(_count) {}
 
     explicit CompactionStats(const CompactionStats& c)
         : micros(c.micros),
