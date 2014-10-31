@@ -37,4 +37,6 @@ class VersionBuilder {
   class Rep;
   Rep* rep_;
 };
+
+extern bool NewestFirstBySeqNo(FileMetaData* a, FileMetaData* b);
 }  // namespace rocksdb
