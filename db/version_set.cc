@@ -515,19 +515,24 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
 
 // A wrapper of version builder which references the current version in
 // constructor and unref it in the destructor.
+// Both of the constructor and destructor need to be called inside DB Mutex.
 class BaseReferencedVersionBuilder {
  public:
   explicit BaseReferencedVersionBuilder(ColumnFamilyData* cfd)
-      : version_builder_(cfd->current()->version_set()->GetEnvOptions(),
-                         cfd->table_cache(), cfd->current()->storage_info()),
+      : version_builder_(new VersionBuilder(
+            cfd->current()->version_set()->GetEnvOptions(), cfd->table_cache(),
+            cfd->current()->storage_info())),
         version_(cfd->current()) {
     version_->Ref();
   }
-  ~BaseReferencedVersionBuilder() { version_->Unref(); }
-  VersionBuilder* GetVersionBuilder() { return &version_builder_; }
+  ~BaseReferencedVersionBuilder() {
+    delete version_builder_;
+    version_->Unref();
+  }
+  VersionBuilder* GetVersionBuilder() { return version_builder_; }
 
  private:
-  VersionBuilder version_builder_;
+  VersionBuilder* version_builder_;
   Version* version_;
 };
 }  // anonymous namespace
@@ -2322,7 +2327,7 @@ Status VersionSet::Recover(
     for (auto cfd : *column_family_set_) {
       auto builders_iter = builders.find(cfd->GetID());
       assert(builders_iter != builders.end());
-      auto builder = builders_iter->second->GetVersionBuilder();
+      auto* builder = builders_iter->second->GetVersionBuilder();
 
       if (db_options_->max_open_files == -1) {
       // unlimited table cache. Pre-load table handle now.
