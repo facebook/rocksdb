@@ -182,6 +182,45 @@ TEST(MockEnvTest, LargeWrite) {
   delete [] scratch;
 }
 
+TEST(MockEnvTest, Corrupt) {
+  const std::string kGood = "this is a good string, synced to disk";
+  const std::string kCorrupted = "this part may be corrupted";
+  const std::string kFileName = "/dir/f";
+  unique_ptr<WritableFile> writable_file;
+  ASSERT_OK(env_->NewWritableFile(kFileName, &writable_file, soptions_));
+  ASSERT_OK(writable_file->Append(kGood));
+  ASSERT_TRUE(writable_file->GetFileSize() == kGood.size());
+
+  std::string scratch;
+  scratch.resize(kGood.size() + kCorrupted.size() + 16);
+  Slice result;
+  unique_ptr<RandomAccessFile> rand_file;
+  ASSERT_OK(env_->NewRandomAccessFile(kFileName, &rand_file, soptions_));
+  ASSERT_OK(rand_file->Read(0, kGood.size(), &result, &(scratch[0])));
+  ASSERT_EQ(result.compare(kGood), 0);
+
+  // Sync + corrupt => no change
+  ASSERT_OK(writable_file->Fsync());
+  ASSERT_OK(dynamic_cast<MockEnv*>(env_)->CorruptBuffer(kFileName));
+  result.clear();
+  ASSERT_OK(rand_file->Read(0, kGood.size(), &result, &(scratch[0])));
+  ASSERT_EQ(result.compare(kGood), 0);
+
+  // Add new data and corrupt it
+  ASSERT_OK(writable_file->Append(kCorrupted));
+  ASSERT_TRUE(writable_file->GetFileSize() == kGood.size() + kCorrupted.size());
+  result.clear();
+  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
+            &result, &(scratch[0])));
+  ASSERT_EQ(result.compare(kCorrupted), 0);
+  // Corrupted
+  ASSERT_OK(dynamic_cast<MockEnv*>(env_)->CorruptBuffer(kFileName));
+  result.clear();
+  ASSERT_OK(rand_file->Read(kGood.size(), kCorrupted.size(),
+            &result, &(scratch[0])));
+  ASSERT_NE(result.compare(kCorrupted), 0);
+}
+
 TEST(MockEnvTest, DBTest) {
   Options options;
   options.create_if_missing = true;

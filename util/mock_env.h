@@ -81,6 +81,8 @@ class MockEnv : public EnvWrapper {
   // Non-virtual functions, specific to MockEnv
   Status Truncate(const std::string& fname, size_t size);
 
+  Status CorruptBuffer(const std::string& fname);
+
  private:
   std::string NormalizePath(const std::string path);
 
