@@ -378,13 +378,13 @@ void InternalStats::DumpCFStats(std::string* value) {
   // level order
   std::vector<double> compaction_score(number_levels_, 0);
   for (int i = 0; i < num_levels_to_check; ++i) {
-    compaction_score[vstorage->compaction_level_[i]] =
-        vstorage->compaction_score_[i];
+    compaction_score[vstorage->CompactionScoreLevel(i)] =
+        vstorage->CompactionScore(i);
   }
   // Count # of files being compacted for each level
   std::vector<int> files_being_compacted(number_levels_, 0);
   for (int level = 0; level < num_levels_to_check; ++level) {
-    for (auto* f : vstorage->files_[level]) {
+    for (auto* f : vstorage->LevelFiles(level)) {
       if (f->being_compacted) {
         ++files_being_compacted[level];
       }

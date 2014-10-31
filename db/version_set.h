@@ -345,8 +345,6 @@ class VersionStorageInfo {
 
   friend class Version;
   friend class VersionSet;
-  friend class DBImpl;
-  friend class InternalStats;
   // No copying allowed
   VersionStorageInfo(const VersionStorageInfo&) = delete;
   void operator=(const VersionStorageInfo&) = delete;
