@@ -132,7 +132,7 @@ TESTS = \
 	spatial_db_test \
 	version_edit_test \
 	version_set_test \
-  compaction_picker_test \
+	compaction_picker_test \
 	version_builder_test \
 	file_indexer_test \
 	write_batch_test \

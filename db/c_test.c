@@ -576,33 +576,39 @@ int main(int argc, char** argv) {
 
   StartPhase("compaction_filter");
   {
-    rocksdb_options_set_create_if_missing(options, 1);
+    rocksdb_options_t* options_with_filter = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(options_with_filter, 1);
     rocksdb_compactionfilter_t* cfilter;
     cfilter = rocksdb_compactionfilter_create(NULL, CFilterDestroy,
                                               CFilterFilter, CFilterName);
     // Create new database
     rocksdb_close(db);
-    rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_compaction_filter(options, cfilter);
-    db = CheckCompaction(db, options, roptions, woptions);
+    rocksdb_destroy_db(options_with_filter, dbname, &err);
+    rocksdb_options_set_compaction_filter(options_with_filter, cfilter);
+    db = CheckCompaction(db, options_with_filter, roptions, woptions);
 
-    rocksdb_options_set_compaction_filter(options, NULL);
+    rocksdb_options_set_compaction_filter(options_with_filter, NULL);
     rocksdb_compactionfilter_destroy(cfilter);
+    rocksdb_options_destroy(options_with_filter);
   }
 
   StartPhase("compaction_filter_factory");
   {
-    rocksdb_options_set_create_if_missing(options, 1);
+    rocksdb_options_t* options_with_filter_factory = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(options_with_filter_factory, 1);
     rocksdb_compactionfilterfactory_t* factory;
     factory = rocksdb_compactionfilterfactory_create(
         NULL, CFilterFactoryDestroy, CFilterCreate, CFilterFactoryName);
     // Create new database
     rocksdb_close(db);
-    rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_compaction_filter_factory(options, factory);
-    db = CheckCompaction(db, options, roptions, woptions);
+    rocksdb_destroy_db(options_with_filter_factory, dbname, &err);
+    rocksdb_options_set_compaction_filter_factory(options_with_filter_factory,
+                                                  factory);
+    db = CheckCompaction(db, options_with_filter_factory, roptions, woptions);
 
-    rocksdb_options_set_compaction_filter_factory(options, NULL);
+    rocksdb_options_set_compaction_filter_factory(
+        options_with_filter_factory, NULL);
+    rocksdb_options_destroy(options_with_filter_factory);
   }
 
   StartPhase("compaction_filter_v2");
