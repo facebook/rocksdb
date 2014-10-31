@@ -17,7 +17,7 @@
 
 #include "rocksdb/options.h"
 #include "util/testharness.h"
-#include "utilities/options/convenience.h"
+#include "rocksdb/utilities/options/convenience.h"
 
 using GFLAGS::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
