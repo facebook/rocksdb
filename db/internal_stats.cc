@@ -30,7 +30,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
       "Level   Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
       "Write(GB) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
       "Rnp1(cnt) Wnp1(cnt) Wnew(cnt)  Comp(sec) Comp(cnt) Avg(sec) "
-      "Stall(sec) Stall(cnt) Avg(ms) RecordIn RecordDrop\n"
+      "Stall(sec) Stall(cnt) Avg(ms)     RecordIn   RecordDrop\n"
       "--------------------------------------------------------------------"
       "--------------------------------------------------------------------"
       "--------------------------------------------------------------------\n",
@@ -65,9 +65,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     "%8.3f " /* Avg(sec) */
     "%10.2f " /* Stall(sec) */
     "%10" PRIu64 " " /* Stall(cnt) */
-    "%7.2f" /* Avg(ms) */
-    "%8d " /* input entries */
-    "%10d\n" /* number of records reduced */,
+    "%7.2f " /* Avg(ms) */
+    "%12d " /* input entries */
+    "%12d\n" /* number of records reduced */,
     name.c_str(), num_files, being_compacted, total_file_size / kMB, score,
     bytes_read / kGB,
     stats.bytes_readn / kGB,
