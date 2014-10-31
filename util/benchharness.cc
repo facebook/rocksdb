@@ -30,7 +30,7 @@ using std::vector;
 
 DEFINE_bool(benchmark, false, "Run benchmarks.");
 
-DEFINE_int64(bm_min_usec, 100,
+DEFINE_uint64(bm_min_usec, 100,
              "Minimum # of microseconds we'll accept for each benchmark.");
 
 DEFINE_int64(bm_min_iters, 1,
