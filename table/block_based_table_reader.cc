@@ -438,7 +438,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
   Footer footer(kBlockBasedTableMagicNumber);
   auto s = ReadFooterFromFile(file.get(), file_size, &footer);
-  if (!s.ok()) return s;
+  if (!s.ok()) {
+    return s;
+  }
 
   // We've successfully read the footer and the index block: we're
   // ready to serve requests.
@@ -455,12 +457,19 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   std::unique_ptr<Block> meta;
   std::unique_ptr<Iterator> meta_iter;
   s = ReadMetaBlock(rep, &meta, &meta_iter);
+  if (!s.ok()) {
+    return s;
+  }
 
   // Read the properties
   bool found_properties_block = true;
   s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
 
-  if (found_properties_block) {
+  if (!s.ok()) {
+    Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+        "Cannot seek to properties block from file: %s",
+        s.ToString().c_str());
+  } else if (found_properties_block) {
     s = meta_iter->status();
     TableProperties* table_properties = nullptr;
     if (s.ok()) {
@@ -470,15 +479,14 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     }
 
     if (!s.ok()) {
-      auto err_msg =
-        "[Warning] Encountered error while reading data from properties "
-        "block " + s.ToString();
-      Log(rep->ioptions.info_log, "%s", err_msg.c_str());
+      Log(InfoLogLevel::WARN_LEVEL, rep->ioptions.info_log,
+        "Encountered error while reading data from properties "
+        "block %s", s.ToString().c_str());
     } else {
       rep->table_properties.reset(table_properties);
     }
   } else {
-    Log(WARN_LEVEL, rep->ioptions.info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
         "Cannot find Properties block from file.");
   }
 
@@ -573,13 +581,10 @@ Status BlockBasedTable::ReadMetaBlock(
       &meta,
       rep->ioptions.env);
 
-    if (!s.ok()) {
-      auto err_msg =
-        "[Warning] Encountered error while reading data from properties"
-        "block " + s.ToString();
-      Log(rep->ioptions.info_log, "%s", err_msg.c_str());
-    }
   if (!s.ok()) {
+    Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
+        "Encountered error while reading data from properties"
+        " block %s", s.ToString().c_str());
     delete meta;
     return s;
   }
@@ -1219,7 +1224,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
 
   if (index_type_on_file == BlockBasedTableOptions::kHashSearch &&
       rep_->ioptions.prefix_extractor == nullptr) {
-    Log(rep_->ioptions.info_log,
+    Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
         "BlockBasedTableOptions::kHashSearch requires "
         "options.prefix_extractor to be set."
         " Fall back to binary seach index.");
@@ -1240,7 +1245,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
         if (!s.ok()) {
           // we simply fall back to binary search in case there is any
           // problem with prefix hash index loading.
-          Log(rep_->ioptions.info_log,
+          Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
               "Unable to read the metaindex block."
               " Fall back to binary seach index.");
           return BinarySearchIndexReader::Create(
