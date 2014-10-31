@@ -194,6 +194,9 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
 DEFINE_int32(set_options_one_in, 0,
              "With a chance of 1/N, change some random options");
 
+DEFINE_int32(set_in_place_one_in, 0,
+             "With a chance of 1/N, toggle in place support option");
+
 DEFINE_int64(cache_size, 2 * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
@@ -340,6 +343,8 @@ static const bool FLAGS_purge_redundant_percent_dummy __attribute__((unused)) =
 
 DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
             " the delete if key not present");
+
+DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
 
 enum RepFactory {
   kSkipList,
@@ -1362,6 +1367,11 @@ class StressTest {
         SetOptions(thread);
       }
 
+      if (FLAGS_set_in_place_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_set_in_place_one_in)) {
+        options_.inplace_update_support ^= options_.inplace_update_support;
+      }
+
       if (!FLAGS_test_batches_snapshots &&
           FLAGS_clear_column_family_one_in != 0 && FLAGS_column_families > 1) {
         if (thread->rand.OneIn(FLAGS_clear_column_family_one_in)) {
@@ -1682,6 +1692,8 @@ class StressTest {
             FLAGS_purge_redundant_percent);
     fprintf(stdout, "Deletes use filter  : %d\n",
             FLAGS_filter_deletes);
+    fprintf(stdout, "Do update in place  : %d\n",
+            FLAGS_in_place_update);
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
@@ -1765,6 +1777,7 @@ class StressTest {
     options_.create_if_missing = true;
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
+    options_.inplace_update_support = FLAGS_in_place_update;
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
