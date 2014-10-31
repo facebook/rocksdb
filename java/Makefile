@@ -5,6 +5,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
 	org.rocksdb.ColumnFamilyHandle\
+	org.rocksdb.ColumnFamilyOptions\
 	org.rocksdb.Comparator\
 	org.rocksdb.ComparatorOptions\
 	org.rocksdb.DBOptions\

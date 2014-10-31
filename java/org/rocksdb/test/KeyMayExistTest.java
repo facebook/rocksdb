@@ -22,11 +22,12 @@ public class KeyMayExistTest {
         .setCreateMissingColumnFamilies(true);
     try {
       // open database using cf names
-      List<String> cfNames = new ArrayList<String>();
+      List<ColumnFamilyDescriptor> cfNames =
+          new ArrayList<ColumnFamilyDescriptor>();
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<ColumnFamilyHandle>();
-      cfNames.add("default");
-      cfNames.add("new_cf");
+      cfNames.add(new ColumnFamilyDescriptor("default"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
       db = RocksDB.open(options, DB_PATH, cfNames, columnFamilyHandleList);
       assert(columnFamilyHandleList.size()==2);
 

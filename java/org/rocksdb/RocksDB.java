@@ -123,7 +123,7 @@ public class RocksDB extends RocksObject {
    * </p>
    *
    * @param path the path to the rocksdb.
-   * @param columnFamilyNames list of column family names
+   * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
    * @return a {@link RocksDB} instance on success, null if the specified
@@ -132,12 +132,13 @@ public class RocksDB extends RocksObject {
    * @throws org.rocksdb.RocksDBException
    * @see Options#setCreateIfMissing(boolean)
    */
-  public static RocksDB open(String path, List<String> columnFamilyNames,
+  public static RocksDB open(String path,
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     Options options = new Options();
-    return open(options, path, columnFamilyNames, columnFamilyHandles);
+    return open(options, path, columnFamilyDescriptors, columnFamilyHandles);
   }
 
   /**
@@ -198,7 +199,7 @@ public class RocksDB extends RocksObject {
    *
    * @param options {@link org.rocksdb.Options} instance.
    * @param path the path to the rocksdb.
-   * @param columnFamilyNames list of column family names
+   * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
    * @return a {@link RocksDB} instance on success, null if the specified
@@ -207,13 +208,14 @@ public class RocksDB extends RocksObject {
    * @throws org.rocksdb.RocksDBException
    * @see Options#setCreateIfMissing(boolean)
    */
-  public static RocksDB open(Options options, String path, List<String> columnFamilyNames,
+  public static RocksDB open(Options options, String path,
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
     RocksDB db = new RocksDB();
     List<Long> cfReferences = db.open(options.nativeHandle_, path,
-        columnFamilyNames, columnFamilyNames.size());
-    for (int i=0; i<columnFamilyNames.size(); i++) {
+        columnFamilyDescriptors, columnFamilyDescriptors.size());
+    for (int i=0; i<columnFamilyDescriptors.size(); i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
     }
     db.storeOptionsInstance(options);
@@ -244,19 +246,21 @@ public class RocksDB extends RocksObject {
    * options.
    *
    * @param path the path to the RocksDB.
-   * @param columnFamilyNames list of column family names
+   * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    * @throws RocksDBException
    */
-  public static RocksDB openReadOnly(String path, List<String> columnFamilyNames,
+  public static RocksDB openReadOnly(String path,
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
     Options options = new Options();
-    return openReadOnly(options, path, columnFamilyNames, columnFamilyHandles);
+    return openReadOnly(options, path, columnFamilyDescriptors,
+        columnFamilyHandles);
   }
 
   /**
@@ -299,7 +303,7 @@ public class RocksDB extends RocksObject {
    *
    * @param options {@link Options} instance.
    * @param path the path to the RocksDB.
-   * @param columnFamilyNames list of column family names
+   * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
    *     on open.
    * @return a {@link RocksDB} instance on success, null if the specified
@@ -307,15 +311,16 @@ public class RocksDB extends RocksObject {
    * @throws RocksDBException
    */
   public static RocksDB openReadOnly(Options options, String path,
-      List<String> columnFamilyNames, List<ColumnFamilyHandle> columnFamilyHandles)
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
     // when non-default Options is used, keeping an Options reference
     // in RocksDB can prevent Java to GC during the life-time of
     // the currently-created RocksDB.
     RocksDB db = new RocksDB();
     List<Long> cfReferences = db.openROnly(options.nativeHandle_, path,
-        columnFamilyNames, columnFamilyNames.size());
-    for (int i=0; i<columnFamilyNames.size(); i++) {
+        columnFamilyDescriptors, columnFamilyDescriptors.size());
+    for (int i=0; i<columnFamilyDescriptors.size(); i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
     }
 
@@ -1059,14 +1064,15 @@ public class RocksDB extends RocksObject {
    * allocates a ColumnFamilyHandle within an internal structure.
    * The ColumnFamilyHandle is automatically disposed with DB disposal.
    *
-   * @param columnFamilyName Name of column family to be created.
+   * @param columnFamilyDescriptor column family to be created.
    * @return {@link org.rocksdb.ColumnFamilyHandle} instance
    * @see RocksDBException
    */
-  public ColumnFamilyHandle createColumnFamily(String columnFamilyName)
+  public ColumnFamilyHandle createColumnFamily(
+      ColumnFamilyDescriptor columnFamilyDescriptor)
       throws RocksDBException {
     return new ColumnFamilyHandle(this, createColumnFamily(nativeHandle_,
-        options_.nativeHandle_, columnFamilyName));
+        columnFamilyDescriptor));
   }
 
   /**
@@ -1130,15 +1136,17 @@ public class RocksDB extends RocksObject {
   protected native void open(
       long optionsHandle, String path) throws RocksDBException;
   protected native List<Long> open(long optionsHandle, String path,
-      List<String> columnFamilyNames, int columnFamilyNamesLength)
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      int columnFamilyDescriptorsLength)
       throws RocksDBException;
   protected native static List<byte[]> listColumnFamilies(
       long optionsHandle, String path) throws RocksDBException;
   protected native void openROnly(
       long optionsHandle, String path) throws RocksDBException;
   protected native List<Long> openROnly(
-      long optionsHandle, String path, List<String> columnFamilyNames,
-      int columnFamilyNamesLength) throws RocksDBException;
+      long optionsHandle, String path,
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      int columnFamilyDescriptorsLength) throws RocksDBException;
   protected native void put(
       long handle, byte[] key, int keyLen,
       byte[] value, int valueLen) throws RocksDBException;
@@ -1231,8 +1239,8 @@ public class RocksDB extends RocksObject {
   protected native void releaseSnapshot(
       long nativeHandle, long snapshotHandle);
   private native void disposeInternal(long handle);
-  private native long createColumnFamily(long handle, long opt_handle,
-      String name) throws RocksDBException;
+  private native long createColumnFamily(long handle,
+      ColumnFamilyDescriptor columnFamilyDescriptor) throws RocksDBException;
   private native void dropColumnFamily(long handle, long cfHandle) throws RocksDBException;
   private native void flush(long handle, long flushOptHandle)
       throws RocksDBException;

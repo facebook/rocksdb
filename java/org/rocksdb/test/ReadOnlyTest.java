@@ -34,12 +34,15 @@ public class ReadOnlyTest {
       db2.close();
 
 
-      List<String> cfNames = new ArrayList<String>();
-      cfNames.add("default");
+      List<ColumnFamilyDescriptor> cfNames =
+          new ArrayList<ColumnFamilyDescriptor>();
+      cfNames.add(new ColumnFamilyDescriptor("default"));
 
       db = RocksDB.open(DB_PATH, cfNames, columnFamilyHandleList);
-      columnFamilyHandleList.add(db.createColumnFamily("new_cf"));
-      columnFamilyHandleList.add(db.createColumnFamily("new_cf2"));
+      columnFamilyHandleList.add(db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf", new ColumnFamilyOptions())));
+      columnFamilyHandleList.add(db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf2", new ColumnFamilyOptions())));
       db.put(columnFamilyHandleList.get(2), "key2".getBytes(),
           "value2".getBytes());
 
@@ -47,9 +50,10 @@ public class ReadOnlyTest {
       assert(db2.get("key2".getBytes())==null);
       assert(db2.get(columnFamilyHandleList.get(0), "key2".getBytes())==null);
 
-      List<String> cfNewName = new ArrayList<String>();
-      cfNewName.add("default");
-      cfNewName.add("new_cf2");
+      List<ColumnFamilyDescriptor> cfNewName =
+          new ArrayList<ColumnFamilyDescriptor>();
+      cfNewName.add(new ColumnFamilyDescriptor("default"));
+      cfNewName.add(new ColumnFamilyDescriptor("new_cf2"));
       db3 = RocksDB.openReadOnly(DB_PATH, cfNewName, db3ColumnFamilyHandleList);
       assert(new String(db3.get(db3ColumnFamilyHandleList.get(1),
           "key2".getBytes())).equals("value2"));

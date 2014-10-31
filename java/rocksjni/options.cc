@@ -12,9 +12,8 @@
 #include <memory>
 
 #include "include/org_rocksdb_Options.h"
-//TODO(fyrz) to be commented in with options refactoring pull requests
 #include "include/org_rocksdb_DBOptions.h"
-//#include "include/org_rocksdb_ColumnFamilyOptions.h"
+#include "include/org_rocksdb_ColumnFamilyOptions.h"
 #include "include/org_rocksdb_WriteOptions.h"
 #include "include/org_rocksdb_ReadOptions.h"
 #include "include/org_rocksdb_ComparatorOptions.h"

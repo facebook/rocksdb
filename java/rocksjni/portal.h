@@ -159,6 +159,34 @@ class DBOptionsJni {
   }
 };
 
+class ColumnFamilyDescriptorJni {
+ public:
+  // Get the java class id of org.rocksdb.ColumnFamilyDescriptor
+  static jclass getColumnFamilyDescriptorClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/ColumnFamilyDescriptor");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the java method id of columnFamilyName
+  static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getColumnFamilyDescriptorClass(env),
+        "columnFamilyName", "()Ljava/lang/String;");
+    assert(mid != nullptr);
+    return mid;
+  }
+
+  // Get the java method id of columnFamilyOptions
+  static jmethodID getColumnFamilyOptionsMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getColumnFamilyDescriptorClass(env),
+        "columnFamilyOptions", "()Lorg/rocksdb/ColumnFamilyOptions;");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
 class ColumnFamilyOptionsJni {
  public:
   // Get the java class id of org.rocksdb.ColumnFamilyOptions.

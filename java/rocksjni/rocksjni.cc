@@ -69,7 +69,7 @@ void Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2(
 jobject
     Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
-    jobject jcfname_list, jint jcfname_count) {
+    jobject jcfdesc_list, jint jcfdesc_count) {
   auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   rocksdb::DB* db = nullptr;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
@@ -79,23 +79,34 @@ jobject
 
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   std::vector<rocksdb::ColumnFamilyHandle* > handles;
-  // get iterator for cfnames
+  // get iterator for ColumnFamilyDescriptors
   jobject iteratorObj = env->CallObjectMethod(
-      jcfname_list, rocksdb::ListJni::getIteratorMethod(env));
+      jcfdesc_list, rocksdb::ListJni::getIteratorMethod(env));
 
-  // iterate over cfnames and convert cfnames to
-  // ColumnFamilyDescriptor instances
+  // iterate over ColumnFamilyDescriptors
   while (env->CallBooleanMethod(
       iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
-      jstring jstr = (jstring) env->CallObjectMethod(iteratorObj,
+      // get ColumnFamilyDescriptor
+      jobject jcf_descriptor = env->CallObjectMethod(iteratorObj,
           rocksdb::ListJni::getNextMethod(env));
+      // get ColumnFamilyName
+      jstring jstr = (jstring) env->CallObjectMethod(jcf_descriptor,
+          rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
+          env));
+      // get CF Options
+      jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
+          rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
+          env));
+      rocksdb::ColumnFamilyOptions* cfOptions =
+          rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
+
       const char* cfname = env->GetStringUTFChars(jstr, 0);
 
       // free allocated cfnames after call to open
       cfnames_to_free.push_back(cfname);
       jcfnames_for_free.push_back(jstr);
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(cfname,
-          *static_cast<rocksdb::ColumnFamilyOptions*>(opt)));
+          *cfOptions));
   }
 
   rocksdb::Status s = rocksdb::DB::OpenForReadOnly(*opt,
@@ -141,7 +152,7 @@ jobject
  */
 jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
-    jobject jcfname_list, jint jcfname_count) {
+    jobject jcfdesc_list, jint jcfdesc_count) {
   auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   rocksdb::DB* db = nullptr;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
@@ -151,23 +162,34 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
 
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
   std::vector<rocksdb::ColumnFamilyHandle* > handles;
-  // get iterator for cfnames
+  // get iterator for ColumnFamilyDescriptors
   jobject iteratorObj = env->CallObjectMethod(
-      jcfname_list, rocksdb::ListJni::getIteratorMethod(env));
+      jcfdesc_list, rocksdb::ListJni::getIteratorMethod(env));
 
-  // iterate over cfnames and convert cfnames to
-  // ColumnFamilyDescriptor instances
+  // iterate over ColumnFamilyDescriptors
   while (env->CallBooleanMethod(
       iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
-      jstring jstr = (jstring) env->CallObjectMethod(iteratorObj,
+      // get ColumnFamilyDescriptor
+      jobject jcf_descriptor = env->CallObjectMethod(iteratorObj,
           rocksdb::ListJni::getNextMethod(env));
+      // get ColumnFamilyName
+      jstring jstr = (jstring) env->CallObjectMethod(jcf_descriptor,
+          rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
+          env));
+      // get CF Options
+      jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
+          rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
+          env));
+      rocksdb::ColumnFamilyOptions* cfOptions =
+          rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
+
       const char* cfname = env->GetStringUTFChars(jstr, 0);
 
       // free allocated cfnames after call to open
       cfnames_to_free.push_back(cfname);
       jcfnames_for_free.push_back(jstr);
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(cfname,
-          *static_cast<rocksdb::ColumnFamilyOptions*>(opt)));
+          *cfOptions));
   }
 
   rocksdb::Status s = rocksdb::DB::Open(*opt, db_path, column_families,
@@ -1151,18 +1173,28 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    createColumnFamily
- * Signature: (JJLjava/lang/String;)J;
+ * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;)J;
  */
 jlong Java_org_rocksdb_RocksDB_createColumnFamily(
-    JNIEnv* env, jobject jdb, jlong jdb_handle, jlong jopt_handle,
-    jstring jcfname) {
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jobject jcf_descriptor) {
   rocksdb::ColumnFamilyHandle* handle;
-  const char* cfname = env->GetStringUTFChars(jcfname, 0);
   auto db_handle = reinterpret_cast<rocksdb::DB*>(jdb_handle);
-  auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+
+  jstring jstr = (jstring) env->CallObjectMethod(jcf_descriptor,
+      rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
+      env));
+  // get CF Options
+  jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
+      rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
+      env));
+  rocksdb::ColumnFamilyOptions* cfOptions =
+      rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
+
+  const char* cfname = env->GetStringUTFChars(jstr, 0);
   rocksdb::Status s = db_handle->CreateColumnFamily(
-      *static_cast<rocksdb::ColumnFamilyOptions*>(opt), cfname, &handle);
-  env->ReleaseStringUTFChars(jcfname, cfname);
+      *cfOptions, cfname, &handle);
+  env->ReleaseStringUTFChars(jstr, cfname);
 
   if (s.ok()) {
     return reinterpret_cast<jlong>(handle);

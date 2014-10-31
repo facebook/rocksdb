@@ -43,7 +43,8 @@ public class ColumnFamilyTest {
 
     // Test createColumnFamily
     try {
-      db.createColumnFamily("new_cf");
+      db.createColumnFamily(new ColumnFamilyDescriptor("new_cf",
+          new ColumnFamilyOptions()));
     } catch (RocksDBException e) {
       assert(false);
     }
@@ -67,11 +68,12 @@ public class ColumnFamilyTest {
     }
 
     // Test open database with column family names
-    List<String> cfNames = new ArrayList<String>();
+    List<ColumnFamilyDescriptor> cfNames =
+        new ArrayList<ColumnFamilyDescriptor>();
     List<ColumnFamilyHandle> columnFamilyHandleList =
         new ArrayList<ColumnFamilyHandle>();
-    cfNames.add("default");
-    cfNames.add("new_cf");
+    cfNames.add(new ColumnFamilyDescriptor("default"));
+    cfNames.add(new ColumnFamilyDescriptor("new_cf"));
 
     try {
       db = RocksDB.open(options, db_path, cfNames, columnFamilyHandleList);
@@ -100,7 +102,8 @@ public class ColumnFamilyTest {
     // Test create write to and drop ColumnFamily
     ColumnFamilyHandle tmpColumnFamilyHandle = null;
     try {
-      tmpColumnFamilyHandle = db.createColumnFamily("tmpCF");
+      tmpColumnFamilyHandle = db.createColumnFamily(
+          new ColumnFamilyDescriptor("tmpCF", new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.dropColumnFamily(tmpColumnFamilyHandle);
       tmpColumnFamilyHandle.dispose();
