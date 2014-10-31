@@ -116,6 +116,7 @@ TESTS = \
 	log_test \
 	manual_compaction_test \
 	memenv_test \
+	mock_env_test \
 	merge_test \
 	merger_test \
 	redis_test \
@@ -510,6 +511,9 @@ $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 
 memenv_test : helpers/memenv/memenv_test.o $(MEMENVOBJECTS) $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) helpers/memenv/memenv_test.o $(MEMENVOBJECTS) $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 manual_compaction_test: util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/manual_compaction_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

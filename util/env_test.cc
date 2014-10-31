@@ -805,6 +805,36 @@ TEST(EnvPosixTest, LogBufferMaxSizeTest) {
   }
 }
 
+TEST(EnvPosixTest, Preallocation) {
+  const std::string src = test::TmpDir() + "/" + "testfile";
+  unique_ptr<WritableFile> srcfile;
+  const EnvOptions soptions;
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
+  srcfile->SetPreallocationBlockSize(1024 * 1024);
+
+  // No writes should mean no preallocation
+  size_t block_size, last_allocated_block;
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 0UL);
+
+  // Small write should preallocate one block
+  srcfile->Append("test");
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 1UL);
+
+  // Write an entire preallocation block, make sure we increased by two.
+  std::string buf(block_size, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 2UL);
+
+  // Write five more blocks at once, ensure we're where we need to be.
+  buf = std::string(block_size * 5, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 7UL);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

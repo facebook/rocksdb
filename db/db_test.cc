@@ -45,6 +45,7 @@
 #include "util/scoped_arena_iterator.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"
+#include "util/mock_env.h"
 
 namespace rocksdb {
 
@@ -238,6 +239,9 @@ class SpecialEnv : public EnvWrapper {
           return base_->Sync();
         }
       }
+      uint64_t GetFileSize() {
+        return base_->GetFileSize();
+      }
     };
     class LogFile : public WritableFile {
      private:
@@ -381,6 +385,7 @@ class DBTest {
 
  public:
   std::string dbname_;
+  MockEnv* mem_env_;
   SpecialEnv* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
@@ -404,10 +409,11 @@ class DBTest {
 
 
   DBTest() : option_config_(kDefault),
-             env_(new SpecialEnv(Env::Default())) {
-    dbname_ = test::TmpDir() + "/db_test";
-    Options options;
-    options.create_if_missing = true;
+             mem_env_(!getenv("MEM_ENV") ? nullptr :
+                                           new MockEnv(Env::Default())),
+             env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())) {
+    dbname_ = test::TmpDir(env_) + "/db_test";
+    auto options = CurrentOptions();
     ASSERT_OK(DestroyDB(dbname_, options));
     db_ = nullptr;
     Reopen(options);
@@ -561,10 +567,10 @@ class DBTest {
         options.num_levels = 3;
         break;
       case kDBLogDir:
-        options.db_log_dir = test::TmpDir();
+        options.db_log_dir = test::TmpDir(env_);
         break;
       case kWalDirAndMmapReads:
-        options.wal_dir = test::TmpDir() + "/wal";
+        options.wal_dir = test::TmpDir(env_) + "/wal";
         // mmap reads should be orthogonal to WalDir setting, so we piggyback to
         // this option config to test mmap reads as well
         options.allow_mmap_reads = true;
@@ -633,6 +639,8 @@ class DBTest {
     if (set_block_based_table_factory) {
       options.table_factory.reset(NewBlockBasedTableFactory(table_options));
     }
+    options.env = env_;
+    options.create_if_missing = true;
     return options;
   }
 
@@ -712,8 +720,8 @@ class DBTest {
     ASSERT_OK(DestroyDB(dbname_, options));
   }
 
-  Status ReadOnlyReopen(Options* options) {
-    return DB::OpenForReadOnly(*options, dbname_, &db_);
+  Status ReadOnlyReopen(const Options& options) {
+    return DB::OpenForReadOnly(options, dbname_, &db_);
   }
 
   Status TryReopen(const Options& options) {
@@ -1266,8 +1274,9 @@ TEST(DBTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v3"));
   Close();
 
-  Options options;
-  ASSERT_OK(ReadOnlyReopen(&options));
+  auto options = CurrentOptions();
+  assert(options.env = env_);
+  ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
   Iterator* iter = db_->NewIterator(ReadOptions());
@@ -1285,7 +1294,7 @@ TEST(DBTest, ReadOnlyDB) {
   Flush();
   Close();
   // Now check keys in read only mode.
-  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
 }
@@ -1299,19 +1308,20 @@ TEST(DBTest, CompactedDB) {
   options.target_file_size_base = kFileSize;
   options.max_bytes_for_level_base = 1 << 30;
   options.compression = kNoCompression;
+  options = CurrentOptions(options);
   Reopen(options);
   // 1 L0 file, use CompactedDB if max_open_files = -1
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, '1')));
   Flush();
   Close();
-  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_OK(ReadOnlyReopen(options));
   Status s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported operation in read only mode.");
   ASSERT_EQ(DummyString(kFileSize / 2, '1'), Get("aaa"));
   Close();
   options.max_open_files = -1;
-  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_OK(ReadOnlyReopen(options));
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported in compacted db mode.");
@@ -1327,7 +1337,7 @@ TEST(DBTest, CompactedDB) {
   Flush();
   Close();
 
-  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_OK(ReadOnlyReopen(options));
   // Fallback to read-only DB
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
@@ -1347,7 +1357,7 @@ TEST(DBTest, CompactedDB) {
   Close();
 
   // CompactedDB
-  ASSERT_OK(ReadOnlyReopen(&options));
+  ASSERT_OK(ReadOnlyReopen(options));
   s = Put("new", "value");
   ASSERT_EQ(s.ToString(),
             "Not implemented: Not supported in compacted db mode.");
@@ -1491,36 +1501,6 @@ TEST(DBTest, LevelLimitReopen) {
   options.num_levels = 10;
   options.max_bytes_for_level_multiplier_additional.resize(10, 1);
   ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
-}
-
-TEST(DBTest, Preallocation) {
-  const std::string src = dbname_ + "/alloc_test";
-  unique_ptr<WritableFile> srcfile;
-  const EnvOptions soptions;
-  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
-  srcfile->SetPreallocationBlockSize(1024 * 1024);
-
-  // No writes should mean no preallocation
-  size_t block_size, last_allocated_block;
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 0UL);
-
-  // Small write should preallocate one block
-  srcfile->Append("test");
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 1UL);
-
-  // Write an entire preallocation block, make sure we increased by two.
-  std::string buf(block_size, ' ');
-  srcfile->Append(buf);
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 2UL);
-
-  // Write five more blocks at once, ensure we're where we need to be.
-  buf = std::string(block_size * 5, ' ');
-  srcfile->Append(buf);
-  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
-  ASSERT_EQ(last_allocated_block, 7UL);
 }
 
 TEST(DBTest, PutDeleteGet) {
@@ -3146,8 +3126,7 @@ Options DeletionTriggerOptions() {
 }  // anonymous namespace
 
 TEST(DBTest, CompactionDeletionTrigger) {
-  Options options = DeletionTriggerOptions();
-  options.create_if_missing = true;
+  Options options = CurrentOptions(DeletionTriggerOptions());
 
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[2];
@@ -3184,8 +3163,7 @@ TEST(DBTest, CompactionDeletionTrigger) {
 TEST(DBTest, CompactionDeletionTriggerReopen) {
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[3];
-    Options options = DeletionTriggerOptions();
-    options.create_if_missing = true;
+    Options options = CurrentOptions(DeletionTriggerOptions());
 
     DestroyAndReopen(options);
     Random rnd(301);
@@ -3474,6 +3452,7 @@ TEST(DBTest, UniversalCompactionSizeAmplification) {
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
   options.level0_file_num_compaction_trigger = 3;
+  options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Trigger compaction if size amplification exceeds 110%
@@ -3638,6 +3617,7 @@ TEST(DBTest, CompressedCache) {
     Options options;
     options.write_buffer_size = 64*1024;        // small write buffer
     options.statistics = rocksdb::CreateDBStatistics();
+    options = CurrentOptions(options);
 
     BlockBasedTableOptions table_options;
     switch (iter) {
@@ -3675,6 +3655,7 @@ TEST(DBTest, CompressedCache) {
     // default column family doesn't have block cache
     Options no_block_cache_opts;
     no_block_cache_opts.statistics = options.statistics;
+    no_block_cache_opts = CurrentOptions(no_block_cache_opts);
     BlockBasedTableOptions table_options_no_bc;
     table_options_no_bc.no_block_cache = true;
     no_block_cache_opts.table_factory.reset(
@@ -4587,6 +4568,7 @@ TEST(DBTest, CompactionFilterDeletesAll) {
   options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
+  options = CurrentOptions(options);
   DestroyAndReopen(options);
 
   // put some data
@@ -5685,20 +5667,20 @@ TEST(DBTest, ManualCompactionOutputPathId) {
 }
 
 TEST(DBTest, DBOpen_Options) {
-  std::string dbname = test::TmpDir() + "/db_options_test";
-  ASSERT_OK(DestroyDB(dbname, Options()));
+  Options options = CurrentOptions();
+  std::string dbname = test::TmpDir(env_) + "/db_options_test";
+  ASSERT_OK(DestroyDB(dbname, options));
 
   // Does not exist, and create_if_missing == false: error
   DB* db = nullptr;
-  Options opts;
-  opts.create_if_missing = false;
-  Status s = DB::Open(opts, dbname, &db);
+  options.create_if_missing = false;
+  Status s = DB::Open(options, dbname, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "does not exist") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does not exist, and create_if_missing == true: OK
-  opts.create_if_missing = true;
-  s = DB::Open(opts, dbname, &db);
+  options.create_if_missing = true;
+  s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -5706,16 +5688,16 @@ TEST(DBTest, DBOpen_Options) {
   db = nullptr;
 
   // Does exist, and error_if_exists == true: error
-  opts.create_if_missing = false;
-  opts.error_if_exists = true;
-  s = DB::Open(opts, dbname, &db);
+  options.create_if_missing = false;
+  options.error_if_exists = true;
+  s = DB::Open(options, dbname, &db);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "exists") != nullptr);
   ASSERT_TRUE(db == nullptr);
 
   // Does exist, and error_if_exists == false: OK
-  opts.create_if_missing = true;
-  opts.error_if_exists = false;
-  s = DB::Open(opts, dbname, &db);
+  options.create_if_missing = true;
+  options.error_if_exists = false;
+  s = DB::Open(options, dbname, &db);
   ASSERT_OK(s);
   ASSERT_TRUE(db != nullptr);
 
@@ -5724,57 +5706,56 @@ TEST(DBTest, DBOpen_Options) {
 }
 
 TEST(DBTest, DBOpen_Change_NumLevels) {
-  Options opts;
-  opts.create_if_missing = true;
-  opts.max_background_flushes = 0;
-  DestroyAndReopen(opts);
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.max_background_flushes = 0;
+  DestroyAndReopen(options);
   ASSERT_TRUE(db_ != nullptr);
-  CreateAndReopenWithCF({"pikachu"}, opts);
+  CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "a", "123"));
   ASSERT_OK(Put(1, "b", "234"));
   db_->CompactRange(handles_[1], nullptr, nullptr);
   Close();
 
-  opts.create_if_missing = false;
-  opts.num_levels = 2;
-  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, opts);
+  options.create_if_missing = false;
+  options.num_levels = 2;
+  Status s = TryReopenWithColumnFamilies({"default", "pikachu"}, options);
   ASSERT_TRUE(strstr(s.ToString().c_str(), "Invalid argument") != nullptr);
   ASSERT_TRUE(db_ == nullptr);
 }
 
 TEST(DBTest, DestroyDBMetaDatabase) {
-  std::string dbname = test::TmpDir() + "/db_meta";
+  std::string dbname = test::TmpDir(env_) + "/db_meta";
   std::string metadbname = MetaDatabaseName(dbname, 0);
   std::string metametadbname = MetaDatabaseName(metadbname, 0);
 
   // Destroy previous versions if they exist. Using the long way.
-  ASSERT_OK(DestroyDB(metametadbname, Options()));
-  ASSERT_OK(DestroyDB(metadbname, Options()));
-  ASSERT_OK(DestroyDB(dbname, Options()));
+  Options options = CurrentOptions();
+  ASSERT_OK(DestroyDB(metametadbname, options));
+  ASSERT_OK(DestroyDB(metadbname, options));
+  ASSERT_OK(DestroyDB(dbname, options));
 
   // Setup databases
-  Options opts;
-  opts.create_if_missing = true;
   DB* db = nullptr;
-  ASSERT_OK(DB::Open(opts, dbname, &db));
+  ASSERT_OK(DB::Open(options, dbname, &db));
   delete db;
   db = nullptr;
-  ASSERT_OK(DB::Open(opts, metadbname, &db));
+  ASSERT_OK(DB::Open(options, metadbname, &db));
   delete db;
   db = nullptr;
-  ASSERT_OK(DB::Open(opts, metametadbname, &db));
+  ASSERT_OK(DB::Open(options, metametadbname, &db));
   delete db;
   db = nullptr;
 
   // Delete databases
-  ASSERT_OK(DestroyDB(dbname, Options()));
+  ASSERT_OK(DestroyDB(dbname, options));
 
   // Check if deletion worked.
-  opts.create_if_missing = false;
-  ASSERT_TRUE(!(DB::Open(opts, dbname, &db)).ok());
-  ASSERT_TRUE(!(DB::Open(opts, metadbname, &db)).ok());
-  ASSERT_TRUE(!(DB::Open(opts, metametadbname, &db)).ok());
+  options.create_if_missing = false;
+  ASSERT_TRUE(!(DB::Open(options, dbname, &db)).ok());
+  ASSERT_TRUE(!(DB::Open(options, metadbname, &db)).ok());
+  ASSERT_TRUE(!(DB::Open(options, metametadbname, &db)).ok());
 }
 
 // Check that number of files does not grow when writes are dropped
@@ -6076,7 +6057,7 @@ TEST(DBTest, BloomFilterRate) {
 }
 
 TEST(DBTest, BloomFilterCompatibility) {
-  Options options;
+  Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
@@ -6105,7 +6086,7 @@ TEST(DBTest, BloomFilterCompatibility) {
 }
 
 TEST(DBTest, BloomFilterReverseCompatibility) {
-  Options options;
+  Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
@@ -6173,7 +6154,7 @@ class WrappedBloom : public FilterPolicy {
 }  // namespace
 
 TEST(DBTest, BloomFilterWrapper) {
-  Options options;
+  Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
 
   BlockBasedTableOptions table_options;
@@ -6241,8 +6222,7 @@ TEST(DBTest, SnapshotFiles) {
 
     // copy these files to a new snapshot directory
     std::string snapdir = dbname_ + ".snapdir/";
-    std::string mkdir = "mkdir -p " + snapdir;
-    ASSERT_EQ(system(mkdir.c_str()), 0);
+    ASSERT_OK(env_->CreateDirIfMissing(snapdir));
 
     for (unsigned int i = 0; i < files.size(); i++) {
       // our clients require that GetLiveFiles returns
@@ -6270,7 +6250,6 @@ TEST(DBTest, SnapshotFiles) {
 
     // release file snapshot
     dbfull()->DisableFileDeletions();
-
     // overwrite one key, this key should not appear in the snapshot
     std::vector<std::string> extras;
     for (unsigned int i = 0; i < 1; i++) {
@@ -6285,6 +6264,7 @@ TEST(DBTest, SnapshotFiles) {
     std::vector<ColumnFamilyHandle*> cf_handles;
     DB* snapdb;
     DBOptions opts;
+    opts.env = env_;
     opts.create_if_missing = false;
     Status stat =
         DB::Open(opts, snapdir, column_families, &cf_handles, &snapdb);
@@ -6446,7 +6426,7 @@ std::vector<std::uint64_t> ListTableFiles(Env* env, const std::string& path) {
 }  // namespace
 
 TEST(DBTest, FlushOneColumnFamily) {
-  Options options;
+  Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu", "ilya", "muromec", "dobrynia", "nikitich",
                          "alyosha", "popovich"},
                         options);
@@ -6473,7 +6453,7 @@ TEST(DBTest, FlushOneColumnFamily) {
 // we try to create the smallest number of table files by merging
 // updates from multiple logs
 TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
-  Options options;
+  Options options = CurrentOptions();
   options.write_buffer_size = 5000000;
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
@@ -6528,7 +6508,7 @@ TEST(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
 // we try to create the smallest number of table files by merging
 // updates from multiple logs
 TEST(DBTest, RecoverCheckFileAmount) {
-  Options options;
+  Options options = CurrentOptions();
   options.write_buffer_size = 100000;
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
@@ -6790,10 +6770,14 @@ TEST(DBTest, TransactionLogIteratorCorruptedLog) {
     // Corrupt this log to create a gap
     rocksdb::VectorLogPtr wal_files;
     ASSERT_OK(dbfull()->GetSortedWalFiles(wal_files));
-    const auto logfilePath = dbname_ + "/" + wal_files.front()->PathName();
-    ASSERT_EQ(
-      0,
-      truncate(logfilePath.c_str(), wal_files.front()->SizeFileBytes() / 2));
+    const auto logfile_path = dbname_ + "/" + wal_files.front()->PathName();
+    if (mem_env_) {
+      mem_env_->Truncate(logfile_path, wal_files.front()->SizeFileBytes() / 2);
+    } else {
+      ASSERT_EQ(0, truncate(logfile_path.c_str(),
+                   wal_files.front()->SizeFileBytes() / 2));
+    }
+
     // Insert a new entry to a new log file
     Put("key1025", DummyString(10));
     // Try to read from the beginning. Should stop before the gap and read less
@@ -7939,6 +7923,7 @@ TEST(DBTest, FIFOCompactionTest) {
     if (iter == 1) {
       options.disable_auto_compactions = true;
     }
+    options = CurrentOptions(options);
     DestroyAndReopen(options);
 
     Random rnd(301);
@@ -8200,7 +8185,7 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   // block-based table
   BlockBasedTableOptions to;
   to.index_type = BlockBasedTableOptions::kHashSearch;
-  options = Options();
+  options = CurrentOptions();
   options.create_if_missing = true;
   options.table_factory.reset(NewBlockBasedTableFactory(to));
   ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
@@ -8209,7 +8194,7 @@ TEST(DBTest, TableOptionsSanitizeTest) {
 }
 
 TEST(DBTest, DBIteratorBoundTest) {
-  Options options;
+  Options options = CurrentOptions();
   options.env = env_;
   options.create_if_missing = true;
 

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
+#include <string>
 #include "port/stack_trace.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
@@ -37,7 +38,7 @@ namespace test {
 extern int RunAllTests();
 
 // Return the directory to use for temporary storage.
-extern std::string TmpDir();
+extern std::string TmpDir(Env* env = Env::Default());
 
 // Return a randomization seed for this run.  Typically returns the
 // same number on repeated invocations of this binary, but automated
