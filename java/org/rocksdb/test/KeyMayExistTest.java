@@ -4,10 +4,7 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 package org.rocksdb.test;
 
-import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.Options;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
+import org.rocksdb.*;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -34,13 +31,39 @@ public class KeyMayExistTest {
       assert(columnFamilyHandleList.size()==2);
 
       db.put("key".getBytes(), "value".getBytes());
+      // Test without column family
       StringBuffer retValue = new StringBuffer();
+      if (db.keyMayExist("key".getBytes(), retValue)) {
+        assert(retValue.toString().equals("value"));
+      } else {
+        assert(false);
+      }
+      // Test without column family but with readOptions
+      retValue = new StringBuffer();
+      if (db.keyMayExist(new ReadOptions(), "key".getBytes(),
+          retValue)) {
+        assert(retValue.toString().equals("value"));
+      } else {
+        assert(false);
+      }
+      // Test with column family
+      retValue = new StringBuffer();
       if (db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(),
           retValue)) {
         assert(retValue.toString().equals("value"));
       } else {
         assert(false);
       }
+      // Test with column family and readOptions
+      retValue = new StringBuffer();
+      if (db.keyMayExist(new ReadOptions(),
+          columnFamilyHandleList.get(0), "key".getBytes(),
+          retValue)) {
+        assert(retValue.toString().equals("value"));
+      } else {
+        assert(false);
+      }
+      // KeyMayExist in CF1 must return false
       assert(db.keyMayExist(columnFamilyHandleList.get(1), "key".getBytes(),
           retValue) == false);
       System.out.println("Passed KeyMayExistTest");

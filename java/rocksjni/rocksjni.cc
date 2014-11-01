@@ -390,8 +390,15 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
   jboolean isCopy;
   jbyte* key = env->GetByteArrayElements(jkey, &isCopy);
   rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
-  bool keyMaxExist = db->KeyMayExist(read_opt, cf_handle, key_slice,
-       &value, &value_found);
+  bool keyMayExist;
+  if (cf_handle != nullptr) {
+    keyMayExist = db->KeyMayExist(read_opt, cf_handle, key_slice,
+        &value, &value_found);
+  } else {
+    keyMayExist = db->KeyMayExist(read_opt, key_slice,
+        &value, &value_found);
+  }
+
   if (value_found && !value.empty()) {
     jclass clazz = env->GetObjectClass(jvalue);
     jmethodID mid = env->GetMethodID(clazz, "append",
@@ -400,7 +407,20 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
     env->CallObjectMethod(jvalue, mid, new_value_str);
   }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-  return static_cast<jboolean>(keyMaxExist);
+  return static_cast<jboolean>(keyMayExist);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    keyMayExist
+ * Signature: ([BILjava/lang/StringBuffer;)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_keyMayExist___3BILjava_lang_StringBuffer_2(
+    JNIEnv* env, jobject jdb, jbyteArray jkey, jint jkey_len,
+    jobject jvalue) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  return key_may_exist_helper(env, db, rocksdb::ReadOptions(),
+      nullptr, jkey, jkey_len, jvalue);
 }
 
 /*
@@ -422,6 +442,21 @@ jboolean Java_org_rocksdb_RocksDB_keyMayExist___3BIJLjava_lang_StringBuffer_2(
         rocksdb::Status::InvalidArgument("Invalid ColumnFamilyHandle."));
   }
   return true;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    keyMayExist
+ * Signature: (J[BILjava/lang/StringBuffer;)Z
+ */
+jboolean Java_org_rocksdb_RocksDB_keyMayExist__J_3BILjava_lang_StringBuffer_2(
+    JNIEnv* env, jobject jdb, jlong jread_options_handle,
+    jbyteArray jkey, jint jkey_len, jobject jvalue) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto& read_options = *reinterpret_cast<rocksdb::ReadOptions*>(
+      jread_options_handle);
+  return key_may_exist_helper(env, db, read_options,
+      nullptr, jkey, jkey_len, jvalue);
 }
 
 /*
