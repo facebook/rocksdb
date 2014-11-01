@@ -127,11 +127,11 @@ class InternalStats {
     int files_out_levelnp1;
 
     // Total incoming entries during compaction between levels N and N+1
-    int num_input_records;
+    uint64_t num_input_records;
 
     // Accumulated diff number of entries
     // (num input entries - num output entires) for compaction  levels N and N+1
-    int num_dropped_records;
+    uint64_t num_dropped_records;
 
     // Number of compactions done
     int count;

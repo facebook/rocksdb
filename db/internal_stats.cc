@@ -46,50 +46,42 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
   double elapsed = (stats.micros + 1) / 1000000.0;
 
   snprintf(buf, len,
-    "%4s %5d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
-    "%8.1f " /* Read(GB) */
-    "%7.1f " /* Rn(GB) */
-    "%8.1f " /* Rnp1(GB) */
-    "%9.1f " /* Write(GB) */
-    "%8.1f " /* Wnew(GB) */
-    "%6.1f " /* RW-Amp */
-    "%5.1f " /* W-Amp */
-    "%8.1f " /* Rd(MB/s) */
-    "%8.1f " /* Wr(MB/s) */
-    "%8d " /* Rn(cnt) */
-    "%9d " /* Rnp1(cnt) */
-    "%9d " /* Wnp1(cnt) */
-    "%9d " /* Wnew(cnt) */
-    "%10.0f " /* Comp(sec) */
-    "%9d " /* Comp(cnt) */
-    "%8.3f " /* Avg(sec) */
-    "%10.2f " /* Stall(sec) */
-    "%10" PRIu64 " " /* Stall(cnt) */
-    "%7.2f " /* Avg(ms) */
-    "%12d " /* input entries */
-    "%12d\n" /* number of records reduced */,
-    name.c_str(), num_files, being_compacted, total_file_size / kMB, score,
-    bytes_read / kGB,
-    stats.bytes_readn / kGB,
-    stats.bytes_readnp1 / kGB,
-    stats.bytes_written / kGB,
-    bytes_new / kGB,
-    rw_amp,
-    w_amp,
-    bytes_read / kMB / elapsed,
-    stats.bytes_written / kMB / elapsed,
-    stats.files_in_leveln,
-    stats.files_in_levelnp1,
-    stats.files_out_levelnp1,
-    stats.files_out_levelnp1 - stats.files_in_levelnp1,
-    stats.micros / 1000000.0,
-    stats.count,
-    stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
-    stall_us / 1000000.0,
-    stalls,
-    stalls == 0 ? 0 : stall_us / 1000.0 / stalls,
-    stats.num_input_records,
-    stats.num_dropped_records);
+           "%4s %5d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
+           "%8.1f "                    /* Read(GB) */
+           "%7.1f "                    /* Rn(GB) */
+           "%8.1f "                    /* Rnp1(GB) */
+           "%9.1f "                    /* Write(GB) */
+           "%8.1f "                    /* Wnew(GB) */
+           "%6.1f "                    /* RW-Amp */
+           "%5.1f "                    /* W-Amp */
+           "%8.1f "                    /* Rd(MB/s) */
+           "%8.1f "                    /* Wr(MB/s) */
+           "%8d "                      /* Rn(cnt) */
+           "%9d "                      /* Rnp1(cnt) */
+           "%9d "                      /* Wnp1(cnt) */
+           "%9d "                      /* Wnew(cnt) */
+           "%10.0f "                   /* Comp(sec) */
+           "%9d "                      /* Comp(cnt) */
+           "%8.3f "                    /* Avg(sec) */
+           "%10.2f "                   /* Stall(sec) */
+           "%10" PRIu64
+           " "      /* Stall(cnt) */
+           "%7.2f " /* Avg(ms) */
+           "%12" PRIu64
+           " " /* input entries */
+           "%12" PRIu64 "\n" /* number of records reduced */,
+           name.c_str(), num_files, being_compacted, total_file_size / kMB,
+           score, bytes_read / kGB, stats.bytes_readn / kGB,
+           stats.bytes_readnp1 / kGB, stats.bytes_written / kGB,
+           bytes_new / kGB, rw_amp, w_amp, bytes_read / kMB / elapsed,
+           stats.bytes_written / kMB / elapsed, stats.files_in_leveln,
+           stats.files_in_levelnp1, stats.files_out_levelnp1,
+           stats.files_out_levelnp1 - stats.files_in_levelnp1,
+           stats.micros / 1000000.0, stats.count,
+           stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
+           stall_us / 1000000.0, stalls,
+           stalls == 0 ? 0 : stall_us / 1000.0 / stalls,
+           stats.num_input_records, stats.num_dropped_records);
 }
 
 
