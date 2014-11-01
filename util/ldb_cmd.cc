@@ -510,7 +510,7 @@ void ManifestDumpCommand::Help(std::string* ret) {
   ret->append("  ");
   ret->append(ManifestDumpCommand::Name());
   ret->append(" [--" + ARG_VERBOSE + "]");
-  ret->append(" [--" + ARG_PATH + "=<path_to_manifest_file>]");
+  ret->append(" [--" + ARG_PATH + " = <path_to_manifest_file>]");
   ret->append("\n");
 }
 
@@ -737,9 +737,9 @@ void InternalDumpCommand::Help(std::string* ret) {
   ret->append(InternalDumpCommand::Name());
   ret->append(HelpRangeCmdArgs());
   ret->append(" [--" + ARG_INPUT_KEY_HEX + "]");
-  ret->append(" [--" + ARG_MAX_KEYS + "=<N>]");
+  ret->append(" [--" + ARG_MAX_KEYS + " = <N>]");
   ret->append(" [--" + ARG_COUNT_ONLY + "]");
-  ret->append(" [--" + ARG_COUNT_DELIM + "=<char>]");
+  ret->append(" [--" + ARG_COUNT_DELIM + " = <char>]");
   ret->append(" [--" + ARG_STATS + "]");
   ret->append("\n");
 }
@@ -922,14 +922,14 @@ void DBDumperCommand::Help(std::string* ret) {
   ret->append(DBDumperCommand::Name());
   ret->append(HelpRangeCmdArgs());
   ret->append(" [--" + ARG_TTL + "]");
-  ret->append(" [--" + ARG_MAX_KEYS + "=<N>]");
+  ret->append(" [--" + ARG_MAX_KEYS + " = <N>]");
   ret->append(" [--" + ARG_TIMESTAMP + "]");
   ret->append(" [--" + ARG_COUNT_ONLY + "]");
-  ret->append(" [--" + ARG_COUNT_DELIM + "=<char>]");
+  ret->append(" [--" + ARG_COUNT_DELIM + " = <char>]");
   ret->append(" [--" + ARG_STATS + "]");
-  ret->append(" [--" + ARG_TTL_BUCKET + "=<N>]");
-  ret->append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
-  ret->append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
+  ret->append(" [--" + ARG_TTL_BUCKET + " = <N>]");
+  ret->append(" [--" + ARG_TTL_START + " = <N>:- is inclusive]");
+  ret->append(" [--" + ARG_TTL_END + " = <N>:- is exclusive]");
   ret->append("\n");
 }
 
@@ -1096,8 +1096,8 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
     int new_levels, bool print_old_level) {
   std::vector<std::string> ret;
   ret.push_back("reduce_levels");
-  ret.push_back("--" + ARG_DB + "=" + db_path);
-  ret.push_back("--" + ARG_NEW_LEVELS + "=" + std::to_string(new_levels));
+  ret.push_back("--" + ARG_DB + " = " + db_path);
+  ret.push_back("--" + ARG_NEW_LEVELS + " = " + std::to_string(new_levels));
   if (print_old_level) {
     ret.push_back("--" + ARG_PRINT_OLD_LEVELS);
   }
@@ -1107,7 +1107,7 @@ std::vector<std::string> ReduceDBLevelsCommand::PrepareArgs(
 void ReduceDBLevelsCommand::Help(std::string* ret) {
   ret->append("  ");
   ret->append(ReduceDBLevelsCommand::Name());
-  ret->append(" --" + ARG_NEW_LEVELS + "=<New number of levels>");
+  ret->append(" --" + ARG_NEW_LEVELS + " = <New number of levels>");
   ret->append(" [--" + ARG_PRINT_OLD_LEVELS + "]");
   ret->append("\n");
 }
@@ -1255,10 +1255,10 @@ void ChangeCompactionStyleCommand::Help(std::string* ret) {
   ret->append("  ");
   ret->append(ChangeCompactionStyleCommand::Name());
   ret->append(
-      " --" + ARG_OLD_COMPACTION_STYLE + "=<Old compaction style: 0 " +
+      " --" + ARG_OLD_COMPACTION_STYLE + " = <Old compaction style: 0 " +
       "for level compaction, 1 for universal compaction>");
   ret->append(
-      " --" + ARG_NEW_COMPACTION_STYLE + "=<New compaction style: 0 " +
+      " --" + ARG_NEW_COMPACTION_STYLE + " = <New compaction style: 0 " +
       "for level compaction, 1 for universal compaction>");
   ret->append("\n");
 }
@@ -1408,7 +1408,7 @@ WALDumperCommand::WALDumperCommand(
 void WALDumperCommand::Help(std::string* ret) {
   ret->append("  ");
   ret->append(WALDumperCommand::Name());
-  ret->append(" --" + ARG_WAL_FILE + "=<write_ahead_log_file_path>");
+  ret->append(" --" + ARG_WAL_FILE + " = <write_ahead_log_file_path>");
   ret->append(" [--" + ARG_PRINT_HEADER + "] ");
   ret->append(" [--" + ARG_PRINT_VALUE + "] ");
   ret->append("\n");
@@ -1660,9 +1660,9 @@ void ScanCommand::Help(std::string* ret) {
   ret->append(HelpRangeCmdArgs());
   ret->append(" [--" + ARG_TTL + "]");
   ret->append(" [--" + ARG_TIMESTAMP + "]");
-  ret->append(" [--" + ARG_MAX_KEYS + "=<N>q] ");
-  ret->append(" [--" + ARG_TTL_START + "=<N>:- is inclusive]");
-  ret->append(" [--" + ARG_TTL_END + "=<N>:- is exclusive]");
+  ret->append(" [--" + ARG_MAX_KEYS + " = <N>q] ");
+  ret->append(" [--" + ARG_TTL_START + " = <N>:- is inclusive]");
+  ret->append(" [--" + ARG_TTL_END + " = <N>:- is exclusive]");
   ret->append("\n");
 }
 
