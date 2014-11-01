@@ -4,15 +4,12 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #pragma once
-#include <stdio.h>
-#include <stdlib.h>
 #include <string>
 #include <iostream>
 #include <sstream>
+#include <stdlib.h>
 #include <algorithm>
-#include <map>
-#include <vector>
-#include <utility>
+#include <stdio.h>
 
 #include "db/version_set.h"
 #include "rocksdb/env.h"
@@ -26,34 +23,39 @@
 #include "util/string_util.h"
 #include "utilities/ttl/db_ttl_impl.h"
 
+using std::string;
+using std::map;
+using std::vector;
+using std::ostringstream;
+
 namespace rocksdb {
 
 class LDBCommand {
- public:
+public:
 
   // Command-line arguments
-  static const std::string ARG_DB;
-  static const std::string ARG_HEX;
-  static const std::string ARG_KEY_HEX;
-  static const std::string ARG_VALUE_HEX;
-  static const std::string ARG_TTL;
-  static const std::string ARG_TTL_START;
-  static const std::string ARG_TTL_END;
-  static const std::string ARG_TIMESTAMP;
-  static const std::string ARG_FROM;
-  static const std::string ARG_TO;
-  static const std::string ARG_MAX_KEYS;
-  static const std::string ARG_BLOOM_BITS;
-  static const std::string ARG_FIX_PREFIX_LEN;
-  static const std::string ARG_COMPRESSION_TYPE;
-  static const std::string ARG_BLOCK_SIZE;
-  static const std::string ARG_AUTO_COMPACTION;
-  static const std::string ARG_WRITE_BUFFER_SIZE;
-  static const std::string ARG_FILE_SIZE;
-  static const std::string ARG_CREATE_IF_MISSING;
+  static const string ARG_DB;
+  static const string ARG_HEX;
+  static const string ARG_KEY_HEX;
+  static const string ARG_VALUE_HEX;
+  static const string ARG_TTL;
+  static const string ARG_TTL_START;
+  static const string ARG_TTL_END;
+  static const string ARG_TIMESTAMP;
+  static const string ARG_FROM;
+  static const string ARG_TO;
+  static const string ARG_MAX_KEYS;
+  static const string ARG_BLOOM_BITS;
+  static const string ARG_FIX_PREFIX_LEN;
+  static const string ARG_COMPRESSION_TYPE;
+  static const string ARG_BLOCK_SIZE;
+  static const string ARG_AUTO_COMPACTION;
+  static const string ARG_WRITE_BUFFER_SIZE;
+  static const string ARG_FILE_SIZE;
+  static const string ARG_CREATE_IF_MISSING;
 
   static LDBCommand* InitFromCmdLineArgs(
-    const std::vector<std::string>& args,
+    const vector<string>& args,
     const Options& options,
     const LDBOptions& ldb_options
   );
@@ -121,8 +123,8 @@ class LDBCommand {
     exec_state_.Reset();
   }
 
-  static std::string HexToString(const std::string& str) {
-    std::string parsed;
+  static string HexToString(const string& str) {
+    string parsed;
     if (str[0] != '0' || str[1] != 'x') {
       fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
               str.c_str());
@@ -138,8 +140,8 @@ class LDBCommand {
     return parsed;
   }
 
-  static std::string StringToHex(const std::string& str) {
-    std::string result = "0x";
+  static string StringToHex(const string& str) {
+    string result = "0x";
     char buf[10];
     for (size_t i = 0; i < str.length(); i++) {
       snprintf(buf, 10, "%02X", (unsigned char)str[i]);
@@ -153,7 +155,7 @@ class LDBCommand {
 protected:
 
   LDBCommandExecuteResult exec_state_;
-  std::string db_path_;
+  string db_path_;
   DB* db_;
   DBWithTTL* db_ttl_;
 
@@ -178,24 +180,21 @@ protected:
   /**
    * Map of options passed on the command-line.
    */
-  const std::map<std::string, std::string> option_map_;
+  const map<string, string> option_map_;
 
   /**
    * Flags passed on the command-line.
    */
-  const std::vector<std::string> flags_;
+  const vector<string> flags_;
 
   /** List of command-line options valid for this command */
-  const std::vector<std::string> valid_cmd_line_options_;
+  const vector<string> valid_cmd_line_options_;
 
-  bool ParseKeyValue(const std::string& line,
-                     std::string* key, std::string* value,
-                     bool is_key_hex, bool is_value_hex);
+  bool ParseKeyValue(const string& line, string* key, string* value,
+                      bool is_key_hex, bool is_value_hex);
 
-  LDBCommand(const std::map<std::string, std::string>& options,
-             const std::vector<std::string>& flags,
-             bool is_read_only,
-             const std::vector<std::string>& valid_cmd_line_options) :
+  LDBCommand(const map<string, string>& options, const vector<string>& flags,
+             bool is_read_only, const vector<string>& valid_cmd_line_options) :
       db_(nullptr),
       is_read_only_(is_read_only),
       is_key_hex_(false),
@@ -206,7 +205,7 @@ protected:
       flags_(flags),
       valid_cmd_line_options_(valid_cmd_line_options) {
 
-    auto itr = options.find(ARG_DB);
+    map<string, string>::const_iterator itr = options.find(ARG_DB);
     if (itr != options.end()) {
       db_path_ = itr->second;
     }
@@ -237,7 +236,7 @@ protected:
       st = DB::Open(opt, db_path_, &db_);
     }
     if (!st.ok()) {
-      std::string msg = st.ToString();
+      string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::FAILED(msg);
     }
 
@@ -251,33 +250,29 @@ protected:
     }
   }
 
-  static std::string PrintKeyValue(
-      const std::string& key, const std::string& value,
-      bool is_key_hex, bool is_value_hex) {
-    std::string result;
+  static string PrintKeyValue(const string& key, const string& value,
+        bool is_key_hex, bool is_value_hex) {
+    string result;
     result.append(is_key_hex ? StringToHex(key) : key);
     result.append(DELIM);
     result.append(is_value_hex ? StringToHex(value) : value);
     return result;
   }
 
-  static std::string PrintKeyValue(
-      const std::string& key, const std::string& value,
-      bool is_hex) {
+  static string PrintKeyValue(const string& key, const string& value,
+        bool is_hex) {
     return PrintKeyValue(key, value, is_hex, is_hex);
   }
 
   /**
-   * Return true if the specified flag is present in the specified
-   * flags vector
+   * Return true if the specified flag is present in the specified flags vector
    */
-  static bool IsFlagPresent(
-      const std::vector<std::string>& flags, const std::string& flag) {
+  static bool IsFlagPresent(const vector<string>& flags, const string& flag) {
     return (std::find(flags.begin(), flags.end(), flag) != flags.end());
   }
 
-  static std::string HelpRangeCmdArgs() {
-    std::ostringstream str_stream;
+  static string HelpRangeCmdArgs() {
+    ostringstream str_stream;
     str_stream << " ";
     str_stream << "[--" << ARG_FROM << "] ";
     str_stream << "[--" << ARG_TO << "] ";
@@ -289,35 +284,32 @@ protected:
    * used by this command.  It includes the common options and the ones
    * passed in.
    */
-  std::vector<std::string> BuildCmdLineOptions(
-      std::vector<std::string> options) {
-    std::vector<std::string> ret = {
-        ARG_DB,               ARG_BLOOM_BITS,
-        ARG_BLOCK_SIZE,       ARG_AUTO_COMPACTION,
-        ARG_COMPRESSION_TYPE, ARG_WRITE_BUFFER_SIZE,
-        ARG_FILE_SIZE,        ARG_FIX_PREFIX_LEN};
+  vector<string> BuildCmdLineOptions(vector<string> options) {
+    vector<string> ret = {ARG_DB,               ARG_BLOOM_BITS,
+                          ARG_BLOCK_SIZE,       ARG_AUTO_COMPACTION,
+                          ARG_COMPRESSION_TYPE, ARG_WRITE_BUFFER_SIZE,
+                          ARG_FILE_SIZE,        ARG_FIX_PREFIX_LEN};
     ret.insert(ret.end(), options.begin(), options.end());
     return ret;
   }
 
-  bool ParseIntOption(const std::map<std::string, std::string>& options,
-                      const std::string& option,
-                      int* value, LDBCommandExecuteResult* exec_state);
+  bool ParseIntOption(const map<string, string>& options, const string& option,
+                      int& value, LDBCommandExecuteResult& exec_state);
 
-  bool ParseStringOption(const std::map<std::string, std::string>& options,
-                         const std::string& option, std::string* value);
+  bool ParseStringOption(const map<string, string>& options,
+                         const string& option, string* value);
 
   Options options_;
   LDBOptions ldb_options_;
 
- private:
+private:
 
   /**
    * Interpret command line options and flags to determine if the key
    * should be input/output in hex.
    */
-  bool IsKeyHex(const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags) {
+  bool IsKeyHex(const map<string, string>& options,
+      const vector<string>& flags) {
     return (IsFlagPresent(flags, ARG_HEX) ||
         IsFlagPresent(flags, ARG_KEY_HEX) ||
         ParseBooleanOption(options, ARG_HEX, false) ||
@@ -328,8 +320,8 @@ protected:
    * Interpret command line options and flags to determine if the value
    * should be input/output in hex.
    */
-  bool IsValueHex(const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags) {
+  bool IsValueHex(const map<string, string>& options,
+      const vector<string>& flags) {
     return (IsFlagPresent(flags, ARG_HEX) ||
           IsFlagPresent(flags, ARG_VALUE_HEX) ||
           ParseBooleanOption(options, ARG_HEX, false) ||
@@ -342,13 +334,12 @@ protected:
    * Throws an exception if the value of the option is not
    * "true" or "false" (case insensitive).
    */
-  bool ParseBooleanOption(
-      const std::map<std::string, std::string>& options,
-      const std::string& option, bool default_val) {
+  bool ParseBooleanOption(const map<string, string>& options,
+      const string& option, bool default_val) {
 
-    auto itr = options.find(option);
+    map<string, string>::const_iterator itr = options.find(option);
     if (itr != options.end()) {
-      std::string option_val = itr->second;
+      string option_val = itr->second;
       return StringToBool(itr->second);
     }
     return default_val;
@@ -359,7 +350,7 @@ protected:
    * val must be either true or false (case insensitive).
    * Otherwise an exception is thrown.
    */
-  bool StringToBool(std::string val) {
+  bool StringToBool(string val) {
     std::transform(val.begin(), val.end(), val.begin(), ::tolower);
     if (val == "true") {
       return true;
@@ -371,165 +362,161 @@ protected:
   }
 
   static LDBCommand* SelectCommand(
-    const std::string& cmd,
-    const std::vector<std::string>& cmdParams,
-    const std::map<std::string, std::string>& option_map,
-    const std::vector<std::string>& flags
+    const string& cmd,
+    const vector<string>& cmdParams,
+    const map<string, string>& option_map,
+    const vector<string>& flags
   );
 
 };
 
 class CompactorCommand: public LDBCommand {
- public:
-  static std::string Name() { return "compact"; }
+public:
+  static string Name() { return "compact"; }
 
-  CompactorCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  CompactorCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
   virtual void DoCommand();
 
- private:
+private:
   bool null_from_;
-  std::string from_;
+  string from_;
   bool null_to_;
-  std::string to_;
+  string to_;
 };
 
 class DBDumperCommand: public LDBCommand {
- public:
-  static std::string Name() { return "dump"; }
+public:
+  static string Name() { return "dump"; }
 
-  DBDumperCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  DBDumperCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
   virtual void DoCommand();
 
- private:
+private:
   bool null_from_;
-  std::string from_;
+  string from_;
   bool null_to_;
-  std::string to_;
-  uint64_t max_keys_;
-  std::string delim_;
+  string to_;
+  int max_keys_;
+  string delim_;
   bool count_only_;
   bool count_delim_;
   bool print_stats_;
 
-  static const std::string ARG_COUNT_ONLY;
-  static const std::string ARG_COUNT_DELIM;
-  static const std::string ARG_STATS;
-  static const std::string ARG_TTL_BUCKET;
+  static const string ARG_COUNT_ONLY;
+  static const string ARG_COUNT_DELIM;
+  static const string ARG_STATS;
+  static const string ARG_TTL_BUCKET;
 };
 
 class InternalDumpCommand: public LDBCommand {
- public:
-  static std::string Name() { return "idump"; }
+public:
+  static string Name() { return "idump"; }
 
-  InternalDumpCommand(const std::vector<std::string>& params,
-                      const std::map<std::string, std::string>& options,
-                      const std::vector<std::string>& flags);
+  InternalDumpCommand(const vector<string>& params,
+                      const map<string, string>& options,
+                      const vector<string>& flags);
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
   virtual void DoCommand();
 
- private:
+private:
   bool has_from_;
-  std::string from_;
+  string from_;
   bool has_to_;
-  std::string to_;
+  string to_;
   int max_keys_;
-  std::string delim_;
+  string delim_;
   bool count_only_;
   bool count_delim_;
   bool print_stats_;
   bool is_input_key_hex_;
 
-  static const std::string ARG_DELIM;
-  static const std::string ARG_COUNT_ONLY;
-  static const std::string ARG_COUNT_DELIM;
-  static const std::string ARG_STATS;
-  static const std::string ARG_INPUT_KEY_HEX;
+  static const string ARG_DELIM;
+  static const string ARG_COUNT_ONLY;
+  static const string ARG_COUNT_DELIM;
+  static const string ARG_STATS;
+  static const string ARG_INPUT_KEY_HEX;
 };
 
 class DBLoaderCommand: public LDBCommand {
- public:
-  static std::string Name() { return "load"; }
+public:
+  static string Name() { return "load"; }
 
-  DBLoaderCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  DBLoaderCommand(string& db_name, vector<string>& args);
 
-  static void Help(std::string* ret);
+  DBLoaderCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
+
+  static void Help(string& ret);
   virtual void DoCommand();
 
   virtual Options PrepareOptionsForOpenDB();
 
- private:
+private:
   bool create_if_missing_;
   bool disable_wal_;
   bool bulk_load_;
   bool compact_;
 
-  static const std::string ARG_DISABLE_WAL;
-  static const std::string ARG_BULK_LOAD;
-  static const std::string ARG_COMPACT;
+  static const string ARG_DISABLE_WAL;
+  static const string ARG_BULK_LOAD;
+  static const string ARG_COMPACT;
 };
 
 class ManifestDumpCommand: public LDBCommand {
- public:
-  static std::string Name() { return "manifest_dump"; }
+public:
+  static string Name() { return "manifest_dump"; }
 
-  ManifestDumpCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  ManifestDumpCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
   virtual void DoCommand();
 
   virtual bool NoDBOpen() {
     return true;
   }
 
- private:
+private:
   bool verbose_;
-  std::string path_;
+  string path_;
 
-  static const std::string ARG_VERBOSE;
-  static const std::string ARG_PATH;
+  static const string ARG_VERBOSE;
+  static const string ARG_PATH;
 };
 
 class ListColumnFamiliesCommand : public LDBCommand {
  public:
-  static std::string Name() { return "list_column_families"; }
+  static string Name() { return "list_column_families"; }
 
-  ListColumnFamiliesCommand(
-      const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  ListColumnFamiliesCommand(const vector<string>& params,
+                            const map<string, string>& options,
+                            const vector<string>& flags);
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
   virtual void DoCommand();
 
   virtual bool NoDBOpen() { return true; }
 
  private:
-  std::string dbname_;
+  string dbname_;
 };
 
 class ReduceDBLevelsCommand : public LDBCommand {
- public:
-  static std::string Name() { return "reduce_levels"; }
+public:
+  static string Name() { return "reduce_levels"; }
 
-  ReduceDBLevelsCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  ReduceDBLevelsCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual Options PrepareOptionsForOpenDB();
 
@@ -539,179 +526,169 @@ class ReduceDBLevelsCommand : public LDBCommand {
     return true;
   }
 
-  static void Help(std::string* msg);
+  static void Help(string& msg);
 
-  static std::vector<std::string> PrepareArgs(
-      const std::string& db_path,
-      int new_levels,
+  static vector<string> PrepareArgs(const string& db_path, int new_levels,
       bool print_old_level = false);
 
- private:
+private:
   int old_levels_;
   int new_levels_;
   bool print_old_levels_;
 
-  static const std::string ARG_NEW_LEVELS;
-  static const std::string ARG_PRINT_OLD_LEVELS;
+  static const string ARG_NEW_LEVELS;
+  static const string ARG_PRINT_OLD_LEVELS;
 
   Status GetOldNumOfLevels(Options& opt, int* levels);
 };
 
 class ChangeCompactionStyleCommand : public LDBCommand {
- public:
-  static std::string Name() { return "change_compaction_style"; }
+public:
+  static string Name() { return "change_compaction_style"; }
 
-  ChangeCompactionStyleCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  ChangeCompactionStyleCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual Options PrepareOptionsForOpenDB();
 
   virtual void DoCommand();
 
-  static void Help(std::string* msg);
+  static void Help(string& msg);
 
- private:
+private:
   int old_compaction_style_;
   int new_compaction_style_;
 
-  static const std::string ARG_OLD_COMPACTION_STYLE;
-  static const std::string ARG_NEW_COMPACTION_STYLE;
+  static const string ARG_OLD_COMPACTION_STYLE;
+  static const string ARG_NEW_COMPACTION_STYLE;
 };
 
 class WALDumperCommand : public LDBCommand {
- public:
-  static std::string Name() { return "dump_wal"; }
+public:
+  static string Name() { return "dump_wal"; }
 
-  WALDumperCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  WALDumperCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual bool  NoDBOpen() {
     return true;
   }
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
   virtual void DoCommand();
 
- private:
+private:
   bool print_header_;
-  std::string wal_file_;
+  string wal_file_;
   bool print_values_;
 
-  static const std::string ARG_WAL_FILE;
-  static const std::string ARG_PRINT_HEADER;
-  static const std::string ARG_PRINT_VALUE;
+  static const string ARG_WAL_FILE;
+  static const string ARG_PRINT_HEADER;
+  static const string ARG_PRINT_VALUE;
 };
 
 
 class GetCommand : public LDBCommand {
- public:
-  static std::string Name() { return "get"; }
+public:
+  static string Name() { return "get"; }
 
-  GetCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  GetCommand(const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags);
 
   virtual void DoCommand();
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
- private:
-  std::string key_;
+private:
+  string key_;
 };
 
 class ApproxSizeCommand : public LDBCommand {
- public:
-  static std::string Name() { return "approxsize"; }
+public:
+  static string Name() { return "approxsize"; }
 
-  ApproxSizeCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  ApproxSizeCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual void DoCommand();
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
- private:
-  std::string start_key_;
-  std::string end_key_;
+private:
+  string start_key_;
+  string end_key_;
 };
 
 class BatchPutCommand : public LDBCommand {
- public:
-  static std::string Name() { return "batchput"; }
+public:
+  static string Name() { return "batchput"; }
 
-  BatchPutCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  BatchPutCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual void DoCommand();
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
   virtual Options PrepareOptionsForOpenDB();
 
- private:
+private:
   /**
    * The key-values to be inserted.
    */
-  std::vector<std::pair<std::string, std::string>> key_values_;
+  vector<std::pair<string, string>> key_values_;
 };
 
 class ScanCommand : public LDBCommand {
- public:
-  static std::string Name() { return "scan"; }
+public:
+  static string Name() { return "scan"; }
 
-  ScanCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  ScanCommand(const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags);
 
   virtual void DoCommand();
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
- private:
-  std::string start_key_;
-  std::string end_key_;
+private:
+  string start_key_;
+  string end_key_;
   bool start_key_specified_;
   bool end_key_specified_;
   int max_keys_scanned_;
 };
 
 class DeleteCommand : public LDBCommand {
- public:
-  static std::string Name() { return "delete"; }
+public:
+  static string Name() { return "delete"; }
 
-  DeleteCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  DeleteCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual void DoCommand();
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
- private:
-  std::string key_;
+private:
+  string key_;
 };
 
 class PutCommand : public LDBCommand {
- public:
-  static std::string Name() { return "put"; }
+public:
+  static string Name() { return "put"; }
 
-  PutCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  PutCommand(const vector<string>& params, const map<string, string>& options,
+      const vector<string>& flags);
 
   virtual void DoCommand();
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
   virtual Options PrepareOptionsForOpenDB();
 
- private:
-  std::string key_;
-  std::string value_;
+private:
+  string key_;
+  string value_;
 };
 
 /**
@@ -719,18 +696,17 @@ class PutCommand : public LDBCommand {
  * get/put/delete.
  */
 class DBQuerierCommand: public LDBCommand {
- public:
-  static std::string Name() { return "query"; }
+public:
+  static string Name() { return "query"; }
 
-  DBQuerierCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  DBQuerierCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 
   virtual void DoCommand();
 
- private:
+private:
   static const char* HELP_CMD;
   static const char* GET_CMD;
   static const char* PUT_CMD;
@@ -738,12 +714,11 @@ class DBQuerierCommand: public LDBCommand {
 };
 
 class CheckConsistencyCommand : public LDBCommand {
- public:
-  static std::string Name() { return "checkconsistency"; }
+public:
+  static string Name() { return "checkconsistency"; }
 
-  CheckConsistencyCommand(const std::vector<std::string>& params,
-      const std::map<std::string, std::string>& options,
-      const std::vector<std::string>& flags);
+  CheckConsistencyCommand(const vector<string>& params,
+      const map<string, string>& options, const vector<string>& flags);
 
   virtual void DoCommand();
 
@@ -751,7 +726,7 @@ class CheckConsistencyCommand : public LDBCommand {
     return true;
   }
 
-  static void Help(std::string* ret);
+  static void Help(string& ret);
 };
 
 } // namespace rocksdb

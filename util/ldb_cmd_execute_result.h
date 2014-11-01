@@ -15,7 +15,7 @@ public:
 
   LDBCommandExecuteResult() : state_(EXEC_NOT_STARTED), message_("") {}
 
-  LDBCommandExecuteResult(State state, const std::string& msg) :
+  LDBCommandExecuteResult(State state, std::string& msg) :
     state_(state), message_(msg) {}
 
   std::string ToString() {
@@ -52,11 +52,11 @@ public:
     return state_ == EXEC_FAILED;
   }
 
-  static LDBCommandExecuteResult SUCCEED(const std::string& msg) {
+  static LDBCommandExecuteResult SUCCEED(std::string msg) {
     return LDBCommandExecuteResult(EXEC_SUCCEED, msg);
   }
 
-  static LDBCommandExecuteResult FAILED(const std::string& msg) {
+  static LDBCommandExecuteResult FAILED(std::string msg) {
     return LDBCommandExecuteResult(EXEC_FAILED, msg);
   }
 

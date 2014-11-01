@@ -24,7 +24,7 @@ class LDBCommandRunner {
 public:
 
   static void PrintHelp(const char* exec_name) {
-    std::string ret;
+    string ret;
 
     ret.append("ldb - LevelDB Tool");
     ret.append("\n\n");
@@ -59,26 +59,26 @@ public:
 
     ret.append("\n\n");
     ret.append("Data Access Commands:\n");
-    PutCommand::Help(&ret);
-    GetCommand::Help(&ret);
-    BatchPutCommand::Help(&ret);
-    ScanCommand::Help(&ret);
-    DeleteCommand::Help(&ret);
-    DBQuerierCommand::Help(&ret);
-    ApproxSizeCommand::Help(&ret);
-    CheckConsistencyCommand::Help(&ret);
+    PutCommand::Help(ret);
+    GetCommand::Help(ret);
+    BatchPutCommand::Help(ret);
+    ScanCommand::Help(ret);
+    DeleteCommand::Help(ret);
+    DBQuerierCommand::Help(ret);
+    ApproxSizeCommand::Help(ret);
+    CheckConsistencyCommand::Help(ret);
 
     ret.append("\n\n");
     ret.append("Admin Commands:\n");
-    WALDumperCommand::Help(&ret);
-    CompactorCommand::Help(&ret);
-    ReduceDBLevelsCommand::Help(&ret);
-    ChangeCompactionStyleCommand::Help(&ret);
-    DBDumperCommand::Help(&ret);
-    DBLoaderCommand::Help(&ret);
-    ManifestDumpCommand::Help(&ret);
-    ListColumnFamiliesCommand::Help(&ret);
-    InternalDumpCommand::Help(&ret);
+    WALDumperCommand::Help(ret);
+    CompactorCommand::Help(ret);
+    ReduceDBLevelsCommand::Help(ret);
+    ChangeCompactionStyleCommand::Help(ret);
+    DBDumperCommand::Help(ret);
+    DBLoaderCommand::Help(ret);
+    ManifestDumpCommand::Help(ret);
+    ListColumnFamiliesCommand::Help(ret);
+    InternalDumpCommand::Help(ret);
 
     fprintf(stderr, "%s\n", ret.c_str());
   }
