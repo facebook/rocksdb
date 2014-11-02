@@ -5,13 +5,19 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ChecksumType;
 import org.rocksdb.IndexType;
 
 public class BlockBasedTableConfigTest {
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
 
-  public static void main(String[] args) {
+  @Test
+  public void shouldTestBlockBasedTableConfig() {
     BlockBasedTableConfig blockBasedTableConfig =
         new BlockBasedTableConfig();
     blockBasedTableConfig.setNoBlockCache(true);
@@ -42,6 +48,6 @@ public class BlockBasedTableConfigTest {
         == 4);
     blockBasedTableConfig.setCacheNumShardBits(5);
     assert(blockBasedTableConfig.cacheNumShardBits() == 5);
-    System.out.println("BlockBasedTableConfig test passed");
+    System.out.println("Passed BlockBasedTableConfigTest.");
   }
 }

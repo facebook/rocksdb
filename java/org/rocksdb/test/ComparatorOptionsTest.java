@@ -5,27 +5,30 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.ComparatorOptions;
-import org.rocksdb.RocksDB;
 
-import java.util.Random;
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class ComparatorOptionsTest {
 
-  static {
-    RocksDB.loadLibrary();
-  }
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
 
-  public static void main(String[] args) {
+  @Test
+  public void shouldTestComparatorOptions() {
     final ComparatorOptions copt = new ComparatorOptions();
-    Random rand = new Random();
+
+    assertThat(copt).isNotNull();
 
     { // UseAdaptiveMutex test
       copt.setUseAdaptiveMutex(true);
-      assert(copt.useAdaptiveMutex() == true);
+      assertThat(copt.useAdaptiveMutex()).isTrue();
 
       copt.setUseAdaptiveMutex(false);
-      assert(copt.useAdaptiveMutex() == false);
+      assertThat(copt.useAdaptiveMutex()).isFalse();
     }
 
     copt.dispose();

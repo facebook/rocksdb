@@ -5,13 +5,18 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.*;
 
 public class FilterTest {
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void shouldTestFilter() {
     Options options = new Options();
     // test table config
     BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
@@ -37,6 +42,6 @@ public class FilterTest {
     blockConfig = null;
     System.gc();
     System.runFinalization();
-    System.out.println("Filter test passed");
+    System.out.println("Passed FilterTest.");
   }
 }

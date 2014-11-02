@@ -5,12 +5,19 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.EncodingType;
 import org.rocksdb.PlainTableConfig;
 
 public class PlainTableConfigTest {
 
-  public static void main(String[] args) {
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void shouldTestPlainTableConfig() {
     PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setKeySize(5);
     assert(plainTableConfig.keySize() == 5);
@@ -29,6 +36,6 @@ public class PlainTableConfigTest {
     assert(plainTableConfig.fullScanMode());
     plainTableConfig.setStoreIndexInFile(true);
     assert(plainTableConfig.storeIndexInFile());
-    System.out.println("PlainTableConfig test passed");
+    System.out.println("Passed PlainTableConfigTest.");
   }
 }

@@ -5,28 +5,41 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
 import java.util.List;
 
 public class BackupableDBTest {
-  static final String db_path = "/tmp/rocksdbjni_backupable_db_test";
-  static final String backup_path = "/tmp/rocksdbjni_backupable_db_backup_test";
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Rule
+  public TemporaryFolder backupFolder = new TemporaryFolder();
+
+  @Test
+  public void shouldTestBackupableDb() {
 
     Options opt = new Options();
     opt.setCreateIfMissing(true);
 
-    BackupableDBOptions bopt = new BackupableDBOptions(backup_path, false,
+    BackupableDBOptions bopt = new BackupableDBOptions(
+        backupFolder.getRoot().getAbsolutePath(), false,
         true, false, true, 0, 0);
     BackupableDB bdb = null;
     List<BackupInfo> backupInfos;
     List<BackupInfo> restoreInfos;
     try {
-      bdb = BackupableDB.open(opt, bopt, db_path);
+      bdb = BackupableDB.open(opt, bopt,
+          dbFolder.getRoot().getAbsolutePath());
 
       bdb.put("abc".getBytes(), "def".getBytes());
       bdb.put("ghi".getBytes(), "jkl".getBytes());
@@ -74,7 +87,9 @@ public class BackupableDBTest {
       assert(restoreInfos.get(0).numberFiles() ==
           backupInfos.get(0).numberFiles());
 
-      rdb.restoreDBFromLatestBackup(db_path, db_path,
+      rdb.restoreDBFromLatestBackup(
+          dbFolder.getRoot().getAbsolutePath(),
+          dbFolder.getRoot().getAbsolutePath(),
           ropt);
       // do nothing because there is only one backup
       rdb.purgeOldBackups(1);
@@ -84,7 +99,8 @@ public class BackupableDBTest {
       ropt.dispose();
 
       // verify that backed up data contains deleted record
-      bdb = BackupableDB.open(opt, bopt, db_path);
+      bdb = BackupableDB.open(opt, bopt,
+          dbFolder.getRoot().getAbsolutePath());
       value = bdb.get("abc".getBytes());
       assert(new String(value).equals("def"));
 
@@ -110,7 +126,6 @@ public class BackupableDBTest {
       assert(backupInfos.size() == 2);
       assert(backupInfos.get(0).backupId() == 4);
       assert(backupInfos.get(1).backupId() == 5);
-      System.out.println("Backup and restore test passed");
     } catch (RocksDBException e) {
       System.err.format("[ERROR]: %s%n", e);
       e.printStackTrace();
@@ -121,5 +136,6 @@ public class BackupableDBTest {
         bdb.close();
       }
     }
+    System.out.println("Passed BackupableDBTest.");
   }
 }

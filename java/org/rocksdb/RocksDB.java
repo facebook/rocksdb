@@ -363,8 +363,10 @@ public class RocksDB extends RocksObject {
   }
 
   @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
+    synchronized (this) {
+      assert (isInitialized());
+      disposeInternal(nativeHandle_);
+    }
   }
 
   /**
@@ -1150,6 +1152,8 @@ public class RocksDB extends RocksObject {
       throws RocksDBException, IllegalArgumentException {
     // throws RocksDBException if something goes wrong
     dropColumnFamily(nativeHandle_, columnFamilyHandle.nativeHandle_);
+    // After the drop the native handle is not valid anymore
+    columnFamilyHandle.nativeHandle_ = 0;
   }
 
   /**

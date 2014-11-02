@@ -6,20 +6,32 @@
 package org.rocksdb.test;
 
 import java.util.Collections;
+
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
-public class StatisticsCollectorTest {
-  static final String db_path = "/tmp/rocksdbjni_statistics_collector_test";
-  static {
-    RocksDB.loadLibrary();
-  }
+import static org.assertj.core.api.Assertions.assertThat;
 
-  public static void main(String[] args)
+public class StatisticsCollectorTest {
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void shouldTestStatisticsCollector()
       throws InterruptedException, RocksDBException {
     Options opt = new Options().createStatistics().setCreateIfMissing(true);
     Statistics stats = opt.statisticsPtr();
 
-    RocksDB db = RocksDB.open(opt, db_path);
+    RocksDB db = RocksDB.open(opt,
+        dbFolder.getRoot().getAbsolutePath());
 
     StatsCallbackMock callback = new StatsCallbackMock();
     StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);
@@ -30,8 +42,8 @@ public class StatisticsCollectorTest {
 
     Thread.sleep(1000);
 
-    assert(callback.tickerCallbackCount > 0);
-    assert(callback.histCallbackCount > 0);
+    assertThat(callback.tickerCallbackCount).isGreaterThan(0);
+    assertThat(callback.histCallbackCount).isGreaterThan(0);
 
     statsCollector.shutDown(1000);
 

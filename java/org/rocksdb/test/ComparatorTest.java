@@ -5,19 +5,26 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
 import java.io.IOException;
 import java.nio.file.FileSystems;
 
 public class ComparatorTest {
-  private static final String db_path = "/tmp/comparator_db";
 
-  static {
-    RocksDB.loadLibrary();
-  }
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
 
-  public static void main(String[] args) throws IOException {
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void shouldTestComparator() throws IOException {
 
     final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
       @Override
@@ -38,7 +45,8 @@ public class ComparatorTest {
     };
 
     // test the round-tripability of keys written and read with the Comparator
-    comparatorTest.testRoundtrip(FileSystems.getDefault().getPath(db_path));
+    comparatorTest.testRoundtrip(FileSystems.getDefault().getPath(
+        dbFolder.getRoot().getAbsolutePath()));
 
     System.out.println("Passed ComparatorTest");
   }

@@ -18,11 +18,11 @@ public class PlatformRandomHelper {
      * @return boolean value indicating if operating system is 64 Bit.
      */
     public static boolean isOs64Bit(){
-      boolean is64Bit = false;
+      boolean is64Bit;
       if (System.getProperty("os.name").contains("Windows")) {
         is64Bit = (System.getenv("ProgramFiles(x86)") != null);
       } else {
-        is64Bit = (System.getProperty("os.arch").indexOf("64") != -1);
+        is64Bit = (System.getProperty("os.arch").contains("64"));
       }
       return is64Bit;
     }

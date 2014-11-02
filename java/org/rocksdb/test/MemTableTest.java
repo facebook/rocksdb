@@ -5,13 +5,18 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.*;
 
 public class MemTableTest {
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void shouldTestMemTable() throws RocksDBException {
     Options options = new Options();
     // Test HashSkipListMemTableConfig
     HashSkipListMemTableConfig memTableConfig =
@@ -25,11 +30,7 @@ public class MemTableTest {
     assert(memTableConfig.branchingFactor() == 4);
     memTableConfig.setBranchingFactor(6);
     assert(memTableConfig.branchingFactor() == 6);
-    try {
-      options.setMemTableConfig(memTableConfig);
-    } catch (RocksDBException e) {
-      assert(false);
-    }
+    options.setMemTableConfig(memTableConfig);
     memTableConfig = null;
     options.dispose();
     System.gc();
@@ -41,11 +42,7 @@ public class MemTableTest {
     assert(skipMemTableConfig.lookahead() == 0);
     skipMemTableConfig.setLookahead(20);
     assert(skipMemTableConfig.lookahead() == 20);
-    try {
-      options.setMemTableConfig(skipMemTableConfig);
-    } catch (RocksDBException e) {
-      assert(false);
-    }
+    options.setMemTableConfig(skipMemTableConfig);
     skipMemTableConfig = null;
     options.dispose();
     System.gc();
@@ -67,21 +64,17 @@ public class MemTableTest {
     assert(hashLinkedListMemTableConfig.
        bucketEntriesLoggingThreshold() == 200);
     assert(hashLinkedListMemTableConfig.
-        ifLogBucketDistWhenFlush() == true);
+        ifLogBucketDistWhenFlush());
     hashLinkedListMemTableConfig.
         setIfLogBucketDistWhenFlush(false);
-    assert(hashLinkedListMemTableConfig.
-        ifLogBucketDistWhenFlush() == false);
+    assert(!hashLinkedListMemTableConfig.
+        ifLogBucketDistWhenFlush());
     assert(hashLinkedListMemTableConfig.
         thresholdUseSkiplist() == 256);
     hashLinkedListMemTableConfig.setThresholdUseSkiplist(29);
     assert(hashLinkedListMemTableConfig.
         thresholdUseSkiplist() == 29);
-    try {
-      options.setMemTableConfig(hashLinkedListMemTableConfig);
-    } catch (RocksDBException e) {
-      assert(false);
-    }
+    options.setMemTableConfig(hashLinkedListMemTableConfig);
     hashLinkedListMemTableConfig = null;
     options.dispose();
     System.gc();
@@ -93,15 +86,11 @@ public class MemTableTest {
     assert(vectorMemTableConfig.reservedSize() == 0);
     vectorMemTableConfig.setReservedSize(123);
     assert(vectorMemTableConfig.reservedSize() == 123);
-    try {
-      options.setMemTableConfig(vectorMemTableConfig);
-    } catch (RocksDBException e) {
-      assert(false);
-    }
+    options.setMemTableConfig(vectorMemTableConfig);
     vectorMemTableConfig = null;
     options.dispose();
     System.gc();
     System.runFinalization();
-    System.out.println("Mem-table test passed");
+    System.out.println("Passed MemTableTest.");
   }
 }

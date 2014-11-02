@@ -4,45 +4,46 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 package org.rocksdb.test;
 
-import org.rocksdb.ColumnFamilyHandle;
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.Options;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class RocksIteratorTest {
-  static final String DB_PATH = "/tmp/rocksdbjni_iterator_test";
-  static {
-    RocksDB.loadLibrary();
-  }
 
-  public static void main(String[] args){
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void shouldTestRocksIteratorGc()
+      throws RocksDBException {
     RocksDB db;
     Options options = new Options();
     options.setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
-    try {
-      db = RocksDB.open(options, DB_PATH);
-      db.put("key".getBytes(), "value".getBytes());
-      RocksIterator iter = db.newIterator();
-      RocksIterator iter2 = db.newIterator();
-      RocksIterator iter3 = db.newIterator();
-      iter = null;
-      db.close();
-      db = null;
-      iter2 = null;
-      System.gc();
-      System.runFinalization();
-      System.out.println("Passed RocksIterator Test");
-      iter3.dispose();
-      System.gc();
-      System.runFinalization();
-    }catch (RocksDBException e){
-      e.printStackTrace();
-      assert(false);
-    }
+    db = RocksDB.open(options,
+        dbFolder.getRoot().getAbsolutePath());
+    db.put("key".getBytes(), "value".getBytes());
+    RocksIterator iter = db.newIterator();
+    RocksIterator iter2 = db.newIterator();
+    RocksIterator iter3 = db.newIterator();
+    iter = null;
+    db.close();
+    db = null;
+    iter2 = null;
+    System.gc();
+    System.runFinalization();
+    iter3.dispose();
+    System.gc();
+    System.runFinalization();
+    System.out.println("Passed RocksIteratorTest.");
   }
 }

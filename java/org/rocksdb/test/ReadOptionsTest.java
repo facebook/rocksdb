@@ -6,14 +6,20 @@
 package org.rocksdb.test;
 
 import java.util.Random;
+
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.RocksDB;
 import org.rocksdb.ReadOptions;
 
 public class ReadOptionsTest {
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void shouldTestReadOptions() {
     ReadOptions opt = new ReadOptions();
     Random rand = new Random();
     { // VerifyChecksums test
@@ -33,8 +39,7 @@ public class ReadOptionsTest {
       opt.setTailing(boolValue);
       assert(opt.tailing() == boolValue);
     }
-
     opt.dispose();
-    System.out.println("Passed ReadOptionsTest");
+    System.out.println("Passed ReadOptionsTest.");
   }
 }

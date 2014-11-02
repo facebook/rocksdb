@@ -4,31 +4,41 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
 import java.util.ArrayList;
 import java.util.List;
 
 public class ReadOnlyTest {
-  static final String DB_PATH = "/tmp/rocksdbjni_readonly_test";
-  static {
-    RocksDB.loadLibrary();
-  }
 
-  public static void main(String[] args){
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void shouldTestReadOnlyOpen() {
     RocksDB db = null, db2 = null, db3 = null;
     List<ColumnFamilyHandle> columnFamilyHandleList =
-        new ArrayList<ColumnFamilyHandle>();
+        new ArrayList<>();
     List<ColumnFamilyHandle> db2ColumnFamilyHandleList =
-        new ArrayList<ColumnFamilyHandle>();
+        new ArrayList<>();
     List<ColumnFamilyHandle> db3ColumnFamilyHandleList =
-        new ArrayList<ColumnFamilyHandle>();
+        new ArrayList<>();
     Options options = new Options();
     options.setCreateIfMissing(true);
     try {
-      db = RocksDB.open(options, DB_PATH);
+      db = RocksDB.open(options,
+          dbFolder.getRoot().getAbsolutePath());
       db.put("key".getBytes(), "value".getBytes());
-      db2 = RocksDB.openReadOnly(DB_PATH);
+      db2 = RocksDB.openReadOnly(
+          dbFolder.getRoot().getAbsolutePath());
       assert("value".equals(new String(db2.get("key".getBytes()))));
       db.close();
       db2.close();
@@ -38,7 +48,7 @@ public class ReadOnlyTest {
           new ArrayList<ColumnFamilyDescriptor>();
       cfNames.add(new ColumnFamilyDescriptor("default"));
 
-      db = RocksDB.open(DB_PATH, cfNames, columnFamilyHandleList);
+      db = RocksDB.open(dbFolder.getRoot().getAbsolutePath(), cfNames, columnFamilyHandleList);
       columnFamilyHandleList.add(db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf", new ColumnFamilyOptions())));
       columnFamilyHandleList.add(db.createColumnFamily(
@@ -46,15 +56,16 @@ public class ReadOnlyTest {
       db.put(columnFamilyHandleList.get(2), "key2".getBytes(),
           "value2".getBytes());
 
-      db2 = RocksDB.openReadOnly(DB_PATH, cfNames, db2ColumnFamilyHandleList);
+      db2 = RocksDB.openReadOnly(
+          dbFolder.getRoot().getAbsolutePath(), cfNames, db2ColumnFamilyHandleList);
       assert(db2.get("key2".getBytes())==null);
       assert(db2.get(columnFamilyHandleList.get(0), "key2".getBytes())==null);
 
       List<ColumnFamilyDescriptor> cfNewName =
-          new ArrayList<ColumnFamilyDescriptor>();
+          new ArrayList<>();
       cfNewName.add(new ColumnFamilyDescriptor("default"));
       cfNewName.add(new ColumnFamilyDescriptor("new_cf2"));
-      db3 = RocksDB.openReadOnly(DB_PATH, cfNewName, db3ColumnFamilyHandleList);
+      db3 = RocksDB.openReadOnly(dbFolder.getRoot().getAbsolutePath(), cfNewName, db3ColumnFamilyHandleList);
       assert(new String(db3.get(db3ColumnFamilyHandleList.get(1),
           "key2".getBytes())).equals("value2"));
     }catch (RocksDBException e){
@@ -125,6 +136,6 @@ public class ReadOnlyTest {
       columnFamilyHandle.dispose();
     }
     db3.close();
-    System.out.println("Passed ReadOnlyTest");
+    System.out.println("Passed ReadOnlyTest.");
   }
 }

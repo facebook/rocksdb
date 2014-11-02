@@ -9,16 +9,25 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
+
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
 public class ColumnFamilyTest {
-  static final String db_path = "/tmp/rocksdbjni_columnfamily_test";
-  static {
-    RocksDB.loadLibrary();
-  }
 
-  public static void main(String[] args) {
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
 
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void shouldTestColumnFamilies() {
+    String db_path = dbFolder.getRoot().getAbsolutePath();
     RocksDB db = null;
     Options options = new Options();
     options.setCreateIfMissing(true);
@@ -274,7 +283,6 @@ public class ColumnFamilyTest {
       assert(false);
     }
 
-    System.out.println("Passed ColumnFamilyTest");
     // free cf handles before database close
     for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
       columnFamilyHandle.dispose();
@@ -283,5 +291,6 @@ public class ColumnFamilyTest {
     db.close();
     // be sure to dispose c++ pointers
     options.dispose();
+    System.out.println("Passed ColumnFamilyTest.");
   }
 }
