@@ -155,7 +155,6 @@ public class ReadOptions extends RocksObject {
 
 
   @Override protected void disposeInternal() {
-    assert(isInitialized());
     disposeInternal(nativeHandle_);
   }
   private native void disposeInternal(long handle);

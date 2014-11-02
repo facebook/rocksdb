@@ -5,6 +5,7 @@
 
 package org.rocksdb.test;
 
+import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.EncodingType;
@@ -15,6 +16,11 @@ public class PlainTableConfigTest {
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
+
+  @AfterClass
+  public static void printMessage(){
+    System.out.println("Passed PlainTableConfigTest.");
+  }
 
   @Test
   public void shouldTestPlainTableConfig() {
@@ -36,6 +42,5 @@ public class PlainTableConfigTest {
     assert(plainTableConfig.fullScanMode());
     plainTableConfig.setStoreIndexInFile(true);
     assert(plainTableConfig.storeIndexInFile());
-    System.out.println("Passed PlainTableConfigTest.");
   }
 }

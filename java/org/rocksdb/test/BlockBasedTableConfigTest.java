@@ -5,49 +5,85 @@
 
 package org.rocksdb.test;
 
+import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Test;
-import org.rocksdb.BlockBasedTableConfig;
-import org.rocksdb.ChecksumType;
-import org.rocksdb.IndexType;
+import org.rocksdb.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class BlockBasedTableConfigTest {
+
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
+
+  @AfterClass
+  public static void printMessage(){
+    System.out.println("Passed BlockBasedTableConfigTst.");
+  }
 
   @Test
   public void shouldTestBlockBasedTableConfig() {
     BlockBasedTableConfig blockBasedTableConfig =
         new BlockBasedTableConfig();
     blockBasedTableConfig.setNoBlockCache(true);
-    assert(blockBasedTableConfig.noBlockCache());
-    blockBasedTableConfig.setBlockCacheSize(8*1024);
-    assert(blockBasedTableConfig.blockCacheSize() == (8*1024));
+    assertThat(blockBasedTableConfig.noBlockCache()).isTrue();
+    blockBasedTableConfig.setBlockCacheSize(8 * 1024);
+    assertThat(blockBasedTableConfig.blockCacheSize()).
+        isEqualTo(8 * 1024);
     blockBasedTableConfig.setBlockSizeDeviation(12);
-    assert(blockBasedTableConfig.blockSizeDeviation() == 12);
+    assertThat(blockBasedTableConfig.blockSizeDeviation()).
+        isEqualTo(12);
     blockBasedTableConfig.setBlockRestartInterval(15);
-    assert(blockBasedTableConfig.blockRestartInterval() == 15);
+    assertThat(blockBasedTableConfig.blockRestartInterval()).
+        isEqualTo(15);
     blockBasedTableConfig.setWholeKeyFiltering(false);
-    assert(!blockBasedTableConfig.wholeKeyFiltering());
+    assertThat(blockBasedTableConfig.wholeKeyFiltering()).
+        isFalse();
     blockBasedTableConfig.setCacheIndexAndFilterBlocks(true);
-    assert(blockBasedTableConfig.cacheIndexAndFilterBlocks());
+    assertThat(blockBasedTableConfig.cacheIndexAndFilterBlocks()).
+        isTrue();
     blockBasedTableConfig.setHashIndexAllowCollision(false);
-    assert(!blockBasedTableConfig.hashIndexAllowCollision());
+    assertThat(blockBasedTableConfig.hashIndexAllowCollision()).
+        isFalse();
     blockBasedTableConfig.setBlockCacheCompressedSize(40);
-    assert(blockBasedTableConfig.blockCacheCompressedSize() == 40);
+    assertThat(blockBasedTableConfig.blockCacheCompressedSize()).
+        isEqualTo(40);
     blockBasedTableConfig.setChecksumType(ChecksumType.kNoChecksum);
     blockBasedTableConfig.setChecksumType(ChecksumType.kxxHash);
-    assert(blockBasedTableConfig.checksumType().equals(
+    assertThat(blockBasedTableConfig.checksumType().equals(
         ChecksumType.kxxHash));
     blockBasedTableConfig.setIndexType(IndexType.kHashSearch);
-    assert(blockBasedTableConfig.indexType().equals(
+    assertThat(blockBasedTableConfig.indexType().equals(
         IndexType.kHashSearch));
     blockBasedTableConfig.setBlockCacheCompressedNumShardBits(4);
-    assert(blockBasedTableConfig.blockCacheCompressedNumShardBits()
-        == 4);
+    assertThat(blockBasedTableConfig.blockCacheCompressedNumShardBits()).
+        isEqualTo(4);
     blockBasedTableConfig.setCacheNumShardBits(5);
-    assert(blockBasedTableConfig.cacheNumShardBits() == 5);
+    assertThat(blockBasedTableConfig.cacheNumShardBits()).
+        isEqualTo(5);
+    blockBasedTableConfig.setBlockSize(10);
+    assertThat(blockBasedTableConfig.blockSize()).isEqualTo(10);
     System.out.println("Passed BlockBasedTableConfigTest.");
+  }
+
+  @Test
+  public void shouldTestBlockBasedTableWithFilter() {
+    Options options = new Options();
+    options.setTableFormatConfig(
+        new BlockBasedTableConfig().setFilter(
+            new BloomFilter(10)));
+    assertThat(options.tableFactoryName()).
+        isEqualTo("BlockBasedTable");
+  }
+
+  @Test
+  public void shouldTestBlockBasedTableWithoutFilter() {
+    Options options = new Options();
+    options.setTableFormatConfig(
+        new BlockBasedTableConfig().setFilter(null));
+    assertThat(options.tableFactoryName()).
+        isEqualTo("BlockBasedTable");
   }
 }
