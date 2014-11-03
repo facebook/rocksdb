@@ -48,17 +48,7 @@ COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
 # Default to fbcode gcc on internal fb machines
 if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
-    if [ -z "$USE_CLANG" ]; then
-        CENTOS_VERSION=`rpm -q --qf "%{VERSION}" \
-          $(rpm -q --whatprovides redhat-release)`
-        if [ "$CENTOS_VERSION" = "6" ]; then
-          source "$PWD/build_tools/fbcode.gcc481.sh"
-        else
-          source "$PWD/build_tools/fbcode.gcc471.sh"
-        fi
-    else
-        source "$PWD/build_tools/fbcode.clang31.sh"
-    fi
+    source "$PWD/build_tools/fbcode_config.sh"
 fi
 
 # Delete existing output, if it exists
