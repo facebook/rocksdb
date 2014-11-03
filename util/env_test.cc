@@ -144,7 +144,7 @@ TEST(EnvPosixTest, TwoPools) {
         std::cout << "Pool " << pool_name_ << ": "
                   << num_running_ << " running threads.\n";
         // make sure we don't have more than pool_size_ jobs running.
-        ASSERT_LE(num_running_, pool_size_);
+        ASSERT_LE(num_running_, pool_size_.load());
       }
 
       // sleep for 1 sec
@@ -162,11 +162,16 @@ TEST(EnvPosixTest, TwoPools) {
       return num_finished_;
     }
 
+    void Reset(int pool_size) {
+      pool_size_.store(pool_size);
+      num_finished_ = 0;
+    }
+
    private:
     port::Mutex mu_;
     int num_running_;
     int num_finished_;
-    int pool_size_;
+    std::atomic<int> pool_size_;
     std::string pool_name_;
   };
 
@@ -205,6 +210,35 @@ TEST(EnvPosixTest, TwoPools) {
 
   ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
   ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  // call IncBackgroundThreadsIfNeeded to two pools. One increasing and
+  // the other decreasing
+  env_->IncBackgroundThreadsIfNeeded(kLowPoolSize - 1, Env::Priority::LOW);
+  env_->IncBackgroundThreadsIfNeeded(kHighPoolSize + 1, Env::Priority::HIGH);
+  high_pool_job.Reset(kHighPoolSize + 1);
+  low_pool_job.Reset(kLowPoolSize);
+
+  // schedule same number of jobs in each pool
+  for (int i = 0; i < kJobs; i++) {
+    env_->Schedule(&CB::Run, &low_pool_job);
+    env_->Schedule(&CB::Run, &high_pool_job, Env::Priority::HIGH);
+  }
+  // Wait a short while for the jobs to be dispatched.
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
+            env_->GetThreadPoolQueueLen());
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
+            env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ((unsigned int)(kJobs - (kHighPoolSize + 1)),
+            env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  // wait for all jobs to finish
+  while (low_pool_job.NumFinished() < kJobs ||
+         high_pool_job.NumFinished() < kJobs) {
+    env_->SleepForMicroseconds(kDelayMicros);
+  }
+
+  env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 }
 
 TEST(EnvPosixTest, DecreaseNumBgThreads) {

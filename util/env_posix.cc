@@ -1422,6 +1422,12 @@ class PosixEnv : public Env {
     thread_pools_[pri].SetBackgroundThreads(num);
   }
 
+  // Allow increasing the number of worker threads.
+  virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
+  }
+
   virtual void LowerThreadPoolIOPriority(Priority pool = LOW) override {
     assert(pool >= Priority::LOW && pool <= Priority::HIGH);
 #ifdef OS_LINUX
@@ -1642,19 +1648,28 @@ class PosixEnv : public Env {
       PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
     }
 
-    void SetBackgroundThreads(int num) {
+    void SetBackgroundThreadsInternal(int num, bool allow_reduce) {
       PthreadCall("lock", pthread_mutex_lock(&mu_));
       if (exit_all_threads_) {
         PthreadCall("unlock", pthread_mutex_unlock(&mu_));
         return;
       }
-      if (num != total_threads_limit_) {
+      if (num > total_threads_limit_ ||
+          (num < total_threads_limit_ && allow_reduce)) {
         total_threads_limit_ = num;
         WakeUpAllThreads();
         StartBGThreads();
       }
       assert(total_threads_limit_ > 0);
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    }
+
+    void IncBackgroundThreadsIfNeeded(int num) {
+      SetBackgroundThreadsInternal(num, false);
+    }
+
+    void SetBackgroundThreads(int num) {
+      SetBackgroundThreadsInternal(num, true);
     }
 
     void StartBGThreads() {

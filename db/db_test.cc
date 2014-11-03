@@ -412,6 +412,8 @@ class DBTest {
              mem_env_(!getenv("MEM_ENV") ? nullptr :
                                            new MockEnv(Env::Default())),
              env_(new SpecialEnv(mem_env_ ? mem_env_ : Env::Default())) {
+    env_->SetBackgroundThreads(1, Env::LOW);
+    env_->SetBackgroundThreads(1, Env::HIGH);
     dbname_ = test::TmpDir(env_) + "/db_test";
     auto options = CurrentOptions();
     ASSERT_OK(DestroyDB(dbname_, options));
@@ -8191,6 +8193,45 @@ TEST(DBTest, TableOptionsSanitizeTest) {
   ASSERT_TRUE(TryReopen(options).IsInvalidArgument());
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
   ASSERT_OK(TryReopen(options));
+}
+
+TEST(DBTest, SanitizeNumThreads) {
+  for (int attempt = 0; attempt < 2; attempt++) {
+    const size_t kTotalTasks = 8;
+    SleepingBackgroundTask sleeping_tasks[kTotalTasks];
+
+    Options options = CurrentOptions();
+    if (attempt == 0) {
+      options.max_background_compactions = 3;
+      options.max_background_flushes = 2;
+    }
+    options.create_if_missing = true;
+    DestroyAndReopen(options);
+
+    for (size_t i = 0; i < kTotalTasks; i++) {
+      // Insert 5 tasks to low priority queue and 5 tasks to high priority queue
+      env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_tasks[i],
+                     (i < 4) ? Env::Priority::LOW : Env::Priority::HIGH);
+    }
+
+    // Wait 100 milliseconds for they are scheduled.
+    env_->SleepForMicroseconds(100000);
+
+    // pool size 3, total task 4. Queue size should be 1.
+    ASSERT_EQ(1U, options.env->GetThreadPoolQueueLen(Env::Priority::LOW));
+    // pool size 2, total task 4. Queue size should be 2.
+    ASSERT_EQ(2U, options.env->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+    for (size_t i = 0; i < kTotalTasks; i++) {
+      sleeping_tasks[i].WakeUp();
+      sleeping_tasks[i].WaitUntilDone();
+    }
+
+    ASSERT_OK(Put("abc", "def"));
+    ASSERT_EQ("def", Get("abc"));
+    Flush();
+    ASSERT_EQ("def", Get("abc"));
+  }
 }
 
 TEST(DBTest, DBIteratorBoundTest) {

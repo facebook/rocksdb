@@ -272,6 +272,11 @@ class Env {
   // default number: 1
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
 
+  // Enlarge number of background worker threads of a specific thread pool
+  // for this environment if it is smaller than specified. 'LOW' is the default
+  // pool.
+  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) = 0;
+
   // Lower IO priority for threads from the specified pool.
   virtual void LowerThreadPoolIOPriority(Priority pool = LOW) {}
 
@@ -782,6 +787,11 @@ class EnvWrapper : public Env {
   void SetBackgroundThreads(int num, Priority pri) {
     return target_->SetBackgroundThreads(num, pri);
   }
+
+  void IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+    return target_->IncBackgroundThreadsIfNeeded(num, pri);
+  }
+
   void LowerThreadPoolIOPriority(Priority pool = LOW) override {
     target_->LowerThreadPoolIOPriority(pool);
   }
