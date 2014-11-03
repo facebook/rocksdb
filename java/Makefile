@@ -71,6 +71,7 @@ JAVA_TESTS = org.rocksdb.test.AbstractComparatorTest\
 		org.rocksdb.test.StatisticsCollectorTest\
 		org.rocksdb.test.WirteBatchHandlerTest\
 		org.rocksdb.test.WriteBatchTest\
+		org.rocksdb.test.WriteOptionsTest\
 
 JAVA_TEST_LIBDIR = ./test-libs/
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)junit-4.12-beta-2.jar

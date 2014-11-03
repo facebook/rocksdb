@@ -20,7 +20,7 @@ public class BlockBasedTableConfigTest {
 
   @AfterClass
   public static void printMessage(){
-    System.out.println("Passed BlockBasedTableConfigTst.");
+    System.out.println("Passed BlockBasedTableConfigTest.");
   }
 
   @Test
@@ -65,7 +65,6 @@ public class BlockBasedTableConfigTest {
         isEqualTo(5);
     blockBasedTableConfig.setBlockSize(10);
     assertThat(blockBasedTableConfig.blockSize()).isEqualTo(10);
-    System.out.println("Passed BlockBasedTableConfigTest.");
   }
 
   @Test
