@@ -804,7 +804,7 @@ bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
   Status s = GetTableProperties(&tp, file_meta);
   file_meta->init_stats_from_file = true;
   if (!s.ok()) {
-    Log(vset_->db_options_->info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, vset_->db_options_->info_log,
         "Unable to load table properties for file %" PRIu64 " --- %s\n",
         file_meta->fd.GetNumber(), s.ToString().c_str());
     return false;
@@ -1605,7 +1605,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     // only one thread can be here at the same time
     if (new_descriptor_log) {
       // create manifest file
-      Log(db_options_->info_log,
+      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
           "Creating manifest %" PRIu64 "\n", pending_manifest_file_number_);
       unique_ptr<WritableFile> descriptor_file;
       s = env_->NewWritableFile(
@@ -1683,7 +1683,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                          db_options_->disableDataSync ? nullptr : db_directory);
       if (s.ok() && pending_manifest_file_number_ > manifest_file_number_) {
         // delete old manifest file
-        Log(db_options_->info_log,
+        Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
             "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
             manifest_file_number_, pending_manifest_file_number_);
         // we don't care about an error here, PurgeObsoleteFiles will take care
@@ -1733,12 +1733,13 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     manifest_file_size_ = new_manifest_file_size;
     prev_log_number_ = edit->prev_log_number_;
   } else {
-    Log(db_options_->info_log, "Error in committing version %lu to [%s]",
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
+        "Error in committing version %lu to [%s]",
         (unsigned long)v->GetVersionNumber(),
         column_family_data->GetName().c_str());
     delete v;
     if (new_descriptor_log) {
-      Log(db_options_->info_log,
+      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
         "Deleting manifest %" PRIu64 " current manifest %" PRIu64 "\n",
         manifest_file_number_, pending_manifest_file_number_);
       descriptor_log_.reset();
@@ -1830,7 +1831,8 @@ Status VersionSet::Recover(
     return Status::Corruption("CURRENT file corrupted");
   }
 
-  Log(db_options_->info_log, "Recovering from manifest file: %s\n",
+  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+      "Recovering from manifest file: %s\n",
       manifest_filename.c_str());
 
   manifest_filename = dbname_ + "/" + manifest_filename;
@@ -1964,7 +1966,7 @@ Status VersionSet::Recover(
       if (cfd != nullptr) {
         if (edit.has_log_number_) {
           if (cfd->GetLogNumber() > edit.log_number_) {
-            Log(db_options_->info_log,
+            Log(InfoLogLevel::WARN_LEVEL, db_options_->info_log,
                 "MANIFEST corruption detected, but ignored - Log numbers in "
                 "records NOT monotonically increasing");
           } else {
@@ -2062,7 +2064,7 @@ Status VersionSet::Recover(
     last_sequence_ = last_sequence;
     prev_log_number_ = prev_log_number;
 
-    Log(db_options_->info_log,
+    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
         "Recovered from manifest file:%s succeeded,"
         "manifest_file_number is %lu, next_file_number is %lu, "
         "last_sequence is %lu, log_number is %lu,"
@@ -2074,7 +2076,7 @@ Status VersionSet::Recover(
         column_family_set_->GetMaxColumnFamily());
 
     for (auto cfd : *column_family_set_) {
-      Log(db_options_->info_log,
+      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
           "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
           cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
     }
@@ -2493,12 +2495,14 @@ bool VersionSet::ManifestContains(uint64_t manifest_file_number,
                                   const std::string& record) const {
   std::string fname =
       DescriptorFileName(dbname_, manifest_file_number);
-  Log(db_options_->info_log, "ManifestContains: checking %s\n", fname.c_str());
+  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+      "ManifestContains: checking %s\n", fname.c_str());
   unique_ptr<SequentialFile> file;
   Status s = env_->NewSequentialFile(fname, &file, env_options_);
   if (!s.ok()) {
-    Log(db_options_->info_log, "ManifestContains: %s\n", s.ToString().c_str());
-    Log(db_options_->info_log,
+    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+        "ManifestContains: %s\n", s.ToString().c_str());
+    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
         "ManifestContains: is unable to reopen the manifest file  %s",
         fname.c_str());
     return false;
@@ -2513,7 +2517,8 @@ bool VersionSet::ManifestContains(uint64_t manifest_file_number,
       break;
     }
   }
-  Log(db_options_->info_log, "ManifestContains: result = %d\n", result ? 1 : 0);
+  Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+      "ManifestContains: result = %d\n", result ? 1 : 0);
   return result;
 }
 
@@ -2635,7 +2640,7 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
   Version* version = c->column_family_data()->current();
   const VersionStorageInfo* vstorage = version->storage_info();
   if (c->input_version() != version) {
-    Log(db_options_->info_log,
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
         "[%s] VerifyCompactionFileConsistency version mismatch",
         c->column_family_data()->GetName().c_str());
   }
