@@ -426,6 +426,22 @@ public class RocksDB extends RocksObject {
    * This check is potentially lighter-weight than invoking DB::Get(). One way
    * to make this lighter weight is to avoid doing any IOs.
    *
+   * @param key byte array of a key to search for
+   * @param value StringBuffer instance which is a out parameter if a value is
+   *    found in block-cache.
+   * @return boolean value indicating if key does not exist or might exist.
+   */
+  public boolean keyMayExist(byte[] key, StringBuffer value){
+    return keyMayExist(key, key.length, value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, else true.
+   *
+   * This check is potentially lighter-weight than invoking DB::Get(). One way
+   * to make this lighter weight is to avoid doing any IOs.
+   *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
    * @param value StringBuffer instance which is a out parameter if a value is
@@ -436,6 +452,26 @@ public class RocksDB extends RocksObject {
       byte[] key, StringBuffer value){
     return keyMayExist(key, key.length, columnFamilyHandle.nativeHandle_,
         value);
+  }
+
+  /**
+   * If the key definitely does not exist in the database, then this method
+   * returns false, else true.
+   *
+   * This check is potentially lighter-weight than invoking DB::Get(). One way
+   * to make this lighter weight is to avoid doing any IOs.
+   *
+   * @param readOptions {@link ReadOptions} instance
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key byte array of a key to search for
+   * @param value StringBuffer instance which is a out parameter if a value is
+   *    found in block-cache.
+   * @return boolean value indicating if key does not exist or might exist.
+   */
+  public boolean keyMayExist(ReadOptions readOptions,
+      byte[] key, StringBuffer value){
+    return keyMayExist(readOptions.nativeHandle_,
+        key, key.length, value);
   }
 
   /**
@@ -1087,7 +1123,11 @@ public class RocksDB extends RocksObject {
   protected native void write(
       long writeOptHandle, long batchHandle) throws RocksDBException;
   protected native boolean keyMayExist(byte[] key, int keyLen,
+      StringBuffer stringBuffer);
+  protected native boolean keyMayExist(byte[] key, int keyLen,
       long cfHandle, StringBuffer stringBuffer);
+  protected native boolean keyMayExist(long optionsHandle, byte[] key, int keyLen,
+      StringBuffer stringBuffer);
   protected native boolean keyMayExist(long optionsHandle, byte[] key, int keyLen,
       long cfHandle, StringBuffer stringBuffer);
   protected native void merge(
