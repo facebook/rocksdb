@@ -91,13 +91,13 @@ class BTree {
    private:
     const BTree* tree_;
     Node* node_; // leaf node logically used as the first on the delta nodes chain
-    int offset_; // cursor into aggretaged_ vector
+    int offset_; // offset within the current btree node
     
     // TODO 
     // In order to prevent invalidating the iterator, I'll use Epoch mechanism [Levandoski]
     // to defer garbage collect unused nodes. Since the only two access patterns are when inserting and
     // Accessing Iterator, one can implement Epoch around those two usecases
-
+  };
   // Maps from logical node id to physical pointer to a Node. Adopted from Bw-Tree.
   class MappingTable {
   public:
@@ -157,6 +157,7 @@ class BTree {
   std::tuple<Node*, int> FindLessThan(const Key& key) const;
 
   // Return nullptr if tree is empty
+  // Else, return the left-most leaf node
   std::tuple<Node*, int> FindFirst() const;
 
   // Return the last node in the tree.
@@ -165,7 +166,7 @@ class BTree {
 
   bool splitIsNecessary(Node* node);
 
-  std::tuple<Node*, Node*> splitWithAddedEntry(Node* node, int depthIndex, int entryIndex, const IndexEntry & entry);
+  std::tuple<Node*, Node*> splitWithAddedEntry(Node* node, int entryIndex, const IndexEntry & entry);
 
   // No copying allowed
   BTree(const BTree&);
@@ -186,7 +187,6 @@ template<typename Key, class Comparator>
 struct BTree<Key, Comparator>::Node {
   explicit Node(int32_t ne, int8_t t)
   : type(t), numEntries(ne) {
-    nextDelta = nullptr;
     highKey = nullptr;
     // lowKey = nullptr;
     linkPtrPid = -1;
@@ -198,7 +198,6 @@ struct BTree<Key, Comparator>::Node {
 
   int32_t pid;
   int8_t type;
-  Node* nextDelta;
   Key highKey; // inclusive, upper bound of current node's keys(except at root node)
   // Key lowKey; // exclusive
   int32_t linkPtrPid;
@@ -206,37 +205,6 @@ struct BTree<Key, Comparator>::Node {
   int32_t const numEntries;
   IndexEntry entries[1];
 
-  // Depth of btree delta nodes chain
-  int depth() {
-    int depth = 0;
-    Node* node = this;
-    while (node != nullptr) {
-      depth++;
-      node = node->nextDelta;
-    }
-    return depth;
-  }
-
-  Node* operator[](int index) {
-    assert(index >= 0);
-    Node* ret = this;
-    while (index > 0) {
-      ret = ret->nextDelta;
-      if (ret == nullptr) return nullptr;
-      index--;
-    }
-    return ret;
-  }
-
-  int numEntriesSum() {
-    int sum = 0;
-    Node* node = this;
-    while (node != nullptr) {
-      sum += node->numEntries;
-      node = node->nextDelta;
-    }
-    return sum;
-  }
  private: 
 };
 
@@ -268,19 +236,18 @@ inline bool BTree<Key, Comparator>::Iterator::Valid() const {
 template<typename Key, class Comparator>
 inline const Key& BTree<Key, Comparator>::Iterator::key() const {
   assert(Valid());
-  return aggregated_[offset_].obj;
+  return node_->entries[offset_].obj;
 }
 
 template<typename Key, class Comparator>
 inline void BTree<Key, Comparator>::Iterator::Next() {
   assert(Valid());
-  if (offset_ == (int)(aggregated_.size() - 1)) {
+  if (offset_ == (int)(node_->numEntries - 1)) {
     node_ = tree_->mappingTable_.getNode(node_->linkPtrPid);
     if (node_ == nullptr) {
       offset_ = -1;
       return;
     }
-    aggregateToVector();
     offset_ = 0;
   } else {
     offset_++;
@@ -292,20 +259,19 @@ inline void BTree<Key, Comparator>::Iterator::Prev() {
   // We search for the last node that falls before key.
   assert(Valid());
   if (offset_ == 0) {
-    Key currentKey = aggregated_[0].key;
+    Key currentKey = node_->entries[0].key;
     auto tuple = tree_->FindLessThan(currentKey);
     node_ = std::get<0>(tuple);
     if (node_ == nullptr) { // Reached beginning of the tree.
       offset_ = -1;
       return;
     }
-    aggregateToVector();
     // A possible corner case would be that a new key lower than current 
     // node's lowest was added and it was prepended in the current node.
     // Then we shouldn't just start from the back end of the vector
     offset_ = -1;
-    for (int i = aggregated_.size() - 1; i >= 0; i--) {
-      if (tree_->compare_(currentKey, aggregated_[i].key) < 0) {
+    for (int i = node_->numEntries - 1; i >= 0; i--) {
+      if (tree_->compare_(currentKey, node_->entries[i].key) < 0) {
         offset_ = i;
         break;
       }
@@ -324,16 +290,8 @@ inline void BTree<Key, Comparator>::Iterator::Seek(const Key& target) {
     offset_ = -1;
     return;
   }
-  Key key = (*node_)[std::get<1>(tuple)]->entries[std::get<2>(tuple)].key;
-  aggregateToVector();
-  //TODO Could improve by using Binary search
-  offset_ = -1;
-  for (int i = 0; i < (int)aggregated_.size(); i++) {
-    if (tree_->compare_(aggregated_[i].key, key) == 0) {
-      offset_ = i;
-      break;
-    }
-  }
+  Key key = node_->entries[std::get<1>(tuple)].key;
+  offset_ = std::get<1>(tuple);
   assert(offset_ != -1);
 }
 
@@ -345,7 +303,6 @@ inline void BTree<Key, Comparator>::Iterator::SeekToFirst() {
     offset_ = -1;  
     return;
   }
-  aggregateToVector();
   offset_ = 0;
 }
 
@@ -357,17 +314,15 @@ inline void BTree<Key, Comparator>::Iterator::SeekToLast() {
     offset_ = -1;
     return;
   }
-  aggregateToVector();
-  offset_ = aggregated_.size() - 1;
+  offset_ = node_->numEntries - 1;
 }
 
 template<typename Key, class Comparator>
-std::tuple<typename BTree<Key, Comparator>::Node*, int, int, std::unique_ptr<class std::stack<typename BTree<Key, Comparator>::Node*> > > 
+std::tuple<typename BTree<Key, Comparator>::Node*, int, std::unique_ptr<class std::stack<typename BTree<Key, Comparator>::Node*> > > 
 BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
   Node* x = mappingTable_.getNode(rootPid_);
   auto stack = std::unique_ptr<class std::stack<Node*> >(new std::stack<Node*>());
   
-  int depthIndex = 0;
   int entryIndex = -1;
   while (true) {
     assert(x != nullptr);
@@ -378,7 +333,7 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
       // searching key is greater than highest key in this node
       if (x->linkPtrPid == -1) {
         // Reached the end of the tree
-        return std::make_tuple(nullptr, -1, -1, std::move(stack));
+        return std::make_tuple(nullptr, -1, std::move(stack));
       }
       // Move to next node on the same level
       x = mappingTable_.getNode(x->linkPtrPid);
@@ -387,7 +342,6 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
     stack->push(x);
 
     Key curLowestKey = nullptr;
-    int depth = x->depth();
     for (int i = 0; i < depth; i++) {// Iterate through delta chains
       int left = 0;
       int right = (*x)[i]->numEntries;
