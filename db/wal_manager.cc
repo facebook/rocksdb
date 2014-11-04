@@ -67,7 +67,8 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
   uint64_t latest_archived_log_number = 0;
   if (!files.empty()) {
     latest_archived_log_number = files.back()->LogNumber();
-    Log(db_options_.info_log, "Latest Archived log: %" PRIu64,
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "Latest Archived log: %" PRIu64,
         latest_archived_log_number);
   }
 
@@ -80,8 +81,8 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
       // same log in both db dir and archived dir. Simply
       // ignore the one in db dir. Note that, if we read
       // archived dir first, we would have missed the log file.
-      Log(db_options_.info_log, "%s already moved to archive",
-          log->PathName().c_str());
+      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+          "%s already moved to archive", log->PathName().c_str());
     }
   }
 
@@ -130,8 +131,8 @@ void WalManager::PurgeObsoleteWALFiles() {
   int64_t current_time;
   Status s = env_->GetCurrentTime(&current_time);
   if (!s.ok()) {
-    Log(db_options_.info_log, "Can't get current time: %s",
-        s.ToString().c_str());
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "Can't get current time: %s", s.ToString().c_str());
     assert(false);
     return;
   }
@@ -150,8 +151,8 @@ void WalManager::PurgeObsoleteWALFiles() {
   std::vector<std::string> files;
   s = env_->GetChildren(archival_dir, &files);
   if (!s.ok()) {
-    Log(db_options_.info_log, "Can't get archive files: %s",
-        s.ToString().c_str());
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "Can't get archive files: %s", s.ToString().c_str());
     assert(false);
     return;
   }
@@ -168,14 +169,16 @@ void WalManager::PurgeObsoleteWALFiles() {
         uint64_t file_m_time;
         s = env_->GetFileModificationTime(file_path, &file_m_time);
         if (!s.ok()) {
-          Log(db_options_.info_log, "Can't get file mod time: %s: %s",
+          Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+              "Can't get file mod time: %s: %s",
               file_path.c_str(), s.ToString().c_str());
           continue;
         }
         if (now_seconds - file_m_time > db_options_.WAL_ttl_seconds) {
           s = env_->DeleteFile(file_path);
           if (!s.ok()) {
-            Log(db_options_.info_log, "Can't delete file: %s: %s",
+            Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+                "Can't delete file: %s: %s",
                 file_path.c_str(), s.ToString().c_str());
             continue;
           } else {
@@ -190,7 +193,8 @@ void WalManager::PurgeObsoleteWALFiles() {
         uint64_t file_size;
         s = env_->GetFileSize(file_path, &file_size);
         if (!s.ok()) {
-          Log(db_options_.info_log, "Can't get file size: %s: %s",
+          Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+              "Unable to get file size: %s: %s",
               file_path.c_str(), s.ToString().c_str());
           return;
         } else {
@@ -200,7 +204,8 @@ void WalManager::PurgeObsoleteWALFiles() {
           } else {
             s = env_->DeleteFile(file_path);
             if (!s.ok()) {
-              Log(db_options_.info_log, "Can't delete file: %s: %s",
+              Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+                  "Unable to delete file: %s: %s",
                   file_path.c_str(), s.ToString().c_str());
               continue;
             } else {
@@ -228,7 +233,7 @@ void WalManager::PurgeObsoleteWALFiles() {
   GetSortedWalsOfType(archival_dir, archived_logs, kArchivedLogFile);
 
   if (files_del_num > archived_logs.size()) {
-    Log(db_options_.info_log,
+    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "Trying to delete more archived log files than "
         "exist. Deleting all");
     files_del_num = archived_logs.size();
@@ -238,7 +243,8 @@ void WalManager::PurgeObsoleteWALFiles() {
     std::string const file_path = archived_logs[i]->PathName();
     s = env_->DeleteFile(db_options_.wal_dir + "/" + file_path);
     if (!s.ok()) {
-      Log(db_options_.info_log, "Can't delete file: %s: %s", file_path.c_str(),
+      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+          "Unable to delete file: %s: %s", file_path.c_str(),
           s.ToString().c_str());
       continue;
     } else {
@@ -255,7 +261,8 @@ void WalManager::ArchiveWALFile(const std::string& fname, uint64_t number) {
   Status s = env_->RenameFile(fname, archived_log_name);
   // The sync point below is used in (DBTest,TransactionLogIteratorRace)
   TEST_SYNC_POINT("WalManager::PurgeObsoleteFiles:2");
-  Log(db_options_.info_log, "Move log file %s to %s -- %s\n", fname.c_str(),
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "Move log file %s to %s -- %s\n", fname.c_str(),
       archived_log_name.c_str(), s.ToString().c_str());
 }
 
@@ -347,7 +354,10 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
                                    const uint64_t number,
                                    SequenceNumber* sequence) {
   if (type != kAliveLogFile && type != kArchivedLogFile) {
-    return Status::NotSupported("File Type Not Known " + std::to_string(type));
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "[WalManger] Unknown file type %s", std::to_string(type).c_str());
+    return Status::NotSupported(
+        "File Type Not Known " + std::to_string(type));
   }
   {
     MutexLock l(&read_first_record_cache_mutex_);
@@ -393,7 +403,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
     Status* status;
     bool ignore_error;  // true if db_options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) {
-      Log(info_log, "%s%s: dropping %d bytes; %s",
+      Log(InfoLogLevel::WARN_LEVEL, info_log,
+          "[WalManager] %s%s: dropping %d bytes; %s",
           (this->ignore_error ? "(ignoring error) " : ""), fname,
           static_cast<int>(bytes), s.ToString().c_str());
       if (this->status->ok()) {
