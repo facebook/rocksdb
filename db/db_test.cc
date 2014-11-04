@@ -8445,8 +8445,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   // Test write_buffer_size
   gen_l0_kb(64);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
-  ASSERT_TRUE(SizeAtLevel(0) < k64KB + k5KB);
-  ASSERT_TRUE(SizeAtLevel(0) > k64KB - k5KB);
+  ASSERT_LT(SizeAtLevel(0), k64KB + k5KB);
+  ASSERT_GT(SizeAtLevel(0), k64KB - k5KB);
 
   // Clean up L0
   dbfull()->CompactRange(nullptr, nullptr);
@@ -8462,8 +8462,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   // have a 64KB L0 file, a 128KB L0 file, and a memtable with 64KB data
   gen_l0_kb(256);
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);
-  ASSERT_TRUE(SizeAtLevel(0) < k128KB + k64KB + 2 * k5KB);
-  ASSERT_TRUE(SizeAtLevel(0) > k128KB + k64KB - 2 * k5KB);
+  ASSERT_LT(SizeAtLevel(0), k128KB + k64KB + 2 * k5KB);
+  ASSERT_GT(SizeAtLevel(0), k128KB + k64KB - 2 * k5KB);
 
   // Test max_write_buffer_number
   // Block compaction thread, which will also block the flushes because
@@ -8488,7 +8488,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 256) {
     count++;
   }
-  ASSERT_TRUE(count > (128 * 0.8) && count < (128 * 1.2));
+  ASSERT_GT(static_cast<double>(count), 128 * 0.8);
+  ASSERT_LT(static_cast<double>(count), 128 * 1.2);
 
   sleeping_task_low1.WakeUp();
   sleeping_task_low1.WaitUntilDone();
@@ -8507,7 +8508,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
     count++;
   }
-  ASSERT_TRUE(count > (512 * 0.8) && count < (512 * 1.2));
+  ASSERT_GT(static_cast<double>(count), 512 * 0.8);
+  ASSERT_LT(static_cast<double>(count), 512 * 1.2);
   sleeping_task_low2.WakeUp();
   sleeping_task_low2.WaitUntilDone();
 
@@ -8525,7 +8527,8 @@ TEST(DBTest, DynamicMemtableOptions) {
   while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
     count++;
   }
-  ASSERT_TRUE(count > (256 * 0.8) && count < (256 * 1.2));
+  ASSERT_GT(static_cast<double>(count), 256 * 0.8);
+  ASSERT_LT(static_cast<double>(count), 266 * 1.2);
   sleeping_task_low3.WakeUp();
   sleeping_task_low3.WaitUntilDone();
 }
@@ -8622,10 +8625,12 @@ TEST(DBTest, DynamicCompactionOptions) {
     gen_l0_kb(i, 64, 96);
   }
   dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(SizeAtLevel(1) > k1MB * 0.5 &&
-              SizeAtLevel(1) < k1MB * 1.5);
-  ASSERT_TRUE(SizeAtLevel(2) > 4 * k1MB * 0.5 &&
-              SizeAtLevel(2) < 4 * k1MB * 1.5);
+  ASSERT_GT(SizeAtLevel(1), k1MB / 2);
+  ASSERT_LT(SizeAtLevel(1), k1MB + k1MB / 2);
+
+  // Within (0.5, 1.5) of 4MB.
+  ASSERT_GT(SizeAtLevel(2), 2 * k1MB);
+  ASSERT_LT(SizeAtLevel(2), 6 * k1MB);
 
   // Test max_bytes_for_level_multiplier and
   // max_bytes_for_level_base. Now, reduce both mulitplier and level base,
