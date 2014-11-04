@@ -249,7 +249,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
     int32_t search_left_bound = 0;
     int32_t search_right_bound = FileIndexer::kLevelMaxIndex;
-    for (int32_t level = 1; level < vstorage->NumberLevels(); ++level) {
+    for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
       const std::vector<FileMetaData*>& level_files =
           vstorage->LevelFiles(level);
       if (level_files.empty()) {
@@ -259,7 +259,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       }
       assert(level_iters_[level - 1] != nullptr);
       uint32_t f_idx = 0;
-      const auto& indexer = vstorage->GetIndexer();
+      const auto& indexer = vstorage->file_indexer();
       if (!seek_to_first) {
         if (search_left_bound == search_right_bound) {
           f_idx = search_left_bound;
@@ -437,8 +437,8 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
   }
-  level_iters_.reserve(vstorage->NumberLevels() - 1);
-  for (int32_t level = 1; level < vstorage->NumberLevels(); ++level) {
+  level_iters_.reserve(vstorage->num_levels() - 1);
+  for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
     const auto& level_files = vstorage->LevelFiles(level);
 
     if (level_files.empty()) {

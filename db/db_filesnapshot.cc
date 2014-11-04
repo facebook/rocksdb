@@ -122,10 +122,10 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   }
 
   ret.push_back(CurrentFileName(""));
-  ret.push_back(DescriptorFileName("", versions_->ManifestFileNumber()));
+  ret.push_back(DescriptorFileName("", versions_->manifest_file_number()));
 
   // find length of manifest file while holding the mutex lock
-  *manifest_file_size = versions_->ManifestFileSize();
+  *manifest_file_size = versions_->manifest_file_size();
 
   mutex_.Unlock();
   return Status::OK();

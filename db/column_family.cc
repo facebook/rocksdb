@@ -324,8 +324,8 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       const MutableCFOptions& mutable_cf_options) {
   if (current_ != nullptr) {
     auto* vstorage = current_->storage_info();
-    const double score = vstorage->MaxCompactionScore();
-    const int max_level = vstorage->MaxCompactionScoreLevel();
+    const double score = vstorage->max_compaction_score();
+    const int max_level = vstorage->max_compaction_score_level();
 
     auto write_controller = column_family_set_->write_controller_;
 

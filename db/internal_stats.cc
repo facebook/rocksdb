@@ -371,7 +371,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   int num_levels_to_check =
       (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
        cfd_->options()->compaction_style != kCompactionStyleFIFO)
-          ? vstorage->NumberLevels() - 1
+          ? vstorage->num_levels() - 1
           : 1;
 
   // Compaction scores are sorted base on its value. Restore them to the

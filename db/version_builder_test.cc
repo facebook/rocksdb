@@ -37,7 +37,7 @@ class VersionBuilderTest {
   }
 
   ~VersionBuilderTest() {
-    for (int i = 0; i < vstorage.NumberLevels(); i++) {
+    for (int i = 0; i < vstorage.num_levels(); i++) {
       for (auto* f : vstorage.LevelFiles(i)) {
         if (--f->refs == 0) {
           delete f;
@@ -55,7 +55,7 @@ class VersionBuilderTest {
            const char* largest, uint64_t file_size = 0, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100,
            SequenceNumber largest_seq = 100) {
-    assert(level < vstorage.NumberLevels());
+    assert(level < vstorage.num_levels());
     FileMetaData* f = new FileMetaData;
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = GetInternalKey(smallest, smallest_seq);
@@ -109,7 +109,7 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
   ASSERT_EQ(400U, new_vstorage.NumLevelBytes(2));
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(3));
 
-  for (int i = 0; i < new_vstorage.NumberLevels(); i++) {
+  for (int i = 0; i < new_vstorage.num_levels(); i++) {
     for (auto* f : new_vstorage.LevelFiles(i)) {
       if (--f->refs == 0) {
         delete f;

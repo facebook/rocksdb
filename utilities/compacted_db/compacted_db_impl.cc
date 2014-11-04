@@ -111,20 +111,20 @@ Status CompactedDBImpl::Init(const Options& options) {
     return Status::NotSupported("L0 contain more than 1 file");
   }
   if (l0.num_files == 1) {
-    if (vstorage->NumNonEmptyLevels() > 1) {
+    if (vstorage->num_non_empty_levels() > 1) {
       return Status::NotSupported("Both L0 and other level contain files");
     }
     files_ = l0;
     return Status::OK();
   }
 
-  for (int i = 1; i < vstorage->NumNonEmptyLevels() - 1; ++i) {
+  for (int i = 1; i < vstorage->num_non_empty_levels() - 1; ++i) {
     if (vstorage->LevelFilesBrief(i).num_files > 0) {
       return Status::NotSupported("Other levels also contain files");
     }
   }
 
-  int level = vstorage->NumNonEmptyLevels() - 1;
+  int level = vstorage->num_non_empty_levels() - 1;
   if (vstorage->LevelFilesBrief(level).num_files > 0) {
     files_ = vstorage->LevelFilesBrief(level);
     return Status::OK();

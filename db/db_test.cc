@@ -5776,7 +5776,7 @@ TEST(DBTest, DropWrites) {
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
     for (int i = 0; i < 5; i++) {
-      for (int level = 0; level < dbfull()->NumberLevels()-1; level++) {
+      for (int level = 0; level < dbfull()->NumberLevels() - 1; level++) {
         dbfull()->TEST_CompactRange(level, nullptr, nullptr);
       }
     }

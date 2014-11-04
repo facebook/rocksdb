@@ -67,7 +67,7 @@ void DBImpl::TEST_GetFilesMetaData(
 }
 
 uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
-  return versions_->ManifestFileNumber();
+  return versions_->manifest_file_number();
 }
 
 Status DBImpl::TEST_CompactRange(int level, const Slice* begin,

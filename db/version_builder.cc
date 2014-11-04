@@ -54,10 +54,7 @@ class VersionBuilder::Rep {
   // kLevel0 -- NewestFirstBySeqNo
   // kLevelNon0 -- BySmallestKey
   struct FileComparator {
-    enum SortMethod {
-      kLevel0 = 0,
-      kLevelNon0 = 1,
-    } sort_method;
+    enum SortMethod { kLevel0 = 0, kLevelNon0 = 1, } sort_method;
     const InternalKeyComparator* internal_comparator;
 
     bool operator()(FileMetaData* f1, FileMetaData* f2) const {
@@ -91,25 +88,25 @@ class VersionBuilder::Rep {
       : env_options_(env_options),
         table_cache_(table_cache),
         base_vstorage_(base_vstorage) {
-    levels_ = new LevelState[base_vstorage_->NumberLevels()];
+    levels_ = new LevelState[base_vstorage_->num_levels()];
     level_zero_cmp_.sort_method = FileComparator::kLevel0;
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
     level_nonzero_cmp_.internal_comparator =
         base_vstorage_->InternalComparator();
 
     levels_[0].added_files = new FileSet(level_zero_cmp_);
-    for (int level = 1; level < base_vstorage_->NumberLevels(); level++) {
-        levels_[level].added_files = new FileSet(level_nonzero_cmp_);
+    for (int level = 1; level < base_vstorage_->num_levels(); level++) {
+      levels_[level].added_files = new FileSet(level_nonzero_cmp_);
     }
   }
 
   ~Rep() {
-    for (int level = 0; level < base_vstorage_->NumberLevels(); level++) {
+    for (int level = 0; level < base_vstorage_->num_levels(); level++) {
       const FileSet* added = levels_[level].added_files;
       std::vector<FileMetaData*> to_unref;
       to_unref.reserve(added->size());
-      for (FileSet::const_iterator it = added->begin();
-          it != added->end(); ++it) {
+      for (FileSet::const_iterator it = added->begin(); it != added->end();
+           ++it) {
         to_unref.push_back(*it);
       }
       delete added;
@@ -133,7 +130,7 @@ class VersionBuilder::Rep {
   void CheckConsistency(VersionStorageInfo* vstorage) {
 #ifndef NDEBUG
     // make sure the files are sorted correctly
-    for (int level = 0; level < vstorage->NumberLevels(); level++) {
+    for (int level = 0; level < vstorage->num_levels(); level++) {
       auto& level_files = vstorage->LevelFiles(level);
       for (size_t i = 1; i < level_files.size(); i++) {
         auto f1 = level_files[i - 1];
@@ -161,51 +158,50 @@ class VersionBuilder::Rep {
   void CheckConsistencyForDeletes(VersionEdit* edit, uint64_t number,
                                   int level) {
 #ifndef NDEBUG
-      // a file to be deleted better exist in the previous version
-      bool found = false;
-      for (int l = 0; !found && l < base_vstorage_->NumberLevels(); l++) {
-        const std::vector<FileMetaData*>& base_files =
-            base_vstorage_->LevelFiles(l);
-        for (unsigned int i = 0; i < base_files.size(); i++) {
-          FileMetaData* f = base_files[i];
-          if (f->fd.GetNumber() == number) {
-            found =  true;
-            break;
-          }
+    // a file to be deleted better exist in the previous version
+    bool found = false;
+    for (int l = 0; !found && l < base_vstorage_->num_levels(); l++) {
+      const std::vector<FileMetaData*>& base_files =
+          base_vstorage_->LevelFiles(l);
+      for (unsigned int i = 0; i < base_files.size(); i++) {
+        FileMetaData* f = base_files[i];
+        if (f->fd.GetNumber() == number) {
+          found = true;
+          break;
         }
       }
-      // if the file did not exist in the previous version, then it
-      // is possibly moved from lower level to higher level in current
-      // version
-      for (int l = level + 1; !found && l < base_vstorage_->NumberLevels();
-           l++) {
-        const FileSet* added = levels_[l].added_files;
-        for (FileSet::const_iterator added_iter = added->begin();
-             added_iter != added->end(); ++added_iter) {
-          FileMetaData* f = *added_iter;
-          if (f->fd.GetNumber() == number) {
-            found = true;
-            break;
-          }
+    }
+    // if the file did not exist in the previous version, then it
+    // is possibly moved from lower level to higher level in current
+    // version
+    for (int l = level + 1; !found && l < base_vstorage_->num_levels(); l++) {
+      const FileSet* added = levels_[l].added_files;
+      for (FileSet::const_iterator added_iter = added->begin();
+           added_iter != added->end(); ++added_iter) {
+        FileMetaData* f = *added_iter;
+        if (f->fd.GetNumber() == number) {
+          found = true;
+          break;
         }
       }
+    }
 
-      // maybe this file was added in a previous edit that was Applied
-      if (!found) {
-        const FileSet* added = levels_[level].added_files;
-        for (FileSet::const_iterator added_iter = added->begin();
-             added_iter != added->end(); ++added_iter) {
-          FileMetaData* f = *added_iter;
-          if (f->fd.GetNumber() == number) {
-            found = true;
-            break;
-          }
+    // maybe this file was added in a previous edit that was Applied
+    if (!found) {
+      const FileSet* added = levels_[level].added_files;
+      for (FileSet::const_iterator added_iter = added->begin();
+           added_iter != added->end(); ++added_iter) {
+        FileMetaData* f = *added_iter;
+        if (f->fd.GetNumber() == number) {
+          found = true;
+          break;
         }
       }
-      if (!found) {
-        fprintf(stderr, "not found %" PRIu64 "\n", number);
-      }
-      assert(found);
+    }
+    if (!found) {
+      fprintf(stderr, "not found %" PRIu64 "\n", number);
+    }
+    assert(found);
 #endif
   }
 
@@ -238,7 +234,7 @@ class VersionBuilder::Rep {
     CheckConsistency(base_vstorage_);
     CheckConsistency(vstorage);
 
-    for (int level = 0; level < base_vstorage_->NumberLevels(); level++) {
+    for (int level = 0; level < base_vstorage_->num_levels(); level++) {
       const auto& cmp = (level == 0) ? level_zero_cmp_ : level_nonzero_cmp_;
       // Merge the set of added files with the set of pre-existing files.
       // Drop any deleted files.  Store the result in *v.
@@ -251,8 +247,7 @@ class VersionBuilder::Rep {
       for (const auto& added : added_files) {
         // Add all smaller files listed in base_
         for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
-             base_iter != bpos;
-             ++base_iter) {
+             base_iter != bpos; ++base_iter) {
           MaybeAddFile(vstorage, level, *base_iter);
         }
 
@@ -270,7 +265,7 @@ class VersionBuilder::Rep {
 
   void LoadTableHandlers() {
     assert(table_cache_ != nullptr);
-    for (int level = 0; level < base_vstorage_->NumberLevels(); level++) {
+    for (int level = 0; level < base_vstorage_->num_levels(); level++) {
       for (auto& file_meta : *(levels_[level].added_files)) {
         assert(!file_meta->table_reader_handle);
         table_cache_->FindTable(
@@ -280,9 +275,9 @@ class VersionBuilder::Rep {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
               file_meta->table_reader_handle);
+        }
       }
     }
-  }
   }
 
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f) {

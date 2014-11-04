@@ -132,10 +132,10 @@ class VersionStorageInfo {
   bool NeedsCompaction() const;
 
   // Returns the maxmimum compaction score for levels 1 to max
-  double MaxCompactionScore() const { return max_compaction_score_; }
+  double max_compaction_score() const { return max_compaction_score_; }
 
   // See field declaration
-  int MaxCompactionScoreLevel() const { return max_compaction_score_level_; }
+  int max_compaction_score_level() const { return max_compaction_score_level_; }
 
   // Return level number that has idx'th highest score
   int CompactionScoreLevel(int idx) const { return compaction_level_[idx]; }
@@ -183,10 +183,10 @@ class VersionStorageInfo {
                                  const Slice& smallest_user_key,
                                  const Slice& largest_user_key);
 
-  int NumberLevels() const { return num_levels_; }
+  int num_levels() const { return num_levels_; }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  int NumNonEmptyLevels() const {
+  int num_non_empty_levels() const {
     assert(finalized_);
     return num_non_empty_levels_;
   }
@@ -228,7 +228,7 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  const FileIndexer& GetIndexer() const {
+  const FileIndexer& file_indexer() const {
     assert(finalized_);
     return file_indexer_;
   }
@@ -524,9 +524,9 @@ class VersionSet {
 #endif  // ROCKSDB_LITE
 
   // Return the current manifest file number
-  uint64_t ManifestFileNumber() const { return manifest_file_number_; }
+  uint64_t manifest_file_number() const { return manifest_file_number_; }
 
-  uint64_t PendingManifestFileNumber() const {
+  uint64_t pending_manifest_file_number() const {
     return pending_manifest_file_number_;
   }
 
@@ -558,7 +558,7 @@ class VersionSet {
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
-  uint64_t PrevLogNumber() const { return prev_log_number_; }
+  uint64_t prev_log_number() const { return prev_log_number_; }
 
   // Returns the minimum log number such that all
   // log numbers less than or equal to it can be deleted
@@ -584,7 +584,7 @@ class VersionSet {
   uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
 
   // Return the size of the current manifest file
-  uint64_t ManifestFileSize() const { return manifest_file_size_; }
+  uint64_t manifest_file_size() const { return manifest_file_size_; }
 
   // verify that the files that we started with for a compaction
   // still exist in the current version and in the same original level.
@@ -600,7 +600,7 @@ class VersionSet {
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
-  const EnvOptions& GetEnvOptions() { return env_options_; }
+  const EnvOptions& env_options() { return env_options_; }
 
  private:
   struct ManifestWriter;

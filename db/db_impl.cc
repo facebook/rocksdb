@@ -425,11 +425,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   versions_->GetObsoleteFiles(&job_context->sst_delete_files);
 
   // store the current filenum, lognum, etc
-  job_context->manifest_file_number = versions_->ManifestFileNumber();
+  job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
-      versions_->PendingManifestFileNumber();
+      versions_->pending_manifest_file_number();
   job_context->log_number = versions_->MinLogNumber();
-  job_context->prev_log_number = versions_->PrevLogNumber();
+  job_context->prev_log_number = versions_->prev_log_number();
 
   if (!doing_the_full_scan && !job_context->HaveSomethingToDelete()) {
     // avoid filling up sst_live if we're sure that we
@@ -730,11 +730,11 @@ Status DBImpl::Recover(
     // descriptor (new log files may have been added by the previous
     // incarnation without registering them in the descriptor).
     //
-    // Note that PrevLogNumber() is no longer used, but we pay
+    // Note that prev_log_number() is no longer used, but we pay
     // attention to it in case we are recovering a database
     // produced by an older version of rocksdb.
     const uint64_t min_log = versions_->MinLogNumber();
-    const uint64_t prev_log = versions_->PrevLogNumber();
+    const uint64_t prev_log = versions_->prev_log_number();
     std::vector<std::string> filenames;
     s = env_->GetChildren(db_options_.wal_dir, &filenames);
     if (!s.ok()) {
@@ -2729,7 +2729,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
 
   // Attempt to switch to a new memtable and trigger flush of old.
   // Do this without holding the dbmutex lock.
-  assert(versions_->PrevLogNumber() == 0);
+  assert(versions_->prev_log_number() == 0);
   bool creating_new_log = !log_empty_;
   uint64_t new_log_number =
       creating_new_log ? versions_->NewFileNumber() : logfile_number_;
@@ -3269,7 +3269,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
         auto* vstorage = cfd->current()->storage_info();
-        for (int i = 1; i < vstorage->NumberLevels(); ++i) {
+        for (int i = 1; i < vstorage->num_levels(); ++i) {
           int num_files = vstorage->NumLevelFiles(i);
           if (num_files > 0) {
             s = Status::InvalidArgument(

@@ -328,7 +328,7 @@ Compaction* CompactionPicker::CompactRange(
   }
   assert(output_path_id < static_cast<uint32_t>(ioptions_.db_paths.size()));
   Compaction* c = new Compaction(
-      vstorage->NumberLevels(), input_level, output_level,
+      vstorage->num_levels(), input_level, output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
       mutable_cf_options.MaxGrandParentOverlapBytes(input_level),
       output_path_id, GetCompressionType(ioptions_, output_level));
@@ -457,7 +457,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
 
   assert(level >= 0);
   assert(level + 1 < NumberLevels());
-  c = new Compaction(vstorage->NumberLevels(), level, level + 1,
+  c = new Compaction(vstorage->num_levels(), level, level + 1,
                      mutable_cf_options.MaxFileSizeForLevel(level + 1),
                      mutable_cf_options.MaxGrandParentOverlapBytes(level), 0,
                      GetCompressionType(ioptions_, level + 1));
@@ -778,7 +778,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   uint32_t path_id = GetPathId(ioptions_, estimated_total_size);
 
   Compaction* c = new Compaction(
-      vstorage->NumberLevels(), kLevel0, kLevel0,
+      vstorage->num_levels(), kLevel0, kLevel0,
       mutable_cf_options.MaxFileSizeForLevel(kLevel0), LLONG_MAX, path_id,
       GetCompressionType(ioptions_, kLevel0, enable_compression));
   c->score_ = score;
@@ -898,7 +898,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   // create a compaction request
   // We always compact all the files, so always compress.
   Compaction* c =
-      new Compaction(vstorage->NumberLevels(), kLevel, kLevel,
+      new Compaction(vstorage->num_levels(), kLevel, kLevel,
                      mutable_cf_options.MaxFileSizeForLevel(kLevel), LLONG_MAX,
                      path_id, GetCompressionType(ioptions_, kLevel));
   c->score_ = score;
@@ -918,7 +918,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
-  assert(vstorage->NumberLevels() == 1);
+  assert(vstorage->num_levels() == 1);
   const int kLevel0 = 0;
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
   uint64_t total_size = 0;
