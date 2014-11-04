@@ -91,44 +91,12 @@ class BTree {
    private:
     const BTree* tree_;
     Node* node_; // leaf node logically used as the first on the delta nodes chain
-    std::vector<IndexEntry> aggregated_; // Maintain snapshot
     int offset_; // cursor into aggretaged_ vector
     
     // TODO 
     // In order to prevent invalidating the iterator, I'll use Epoch mechanism [Levandoski]
     // to defer garbage collect unused nodes. Since the only two access patterns are when inserting and
     // Accessing Iterator, one can implement Epoch around those two usecases
-
-    // Aggregate node chain's content into single sorted aggregated vector
-    void aggregateToVector() {
-      aggregated_.clear();
-      int chainDepth = node_->depth();
-      std::vector<int> idx(chainDepth, 0);
-      std::vector<int> numEntries(chainDepth, 0);
-      int vectorSize = 0;
-      for (int i = 0; i < chainDepth; i++) {
-        vectorSize += (*node_)[i]->numEntries;
-        numEntries[i] = (*node_)[i]->numEntries;
-      }
-      aggregated_.resize(vectorSize);
-      for (int i = 0; i < vectorSize; i++) {
-        Key min = nullptr;
-        int minNodeIdx = -1;
-        for (int j = 0; j < chainDepth; j++) {
-          if (idx[j] < numEntries[j]) {
-            Key compared = node_->entries[idx[j]].key;
-            if (min == nullptr || tree_->compare_(compared, min) < 0) {
-              min = compared;
-              minNodeIdx = j;
-            }  
-          }
-        }
-        assert(minNodeIdx != -1 && min != nullptr);
-        int accesingIdx = idx[minNodeIdx]++;
-        aggregated_[i] = (*node_)[minNodeIdx]->entries[accesingIdx];
-      }
-    }
-  };
 
   // Maps from logical node id to physical pointer to a Node. Adopted from Bw-Tree.
   class MappingTable {
@@ -182,18 +150,18 @@ class BTree {
 
   // Return the earliest node that comes at or after key.
   // Return nullptr for first element if there is no such node.
-  std::tuple<Node*, int, int, std::unique_ptr<class std::stack<Node*> > > FindGreaterOrEqual(const Key& key) const;
+  std::tuple<Node*, int, std::unique_ptr<class std::stack<Node*> > > FindGreaterOrEqual(const Key& key) const;
 
   // Return the latest node with a key < key.
   // Return nullptr if there is no such node.
-  std::tuple<Node*, int, int> FindLessThan(const Key& key) const;
+  std::tuple<Node*, int> FindLessThan(const Key& key) const;
 
   // Return nullptr if tree is empty
-  std::tuple<Node*, int, int> FindFirst() const;
+  std::tuple<Node*, int> FindFirst() const;
 
   // Return the last node in the tree.
   // Return nullptr if tree is empty.
-  std::tuple<Node*, int, int, std::unique_ptr<std::stack<Node*> > > FindLast() const;
+  std::tuple<Node*, int, std::unique_ptr<std::stack<Node*> > > FindLast() const;
 
   bool splitIsNecessary(Node* node);
 
@@ -520,17 +488,10 @@ bool BTree<Key, Comparator>::splitIsNecessary(Node* node) {
 // Create two new Nodes 
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, typename BTree<Key, Comparator>::Node*> 
-BTree<Key, Comparator>::splitWithAddedEntry(Node* node, int depthIndex, int entryIndex, const IndexEntry & entry) {
+BTree<Key, Comparator>::splitWithAddedEntry(Node* node, int entryIndex, const IndexEntry & entry) {
   // Split function must consolidate the original and new node, so that calculating numEntries
   // would return correct value.
-  int chainDepth = node->depth();
-  int newSize = 1; // number of total elements in node including the element to be added
-  std::vector<int> idx(chainDepth, 0);
-  std::vector<int> numEntries(chainDepth, 0);
-  for (int i = 0; i < chainDepth; i++) {
-    numEntries[i] = (*node)[i]->numEntries;
-    newSize += (*node)[i]->numEntries;
-  }
+  int newSize = 1 + node->numEntries; // number of total elements in node including the element to be added
   
   Node* left = NewNode(newSize / 2, node->type);
   Node* right = NewNode(newSize - left->numEntries, node->type);
