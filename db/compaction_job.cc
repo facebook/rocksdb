@@ -318,7 +318,8 @@ Status CompactionJob::Run() {
 
       if (!ParseInternalKey(key, &ikey)) {
         // log error
-        Log(db_options_.info_log, "[%s] Failed to parse key: %s",
+        Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+            "[%s] Failed to parse key: %s",
             cfd->GetName().c_str(), key.ToString().c_str());
         continue;
       } else {
@@ -957,10 +958,10 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
     s = iter->status();
     delete iter;
     if (s.ok()) {
-      Log(db_options_.info_log, "[%s] Generated table #%" PRIu64 ": %" PRIu64
-                                " keys, %" PRIu64 " bytes",
-          cfd->GetName().c_str(), output_number, current_entries,
-          current_bytes);
+      Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
+          "[%s] Generated table #%" PRIu64 ": %" PRIu64
+          " keys, %" PRIu64 " bytes", cfd->GetName().c_str(),
+          output_number, current_entries, current_bytes);
     }
   }
   return s;
@@ -974,7 +975,8 @@ Status CompactionJob::InstallCompactionResults() {
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact_.
   if (!versions_->VerifyCompactionFileConsistency(compact_->compaction)) {
-    Log(db_options_.info_log, "[%s] Compaction %d@%d + %d@%d files aborted",
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "[%s] Compaction %d@%d + %d@%d files aborted",
         compact_->compaction->column_family_data()->GetName().c_str(),
         compact_->compaction->num_input_files(0), compact_->compaction->level(),
         compact_->compaction->num_input_files(1),
@@ -982,13 +984,14 @@ Status CompactionJob::InstallCompactionResults() {
     return Status::Corruption("Compaction input files inconsistent");
   }
 
-  LogToBuffer(log_buffer_, "[%s] Compacted %d@%d + %d@%d files => %lld bytes",
-              compact_->compaction->column_family_data()->GetName().c_str(),
-              compact_->compaction->num_input_files(0),
-              compact_->compaction->level(),
-              compact_->compaction->num_input_files(1),
-              compact_->compaction->output_level(),
-              static_cast<long long>(compact_->total_bytes));
+  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+      "[%s] Compacted %d@%d + %d@%d files => %" PRIu64 " bytes",
+      compact_->compaction->column_family_data()->GetName().c_str(),
+      compact_->compaction->num_input_files(0),
+      compact_->compaction->level(),
+      compact_->compaction->num_input_files(1),
+      compact_->compaction->output_level(),
+      compact_->total_bytes);
 
   // Add compaction outputs
   compact_->compaction->AddInputDeletions(compact_->compaction->edit());
@@ -1023,9 +1026,11 @@ inline SequenceNumber CompactionJob::findEarliestVisibleSnapshot(
     prev = cur;  // assignment
     assert(prev);
   }
-  Log(db_options_.info_log,
-      "Looking for seqid %" PRIu64 " but maxseqid is %" PRIu64 "", in,
-      snapshots[snapshots.size() - 1]);
+  Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+      "CompactionJob is not able to find snapshot"
+      " with SeqId later than %" PRIu64
+      ": current MaxSeqId is %" PRIu64 "",
+      in, snapshots[snapshots.size() - 1]);
   assert(0);
   return 0;
 }
@@ -1070,8 +1075,7 @@ Status CompactionJob::OpenCompactionOutputFile() {
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "[%s] OpenCompactionOutputFiles for table #%" PRIu64
-        " "
-        "fails at NewWritableFile with status %s",
+        " fails at NewWritableFile with status %s",
         compact_->compaction->column_family_data()->GetName().c_str(),
         file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
