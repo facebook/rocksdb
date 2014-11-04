@@ -13,7 +13,7 @@
 
 #include "include/org_rocksdb_Options.h"
 //TODO(fyrz) to be commented in with options refactoring pull requests
-//#include "include/org_rocksdb_DBOptions.h"
+#include "include/org_rocksdb_DBOptions.h"
 //#include "include/org_rocksdb_ColumnFamilyOptions.h"
 #include "include/org_rocksdb_WriteOptions.h"
 #include "include/org_rocksdb_ReadOptions.h"
@@ -2714,9 +2714,8 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMinPartialMergeOperands(
  */
 void Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
     jobject jobj) {
-  // TODO(fyrz) needs to be enabled back when DBOptions are available
-  // rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
-  // rocksdb::DBOptionsJni::setHandle(env, jobj, dbop);
+  rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
+  rocksdb::DBOptionsJni::setHandle(env, jobj, dbop);
 }
 
 /*

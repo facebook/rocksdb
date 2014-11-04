@@ -126,6 +126,71 @@ class OptionsJni {
   }
 };
 
+class DBOptionsJni {
+ public:
+  // Get the java class id of org.rocksdb.DBOptions.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/DBOptions");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.DBOptions
+  // that stores the pointer to rocksdb::DBOptions
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::DBOptions
+  static rocksdb::DBOptions* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::DBOptions*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::DBOptions pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jobj, rocksdb::DBOptions* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
+class ColumnFamilyOptionsJni {
+ public:
+  // Get the java class id of org.rocksdb.ColumnFamilyOptions.
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/ColumnFamilyOptions");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the field id of the member variable of org.rocksdb.DBOptions
+  // that stores the pointer to rocksdb::ColumnFamilyOptions
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::ColumnFamilyOptions
+  static rocksdb::ColumnFamilyOptions* getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::ColumnFamilyOptions pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jobj,
+      rocksdb::ColumnFamilyOptions* op) {
+    env->SetLongField(
+        jobj, getHandleFieldID(env),
+        reinterpret_cast<jlong>(op));
+  }
+};
+
 class WriteOptionsJni {
  public:
   // Get the java class id of org.rocksdb.WriteOptions.
