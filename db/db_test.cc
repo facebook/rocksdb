@@ -8082,7 +8082,7 @@ TEST(DBTest, Level0StopWritesTest) {
   Options options = CurrentOptions();
   options.level0_slowdown_writes_trigger = 2;
   options.level0_stop_writes_trigger = 4;
-  options.disable_auto_compactions = 4;
+  options.disable_auto_compactions = true;
   options.max_mem_compaction_level = 0;
   Reopen(options);
 
@@ -8424,7 +8424,7 @@ TEST(DBTest, DynamicMemtableOptions) {
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
-  options.max_background_compactions = 4;
+  options.max_background_compactions = 1;
   options.max_mem_compaction_level = 0;
   options.write_buffer_size = k64KB;
   options.max_write_buffer_number = 2;
