@@ -317,7 +317,7 @@ void Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
  */
 void Java_org_rocksdb_WriteBatch_00024Handler_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-    delete reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
+  delete reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
 }
 
 /*

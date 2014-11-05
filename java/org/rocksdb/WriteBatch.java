@@ -105,8 +105,13 @@ public class WriteBatch extends RocksObject {
 
   /**
    * Support for iterating over the contents of a batch.
+   *
+   * @param handler A handler that is called back for each
+   *                update present in the batch
+   *
+   * @throws RocksDBException If we cannot iterate over the batch
    */
-  public void iterate(Handler handler) {
+  public void iterate(Handler handler) throws RocksDBException {
     iterate(handler.nativeHandle_);
   }
 
@@ -138,7 +143,7 @@ public class WriteBatch extends RocksObject {
   private native void remove(byte[] key, int keyLen,
                             long cfHandle);
   private native void putLogData(byte[] blob, int blobLen);
-  private native void iterate(long handlerHandle);
+  private native void iterate(long handlerHandle) throws RocksDBException;
   private native void disposeInternal(long handle);
 
   /**
@@ -157,7 +162,7 @@ public class WriteBatch extends RocksObject {
 
     /**
      * shouldContinue is called by the underlying iterator
-     * (WriteBatch::Iterate.If it returns false,
+     * WriteBatch::Iterate. If it returns false,
      * iteration is halted. Otherwise, it continues
      * iterating. The default implementation always
      * returns true.

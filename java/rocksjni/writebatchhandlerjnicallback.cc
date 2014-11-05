@@ -11,12 +11,8 @@
 
 namespace rocksdb {
 WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
-    JNIEnv* env, jobject jWriteBatchHandler) {
-
-  // Note: WriteBatchHandler methods may be accessed by multiple threads,
-  // so we ref the jvm not the env
-  const jint rs = env->GetJavaVM(&m_jvm);
-  assert(rs == JNI_OK);
+    JNIEnv* env, jobject jWriteBatchHandler)
+    : m_env(env) {
 
   // Note: we want to access the Java WriteBatchHandler instance
   // across multiple method calls, so we create a global ref
@@ -29,70 +25,80 @@ WriteBatchHandlerJniCallback::WriteBatchHandlerJniCallback(
   m_jContinueMethodId = WriteBatchHandlerJni::getContinueMethodId(env);
 }
 
-/**
- * Attach/Get a JNIEnv for the current native thread
- */
-JNIEnv* WriteBatchHandlerJniCallback::getJniEnv() const {
-  JNIEnv *env;
-  jint rs = m_jvm->AttachCurrentThread(reinterpret_cast<void **>(&env), NULL);
-  assert(rs == JNI_OK);
-  return env;
-}
-
 void WriteBatchHandlerJniCallback::Put(const Slice& key, const Slice& value) {
-  getJniEnv()->CallVoidMethod(
+  const jbyteArray j_key = sliceToJArray(key);
+  const jbyteArray j_value = sliceToJArray(value);
+
+  m_env->CallVoidMethod(
       m_jWriteBatchHandler,
       m_jPutMethodId,
-      sliceToJArray(key),
-      sliceToJArray(value));
+      j_key,
+      j_value);
+
+  m_env->DeleteLocalRef(j_value);
+  m_env->DeleteLocalRef(j_key);
 }
 
 void WriteBatchHandlerJniCallback::Merge(const Slice& key, const Slice& value) {
-  getJniEnv()->CallVoidMethod(
+  const jbyteArray j_key = sliceToJArray(key);
+  const jbyteArray j_value = sliceToJArray(value);
+
+  m_env->CallVoidMethod(
       m_jWriteBatchHandler,
       m_jMergeMethodId,
-      sliceToJArray(key),
-      sliceToJArray(value));
+      j_key,
+      j_value);
+
+  m_env->DeleteLocalRef(j_value);
+  m_env->DeleteLocalRef(j_key);
 }
 
 void WriteBatchHandlerJniCallback::Delete(const Slice& key) {
-  getJniEnv()->CallVoidMethod(
+  const jbyteArray j_key = sliceToJArray(key);
+
+  m_env->CallVoidMethod(
       m_jWriteBatchHandler,
       m_jDeleteMethodId,
-      sliceToJArray(key));
+      j_key);
+
+  m_env->DeleteLocalRef(j_key);
 }
 
 void WriteBatchHandlerJniCallback::LogData(const Slice& blob) {
-  getJniEnv()->CallVoidMethod(
+  const jbyteArray j_blob = sliceToJArray(blob);
+
+  m_env->CallVoidMethod(
       m_jWriteBatchHandler,
       m_jLogDataMethodId,
-      sliceToJArray(blob));
+      j_blob);
+
+  m_env->DeleteLocalRef(j_blob);
 }
 
 bool WriteBatchHandlerJniCallback::Continue() {
-  jboolean jContinue = getJniEnv()->CallBooleanMethod(
+  jboolean jContinue = m_env->CallBooleanMethod(
       m_jWriteBatchHandler,
       m_jContinueMethodId);
 
   return static_cast<bool>(jContinue == JNI_TRUE);
 }
 
+/*
+ * Creates a Java Byte Array from the data in a Slice
+ *
+ * When calling this function
+ * you must remember to call env->DeleteLocalRef
+ * on the result after you have finished with it
+ */
 jbyteArray WriteBatchHandlerJniCallback::sliceToJArray(const Slice& s) {
-  jbyteArray ja = getJniEnv()->NewByteArray(s.size());
-  getJniEnv()->SetByteArrayRegion(
+  jbyteArray ja = m_env->NewByteArray(s.size());
+  m_env->SetByteArrayRegion(
       ja, 0, s.size(),
       reinterpret_cast<const jbyte*>(s.data()));
   return ja;
 }
 
 WriteBatchHandlerJniCallback::~WriteBatchHandlerJniCallback() {
-  JNIEnv* m_env = getJniEnv();
-
   m_env->DeleteGlobalRef(m_jWriteBatchHandler);
-
-  // Note: do not need to explicitly detach, as this function is effectively
-  // called from the Java class's disposeInternal method, and so already
-  // has an attached thread, getJniEnv above is just a no-op Attach to get
-  // the env jvm->DetachCurrentThread();
 }
 }  // namespace rocksdb

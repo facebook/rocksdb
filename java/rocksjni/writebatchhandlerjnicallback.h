@@ -17,8 +17,8 @@ namespace rocksdb {
  * This class acts as a bridge between C++
  * and Java. The methods in this class will be
  * called back from the RocksDB storage engine (C++)
- * we then callback to the appropriate Java method
- * this enables Write Batch Handlers to be implemented in Java.
+ * which calls the appropriate Java method.
+ * This enables Write Batch Handlers to be implemented in Java.
  */
 class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
  public:
@@ -32,9 +32,8 @@ class WriteBatchHandlerJniCallback : public WriteBatch::Handler {
     bool Continue();
 
  private:
-    JavaVM* m_jvm;
+    JNIEnv* m_env;
     jobject m_jWriteBatchHandler;
-    JNIEnv* getJniEnv() const;
     jbyteArray sliceToJArray(const Slice& s);
     jmethodID m_jPutMethodId;
     jmethodID m_jMergeMethodId;
