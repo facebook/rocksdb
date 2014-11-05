@@ -13,6 +13,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class RocksIteratorTest {
 
   @ClassRule
@@ -21,6 +23,42 @@ public class RocksIteratorTest {
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void rocksIterator() throws RocksDBException {
+    RocksDB db;
+    Options options = new Options();
+    options.setCreateIfMissing(true)
+        .setCreateMissingColumnFamilies(true);
+    db = RocksDB.open(options,
+        dbFolder.getRoot().getAbsolutePath());
+    db.put("key1".getBytes(), "value1".getBytes());
+    db.put("key2".getBytes(), "value2".getBytes());
+
+    RocksIterator iterator = db.newIterator();
+
+    iterator.seekToFirst();
+    assertThat(iterator.isValid()).isTrue();
+    assertThat(iterator.key()).isEqualTo("key1".getBytes());
+    assertThat(iterator.value()).isEqualTo("value1".getBytes());
+    iterator.next();
+    assertThat(iterator.isValid()).isTrue();
+    assertThat(iterator.key()).isEqualTo("key2".getBytes());
+    assertThat(iterator.value()).isEqualTo("value2".getBytes());
+    iterator.next();
+    assertThat(iterator.isValid()).isFalse();
+    iterator.seekToLast();
+    iterator.prev();
+    assertThat(iterator.isValid()).isTrue();
+    assertThat(iterator.key()).isEqualTo("key1".getBytes());
+    assertThat(iterator.value()).isEqualTo("value1".getBytes());
+    iterator.seekToFirst();
+    iterator.seekToLast();
+    assertThat(iterator.isValid()).isTrue();
+    assertThat(iterator.key()).isEqualTo("key2".getBytes());
+    assertThat(iterator.value()).isEqualTo("value2".getBytes());
+    iterator.status();
+  }
 
   @Test
   public void rocksIteratorGc()
