@@ -23,7 +23,7 @@ public class DirectComparatorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void shouldTestDirectComparator() throws IOException {
+  public void directComparator() throws IOException {
 
     final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
       @Override
@@ -49,7 +49,5 @@ public class DirectComparatorTest {
     // test the round-tripability of keys written and read with the DirectComparator
     comparatorTest.testRoundtrip(FileSystems.getDefault().getPath(
         dbFolder.getRoot().getAbsolutePath()));
-
-    System.out.println("Passed DirectComparatorTest");
   }
 }

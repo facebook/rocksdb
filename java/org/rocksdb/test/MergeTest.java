@@ -8,12 +8,13 @@ package org.rocksdb.test;
 import java.util.List;
 import java.util.ArrayList;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class MergeTest {
 
@@ -24,13 +25,8 @@ public class MergeTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  @AfterClass
-  public static void printMergePass(){
-    System.out.println("Passed MergeTest.");
-  }
-
   @Test
-  public void shouldTestStringOption()
+  public void stringOption()
       throws InterruptedException, RocksDBException {
     String db_path_string =
         dbFolder.getRoot().getAbsolutePath();
@@ -49,11 +45,11 @@ public class MergeTest {
 
     db.close();
     opt.dispose();
-    assert(strValue.equals("aa,bb"));
+    assertThat(strValue).isEqualTo("aa,bb");
   }
 
   @Test
-  public void shouldTestCFStringOption()
+  public void cFStringOption()
       throws InterruptedException, RocksDBException {
     DBOptions opt = new DBOptions();
     String db_path_string =
@@ -89,11 +85,11 @@ public class MergeTest {
     }
     db.close();
     opt.dispose();
-    assert(strValue.equals("aa,bb"));
+    assertThat(strValue).isEqualTo("aa,bb");
   }
 
   @Test
-  public void shouldTestOperatorOption()
+  public void operatorOption()
       throws InterruptedException, RocksDBException {
     String db_path_string =
         dbFolder.getRoot().getAbsolutePath();
@@ -115,11 +111,11 @@ public class MergeTest {
 
     db.close();
     opt.dispose();
-    assert(strValue.equals("aa,bb"));
+    assertThat(strValue).isEqualTo("aa,bb");
   }
 
   @Test
-  public void shouldTestCFOperatorOption()
+  public void cFOperatorOption()
       throws InterruptedException, RocksDBException {
     DBOptions opt = new DBOptions();
     String db_path_string =
@@ -165,12 +161,12 @@ public class MergeTest {
     columnFamilyHandle.dispose();
     db.close();
     opt.dispose();
-    assert(strValue.equals("aa,bb"));
-    assert(strValueTmpCf.equals("xx,yy"));
+    assertThat(strValue).isEqualTo("aa,bb");
+    assertThat(strValueTmpCf).isEqualTo("xx,yy");
   }
 
   @Test
-  public void shouldTestOperatorGcBehaviour()
+  public void operatorGcBehaviour()
       throws RocksDBException {
     String db_path_string =
         dbFolder.getRoot().getAbsolutePath();
@@ -207,9 +203,5 @@ public class MergeTest {
     db = RocksDB.open(opt, db_path_string);
     db.close();
     opt.dispose();
-    stringAppendOperator = null;
-    newStringAppendOperator = null;
-    System.gc();
-    System.runFinalization();
   }
 }

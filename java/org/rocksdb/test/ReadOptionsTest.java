@@ -7,7 +7,6 @@ package org.rocksdb.test;
 
 import java.util.Random;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -25,13 +24,8 @@ public class ReadOptionsTest {
   @Rule
   public ExpectedException exception = ExpectedException.none();
 
-  @AfterClass
-  public static void printMessage(){
-    System.out.println("Passed ReadOptionsTest.");
-  }
-
   @Test
-  public void shouldTestReadOptions() {
+  public void readOptions() {
     ReadOptions opt = new ReadOptions();
     Random rand = new Random();
     { // VerifyChecksums test
@@ -60,49 +54,49 @@ public class ReadOptionsTest {
   }
 
   @Test
-  public void shouldFailVerifyChecksumUninitialized(){
+  public void failVerifyChecksumUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.setVerifyChecksums(true);
   }
 
   @Test
-  public void shouldFailSetFillCacheUninitialized(){
+  public void failSetFillCacheUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.setFillCache(true);
   }
 
   @Test
-  public void shouldFailFillCacheUninitialized(){
+  public void failFillCacheUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.fillCache();
   }
 
   @Test
-  public void shouldFailSetTailingUninitialized(){
+  public void failSetTailingUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.setTailing(true);
   }
 
   @Test
-  public void shouldFailTailingUninitialized(){
+  public void failTailingUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.tailing();
   }
 
   @Test
-  public void shouldFailSetSnapshotUninitialized(){
+  public void failSetSnapshotUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.setSnapshot(null);
   }
 
   @Test
-  public void shouldFailSnapshotUninitialized(){
+  public void failSnapshotUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.snapshot();

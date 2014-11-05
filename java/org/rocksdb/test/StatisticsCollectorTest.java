@@ -25,7 +25,7 @@ public class StatisticsCollectorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void shouldTestStatisticsCollector()
+  public void statisticsCollector()
       throws InterruptedException, RocksDBException {
     Options opt = new Options().createStatistics().setCreateIfMissing(true);
     Statistics stats = opt.statisticsPtr();
@@ -49,7 +49,5 @@ public class StatisticsCollectorTest {
 
     db.close();
     opt.dispose();
-
-    System.out.println("Stats collector test passed.!");
   }
 }

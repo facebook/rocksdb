@@ -16,10 +16,9 @@ public class FilterTest {
       new RocksMemoryResource();
 
   @Test
-  public void shouldTestFilter() {
+  public void filter() {
     Options options = new Options();
     // test table config
-    BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
     options.setTableFormatConfig(new BlockBasedTableConfig().
         setFilter(new BloomFilter()));
     options.dispose();
@@ -27,7 +26,7 @@ public class FilterTest {
     System.runFinalization();
     // new Bloom filter
     options = new Options();
-    blockConfig = new BlockBasedTableConfig();
+    BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
     blockConfig.setFilter(new BloomFilter());
     options.setTableFormatConfig(blockConfig);
     BloomFilter bloomFilter = new BloomFilter(10);
@@ -38,10 +37,5 @@ public class FilterTest {
     blockConfig.setFilter(new BloomFilter(10, false));
     options.setTableFormatConfig(blockConfig);
     options.dispose();
-    options = null;
-    blockConfig = null;
-    System.gc();
-    System.runFinalization();
-    System.out.println("Passed FilterTest.");
   }
 }

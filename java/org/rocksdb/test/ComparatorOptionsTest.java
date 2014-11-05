@@ -18,7 +18,7 @@ public class ComparatorOptionsTest {
       new RocksMemoryResource();
 
   @Test
-  public void shouldTestComparatorOptions() {
+  public void comparatorOptions() {
     final ComparatorOptions copt = new ComparatorOptions();
 
     assertThat(copt).isNotNull();
@@ -32,6 +32,5 @@ public class ComparatorOptionsTest {
     }
 
     copt.dispose();
-    System.out.println("Passed ComparatorOptionsTest");
   }
 }

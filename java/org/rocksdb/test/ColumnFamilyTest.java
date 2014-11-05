@@ -26,7 +26,7 @@ public class ColumnFamilyTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void shouldTestColumnFamilies() {
+  public void  columnFamilies() {
     String db_path = dbFolder.getRoot().getAbsolutePath();
     RocksDB db = null;
     Options options = new Options();
@@ -291,6 +291,5 @@ public class ColumnFamilyTest {
     db.close();
     // be sure to dispose c++ pointers
     options.dispose();
-    System.out.println("Passed ColumnFamilyTest.");
   }
 }

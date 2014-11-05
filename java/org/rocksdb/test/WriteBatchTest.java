@@ -8,7 +8,6 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 package org.rocksdb.test;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -36,19 +35,14 @@ public class WriteBatchTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  @AfterClass
-  public static void printMergePass(){
-    System.out.println("Passed WriteBatchTest.");
-  }
-
   @Test
-  public void shouldTestEmptyWriteBatch() {
+  public void emptyWriteBatch() {
     WriteBatch batch = new WriteBatch();
     assertThat(batch.count()).isEqualTo(0);
   }
 
   @Test
-  public void shouldTestMultipleBatchOperations()
+  public void multipleBatchOperations()
       throws UnsupportedEncodingException {
     WriteBatch batch =  new WriteBatch();
     batch.put("foo".getBytes("US-ASCII"), "bar".getBytes("US-ASCII"));
@@ -66,7 +60,7 @@ public class WriteBatchTest {
   }
 
   @Test
-  public void shouldTestAppendOperation()
+  public void testAppendOperation()
       throws UnsupportedEncodingException {
     WriteBatch b1 = new WriteBatch();
     WriteBatch b2 = new WriteBatch();
@@ -97,7 +91,7 @@ public class WriteBatchTest {
   }
 
   @Test
-  public void shouldTestBlobOperation()
+  public void blobOperation()
       throws UnsupportedEncodingException {
     WriteBatch batch = new WriteBatch();
     batch.put("k1".getBytes("US-ASCII"), "v1".getBytes("US-ASCII"));

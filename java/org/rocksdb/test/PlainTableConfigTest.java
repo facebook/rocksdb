@@ -5,11 +5,12 @@
 
 package org.rocksdb.test;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.EncodingType;
 import org.rocksdb.PlainTableConfig;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class PlainTableConfigTest {
 
@@ -17,30 +18,31 @@ public class PlainTableConfigTest {
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
 
-  @AfterClass
-  public static void printMessage(){
-    System.out.println("Passed PlainTableConfigTest.");
-  }
-
   @Test
-  public void shouldTestPlainTableConfig() {
+  public void plainTableConfig() {
     PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setKeySize(5);
-    assert(plainTableConfig.keySize() == 5);
+    assertThat(plainTableConfig.keySize()).
+        isEqualTo(5);
     plainTableConfig.setBloomBitsPerKey(11);
-    assert(plainTableConfig.bloomBitsPerKey() == 11);
+    assertThat(plainTableConfig.bloomBitsPerKey()).
+        isEqualTo(11);
     plainTableConfig.setHashTableRatio(0.95);
-    assert(plainTableConfig.hashTableRatio() == 0.95);
+    assertThat(plainTableConfig.hashTableRatio()).
+        isEqualTo(0.95);
     plainTableConfig.setIndexSparseness(18);
-    assert(plainTableConfig.indexSparseness() == 18);
+    assertThat(plainTableConfig.indexSparseness()).
+        isEqualTo(18);
     plainTableConfig.setHugePageTlbSize(1);
-    assert(plainTableConfig.hugePageTlbSize() == 1);
+    assertThat(plainTableConfig.hugePageTlbSize()).
+        isEqualTo(1);
     plainTableConfig.setEncodingType(EncodingType.kPrefix);
-    assert(plainTableConfig.encodingType().equals(
-        EncodingType.kPrefix));
+    assertThat(plainTableConfig.encodingType()).isEqualTo(
+        EncodingType.kPrefix);
     plainTableConfig.setFullScanMode(true);
-    assert(plainTableConfig.fullScanMode());
+    assertThat(plainTableConfig.fullScanMode()).isTrue();
     plainTableConfig.setStoreIndexInFile(true);
-    assert(plainTableConfig.storeIndexInFile());
+    assertThat(plainTableConfig.storeIndexInFile()).
+        isTrue();
   }
 }

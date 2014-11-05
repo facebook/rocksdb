@@ -120,7 +120,7 @@ resolve_test_deps:
 
 test: java resolve_test_deps
 	javac -cp $(JAVA_TESTCLASSPATH) org/rocksdb/test/*.java
-	java -ea -Djava.library.path=.:../ -cp "$(JAVA_TESTCLASSPATH)" org.junit.runner.JUnitCore $(JAVA_TESTS)
+	java -ea -Djava.library.path=.:../ -cp "$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
 	javac org/rocksdb/benchmark/*.java

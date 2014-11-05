@@ -14,6 +14,8 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.Snapshot;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class SnapshotTest {
 
   @ClassRule
@@ -24,7 +26,7 @@ public class SnapshotTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void shouldTestSnapshots() throws RocksDBException {
+  public void snapshots() throws RocksDBException {
     RocksDB db;
     Options options = new Options();
     options.setCreateIfMissing(true);
@@ -37,43 +39,43 @@ public class SnapshotTest {
     // set snapshot in ReadOptions
     readOptions.setSnapshot(snapshot);
     // retrieve key value pair
-    assert(new String(db.get("key".getBytes()))
-        .equals("value"));
+    assertThat(new String(db.get("key".getBytes()))).
+        isEqualTo("value");
     // retrieve key value pair created before
     // the snapshot was made
-    assert(new String(db.get(readOptions,
-        "key".getBytes())).equals("value"));
+    assertThat(new String(db.get(readOptions,
+        "key".getBytes()))).isEqualTo("value");
     // add new key/value pair
     db.put("newkey".getBytes(), "newvalue".getBytes());
     // using no snapshot the latest db entries
     // will be taken into account
-    assert(new String(db.get("newkey".getBytes()))
-        .equals("newvalue"));
+    assertThat(new String(db.get("newkey".getBytes()))).
+        isEqualTo("newvalue");
     // snapshopot was created before newkey
-    assert(db.get(readOptions, "newkey".getBytes())
-        == null);
+    assertThat(db.get(readOptions, "newkey".getBytes())).
+        isNull();
     // Retrieve snapshot from read options
     Snapshot sameSnapshot = readOptions.snapshot();
     readOptions.setSnapshot(sameSnapshot);
     // results must be the same with new Snapshot
     // instance using the same native pointer
-    assert(new String(db.get(readOptions,
-        "key".getBytes())).equals("value"));
+    assertThat(new String(db.get(readOptions,
+        "key".getBytes()))).isEqualTo("value");
     // update key value pair to newvalue
     db.put("key".getBytes(), "newvalue".getBytes());
     // read with previously created snapshot will
     // read previous version of key value pair
-    assert(new String(db.get(readOptions,
-        "key".getBytes())).equals("value"));
+    assertThat(new String(db.get(readOptions,
+        "key".getBytes()))).isEqualTo("value");
     // read for newkey using the snapshot must be
     // null
-    assert(db.get(readOptions, "newkey".getBytes())
-        == null);
+    assertThat(db.get(readOptions, "newkey".getBytes())).
+        isNull();
     // setting null to snapshot in ReadOptions leads
     // to no Snapshot being used.
     readOptions.setSnapshot(null);
-    assert(new String(db.get(readOptions,
-        "newkey".getBytes())).equals("newvalue"));
+    assertThat(new String(db.get(readOptions,
+        "newkey".getBytes()))).isEqualTo("newvalue");
     // release Snapshot
     db.releaseSnapshot(snapshot);
     // Close database

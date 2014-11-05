@@ -23,7 +23,7 @@ public class RocksIteratorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void shouldTestRocksIteratorGc()
+  public void rocksIteratorGc()
       throws RocksDBException {
     RocksDB db;
     Options options = new Options();
@@ -44,6 +44,5 @@ public class RocksIteratorTest {
     iter3.dispose();
     System.gc();
     System.runFinalization();
-    System.out.println("Passed RocksIteratorTest.");
   }
 }

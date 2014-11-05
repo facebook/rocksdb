@@ -5,7 +5,6 @@
 
 package org.rocksdb.test;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.WriteOptions;
@@ -18,13 +17,8 @@ public class WriteOptionsTest {
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
 
-  @AfterClass
-  public static void printMessage(){
-    System.out.println("Passed WriteOptionsTest.");
-  }
-
   @Test
-  public void shouldTestWriteOptions(){
+  public void writeOptions(){
     WriteOptions writeOptions = new WriteOptions();
     writeOptions.setDisableWAL(true);
     assertThat(writeOptions.disableWAL()).isTrue();

@@ -5,7 +5,6 @@
 
 package org.rocksdb.test;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.*;
@@ -18,13 +17,8 @@ public class BlockBasedTableConfigTest {
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
 
-  @AfterClass
-  public static void printMessage(){
-    System.out.println("Passed BlockBasedTableConfigTest.");
-  }
-
   @Test
-  public void shouldTestBlockBasedTableConfig() {
+  public void blockBasedTableConfig() {
     BlockBasedTableConfig blockBasedTableConfig =
         new BlockBasedTableConfig();
     blockBasedTableConfig.setNoBlockCache(true);
@@ -68,7 +62,7 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
-  public void shouldTestBlockBasedTableWithFilter() {
+  public void blockBasedTableWithFilter() {
     Options options = new Options();
     options.setTableFormatConfig(
         new BlockBasedTableConfig().setFilter(
@@ -78,7 +72,7 @@ public class BlockBasedTableConfigTest {
   }
 
   @Test
-  public void shouldTestBlockBasedTableWithoutFilter() {
+  public void blockBasedTableWithoutFilter() {
     Options options = new Options();
     options.setTableFormatConfig(
         new BlockBasedTableConfig().setFilter(null));

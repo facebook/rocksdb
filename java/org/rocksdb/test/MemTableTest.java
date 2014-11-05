@@ -9,6 +9,8 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class MemTableTest {
 
   @ClassRule
@@ -16,22 +18,27 @@ public class MemTableTest {
       new RocksMemoryResource();
 
   @Test
-  public void shouldTestMemTable() throws RocksDBException {
+  public void memTable() throws RocksDBException {
     Options options = new Options();
     // Test HashSkipListMemTableConfig
     HashSkipListMemTableConfig memTableConfig =
         new HashSkipListMemTableConfig();
-    assert(memTableConfig.bucketCount() == 1000000);
+    assertThat(memTableConfig.bucketCount()).
+        isEqualTo(1000000);
     memTableConfig.setBucketCount(2000000);
-    assert(memTableConfig.bucketCount() == 2000000);
-    assert(memTableConfig.height() == 4);
+    assertThat(memTableConfig.bucketCount()).
+        isEqualTo(2000000);
+    assertThat(memTableConfig.height()).
+        isEqualTo(4);
     memTableConfig.setHeight(5);
-    assert(memTableConfig.height() == 5);
-    assert(memTableConfig.branchingFactor() == 4);
+    assertThat(memTableConfig.height()).
+        isEqualTo(5);
+    assertThat(memTableConfig.branchingFactor()).
+        isEqualTo(4);
     memTableConfig.setBranchingFactor(6);
-    assert(memTableConfig.branchingFactor() == 6);
+    assertThat(memTableConfig.branchingFactor()).
+        isEqualTo(6);
     options.setMemTableConfig(memTableConfig);
-    memTableConfig = null;
     options.dispose();
     System.gc();
     System.runFinalization();
@@ -39,11 +46,12 @@ public class MemTableTest {
     options = new Options();
     SkipListMemTableConfig skipMemTableConfig =
         new SkipListMemTableConfig();
-    assert(skipMemTableConfig.lookahead() == 0);
+    assertThat(skipMemTableConfig.lookahead()).
+        isEqualTo(0);
     skipMemTableConfig.setLookahead(20);
-    assert(skipMemTableConfig.lookahead() == 20);
+    assertThat(skipMemTableConfig.lookahead()).
+        isEqualTo(20);
     options.setMemTableConfig(skipMemTableConfig);
-    skipMemTableConfig = null;
     options.dispose();
     System.gc();
     System.runFinalization();
@@ -51,31 +59,38 @@ public class MemTableTest {
     options = new Options();
     HashLinkedListMemTableConfig hashLinkedListMemTableConfig =
         new HashLinkedListMemTableConfig();
-    assert(hashLinkedListMemTableConfig.bucketCount() == 50000);
+    assertThat(hashLinkedListMemTableConfig.bucketCount()).
+        isEqualTo(50000);
     hashLinkedListMemTableConfig.setBucketCount(100000);
-    assert(hashLinkedListMemTableConfig.bucketCount() == 100000);
-    assert(hashLinkedListMemTableConfig.hugePageTlbSize() == 0);
+    assertThat(hashLinkedListMemTableConfig.bucketCount()).
+        isEqualTo(100000);
+    assertThat(hashLinkedListMemTableConfig.hugePageTlbSize()).
+        isEqualTo(0);
     hashLinkedListMemTableConfig.setHugePageTlbSize(1);
-    assert(hashLinkedListMemTableConfig.hugePageTlbSize() == 1);
-    assert(hashLinkedListMemTableConfig.
-       bucketEntriesLoggingThreshold() == 4096);
+    assertThat(hashLinkedListMemTableConfig.hugePageTlbSize()).
+        isEqualTo(1);
+    assertThat(hashLinkedListMemTableConfig.
+       bucketEntriesLoggingThreshold()).
+        isEqualTo(4096);
     hashLinkedListMemTableConfig.
         setBucketEntriesLoggingThreshold(200);
-    assert(hashLinkedListMemTableConfig.
-       bucketEntriesLoggingThreshold() == 200);
-    assert(hashLinkedListMemTableConfig.
-        ifLogBucketDistWhenFlush());
+    assertThat(hashLinkedListMemTableConfig.
+       bucketEntriesLoggingThreshold()).
+        isEqualTo(200);
+    assertThat(hashLinkedListMemTableConfig.
+        ifLogBucketDistWhenFlush()).isTrue();
     hashLinkedListMemTableConfig.
         setIfLogBucketDistWhenFlush(false);
-    assert(!hashLinkedListMemTableConfig.
-        ifLogBucketDistWhenFlush());
-    assert(hashLinkedListMemTableConfig.
-        thresholdUseSkiplist() == 256);
+    assertThat(hashLinkedListMemTableConfig.
+        ifLogBucketDistWhenFlush()).isFalse();
+    assertThat(hashLinkedListMemTableConfig.
+        thresholdUseSkiplist()).
+        isEqualTo(256);
     hashLinkedListMemTableConfig.setThresholdUseSkiplist(29);
-    assert(hashLinkedListMemTableConfig.
-        thresholdUseSkiplist() == 29);
+    assertThat(hashLinkedListMemTableConfig.
+        thresholdUseSkiplist()).
+        isEqualTo(29);
     options.setMemTableConfig(hashLinkedListMemTableConfig);
-    hashLinkedListMemTableConfig = null;
     options.dispose();
     System.gc();
     System.runFinalization();
@@ -83,14 +98,14 @@ public class MemTableTest {
     options = new Options();
     VectorMemTableConfig vectorMemTableConfig =
         new VectorMemTableConfig();
-    assert(vectorMemTableConfig.reservedSize() == 0);
+    assertThat(vectorMemTableConfig.reservedSize()).
+        isEqualTo(0);
     vectorMemTableConfig.setReservedSize(123);
-    assert(vectorMemTableConfig.reservedSize() == 123);
+    assertThat(vectorMemTableConfig.reservedSize()).
+        isEqualTo(123);
     options.setMemTableConfig(vectorMemTableConfig);
-    vectorMemTableConfig = null;
     options.dispose();
     System.gc();
     System.runFinalization();
-    System.out.println("Passed MemTableTest.");
   }
 }

@@ -5,7 +5,6 @@
 
 package org.rocksdb.test;
 
-import org.junit.AfterClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -26,13 +25,8 @@ public class ComparatorTest {
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
-  @AfterClass
-  public static void printMessage(){
-    System.out.println("Passed ComparatorTest.");
-  }
-
   @Test
-  public void shouldTestComparator() throws IOException {
+  public void javaComparator() throws IOException {
 
     final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
       @Override
@@ -58,7 +52,7 @@ public class ComparatorTest {
   }
 
   @Test
-  public void shouldTestBuiltinForwardComparator()
+  public void builtinForwardComparator()
       throws RocksDBException {
     Options options = new Options();
     options.setCreateIfMissing(true);
@@ -112,7 +106,7 @@ public class ComparatorTest {
   }
 
   @Test
-  public void shouldTestBuiltinReverseComparator()
+  public void builtinReverseComparator()
       throws RocksDBException {
     Options options = new Options();
     options.setCreateIfMissing(true);
@@ -170,7 +164,7 @@ public class ComparatorTest {
   }
 
   @Test
-  public void shouldTestBuiltinComparatorEnum(){
+  public void builtinComparatorEnum(){
     assertThat(BuiltinComparator.BYTEWISE_COMPARATOR.ordinal())
         .isEqualTo(0);
     assertThat(
