@@ -8453,7 +8453,7 @@ TEST(DBTest, DynamicMemtableOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   // Increase buffer size
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"write_buffer_size", "131072"},
   }));
 
@@ -8495,7 +8495,7 @@ TEST(DBTest, DynamicMemtableOptions) {
   sleeping_task_low1.WaitUntilDone();
 
   // Increase
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_write_buffer_number", "8"},
   }));
   // Clean up memtable and L0
@@ -8514,7 +8514,7 @@ TEST(DBTest, DynamicMemtableOptions) {
   sleeping_task_low2.WaitUntilDone();
 
   // Decrease
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_write_buffer_number", "4"},
   }));
   // Clean up memtable and L0
@@ -8593,7 +8593,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // Writing to 64KB L0 files should trigger a compaction. Since these
   // 2 L0 files have the same key range, compaction merge them and should
   // result in 2 32KB L1 files.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"level0_file_num_compaction_trigger", "2"},
     {"target_file_size_base", std::to_string(k32KB) }
   }));
@@ -8615,7 +8615,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // Increase level base size to 256KB and write enough data that will
   // fill L1 and L2. L1 size should be around 256KB while L2 size should be
   // around 256KB x 4.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_bytes_for_level_base", std::to_string(k1MB) }
   }));
 
@@ -8636,7 +8636,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // max_bytes_for_level_base. Now, reduce both mulitplier and level base,
   // After filling enough data that can fit in L1 - L3, we should see L1 size
   // reduces to 128KB from 256KB which was asserted previously. Same for L2.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_bytes_for_level_multiplier", "2"},
     {"max_bytes_for_level_base", std::to_string(k128KB) }
   }));
@@ -8678,7 +8678,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // Now reduce level0_stop_writes_trigger to 6. Clear up memtables and L0.
   // Block compaction thread again. Perform the put and memtable flushes
   // until we see timeout after 6 memtable flushes.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"level0_stop_writes_trigger", "6"}
   }));
   dbfull()->CompactRange(nullptr, nullptr);
@@ -8703,7 +8703,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // 4 L0 files and compaction should be triggered. If auto compaction is
   // disabled, then TEST_WaitForCompact will be waiting for nothing. Number of
   // L0 files do not change after the call.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"disable_auto_compactions", "true"}
   }));
   dbfull()->CompactRange(nullptr, nullptr);
@@ -8719,7 +8719,7 @@ TEST(DBTest, DynamicCompactionOptions) {
 
   // Enable auto compaction and perform the same test, # of L0 files should be
   // reduced after compaction.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"disable_auto_compactions", "false"}
   }));
   dbfull()->CompactRange(nullptr, nullptr);
@@ -8737,7 +8737,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // First change max_bytes_for_level_base to a big value and populate
   // L1 - L3. Then thrink max_bytes_for_level_base and disable auto compaction
   // at the same time, we should see some level with score greater than 2.
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_bytes_for_level_base", std::to_string(k1MB) }
   }));
   // writing 40 x 64KB = 10 x 256KB
@@ -8754,7 +8754,7 @@ TEST(DBTest, DynamicCompactionOptions) {
                SizeAtLevel(3) < 4 * k1MB * 1.2));
   // Reduce max_bytes_for_level_base and disable compaction at the same time
   // This should cause score to increase
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"disable_auto_compactions", "true"},
     {"max_bytes_for_level_base", "65536"},
   }));
@@ -8769,7 +8769,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // Enfoce hard rate limit. Now set hard_rate_limit to 2,
   // we should start to see put delay (1000 us) and timeout as a result
   // (L0 score is not regulated by this limit).
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"hard_rate_limit", "2"}
   }));
   ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024)));
@@ -8781,7 +8781,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_TRUE(Put(Key(count), RandomString(&rnd, 1024), wo).IsTimedOut());
 
   // Lift the limit and no timeout
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"hard_rate_limit", "100"}
   }));
   dbfull()->TEST_FlushMemTable(true);
@@ -8807,7 +8807,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_TRUE(Put("max_mem_compaction_level_key",
               RandomString(&rnd, 8)).ok());
   // Set new value and it becomes effective in this flush
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_mem_compaction_level", "1"}
   }));
   dbfull()->TEST_FlushMemTable(true);
@@ -8818,7 +8818,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   ASSERT_TRUE(Put("max_mem_compaction_level_key",
               RandomString(&rnd, 8)).ok());
   // Set new value and it becomes effective in this flush
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_mem_compaction_level", "0"}
   }));
   dbfull()->TEST_FlushMemTable(true);
@@ -8994,7 +8994,7 @@ TEST(DBTest, DynamicMiscOptions) {
   // No reseek
   assert_reseek_count(100, 0);
 
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_sequential_skip_in_iterations", "4"}
   }));
   // Clear memtable and make new option effective
@@ -9002,7 +9002,7 @@ TEST(DBTest, DynamicMiscOptions) {
   // Trigger reseek
   assert_reseek_count(200, 1);
 
-  ASSERT_TRUE(dbfull()->SetOptions({
+  ASSERT_OK(dbfull()->SetOptions({
     {"max_sequential_skip_in_iterations", "16"}
   }));
   // Clear memtable and make new option effective

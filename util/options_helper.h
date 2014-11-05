@@ -7,10 +7,11 @@
 
 #include <string>
 #include "util/mutable_cf_options.h"
+#include "rocksdb/status.h"
 
 namespace rocksdb {
 
-bool GetMutableOptionsFromStrings(
+Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     MutableCFOptions* new_options);

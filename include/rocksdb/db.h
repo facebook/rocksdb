@@ -359,11 +359,11 @@ class DB {
     return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
                         target_level, target_path_id);
   }
-  virtual bool SetOptions(ColumnFamilyHandle* column_family,
+  virtual Status SetOptions(ColumnFamilyHandle* column_family,
       const std::unordered_map<std::string, std::string>& new_options) {
-    return true;
+    return Status::NotSupported("Not implemented");
   }
-  virtual bool SetOptions(
+  virtual Status SetOptions(
       const std::unordered_map<std::string, std::string>& new_options) {
     return SetOptions(DefaultColumnFamily(), new_options);
   }

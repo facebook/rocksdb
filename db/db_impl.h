@@ -115,7 +115,7 @@ class DBImpl : public DB {
                               uint32_t target_path_id = 0);
 
   using DB::SetOptions;
-  bool SetOptions(ColumnFamilyHandle* column_family,
+  Status SetOptions(ColumnFamilyHandle* column_family,
       const std::unordered_map<std::string, std::string>& options_map);
 
   using DB::NumberLevels;

@@ -544,16 +544,16 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
   }
 }
 
-bool ColumnFamilyData::SetOptions(
+Status ColumnFamilyData::SetOptions(
       const std::unordered_map<std::string, std::string>& options_map) {
   MutableCFOptions new_mutable_cf_options;
-  if (GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
-                                   &new_mutable_cf_options)) {
+  Status s = GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
+                                          &new_mutable_cf_options);
+  if (s.ok()) {
     mutable_cf_options_ = new_mutable_cf_options;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
-    return true;
   }
-  return false;
+  return s;
 }
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,

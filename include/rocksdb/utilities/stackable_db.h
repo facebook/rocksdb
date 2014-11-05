@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <string>
 #include "rocksdb/db.h"
 
 namespace rocksdb {
@@ -201,6 +202,12 @@ class StackableDB : public DB {
 
   virtual Status GetDbIdentity(std::string& identity) {
     return db_->GetDbIdentity(identity);
+  }
+
+  using DB::SetOptions;
+  virtual Status SetOptions(
+    const std::unordered_map<std::string, std::string>& new_options) override {
+    return db_->SetOptions(new_options);
   }
 
   using DB::GetPropertiesOfAllTables;

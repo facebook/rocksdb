@@ -165,7 +165,7 @@ bool ParseMiscOptions(const std::string& name, const std::string& value,
   return true;
 }
 
-bool GetMutableOptionsFromStrings(
+Status GetMutableOptionsFromStrings(
     const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
     MutableCFOptions* new_options) {
@@ -177,13 +177,14 @@ bool GetMutableOptionsFromStrings(
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
       } else if (ParseMiscOptions(o.first, o.second, new_options)) {
       } else {
-        return false;
+        return Status::InvalidArgument(
+            "unsupported dynamic option: " + o.first);
       }
     }
-  } catch (std::exception) {
-    return false;
+  } catch (std::exception& e) {
+    return Status::InvalidArgument("error parsing " + std::string(e.what()));
   }
-  return true;
+  return Status::OK();
 }
 
 namespace {

@@ -187,7 +187,7 @@ class ColumnFamilyData {
     return &mutable_cf_options_;
   }
   // REQUIRES: DB mutex held
-  bool SetOptions(
+  Status SetOptions(
       const std::unordered_map<std::string, std::string>& options_map);
 
   InternalStats* internal_stats() { return internal_stats_.get(); }

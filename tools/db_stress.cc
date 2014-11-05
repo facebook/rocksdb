@@ -1298,7 +1298,7 @@ class StressTest {
     return s;
   }
 
-  bool SetOptions(ThreadState* thread) {
+  Status SetOptions(ThreadState* thread) {
     assert(FLAGS_set_options_one_in > 0);
     std::unordered_map<std::string, std::string> opts;
     std::string name = options_index_[
