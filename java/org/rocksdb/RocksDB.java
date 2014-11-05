@@ -130,14 +130,14 @@ public class RocksDB extends RocksObject {
    *     {@link RocksDB} can not be opened.
    *
    * @throws org.rocksdb.RocksDBException
-   * @see Options#setCreateIfMissing(boolean)
+   * @see DBOptions#setCreateIfMissing(boolean)
    */
   public static RocksDB open(String path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    Options options = new Options();
+    DBOptions options = new DBOptions();
     return open(options, path, columnFamilyDescriptors, columnFamilyHandles);
   }
 
@@ -197,7 +197,7 @@ public class RocksDB extends RocksObject {
    * <p>
    * ColumnFamily handles are disposed when the RocksDB instance is disposed.</p>
    *
-   * @param options {@link org.rocksdb.Options} instance.
+   * @param options {@link org.rocksdb.DBOptions} instance.
    * @param path the path to the rocksdb.
    * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
@@ -206,16 +206,16 @@ public class RocksDB extends RocksObject {
    *     {@link RocksDB} can not be opened.
    *
    * @throws org.rocksdb.RocksDBException
-   * @see Options#setCreateIfMissing(boolean)
+   * @see DBOptions#setCreateIfMissing(boolean)
    */
-  public static RocksDB open(Options options, String path,
+  public static RocksDB open(DBOptions options, String path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
     RocksDB db = new RocksDB();
     List<Long> cfReferences = db.open(options.nativeHandle_, path,
         columnFamilyDescriptors, columnFamilyDescriptors.size());
-    for (int i=0; i<columnFamilyDescriptors.size(); i++) {
+    for (int i = 0; i < columnFamilyDescriptors.size(); i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(db, cfReferences.get(i)));
     }
     db.storeOptionsInstance(options);
@@ -258,7 +258,7 @@ public class RocksDB extends RocksObject {
       List<ColumnFamilyHandle> columnFamilyHandles) throws RocksDBException {
     // This allows to use the rocksjni default Options instead of
     // the c++ one.
-    Options options = new Options();
+    DBOptions options = new DBOptions();
     return openReadOnly(options, path, columnFamilyDescriptors,
         columnFamilyHandles);
   }
@@ -301,7 +301,7 @@ public class RocksDB extends RocksObject {
    * options instance have been closed. If user doesn't call options dispose
    * explicitly,then this options instance will be GC'd automatically.</p>
    *
-   * @param options {@link Options} instance.
+   * @param options {@link DBOptions} instance.
    * @param path the path to the RocksDB.
    * @param columnFamilyDescriptors list of column family descriptors
    * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
@@ -310,7 +310,7 @@ public class RocksDB extends RocksObject {
    *     {@link RocksDB} can not be opened.
    * @throws RocksDBException
    */
-  public static RocksDB openReadOnly(Options options, String path,
+  public static RocksDB openReadOnly(DBOptions options, String path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles)
       throws RocksDBException {
@@ -342,7 +342,7 @@ public class RocksDB extends RocksObject {
     return RocksDB.listColumnFamilies(options.nativeHandle_, path);
   }
 
-  private void storeOptionsInstance(Options options) {
+  private void storeOptionsInstance(DBOptionsInterface options) {
     options_ = options;
   }
 
@@ -1247,5 +1247,5 @@ public class RocksDB extends RocksObject {
   private native void flush(long handle, long flushOptHandle,
       long cfHandle) throws RocksDBException;
 
-  protected Options options_;
+  protected DBOptionsInterface options_;
 }

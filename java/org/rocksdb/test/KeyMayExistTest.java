@@ -17,7 +17,7 @@ public class KeyMayExistTest {
 
   public static void main(String[] args){
     RocksDB db;
-    Options options = new Options();
+    DBOptions options = new DBOptions();
     options.setCreateIfMissing(true)
         .setCreateMissingColumnFamilies(true);
     try {

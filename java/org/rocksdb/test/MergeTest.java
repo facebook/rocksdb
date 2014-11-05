@@ -7,7 +7,6 @@ package org.rocksdb.test;
 
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Collections;
 import org.rocksdb.*;
 
 public class MergeTest {
@@ -41,10 +40,9 @@ public class MergeTest {
 
   public static void testCFStringOption()
       throws InterruptedException, RocksDBException {
-    Options opt = new Options();
+    DBOptions opt = new DBOptions();
     opt.setCreateIfMissing(true);
     opt.setCreateMissingColumnFamilies(true);
-    opt.setMergeOperatorName("stringappend");
 
     List<ColumnFamilyDescriptor> cfDescr =
         new ArrayList<ColumnFamilyDescriptor>();
@@ -102,11 +100,10 @@ public class MergeTest {
 
   public static void testCFOperatorOption()
       throws InterruptedException, RocksDBException {
-    Options opt = new Options();
+    DBOptions opt = new DBOptions();
     opt.setCreateIfMissing(true);
     opt.setCreateMissingColumnFamilies(true);
     StringAppendOperator stringAppendOperator = new StringAppendOperator();
-    opt.setMergeOperator(stringAppendOperator);
 
     List<ColumnFamilyDescriptor> cfDescr =
         new ArrayList<ColumnFamilyDescriptor>();

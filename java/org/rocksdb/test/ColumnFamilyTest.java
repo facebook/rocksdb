@@ -22,6 +22,10 @@ public class ColumnFamilyTest {
     RocksDB db = null;
     Options options = new Options();
     options.setCreateIfMissing(true);
+
+    DBOptions dbOptions = new DBOptions();
+    dbOptions.setCreateIfMissing(true);
+
     try {
         db = RocksDB.open(options, db_path);
     } catch (RocksDBException e) {
@@ -76,7 +80,7 @@ public class ColumnFamilyTest {
     cfNames.add(new ColumnFamilyDescriptor("new_cf"));
 
     try {
-      db = RocksDB.open(options, db_path, cfNames, columnFamilyHandleList);
+      db = RocksDB.open(dbOptions, db_path, cfNames, columnFamilyHandleList);
       assert(columnFamilyHandleList.size() == 2);
       db.put("dfkey1".getBytes(), "dfvalue".getBytes());
       db.put(columnFamilyHandleList.get(0), "dfkey2".getBytes(),
