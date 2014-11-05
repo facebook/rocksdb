@@ -890,7 +890,8 @@ void CompactionJob::CallCompactionFilterV2(
   assert(compact_->to_delete_buf_.size() == compact_->key_str_buf_.size());
   assert(compact_->to_delete_buf_.size() ==
          compact_->existing_value_str_buf_.size());
-  assert(compact_->to_delete_buf_.size() ==
+  assert(compact_->value_changed_buf_.empty() ||
+         compact_->to_delete_buf_.size() ==
          compact_->value_changed_buf_.size());
 
   int new_value_idx = 0;
@@ -905,7 +906,8 @@ void CompactionJob::CallCompactionFilterV2(
       // no value associated with delete
       compact_->existing_value_str_buf_[i].clear();
       RecordTick(stats_, COMPACTION_KEY_DROP_USER);
-    } else if (compact_->value_changed_buf_[i]) {
+    } else if (!compact_->value_changed_buf_.empty() &&
+        compact_->value_changed_buf_[i]) {
       compact_->existing_value_str_buf_[i] =
           compact_->new_value_buf_[new_value_idx++];
     }
