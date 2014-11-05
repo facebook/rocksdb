@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Public API changes
+* Introduce SetOptions() API to allow adjusting a subset of options dynamically online
 * Introduce 4 new convenient functions for converting Options from string: GetColumnFamilyOptionsFromMap(), GetColumnFamilyOptionsFromString(), GetDBOptionsFromMap(), GetDBOptionsFromString()
 * Remove WriteBatchWithIndex.Delete() overloads using SliceParts
 * When opening a DB, if options.max_background_compactions is larger than the existing low pri pool of options.env, it will enlarge it. Similarly, options.max_background_flushes is larger than the existing high pri pool of options.env, it will enlarge it.
