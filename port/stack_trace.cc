@@ -5,15 +5,16 @@
 //
 #include "port/stack_trace.h"
 
-namespace rocksdb {
-namespace port {
-
 #if defined(ROCKSDB_LITE) || !(defined(OS_LINUX) || defined(OS_MACOSX))
 
 // noop
 
+namespace rocksdb {
+namespace port {
 void InstallStackTraceHandler() {}
 void PrintStack(int first_frames_to_skip) {}
+}  // namespace port
+}  // namespace rocksdb
 
 #else
 
@@ -24,6 +25,9 @@ void PrintStack(int first_frames_to_skip) {}
 #include <string.h>
 #include <unistd.h>
 #include <cxxabi.h>
+
+namespace rocksdb {
+namespace port {
 
 namespace {
 
@@ -126,7 +130,7 @@ void InstallStackTraceHandler() {
   signal(SIGABRT, StackTraceHandler);
 }
 
-#endif
-
 }  // namespace port
 }  // namespace rocksdb
+
+#endif
