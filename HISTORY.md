@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+
+## 3.7.0 (11/6/2014)
 ### Public API changes
 * Introduce SetOptions() API to allow adjusting a subset of options dynamically online
 * Introduce 4 new convenient functions for converting Options from string: GetColumnFamilyOptionsFromMap(), GetColumnFamilyOptionsFromString(), GetDBOptionsFromMap(), GetDBOptionsFromString()
