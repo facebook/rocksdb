@@ -123,7 +123,7 @@ public class PlainTableConfig extends TableFormatConfig {
   }
 
   /**
-   * <p>huge_page_tlb_size: if <=0, allocate hash indexes and blooms
+   * <p>huge_page_tlb_size: if &le;0, allocate hash indexes and blooms
    * from malloc otherwise from huge page TLB.</p>
    *
    * <p>The user needs to reserve huge pages for it to be allocated,

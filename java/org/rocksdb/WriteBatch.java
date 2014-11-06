@@ -41,14 +41,14 @@ public class WriteBatch extends RocksObject {
   public native int count();
 
   /**
-   * Store the mapping "key->value" in the database.
+   * Store the mapping "key-&gt;value" in the database.
    */
   public void put(byte[] key, byte[] value) {
     put(key, key.length, value, value.length);
   }
 
   /**
-   * Store the mapping "key->value" within given column
+   * Store the mapping "key-&gt;value" within given column
    * family.
    */
   public void put(ColumnFamilyHandle columnFamilyHandle,
@@ -59,7 +59,7 @@ public class WriteBatch extends RocksObject {
 
   /**
    * Merge "value" with the existing value of "key" in the database.
-   * "key->merge(existing, value)"
+   * "key-&gt;merge(existing, value)"
    */
   public void merge(byte[] key, byte[] value) {
     merge(key, key.length, value, value.length);
@@ -67,7 +67,7 @@ public class WriteBatch extends RocksObject {
 
   /**
    * Merge "value" with the existing value of "key" in given column family.
-   * "key->merge(existing, value)"
+   * "key-&gt;merge(existing, value)"
    */
   public void merge(ColumnFamilyHandle columnFamilyHandle,
       byte[] key, byte[] value) {

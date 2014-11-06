@@ -63,7 +63,7 @@ public class RocksIterator extends RocksObject {
    * <p>Moves to the next entry in the source.  After this call, Valid() is
    * true iff the iterator was not positioned at the last entry in the source.</p>
    *
-   * <p>REQUIRES: {@link #isValid()}<p>
+   * <p>REQUIRES: {@link #isValid()}</p>
    */
   public void next() {
     assert(isInitialized());
@@ -74,7 +74,7 @@ public class RocksIterator extends RocksObject {
    * <p>Moves to the previous entry in the source.  After this call, Valid() is
    * true iff the iterator was not positioned at the first entry in source.</p>
    *
-   * <p>REQUIRES: {@link #isValid()}<p>
+   * <p>REQUIRES: {@link #isValid()}</p>
    */
   public void prev() {
     assert(isInitialized());
@@ -86,7 +86,7 @@ public class RocksIterator extends RocksObject {
    * the returned slice is valid only until the next modification of
    * the iterator.</p>
    *
-   * <p>REQUIRES: {@link #isValid()}<p>
+   * <p>REQUIRES: {@link #isValid()}</p>
    *
    * @return key for the current entry.
    */
@@ -100,7 +100,7 @@ public class RocksIterator extends RocksObject {
    * the returned slice is valid only until the next modification of
    * the iterator.</p>
    *
-   * <p>REQUIRES: !AtEnd() && !AtStart()</p>
+   * <p>REQUIRES: !AtEnd() &amp;&amp; !AtStart()</p>
    * @return value for the current entry.
    */
   public byte[] value() {

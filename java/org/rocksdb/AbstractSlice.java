@@ -19,10 +19,10 @@ package org.rocksdb;
  *   instance of a C++ BaseComparatorJniCallback subclass and
  *   passes that to RocksDB as the comparator. That subclass of
  *   BaseComparatorJniCallback creates the Java
- *   {@see org.rocksdb.AbstractSlice} subclass Objects. When you dispose
- *   the Java {@see org.rocksdb.AbstractComparator} subclass, it disposes the
+ *   @see org.rocksdb.AbstractSlice subclass Objects. When you dispose
+ *   the Java @see org.rocksdb.AbstractComparator subclass, it disposes the
  *   C++ BaseComparatorJniCallback subclass, which in turn destroys the
- *   Java {@see org.rocksdb.AbstractSlice} subclass Objects.
+ *   Java @see org.rocksdb.AbstractSlice subclass Objects.
  */
 abstract class AbstractSlice<T> extends RocksObject {
 
@@ -31,7 +31,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    *
    * @return The slice data. Note, the type of access is
    *   determined by the subclass
-   *   @see org.rocksdb.AbstractSlice#data0(long).
+   *   @see org.rocksdb.AbstractSlice#data0(long)
    */
   public T data() {
     assert (isInitialized());
@@ -95,9 +95,9 @@ abstract class AbstractSlice<T> extends RocksObject {
    *  @param other A slice to compare against
    *
    *  @return Should return either:
-   *    1) < 0 if this < other
+   *    1) &lt; 0 if this &lt; other
    *    2) == 0 if this == other
-   *    3) > 0 if this > other
+   *    3) &gt; 0 if this &gt; other
    */
   public int compare(final AbstractSlice other) {
     assert (other != null);
@@ -145,7 +145,6 @@ abstract class AbstractSlice<T> extends RocksObject {
 
   /**
    * Deletes underlying C++ slice pointer.
-   * <p/>
    * Note that this function should be called only after all
    * RocksDB instances referencing the slice are closed.
    * Otherwise an undefined behavior will occur.

@@ -38,7 +38,7 @@ public class PlatformRandomHelper {
     /**
      * Random32Bit is a class which overrides {@code nextLong} to
      * provide random numbers which fit in size_t. This workaround
-     * is necessary because there is no unsigned_int < Java 8
+     * is necessary because there is no unsigned_int &lt; Java 8
      */
     private static class Random32Bit extends Random {
       @Override

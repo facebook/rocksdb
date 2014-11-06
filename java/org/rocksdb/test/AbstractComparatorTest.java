@@ -104,7 +104,7 @@ public abstract class AbstractComparatorTest {
    * @param a 4-bytes representing an integer key
    * @param b 4-bytes representing an integer key
    *
-   * @return negative if a < b, 0 if a == b, positive otherwise
+   * @return negative if a &lt; b, 0 if a == b, positive otherwise
    */
   protected final int compareIntKeys(final byte[] a, final byte[] b) {
 
