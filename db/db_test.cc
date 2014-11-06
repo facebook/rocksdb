@@ -8958,9 +8958,8 @@ TEST(DBTest, PartialCompactionFailure) {
   }
 
   dbfull()->TEST_WaitForFlushMemTable();
-  // Make sure the number of L0 files can trigger compaction.
-  ASSERT_GE(NumTableFilesAtLevel(0),
-            options.level0_file_num_compaction_trigger);
+  // Make sure there're some L0 files we can compact
+  ASSERT_GT(NumTableFilesAtLevel(0), 0);
   auto previous_num_level0_files = NumTableFilesAtLevel(0);
 
   // The number of NewWritableFiles calls required by each operation.
@@ -8973,11 +8972,15 @@ TEST(DBTest, PartialCompactionFailure) {
 
   // Expect compaction to fail here as one file will fail its
   // creation.
-  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(!db_->CompactRange(nullptr, nullptr).ok());
+
   // Verify L0 -> L1 compaction does fail.
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+
   // Verify all L0 files are still there.
-  ASSERT_EQ(NumTableFilesAtLevel(0), previous_num_level0_files);
+  // We use GE here as occasionally there might be additional
+  // memtables being flushed.
+  ASSERT_GE(NumTableFilesAtLevel(0), previous_num_level0_files);
 
   // All key-values must exist after compaction fails.
   for (int k = 0; k < kNumInsertedKeys; ++k) {
