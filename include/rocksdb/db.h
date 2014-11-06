@@ -195,6 +195,8 @@ class DB {
   }
 
   // Apply the specified updates to the database.
+  // If `updates` contains no update, WAL will still be synced if
+  // options.sync=true.
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;

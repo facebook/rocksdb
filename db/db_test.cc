@@ -1270,6 +1270,27 @@ TEST(DBTest, Empty) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, WriteEmptyBatch) {
+  Options options;
+  options.env = env_;
+  options.write_buffer_size = 100000;
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "foo", "bar"));
+  env_->sync_counter_.store(0);
+  WriteOptions wo;
+  wo.sync = true;
+  wo.disableWAL = false;
+  WriteBatch empty_batch;
+  ASSERT_OK(dbfull()->Write(wo, &empty_batch));
+  ASSERT_GE(env_->sync_counter_.load(), 1);
+
+  // make sure we can re-open it.
+  ASSERT_OK(TryReopenWithColumnFamilies({"default", "pikachu"}, options));
+  ASSERT_EQ("bar", Get(1, "foo"));
+}
+
 TEST(DBTest, ReadOnlyDB) {
   ASSERT_OK(Put("foo", "v1"));
   ASSERT_OK(Put("bar", "v2"));
