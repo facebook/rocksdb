@@ -266,7 +266,7 @@ public interface ColumnFamilyOptionsInterface {
   int numLevels();
 
   /**
-   * Number of files to trigger level-0 compaction. A value < 0 means that
+   * Number of files to trigger level-0 compaction. A value &lt; 0 means that
    * level-0 compaction will not be triggered by number of files at all.
    * Default: 4
    *
@@ -278,7 +278,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * The number of files in level 0 to trigger compaction from level-0 to
-   * level-1.  A value < 0 means that level-0 compaction will not be
+   * level-1.  A value &lt; 0 means that level-0 compaction will not be
    * triggered by number of files at all.
    * Default: 4
    *
@@ -288,7 +288,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * Soft limit on number of level-0 files. We start slowing down writes at this
-   * point. A value < 0 means that no writing slow down will be triggered by
+   * point. A value &lt; 0 means that no writing slow down will be triggered by
    * number of files in level-0.
    *
    * @param numFiles soft limit on number of level-0 files.
@@ -299,7 +299,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * Soft limit on the number of level-0 files. We start slowing down writes
-   * at this point. A value < 0 means that no writing slow down will be
+   * at this point. A value &lt; 0 means that no writing slow down will be
    * triggered by number of files in level-0.
    *
    * @return the soft limit on the number of level-0 files.
@@ -324,7 +324,7 @@ public interface ColumnFamilyOptionsInterface {
   /**
    * The highest level to which a new compacted memtable is pushed if it
    * does not create overlap.  We try to push to level 2 to avoid the
-   * relatively expensive level 0=>1 compactions and to avoid some
+   * relatively expensive level 0&ge;1 compactions and to avoid some
    * expensive manifest file operations.  We do not push all the way to
    * the largest level since that can generate a lot of wasted disk
    * space if the same key space is being repeatedly overwritten.
@@ -339,7 +339,7 @@ public interface ColumnFamilyOptionsInterface {
   /**
    * The highest level to which a new compacted memtable is pushed if it
    * does not create overlap.  We try to push to level 2 to avoid the
-   * relatively expensive level 0=>1 compactions and to avoid some
+   * relatively expensive level 0&ge;1 compactions and to avoid some
    * expensive manifest file operations.  We do not push all the way to
    * the largest level since that can generate a lot of wasted disk
    * space if the same key space is being repeatedly overwritten.
@@ -515,7 +515,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-   * stop building a single file in a level->level+1 compaction.
+   * stop building a single file in a level-&gt;level+1 compaction.
    *
    * @param maxGrandparentOverlapFactor maximum bytes of overlaps in
    *     "grandparent" level.
@@ -526,7 +526,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * Control maximum bytes of overlaps in grandparent (i.e., level+2) before we
-   * stop building a single file in a level->level+1 compaction.
+   * stop building a single file in a level-&gt;level+1 compaction.
    *
    * @return maximum bytes of overlaps in "grandparent" level.
    */
@@ -535,7 +535,7 @@ public interface ColumnFamilyOptionsInterface {
   /**
    * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
    * soft_rate_limit. This is ignored when == 0.0.
-   * CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
+   * CONSTRAINT: soft_rate_limit &le; hard_rate_limit. If this constraint does not
    * hold, RocksDB will set soft_rate_limit = hard_rate_limit
    * Default: 0 (disabled)
    *
@@ -548,7 +548,7 @@ public interface ColumnFamilyOptionsInterface {
   /**
    * Puts are delayed 0-1 ms when any level has a compaction score that exceeds
    * soft_rate_limit. This is ignored when == 0.0.
-   * CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
+   * CONSTRAINT: soft_rate_limit &le; hard_rate_limit. If this constraint does not
    * hold, RocksDB will set soft_rate_limit = hard_rate_limit
    * Default: 0 (disabled)
    *
@@ -558,7 +558,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * Puts are delayed 1ms at a time when any level has a compaction score that
-   * exceeds hard_rate_limit. This is ignored when <= 1.0.
+   * exceeds hard_rate_limit. This is ignored when &le; 1.0.
    * Default: 0 (disabled)
    *
    * @param hardRateLimit the hard-rate-limit of a compaction score for put
@@ -569,7 +569,7 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * Puts are delayed 1ms at a time when any level has a compaction score that
-   * exceeds hard_rate_limit. This is ignored when <= 1.0.
+   * exceeds hard_rate_limit. This is ignored when &le; 1.0.
    * Default: 0 (disabled)
    *
    * @return the hard-rate-limit of a compaction score for put delay.
@@ -600,11 +600,11 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * The size of one block in arena memory allocation.
-   * If <= 0, a proper value is automatically calculated (usually 1/10 of
+   * If &le; 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
    *
    * There are two additonal restriction of the The specified size:
-   * (1) size should be in the range of [4096, 2 << 30] and
+   * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
    * (2) be the multiple of the CPU word (which helps with the memory
    * alignment).
    *
@@ -621,11 +621,11 @@ public interface ColumnFamilyOptionsInterface {
 
   /**
    * The size of one block in arena memory allocation.
-   * If <= 0, a proper value is automatically calculated (usually 1/10 of
+   * If &le; 0, a proper value is automatically calculated (usually 1/10 of
    * writer_buffer_size).
    *
    * There are two additonal restriction of the The specified size:
-   * (1) size should be in the range of [4096, 2 << 30] and
+   * (1) size should be in the range of [4096, 2 &lt;&lt; 30] and
    * (2) be the multiple of the CPU word (which helps with the memory
    * alignment).
    *
@@ -734,7 +734,7 @@ public interface ColumnFamilyOptionsInterface {
   boolean filterDeletes();
 
   /**
-   * An iteration->Next() sequentially skips over keys with the same
+   * An iteration-&gt;Next() sequentially skips over keys with the same
    * user-key unless this option is set. This number specifies the number
    * of keys (with the same userkey) that will be sequentially
    * skipped before a reseek is issued.
@@ -747,7 +747,7 @@ public interface ColumnFamilyOptionsInterface {
   Object setMaxSequentialSkipInIterations(long maxSequentialSkipInIterations);
 
   /**
-   * An iteration->Next() sequentially skips over keys with the same
+   * An iteration-&gt;Next() sequentially skips over keys with the same
    * user-key unless this option is set. This number specifies the number
    * of keys (with the same userkey) that will be sequentially
    * skipped before a reseek is issued.
@@ -794,7 +794,7 @@ public interface ColumnFamilyOptionsInterface {
    * If inplace_callback function is not set,
    *   Put(key, new_value) will update inplace the existing_value iff
    *   * key exists in current memtable
-   *   * new sizeof(new_value) <= sizeof(existing_value)
+   *   * new sizeof(new_value) &le; sizeof(existing_value)
    *   * existing_value for that key is a put i.e. kTypeValue
    * If inplace_callback function is set, check doc for inplace_callback.
    * Default: false.
@@ -810,7 +810,7 @@ public interface ColumnFamilyOptionsInterface {
    * If inplace_callback function is not set,
    *   Put(key, new_value) will update inplace the existing_value iff
    *   * key exists in current memtable
-   *   * new sizeof(new_value) <= sizeof(existing_value)
+   *   * new sizeof(new_value) &le; sizeof(existing_value)
    *   * existing_value for that key is a put i.e. kTypeValue
    * If inplace_callback function is set, check doc for inplace_callback.
    * Default: false.
@@ -945,7 +945,7 @@ public interface ColumnFamilyOptionsInterface {
    * merge will be performed. Partial merge will not be called
    * if the list of values to merge is less than min_partial_merge_operands.
    *
-   * If min_partial_merge_operands < 2, then it will be treated as 2.
+   * If min_partial_merge_operands &lt; 2, then it will be treated as 2.
    *
    * Default: 2
    *
@@ -959,7 +959,7 @@ public interface ColumnFamilyOptionsInterface {
    * merge will be performed. Partial merge will not be called
    * if the list of values to merge is less than min_partial_merge_operands.
    *
-   * If min_partial_merge_operands < 2, then it will be treated as 2.
+   * If min_partial_merge_operands &lt; 2, then it will be treated as 2.
    *
    * Default: 2
    *

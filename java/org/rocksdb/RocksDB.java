@@ -328,7 +328,7 @@ public class RocksDB extends RocksObject {
    *
    * @param options Options for opening the database
    * @param path Absolute path to rocksdb database
-   * @return List<byte[]> List containing the column family names
+   * @return List&lt;byte[]&gt; List containing the column family names
    *
    * @throws RocksDBException
    */
@@ -462,7 +462,6 @@ public class RocksDB extends RocksObject {
    * to make this lighter weight is to avoid doing any IOs.
    *
    * @param readOptions {@link ReadOptions} instance
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key byte array of a key to search for
    * @param value StringBuffer instance which is a out parameter if a value is
    *    found in block-cache.
@@ -922,13 +921,13 @@ public class RocksDB extends RocksObject {
    *
    * <p>Valid property names include:
    * <ul>
-   * <li>"rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
-   *     where <N> is an ASCII representation of a level number (e.g. "0").</li>
+   * <li>"rocksdb.num-files-at-level&lt;N&gt;" - return the number of files at level &lt;N&gt;,
+   *     where &lt;N&gt; is an ASCII representation of a level number (e.g. "0").</li>
    * <li>"rocksdb.stats" - returns a multi-line string that describes statistics
    *     about the internal operation of the DB.</li>
    * <li>"rocksdb.sstables" - returns a multi-line string that describes all
    *    of the sstables that make up the db contents.</li>
-   *</ul></p>
+   * </ul>
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
@@ -951,13 +950,13 @@ public class RocksDB extends RocksObject {
    *
    * <p>Valid property names include:
    * <ul>
-   * <li>"rocksdb.num-files-at-level<N>" - return the number of files at level <N>,
-   *     where <N> is an ASCII representation of a level number (e.g. "0").</li>
+   * <li>"rocksdb.num-files-at-level&lt;N&gt;" - return the number of files at level &lt;N&gt;,
+   *     where &lt;N&gt; is an ASCII representation of a level number (e.g. "0").</li>
    * <li>"rocksdb.stats" - returns a multi-line string that describes statistics
    *     about the internal operation of the DB.</li>
    * <li>"rocksdb.sstables" - returns a multi-line string that describes all
    *    of the sstables that make up the db contents.</li>
-   *</ul></p>
+   *</ul>
    *
    * @param property to be fetched. See above for examples
    * @return property value

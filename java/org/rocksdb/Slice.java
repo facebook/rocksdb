@@ -66,10 +66,10 @@ public class Slice extends AbstractSlice<byte[]> {
    * Deletes underlying C++ slice pointer
    * and any buffered data.
    *
-   * <p/>
+   * <p>
    * Note that this function should be called only after all
    * RocksDB instances referencing the slice are closed.
-   * Otherwise an undefined behavior will occur.
+   * Otherwise an undefined behavior will occur.</p>
    */
   @Override
   protected void disposeInternal() {

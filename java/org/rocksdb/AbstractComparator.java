@@ -39,9 +39,9 @@ public abstract class AbstractComparator<T extends AbstractSlice>
    *  @param b Slice access to second key
    *
    *  @return Should return either:
-   *    1) < 0 if "a" < "b"
+   *    1) &lt; 0 if "a" &lt; "b"
    *    2) == 0 if "a" == "b"
-   *    3) > 0 if "a" > "b"
+   *    3) &gt; 0 if "a" &gt; "b"
    */
   public abstract int compare(final T a, final T b);
 
@@ -49,7 +49,7 @@ public abstract class AbstractComparator<T extends AbstractSlice>
    * Used to reduce the space requirements
    * for internal data structures like index blocks.
    *
-   * If start < limit, you may return a new start which is a
+   * If start &lt; limit, you may return a new start which is a
    * shorter string in [start, limit).
    *
    * Simple comparator implementations may return null if they
@@ -67,7 +67,7 @@ public abstract class AbstractComparator<T extends AbstractSlice>
    * for internal data structures like index blocks.
    *
    * You may return a new short key (key1) where
-   * key1 >= key.
+   * key1 &ge; key.
    *
    * Simple comparator implementations may return null if they
    * wish to leave the key unchanged. i.e., an implementation of

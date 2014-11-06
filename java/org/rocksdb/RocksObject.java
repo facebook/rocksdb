@@ -11,14 +11,12 @@ package org.rocksdb;
  *
  * <p>
  * RocksObject has {@code dispose()} function, which releases its associated c++
- * resource.
- * </p>
- * </p>
+ * resource.</p>
+ * <p>
  * This function can be either called manually, or being called automatically
  * during the regular Java GC process. However, since Java may wrongly assume a
  * RocksObject only contains a long member variable and think it is small in size,
- * </p>
- * <p>Java may give {@code RocksObject} low priority in the GC process. For this, it is
+ * Java may give {@code RocksObject} low priority in the GC process. For this, it is
  * suggested to call {@code dispose()} manually. However, it is safe to let
  * {@code RocksObject} go out-of-scope without manually calling {@code dispose()}
  * as {@code dispose()} will be called in the finalizer during the

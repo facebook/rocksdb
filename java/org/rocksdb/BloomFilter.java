@@ -60,7 +60,7 @@ public class BloomFilter extends Filter {
    * bits_per_key: bits per key in bloom filter. A good value for bits_per_key
    * is 10, which yields a filter with ~ 1% false positive rate.
    * <p><strong>default bits_per_key</strong>: 10</p>
-   * </p>
+   *
    * <p>use_block_based_builder: use block based filter rather than full filter.
    * If you want to builder full filter, it needs to be set to false.
    * </p>
