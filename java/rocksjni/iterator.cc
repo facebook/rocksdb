@@ -91,11 +91,11 @@ jbyteArray Java_org_rocksdb_RocksIterator_value0(
   auto it = reinterpret_cast<rocksdb::Iterator*>(handle);
   rocksdb::Slice value_slice = it->value();
 
-  jbyteArray jvalue = env->NewByteArray(value_slice.size());
+  jbyteArray jkeyValue = env->NewByteArray(value_slice.size());
   env->SetByteArrayRegion(
-      jvalue, 0, value_slice.size(),
+      jkeyValue, 0, value_slice.size(),
       reinterpret_cast<const jbyte*>(value_slice.data()));
-  return jvalue;
+  return jkeyValue;
 }
 
 /*
