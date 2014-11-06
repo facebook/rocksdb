@@ -268,11 +268,11 @@ void MemTableList::Add(MemTable* m) {
 
 // Returns an estimate of the number of bytes of data in use.
 size_t MemTableList::ApproximateMemoryUsage() {
-  size_t size = 0;
+  size_t total_size = 0;
   for (auto& memtable : current_->memlist_) {
-    size += memtable->ApproximateMemoryUsage();
+    total_size += memtable->ApproximateMemoryUsage();
   }
-  return size;
+  return total_size;
 }
 
 void MemTableList::InstallNewVersion() {

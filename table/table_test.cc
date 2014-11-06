@@ -251,15 +251,13 @@ class BlockConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& data) {
+                            const KVMap& kv_map) {
     delete block_;
     block_ = nullptr;
     BlockBuilder builder(table_options.block_restart_interval);
 
-    for (KVMap::const_iterator it = data.begin();
-         it != data.end();
-         ++it) {
-      builder.Add(it->first, it->second);
+    for (const auto kv : kv_map) {
+      builder.Add(kv.first, kv.second);
     }
     // Open the block
     data_ = builder.Finish().ToString();
@@ -307,12 +305,12 @@ class KeyConvertingIterator: public Iterator {
 
   virtual Slice key() const {
     assert(Valid());
-    ParsedInternalKey key;
-    if (!ParseInternalKey(iter_->key(), &key)) {
+    ParsedInternalKey parsed_key;
+    if (!ParseInternalKey(iter_->key(), &parsed_key)) {
       status_ = Status::Corruption("malformed internal key");
       return Slice("corrupted key");
     }
-    return key.user_key;
+    return parsed_key.user_key;
   }
 
   virtual Slice value() const { return iter_->value(); }
@@ -342,7 +340,7 @@ class TableConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& data) {
+                            const KVMap& kv_map) {
     Reset();
     sink_.reset(new StringSink());
     unique_ptr<TableBuilder> builder;
@@ -350,16 +348,14 @@ class TableConstructor: public Constructor {
         ioptions, internal_comparator, sink_.get(), options.compression,
         CompressionOptions()));
 
-    for (KVMap::const_iterator it = data.begin();
-         it != data.end();
-         ++it) {
+    for (const auto kv : kv_map) {
       if (convert_to_internal_key_) {
-        ParsedInternalKey ikey(it->first, kMaxSequenceNumber, kTypeValue);
+        ParsedInternalKey ikey(kv.first, kMaxSequenceNumber, kTypeValue);
         std::string encoded;
         AppendInternalKey(&encoded, ikey);
-        builder->Add(encoded, it->second);
+        builder->Add(encoded, kv.second);
       } else {
-        builder->Add(it->first, it->second);
+        builder->Add(kv.first, kv.second);
       }
       ASSERT_TRUE(builder->status().ok());
     }
@@ -445,11 +441,10 @@ class MemTableConstructor: public Constructor {
   ~MemTableConstructor() {
     delete memtable_->Unref();
   }
-  virtual Status FinishImpl(const Options&,
-                            const ImmutableCFOptions& ioptions,
+  virtual Status FinishImpl(const Options&, const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& data) {
+                            const KVMap& kv_map) {
     delete memtable_->Unref();
     Options options;
     options.memtable_factory = table_factory_;
@@ -458,10 +453,8 @@ class MemTableConstructor: public Constructor {
                              MutableCFOptions(options, mem_ioptions));
     memtable_->Ref();
     int seq = 1;
-    for (KVMap::const_iterator it = data.begin();
-         it != data.end();
-         ++it) {
-      memtable_->Add(seq, kTypeValue, it->first, it->second);
+    for (const auto kv : kv_map) {
+      memtable_->Add(seq, kTypeValue, kv.first, kv.second);
       seq++;
     }
     return Status::OK();
@@ -497,15 +490,13 @@ class DBConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& data) {
+                            const KVMap& kv_map) {
     delete db_;
     db_ = nullptr;
     NewDB();
-    for (KVMap::const_iterator it = data.begin();
-         it != data.end();
-         ++it) {
+    for (const auto kv : kv_map) {
       WriteBatch batch;
-      batch.Put(it->first, it->second);
+      batch.Put(kv.first, kv.second);
       ASSERT_TRUE(db_->Write(WriteOptions(), &batch).ok());
     }
     return Status::OK();

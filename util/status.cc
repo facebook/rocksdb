@@ -21,9 +21,8 @@ const char* Status::CopyState(const char* state) {
   return result;
 }
 
-Status::Status(Code code, const Slice& msg, const Slice& msg2) :
-    code_(code) {
-  assert(code != kOk);
+Status::Status(Code _code, const Slice& msg, const Slice& msg2) : code_(_code) {
+  assert(code_ != kOk);
   const uint32_t len1 = msg.size();
   const uint32_t len2 = msg2.size();
   const uint32_t size = len1 + (len2 ? (2 + len2) : 0);

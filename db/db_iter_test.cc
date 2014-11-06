@@ -33,20 +33,23 @@ class TestIterator : public Iterator {
         iter_(0),
         cmp(comparator) {}
 
-  void AddMerge(std::string key, std::string value) {
-    Add(key, kTypeMerge, value);
+  void AddMerge(std::string argkey, std::string argvalue) {
+    Add(argkey, kTypeMerge, argvalue);
   }
 
-  void AddDeletion(std::string key) { Add(key, kTypeDeletion, std::string()); }
-
-  void AddPut(std::string key, std::string value) {
-    Add(key, kTypeValue, value);
+  void AddDeletion(std::string argkey) {
+    Add(argkey, kTypeDeletion, std::string());
   }
 
-  void Add(std::string key, ValueType type, std::string value) {
+  void AddPut(std::string argkey, std::string argvalue) {
+    Add(argkey, kTypeValue, argvalue);
+  }
+
+  void Add(std::string argkey, ValueType type, std::string argvalue) {
     valid_ = true;
-    ParsedInternalKey internal_key(key, sequence_number_++, type);
-    data_.push_back(std::pair<std::string, std::string>(std::string(), value));
+    ParsedInternalKey internal_key(argkey, sequence_number_++, type);
+    data_.push_back(
+        std::pair<std::string, std::string>(std::string(), argvalue));
     AppendInternalKey(&data_.back().first, internal_key);
   }
 

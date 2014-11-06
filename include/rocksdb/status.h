@@ -130,8 +130,8 @@ class Status {
   Code code_;
   const char* state_;
 
-  explicit Status(Code code) : code_(code), state_(nullptr) { }
-  Status(Code code, const Slice& msg, const Slice& msg2);
+  explicit Status(Code _code) : code_(_code), state_(nullptr) {}
+  Status(Code _code, const Slice& msg, const Slice& msg2);
   static const char* CopyState(const char* s);
 };
 

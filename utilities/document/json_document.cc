@@ -31,9 +31,9 @@ JSONDocument::JSONDocument(const std::string& s) : type_(kString) {
 JSONDocument::JSONDocument(const char* s) : type_(kString) {
   new (&data_.s) std::string(s);
 }
-JSONDocument::JSONDocument(Type type) : type_(type) {
+JSONDocument::JSONDocument(Type _type) : type_(_type) {
   // TODO(icanadi) make all of this better by using templates
-  switch (type) {
+  switch (type_) {
     case kNull:
       break;
     case kObject:
@@ -545,11 +545,11 @@ bool JSONDocument::DeserializeInternal(Slice* input) {
       }
       data_.a.resize(size);
       for (size_t i = 0; i < size; ++i) {
-        Type type;
-        if (!GetNextType(input, &type)) {
+        Type t;
+        if (!GetNextType(input, &t)) {
           return false;
         }
-        data_.a[i] = new JSONDocument(type);
+        data_.a[i] = new JSONDocument(t);
         if (!data_.a[i]->DeserializeInternal(input)) {
           return false;
         }
@@ -582,10 +582,10 @@ bool JSONDocument::DeserializeInternal(Slice* input) {
       for (uint32_t i = 0; ok && i < num_elements; ++i) {
         Slice key;
         ok = GetLengthPrefixedSlice(input, &key);
-        Type type;
-        ok = ok && GetNextType(input, &type);
+        Type t;
+        ok = ok && GetNextType(input, &t);
         if (ok) {
-          std::unique_ptr<JSONDocument> value(new JSONDocument(type));
+          std::unique_ptr<JSONDocument> value(new JSONDocument(t));
           ok = value->DeserializeInternal(input);
           if (ok) {
             data_.o.insert({key.ToString(), value.get()});

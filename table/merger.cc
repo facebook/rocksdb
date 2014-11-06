@@ -240,14 +240,14 @@ class MergingIterator : public Iterator {
   }
 
   virtual Status status() const {
-    Status status;
+    Status s;
     for (auto& child : children_) {
-      status = child.status();
-      if (!status.ok()) {
+      s = child.status();
+      if (!s.ok()) {
         break;
       }
     }
-    return status;
+    return s;
   }
 
  private:

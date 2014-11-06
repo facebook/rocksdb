@@ -220,8 +220,8 @@ class ConcurrentTest {
   void WriteStep(Random* rnd) {
     const uint32_t k = rnd->Next() % K;
     const int g = current_.Get(k) + 1;
-    const Key key = MakeKey(k, g);
-    list_.Insert(key);
+    const Key new_key = MakeKey(k, g);
+    list_.Insert(new_key);
     current_.Set(k, g);
   }
 

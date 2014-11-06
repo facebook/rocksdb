@@ -33,11 +33,11 @@ class BlockHandle {
 
   // The offset of the block in the file.
   uint64_t offset() const { return offset_; }
-  void set_offset(uint64_t offset) { offset_ = offset; }
+  void set_offset(uint64_t _offset) { offset_ = _offset; }
 
   // The size of the stored block
   uint64_t size() const { return size_; }
-  void set_size(uint64_t size) { size_ = size; }
+  void set_size(uint64_t _size) { size_ = _size; }
 
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
@@ -200,9 +200,7 @@ inline BlockHandle::BlockHandle()
                   ~static_cast<uint64_t>(0)) {
 }
 
-inline BlockHandle::BlockHandle(uint64_t offset, uint64_t size)
-    : offset_(offset),
-      size_(size) {
-}
+inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
+    : offset_(_offset), size_(_size) {}
 
 }  // namespace rocksdb

@@ -539,10 +539,9 @@ Status MockEnv::GetFileModificationTime(const std::string& fname,
   return Status::OK();
 }
 
-Status MockEnv::RenameFile(const std::string& src,
-                              const std::string& target) {
+Status MockEnv::RenameFile(const std::string& src, const std::string& dest) {
   auto s = NormalizePath(src);
-  auto t = NormalizePath(target);
+  auto t = NormalizePath(dest);
   MutexLock lock(&mutex_);
   if (file_map_.find(s) == file_map_.end()) {
     return Status::IOError(s, "File not found");

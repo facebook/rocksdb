@@ -127,8 +127,8 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
   }
 }
 
-LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
-  size_t usize = user_key.size();
+LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
+  size_t usize = _user_key.size();
   size_t needed = usize + 13;  // A conservative estimate
   char* dst;
   if (needed <= sizeof(space_)) {
@@ -139,7 +139,7 @@ LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
   start_ = dst;
   dst = EncodeVarint32(dst, usize + 8);
   kstart_ = dst;
-  memcpy(dst, user_key.data(), usize);
+  memcpy(dst, _user_key.data(), usize);
   dst += usize;
   EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
   dst += 8;

@@ -132,8 +132,8 @@ class InternalKey {
   std::string rep_;
  public:
   InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
-  InternalKey(const Slice& user_key, SequenceNumber s, ValueType t) {
-    AppendInternalKey(&rep_, ParsedInternalKey(user_key, s, t));
+  InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
   }
 
   bool Valid() const {
@@ -201,7 +201,7 @@ class LookupKey {
  public:
   // Initialize *this for looking up user_key at a snapshot with
   // the specified sequence number.
-  LookupKey(const Slice& user_key, SequenceNumber sequence);
+  LookupKey(const Slice& _user_key, SequenceNumber sequence);
 
   ~LookupKey();
 

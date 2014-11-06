@@ -651,12 +651,12 @@ void Version::AddIterators(const ReadOptions& read_options,
 
 VersionStorageInfo::VersionStorageInfo(
     const InternalKeyComparator* internal_comparator,
-    const Comparator* user_comparator, int num_levels,
+    const Comparator* user_comparator, int levels,
     CompactionStyle compaction_style, VersionStorageInfo* ref_vstorage)
     : internal_comparator_(internal_comparator),
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
-      num_levels_(num_levels),
+      num_levels_(levels),
       num_non_empty_levels_(num_levels_),
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
@@ -683,22 +683,23 @@ VersionStorageInfo::VersionStorageInfo(
   }
 }
 
-Version::Version(ColumnFamilyData* cfd, VersionSet* vset,
+Version::Version(ColumnFamilyData* column_family_data, VersionSet* vset,
                  uint64_t version_number)
-    : cfd_(cfd),
-      info_log_((cfd == nullptr) ? nullptr : cfd->ioptions()->info_log),
-      db_statistics_((cfd == nullptr) ? nullptr : cfd->ioptions()->statistics),
-      table_cache_((cfd == nullptr) ? nullptr : cfd->table_cache()),
-      merge_operator_((cfd == nullptr) ? nullptr
-                                       : cfd->ioptions()->merge_operator),
-      storage_info_((cfd == nullptr) ? nullptr : &cfd->internal_comparator(),
-                    (cfd == nullptr) ? nullptr : cfd->user_comparator(),
-                    cfd == nullptr ? 0 : cfd->NumberLevels(),
-                    cfd == nullptr ? kCompactionStyleLevel
-                                   : cfd->ioptions()->compaction_style,
-                    (cfd == nullptr || cfd->current() == nullptr)
+    : cfd_(column_family_data),
+      info_log_((cfd_ == nullptr) ? nullptr : cfd_->ioptions()->info_log),
+      db_statistics_((cfd_ == nullptr) ? nullptr
+                                       : cfd_->ioptions()->statistics),
+      table_cache_((cfd_ == nullptr) ? nullptr : cfd_->table_cache()),
+      merge_operator_((cfd_ == nullptr) ? nullptr
+                                        : cfd_->ioptions()->merge_operator),
+      storage_info_((cfd_ == nullptr) ? nullptr : &cfd_->internal_comparator(),
+                    (cfd_ == nullptr) ? nullptr : cfd_->user_comparator(),
+                    cfd_ == nullptr ? 0 : cfd_->NumberLevels(),
+                    cfd_ == nullptr ? kCompactionStyleLevel
+                                    : cfd_->ioptions()->compaction_style,
+                    (cfd_ == nullptr || cfd_->current() == nullptr)
                         ? nullptr
-                        : cfd->current()->storage_info()),
+                        : cfd_->current()->storage_info()),
       vset_(vset),
       next_(this),
       prev_(this),
@@ -1445,10 +1446,10 @@ struct VersionSet::ManifestWriter {
 };
 
 VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
-                       const EnvOptions& env_options, Cache* table_cache,
+                       const EnvOptions& storage_options, Cache* table_cache,
                        WriteController* write_controller)
-    : column_family_set_(new ColumnFamilySet(dbname, db_options, env_options,
-                                             table_cache, write_controller)),
+    : column_family_set_(new ColumnFamilySet(
+          dbname, db_options, storage_options, table_cache, write_controller)),
       env_(db_options->env),
       dbname_(dbname),
       db_options_(db_options),
@@ -1459,7 +1460,7 @@ VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
-      env_options_(env_options),
+      env_options_(storage_options),
       env_options_compactions_(env_options_) {}
 
 VersionSet::~VersionSet() {
@@ -1842,8 +1843,8 @@ Status VersionSet::Recover(
   if (!s.ok()) {
     return s;
   }
-  uint64_t manifest_file_size;
-  s = env_->GetFileSize(manifest_filename, &manifest_file_size);
+  uint64_t current_manifest_file_size;
+  s = env_->GetFileSize(manifest_filename, &current_manifest_file_size);
   if (!s.ok()) {
     return s;
   }
@@ -1855,7 +1856,7 @@ Status VersionSet::Recover(
   uint64_t next_file = 0;
   uint64_t last_sequence = 0;
   uint64_t log_number = 0;
-  uint64_t prev_log_number = 0;
+  uint64_t previous_log_number = 0;
   uint32_t max_column_family = 0;
   std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
 
@@ -1984,7 +1985,7 @@ Status VersionSet::Recover(
       }
 
       if (edit.has_prev_log_number_) {
-        prev_log_number = edit.prev_log_number_;
+        previous_log_number = edit.prev_log_number_;
         have_prev_log_number = true;
       }
 
@@ -2014,12 +2015,12 @@ Status VersionSet::Recover(
     }
 
     if (!have_prev_log_number) {
-      prev_log_number = 0;
+      previous_log_number = 0;
     }
 
     column_family_set_->UpdateMaxColumnFamily(max_column_family);
 
-    MarkFileNumberUsed(prev_log_number);
+    MarkFileNumberUsed(previous_log_number);
     MarkFileNumberUsed(log_number);
   }
 
@@ -2059,10 +2060,10 @@ Status VersionSet::Recover(
       AppendVersion(cfd, v);
     }
 
-    manifest_file_size_ = manifest_file_size;
+    manifest_file_size_ = current_manifest_file_size;
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;
-    prev_log_number_ = prev_log_number;
+    prev_log_number_ = previous_log_number;
 
     Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
         "Recovered from manifest file:%s succeeded,"
@@ -2254,7 +2255,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   bool have_last_sequence = false;
   uint64_t next_file = 0;
   uint64_t last_sequence = 0;
-  uint64_t prev_log_number = 0;
+  uint64_t previous_log_number = 0;
   int count = 0;
   std::unordered_map<uint32_t, std::string> comparators;
   std::unordered_map<uint32_t, BaseReferencedVersionBuilder*> builders;
@@ -2345,7 +2346,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
 
       if (edit.has_prev_log_number_) {
-        prev_log_number = edit.prev_log_number_;
+        previous_log_number = edit.prev_log_number_;
         have_prev_log_number = true;
       }
 
@@ -2376,7 +2377,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     }
 
     if (!have_prev_log_number) {
-      prev_log_number = 0;
+      previous_log_number = 0;
     }
   }
 
@@ -2409,13 +2410,13 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
     next_file_number_ = next_file + 1;
     last_sequence_ = last_sequence;
-    prev_log_number_ = prev_log_number;
+    prev_log_number_ = previous_log_number;
 
     printf(
         "next_file_number %lu last_sequence "
         "%lu  prev_log_number %lu max_column_family %u\n",
         (unsigned long)next_file_number_, (unsigned long)last_sequence,
-        (unsigned long)prev_log_number,
+        (unsigned long)previous_log_number,
         column_family_set_->GetMaxColumnFamily());
   }
 
@@ -2491,10 +2492,9 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
 
 // Opens the mainfest file and reads all records
 // till it finds the record we are looking for.
-bool VersionSet::ManifestContains(uint64_t manifest_file_number,
+bool VersionSet::ManifestContains(uint64_t manifest_file_num,
                                   const std::string& record) const {
-  std::string fname =
-      DescriptorFileName(dbname_, manifest_file_number);
+  std::string fname = DescriptorFileName(dbname_, manifest_file_num);
   Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
       "ManifestContains: checking %s\n", fname.c_str());
   unique_ptr<SequentialFile> file;

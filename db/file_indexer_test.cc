@@ -94,7 +94,6 @@ TEST(FileIndexerTest, Empty) {
 // Case 1: no overlap, files are on the left of next level files
 TEST(FileIndexerTest, no_overlap_left) {
   Arena arena;
-  uint32_t kNumLevels = 4;
   indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 100, 200);
@@ -135,7 +134,6 @@ TEST(FileIndexerTest, no_overlap_left) {
 // Case 2: no overlap, files are on the right of next level files
 TEST(FileIndexerTest, no_overlap_right) {
   Arena arena;
-  uint32_t kNumLevels = 4;
   indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 2100, 2200);
@@ -178,7 +176,6 @@ TEST(FileIndexerTest, no_overlap_right) {
 // Case 3: empty L2
 TEST(FileIndexerTest, empty_L2) {
   Arena arena;
-  uint32_t kNumLevels = 4;
   indexer = new FileIndexer(&ucmp);
   for (uint32_t i = 1; i < kNumLevels; ++i) {
     ASSERT_EQ(0U, indexer->LevelIndexSize(i));

@@ -29,8 +29,8 @@ uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-void Compaction::SetInputVersion(Version* input_version) {
-  input_version_ = input_version;
+void Compaction::SetInputVersion(Version* _input_version) {
+  input_version_ = _input_version;
   cfd_ = input_version_->cfd();
 
   cfd_->Ref();
@@ -111,10 +111,10 @@ bool Compaction::IsTrivialMove() const {
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 
-void Compaction::AddInputDeletions(VersionEdit* edit) {
+void Compaction::AddInputDeletions(VersionEdit* out_edit) {
   for (int which = 0; which < num_input_levels(); which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
-      edit->DeleteFile(level(which), inputs_[which][i]->fd.GetNumber());
+      out_edit->DeleteFile(level(which), inputs_[which][i]->fd.GetNumber());
     }
   }
 }
@@ -261,14 +261,15 @@ void Compaction::Summary(char* output, int len) {
     return;
   }
 
-  for (int level = 0; level < num_input_levels(); ++level) {
-    if (level > 0) {
+  for (int level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
+    if (level_iter > 0) {
       write += snprintf(output + write, len - write, "], [");
       if (write < 0 || write >= len) {
         return;
       }
     }
-    write += InputSummary(inputs_[level].files, output + write, len - write);
+    write +=
+        InputSummary(inputs_[level_iter].files, output + write, len - write);
     if (write < 0 || write >= len) {
       return;
     }
@@ -284,8 +285,8 @@ uint64_t Compaction::OutputFilePreallocationSize(
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     preallocation_size = mutable_options.MaxFileSizeForLevel(output_level());
   } else {
-    for (int level = 0; level < num_input_levels(); ++level) {
-      for (const auto& f : inputs_[level].files) {
+    for (int level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
+      for (const auto& f : inputs_[level_iter].files) {
         preallocation_size += f->fd.GetFileSize();
       }
     }

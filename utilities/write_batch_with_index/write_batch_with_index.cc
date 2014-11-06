@@ -53,10 +53,10 @@ class BaseDeltaIterator : public Iterator {
     UpdateCurrent();
   }
 
-  void Seek(const Slice& key) override {
+  void Seek(const Slice& k) override {
     forward_ = true;
-    base_iterator_->Seek(key);
-    delta_iterator_->Seek(key);
+    base_iterator_->Seek(k);
+    delta_iterator_->Seek(k);
     UpdateCurrent();
   }
 

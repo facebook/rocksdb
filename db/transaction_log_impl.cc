@@ -48,14 +48,14 @@ Status TransactionLogIteratorImpl::OpenLogFile(
     return env->NewSequentialFile(fname, file, soptions_);
   } else {
     std::string fname = LogFileName(dir_, logFile->LogNumber());
-    Status status = env->NewSequentialFile(fname, file, soptions_);
-    if (!status.ok()) {
+    Status s = env->NewSequentialFile(fname, file, soptions_);
+    if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-      status = env->NewSequentialFile(fname, file, soptions_);
+      s = env->NewSequentialFile(fname, file, soptions_);
     }
-    return status;
+    return s;
   }
 }
 
@@ -182,10 +182,10 @@ void TransactionLogIteratorImpl::NextImpl(bool internal) {
     // Open the next file
     if (currentFileIndex_ < files_->size() - 1) {
       ++currentFileIndex_;
-      Status status =OpenLogReader(files_->at(currentFileIndex_).get());
-      if (!status.ok()) {
+      Status s = OpenLogReader(files_->at(currentFileIndex_).get());
+      if (!s.ok()) {
         isValid_ = false;
-        currentStatus_ = status;
+        currentStatus_ = s;
         return;
       }
     } else {
@@ -252,9 +252,9 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
 
 Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
   unique_ptr<SequentialFile> file;
-  Status status = OpenLogFile(logFile, &file);
-  if (!status.ok()) {
-    return status;
+  Status s = OpenLogFile(logFile, &file);
+  if (!s.ok()) {
+    return s;
   }
   assert(file);
   currentLogReader_.reset(new log::Reader(std::move(file), &reporter_,

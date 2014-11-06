@@ -70,7 +70,7 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
   ColumnFamilyHandleInternal()
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr) {}
 
-  void SetCFD(ColumnFamilyData* cfd) { internal_cfd_ = cfd; }
+  void SetCFD(ColumnFamilyData* _cfd) { internal_cfd_ = _cfd; }
   virtual ColumnFamilyData* cfd() const override { return internal_cfd_; }
 
  private:
@@ -178,7 +178,7 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   // This returns the MutableCFOptions used by current SuperVersion
   // You shoul use this API to reference MutableCFOptions most of the time.
-  const MutableCFOptions* mutable_cf_options() const {
+  const MutableCFOptions* GetCurrentMutableCFOptions() const {
     return &(super_version_->mutable_cf_options);
   }
   // REQUIRES: DB mutex held

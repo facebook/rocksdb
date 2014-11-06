@@ -517,11 +517,11 @@ TEST(CuckooReaderTest, TestReadPerformance) {
   fprintf(stdout,
       "WARNING: Not compiled with DNDEBUG. Performance tests may be slow.\n");
 #endif
-  std::vector<std::string> keys;
   for (uint64_t num : nums) {
     if (FLAGS_write || !Env::Default()->FileExists(GetFileName(num))) {
-      GetKeys(num, &keys);
-      WriteFile(keys, num, hash_ratio);
+      std::vector<std::string> all_keys;
+      GetKeys(num, &all_keys);
+      WriteFile(all_keys, num, hash_ratio);
     }
     ReadKeys(num, 0);
     ReadKeys(num, 10);

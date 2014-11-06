@@ -312,8 +312,8 @@ void DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       // ignore corruption if there is any.
-      const Slice value = iter_->value();
-      user_merge_operator_->FullMerge(ikey.user_key, &value, operands,
+      const Slice val = iter_->value();
+      user_merge_operator_->FullMerge(ikey.user_key, &val, operands,
                                       &saved_value_, logger_);
       // iter_ is positioned after put
       iter_->Next();
@@ -323,8 +323,8 @@ void DBIter::MergeValuesNewToOld() {
     if (kTypeMerge == ikey.type) {
       // hit a merge, add the value as an operand and run associative merge.
       // when complete, add result to operands and continue.
-      const Slice& value = iter_->value();
-      operands.push_front(value.ToString());
+      const Slice& val = iter_->value();
+      operands.push_front(val.ToString());
     }
   }
 
@@ -505,8 +505,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     return true;
   }
 
-  const Slice& value = iter_->value();
-  user_merge_operator_->FullMerge(saved_key_.GetKey(), &value, operands,
+  const Slice& val = iter_->value();
+  user_merge_operator_->FullMerge(saved_key_.GetKey(), &val, operands,
                                   &saved_value_, logger_);
   valid_ = true;
   return true;

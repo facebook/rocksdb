@@ -62,9 +62,9 @@ uint64_t SlowdownAmount(int n, double bottom, double top) {
 }
 }  // namespace
 
-ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(ColumnFamilyData* cfd,
-                                               DBImpl* db, port::Mutex* mutex)
-    : cfd_(cfd), db_(db), mutex_(mutex) {
+ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
+    ColumnFamilyData* column_family_data, DBImpl* db, port::Mutex* mutex)
+    : cfd_(column_family_data), db_(db), mutex_(mutex) {
   if (cfd_ != nullptr) {
     cfd_->Ref();
   }
@@ -217,14 +217,15 @@ void SuperVersionUnrefHandle(void* ptr) {
 }  // anonymous namespace
 
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
-                                   Version* dummy_versions, Cache* table_cache,
+                                   Version* _dummy_versions,
+                                   Cache* _table_cache,
                                    const ColumnFamilyOptions& cf_options,
                                    const DBOptions* db_options,
                                    const EnvOptions& env_options,
                                    ColumnFamilySet* column_family_set)
     : id_(id),
       name_(name),
-      dummy_versions_(dummy_versions),
+      dummy_versions_(_dummy_versions),
       current_(nullptr),
       refs_(0),
       dropped_(false),
@@ -243,11 +244,11 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       column_family_set_(column_family_set) {
   Ref();
 
-  // if dummy_versions is nullptr, then this is a dummy column family.
-  if (dummy_versions != nullptr) {
+  // if _dummy_versions is nullptr, then this is a dummy column family.
+  if (_dummy_versions != nullptr) {
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, db_options->env, this));
-    table_cache_.reset(new TableCache(ioptions_, env_options, table_cache));
+    table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache));
     if (ioptions_.compaction_style == kCompactionStyleUniversal) {
       compaction_picker_.reset(
           new UniversalCompactionPicker(ioptions_, &internal_comparator_));
@@ -389,7 +390,9 @@ const EnvOptions* ColumnFamilyData::soptions() const {
   return &(column_family_set_->env_options_);
 }
 
-void ColumnFamilyData::SetCurrent(Version* current) { current_ = current; }
+void ColumnFamilyData::SetCurrent(Version* current_version) {
+  current_ = current_version;
+}
 
 void ColumnFamilyData::CreateNewMemtable(
     const MutableCFOptions& mutable_cf_options) {

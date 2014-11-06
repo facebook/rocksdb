@@ -247,13 +247,13 @@ class SpecialEnv : public EnvWrapper {
         return base_->GetFileSize();
       }
     };
-    class LogFile : public WritableFile {
+    class WalFile : public WritableFile {
      private:
       SpecialEnv* env_;
       unique_ptr<WritableFile> base_;
      public:
-      LogFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
-          : env_(env), base_(std::move(b)) { }
+      WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
+          : env_(env), base_(std::move(b)) {}
       Status Append(const Slice& data) {
         if (env_->log_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
@@ -296,7 +296,7 @@ class SpecialEnv : public EnvWrapper {
       } else if (strstr(f.c_str(), "MANIFEST") != nullptr) {
         r->reset(new ManifestFile(this, std::move(*r)));
       } else if (strstr(f.c_str(), "log") != nullptr) {
-        r->reset(new LogFile(this, std::move(*r)));
+        r->reset(new WalFile(this, std::move(*r)));
       }
     }
     return s;

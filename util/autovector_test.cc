@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <iostream>
+#include <utility>
 
 #include "rocksdb/env.h"
 #include "util/autovector.h"
@@ -48,8 +49,8 @@ TEST(AutoVectorTest, PushBackAndPopBack) {
 }
 
 TEST(AutoVectorTest, EmplaceBack) {
-  typedef std::pair<size_t, std::string> ValueType;
-  autovector<ValueType, kSize> vec;
+  typedef std::pair<size_t, std::string> ValType;
+  autovector<ValType, kSize> vec;
 
   for (size_t i = 0; i < 1000 * kSize; ++i) {
     vec.emplace_back(i, std::to_string(i + 123));

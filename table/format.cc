@@ -107,11 +107,11 @@ inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
 }
 }  // namespace
 
-Footer::Footer(uint64_t table_magic_number)
-    : version_(IsLegacyFooterFormat(table_magic_number) ? kLegacyFooter
-                                                        : kFooterVersion),
+Footer::Footer(uint64_t _table_magic_number)
+    : version_(IsLegacyFooterFormat(_table_magic_number) ? kLegacyFooter
+                                                         : kFooterVersion),
       checksum_(kCRC32c),
-      table_magic_number_(table_magic_number) {}
+      table_magic_number_(_table_magic_number) {}
 
 Status Footer::DecodeFrom(Slice* input) {
   assert(input != nullptr);
@@ -160,11 +160,11 @@ Status Footer::DecodeFrom(Slice* input) {
     } else {
       input->remove_prefix(input->size() - kVersion1EncodedLength);
     }
-    uint32_t checksum;
-    if (!GetVarint32(input, &checksum)) {
+    uint32_t chksum;
+    if (!GetVarint32(input, &chksum)) {
       return Status::Corruption("bad checksum type");
     }
-    checksum_ = static_cast<ChecksumType>(checksum);
+    checksum_ = static_cast<ChecksumType>(chksum);
   }
 
   Status result = metaindex_handle_.DecodeFrom(input);

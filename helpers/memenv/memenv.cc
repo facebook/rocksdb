@@ -351,15 +351,14 @@ class InMemoryEnv : public EnvWrapper {
     return Status::NotSupported("getFileMTime", "Not supported in MemEnv");
   }
 
-  virtual Status RenameFile(const std::string& src,
-                            const std::string& target) {
+  virtual Status RenameFile(const std::string& src, const std::string& dest) {
     MutexLock lock(&mutex_);
     if (file_map_.find(src) == file_map_.end()) {
       return Status::IOError(src, "File not found");
     }
 
-    DeleteFileInternal(target);
-    file_map_[target] = file_map_[src];
+    DeleteFileInternal(dest);
+    file_map_[dest] = file_map_[src];
     file_map_.erase(src);
     return Status::OK();
   }
