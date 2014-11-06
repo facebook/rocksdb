@@ -144,6 +144,9 @@ class SpecialEnv : public EnvWrapper {
   // Force write to log files to fail while this pointer is non-nullptr
   std::atomic<bool> log_write_error_;
 
+  // Slow down every log write, in micro-seconds.
+  std::atomic<int> log_write_slowdown_;
+
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
 
@@ -172,6 +175,7 @@ class SpecialEnv : public EnvWrapper {
     manifest_sync_error_.store(false, std::memory_order_release);
     manifest_write_error_.store(false, std::memory_order_release);
     log_write_error_.store(false, std::memory_order_release);
+    log_write_slowdown_ = 0;
     bytes_written_ = 0;
     sync_counter_ = 0;
     non_writeable_rate_ = 0;
@@ -254,6 +258,11 @@ class SpecialEnv : public EnvWrapper {
         if (env_->log_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
         } else {
+          int slowdown =
+              env_->log_write_slowdown_.load(std::memory_order_acquire);
+          if (slowdown > 0) {
+            env_->SleepForMicroseconds(slowdown);
+          }
           return base_->Append(data);
         }
       }
@@ -7060,6 +7069,8 @@ static void GCThreadBody(void* arg) {
 TEST(DBTest, GroupCommitTest) {
   do {
     Options options = CurrentOptions();
+    options.env = env_;
+    env_->log_write_slowdown_.store(100);
     options.statistics = rocksdb::CreateDBStatistics();
     Reopen(options);
 
@@ -7077,6 +7088,8 @@ TEST(DBTest, GroupCommitTest) {
         env_->SleepForMicroseconds(100000);
       }
     }
+    env_->log_write_slowdown_.store(0);
+
     ASSERT_GT(TestGetTickerCount(options, WRITE_DONE_BY_OTHER), 0);
 
     std::vector<std::string> expected_db;
