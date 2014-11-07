@@ -29,117 +29,137 @@ public class BackupableDBTest {
 
   @Test
   public void backupableDb() throws RocksDBException {
+    Options opt = null;
+    BackupableDBOptions bopt = null;
+    BackupableDB bdb = null;
+    RestoreOptions ropt = null;
+    RestoreBackupableDB rdb = null;
+    try {
+      opt = new Options();
+      opt.setCreateIfMissing(true);
 
-    Options opt = new Options();
-    opt.setCreateIfMissing(true);
+      bopt = new BackupableDBOptions(
+          backupFolder.getRoot().getAbsolutePath(), false,
+          true, false, true, 0, 0);
+      assertThat(bopt.backupDir()).isEqualTo(
+          backupFolder.getRoot().getAbsolutePath());
 
-    BackupableDBOptions bopt = new BackupableDBOptions(
-        backupFolder.getRoot().getAbsolutePath(), false,
-        true, false, true, 0, 0);
-    BackupableDB bdb;
-    List<BackupInfo> backupInfos;
-    List<BackupInfo> restoreInfos;
+      List<BackupInfo> backupInfos;
+      List<BackupInfo> restoreInfos;
 
-    bdb = BackupableDB.open(opt, bopt,
-        dbFolder.getRoot().getAbsolutePath());
-    bdb.put("abc".getBytes(), "def".getBytes());
-    bdb.put("ghi".getBytes(), "jkl".getBytes());
+      bdb = BackupableDB.open(opt, bopt,
+          dbFolder.getRoot().getAbsolutePath());
+      bdb.put("abc".getBytes(), "def".getBytes());
+      bdb.put("ghi".getBytes(), "jkl".getBytes());
 
-    backupInfos = bdb.getBackupInfos();
-    assertThat(backupInfos.size()).
-        isEqualTo(0);
+      backupInfos = bdb.getBackupInfos();
+      assertThat(backupInfos.size()).
+          isEqualTo(0);
 
-    bdb.createNewBackup(true);
-    backupInfos = bdb.getBackupInfos();
-    assertThat(backupInfos.size()).
-        isEqualTo(1);
+      bdb.createNewBackup(true);
+      backupInfos = bdb.getBackupInfos();
+      assertThat(backupInfos.size()).
+          isEqualTo(1);
 
-    // Retrieving backup infos twice shall not
-    // lead to different results
-    List<BackupInfo> tmpBackupInfo = bdb.getBackupInfos();
-    assertThat(tmpBackupInfo.get(0).backupId()).
-        isEqualTo(backupInfos.get(0).backupId());
-    assertThat(tmpBackupInfo.get(0).timestamp()).
-        isEqualTo(backupInfos.get(0).timestamp());
-    assertThat(tmpBackupInfo.get(0).size()).
-        isEqualTo(backupInfos.get(0).size());
-    assertThat(tmpBackupInfo.get(0).numberFiles()).
-        isEqualTo(backupInfos.get(0).numberFiles());
+      // Retrieving backup infos twice shall not
+      // lead to different results
+      List<BackupInfo> tmpBackupInfo = bdb.getBackupInfos();
+      assertThat(tmpBackupInfo.get(0).backupId()).
+          isEqualTo(backupInfos.get(0).backupId());
+      assertThat(tmpBackupInfo.get(0).timestamp()).
+          isEqualTo(backupInfos.get(0).timestamp());
+      assertThat(tmpBackupInfo.get(0).size()).
+          isEqualTo(backupInfos.get(0).size());
+      assertThat(tmpBackupInfo.get(0).numberFiles()).
+          isEqualTo(backupInfos.get(0).numberFiles());
 
-    // delete record after backup
-    bdb.remove("abc".getBytes());
-    byte[] value = bdb.get("abc".getBytes());
-    assertThat(value).isNull();
-    bdb.close();
+      // delete record after backup
+      bdb.remove("abc".getBytes());
+      byte[] value = bdb.get("abc".getBytes());
+      assertThat(value).isNull();
+      bdb.close();
 
-    // restore from backup
-    RestoreOptions ropt = new RestoreOptions(false);
-    RestoreBackupableDB rdb = new RestoreBackupableDB(bopt);
+      // restore from backup
+      ropt = new RestoreOptions(false);
+      rdb = new RestoreBackupableDB(bopt);
 
-    // getting backup infos from restorable db should
-    // lead to the same infos as from backupable db
-    restoreInfos = rdb.getBackupInfos();
-    assertThat(restoreInfos.size()).
-        isEqualTo(backupInfos.size());
-    assertThat(restoreInfos.get(0).backupId()).
-        isEqualTo(backupInfos.get(0).backupId());
-    assertThat(restoreInfos.get(0).timestamp()).
-        isEqualTo(backupInfos.get(0).timestamp());
-    assertThat(restoreInfos.get(0).size()).
-        isEqualTo(backupInfos.get(0).size());
-    assertThat(restoreInfos.get(0).numberFiles()).
-        isEqualTo(backupInfos.get(0).numberFiles());
+      // getting backup infos from restorable db should
+      // lead to the same infos as from backupable db
+      restoreInfos = rdb.getBackupInfos();
+      assertThat(restoreInfos.size()).
+          isEqualTo(backupInfos.size());
+      assertThat(restoreInfos.get(0).backupId()).
+          isEqualTo(backupInfos.get(0).backupId());
+      assertThat(restoreInfos.get(0).timestamp()).
+          isEqualTo(backupInfos.get(0).timestamp());
+      assertThat(restoreInfos.get(0).size()).
+          isEqualTo(backupInfos.get(0).size());
+      assertThat(restoreInfos.get(0).numberFiles()).
+          isEqualTo(backupInfos.get(0).numberFiles());
 
-    rdb.restoreDBFromLatestBackup(
-        dbFolder.getRoot().getAbsolutePath(),
-        dbFolder.getRoot().getAbsolutePath(),
-        ropt);
-    // do nothing because there is only one backup
-    rdb.purgeOldBackups(1);
-    restoreInfos = rdb.getBackupInfos();
-    assertThat(restoreInfos.size()).
-        isEqualTo(1);
-    rdb.dispose();
-    ropt.dispose();
+      rdb.restoreDBFromLatestBackup(
+          dbFolder.getRoot().getAbsolutePath(),
+          dbFolder.getRoot().getAbsolutePath(),
+          ropt);
+      // do nothing because there is only one backup
+      rdb.purgeOldBackups(1);
+      restoreInfos = rdb.getBackupInfos();
+      assertThat(restoreInfos.size()).
+          isEqualTo(1);
+      rdb.dispose();
+      ropt.dispose();
 
-    // verify that backed up data contains deleted record
-    bdb = BackupableDB.open(opt, bopt,
-        dbFolder.getRoot().getAbsolutePath());
-    value = bdb.get("abc".getBytes());
-    assertThat(new String(value)).
-        isEqualTo("def");
+      // verify that backed up data contains deleted record
+      bdb = BackupableDB.open(opt, bopt,
+          dbFolder.getRoot().getAbsolutePath());
+      value = bdb.get("abc".getBytes());
+      assertThat(new String(value)).
+          isEqualTo("def");
 
-    bdb.createNewBackup(false);
-    // after new backup there must be two backup infos
-    backupInfos = bdb.getBackupInfos();
-    assertThat(backupInfos.size()).
-        isEqualTo(2);
-    // deleting the backup must be possible using the
-    // id provided by backup infos
-    bdb.deleteBackup(backupInfos.get(1).backupId());
-    // after deletion there should only be one info
-    backupInfos = bdb.getBackupInfos();
-    assertThat(backupInfos.size()).
-        isEqualTo(1);
-    bdb.createNewBackup(false);
-    bdb.createNewBackup(false);
-    bdb.createNewBackup(false);
-    backupInfos = bdb.getBackupInfos();
-    assertThat(backupInfos.size()).
-        isEqualTo(4);
-    // purge everything and keep two
-    bdb.purgeOldBackups(2);
-    // backup infos need to be two
-    backupInfos = bdb.getBackupInfos();
-    assertThat(backupInfos.size()).
-        isEqualTo(2);
-    assertThat(backupInfos.get(0).backupId()).
-        isEqualTo(4);
-    assertThat(backupInfos.get(1).backupId()).
-        isEqualTo(5);
-
-    opt.dispose();
-    bopt.dispose();
-    bdb.close();
+      bdb.createNewBackup(false);
+      // after new backup there must be two backup infos
+      backupInfos = bdb.getBackupInfos();
+      assertThat(backupInfos.size()).
+          isEqualTo(2);
+      // deleting the backup must be possible using the
+      // id provided by backup infos
+      bdb.deleteBackup(backupInfos.get(1).backupId());
+      // after deletion there should only be one info
+      backupInfos = bdb.getBackupInfos();
+      assertThat(backupInfos.size()).
+          isEqualTo(1);
+      bdb.createNewBackup(false);
+      bdb.createNewBackup(false);
+      bdb.createNewBackup(false);
+      backupInfos = bdb.getBackupInfos();
+      assertThat(backupInfos.size()).
+          isEqualTo(4);
+      // purge everything and keep two
+      bdb.purgeOldBackups(2);
+      // backup infos need to be two
+      backupInfos = bdb.getBackupInfos();
+      assertThat(backupInfos.size()).
+          isEqualTo(2);
+      assertThat(backupInfos.get(0).backupId()).
+          isEqualTo(4);
+      assertThat(backupInfos.get(1).backupId()).
+          isEqualTo(5);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+      if (bopt != null) {
+        bopt.dispose();
+      }
+      if (bdb != null) {
+        bdb.close();
+      }
+      if (ropt != null) {
+        ropt.dispose();
+      }
+      if (rdb != null) {
+        rdb.dispose();
+      }
+    }
   }
 }

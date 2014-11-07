@@ -26,6 +26,7 @@ public class KeyMayExistTest {
 
   @Test
   public void keyMayExist() throws RocksDBException {
+<<<<<<< HEAD
     RocksDB db;
     DBOptions options = new DBOptions();
     options.setCreateIfMissing(true)
@@ -49,23 +50,50 @@ public class KeyMayExistTest {
     assertThat(exists).isTrue();
     assertThat(retValue.toString()).
         isEqualTo("value");
+=======
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options();
+      options.setCreateIfMissing(true)
+          .setCreateMissingColumnFamilies(true);
+      // open database using cf names
+      List<String> cfNames = new ArrayList<>();
+      List<ColumnFamilyHandle> columnFamilyHandleList =
+          new ArrayList<>();
+      cfNames.add("default");
+      cfNames.add("new_cf");
+      db = RocksDB.open(options,
+          dbFolder.getRoot().getAbsolutePath(),
+          cfNames, columnFamilyHandleList);
+      assertThat(columnFamilyHandleList.size()).
+          isEqualTo(2);
+      db.put("key".getBytes(), "value".getBytes());
+      // Test without column family
+      StringBuffer retValue = new StringBuffer();
+      boolean exists = db.keyMayExist("key".getBytes(), retValue);
+      assertThat(exists).isTrue();
+      assertThat(retValue.toString()).
+          isEqualTo("value");
+>>>>>>> [RocksJava] Integrated review comments from D28209
 
-    // Test without column family but with readOptions
-    retValue = new StringBuffer();
-    exists = db.keyMayExist(new ReadOptions(), "key".getBytes(),
-        retValue);
-    assertThat(exists).isTrue();
-    assertThat(retValue.toString()).
-        isEqualTo("value");
+      // Test without column family but with readOptions
+      retValue = new StringBuffer();
+      exists = db.keyMayExist(new ReadOptions(), "key".getBytes(),
+          retValue);
+      assertThat(exists).isTrue();
+      assertThat(retValue.toString()).
+          isEqualTo("value");
 
-    // Test with column family
-    retValue = new StringBuffer();
-    exists = db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(),
-        retValue);
-    assertThat(exists).isTrue();
-    assertThat(retValue.toString()).
-        isEqualTo("value");
+      // Test with column family
+      retValue = new StringBuffer();
+      exists = db.keyMayExist(columnFamilyHandleList.get(0), "key".getBytes(),
+          retValue);
+      assertThat(exists).isTrue();
+      assertThat(retValue.toString()).
+          isEqualTo("value");
 
+<<<<<<< HEAD
     // Test with column family and readOptions
     retValue = new StringBuffer();
     exists = db.keyMayExist(new ReadOptions(),
@@ -74,9 +102,27 @@ public class KeyMayExistTest {
     assertThat(exists).isTrue();
     assertThat(retValue.toString()).
         isEqualTo("value");
+=======
+      // Test with column family and readOptions
+      retValue = new StringBuffer();
+      exists = db.keyMayExist(new ReadOptions(),
+          columnFamilyHandleList.get(0), "key".getBytes(),
+          retValue);
+      assertThat(exists).isTrue();
+      assertThat(retValue.toString()).
+          isEqualTo("value");
+>>>>>>> [RocksJava] Integrated review comments from D28209
 
-    // KeyMayExist in CF1 must return false
-    assertThat(db.keyMayExist(columnFamilyHandleList.get(1),
-        "key".getBytes(), retValue)).isFalse();
+      // KeyMayExist in CF1 must return false
+      assertThat(db.keyMayExist(columnFamilyHandleList.get(1),
+          "key".getBytes(), retValue)).isFalse();
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
   }
 }

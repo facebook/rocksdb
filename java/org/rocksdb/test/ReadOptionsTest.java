@@ -25,32 +25,66 @@ public class ReadOptionsTest {
   public ExpectedException exception = ExpectedException.none();
 
   @Test
-  public void readOptions() {
-    ReadOptions opt = new ReadOptions();
-    Random rand = new Random();
-    { // VerifyChecksums test
+  public void verifyChecksum(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       boolean boolValue = rand.nextBoolean();
       opt.setVerifyChecksums(boolValue);
       assertThat(opt.verifyChecksums()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
+  }
 
-    { // FillCache test
+  @Test
+  public void fillCache(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       boolean boolValue = rand.nextBoolean();
       opt.setFillCache(boolValue);
       assertThat(opt.fillCache()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
+  }
 
-    { // Tailing test
+  @Test
+  public void tailing(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       boolean boolValue = rand.nextBoolean();
       opt.setTailing(boolValue);
       assertThat(opt.tailing()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
+  }
 
-    { // Snapshot null test
+  @Test
+  public void snapshot(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       opt.setSnapshot(null);
       assertThat(opt.snapshot()).isNull();
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
-    opt.dispose();
   }
 
   @Test

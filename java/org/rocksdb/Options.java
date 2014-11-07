@@ -1010,7 +1010,6 @@ public class Options extends RocksObject
       long cfOptHandle);
   private native void disposeInternal(long handle);
   private native void setEnv(long optHandle, long envHandle);
-  private native long getEnvHandle(long handle);
   private native void prepareForBulkLoad(long handle);
 
   // DB native handles

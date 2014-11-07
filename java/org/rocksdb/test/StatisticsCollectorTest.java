@@ -27,27 +27,35 @@ public class StatisticsCollectorTest {
   @Test
   public void statisticsCollector()
       throws InterruptedException, RocksDBException {
-    Options opt = new Options().createStatistics().setCreateIfMissing(true);
-    Statistics stats = opt.statisticsPtr();
+    Options opt = null;
+    RocksDB db = null;
+    try {
+      opt = new Options().createStatistics().setCreateIfMissing(true);
+      Statistics stats = opt.statisticsPtr();
 
-    RocksDB db = RocksDB.open(opt,
-        dbFolder.getRoot().getAbsolutePath());
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath());
 
-    StatsCallbackMock callback = new StatsCallbackMock();
-    StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);
+      StatsCallbackMock callback = new StatsCallbackMock();
+      StatsCollectorInput statsInput = new StatsCollectorInput(stats, callback);
 
-    StatisticsCollector statsCollector = new StatisticsCollector(
-        Collections.singletonList(statsInput), 100);
-    statsCollector.start();
+      StatisticsCollector statsCollector = new StatisticsCollector(
+          Collections.singletonList(statsInput), 100);
+      statsCollector.start();
 
-    Thread.sleep(1000);
+      Thread.sleep(1000);
 
-    assertThat(callback.tickerCallbackCount).isGreaterThan(0);
-    assertThat(callback.histCallbackCount).isGreaterThan(0);
+      assertThat(callback.tickerCallbackCount).isGreaterThan(0);
+      assertThat(callback.histCallbackCount).isGreaterThan(0);
 
-    statsCollector.shutDown(1000);
-
-    db.close();
-    opt.dispose();
+      statsCollector.shutDown(1000);
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
   }
 }
