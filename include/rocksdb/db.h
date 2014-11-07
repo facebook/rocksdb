@@ -501,7 +501,7 @@ class DB {
       ColumnFamilyMetaData* metadata) {}
 
   // Get the metadata of the default column family.
-  virtual void GetColumnFamilyMetaData(
+  void GetColumnFamilyMetaData(
       ColumnFamilyMetaData* metadata) {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
