@@ -163,7 +163,7 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<uint32_t> new_writable_count_;
 
-  std::atomic<uint32_t> periodic_non_writable_;
+  std::atomic<uint32_t> non_writable_count_;
 
   explicit SpecialEnv(Env* base) : EnvWrapper(base), rnd_(301) {
     delay_sstable_sync_.store(false, std::memory_order_release);
@@ -180,7 +180,7 @@ class SpecialEnv : public EnvWrapper {
     sync_counter_ = 0;
     non_writeable_rate_ = 0;
     new_writable_count_ = 0;
-    periodic_non_writable_ = 0;
+    non_writable_count_ = 0;
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
@@ -283,10 +283,9 @@ class SpecialEnv : public EnvWrapper {
 
     new_writable_count_++;
 
-    auto periodic_fail = periodic_non_writable_.load();
-    if (periodic_fail > 0 &&
-        new_writable_count_.load() % periodic_fail == 0) {
-      return Status::IOError("simulated periodic write error");
+    if (non_writable_count_.load() > 0) {
+      non_writable_count_--;
+      return Status::IOError("simulated write error");
     }
 
     Status s = target()->NewWritableFile(f, r, soptions);
@@ -8927,6 +8926,13 @@ TEST(DBTest, PartialCompactionFailure) {
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
 
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  // stop the compaction thread until we simulate the file creation failure.
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
   options.env = env_;
 
   DestroyAndReopen(options);
@@ -8945,37 +8951,34 @@ TEST(DBTest, PartialCompactionFailure) {
     ASSERT_OK(Put(Slice(keys[k]), Slice(values[k])));
   }
 
-  dbfull()->TEST_WaitForFlushMemTable();
-  // Make sure there're some L0 files we can compact
-  ASSERT_GT(NumTableFilesAtLevel(0), 0);
+  dbfull()->TEST_FlushMemTable(true);
+  // Make sure the number of L0 files can trigger compaction.
+  ASSERT_GE(NumTableFilesAtLevel(0),
+            options.level0_file_num_compaction_trigger);
+
   auto previous_num_level0_files = NumTableFilesAtLevel(0);
 
-  // The number of NewWritableFiles calls required by each operation.
-  const int kNumLevel1NewWritableFiles =
-      options.level0_file_num_compaction_trigger + 1;
-  // This setting will make one of the file-creation fail
-  // in the first L0 -> L1 compaction while making sure
-  // all flushes succeeed.
-  env_->periodic_non_writable_ = kNumLevel1NewWritableFiles - 2;
+  // Fail the first file creation.
+  env_->non_writable_count_ = 1;
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
 
   // Expect compaction to fail here as one file will fail its
   // creation.
-  ASSERT_TRUE(!db_->CompactRange(nullptr, nullptr).ok());
+  ASSERT_TRUE(!dbfull()->TEST_WaitForCompact().ok());
 
   // Verify L0 -> L1 compaction does fail.
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
 
   // Verify all L0 files are still there.
-  // We use GE here as occasionally there might be additional
-  // memtables being flushed.
-  ASSERT_GE(NumTableFilesAtLevel(0), previous_num_level0_files);
+  ASSERT_EQ(NumTableFilesAtLevel(0), previous_num_level0_files);
 
   // All key-values must exist after compaction fails.
   for (int k = 0; k < kNumInsertedKeys; ++k) {
     ASSERT_EQ(values[k], Get(keys[k]));
   }
 
-  env_->periodic_non_writable_ = 0;
+  env_->non_writable_count_ = 0;
 
   // Make sure RocksDB will not get into corrupted state.
   Reopen(options);
