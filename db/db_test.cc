@@ -8333,9 +8333,9 @@ namespace {
 }  // namespace
 
 TEST(DBTest, CompactFilesOnLevelCompaction) {
-  const int kKeySize = 16;
-  const int kValueSize = 984;
-  const int kEntrySize = kKeySize + kValueSize;
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
   const int kEntriesPerBuffer = 100;
   Options options;
   options.create_if_missing = true;
@@ -8351,7 +8351,7 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
 
   Random rnd(301);
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kValueSize)));
+    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kTestValueSize)));
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();
@@ -8388,9 +8388,9 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
 }
 
 TEST(DBTest, CompactFilesOnUniversalCompaction) {
-  const int kKeySize = 16;
-  const int kValueSize = 984;
-  const int kEntrySize = kKeySize + kValueSize;
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
   const int kEntriesPerBuffer = 10;
 
   ChangeCompactOptions();
@@ -8405,7 +8405,7 @@ TEST(DBTest, CompactFilesOnUniversalCompaction) {
   ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
   Random rnd(301);
   for (int key = 1024 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kValueSize)));
+    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kTestValueSize)));
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();

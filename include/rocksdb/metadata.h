@@ -19,9 +19,9 @@ struct SstFileMetaData;
 // The metadata that describes a column family.
 struct ColumnFamilyMetaData {
   ColumnFamilyMetaData() : size(0), name("") {}
-  ColumnFamilyMetaData(const std::string& name, uint64_t size,
-                       const std::vector<LevelMetaData>&& levels) :
-      size(size), name(name), levels(levels) {}
+  ColumnFamilyMetaData(const std::string& _name, uint64_t _size,
+                       const std::vector<LevelMetaData>&& _levels) :
+      size(_size), name(_name), levels(_levels) {}
 
   // The size of this column family in bytes, which is equal to the sum of
   // the file size of its "levels".
@@ -36,10 +36,10 @@ struct ColumnFamilyMetaData {
 
 // The metadata that describes a level.
 struct LevelMetaData {
-  LevelMetaData(int level, uint64_t size,
-                const std::vector<SstFileMetaData>&& files) :
-      level(level), size(size),
-      files(files) {}
+  LevelMetaData(int _level, uint64_t _size,
+                const std::vector<SstFileMetaData>&& _files) :
+      level(_level), size(_size),
+      files(_files) {}
 
   // The level which this meta data describes.
   const int level;
@@ -53,17 +53,17 @@ struct LevelMetaData {
 // The metadata that describes a SST file.
 struct SstFileMetaData {
   SstFileMetaData() {}
-  SstFileMetaData(const std::string& file_name,
-                  const std::string& path, uint64_t size,
-                  SequenceNumber smallest_seqno,
-                  SequenceNumber largest_seqno,
-                  const std::string& smallestkey,
-                  const std::string& largestkey,
-                  bool being_compacted) :
-    size(size), name(file_name),
-    db_path(path), smallest_seqno(smallest_seqno), largest_seqno(largest_seqno),
-    smallestkey(smallestkey), largestkey(largestkey),
-    being_compacted(being_compacted) {}
+  SstFileMetaData(const std::string& _file_name,
+                  const std::string& _path, uint64_t _size,
+                  SequenceNumber _smallest_seqno,
+                  SequenceNumber _largest_seqno,
+                  const std::string& _smallestkey,
+                  const std::string& _largestkey,
+                  bool _being_compacted) :
+    size(_size), name(_file_name),
+    db_path(_path), smallest_seqno(_smallest_seqno), largest_seqno(_largest_seqno),
+    smallestkey(_smallestkey), largestkey(_largestkey),
+    being_compacted(_being_compacted) {}
 
   // File size in bytes.
   uint64_t size;
