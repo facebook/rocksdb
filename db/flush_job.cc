@@ -105,11 +105,11 @@ Status FlushJob::Run(uint64_t* file_number) {
   }
 
   if (!s.ok()) {
-    cfd_->imm()->RollbackMemtableFlush(mems, file_number);
+    cfd_->imm()->RollbackMemtableFlush(mems, fn);
   } else {
     // Replace immutable memtable with the generated Table
     s = cfd_->imm()->InstallMemtableFlushResults(
-        cfd_, mutable_cf_options_, mems, versions_, db_mutex_, file_number,
+        cfd_, mutable_cf_options_, mems, versions_, db_mutex_, fn,
         &job_context_->memtables_to_free, db_directory_, log_buffer_);
   }
 
