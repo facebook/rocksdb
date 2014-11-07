@@ -88,22 +88,27 @@ TEST(PerfContextTest, SeekIntoDeletion) {
     hist_get_time.Add(elapsed_nanos);
   }
 
-  std::cout << "Get uesr key comparison: \n" << hist_get.ToString()
+  std::cout << "Get user key comparison: \n" << hist_get.ToString()
             << "Get time: \n" << hist_get_time.ToString();
 
-  HistogramImpl hist_seek_to_first;
-  std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+  {
+    HistogramImpl hist_seek_to_first;
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
-  perf_context.Reset();
-  StopWatchNano timer(Env::Default(), true);
-  iter->SeekToFirst();
-  hist_seek_to_first.Add(perf_context.user_key_comparison_count);
-  auto elapsed_nanos = timer.ElapsedNanos();
+    perf_context.Reset();
+    StopWatchNano timer(Env::Default(), true);
+    iter->SeekToFirst();
+    hist_seek_to_first.Add(perf_context.user_key_comparison_count);
+    auto elapsed_nanos = timer.ElapsedNanos();
 
-  std::cout << "SeekToFirst uesr key comparison: \n" << hist_seek_to_first.ToString()
-            << "ikey skipped: " << perf_context.internal_key_skipped_count << "\n"
-            << "idelete skipped: " << perf_context.internal_delete_skipped_count << "\n"
-            << "elapsed: " << elapsed_nanos << "\n";
+    std::cout << "SeekToFirst uesr key comparison: \n"
+              << hist_seek_to_first.ToString()
+              << "ikey skipped: " << perf_context.internal_key_skipped_count
+              << "\n"
+              << "idelete skipped: "
+              << perf_context.internal_delete_skipped_count << "\n"
+              << "elapsed: " << elapsed_nanos << "\n";
+  }
 
   HistogramImpl hist_seek;
   for (int i = 0; i < FLAGS_total_keys; ++i) {
@@ -224,7 +229,6 @@ void ProfileQueries(bool enabled_time = false) {
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
 
-    std::vector<Slice> keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
@@ -239,7 +243,7 @@ void ProfileQueries(bool enabled_time = false) {
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
 
-    std::vector<Slice> keys = {Slice(key)};
+    std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
@@ -252,7 +256,7 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(perf_context.user_key_comparison_count);
 
     perf_context.Reset();
-    db->MultiGet(read_options, keys, &values);
+    db->MultiGet(read_options, multiget_keys, &values);
     hist_mget_snapshot.Add(perf_context.get_snapshot_time);
     hist_mget_memtable.Add(perf_context.get_from_memtable_time);
     hist_mget_files.Add(perf_context.get_from_output_files_time);
@@ -329,7 +333,7 @@ void ProfileQueries(bool enabled_time = false) {
     std::string key = "k" + std::to_string(i);
     std::string value = "v" + std::to_string(i);
 
-    std::vector<Slice> keys = {Slice(key)};
+    std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
@@ -342,7 +346,7 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(perf_context.user_key_comparison_count);
 
     perf_context.Reset();
-    db->MultiGet(read_options, keys, &values);
+    db->MultiGet(read_options, multiget_keys, &values);
     hist_mget_snapshot.Add(perf_context.get_snapshot_time);
     hist_mget_memtable.Add(perf_context.get_from_memtable_time);
     hist_mget_files.Add(perf_context.get_from_output_files_time);

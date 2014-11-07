@@ -59,11 +59,13 @@ struct Result {
     writes = reads = deletes = data_read = data_written = 0;
   }
 
-  Result (uint32_t writes, uint32_t reads, uint32_t deletes,
-          uint64_t data_written, uint64_t data_read) :
-    writes(writes), reads(reads), deletes(deletes),
-    data_written(data_written), data_read(data_read) {}
-
+  Result(uint32_t _writes, uint32_t _reads, uint32_t _deletes,
+         uint64_t _data_written, uint64_t _data_read)
+      : writes(_writes),
+        reads(_reads),
+        deletes(_deletes),
+        data_written(_data_written),
+        data_read(_data_read) {}
 };
 
 namespace {
@@ -81,11 +83,13 @@ struct WorkerThread {
   Result result;
   atomic<bool> stopped;
 
-  WorkerThread(uint64_t data_size_from, uint64_t data_size_to,
-                double read_ratio, uint64_t working_set_size) :
-    data_size_from(data_size_from), data_size_to(data_size_to),
-    read_ratio(read_ratio), working_set_size(working_set_size),
-    stopped(false) {}
+  WorkerThread(uint64_t _data_size_from, uint64_t _data_size_to,
+               double _read_ratio, uint64_t _working_set_size)
+      : data_size_from(_data_size_from),
+        data_size_to(_data_size_to),
+        read_ratio(_read_ratio),
+        working_set_size(_working_set_size),
+        stopped(false) {}
 
   WorkerThread(const WorkerThread& wt) :
     data_size_from(wt.data_size_from), data_size_to(wt.data_size_to),

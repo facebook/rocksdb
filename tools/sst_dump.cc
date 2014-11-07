@@ -378,7 +378,6 @@ int main(int argc, char** argv) {
     }
     rocksdb::SstFileReader reader(filename, verify_checksum,
                                   output_hex);
-    rocksdb::Status st;
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
       st = reader.ReadSequential(command != "check",

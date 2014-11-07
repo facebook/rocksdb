@@ -115,7 +115,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   unique_ptr<TableReader> table_reader;
   unique_ptr<RandomAccessFile> raf;
   if (!through_db) {
-    Status s = env->NewRandomAccessFile(file_name, &raf, env_options);
+    s = env->NewRandomAccessFile(file_name, &raf, env_options);
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
     s = opts.table_factory->NewTableReader(
