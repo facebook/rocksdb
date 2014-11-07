@@ -89,7 +89,7 @@ Compaction::Compaction(VersionStorageInfo* vstorage,
       max_output_file_size_(options.output_file_size_limit),
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
       input_version_(nullptr),  // TODO(yhchiang): set it later
-      number_levels_(vstorage->NumberLevels()),
+      number_levels_(vstorage->num_levels()),
       cfd_(nullptr),
       output_compression_(options.compression),
       seek_compaction_(false),

@@ -201,7 +201,7 @@ Compaction* CompactionPicker::FormCompaction(
       int output_level, VersionStorageInfo* vstorage,
       const MutableCFOptions& mutable_cf_options) const {
   uint64_t max_grandparent_overlap_bytes =
-      output_level + 1 < vstorage->NumberLevels() ?
+      output_level + 1 < vstorage->num_levels() ?
           mutable_cf_options.MaxGrandParentOverlapBytes(output_level + 1) :
           std::numeric_limits<uint64_t>::max();
   assert(input_files.size());
@@ -221,7 +221,7 @@ Compaction* CompactionPicker::FormCompaction(
   // the oldest file is involved.
   c->SetupBottomMostLevel(
       vstorage,
-      (output_level == vstorage->NumberLevels() - 1),
+      (output_level == vstorage->num_levels() - 1),
       (output_level == 0));
   return c;
 }
@@ -238,12 +238,12 @@ Status CompactionPicker::GetCompactionInputsFromFileNumbers(
   assert(input_files);
 
   autovector<CompactionInputFiles> matched_input_files;
-  matched_input_files.resize(vstorage->NumberLevels());
+  matched_input_files.resize(vstorage->num_levels());
   int first_non_empty_level = -1;
   int last_non_empty_level = -1;
   // TODO(yhchiang): use a lazy-initialized mapping from
   //                 file_number to FileMetaData in Version.
-  for (int level = 0; level < vstorage->NumberLevels(); ++level) {
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
     for (auto file : vstorage->LevelFiles(level)) {
       auto iter = input_set->find(file->fd.GetNumber());
       if (iter != input_set->end()) {
