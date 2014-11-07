@@ -3157,10 +3157,15 @@ Options DeletionTriggerOptions() {
 }  // anonymous namespace
 
 TEST(DBTest, CompactionDeletionTrigger) {
-  Options options = CurrentOptions(DeletionTriggerOptions());
-
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[2];
+    Options options = CurrentOptions(DeletionTriggerOptions());
+
+    if (tid == 1) {
+      // second pass with universal compaction
+      options.compaction_style = kCompactionStyleUniversal;
+      options.num_levels = 1;
+    }
 
     DestroyAndReopen(options);
     Random rnd(301);
@@ -3184,10 +3189,6 @@ TEST(DBTest, CompactionDeletionTrigger) {
 
     // must have much smaller db size.
     ASSERT_GT(db_size[0] / 3, db_size[1]);
-
-    // repeat the test with universal compaction
-    options.compaction_style = kCompactionStyleUniversal;
-    options.num_levels = 1;
   }
 }
 
@@ -3195,6 +3196,12 @@ TEST(DBTest, CompactionDeletionTriggerReopen) {
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[3];
     Options options = CurrentOptions(DeletionTriggerOptions());
+
+    if (tid == 1) {
+      // second pass with universal compaction
+      options.compaction_style = kCompactionStyleUniversal;
+      options.num_levels = 1;
+    }
 
     DestroyAndReopen(options);
     Random rnd(301);
@@ -3238,10 +3245,6 @@ TEST(DBTest, CompactionDeletionTriggerReopen) {
     db_size[2] = Size(Key(0), Key(kTestSize - 1));
     // this time we're expecting significant drop in size.
     ASSERT_GT(db_size[0] / 3, db_size[2]);
-
-    // repeat the test with universal compaction
-    options.compaction_style = kCompactionStyleUniversal;
-    options.num_levels = 1;
   }
 }
 
