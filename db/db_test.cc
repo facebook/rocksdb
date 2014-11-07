@@ -183,7 +183,6 @@ class SpecialEnv : public EnvWrapper {
     non_writeable_rate_ = 0;
     new_writable_count_ = 0;
     non_writable_count_ = 0;
-    periodic_non_writable_ = 0;
     table_write_callback_ = nullptr;
   }
 
