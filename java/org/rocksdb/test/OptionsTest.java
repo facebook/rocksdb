@@ -19,14 +19,14 @@ public class OptionsTest {
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
 
+  public static final Random rand = PlatformRandomHelper.
+      getPlatformSpecificRandomFactory();
+
   @Test
   public void options() throws RocksDBException {
     Options opt = null;
     try {
       opt = new Options();
-      Random rand = PlatformRandomHelper.
-          getPlatformSpecificRandomFactory();
-      DBOptionsTest.testDBOptions(opt);
 
       { // WriteBufferSize test
         long longValue = rand.nextLong();
@@ -221,6 +221,484 @@ public class OptionsTest {
   }
 
   @Test
+  public void createIfMissing() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setCreateIfMissing(boolValue);
+      assertThat(opt.createIfMissing()).
+          isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void createMissingColumnFamilies() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setCreateMissingColumnFamilies(boolValue);
+      assertThat(opt.createMissingColumnFamilies()).
+          isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void errorIfExists() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setErrorIfExists(boolValue);
+      assertThat(opt.errorIfExists()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void paranoidChecks() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setParanoidChecks(boolValue);
+      assertThat(opt.paranoidChecks()).
+          isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxTotalWalSize() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setMaxTotalWalSize(longValue);
+      assertThat(opt.maxTotalWalSize()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxOpenFiles() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      int intValue = rand.nextInt();
+      opt.setMaxOpenFiles(intValue);
+      assertThat(opt.maxOpenFiles()).isEqualTo(intValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void disableDataSync() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setDisableDataSync(boolValue);
+      assertThat(opt.disableDataSync()).
+          isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void useFsync() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setUseFsync(boolValue);
+      assertThat(opt.useFsync()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void dbLogDir() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      String str = "path/to/DbLogDir";
+      opt.setDbLogDir(str);
+      assertThat(opt.dbLogDir()).isEqualTo(str);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void walDir() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      String str = "path/to/WalDir";
+      opt.setWalDir(str);
+      assertThat(opt.walDir()).isEqualTo(str);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void deleteObsoleteFilesPeriodMicros() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setDeleteObsoleteFilesPeriodMicros(longValue);
+      assertThat(opt.deleteObsoleteFilesPeriodMicros()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxBackgroundCompactions() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      int intValue = rand.nextInt();
+      opt.setMaxBackgroundCompactions(intValue);
+      assertThat(opt.maxBackgroundCompactions()).
+          isEqualTo(intValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxBackgroundFlushes() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      int intValue = rand.nextInt();
+      opt.setMaxBackgroundFlushes(intValue);
+      assertThat(opt.maxBackgroundFlushes()).
+          isEqualTo(intValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxLogFileSize() throws RocksDBException {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setMaxLogFileSize(longValue);
+      assertThat(opt.maxLogFileSize()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void logFileTimeToRoll() throws RocksDBException {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setLogFileTimeToRoll(longValue);
+      assertThat(opt.logFileTimeToRoll()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void keepLogFileNum() throws RocksDBException {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setKeepLogFileNum(longValue);
+      assertThat(opt.keepLogFileNum()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxManifestFileSize() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setMaxManifestFileSize(longValue);
+      assertThat(opt.maxManifestFileSize()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void tableCacheNumshardbits() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      int intValue = rand.nextInt();
+      opt.setTableCacheNumshardbits(intValue);
+      assertThat(opt.tableCacheNumshardbits()).
+          isEqualTo(intValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void tableCacheRemoveScanCountLimit() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      int intValue = rand.nextInt();
+      opt.setTableCacheRemoveScanCountLimit(intValue);
+      assertThat(opt.tableCacheRemoveScanCountLimit()).
+          isEqualTo(intValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void walSizeLimitMB() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setWalSizeLimitMB(longValue);
+      assertThat(opt.walSizeLimitMB()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void walTtlSeconds() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setWalTtlSeconds(longValue);
+      assertThat(opt.walTtlSeconds()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void manifestPreallocationSize() throws RocksDBException {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setManifestPreallocationSize(longValue);
+      assertThat(opt.manifestPreallocationSize()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void allowOsBuffer() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setAllowOsBuffer(boolValue);
+      assertThat(opt.allowOsBuffer()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void allowMmapReads() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setAllowMmapReads(boolValue);
+      assertThat(opt.allowMmapReads()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void allowMmapWrites() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setAllowMmapWrites(boolValue);
+      assertThat(opt.allowMmapWrites()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void isFdCloseOnExec() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setIsFdCloseOnExec(boolValue);
+      assertThat(opt.isFdCloseOnExec()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void skipLogErrorOnRecovery() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setSkipLogErrorOnRecovery(boolValue);
+      assertThat(opt.skipLogErrorOnRecovery()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void statsDumpPeriodSec() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      int intValue = rand.nextInt();
+      opt.setStatsDumpPeriodSec(intValue);
+      assertThat(opt.statsDumpPeriodSec()).isEqualTo(intValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void adviseRandomOnOpen() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setAdviseRandomOnOpen(boolValue);
+      assertThat(opt.adviseRandomOnOpen()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void useAdaptiveMutex() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      boolean boolValue = rand.nextBoolean();
+      opt.setUseAdaptiveMutex(boolValue);
+      assertThat(opt.useAdaptiveMutex()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void bytesPerSync() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      opt.setBytesPerSync(longValue);
+      assertThat(opt.bytesPerSync()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void rocksEnv() {
     Options options = null;
     try {
@@ -263,6 +741,8 @@ public class OptionsTest {
         options.setCompressionType(compressionType);
         assertThat(options.compressionType()).
             isEqualTo(compressionType);
+        assertThat(CompressionType.valueOf("NO_COMPRESSION")).
+            isEqualTo(CompressionType.NO_COMPRESSION);
       }
     } finally {
       if (options != null) {
@@ -281,6 +761,8 @@ public class OptionsTest {
         options.setCompactionStyle(compactionStyle);
         assertThat(options.compactionStyle()).
             isEqualTo(compactionStyle);
+        assertThat(CompactionStyle.valueOf("FIFO")).
+            isEqualTo(CompactionStyle.FIFO);
       }
     } finally {
       if (options != null) {

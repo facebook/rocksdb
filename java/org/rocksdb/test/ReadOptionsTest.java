@@ -77,7 +77,6 @@ public class ReadOptionsTest {
     ReadOptions opt = null;
     try {
       opt = new ReadOptions();
-      Random rand = new Random();
       opt.setSnapshot(null);
       assertThat(opt.snapshot()).isNull();
     } finally {
@@ -88,10 +87,17 @@ public class ReadOptionsTest {
   }
 
   @Test
-  public void failVerifyChecksumUninitialized(){
+  public void failSetVerifyChecksumUninitialized(){
     ReadOptions readOptions = setupUninitializedReadOptions(
         exception);
     readOptions.setVerifyChecksums(true);
+  }
+
+  @Test
+  public void failVerifyChecksumUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.verifyChecksums();
   }
 
   @Test

@@ -66,6 +66,7 @@ JAVA_TESTS = org.rocksdb.test.AbstractComparatorTest\
 		org.rocksdb.test.PlainTableConfigTest\
 		org.rocksdb.test.ReadOnlyTest\
 		org.rocksdb.test.ReadOptionsTest\
+		org.rocksdb.test.RocksDBTest\
 		org.rocksdb.test.RocksEnvTest\
 		org.rocksdb.test.RocksIteratorTest\
 		org.rocksdb.test.SnapshotTest\
