@@ -532,19 +532,18 @@ class VersionSet {
     return pending_manifest_file_number_;
   }
 
-  // REQUIRED: mutex locked
-  uint64_t current_next_file_number() const { return next_file_number_; }
+  uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
   // Allocate and return a new file number
-  uint64_t NewFileNumber() { return next_file_number_++; }
+  uint64_t NewFileNumber() { return next_file_number_.fetch_add(1) + 1; }
 
   // Arrange to reuse "file_number" unless a newer file number has
   // already been allocated.
   // REQUIRES: "file_number" was returned by a call to NewFileNumber().
   void ReuseLogFileNumber(uint64_t file_number) {
-    if (next_file_number_ == file_number + 1) {
-      next_file_number_ = file_number;
-    }
+    auto expected = file_number + 1;
+    std::atomic_compare_exchange_strong(&next_file_number_, &expected,
+                                        file_number);
   }
 
   // Return the last sequence number.
@@ -559,7 +558,8 @@ class VersionSet {
   }
 
   // Mark the specified file number as used.
-  void MarkFileNumberUsed(uint64_t number);
+  // REQUIRED: this is only called during single-threaded recovery
+  void MarkFileNumberUsedDuringRecovery(uint64_t number);
 
   // Return the log file number for the log file that is currently
   // being compacted, or zero if there is no such log file.
@@ -636,7 +636,7 @@ class VersionSet {
   Env* const env_;
   const std::string dbname_;
   const DBOptions* const db_options_;
-  uint64_t next_file_number_;
+  std::atomic<uint64_t> next_file_number_;
   uint64_t manifest_file_number_;
   uint64_t pending_manifest_file_number_;
   std::atomic<uint64_t> last_sequence_;

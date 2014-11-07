@@ -836,7 +836,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // The previous incarnation may not have written any MANIFEST
     // records after allocating this log number.  So we manually
     // update the file number allocation counter in VersionSet.
-    versions_->MarkFileNumberUsed(log_number);
+    versions_->MarkFileNumberUsedDuringRecovery(log_number);
     // Open the log file
     std::string fname = LogFileName(db_options_.wal_dir, log_number);
     unique_ptr<SequentialFile> file;
@@ -970,7 +970,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // not actually used. that is because VersionSet assumes
       // VersionSet::next_file_number_ always to be strictly greater than any
       // log number
-      versions_->MarkFileNumberUsed(max_log_number + 1);
+      versions_->MarkFileNumberUsedDuringRecovery(max_log_number + 1);
       status = versions_->LogAndApply(
           cfd, *cfd->GetLatestMutableCFOptions(), edit, &mutex_);
       if (!status.ok()) {
@@ -1285,18 +1285,18 @@ Status DBImpl::CompactFilesImpl(
                                      *c->mutable_cf_options(), &job_context,
                                      &log_buffer);
   };
-  CompactionJob compaction_job(
-      c.get(), db_options_, *c->mutable_cf_options(), env_options_,
-      versions_.get(), &mutex_, &shutting_down_,
-      &log_buffer, db_directory_.get(), stats_, &snapshots_,
-      IsSnapshotSupported(), table_cache_, std::move(yield_callback));
+  CompactionJob compaction_job(c.get(), db_options_, *c->mutable_cf_options(),
+                               env_options_, versions_.get(), &shutting_down_,
+                               &log_buffer, db_directory_.get(), stats_,
+                               &snapshots_, IsSnapshotSupported(), table_cache_,
+                               std::move(yield_callback));
   compaction_job.Prepare();
 
   mutex_.Unlock();
   Status status = compaction_job.Run();
   mutex_.Lock();
   if (status.ok()) {
-    status = compaction_job.Install(status);
+    status = compaction_job.Install(status, &mutex_);
     if (status.ok()) {
       InstallSuperVersionBackground(c->column_family_data(), &job_context,
                                     *c->mutable_cf_options());
@@ -2061,16 +2061,16 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                        *c->mutable_cf_options(), job_context,
                                        log_buffer);
     };
-    CompactionJob compaction_job(
-        c.get(), db_options_, *c->mutable_cf_options(), env_options_,
-        versions_.get(), &mutex_, &shutting_down_, log_buffer,
-        db_directory_.get(), stats_, &snapshots_, IsSnapshotSupported(),
-        table_cache_, std::move(yield_callback));
+    CompactionJob compaction_job(c.get(), db_options_, *c->mutable_cf_options(),
+                                 env_options_, versions_.get(), &shutting_down_,
+                                 log_buffer, db_directory_.get(), stats_,
+                                 &snapshots_, IsSnapshotSupported(),
+                                 table_cache_, std::move(yield_callback));
     compaction_job.Prepare();
     mutex_.Unlock();
     status = compaction_job.Run();
     mutex_.Lock();
-    status = compaction_job.Install(status);
+    status = compaction_job.Install(status, &mutex_);
     if (status.ok()) {
       InstallSuperVersionBackground(c->column_family_data(), job_context,
                                     *c->mutable_cf_options());

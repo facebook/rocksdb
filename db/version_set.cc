@@ -1613,7 +1613,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   if (!descriptor_log_ ||
       manifest_file_size_ > db_options_->max_manifest_file_size) {
     pending_manifest_file_number_ = NewFileNumber();
-    batch_edits.back()->SetNextFile(next_file_number_);
+    batch_edits.back()->SetNextFile(next_file_number_.load());
     new_descriptor_log = true;
   } else {
     pending_manifest_file_number_ = manifest_file_number_;
@@ -1814,7 +1814,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
-  edit->SetNextFile(next_file_number_);
+  edit->SetNextFile(next_file_number_.load());
   edit->SetLastSequence(last_sequence_);
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
@@ -1831,13 +1831,13 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
 
   if (edit->has_log_number_) {
     assert(edit->log_number_ >= cfd->GetLogNumber());
-    assert(edit->log_number_ < next_file_number_);
+    assert(edit->log_number_ < next_file_number_.load());
   }
 
   if (!edit->has_prev_log_number_) {
     edit->SetPrevLogNumber(prev_log_number_);
   }
-  edit->SetNextFile(next_file_number_);
+  edit->SetNextFile(next_file_number_.load());
   edit->SetLastSequence(last_sequence_);
 
   builder->Apply(edit);
@@ -2064,8 +2064,8 @@ Status VersionSet::Recover(
 
     column_family_set_->UpdateMaxColumnFamily(max_column_family);
 
-    MarkFileNumberUsed(previous_log_number);
-    MarkFileNumberUsed(log_number);
+    MarkFileNumberUsedDuringRecovery(previous_log_number);
+    MarkFileNumberUsedDuringRecovery(log_number);
   }
 
   // there were some column families in the MANIFEST that weren't specified
@@ -2105,7 +2105,7 @@ Status VersionSet::Recover(
     }
 
     manifest_file_size_ = current_manifest_file_size;
-    next_file_number_ = next_file + 1;
+    next_file_number_.store(next_file + 1);
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
@@ -2116,7 +2116,7 @@ Status VersionSet::Recover(
         "prev_log_number is %lu,"
         "max_column_family is %u\n",
         manifest_filename.c_str(), (unsigned long)manifest_file_number_,
-        (unsigned long)next_file_number_, (unsigned long)last_sequence_,
+        (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
         (unsigned long)log_number, (unsigned long)prev_log_number_,
         column_family_set_->GetMaxColumnFamily());
 
@@ -2452,14 +2452,14 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       delete v;
     }
 
-    next_file_number_ = next_file + 1;
+    next_file_number_.store(next_file + 1);
     last_sequence_ = last_sequence;
     prev_log_number_ = previous_log_number;
 
     printf(
         "next_file_number %lu last_sequence "
         "%lu  prev_log_number %lu max_column_family %u\n",
-        (unsigned long)next_file_number_, (unsigned long)last_sequence,
+        (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)previous_log_number,
         column_family_set_->GetMaxColumnFamily());
   }
@@ -2468,9 +2468,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 }
 #endif  // ROCKSDB_LITE
 
-void VersionSet::MarkFileNumberUsed(uint64_t number) {
-  if (next_file_number_ <= number) {
-    next_file_number_ = number + 1;
+void VersionSet::MarkFileNumberUsedDuringRecovery(uint64_t number) {
+  // only called during recovery which is single threaded, so this works because
+  // there can't be concurrent calls
+  if (next_file_number_.load(std::memory_order_relaxed) <= number) {
+    next_file_number_.store(number + 1, std::memory_order_relaxed);
   }
 }
 
