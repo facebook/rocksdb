@@ -165,6 +165,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<uint32_t> non_writable_count_;
 
+  std::function<void()>* table_write_callback_;
+
   explicit SpecialEnv(Env* base) : EnvWrapper(base), rnd_(301) {
     delay_sstable_sync_.store(false, std::memory_order_release);
     drop_writes_.store(false, std::memory_order_release);
@@ -181,6 +183,8 @@ class SpecialEnv : public EnvWrapper {
     non_writeable_rate_ = 0;
     new_writable_count_ = 0;
     non_writable_count_ = 0;
+    periodic_non_writable_ = 0;
+    table_write_callback_ = nullptr;
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
@@ -196,6 +200,9 @@ class SpecialEnv : public EnvWrapper {
             base_(std::move(base)) {
       }
       Status Append(const Slice& data) {
+        if (env_->table_write_callback_) {
+          (*env_->table_write_callback_)();
+        }
         if (env_->drop_writes_.load(std::memory_order_acquire)) {
           // Drop writes on the floor
           return Status::OK();
@@ -9041,6 +9048,38 @@ TEST(DBTest, DynamicMiscOptions) {
   // No reseek
   assert_reseek_count(300, 1);
 }
+
+TEST(DBTest, DontDeletePendingOutputs) {
+  Options options;
+  options.env = env_;
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  // Every time we write to a table file, call FOF/POF with full DB scan. This
+  // will make sure our pending_outputs_ protection work correctly
+  std::function<void()> purge_obsolete_files_function = [&]() {
+    JobContext job_context;
+    dbfull()->TEST_LockMutex();
+    dbfull()->FindObsoleteFiles(&job_context, true /*force*/);
+    dbfull()->TEST_UnlockMutex();
+    dbfull()->PurgeObsoleteFiles(job_context);
+  };
+
+  env_->table_write_callback_ = &purge_obsolete_files_function;
+
+  for (int i = 0; i < 2; ++i) {
+    ASSERT_OK(Put("a", "begin"));
+    ASSERT_OK(Put("z", "end"));
+    ASSERT_OK(Flush());
+  }
+
+  // If pending output guard does not work correctly, PurgeObsoleteFiles() will
+  // delete the file that Compaction is trying to create, causing this: error
+  // db/db_test.cc:975: IO error:
+  // /tmp/rocksdbtest-1552237650/db_test/000009.sst: No such file or directory
+  Compact("a", "b");
+}
+
 
 }  // namespace rocksdb
 

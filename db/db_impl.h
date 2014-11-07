@@ -12,6 +12,7 @@
 #include <deque>
 #include <limits>
 #include <set>
+#include <list>
 #include <utility>
 #include <vector>
 #include <string>
@@ -265,6 +266,24 @@ class DBImpl : public DB {
   // Delete any unneeded files and stale in-memory entries.
   void DeleteObsoleteFiles();
 
+  // Background process needs to call
+  //     auto x = CaptureCurrentFileNumberInPendingOutputs()
+  //     <do something>
+  //     ReleaseFileNumberFromPendingOutputs(x)
+  // This will protect any temporary files created while <do something> is
+  // executing from being deleted.
+  // -----------
+  // This function will capture current file number and append it to
+  // pending_outputs_. This will prevent any background process to delete any
+  // file created after this point.
+  std::list<uint64_t>::iterator CaptureCurrentFileNumberInPendingOutputs();
+  // This function should be called with the result of
+  // CaptureCurrentFileNumberInPendingOutputs(). It then marks that any file
+  // created between the calls CaptureCurrentFileNumberInPendingOutputs() and
+  // ReleaseFileNumberFromPendingOutputs() can now be deleted (if it's not live
+  // and blocked by any other pending_outputs_ calls)
+  void ReleaseFileNumberFromPendingOutputs(std::list<uint64_t>::iterator v);
+
   // Flush the in-memory write buffer to storage.  Switches to a new
   // log-file/memtable and writes a new descriptor iff successful.
   Status FlushMemTableToOutputFile(ColumnFamilyData* cfd,
@@ -390,10 +409,16 @@ class DBImpl : public DB {
 
   SnapshotList snapshots_;
 
-  // Set of table files to protect from deletion because they are
-  // part of ongoing compactions.
-  // map from pending file number ID to their path IDs.
-  FileNumToPathIdMap pending_outputs_;
+  // For each background job, pending_outputs_ keeps the current file number at
+  // the time that background job started.
+  // FindObsoleteFiles()/PurgeObsoleteFiles() never deletes any file that has
+  // number bigger than any of the file number in pending_outputs_. Since file
+  // numbers grow monotonically, this also means that pending_outputs_ is always
+  // sorted. After a background job is done executing, its file number is
+  // deleted from pending_outputs_, which allows PurgeObsoleteFiles() to clean
+  // it up.
+  // State is protected with db mutex.
+  std::list<uint64_t> pending_outputs_;
 
   // At least one compaction or flush job is pending but not yet scheduled
   // because of the max background thread limit.

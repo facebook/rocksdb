@@ -108,16 +108,14 @@ class MemTableList {
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
   void RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                             uint64_t file_number,
-                             FileNumToPathIdMap* pending_outputs);
+                             uint64_t file_number);
 
   // Commit a successful flush in the manifest file
   Status InstallMemtableFlushResults(
       ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, VersionSet* vset, port::Mutex* mu,
-      uint64_t file_number, FileNumToPathIdMap* pending_outputs,
-      autovector<MemTable*>* to_delete, Directory* db_directory,
-      LogBuffer* log_buffer);
+      uint64_t file_number, autovector<MemTable*>* to_delete,
+      Directory* db_directory, LogBuffer* log_buffer);
 
   // New memtables are inserted at the front of the list.
   // Takes ownership of the referenced held on *m by the caller of Add().

@@ -530,6 +530,9 @@ class VersionSet {
     return pending_manifest_file_number_;
   }
 
+  // REQUIRED: mutex locked
+  uint64_t current_next_file_number() const { return next_file_number_; }
+
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_++; }
 

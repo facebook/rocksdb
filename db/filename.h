@@ -36,9 +36,6 @@ enum FileType {
   kIdentityFile
 };
 
-// map from file number to path ID.
-typedef std::unordered_map<uint64_t, uint32_t> FileNumToPathIdMap;
-
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with
 // "dbname".

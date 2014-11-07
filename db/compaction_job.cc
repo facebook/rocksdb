@@ -205,10 +205,9 @@ CompactionJob::CompactionJob(
     Compaction* compaction, const DBOptions& db_options,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     VersionSet* versions, port::Mutex* db_mutex,
-    std::atomic<bool>* shutting_down, FileNumToPathIdMap* pending_outputs,
-    LogBuffer* log_buffer, Directory* db_directory, Statistics* stats,
-    SnapshotList* snapshots, bool is_snapshot_supported,
-    std::shared_ptr<Cache> table_cache,
+    std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+    Directory* db_directory, Statistics* stats, SnapshotList* snapshots,
+    bool is_snapshot_supported, std::shared_ptr<Cache> table_cache,
     std::function<uint64_t()> yield_callback)
     : compact_(new CompactionState(compaction)),
       compaction_stats_(1),
@@ -219,7 +218,6 @@ CompactionJob::CompactionJob(
       versions_(versions),
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
-      pending_outputs_(pending_outputs),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
       stats_(stats),
@@ -469,10 +467,6 @@ Status CompactionJob::Install(Status status) {
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), compaction_stats_);
 
-  // if there were any unused file number (mostly in case of
-  // compaction error), free up the entry from pending_putputs
-  ReleaseCompactionUnusedFileNumbers();
-
   if (status.ok()) {
     status = InstallCompactionResults();
   }
@@ -511,8 +505,6 @@ void CompactionJob::AllocateCompactionOutputFileNumbers() {
   int filesNeeded = compact_->compaction->num_input_files(1);
   for (int i = 0; i < std::max(filesNeeded, 1); i++) {
     uint64_t file_number = versions_->NewFileNumber();
-    pending_outputs_->insert(
-        {file_number, compact_->compaction->GetOutputPathId()});
     compact_->allocated_file_numbers.push_back(file_number);
   }
 }
@@ -1041,14 +1033,6 @@ void CompactionJob::RecordCompactionIOStats() {
   IOSTATS_RESET(bytes_written);
 }
 
-// Frees up unused file number.
-void CompactionJob::ReleaseCompactionUnusedFileNumbers() {
-  db_mutex_->AssertHeld();
-  for (const auto file_number : compact_->allocated_file_numbers) {
-    pending_outputs_->erase(file_number);
-  }
-}
-
 Status CompactionJob::OpenCompactionOutputFile() {
   assert(compact_ != nullptr);
   assert(compact_->builder == nullptr);
@@ -1061,9 +1045,10 @@ Status CompactionJob::OpenCompactionOutputFile() {
     compact_->allocated_file_numbers.pop_front();
   } else {
     db_mutex_->Lock();
+    // TODO(icanadi) make Versions::next_file_number_ atomic and remove db_lock
+    // around here. Once we do that, AllocateCompactionOutputFileNumbers() will
+    // not be needed.
     file_number = versions_->NewFileNumber();
-    pending_outputs_->insert(
-        {file_number, compact_->compaction->GetOutputPathId()});
     db_mutex_->Unlock();
   }
   // Make the output file
@@ -1112,7 +1097,6 @@ void CompactionJob::CleanupCompaction(Status status) {
   }
   for (size_t i = 0; i < compact_->outputs.size(); i++) {
     const CompactionState::Output& out = compact_->outputs[i];
-    pending_outputs_->erase(out.number);
 
     // If this file was inserted into the table cache then remove
     // them here because this compaction was not committed.

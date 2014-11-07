@@ -443,8 +443,11 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   }
 
   // don't delete live files
-  for (auto pair : pending_outputs_) {
-    job_context->sst_live.emplace_back(pair.first, pair.second, 0);
+  if (pending_outputs_.size()) {
+    job_context->min_pending_output = *pending_outputs_.begin();
+  } else {
+    // delete all of them
+    job_context->min_pending_output = std::numeric_limits<uint64_t>::max();
   }
   versions_->AddLiveFiles(&job_context->sst_live);
 
@@ -567,7 +570,10 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
         keep = (number >= state.manifest_file_number);
         break;
       case kTableFile:
-        keep = (sst_live_map.find(number) != sst_live_map.end());
+        // If the second condition is not there, this makes
+        // DontDeletePendingOutputs fail
+        keep = (sst_live_map.find(number) != sst_live_map.end()) ||
+               number >= state.min_pending_output;
         break;
       case kTempFile:
         // Any temp files that are currently being written to must
@@ -981,7 +987,8 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
-  pending_outputs_[meta.fd.GetNumber()] = 0;  // path 0 for level 0 file.
+  auto pending_outputs_inserted_elem =
+      CaptureCurrentFileNumberInPendingOutputs();
   ReadOptions ro;
   ro.total_order_seek = true;
   Arena arena;
@@ -1013,7 +1020,7 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
         cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
   }
-  pending_outputs_.erase(meta.fd.GetNumber());
+  ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
@@ -1044,9 +1051,9 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     &pending_outputs_, snapshots_.GetNewest(), job_context,
-                     log_buffer, db_directory_.get(),
-                     GetCompressionFlush(*cfd->ioptions()), stats_);
+                     snapshots_.GetNewest(), job_context, log_buffer,
+                     db_directory_.get(), GetCompressionFlush(*cfd->ioptions()),
+                     stats_);
 
   Status s = flush_job.Run();
 
@@ -1550,6 +1557,9 @@ void DBImpl::BackgroundCallFlush() {
   {
     MutexLock l(&mutex_);
 
+    auto pending_outputs_inserted_elem =
+        CaptureCurrentFileNumberInPendingOutputs();
+
     Status s;
     if (!shutting_down_.load(std::memory_order_acquire)) {
       s = BackgroundFlush(&madeProgress, &job_context, &log_buffer);
@@ -1572,6 +1582,8 @@ void DBImpl::BackgroundCallFlush() {
         mutex_.Lock();
       }
     }
+
+    ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
     // If !s.ok(), this means that Flush failed. In that case, we want
     // to delete all obsolete files and we force FindObsoleteFiles()
@@ -1616,6 +1628,10 @@ void DBImpl::BackgroundCallCompaction() {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
     MutexLock l(&mutex_);
+
+    auto pending_outputs_inserted_elem =
+        CaptureCurrentFileNumberInPendingOutputs();
+
     assert(bg_compaction_scheduled_);
     Status s;
     if (!shutting_down_.load(std::memory_order_acquire)) {
@@ -1639,6 +1655,8 @@ void DBImpl::BackgroundCallCompaction() {
         mutex_.Lock();
       }
     }
+
+    ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
     // If !s.ok(), this means that Compaction failed. In that case, we want
     // to delete all obsolete files we might have created and we force
@@ -1848,9 +1866,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     };
     CompactionJob compaction_job(
         c.get(), db_options_, *c->mutable_cf_options(), env_options_,
-        versions_.get(), &mutex_, &shutting_down_, &pending_outputs_,
-        log_buffer, db_directory_.get(), stats_, &snapshots_,
-        IsSnapshotSupported(), table_cache_, std::move(yield_callback));
+        versions_.get(), &mutex_, &shutting_down_, log_buffer,
+        db_directory_.get(), stats_, &snapshots_, IsSnapshotSupported(),
+        table_cache_, std::move(yield_callback));
     compaction_job.Prepare();
     mutex_.Unlock();
     status = compaction_job.Run();
@@ -2966,6 +2984,22 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
     MutexLock l(&mutex_);
     v->Unref();
   }
+}
+
+std::list<uint64_t>::iterator
+DBImpl::CaptureCurrentFileNumberInPendingOutputs() {
+  // We need to remember the iterator of our insert, because after the
+  // background job is done, we need to remove that element from
+  // pending_outputs_.
+  pending_outputs_.push_back(versions_->current_next_file_number());
+  auto pending_outputs_inserted_elem = pending_outputs_.end();
+  --pending_outputs_inserted_elem;
+  return pending_outputs_inserted_elem;
+}
+
+void DBImpl::ReleaseFileNumberFromPendingOutputs(
+    std::list<uint64_t>::iterator v) {
+  pending_outputs_.erase(v);
 }
 
 #ifndef ROCKSDB_LITE

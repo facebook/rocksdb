@@ -55,7 +55,6 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const MutableCFOptions& mutable_cf_options,
                    const EnvOptions& env_options, VersionSet* versions,
                    port::Mutex* db_mutex, std::atomic<bool>* shutting_down,
-                   FileNumToPathIdMap* pending_outputs,
                    SequenceNumber newest_snapshot, JobContext* job_context,
                    LogBuffer* log_buffer, Directory* db_directory,
                    CompressionType output_compression, Statistics* stats)
@@ -67,7 +66,6 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       versions_(versions),
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
-      pending_outputs_(pending_outputs),
       newest_snapshot_(newest_snapshot),
       job_context_(job_context),
       log_buffer_(log_buffer),
@@ -107,13 +105,12 @@ Status FlushJob::Run() {
   }
 
   if (!s.ok()) {
-    cfd_->imm()->RollbackMemtableFlush(mems, file_number, pending_outputs_);
+    cfd_->imm()->RollbackMemtableFlush(mems, file_number);
   } else {
     // Replace immutable memtable with the generated Table
     s = cfd_->imm()->InstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems, versions_, db_mutex_, file_number,
-        pending_outputs_, &job_context_->memtables_to_free, db_directory_,
-        log_buffer_);
+        &job_context_->memtables_to_free, db_directory_, log_buffer_);
   }
 
   return s;
@@ -128,7 +125,6 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   *filenumber = meta.fd.GetNumber();
   // path 0 for level 0 file.
-  pending_outputs_->insert({meta.fd.GetNumber(), 0});
 
   const SequenceNumber earliest_seqno_in_memtable =
       mems[0]->GetFirstSequenceNumber();
@@ -179,15 +175,6 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
   // re-acquire the most current version
   base = cfd_->current();
-
-  // There could be multiple threads writing to its own level-0 file.
-  // The pending_outputs cannot be cleared here, otherwise this newly
-  // created file might not be considered as a live-file by another
-  // compaction thread that is concurrently deleting obselete files.
-  // The pending_outputs can be cleared only after the new version is
-  // committed so that other threads can recognize this file as a
-  // valid one.
-  // pending_outputs_.erase(meta.number);
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.

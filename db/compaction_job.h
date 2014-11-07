@@ -57,10 +57,9 @@ class CompactionJob {
                 const MutableCFOptions& mutable_cf_options,
                 const EnvOptions& env_options, VersionSet* versions,
                 port::Mutex* db_mutex, std::atomic<bool>* shutting_down,
-                FileNumToPathIdMap* pending_outputs, LogBuffer* log_buffer,
-                Directory* db_directory, Statistics* stats,
-                SnapshotList* snapshot_list, bool is_snapshot_supported,
-                std::shared_ptr<Cache> table_cache,
+                LogBuffer* log_buffer, Directory* db_directory,
+                Statistics* stats, SnapshotList* snapshot_list,
+                bool is_snapshot_supported, std::shared_ptr<Cache> table_cache,
                 std::function<uint64_t()> yield_callback);
 
   ~CompactionJob() { assert(compact_ == nullptr); }
@@ -92,7 +91,6 @@ class CompactionJob {
       SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
       SequenceNumber* prev_snapshot);
   void RecordCompactionIOStats();
-  void ReleaseCompactionUnusedFileNumbers();
   Status OpenCompactionOutputFile();
   void CleanupCompaction(Status status);
 
@@ -115,7 +113,6 @@ class CompactionJob {
   VersionSet* versions_;
   port::Mutex* db_mutex_;
   std::atomic<bool>* shutting_down_;
-  FileNumToPathIdMap* pending_outputs_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;
   Statistics* stats_;

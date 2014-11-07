@@ -144,8 +144,7 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
 }
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                                         uint64_t file_number,
-                                         FileNumToPathIdMap* pending_outputs) {
+                                         uint64_t file_number) {
   assert(!mems.empty());
 
   // If the flush was not successful, then just reset state.
@@ -159,7 +158,6 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
     m->edit_.Clear();
     num_flush_not_started_++;
   }
-  pending_outputs->erase(file_number);
   imm_flush_needed.store(true, std::memory_order_release);
 }
 
@@ -167,9 +165,8 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
 Status MemTableList::InstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     const autovector<MemTable*>& mems, VersionSet* vset, port::Mutex* mu,
-    uint64_t file_number, FileNumToPathIdMap* pending_outputs,
-    autovector<MemTable*>* to_delete, Directory* db_directory,
-    LogBuffer* log_buffer) {
+    uint64_t file_number, autovector<MemTable*>* to_delete,
+    Directory* db_directory, LogBuffer* log_buffer) {
   mu->AssertHeld();
 
   // flush was sucessful
@@ -220,11 +217,6 @@ Status MemTableList::InstallMemtableFlushResults(
         current_->Remove(m);
         assert(m->file_number_ > 0);
 
-        // pending_outputs can be cleared only after the newly created file
-        // has been written to a committed version so that other concurrently
-        // executing compaction threads do not mistakenly assume that this
-        // file is not live.
-        pending_outputs->erase(m->file_number_);
         if (m->Unref() != nullptr) {
           to_delete->push_back(m);
         }
@@ -237,7 +229,6 @@ Status MemTableList::InstallMemtableFlushResults(
         m->flush_in_progress_ = false;
         m->edit_.Clear();
         num_flush_not_started_++;
-        pending_outputs->erase(m->file_number_);
         m->file_number_ = 0;
         imm_flush_needed.store(true, std::memory_order_release);
       }

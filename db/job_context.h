@@ -58,8 +58,12 @@ struct JobContext {
 
   // the current manifest_file_number, log_number and prev_log_number
   // that corresponds to the set of files in 'live'.
-  uint64_t manifest_file_number, pending_manifest_file_number, log_number,
-      prev_log_number;
+  uint64_t manifest_file_number;
+  uint64_t pending_manifest_file_number;
+  uint64_t log_number;
+  uint64_t prev_log_number;
+
+  uint64_t min_pending_output = 0;
 
   explicit JobContext(bool create_superversion = false) {
     manifest_file_number = 0;

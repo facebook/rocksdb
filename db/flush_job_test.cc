@@ -73,7 +73,6 @@ class FlushJobTest {
   std::unique_ptr<VersionSet> versions_;
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;
-  FileNumToPathIdMap pending_outputs_;
   std::shared_ptr<MockTableFactory> mock_table_factory_;
 };
 
@@ -83,8 +82,8 @@ TEST(FlushJobTest, Empty) {
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     &pending_outputs_, SequenceNumber(), &job_context, nullptr,
-                     nullptr, kNoCompression, nullptr);
+                     SequenceNumber(), &job_context, nullptr, nullptr,
+                     kNoCompression, nullptr);
   ASSERT_OK(flush_job.Run());
 }
 
@@ -108,8 +107,8 @@ TEST(FlushJobTest, NonEmpty) {
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     &pending_outputs_, SequenceNumber(), &job_context, nullptr,
-                     nullptr, kNoCompression, nullptr);
+                     SequenceNumber(), &job_context, nullptr, nullptr,
+                     kNoCompression, nullptr);
   mutex_.Lock();
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();
