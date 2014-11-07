@@ -64,10 +64,8 @@ if [ -z "$USE_CLANG" ]; then
   CXX="$GCC_BASE/bin/g++"
   
   CFLAGS="-B$BINUTILS/gold -m64 -mtune=generic"
-  CFLAGS+=" -I $LIBGCC_INCLUDE -I $GLIBC_INCLUDE"
-  CFLAGS+=" $DEPS_INCLUDE"
-  CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
-  CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
+  CFLAGS+=" -isystem $GLIBC_INCLUDE"
+  CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang 
   CLANG_BASE="/mnt/gvfs/third-party2/clang/9ab68376f938992c4eb5946ca68f90c3185cffc8/3.4"
@@ -77,7 +75,7 @@ else
 
   KERNEL_HEADERS_INCLUDE="/mnt/gvfs/third-party2/kernel-headers/a683ed7135276731065a9d76d3016c9731f4e2f9/3.2.18_70_fbk11_00129_gc8882d0/gcc-4.8.1-glibc-2.17/da39a3e/include/"
 
-  CFLAGS="-B$BINUTILS  -nostdinc -nostdlib"
+  CFLAGS="-B$BINUTILS/gold -nostdinc -nostdlib"
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.8.1 "
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.8.1/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
@@ -85,12 +83,13 @@ else
   CFLAGS+=" -isystem $CLANG_INCLUDE"
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE/linux "
   CFLAGS+=" -isystem $KERNEL_HEADERS_INCLUDE "
-  CFLAGS+=" -Wall -Wno-sign-compare -Wno-unused-variable -Winvalid-pch -Wno-deprecated -Woverloaded-virtual"
-  CFLAGS+=" $DEPS_INCLUDE"
-  CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
-  CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
-  CXXFLAGS="$CFLAGS -nostdinc++"
+  CXXFLAGS="-nostdinc++"
 fi
+
+CFLAGS+=" $DEPS_INCLUDE"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
+CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
+CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
 EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"
