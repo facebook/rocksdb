@@ -1287,7 +1287,7 @@ Status DBImpl::CompactFilesImpl(
   };
   CompactionJob compaction_job(
       c.get(), db_options_, *c->mutable_cf_options(), env_options_,
-      versions_.get(), &mutex_, &shutting_down_, &pending_outputs_,
+      versions_.get(), &mutex_, &shutting_down_,
       &log_buffer, db_directory_.get(), stats_, &snapshots_,
       IsSnapshotSupported(), table_cache_, std::move(yield_callback));
   compaction_job.Prepare();
