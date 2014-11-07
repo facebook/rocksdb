@@ -78,6 +78,38 @@ Compaction::Compaction(int number_levels, int start_level, int out_level,
   }
 }
 
+Compaction::Compaction(VersionStorageInfo* vstorage,
+    const autovector<CompactionInputFiles>& inputs,
+    int start_level, int output_level,
+    uint64_t max_grandparent_overlap_bytes,
+    const CompactionOptions& options,
+    bool deletion_compaction)
+    : start_level_(start_level),
+      output_level_(output_level),
+      max_output_file_size_(options.output_file_size_limit),
+      max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
+      input_version_(nullptr),  // TODO(yhchiang): set it later
+      number_levels_(vstorage->NumberLevels()),
+      cfd_(nullptr),
+      output_compression_(options.compression),
+      seek_compaction_(false),
+      deletion_compaction_(deletion_compaction),
+      inputs_(inputs),
+      grandparent_index_(0),
+      seen_key_(false),
+      overlapped_bytes_(0),
+      base_index_(-1),
+      parent_index_(-1),
+      score_(0),
+      bottommost_level_(false),
+      is_full_compaction_(false),
+      is_manual_compaction_(false),
+      level_ptrs_(std::vector<size_t>(number_levels_)) {
+  for (int i = 0; i < number_levels_; i++) {
+    level_ptrs_[i] = 0;
+  }
+}
+
 Compaction::~Compaction() {
   delete edit_;
   if (input_version_ != nullptr) {

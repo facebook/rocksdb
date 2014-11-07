@@ -90,6 +90,10 @@ struct ImmutableCFOptions {
   Options::AccessHint access_hint_on_compaction_start;
 
   int num_levels;
+
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
 };
 
 }  // namespace rocksdb

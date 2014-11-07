@@ -62,10 +62,20 @@ class DBImplReadOnly : public DBImpl {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
 
+  using DBImpl::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
 #ifndef ROCKSDB_LITE
   virtual Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   virtual Status EnableFileDeletions(bool force) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }

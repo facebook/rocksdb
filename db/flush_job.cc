@@ -73,9 +73,9 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       output_compression_(output_compression),
       stats_(stats) {}
 
-Status FlushJob::Run() {
+Status FlushJob::Run(uint64_t* file_number) {
   // Save the contents of the earliest memtable as a new Table
-  uint64_t file_number;
+  uint64_t fn;
   autovector<MemTable*> mems;
   cfd_->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
@@ -96,7 +96,7 @@ Status FlushJob::Run() {
   edit->SetColumnFamily(cfd_->GetID());
 
   // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table(mems, edit, &file_number);
+  Status s = WriteLevel0Table(mems, edit, &fn);
 
   if (s.ok() &&
       (shutting_down_->load(std::memory_order_acquire) || cfd_->IsDropped())) {
@@ -113,6 +113,9 @@ Status FlushJob::Run() {
         &job_context_->memtables_to_free, db_directory_, log_buffer_);
   }
 
+  if (s.ok() && file_number != nullptr) {
+    *file_number = fn;
+  }
   return s;
 }
 

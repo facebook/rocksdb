@@ -33,6 +33,13 @@ class VersionStorageInfo;
 // A Compaction encapsulates information about a compaction.
 class Compaction {
  public:
+  Compaction(VersionStorageInfo* input_version,
+    const autovector<CompactionInputFiles>& inputs,
+    int start_level, int output_level,
+    uint64_t max_grandparent_overlap_bytes,
+    const CompactionOptions& options,
+    bool deletion_compaction);
+
   // No copying allowed
   Compaction(const Compaction&) = delete;
   void operator=(const Compaction&) = delete;
@@ -153,6 +160,8 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
+  void SetOutputPathId(uint32_t path_id) { output_path_id_ = path_id; }
+
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
   const MutableCFOptions* mutable_cf_options() { return &mutable_cf_options_; }
@@ -163,6 +172,16 @@ class Compaction {
   uint64_t OutputFilePreallocationSize(const MutableCFOptions& mutable_options);
 
   void SetInputVersion(Version* input_version);
+
+  // mark (or clear) all files that are being compacted
+  void MarkFilesBeingCompacted(bool mark_as_compacted);
+
+  // Initialize whether the compaction is producing files at the
+  // bottommost level.
+  //
+  // @see BottomMostLevel()
+  void SetupBottomMostLevel(VersionStorageInfo* vstorage, bool is_manual,
+                            bool level0_only);
 
  private:
   friend class CompactionPicker;
@@ -225,16 +244,6 @@ class Compaction {
   // As it is for checking KeyNotExistsBeyondOutputLevel(), it only
   // records indices for all levels beyond "output_level_".
   std::vector<size_t> level_ptrs_;
-
-  // mark (or clear) all files that are being compacted
-  void MarkFilesBeingCompacted(bool mark_as_compacted);
-
-  // Initialize whether the compaction is producing files at the
-  // bottommost level.
-  //
-  // @see BottomMostLevel()
-  void SetupBottomMostLevel(VersionStorageInfo* vstorage, bool is_manual,
-                            bool level0_only);
 
   // In case of compaction error, reset the nextIndex that is used
   // to pick up the next file to be compacted from files_by_size_

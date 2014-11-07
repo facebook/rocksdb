@@ -14,13 +14,14 @@
 #endif
 
 #include <inttypes.h>
+#include <stdio.h>
 #include <algorithm>
 #include <map>
 #include <set>
 #include <climits>
 #include <unordered_map>
 #include <vector>
-#include <stdio.h>
+#include <string>
 
 #include "db/filename.h"
 #include "db/log_reader.h"
@@ -598,6 +599,49 @@ size_t Version::GetMemoryUsageByTableReaders() {
   }
   return total_usage;
 }
+
+void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
+  assert(cf_meta);
+  assert(cfd_);
+
+  cf_meta->name = cfd_->GetName();
+  cf_meta->size = 0;
+  cf_meta->file_count = 0;
+  cf_meta->levels.clear();
+
+  auto* ioptions = cfd_->ioptions();
+  auto* vstorage = storage_info();
+
+  for (int level = 0; level < cfd_->NumberLevels(); level++) {
+    uint64_t level_size = 0;
+    cf_meta->file_count += vstorage->LevelFiles(level).size();
+    std::vector<SstFileMetaData> files;
+    for (const auto& file : vstorage->LevelFiles(level)) {
+      uint32_t path_id = file->fd.GetPathId();
+      std::string file_path;
+      if (path_id < ioptions->db_paths.size()) {
+        file_path = ioptions->db_paths[path_id].path;
+      } else {
+        assert(!ioptions->db_paths.empty());
+        file_path = ioptions->db_paths.back().path;
+      }
+      files.emplace_back(
+          MakeTableFileName("", file->fd.GetNumber()),
+          file_path,
+          file->fd.GetFileSize(),
+          file->smallest_seqno,
+          file->largest_seqno,
+          file->smallest.user_key().ToString(),
+          file->largest.user_key().ToString(),
+          file->being_compacted);
+      level_size += file->fd.GetFileSize();
+    }
+    cf_meta->levels.emplace_back(
+        level, level_size, std::move(files));
+    cf_meta->size += level_size;
+  }
+}
+
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
   // Estimation will be not accurate when:
@@ -2645,40 +2689,21 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         c->column_family_data()->GetName().c_str());
   }
 
-  // verify files in level
-  int level = c->level();
-  for (int i = 0; i < c->num_input_files(0); i++) {
-    uint64_t number = c->input(0, i)->fd.GetNumber();
-
-    // look for this file in the current version
-    bool found = false;
-    for (unsigned int j = 0; j < vstorage->files_[level].size(); j++) {
-      FileMetaData* f = vstorage->files_[level][j];
-      if (f->fd.GetNumber() == number) {
-        found = true;
-        break;
+  for (int input = 0; input < c->num_input_levels(); ++input) {
+    int level = c->level(input);
+    for (int i = 0; i < c->num_input_files(input); ++i) {
+      uint64_t number = c->input(input, i)->fd.GetNumber();
+      bool found = false;
+      for (unsigned int j = 0; j < vstorage->files_[level].size(); j++) {
+        FileMetaData* f = vstorage->files_[level][j];
+        if (f->fd.GetNumber() == number) {
+          found = true;
+          break;
+        }
       }
-    }
-    if (!found) {
-      return false; // input files non existant in current version
-    }
-  }
-  // verify level+1 files
-  level++;
-  for (int i = 0; i < c->num_input_files(1); i++) {
-    uint64_t number = c->input(1, i)->fd.GetNumber();
-
-    // look for this file in the current version
-    bool found = false;
-    for (unsigned int j = 0; j < vstorage->files_[level].size(); j++) {
-      FileMetaData* f = vstorage->files_[level][j];
-      if (f->fd.GetNumber() == number) {
-        found = true;
-        break;
+      if (!found) {
+        return false;  // input files non existent in current version
       }
-    }
-    if (!found) {
-      return false; // input files non existant in current version
     }
   }
 #endif

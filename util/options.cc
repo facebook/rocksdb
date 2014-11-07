@@ -64,7 +64,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     compression_per_level(options.compression_per_level),
     compression_opts(options.compression_opts),
     access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-    num_levels(options.num_levels) {}
+    num_levels(options.num_levels),
+    listeners(options.listeners) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
@@ -112,7 +113,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       memtable_prefix_bloom_huge_page_tlb_size(0),
       bloom_locality(0),
       max_successive_merges(0),
-      min_partial_merge_operands(2) {
+      min_partial_merge_operands(2),
+      listeners() {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -172,7 +174,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.memtable_prefix_bloom_huge_page_tlb_size),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
-      min_partial_merge_operands(options.min_partial_merge_operands) {
+      min_partial_merge_operands(options.min_partial_merge_operands),
+      listeners(options.listeners) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {

@@ -70,6 +70,9 @@ std::string Status::ToString() const {
     case kTimedOut:
       type = "Operation timed out: ";
       break;
+    case kAborted:
+      type = "Operation aborted: ";
+      break;
     default:
       snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
                static_cast<int>(code()));

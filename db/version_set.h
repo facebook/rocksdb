@@ -420,6 +420,8 @@ class Version {
 
   VersionSet* version_set() { return vset_; }
 
+  void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
+
  private:
   friend class VersionSet;
 
@@ -598,7 +600,7 @@ class VersionSet {
   Status GetMetadataForFile(uint64_t number, int* filelevel,
                             FileMetaData** metadata, ColumnFamilyData** cfd);
 
-  void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
+  void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
   void GetObsoleteFiles(std::vector<FileMetaData*>* files);
 
@@ -609,6 +611,7 @@ class VersionSet {
   struct ManifestWriter;
 
   friend class Version;
+  friend class DBImpl;
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;

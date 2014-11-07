@@ -61,6 +61,9 @@ class Status {
   static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIncomplete, msg, msg2);
   }
+  static Status ShutdownInProgress() {
+    return Status(kShutdownInProgress);
+  }
   static Status ShutdownInProgress(const Slice& msg,
                                    const Slice& msg2 = Slice()) {
     return Status(kShutdownInProgress, msg, msg2);
@@ -70,6 +73,12 @@ class Status {
   }
   static Status TimedOut(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kTimedOut, msg, msg2);
+  }
+  static Status Aborted() {
+    return Status(kAborted);
+  }
+  static Status Aborted(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kAborted, msg, msg2);
   }
 
   // Returns true iff the status indicates success.
@@ -101,6 +110,8 @@ class Status {
 
   bool IsTimedOut() const { return code() == kTimedOut; }
 
+  bool IsAborted() const { return code() == kAborted; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -115,7 +126,8 @@ class Status {
     kMergeInProgress = 6,
     kIncomplete = 7,
     kShutdownInProgress = 8,
-    kTimedOut = 9
+    kTimedOut = 9,
+    kAborted = 10
   };
 
   Code code() const {

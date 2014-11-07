@@ -15,6 +15,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "db/filename.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
@@ -4060,7 +4061,42 @@ TEST(DBTest, UniversalCompactionFourPaths) {
 
   Destroy(options);
 }
+
 #endif
+
+void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
+  uint64_t cf_size = 0;
+  uint64_t cf_csize = 0;
+  size_t file_count = 0;
+  for (auto level_meta : cf_meta.levels) {
+    uint64_t level_size = 0;
+    uint64_t level_csize = 0;
+    file_count += level_meta.files.size();
+    for (auto file_meta : level_meta.files) {
+      level_size += file_meta.size;
+    }
+    ASSERT_EQ(level_meta.size, level_size);
+    cf_size += level_size;
+    cf_csize += level_csize;
+  }
+  ASSERT_EQ(cf_meta.file_count, file_count);
+  ASSERT_EQ(cf_meta.size, cf_size);
+}
+
+TEST(DBTest, ColumnFamilyMetaDataTest) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  int key_index = 0;
+  ColumnFamilyMetaData cf_meta;
+  for (int i = 0; i < 100; ++i) {
+    GenerateNewFile(&rnd, &key_index);
+    db_->GetColumnFamilyMetaData(&cf_meta);
+    CheckColumnFamilyMeta(cf_meta);
+  }
+}
 
 TEST(DBTest, ConvertCompactionStyle) {
   Random rnd(301);
@@ -4238,7 +4274,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
 
 TEST(DBTest, MinLevelToCompress1) {
   Options options = CurrentOptions();
-  CompressionType type;
+  CompressionType type = kSnappyCompression;
   if (!MinLevelToCompress(type, options, -14, -1, 0)) {
     return;
   }
@@ -4258,7 +4294,7 @@ TEST(DBTest, MinLevelToCompress1) {
 
 TEST(DBTest, MinLevelToCompress2) {
   Options options = CurrentOptions();
-  CompressionType type;
+  CompressionType type = kSnappyCompression;
   if (!MinLevelToCompress(type, options, 15, -1, 0)) {
     return;
   }
@@ -7246,6 +7282,15 @@ class ModelDB: public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) { return 1; }
 
@@ -7313,6 +7358,10 @@ class ModelDB: public DB {
   }
 
   virtual ColumnFamilyHandle* DefaultColumnFamily() const { return nullptr; }
+
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* column_family,
+      ColumnFamilyMetaData* metadata) {}
 
  private:
   class ModelIter: public Iterator {
@@ -8202,6 +8251,211 @@ TEST(DBTest, RateLimitingTest) {
   ASSERT_TRUE(ratio < 0.6);
 }
 
+namespace {
+  bool HaveOverlappingKeyRanges(
+      const Comparator* c,
+      const SstFileMetaData& a, const SstFileMetaData& b) {
+    if (c->Compare(a.smallestkey, b.smallestkey) >= 0) {
+      if (c->Compare(a.smallestkey, b.largestkey) <= 0) {
+        // b.smallestkey <= a.smallestkey <= b.largestkey
+        return true;
+      }
+    } else if (c->Compare(a.largestkey, b.smallestkey) >= 0) {
+      // a.smallestkey < b.smallestkey <= a.largestkey
+      return true;
+    }
+    if (c->Compare(a.largestkey, b.largestkey) <= 0) {
+      if (c->Compare(a.largestkey, b.smallestkey) >= 0) {
+        // b.smallestkey <= a.largestkey <= b.largestkey
+        return true;
+      }
+    } else if (c->Compare(a.smallestkey, b.largestkey) <= 0) {
+      // a.smallestkey <= b.largestkey < a.largestkey
+      return true;
+    }
+    return false;
+  }
+
+  // Identifies all files between level "min_level" and "max_level"
+  // which has overlapping key range with "input_file_meta".
+  void GetOverlappingFileNumbersForLevelCompaction(
+      const ColumnFamilyMetaData& cf_meta,
+      const Comparator* comparator,
+      int min_level, int max_level,
+      const SstFileMetaData* input_file_meta,
+      std::set<std::string>* overlapping_file_names) {
+    std::set<const SstFileMetaData*> overlapping_files;
+    overlapping_files.insert(input_file_meta);
+    for (int m = min_level; m <= max_level; ++m) {
+      for (auto& file : cf_meta.levels[m].files) {
+        for (auto* included_file : overlapping_files) {
+          if (HaveOverlappingKeyRanges(
+                  comparator, *included_file, file)) {
+            overlapping_files.insert(&file);
+            overlapping_file_names->insert(file.name);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  void VerifyCompactionResult(
+      const ColumnFamilyMetaData& cf_meta,
+      const std::set<std::string>& overlapping_file_numbers) {
+    for (auto& level : cf_meta.levels) {
+      for (auto& file : level.files) {
+        assert(overlapping_file_numbers.find(file.name) ==
+               overlapping_file_numbers.end());
+      }
+    }
+  }
+
+  const SstFileMetaData* PickFileRandomly(
+      const ColumnFamilyMetaData& cf_meta,
+      Random* rand,
+      int* level = nullptr) {
+    auto file_id = rand->Uniform(static_cast<int>(
+        cf_meta.file_count)) + 1;
+    for (auto& level_meta : cf_meta.levels) {
+      if (file_id <= level_meta.files.size()) {
+        if (level != nullptr) {
+          *level = level_meta.level;
+        }
+        auto result = rand->Uniform(file_id);
+        return &(level_meta.files[result]);
+      }
+      file_id -= level_meta.files.size();
+    }
+    assert(false);
+    return nullptr;
+  }
+}  // namespace
+
+TEST(DBTest, CompactFilesOnLevelCompaction) {
+  const int kKeySize = 16;
+  const int kValueSize = 984;
+  const int kEntrySize = kKeySize + kValueSize;
+  const int kEntriesPerBuffer = 100;
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base = options.target_file_size_base * 2;
+  options.level0_stop_writes_trigger = 2;
+  options.max_bytes_for_level_multiplier = 2;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  Random rnd(301);
+  for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
+    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kValueSize)));
+  }
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForCompact();
+
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
+  int output_level = cf_meta.levels.size() - 1;
+  for (int file_picked = 5; file_picked > 0; --file_picked) {
+    std::set<std::string> overlapping_file_names;
+    std::vector<std::string> compaction_input_file_names;
+    for (int f = 0; f < file_picked; ++f) {
+      int level;
+      auto file_meta = PickFileRandomly(cf_meta, &rnd, &level);
+      compaction_input_file_names.push_back(file_meta->name);
+      GetOverlappingFileNumbersForLevelCompaction(
+          cf_meta, options.comparator, level, output_level,
+          file_meta, &overlapping_file_names);
+    }
+
+    ASSERT_OK(dbfull()->CompactFiles(
+        CompactionOptions(), handles_[1],
+        compaction_input_file_names,
+        output_level));
+
+    // Make sure all overlapping files do not exist after compaction
+    dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
+    VerifyCompactionResult(cf_meta, overlapping_file_names);
+  }
+
+  // make sure all key-values are still there.
+  for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
+    ASSERT_NE(Get(1, std::to_string(key)), "NOT_FOUND");
+  }
+}
+
+TEST(DBTest, CompactFilesOnUniversalCompaction) {
+  const int kKeySize = 16;
+  const int kValueSize = 984;
+  const int kEntrySize = kKeySize + kValueSize;
+  const int kEntriesPerBuffer = 10;
+
+  ChangeCompactOptions();
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
+  Random rnd(301);
+  for (int key = 1024 * kEntriesPerBuffer; key >= 0; --key) {
+    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kValueSize)));
+  }
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForCompact();
+  ColumnFamilyMetaData cf_meta;
+  dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
+  std::vector<std::string> compaction_input_file_names;
+  for (auto file : cf_meta.levels[0].files) {
+    if (rnd.OneIn(2)) {
+      compaction_input_file_names.push_back(file.name);
+    }
+  }
+
+  if (compaction_input_file_names.size() == 0) {
+    compaction_input_file_names.push_back(
+        cf_meta.levels[0].files[0].name);
+  }
+
+  // expect fail since universal compaction only allow L0 output
+  ASSERT_TRUE(!dbfull()->CompactFiles(
+      CompactionOptions(), handles_[1],
+      compaction_input_file_names, 1).ok());
+
+  // expect ok and verify the compacted files no longer exist.
+  ASSERT_OK(dbfull()->CompactFiles(
+      CompactionOptions(), handles_[1],
+      compaction_input_file_names, 0));
+
+  dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
+  VerifyCompactionResult(
+      cf_meta,
+      std::set<std::string>(compaction_input_file_names.begin(),
+          compaction_input_file_names.end()));
+
+  compaction_input_file_names.clear();
+
+  // Pick the first and the last file, expect everything is
+  // compacted into one single file.
+  compaction_input_file_names.push_back(
+      cf_meta.levels[0].files[0].name);
+  compaction_input_file_names.push_back(
+      cf_meta.levels[0].files[
+          cf_meta.levels[0].files.size() - 1].name);
+  ASSERT_OK(dbfull()->CompactFiles(
+      CompactionOptions(), handles_[1],
+      compaction_input_file_names, 0));
+
+  dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
+  ASSERT_EQ(cf_meta.levels[0].files.size(), 1U);
+}
+
 TEST(DBTest, TableOptionsSanitizeTest) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
@@ -9078,7 +9332,6 @@ TEST(DBTest, DontDeletePendingOutputs) {
   // /tmp/rocksdbtest-1552237650/db_test/000009.sst: No such file or directory
   Compact("a", "b");
 }
-
 
 }  // namespace rocksdb
 

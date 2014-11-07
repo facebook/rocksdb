@@ -149,7 +149,9 @@ TESTS = \
 	cuckoo_table_db_test \
 	write_batch_with_index_test \
 	flush_job_test \
-	wal_manager_test
+	wal_manager_test \
+	listener_test \
+	write_batch_with_index_test
 
 TOOLS = \
         sst_dump \
@@ -501,6 +503,12 @@ cuckoo_table_reader_test: table/cuckoo_table_reader_test.o $(LIBOBJECTS) $(TESTH
 
 cuckoo_table_db_test: db/cuckoo_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/cuckoo_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+listener_test: db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/options_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

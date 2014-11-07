@@ -87,6 +87,10 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
 
 uint32_t ColumnFamilyHandleImpl::GetID() const { return cfd()->GetID(); }
 
+const std::string& ColumnFamilyHandleImpl::GetName() const {
+  return cfd()->GetName();
+}
+
 const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
   return cfd()->user_comparator();
 }
@@ -255,10 +259,23 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     } else if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
-    } else {
-      assert(ioptions_.compaction_style == kCompactionStyleFIFO);
+    } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
           new FIFOCompactionPicker(ioptions_, &internal_comparator_));
+    } else if (ioptions_.compaction_style == kCompactionStyleNone) {
+      compaction_picker_.reset(new NullCompactionPicker(
+          ioptions_, &internal_comparator_));
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "Column family %s does not use any background compaction. "
+          "Compactions can only be done via CompactFiles\n",
+          GetName().c_str());
+    } else {
+      Log(InfoLogLevel::ERROR_LEVEL, ioptions_.info_log,
+          "Unable to recognize the specified compaction style %d. "
+          "Column family %s will use kCompactionStyleLevel.\n",
+          ioptions_.compaction_style, GetName().c_str());
+      compaction_picker_.reset(
+          new LevelCompactionPicker(ioptions_, &internal_comparator_));
     }
 
     Log(InfoLogLevel::INFO_LEVEL,
@@ -501,6 +518,19 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
     assert(expected == SuperVersion::kSVObsolete);
   }
   return false;
+}
+
+void ColumnFamilyData::NotifyOnFlushCompleted(
+    DB* db, const std::string& file_path,
+    bool triggered_flush_slowdown,
+    bool triggered_flush_stop) {
+  auto listeners = ioptions()->listeners;
+  for (auto listener : listeners) {
+    listener->OnFlushCompleted(
+        db, GetName(), file_path,
+        // Use path 0 as fulled memtables are first flushed into path 0.
+        triggered_flush_slowdown, triggered_flush_stop);
+  }
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(

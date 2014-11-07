@@ -10,13 +10,16 @@
 #define STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_
 
 #include <stddef.h>
+#include <stdint.h>
 #include <string>
 #include <memory>
 #include <vector>
+#include <limits>
 #include <stdint.h>
 #include <unordered_map>
 
 #include "rocksdb/version.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/universal_compaction.h"
 
 namespace rocksdb {
@@ -55,7 +58,9 @@ enum CompressionType : char {
 enum CompactionStyle : char {
   kCompactionStyleLevel = 0x0,      // level based compaction style
   kCompactionStyleUniversal = 0x1,  // Universal compaction style
-  kCompactionStyleFIFO = 0x2,       // FIFO compaction style
+  kCompactionStyleFIFO = 0x2,    // FIFO compaction style
+  kCompactionStyleNone = 0x3,  // Disable background compaction. Compaction
+                               // jobs are submitted via CompactFiles()
 };
 
 
@@ -586,6 +591,10 @@ struct ColumnFamilyOptions {
   // Default: 2
   uint32_t min_partial_merge_operands;
 
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -1067,6 +1076,19 @@ extern Options GetOptions(size_t total_write_buffer_limit,
                           int write_amplification_threshold = 32,
                           uint64_t target_db_size = 68719476736 /* 64GB */);
 
+// CompactionOptions are used in CompactFiles() call.
+struct CompactionOptions {
+  // Compaction output compression type
+  // Default: snappy
+  CompressionType compression;
+  // Compaction will create files of size `output_file_size_limit`.
+  // Default: MAX, which means that compaction will create a single file
+  uint64_t output_file_size_limit;
+
+  CompactionOptions()
+      : compression(kSnappyCompression),
+        output_file_size_limit(std::numeric_limits<uint64_t>::max()) {}
+};
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_OPTIONS_H_

@@ -14,6 +14,7 @@
 #include <set>
 #include <list>
 #include <utility>
+#include <list>
 #include <vector>
 #include <string>
 
@@ -115,6 +116,13 @@ class DBImpl : public DB {
                               bool reduce_level = false, int target_level = -1,
                               uint32_t target_path_id = 0);
 
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1);
+
   using DB::SetOptions;
   Status SetOptions(ColumnFamilyHandle* column_family,
       const std::unordered_map<std::string, std::string>& options_map);
@@ -152,6 +160,15 @@ class DBImpl : public DB {
   virtual Status DeleteFile(std::string name);
 
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
+
+  // Obtains the meta data of the specified column family of the DB.
+  // Status::NotFound() will be returned if the current DB does not have
+  // any column family match the specified name.
+  // TODO(yhchiang): output parameter is placed in the end in this codebase.
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* column_family,
+      ColumnFamilyMetaData* metadata) override;
+
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes
@@ -211,7 +228,7 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   // pass the pointer that you got from TEST_BeginWrite()
   void TEST_EndWrite(void* w);
-#endif  // NDEBUG
+#endif  // ROCKSDB_LITE
 
   // Returns the list of live files in 'live' and the list
   // of all files in the filesystem in 'candidate_files'.
@@ -238,6 +255,8 @@ class DBImpl : public DB {
 
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version, Arena* arena);
+
+  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
 
  private:
   friend class DB;
@@ -317,6 +336,13 @@ class DBImpl : public DB {
 
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
+
+  Status CompactFilesImpl(
+      const CompactionOptions& compact_options, ColumnFamilyData* cfd,
+      Version* version, const std::vector<std::string>& input_file_names,
+      const int output_level, int output_path_id);
+
+  ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
   static void BGWorkCompaction(void* db);
@@ -487,6 +513,12 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_;
+
+  // The list of registered event listeners.
+  std::list<EventListener*> listeners_;
+
+  // count how many events are currently being notified.
+  int notifying_events_;
 
   // No copying allowed
   DBImpl(const DBImpl&);

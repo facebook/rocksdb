@@ -52,6 +52,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual const Comparator* user_comparator() const;
 
   virtual uint32_t GetID() const;
+  virtual const std::string& GetName() const override;
 
  private:
   ColumnFamilyData* cfd_;
@@ -249,6 +250,11 @@ class ColumnFamilyData {
                                     port::Mutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
+
+  void NotifyOnFlushCompleted(
+      DB* db, const std::string& file_path,
+      bool triggered_flush_slowdown,
+      bool triggered_flush_stop);
 
  private:
   friend class ColumnFamilySet;

@@ -15,19 +15,34 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include "rocksdb/metadata.h"
 #include "rocksdb/version.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/listener.h"
 
 namespace rocksdb {
+
+struct Options;
+struct DBOptions;
+struct ColumnFamilyOptions;
+struct ReadOptions;
+struct WriteOptions;
+struct FlushOptions;
+struct CompactionOptions;
+struct TableProperties;
+class WriteBatch;
+class Env;
+class EventListener;
 
 using std::unique_ptr;
 
 class ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
+  virtual const std::string& GetName() const = 0;
 };
 extern const std::string kDefaultColumnFamilyName;
 
@@ -43,27 +58,6 @@ struct ColumnFamilyDescriptor {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
-
-struct Options;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
-struct TableProperties;
-class WriteBatch;
-class Env;
-
-// Metadata associated with each SST file.
-struct LiveFileMetaData {
-  std::string column_family_name;  // Name of the column family
-  std::string db_path;
-  std::string name;                // Name of the file
-  int level;               // Level at which this file resides.
-  size_t size;             // File size in bytes.
-  std::string smallestkey; // Smallest user defined key in the file.
-  std::string largestkey;  // Largest user defined key in the file.
-  SequenceNumber smallest_seqno; // smallest seqno in file
-  SequenceNumber largest_seqno;  // largest seqno in file
-};
 
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely
@@ -370,6 +364,26 @@ class DB {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
+  // CompactFiles() inputs a list of files specified by file numbers
+  // and compacts them to the specified level.  Note that the behavior
+  // is different from CompactRange in that CompactFiles() will
+  // perform the compaction job using the CURRENT thread.
+  //
+  // @see GetDataBaseMetaData
+  // @see GetColumnFamilyMetaData
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) = 0;
+
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) {
+    return CompactFiles(compact_options, DefaultColumnFamily(),
+                        input_file_names, output_level, output_path_id);
+  }
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
@@ -476,6 +490,21 @@ class DB {
   // and end key
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
 
+  // Obtains the meta data of the specified column family of the DB.
+  // Status::NotFound() will be returned if the current DB does not have
+  // any column family match the specified name.
+  //
+  // If cf_name is not specified, then the metadata of the default
+  // column family will be returned.
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* column_family,
+      ColumnFamilyMetaData* metadata) {}
+
+  // Get the metadata of the default column family.
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* metadata) {
+    GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
+  }
 #endif  // ROCKSDB_LITE
 
   // Sets the globally unique ID created at database creation time by invoking

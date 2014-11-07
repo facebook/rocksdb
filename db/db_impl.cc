@@ -213,7 +213,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 #endif  // ROCKSDB_LITE
       bg_work_gate_closed_(false),
       refitting_level_(false),
-      opened_successfully_(false) {
+      opened_successfully_(false),
+      notifying_events_(0) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -239,6 +240,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
 DBImpl::~DBImpl() {
   mutex_.Lock();
+
   if (flush_on_destroy_) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->mem()->IsEmpty()) {
@@ -254,10 +256,10 @@ DBImpl::~DBImpl() {
 
   // Wait for background work to finish
   shutting_down_.store(true, std::memory_order_release);
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
     bg_cv_.Wait();
   }
-
+  listeners_.clear();
   flush_scheduler_.Clear();
 
   if (default_cf_handle_ != nullptr) {
@@ -1055,7 +1057,8 @@ Status DBImpl::FlushMemTableToOutputFile(
                      db_directory_.get(), GetCompressionFlush(*cfd->ioptions()),
                      stats_);
 
-  Status s = flush_job.Run();
+  uint64_t file_number;
+  Status s = flush_job.Run(&file_number);
 
   if (s.ok()) {
     InstallSuperVersionBackground(cfd, job_context, mutable_cf_options);
@@ -1085,7 +1088,40 @@ Status DBImpl::FlushMemTableToOutputFile(
     bg_error_ = s;
   }
   RecordFlushIOStats();
+#ifndef ROCKSDB_LITE
+  if (s.ok()) {
+    // may temporarily unlock and lock the mutex.
+    NotifyOnFlushCompleted(cfd, file_number);
+  }
+#endif  // ROCKSDB_LITE
   return s;
+}
+
+void DBImpl::NotifyOnFlushCompleted(
+    ColumnFamilyData* cfd, uint64_t file_number) {
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+  bool triggered_flush_slowdown =
+      (cfd->current()->storage_info()->NumLevelFiles(0) >=
+       cfd->options()->level0_slowdown_writes_trigger);
+  bool triggered_flush_stop =
+      (cfd->current()->storage_info()->NumLevelFiles(0) >=
+       cfd->options()->level0_stop_writes_trigger);
+  notifying_events_++;
+  // release lock while notifying events
+  mutex_.Unlock();
+  // TODO(yhchiang): make db_paths dynamic.
+  cfd->NotifyOnFlushCompleted(
+        this, MakeTableFileName(db_options_.db_paths[0].path, file_number),
+        triggered_flush_slowdown,
+        triggered_flush_stop);
+  mutex_.Lock();
+  notifying_events_--;
+  assert(notifying_events_ >= 0);
+  // no need to signal bg_cv_ as it will be signaled at the end of the
+  // flush process.
 }
 
 Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
@@ -1147,6 +1183,167 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   }
 
   return s;
+}
+
+Status DBImpl::CompactFiles(
+    const CompactionOptions& compact_options,
+    ColumnFamilyHandle* column_family,
+    const std::vector<std::string>& input_file_names,
+    const int output_level, const int output_path_id) {
+  MutexLock l(&mutex_);
+  if (column_family == nullptr) {
+    return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
+  }
+
+  auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  assert(cfd);
+  // TODO(yhchiang): use superversion
+  cfd->Ref();
+  auto version = cfd->current();
+  version->Ref();
+  auto s = CompactFilesImpl(compact_options, cfd, version,
+                            input_file_names, output_level, output_path_id);
+  // TODO(yhchiang): unref could move into CompactFilesImpl().  Otherwise,
+  // FindObsoleteFiles might never able to find any file to delete.
+  version->Unref();
+  // TODO(yhchiang): cfd should be deleted after its last reference.
+  cfd->Unref();
+  return s;
+}
+
+Status DBImpl::CompactFilesImpl(
+    const CompactionOptions& compact_options, ColumnFamilyData* cfd,
+    Version* version, const std::vector<std::string>& input_file_names,
+    const int output_level, int output_path_id) {
+  mutex_.AssertHeld();
+
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
+
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return Status::ShutdownInProgress();
+  }
+
+  std::unordered_set<uint64_t> input_set;
+  for (auto file_name : input_file_names) {
+    input_set.insert(TableFileNameToNumber(file_name));
+  }
+
+  ColumnFamilyMetaData cf_meta;
+  // TODO(yhchiang): can directly use version here if none of the
+  // following functions call is pluggable to external developers.
+  version->GetColumnFamilyMetaData(&cf_meta);
+
+  if (output_path_id < 0) {
+    if (db_options_.db_paths.size() == 1U) {
+      output_path_id = 0;
+    } else {
+      return Status::NotSupported(
+          "Automatic output path selection is not "
+          "yet supported in CompactFiles()");
+    }
+  }
+
+  Status s = cfd->compaction_picker()->SanitizeCompactionInputFiles(
+      &input_set, cf_meta, output_level);
+  if (!s.ok()) {
+    return s;
+  }
+
+  autovector<CompactionInputFiles> input_files;
+  s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
+      &input_files, &input_set, version->storage_info(), compact_options);
+  if (!s.ok()) {
+    return s;
+  }
+
+  for (auto inputs : input_files) {
+    if (cfd->compaction_picker()->FilesInCompaction(inputs.files)) {
+      return Status::Aborted(
+          "Some of the necessary compaction input "
+          "files are already being compacted");
+    }
+  }
+
+  // At this point, CompactFiles will be run.
+  bg_compaction_scheduled_++;
+
+  unique_ptr<Compaction> c;
+  assert(cfd->compaction_picker());
+  c.reset(cfd->compaction_picker()->FormCompaction(
+        compact_options, input_files,
+        output_level, version->storage_info(),
+        *cfd->GetLatestMutableCFOptions()));
+  assert(c);
+  c->SetInputVersion(version);
+  c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
+  // deletion compaction currently not allowed in CompactFiles.
+  assert(!c->IsDeletionCompaction());
+
+  JobContext job_context(true);
+  auto yield_callback = [&]() {
+    return CallFlushDuringCompaction(c->column_family_data(),
+                                     *c->mutable_cf_options(), &job_context,
+                                     &log_buffer);
+  };
+  CompactionJob compaction_job(
+      c.get(), db_options_, *c->mutable_cf_options(), env_options_,
+      versions_.get(), &mutex_, &shutting_down_, &pending_outputs_,
+      &log_buffer, db_directory_.get(), stats_, &snapshots_,
+      IsSnapshotSupported(), table_cache_, std::move(yield_callback));
+  compaction_job.Prepare();
+
+  mutex_.Unlock();
+  Status status = compaction_job.Run();
+  mutex_.Lock();
+  if (status.ok()) {
+    status = compaction_job.Install(status);
+    if (status.ok()) {
+      InstallSuperVersionBackground(c->column_family_data(), &job_context,
+                                    *c->mutable_cf_options());
+    }
+  }
+  c->ReleaseCompactionFiles(s);
+  c->ReleaseInputs();
+  c.reset();
+
+  if (status.ok()) {
+    // Done
+  } else if (status.IsShutdownInProgress()) {
+    // Ignore compaction errors found during shutting down
+  } else {
+    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log, "Compaction error: %s",
+        status.ToString().c_str());
+    if (db_options_.paranoid_checks && bg_error_.ok()) {
+      bg_error_ = status;
+    }
+  }
+
+  // If !s.ok(), this means that Compaction failed. In that case, we want
+  // to delete all obsolete files we might have created and we force
+  // FindObsoleteFiles(). This is because job_context does not
+  // catch all created files if compaction failed.
+  // TODO(yhchiang): write an unit-test to make sure files are actually
+  //                 deleted after CompactFiles.
+  FindObsoleteFiles(&job_context, !s.ok());
+
+  // delete unnecessary files if any, this is done outside the mutex
+  if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+    mutex_.Unlock();
+    // Have to flush the info logs before bg_compaction_scheduled_--
+    // because if bg_flush_scheduled_ becomes 0 and the lock is
+    // released, the deconstructor of DB can kick in and destroy all the
+    // states of DB so info_log might not be available after that point.
+    // It also applies to access other states that DB owns.
+    log_buffer.FlushBufferToLog();
+    if (job_context.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(job_context);
+    }
+    mutex_.Lock();
+  }
+
+  bg_compaction_scheduled_--;
+
+  return status;
 }
 
 Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
@@ -3112,6 +3309,17 @@ void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   MutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
 }
+
+void DBImpl::GetColumnFamilyMetaData(
+    ColumnFamilyHandle* column_family,
+    ColumnFamilyMetaData* cf_meta) {
+  assert(column_family);
+  auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
+  auto* sv = GetAndRefSuperVersion(cfd);
+  sv->current->GetColumnFamilyMetaData(cf_meta);
+  ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
 #endif  // ROCKSDB_LITE
 
 Status DBImpl::CheckConsistency() {
@@ -3362,6 +3570,15 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     impl->opened_successfully_ = true;
     *dbptr = impl;
+    // TODO(yhchiang): Add NotifyOnDatabaseOpen() here.
+    // Since the column-family handles are only available after DB::Open(),
+    // typically developers will need to pass the returned ColumnFamilyHandles
+    // to their EventListeners in order to maintain the mapping between
+    // column-family-name to ColumnFamilyHandle.  However, some database
+    // events might happen before the user passing those ColumnFamilyHandle to
+    // their Listeners.  To address this, we should have NotifyOnDatabaseOpen()
+    // here which passes the created ColumnFamilyHandle to the Listeners
+    // as the first event after DB::Open().
   } else {
     for (auto h : *handles) {
       delete h;

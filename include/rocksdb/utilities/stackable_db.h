@@ -133,6 +133,17 @@ class StackableDB : public DB {
                              target_level, target_path_id);
   }
 
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) override {
+    return db_->CompactFiles(
+        compact_options, column_family, input_file_names,
+        output_level, output_path_id);
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
@@ -170,6 +181,8 @@ class StackableDB : public DB {
     return db_->Flush(fopts, column_family);
   }
 
+#ifndef ROCKSDB_LITE
+
   virtual Status DisableFileDeletions() override {
     return db_->DisableFileDeletions();
   }
@@ -182,6 +195,14 @@ class StackableDB : public DB {
       std::vector<LiveFileMetaData>* metadata) override {
     db_->GetLiveFilesMetaData(metadata);
   }
+
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle *column_family,
+      ColumnFamilyMetaData* cf_meta) override {
+    db_->GetColumnFamilyMetaData(column_family, cf_meta);
+  }
+
+#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
