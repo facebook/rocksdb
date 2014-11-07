@@ -5840,21 +5840,9 @@ TEST(DBTest, DropWritesFlush) {
     ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("0", property_value);
 
-    dbfull()->TEST_FlushMemTable(false);
+    dbfull()->TEST_FlushMemTable(true);
 
-    // Wait 300 milliseconds or background-errors turned 1 from 0.
-    int time_to_sleep_limit = 300000;
-    while (time_to_sleep_limit > 0) {
-      int to_sleep = (time_to_sleep_limit > 1000) ? 1000 : time_to_sleep_limit;
-      time_to_sleep_limit -= to_sleep;
-      env_->SleepForMicroseconds(to_sleep);
-
-      ASSERT_TRUE(
-          db_->GetProperty("rocksdb.background-errors", &property_value));
-      if (property_value == "1") {
-        break;
-      }
-    }
+    ASSERT_TRUE(db_->GetProperty("rocksdb.background-errors", &property_value));
     ASSERT_EQ("1", property_value);
 
     env_->drop_writes_.store(false, std::memory_order_release);
