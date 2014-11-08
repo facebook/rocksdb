@@ -752,7 +752,7 @@ struct ThreadState {
   Stats stats;
 
   ThreadState(uint32_t index, SharedState* _shared)
-      : tid(index), rand(1000 + index + shared->GetSeed()), shared(_shared) {}
+      : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
 };
 
 }  // namespace
