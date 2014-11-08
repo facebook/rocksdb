@@ -734,7 +734,7 @@ public class RocksDB extends RocksObject {
     List<byte[]> values = multiGet(
         nativeHandle_, keys, keys.size());
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
+    Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.size(); i++) {
       if(values.get(i) == null) {
         continue;
@@ -774,7 +774,7 @@ public class RocksDB extends RocksObject {
     List<byte[]> values = multiGet(nativeHandle_, keys, keys.size(),
         columnFamilyHandleList);
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
+    Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.size(); i++) {
       if (values.get(i) == null) {
         continue;
@@ -801,7 +801,7 @@ public class RocksDB extends RocksObject {
     List<byte[]> values = multiGet(
         nativeHandle_, opt.nativeHandle_, keys, keys.size());
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
+    Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.size(); i++) {
       if(values.get(i) == null) {
         continue;
@@ -844,7 +844,7 @@ public class RocksDB extends RocksObject {
     List<byte[]> values = multiGet(nativeHandle_, opt.nativeHandle_,
         keys, keys.size(), columnFamilyHandleList);
 
-    Map<byte[], byte[]> keyValueMap = new HashMap<byte[], byte[]>();
+    Map<byte[], byte[]> keyValueMap = new HashMap<>();
     for(int i = 0; i < values.size(); i++) {
       if(values.get(i) == null) {
         continue;
@@ -1051,7 +1051,7 @@ public class RocksDB extends RocksObject {
   public List<RocksIterator> newIterators(
       List<ColumnFamilyHandle> columnFamilyHandleList) throws RocksDBException {
     List<RocksIterator> iterators =
-        new ArrayList<RocksIterator>(columnFamilyHandleList.size());
+        new ArrayList<>(columnFamilyHandleList.size());
 
     long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandleList);
     for (int i=0; i<columnFamilyHandleList.size(); i++){

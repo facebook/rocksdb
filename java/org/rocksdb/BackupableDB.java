@@ -104,7 +104,7 @@ public class BackupableDB extends RocksDB {
     super();
   }
 
-  @Override protected void finalize() {
+  @Override protected void finalize() throws Throwable {
     close();
     super.finalize();
   }

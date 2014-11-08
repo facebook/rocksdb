@@ -131,7 +131,7 @@ public class PlainTableConfig extends TableFormatConfig {
    *
    * <p>See linux doc Documentation/vm/hugetlbpage.txt</p>
    *
-   * @param hugePageTlbSize
+   * @param hugePageTlbSize huge page tlb size
    * @return the reference to the current config.
    */
   public PlainTableConfig setHugePageTlbSize(int hugePageTlbSize) {

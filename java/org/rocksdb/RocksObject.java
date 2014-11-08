@@ -107,8 +107,9 @@ public abstract class RocksObject {
    * Simply calls {@code dispose()} and release its c++ resource if it has not
    * yet released.
    */
-  @Override protected void finalize() {
+  @Override protected void finalize() throws Throwable {
     dispose();
+    super.finalize();
   }
 
   /**

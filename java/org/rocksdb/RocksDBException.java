@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.*;
-
 /**
  * A RocksDBException encapsulates the error of an operation.  This exception
  * type is used to describe an internal error from the c++ rocksdb library.

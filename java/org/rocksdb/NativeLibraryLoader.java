@@ -9,12 +9,12 @@ import org.rocksdb.util.Environment;
  */
 public class NativeLibraryLoader {
   private static String sharedLibraryName = Environment.getJniLibraryName("rocksdb");
-  private static String tempFilePrefix = "librocksdbjni";
   private static String tempFileSuffix = "." + Environment.getJniLibraryExtension();
 
   public static void loadLibraryFromJar(String tmpDir)
       throws IOException {
     File temp;
+    String tempFilePrefix = "librocksdbjni";
     if(tmpDir == null || tmpDir.equals(""))
       temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
     else
@@ -43,9 +43,7 @@ public class NativeLibraryLoader {
     } finally {
       if(os != null)
         os.close();
-
-      if(is != null)
-        is.close();
+      is.close();
     }
 
     System.load(temp.getAbsolutePath());
