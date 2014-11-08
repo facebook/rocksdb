@@ -1,6 +1,6 @@
 include ../build_config.mk
 
-.PHONY: main clean
+.PHONY: clean
 
 all: simple_example column_families_example compact_files_example
 
