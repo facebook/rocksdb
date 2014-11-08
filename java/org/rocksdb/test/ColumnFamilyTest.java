@@ -73,9 +73,9 @@ public class ColumnFamilyTest {
 
     // Test open database with column family names
     List<ColumnFamilyDescriptor> cfNames =
-        new ArrayList<ColumnFamilyDescriptor>();
+        new ArrayList<>();
     List<ColumnFamilyHandle> columnFamilyHandleList =
-        new ArrayList<ColumnFamilyHandle>();
+        new ArrayList<>();
     cfNames.add(new ColumnFamilyDescriptor("default"));
     cfNames.add(new ColumnFamilyDescriptor("new_cf"));
 
@@ -221,8 +221,6 @@ public class ColumnFamilyTest {
       assert(new String(retValues.get(keys.get(0)))
           .equals("value"));
     } catch (RocksDBException e) {
-      assert(false);
-    } catch (IllegalArgumentException e) {
       assert(false);
     }
 

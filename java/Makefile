@@ -70,6 +70,12 @@ sample: java
 	@rm -rf /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni_not_found
 
+column_family_sample: java
+	javac -cp $(ROCKSDB_JAR) RocksDBColumnFamilySample.java
+	@rm -rf /tmp/rocksdbjni
+	java -ea -Djava.library.path=.:../ -cp ".:./*" -Xcheck:jni RocksDBColumnFamilySample /tmp/rocksdbjni
+	@rm -rf /tmp/rocksdbjni
+
 test: java
 	@rm -rf /tmp/rocksdbjni_*
 	javac org/rocksdb/test/*.java
