@@ -37,7 +37,7 @@ public abstract class RocksObject {
    * small in that they seems to only hold a long variable. As a result,
    * they might have low priority in the GC process.  To prevent this,
    * it is suggested to call {@code dispose()} manually.
-   * <p>
+   * </p>
    * <p>
    * Note that once an instance of {@code RocksObject} has been disposed,
    * calling its function will lead undefined behavior.

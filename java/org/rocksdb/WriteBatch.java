@@ -23,11 +23,19 @@ package org.rocksdb;
  * external synchronization.
  */
 public class WriteBatch extends RocksObject {
+  /**
+   * Constructs a WriteBatch instance.
+   */
   public WriteBatch() {
     super();
     newWriteBatch(0);
   }
 
+  /**
+   * Constructs a WriteBatch instance with a given size.
+   *
+   * @param reserved_bytes reserved size for WriteBatch
+   */
   public WriteBatch(int reserved_bytes) {
     nativeHandle_ = 0;
     newWriteBatch(reserved_bytes);
@@ -35,19 +43,29 @@ public class WriteBatch extends RocksObject {
 
   /**
    * Returns the number of updates in the batch.
+   *
+   * @return number of items in WriteBatch
    */
   public native int count();
 
   /**
-   * Store the mapping "key-&gt;value" in the database.
+   * <p>Store the mapping "key-&gt;value" in the database.</p>
+   *
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
    */
   public void put(byte[] key, byte[] value) {
     put(key, key.length, value, value.length);
   }
 
   /**
-   * Store the mapping "key-&gt;value" within given column
-   * family.
+   * <p>Store the mapping "key-&gt;value" within given column
+   * family.</p>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param key the specified key to be inserted.
+   * @param value the value associated with the specified key.
    */
   public void put(ColumnFamilyHandle columnFamilyHandle,
       byte[] key, byte[] value) {
@@ -56,16 +74,25 @@ public class WriteBatch extends RocksObject {
   }
 
   /**
-   * Merge "value" with the existing value of "key" in the database.
-   * "key-&gt;merge(existing, value)"
+   * <p>Merge "value" with the existing value of "key" in the database.
+   * "key-&gt;merge(existing, value)"</p>
+   *
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   * the specified key.
    */
   public void merge(byte[] key, byte[] value) {
     merge(key, key.length, value, value.length);
   }
 
   /**
-   * Merge "value" with the existing value of "key" in given column family.
-   * "key-&gt;merge(existing, value)"
+   * <p>Merge "value" with the existing value of "key" in given column family.
+   * "key-&gt;merge(existing, value)"</p>
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key the specified key to be merged.
+   * @param value the value to be merged with the current value for
+   * the specified key.
    */
   public void merge(ColumnFamilyHandle columnFamilyHandle,
       byte[] key, byte[] value) {
@@ -74,14 +101,19 @@ public class WriteBatch extends RocksObject {
   }
 
   /**
-   * If the database contains a mapping for "key", erase it.  Else do nothing.
+   * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
+   *
+   * @param key Key to delete within database
    */
   public void remove(byte[] key) {
     remove(key, key.length);
   }
 
   /**
-   * If column family contains a mapping for "key", erase it.  Else do nothing.
+   * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
+   *
+   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
+   * @param key Key to delete within database
    */
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
     remove(key, key.length, columnFamilyHandle.nativeHandle_);
@@ -98,6 +130,8 @@ public class WriteBatch extends RocksObject {
    *
    * Example application: add timestamps to the transaction log for use in
    * replication.
+   *
+   * @param blob binary object to be inserted
    */
   public void putLogData(byte[] blob) {
     putLogData(blob, blob.length);
@@ -166,6 +200,9 @@ public class WriteBatch extends RocksObject {
      * iteration is halted. Otherwise, it continues
      * iterating. The default implementation always
      * returns true.
+     *
+     * @return boolean value indicating if the
+     *     iteration is halted.
      */
     public boolean shouldContinue() {
       return true;

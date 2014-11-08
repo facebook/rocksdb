@@ -49,6 +49,7 @@ public class StatisticsCollector {
    *
    * @param shutdownTimeout Time in milli-seconds to wait for shutdown before
    *        killing the collection process.
+   * @throws java.lang.InterruptedException thrown if Threads are interrupted.
    */
   public void shutDown(int shutdownTimeout) throws InterruptedException {
     _isRunning = false;

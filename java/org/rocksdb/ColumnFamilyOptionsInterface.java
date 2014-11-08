@@ -152,7 +152,8 @@ public interface ColumnFamilyOptionsInterface {
    * Default: 4MB
    * @param writeBufferSize the size of write buffer.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setWriteBufferSize(long writeBufferSize)
       throws RocksDBException;
@@ -223,6 +224,7 @@ public interface ColumnFamilyOptionsInterface {
    * extract the prefix given a key.
    *
    * @param n use the first n bytes of a key as its prefix.
+   * @return the reference to the current option.
    */
   Object useFixedLengthPrefixExtractor(int n);
 
@@ -414,6 +416,8 @@ public interface ColumnFamilyOptionsInterface {
    * will be 20MB, total file size for level-2 will be 200MB,
    * and total file size for level-3 will be 2GB.
    * by default 'maxBytesForLevelBase' is 10MB.
+   *
+   * @param maxBytesForLevelBase maximum bytes for level base.
    *
    * @return the reference to the current option.
    * @see #setMaxBytesForLevelMultiplier(int)
@@ -614,7 +618,8 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param arenaBlockSize the size of an arena block
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setArenaBlockSize(long arenaBlockSize)
       throws RocksDBException;
@@ -762,7 +767,8 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param config the mem-table config.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setMemTableConfig(MemTableConfig config)
       throws RocksDBException;
@@ -826,7 +832,8 @@ public interface ColumnFamilyOptionsInterface {
    * @param inplaceUpdateNumLocks the number of locks used for
    *     inplace updates.
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setInplaceUpdateNumLocks(long inplaceUpdateNumLocks)
       throws RocksDBException;
@@ -920,7 +927,8 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param maxSuccessiveMerges the maximum number of successive merges.
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setMaxSuccessiveMerges(long maxSuccessiveMerges)
       throws RocksDBException;

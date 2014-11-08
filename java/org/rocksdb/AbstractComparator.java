@@ -46,15 +46,18 @@ public abstract class AbstractComparator<T extends AbstractSlice>
   public abstract int compare(final T a, final T b);
 
   /**
-   * Used to reduce the space requirements
-   * for internal data structures like index blocks.
+   * <p>Used to reduce the space requirements
+   * for internal data structures like index blocks.</p>
    *
-   * If start &lt; limit, you may return a new start which is a
-   * shorter string in [start, limit).
+   * <p>If start &lt; limit, you may return a new start which is a
+   * shorter string in [start, limit).</p>
    *
-   * Simple comparator implementations may return null if they
+   * <p>Simple comparator implementations may return null if they
    * wish to use start unchanged. i.e., an implementation of
-   * this method that does nothing is correct.
+   * this method that does nothing is correct.</p>
+   *
+   * @param start String
+   * @param limit of type T
    *
    * @return a shorter start, or null
    */
@@ -63,15 +66,17 @@ public abstract class AbstractComparator<T extends AbstractSlice>
   }
 
   /**
-   * Used to reduce the space requirements
-   * for internal data structures like index blocks.
+   * <p>Used to reduce the space requirements
+   * for internal data structures like index blocks.</p>
    *
-   * You may return a new short key (key1) where
-   * key1 &ge; key.
+   * <p>You may return a new short key (key1) where
+   * key1 &ge; key.</p>
    *
-   * Simple comparator implementations may return null if they
+   * <p>Simple comparator implementations may return null if they
    * wish to leave the key unchanged. i.e., an implementation of
-   * this method that does nothing is correct.
+   * this method that does nothing is correct.</p>
+   *
+   * @param key String
    *
    * @return a shorter key, or null
    */

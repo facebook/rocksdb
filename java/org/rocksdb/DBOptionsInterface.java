@@ -123,7 +123,7 @@ public interface DBOptionsInterface {
    * Default: 5000
    *
    * @param maxOpenFiles the maximum number of open files.
-   * @return the reference to the current DBOptions.
+   * @return the instance of the current Object.
    */
   Object setMaxOpenFiles(int maxOpenFiles);
 
@@ -147,6 +147,9 @@ public interface DBOptionsInterface {
    * <p>If set to 0 (default), we will dynamically choose the WAL size limit to
    * be [sum of all write_buffer_size * max_write_buffer_number] * 2</p>
    * <p>Default: 0</p>
+   *
+   * @param maxTotalWalSize max total wal size.
+   * @return the instance of the current Object.
    */
   Object setMaxTotalWalSize(long maxTotalWalSize);
 
@@ -197,7 +200,7 @@ public interface DBOptionsInterface {
    *
    * @param disableDataSync a boolean flag to specify whether to
    *     disable data sync.
-   * @return the reference to the current DBOptions.
+   * @return the instance of the current Object.
    */
   Object setDisableDataSync(boolean disableDataSync);
 
@@ -370,7 +373,8 @@ public interface DBOptionsInterface {
    *
    * @param maxLogFileSize the maximum size of a info log file.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setMaxLogFileSize(long maxLogFileSize)
       throws RocksDBException;
@@ -392,7 +396,8 @@ public interface DBOptionsInterface {
    *
    * @param logFileTimeToRoll the time interval in seconds.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setLogFileTimeToRoll(long logFileTimeToRoll)
       throws RocksDBException;
@@ -413,7 +418,8 @@ public interface DBOptionsInterface {
    *
    * @param keepLogFileNum the maximum number of info log files to be kept.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setKeepLogFileNum(long keepLogFileNum)
       throws RocksDBException;
@@ -584,7 +590,8 @@ public interface DBOptionsInterface {
    *
    * @param size the size in byte
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException
+   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
+   *    overflowing the underlying platform specific value.
    */
   Object setManifestPreallocationSize(long size)
       throws RocksDBException;

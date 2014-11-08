@@ -50,6 +50,8 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
   /**
    * Set the height of the skip list.  Default = 4.
    *
+   * @param height height to set.
+   *
    * @return the reference to the current HashSkipListMemTableConfig.
    */
   public HashSkipListMemTableConfig setHeight(int height) {

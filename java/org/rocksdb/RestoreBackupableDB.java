@@ -40,8 +40,10 @@ public class RestoreBackupableDB extends RocksObject {
    * @param backupId id pointing to backup
    * @param dbDir database directory to restore to
    * @param walDir directory where wal files are located
-   * @param restoreOptions {@link org.rocksdb.RestoreOptions} instance
-   * @throws RocksDBException
+   * @param restoreOptions {@link org.rocksdb.RestoreOptions} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void restoreDBFromBackup(long backupId, String dbDir, String walDir,
       RestoreOptions restoreOptions) throws RocksDBException {
@@ -55,7 +57,9 @@ public class RestoreBackupableDB extends RocksObject {
    * @param dbDir database directory to restore to
    * @param walDir directory where wal files are located
    * @param restoreOptions {@link org.rocksdb.RestoreOptions} instance
-   * @throws RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void restoreDBFromLatestBackup(String dbDir, String walDir,
       RestoreOptions restoreOptions) throws RocksDBException {
@@ -67,7 +71,9 @@ public class RestoreBackupableDB extends RocksObject {
    * Deletes old backups, keeping latest numBackupsToKeep alive.
    *
    * @param numBackupsToKeep of latest backups to keep
-   * @throws org.rocksdb.RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void purgeOldBackups(int numBackupsToKeep) throws RocksDBException {
     purgeOldBackups0(nativeHandle_, numBackupsToKeep);
@@ -77,7 +83,9 @@ public class RestoreBackupableDB extends RocksObject {
    * Deletes a specific backup.
    *
    * @param backupId of backup to delete.
-   * @throws org.rocksdb.RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void deleteBackup(int backupId) throws RocksDBException {
     deleteBackup0(nativeHandle_, backupId);

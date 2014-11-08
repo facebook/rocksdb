@@ -16,6 +16,8 @@ public abstract class RateLimiterConfig {
    * with a Java RateLimiterConfig.
    *
    * @see org.rocksdb.DBOptions#setRateLimiter(long, long)
+   *
+   * @return native handle address to rate limiter instance.
    */
   abstract protected long newRateLimiterHandle();
 }

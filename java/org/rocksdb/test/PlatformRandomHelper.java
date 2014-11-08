@@ -14,6 +14,8 @@ import java.util.Random;
 public class PlatformRandomHelper {
     /**
      * Determine if OS is 32-Bit/64-Bit
+     *
+     * @return boolean value indicating if operating system is 64 Bit.
      */
     public static boolean isOs64Bit(){
       boolean is64Bit = false;
@@ -27,6 +29,8 @@ public class PlatformRandomHelper {
 
     /**
      * Factory to get a platform specific Random instance
+     *
+     * @return {@link java.util.Random} instance.
      */
     public static Random getPlatformSpecificRandomFactory(){
       if (isOs64Bit()) {

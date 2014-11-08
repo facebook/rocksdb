@@ -12,9 +12,11 @@ package org.rocksdb;
  */
 public abstract class TableFormatConfig {
   /**
-   * This function should only be called by Options.setTableFormatConfig(),
+   * <p>This function should only be called by Options.setTableFormatConfig(),
    * which will create a c++ shared-pointer to the c++ TableFactory
-   * that associated with the Java TableFormatConfig.
+   * that associated with the Java TableFormatConfig.</p>
+   *
+   * @return native handle address to native table instance.
    */
   abstract protected long newTableFactoryHandle();
 }

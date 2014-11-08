@@ -23,6 +23,9 @@ public class BackupableDB extends RocksDB {
    * @param db_path Path to store data to. The path for storing the backup should be
    *     specified in the {@link org.rocksdb.BackupableDBOptions}.
    * @return BackupableDB reference to the opened database.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public static BackupableDB open(
       Options opt, BackupableDBOptions bopt, String db_path)
@@ -45,7 +48,9 @@ public class BackupableDB extends RocksDB {
    *
    * @param flushBeforeBackup if true, then all data will be flushed
    *     before creating backup.
-   * @throws org.rocksdb.RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void createNewBackup(boolean flushBeforeBackup)
       throws RocksDBException {
@@ -56,7 +61,9 @@ public class BackupableDB extends RocksDB {
    * Deletes old backups, keeping latest numBackupsToKeep alive.
    *
    * @param numBackupsToKeep Number of latest backups to keep.
-   * @throws org.rocksdb.RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void purgeOldBackups(int numBackupsToKeep)
       throws RocksDBException {
@@ -67,7 +74,9 @@ public class BackupableDB extends RocksDB {
    * Deletes a specific backup.
    *
    * @param backupId of backup to delete.
-   * @throws org.rocksdb.RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void deleteBackup(int backupId) throws RocksDBException {
     deleteBackup0(nativeHandle_, backupId);

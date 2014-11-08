@@ -95,7 +95,8 @@ public class RocksDB extends RocksObject {
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
-   * @throws org.rocksdb.RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    * @see Options#setCreateIfMissing(boolean)
    */
   public static RocksDB open(String path) throws RocksDBException {
@@ -130,7 +131,8 @@ public class RocksDB extends RocksObject {
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
-   * @throws org.rocksdb.RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    * @see DBOptions#setCreateIfMissing(boolean)
    */
   public static RocksDB open(String path,
@@ -161,7 +163,9 @@ public class RocksDB extends RocksObject {
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
-   * @throws org.rocksdb.RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   *
    * @see Options#setCreateIfMissing(boolean)
    */
   public static RocksDB open(Options options, String path)
@@ -206,7 +210,9 @@ public class RocksDB extends RocksObject {
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
    *
-   * @throws org.rocksdb.RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   *
    * @see DBOptions#setCreateIfMissing(boolean)
    */
   public static RocksDB open(DBOptions options, String path,
@@ -231,7 +237,9 @@ public class RocksDB extends RocksObject {
    * @param path the path to the RocksDB.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
-   * @throws RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public static RocksDB openReadOnly(String path)
       throws RocksDBException {
@@ -252,7 +260,9 @@ public class RocksDB extends RocksObject {
    *     on open.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
-   * @throws RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public static RocksDB openReadOnly(String path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
@@ -277,7 +287,9 @@ public class RocksDB extends RocksObject {
    * @param path the path to the RocksDB.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
-   * @throws RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public static RocksDB openReadOnly(Options options, String path)
       throws RocksDBException {
@@ -309,7 +321,9 @@ public class RocksDB extends RocksObject {
    *     on open.
    * @return a {@link RocksDB} instance on success, null if the specified
    *     {@link RocksDB} can not be opened.
-   * @throws RocksDBException
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public static RocksDB openReadOnly(DBOptions options, String path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
@@ -336,7 +350,8 @@ public class RocksDB extends RocksObject {
    * @param path Absolute path to rocksdb database
    * @return List&lt;byte[]&gt; List containing the column family names
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public static List<byte[]> listColumnFamilies(Options options, String path)
       throws RocksDBException {
@@ -366,7 +381,8 @@ public class RocksDB extends RocksObject {
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
    *
-   * @see RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void put(byte[] key, byte[] value) throws RocksDBException {
     put(nativeHandle_, key, key.length, value, value.length);
@@ -383,7 +399,8 @@ public class RocksDB extends RocksObject {
    *
    * throws IllegalArgumentException if column family is not present
    *
-   * @see RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) throws RocksDBException {
@@ -394,10 +411,12 @@ public class RocksDB extends RocksObject {
   /**
    * Set the database entry for "key" to "value".
    *
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
    *
-   * @see RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void put(WriteOptions writeOpts, byte[] key, byte[] value)
       throws RocksDBException {
@@ -411,12 +430,14 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
+   * @param writeOpts {@link org.rocksdb.WriteOptions} instance.
    * @param key the specified key to be inserted.
    * @param value the value associated with the specified key.
    *
    * throws IllegalArgumentException if column family is not present
    *
-   * @see RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    * @see IllegalArgumentException
    */
   public void put(ColumnFamilyHandle columnFamilyHandle, WriteOptions writeOpts,
@@ -506,7 +527,8 @@ public class RocksDB extends RocksObject {
    * @param writeOpts WriteOptions instance
    * @param updates WriteBatch instance
    *
-   * @see RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void write(WriteOptions writeOpts, WriteBatch updates)
       throws RocksDBException {
@@ -517,8 +539,11 @@ public class RocksDB extends RocksObject {
    * Add merge operand for key/value pair.
    *
    * @param key the specified key to be merged.
-   * @param value the value to be nerged with the current value for
+   * @param value the value to be merged with the current value for
    * the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void merge(byte[] key, byte[] value) throws RocksDBException {
     merge(nativeHandle_, key, key.length, value, value.length);
@@ -529,8 +554,11 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
    * @param key the specified key to be merged.
-   * @param value the value to be nerged with the current value for
+   * @param value the value to be merged with the current value for
    * the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key,
       byte[] value) throws RocksDBException {
@@ -545,6 +573,9 @@ public class RocksDB extends RocksObject {
    * @param key the specified key to be merged.
    * @param value the value to be merged with the current value for
    * the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void merge(WriteOptions writeOpts, byte[] key, byte[] value)
       throws RocksDBException {
@@ -560,6 +591,9 @@ public class RocksDB extends RocksObject {
    * @param key the specified key to be merged.
    * @param value the value to be merged with the current value for
    * the specified key.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void merge(ColumnFamilyHandle columnFamilyHandle,
       WriteOptions writeOpts, byte[] key, byte[] value)
@@ -580,7 +614,8 @@ public class RocksDB extends RocksObject {
    *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
    *     found.
    *
-   * @see RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public int get(byte[] key, byte[] value) throws RocksDBException {
     return get(nativeHandle_, key, key.length, value, value.length);
@@ -600,7 +635,8 @@ public class RocksDB extends RocksObject {
    *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
    *     found.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public int get(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value)
       throws RocksDBException, IllegalArgumentException {
@@ -611,6 +647,7 @@ public class RocksDB extends RocksObject {
   /**
    * Get the value associated with the specified key.
    *
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
    * @param key the key to retrieve the value.
    * @param value the out-value to receive the retrieved value.
    * @return The size of the actual value that matches the specified
@@ -620,7 +657,8 @@ public class RocksDB extends RocksObject {
    *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
    *     found.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public int get(ReadOptions opt, byte[] key, byte[] value)
       throws RocksDBException {
@@ -632,6 +670,7 @@ public class RocksDB extends RocksObject {
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
+   * @param opt {@link org.rocksdb.ReadOptions} instance.
    * @param key the key to retrieve the value.
    * @param value the out-value to receive the retrieved value.
    * @return The size of the actual value that matches the specified
@@ -641,7 +680,8 @@ public class RocksDB extends RocksObject {
    *     be returned.  RocksDB.NOT_FOUND will be returned if the value not
    *     found.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public int get(ColumnFamilyHandle columnFamilyHandle, ReadOptions opt, byte[] key,
       byte[] value) throws RocksDBException {
@@ -658,7 +698,8 @@ public class RocksDB extends RocksObject {
    * @return a byte array storing the value associated with the input key if
    *     any.  null if it does not find the specified key.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public byte[] get(byte[] key) throws RocksDBException {
     return get(nativeHandle_, key, key.length);
@@ -675,7 +716,8 @@ public class RocksDB extends RocksObject {
    * @return a byte array storing the value associated with the input key if
    *     any.  null if it does not find the specified key.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key)
       throws RocksDBException {
@@ -692,7 +734,8 @@ public class RocksDB extends RocksObject {
    * @return a byte array storing the value associated with the input key if
    *     any.  null if it does not find the specified key.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public byte[] get(ReadOptions opt, byte[] key) throws RocksDBException {
     return get(nativeHandle_, opt.nativeHandle_, key, key.length);
@@ -710,7 +753,8 @@ public class RocksDB extends RocksObject {
    * @return a byte array storing the value associated with the input key if
    *     any.  null if it does not find the specified key.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public byte[] get(ColumnFamilyHandle columnFamilyHandle, ReadOptions opt,
       byte[] key) throws RocksDBException {
@@ -725,7 +769,8 @@ public class RocksDB extends RocksObject {
    * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public Map<byte[], byte[]> multiGet(List<byte[]> keys)
       throws RocksDBException {
@@ -759,8 +804,10 @@ public class RocksDB extends RocksObject {
    * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
    *
-   * @throws RocksDBException
-   * @throws IllegalArgumentException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @throws IllegalArgumentException thrown if the size of passed keys is not
+   *    equal to the amount of passed column family handles.
    */
   public Map<byte[], byte[]> multiGet(List<ColumnFamilyHandle> columnFamilyHandleList,
       List<byte[]> keys) throws RocksDBException, IllegalArgumentException {
@@ -792,7 +839,8 @@ public class RocksDB extends RocksObject {
    * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public Map<byte[], byte[]> multiGet(ReadOptions opt, List<byte[]> keys)
       throws RocksDBException {
@@ -827,8 +875,10 @@ public class RocksDB extends RocksObject {
    * @return Map where key of map is the key passed by user and value for map
    * entry is the corresponding value in DB.
    *
-   * @throws RocksDBException
-   * @throws java.lang.IllegalArgumentException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   * @throws IllegalArgumentException thrown if the size of passed keys is not
+   *    equal to the amount of passed column family handles.
    */
   public Map<byte[], byte[]> multiGet(ReadOptions opt,
       List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys)
@@ -862,7 +912,8 @@ public class RocksDB extends RocksObject {
    *
    * @param key Key to delete within database
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void remove(byte[] key) throws RocksDBException {
     remove(nativeHandle_, key, key.length);
@@ -877,7 +928,8 @@ public class RocksDB extends RocksObject {
    *     instance
    * @param key Key to delete within database
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key)
       throws RocksDBException {
@@ -892,7 +944,8 @@ public class RocksDB extends RocksObject {
    * @param writeOpt WriteOptions to be used with delete operation
    * @param key Key to delete within database
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void remove(WriteOptions writeOpt, byte[] key)
       throws RocksDBException {
@@ -909,7 +962,8 @@ public class RocksDB extends RocksObject {
    * @param writeOpt WriteOptions to be used with delete operation
    * @param key Key to delete within database
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void remove(ColumnFamilyHandle columnFamilyHandle, WriteOptions writeOpt,
       byte[] key) throws RocksDBException {
@@ -940,7 +994,8 @@ public class RocksDB extends RocksObject {
    * @param property to be fetched. See above for examples
    * @return property value
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public String getProperty(ColumnFamilyHandle columnFamilyHandle, String property)
       throws RocksDBException {
@@ -967,7 +1022,8 @@ public class RocksDB extends RocksObject {
    * @param property to be fetched. See above for examples
    * @return property value
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public String getProperty(String property) throws RocksDBException {
     return getProperty0(nativeHandle_, property, property.length());
@@ -997,7 +1053,7 @@ public class RocksDB extends RocksObject {
    * <p>nullptr will be returned if the DB fails to take a snapshot or does
    * not support snapshot.</p>
    *
-   * @return Snapshot
+   * @return Snapshot {@link Snapshot} instance
    */
   public Snapshot getSnapshot() {
     long snapshotHandle = getSnapshot(nativeHandle_);
@@ -1046,7 +1102,8 @@ public class RocksDB extends RocksObject {
    * @return {@link java.util.List} containing {@link org.rocksdb.RocksIterator}
    *     instances
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public List<RocksIterator> newIterators(
       List<ColumnFamilyHandle> columnFamilyHandleList) throws RocksDBException {
@@ -1066,8 +1123,10 @@ public class RocksDB extends RocksObject {
    * The ColumnFamilyHandle is automatically disposed with DB disposal.
    *
    * @param columnFamilyDescriptor column family to be created.
-   * @return {@link org.rocksdb.ColumnFamilyHandle} instance
-   * @see RocksDBException
+   * @return {@link org.rocksdb.ColumnFamilyHandle} instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public ColumnFamilyHandle createColumnFamily(
       ColumnFamilyDescriptor columnFamilyDescriptor)
@@ -1084,7 +1143,8 @@ public class RocksDB extends RocksObject {
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
    *
-   * @throws RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void dropColumnFamily(ColumnFamilyHandle columnFamilyHandle)
       throws RocksDBException, IllegalArgumentException {

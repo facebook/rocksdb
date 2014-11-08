@@ -12,6 +12,9 @@ package org.rocksdb;
  * c++ side memory before a WriteOptions instance runs out of scope.
  */
 public class WriteOptions extends RocksObject {
+  /**
+   * Construct WriteOptions instance.
+   */
   public WriteOptions() {
     super();
     newWriteOptions();
@@ -64,6 +67,8 @@ public class WriteOptions extends RocksObject {
    * crash semantics as the "write()" system call.  A DB write
    * with sync==true has similar crash semantics to a "write()"
    * system call followed by "fdatasync()".
+   *
+   * @return boolean value indicating if sync is active.
    */
   public boolean sync() {
     return sync(nativeHandle_);
@@ -85,6 +90,8 @@ public class WriteOptions extends RocksObject {
   /**
    * If true, writes will not first go to the write ahead log,
    * and the write may got lost after a crash.
+   *
+   * @return boolean value indicating if WAL is disabled.
    */
   public boolean disableWAL() {
     return disableWAL(nativeHandle_);
