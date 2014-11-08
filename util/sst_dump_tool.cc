@@ -416,7 +416,7 @@ void SSTDumpTool::Run(int argc, char** argv) {
                 "------------------------------\n"
                 "  %s",
                 table_properties->ToString("\n  ", ": ").c_str());
-        fprintf(stdout, "# deleted keys: %zd\n",
+        fprintf(stdout, "# deleted keys: %" PRIu64 "\n",
                 rocksdb::GetDeletedKeys(
                     table_properties->user_collected_properties));
       }
