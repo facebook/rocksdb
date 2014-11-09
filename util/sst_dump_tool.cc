@@ -6,6 +6,10 @@
 
 #include "rocksdb/sst_dump_tool.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
 #include <map>
 #include <string>
 #include <vector>
@@ -88,10 +92,10 @@ SstFileReader::SstFileReader(const std::string& file_path,
   init_result_ = NewTableReader(file_name_);
 }
 
-extern uint64_t kBlockBasedTableMagicNumber;
-extern uint64_t kLegacyBlockBasedTableMagicNumber;
-extern uint64_t kPlainTableMagicNumber;
-extern uint64_t kLegacyPlainTableMagicNumber;
+extern const uint64_t kBlockBasedTableMagicNumber;
+extern const uint64_t kLegacyBlockBasedTableMagicNumber;
+extern const uint64_t kPlainTableMagicNumber;
+extern const uint64_t kLegacyPlainTableMagicNumber;
 
 Status SstFileReader::NewTableReader(const std::string& file_path) {
   uint64_t magic_number;
