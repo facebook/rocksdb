@@ -9,7 +9,7 @@
 #include <map>
 #include <string>
 #include <vector>
-#include <inttypes.h>
+#include <cinttypes>
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
