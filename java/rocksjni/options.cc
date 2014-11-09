@@ -18,9 +18,11 @@
 #include "include/org_rocksdb_WriteOptions.h"
 #include "include/org_rocksdb_ReadOptions.h"
 #include "include/org_rocksdb_ComparatorOptions.h"
+#include "include/org_rocksdb_FlushOptions.h"
 
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/portal.h"
+
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
@@ -3608,6 +3610,32 @@ jboolean Java_org_rocksdb_ReadOptions_tailing(
 }
 
 /*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    setSnapshot
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ReadOptions_setSnapshot(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jsnapshot) {
+  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot =
+      reinterpret_cast<rocksdb::Snapshot*>(jsnapshot);
+}
+
+/*
+ * Class:     org_rocksdb_ReadOptions
+ * Method:    snapshot
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ReadOptions_snapshot(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto& snapshot =
+      reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot;
+  return reinterpret_cast<jlong>(snapshot);
+}
+
+/////////////////////////////////////////////////////////////////////
+// rocksdb::ComparatorOptions
+
+/*
  * Class:     org_rocksdb_ComparatorOptions
  * Method:    newComparatorOptions
  * Signature: ()V
@@ -3651,25 +3679,49 @@ void Java_org_rocksdb_ComparatorOptions_disposeInternal(
   rocksdb::ComparatorOptionsJni::setHandle(env, jobj, nullptr);
 }
 
+/////////////////////////////////////////////////////////////////////
+// rocksdb::FlushOptions
+
 /*
- * Class:     org_rocksdb_ReadOptions
- * Method:    setSnapshot
- * Signature: (JJ)V
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    newFlushOptions
+ * Signature: ()V
  */
-void Java_org_rocksdb_ReadOptions_setSnapshot(
-    JNIEnv* env, jobject jobj, jlong jhandle, jlong jsnapshot) {
-  reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot =
-      reinterpret_cast<rocksdb::Snapshot*>(jsnapshot);
+void Java_org_rocksdb_FlushOptions_newFlushOptions(
+    JNIEnv* env, jobject jobj) {
+  auto flush_opt = new rocksdb::FlushOptions();
+  rocksdb::FlushOptionsJni::setHandle(env, jobj, flush_opt);
 }
 
 /*
- * Class:     org_rocksdb_ReadOptions
- * Method:    snapshot
- * Signature: (J)J
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    setWaitForFlush
+ * Signature: (JZ)V
  */
-jlong Java_org_rocksdb_ReadOptions_snapshot(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  auto& snapshot =
-      reinterpret_cast<rocksdb::ReadOptions*>(jhandle)->snapshot;
-  return reinterpret_cast<jlong>(snapshot);
+void Java_org_rocksdb_FlushOptions_setWaitForFlush(
+    JNIEnv * env, jobject jobj, jlong jhandle, jboolean jwait) {
+  reinterpret_cast<rocksdb::FlushOptions*>(jhandle)
+    ->wait = static_cast<bool>(jwait);
+}
+
+/*
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    waitForFlush
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_FlushOptions_waitForFlush(
+    JNIEnv * env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::FlushOptions*>(jhandle)
+    ->wait;
+}
+
+/*
+ * Class:     org_rocksdb_FlushOptions
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_FlushOptions_disposeInternal(
+    JNIEnv * env, jobject jobj, jlong jhandle) {
+  delete reinterpret_cast<rocksdb::FlushOptions*>(jhandle);
+  rocksdb::FlushOptionsJni::setHandle(env, jobj, nullptr);
 }
