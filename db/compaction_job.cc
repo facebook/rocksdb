@@ -455,14 +455,14 @@ Status CompactionJob::Run() {
   return status;
 }
 
-Status CompactionJob::Install(Status status, port::Mutex* db_mutex) {
+void CompactionJob::Install(Status* status, port::Mutex* db_mutex) {
   db_mutex->AssertHeld();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   cfd->internal_stats()->AddCompactionStats(
       compact_->compaction->output_level(), compaction_stats_);
 
-  if (status.ok()) {
-    status = InstallCompactionResults(db_mutex);
+  if (status->ok()) {
+    *status = InstallCompactionResults(db_mutex);
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   const auto& stats = compaction_stats_;
@@ -483,11 +483,10 @@ Status CompactionJob::Install(Status status, port::Mutex* db_mutex) {
               (stats.bytes_written + stats.bytes_readnp1 + stats.bytes_readn) /
                   static_cast<double>(stats.bytes_readn),
               stats.bytes_written / static_cast<double>(stats.bytes_readn),
-              status.ToString().c_str(), stats.num_input_records,
+              status->ToString().c_str(), stats.num_input_records,
               stats.num_dropped_records);
 
-  CleanupCompaction(status);
-  return status;
+  CleanupCompaction(*status);
 }
 
 Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
@@ -1054,7 +1053,7 @@ Status CompactionJob::OpenCompactionOutputFile() {
   return s;
 }
 
-void CompactionJob::CleanupCompaction(Status status) {
+void CompactionJob::CleanupCompaction(const Status& status) {
   if (compact_->builder != nullptr) {
     // May happen if we get a shutdown call in the middle of compaction
     compact_->builder->Abandon();

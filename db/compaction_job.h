@@ -75,7 +75,7 @@ class CompactionJob {
   Status Run();
   // REQUIRED: mutex held
   // status is the return of Run()
-  Status Install(Status status, port::Mutex* db_mutex);
+  void Install(Status* status, port::Mutex* db_mutex);
 
  private:
   void AllocateCompactionOutputFileNumbers();
@@ -92,7 +92,7 @@ class CompactionJob {
       SequenceNumber* prev_snapshot);
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile();
-  void CleanupCompaction(Status status);
+  void CleanupCompaction(const Status& status);
 
   // CompactionJob state
   struct CompactionState;

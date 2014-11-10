@@ -1295,12 +1295,10 @@ Status DBImpl::CompactFilesImpl(
   mutex_.Unlock();
   Status status = compaction_job.Run();
   mutex_.Lock();
+  compaction_job.Install(&status, &mutex_);
   if (status.ok()) {
-    status = compaction_job.Install(status, &mutex_);
-    if (status.ok()) {
-      InstallSuperVersionBackground(c->column_family_data(), &job_context,
-                                    *c->mutable_cf_options());
-    }
+    InstallSuperVersionBackground(c->column_family_data(), &job_context,
+                                  *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
   c->ReleaseInputs();
@@ -2070,7 +2068,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     mutex_.Unlock();
     status = compaction_job.Run();
     mutex_.Lock();
-    status = compaction_job.Install(status, &mutex_);
+    compaction_job.Install(&status, &mutex_);
     if (status.ok()) {
       InstallSuperVersionBackground(c->column_family_data(), job_context,
                                     *c->mutable_cf_options());
