@@ -69,7 +69,7 @@ class Arena {
 
   // If an allocation is too big, we'll allocate an irregular block with the
   // same size of that allocation.
-  virtual size_t IrregularBlockNum() const { return irregular_block_num; }
+  size_t IrregularBlockNum() const { return irregular_block_num; }
 
   size_t BlockSize() const { return kBlockSize; }
 

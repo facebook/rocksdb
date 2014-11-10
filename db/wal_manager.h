@@ -38,9 +38,9 @@ class WalManager {
         env_(db_options.env),
         purge_wal_files_last_run_(0) {}
 
-  virtual Status GetSortedWalFiles(VectorLogPtr& files);
+  Status GetSortedWalFiles(VectorLogPtr& files);
 
-  virtual Status GetUpdatesSince(
+  Status GetUpdatesSince(
       SequenceNumber seq_number, std::unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions& read_options,
       VersionSet* version_set);

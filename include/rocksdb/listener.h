@@ -58,6 +58,7 @@ class EventListener {
       const std::string& file_path,
       bool triggered_writes_slowdown,
       bool triggered_writes_stop) {}
+  virtual ~EventListener() {}
 };
 
 }  // namespace rocksdb
