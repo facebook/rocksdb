@@ -1033,6 +1033,38 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * <p> Similar to GetProperty(), but only works for a subset of properties whose
+   * return value is a numerical value. Return the value as long.</p>
+   *
+   * @param property to be fetched.
+   *
+   * @return property value
+   *
+   * @throws RocksDBException if an error happens in the underlying native code.
+   */
+  public long getLongProperty(String property) throws RocksDBException {
+    return getLongProperty(nativeHandle_, property, property.length());
+  }
+
+  /**
+   * <p> Similar to GetProperty(), but only works for a subset of properties whose
+   * return value is a numerical value. Return the value as long.</p>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param property to be fetched.
+   *
+   * @return property value
+   *
+   * @throws RocksDBException if an error happens in the underlying native code.
+   */
+  public long getLongProperty(ColumnFamilyHandle columnFamilyHandle, String property)
+      throws RocksDBException {
+    return getLongProperty(nativeHandle_, columnFamilyHandle.nativeHandle_, property,
+        property.length());
+  }
+
+  /**
    * Return a heap-allocated iterator over the contents of the database.
    * The result of newIterator() is initially invalid (caller must
    * call one of the Seek methods on the iterator before using it).
@@ -1296,6 +1328,10 @@ public class RocksDB extends RocksObject {
   protected native String getProperty0(long nativeHandle,
       String property, int propertyLength) throws RocksDBException;
   protected native String getProperty0(long nativeHandle, long cfHandle,
+      String property, int propertyLength) throws RocksDBException;
+  protected native long getLongProperty(long nativeHandle,
+      String property, int propertyLength) throws RocksDBException;
+  protected native long getLongProperty(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
   protected native long iterator0(long handle);
   protected native long iterator0(long handle, long cfHandle);

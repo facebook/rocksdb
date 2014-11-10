@@ -1289,6 +1289,53 @@ jstring Java_org_rocksdb_RocksDB_getProperty0__JJLjava_lang_String_2I(
   return env->NewStringUTF(property_value.data());
 }
 
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getLongProperty
+ * Signature: (JLjava/lang/String;I)L;
+ */
+jlong Java_org_rocksdb_RocksDB_getLongProperty__JLjava_lang_String_2I(
+    JNIEnv* env, jobject jdb, jlong db_handle, jstring jproperty,
+    jint jproperty_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+
+  const char* property = env->GetStringUTFChars(jproperty, 0);
+  rocksdb::Slice property_slice(property, jproperty_len);
+
+  uint64_t property_value = 0;
+  bool retCode = db->GetIntProperty(property_slice, &property_value);
+  env->ReleaseStringUTFChars(jproperty, property);
+
+  if (!retCode) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, rocksdb::Status::NotFound());
+  }
+  return property_value;
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getLongProperty
+ * Signature: (JJLjava/lang/String;I)L;
+ */
+jlong Java_org_rocksdb_RocksDB_getLongProperty__JJLjava_lang_String_2I(
+    JNIEnv* env, jobject jdb, jlong db_handle, jlong jcf_handle,
+    jstring jproperty, jint jproperty_len) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+
+  const char* property = env->GetStringUTFChars(jproperty, 0);
+  rocksdb::Slice property_slice(property, jproperty_len);
+
+  uint64_t property_value;
+  bool retCode = db->GetIntProperty(cf_handle, property_slice, &property_value);
+  env->ReleaseStringUTFChars(jproperty, property);
+
+  if (!retCode) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, rocksdb::Status::NotFound());
+  }
+  return property_value;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Flush
 
@@ -1332,4 +1379,3 @@ void Java_org_rocksdb_RocksDB_flush__JJJ(
   auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   rocksdb_flush_helper(env, db, *flush_options, cf_handle);
 }
-

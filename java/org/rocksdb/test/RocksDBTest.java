@@ -279,4 +279,37 @@ public class RocksDBTest {
       }
     }
   }
+
+  @Test
+  public void getIntProperty() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    WriteOptions wOpt = null;
+    try {
+      options = new Options();
+      wOpt = new WriteOptions();
+      // Setup options
+      options.setCreateIfMissing(true);
+      options.setMaxWriteBufferNumber(10);
+      options.setMinWriteBufferNumberToMerge(10);
+      wOpt.setDisableWAL(true);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+      db.put(wOpt, "key1".getBytes(), "value1".getBytes());
+      db.put(wOpt, "key2".getBytes(), "value2".getBytes());
+      db.put(wOpt, "key3".getBytes(), "value3".getBytes());
+      db.put(wOpt, "key4".getBytes(), "value4".getBytes());
+      assertThat(db.getLongProperty("rocksdb.num-entries-active-mem-table")).isGreaterThan(0);
+      assertThat(db.getLongProperty("rocksdb.cur-size-active-mem-table")).isGreaterThan(0);
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+      if (wOpt != null) {
+        wOpt.dispose();
+      }
+    }
+  }
 }

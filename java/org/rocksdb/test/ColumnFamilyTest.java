@@ -351,7 +351,6 @@ public class ColumnFamilyTest {
     }
   }
 
-
   @Test
   public void properties() throws RocksDBException {
     RocksDB db = null;
@@ -371,6 +370,8 @@ public class ColumnFamilyTest {
           cfNames, columnFamilyHandleList);
       assertThat(db.getProperty("rocksdb.estimate-num-keys")).
           isNotNull();
+      assertThat(db.getLongProperty(columnFamilyHandleList.get(0),
+          "rocksdb.estimate-num-keys")).isGreaterThanOrEqualTo(0);
       assertThat(db.getProperty("rocksdb.stats")).isNotNull();
       assertThat(db.getProperty(columnFamilyHandleList.get(0),
           "rocksdb.sstables")).isNotNull();
