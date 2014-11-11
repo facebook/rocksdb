@@ -658,11 +658,16 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
     return 0;
   }
 
-  if (num_samples_ < files_->size()) {
+  uint64_t file_count = 0;
+  for (int level = 0; level < num_levels_; ++level) {
+    file_count += files_[level].size();
+  }
+
+  if (num_samples_ < file_count) {
     // casting to avoid overflowing
     return static_cast<uint64_t>(static_cast<double>(
         accumulated_num_non_deletions_ - accumulated_num_deletions_) *
-        files_->size() / num_samples_);
+        static_cast<double>(file_count) / num_samples_);
   } else {
     return accumulated_num_non_deletions_ - accumulated_num_deletions_;
   }

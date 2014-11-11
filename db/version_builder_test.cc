@@ -14,31 +14,31 @@ namespace rocksdb {
 
 class VersionBuilderTest {
  public:
-  const Comparator* ucmp;
-  InternalKeyComparator icmp;
-  Options options;
-  ImmutableCFOptions ioptions;
-  MutableCFOptions mutable_cf_options;
-  VersionStorageInfo vstorage;
-  uint32_t file_num;
-  CompactionOptionsFIFO fifo_options;
-  std::vector<uint64_t> size_being_compacted;
+  const Comparator* ucmp_;
+  InternalKeyComparator icmp_;
+  Options options_;
+  ImmutableCFOptions ioptions_;
+  MutableCFOptions mutable_cf_options_;
+  VersionStorageInfo vstorage_;
+  uint32_t file_num_;
+  CompactionOptionsFIFO fifo_options_;
+  std::vector<uint64_t> size_being_compacted_;
 
   VersionBuilderTest()
-      : ucmp(BytewiseComparator()),
-        icmp(ucmp),
-        ioptions(options),
-        mutable_cf_options(options, ioptions),
-        vstorage(&icmp, ucmp, options.num_levels, kCompactionStyleLevel,
+      : ucmp_(BytewiseComparator()),
+        icmp_(ucmp_),
+        ioptions_(options_),
+        mutable_cf_options_(options_, ioptions_),
+        vstorage_(&icmp_, ucmp_, options_.num_levels, kCompactionStyleLevel,
                  nullptr),
-        file_num(1) {
-    mutable_cf_options.RefreshDerivedOptions(ioptions);
-    size_being_compacted.resize(options.num_levels);
+        file_num_(1) {
+    mutable_cf_options_.RefreshDerivedOptions(ioptions_);
+    size_being_compacted_.resize(options_.num_levels);
   }
 
   ~VersionBuilderTest() {
-    for (int i = 0; i < vstorage.num_levels(); i++) {
-      for (auto* f : vstorage.LevelFiles(i)) {
+    for (int i = 0; i < vstorage_.num_levels(); i++) {
+      for (auto* f : vstorage_.LevelFiles(i)) {
         if (--f->refs == 0) {
           delete f;
         }
@@ -54,25 +54,33 @@ class VersionBuilderTest {
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0, uint32_t path_id = 0,
            SequenceNumber smallest_seq = 100,
-           SequenceNumber largest_seq = 100) {
-    assert(level < vstorage.num_levels());
+           SequenceNumber largest_seq = 100,
+           uint64_t num_entries = 0, uint64_t num_deletions = 0,
+           bool sampled = false) {
+    assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData;
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = GetInternalKey(smallest, smallest_seq);
     f->largest = GetInternalKey(largest, largest_seq);
     f->compensated_file_size = file_size;
     f->refs = 0;
-    vstorage.MaybeAddFile(level, f);
+    f->num_entries = num_entries;
+    f->num_deletions = num_deletions;
+    vstorage_.MaybeAddFile(level, f);
+    if (sampled) {
+      f->init_stats_from_file = true;
+      vstorage_.UpdateAccumulatedStats(f);
+    }
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage.ComputeCompactionScore(mutable_cf_options, fifo_options,
-                                    size_being_compacted);
-    vstorage.UpdateFilesBySize();
-    vstorage.UpdateNumNonEmptyLevels();
-    vstorage.GenerateFileIndexer();
-    vstorage.GenerateLevelFilesBrief();
-    vstorage.SetFinalized();
+    vstorage_.ComputeCompactionScore(mutable_cf_options_, fifo_options_,
+                                    size_being_compacted_);
+    vstorage_.UpdateFilesBySize();
+    vstorage_.UpdateNumNonEmptyLevels();
+    vstorage_.GenerateFileIndexer();
+    vstorage_.GenerateLevelFilesBrief();
+    vstorage_.SetFinalized();
   }
 };
 
@@ -99,9 +107,9 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
 
   EnvOptions env_options;
 
-  VersionBuilder version_builder(env_options, nullptr, &vstorage);
+  VersionBuilder version_builder(env_options, nullptr, &vstorage_);
 
-  VersionStorageInfo new_vstorage(&icmp, ucmp, options.num_levels,
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
                                   kCompactionStyleLevel, nullptr);
   version_builder.Apply(&version_edit);
   version_builder.SaveTo(&new_vstorage);
@@ -116,6 +124,28 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
       }
     }
   }
+}
+
+TEST(VersionBuilderTest, EstimatedActiveKeys) {
+  const uint64_t kTotalSamples = 20;
+  const uint64_t kNumLevels = 5;
+  const uint64_t kFilesPerLevel = 8;
+  const uint64_t kNumFiles = kNumLevels * kFilesPerLevel;
+  const uint64_t kEntriesPerFile = 1000;
+  const uint64_t kDeletionsPerFile = 100;
+  for (uint64_t i = 0; i < kNumFiles; ++i) {
+    Add(i / kFilesPerLevel, i + 1,
+        std::to_string((i + 100) * 1000).c_str(),
+        std::to_string((i + 100) * 1000 + 999).c_str(),
+        100U,  0, 100, 100,
+        kEntriesPerFile, kDeletionsPerFile,
+        (i < kTotalSamples));
+  }
+  // minus 2X for the number of deletion entries because:
+  // 1x for deletion entry does not count as a data entry.
+  // 1x for each deletion entry will actually remove one data entry.
+  ASSERT_EQ(vstorage_.GetEstimatedActiveKeys(),
+            (kEntriesPerFile - 2 * kDeletionsPerFile) * kNumFiles);
 }
 
 }  // namespace rocksdb
