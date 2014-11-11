@@ -34,7 +34,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.WriteBatch.Handler\
 	org.rocksdb.test.WriteBatchInternal\
 	org.rocksdb.test.WriteBatchTest\
-	org.rocksdb.WriteOptions\
+        org.rocksdb.WriteOptions\
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -92,8 +92,9 @@ clean:
 javadocs:
 	mkdir -p javadoc; javadoc -d javadoc -sourcepath . -subpackages org -exclude org.rocksdb.test
 
-java: javadocs
+java: javadocs resolve_test_deps
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
+	javac -cp $(JAVA_TESTCLASSPATH) org/rocksdb/test/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md
 	@rm -f ./HISTORY-CPP.md
 	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
@@ -121,7 +122,6 @@ resolve_test_deps:
 	test -s "$(JAVA_ASSERTJ_JAR)" || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" http://central.maven.org/maven2/org/assertj/assertj-core/1.7.0/assertj-core-1.7.0.jar
 
 test: java resolve_test_deps
-	javac -cp $(JAVA_TESTCLASSPATH) org/rocksdb/test/*.java
 	java -ea -Djava.library.path=.:../ -cp "$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java

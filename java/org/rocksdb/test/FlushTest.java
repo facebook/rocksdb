@@ -4,16 +4,23 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
 public class FlushTest {
 
-  static final String db_path = "/tmp/rocksdbjni_flush_test";
-  static {
-    RocksDB.loadLibrary();
-  }
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
 
-  public static void main(String[] args) {
+  @Rule
+  public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  @Test
+  public void flush() {
     RocksDB db = null;
     Options options = new Options();
     WriteOptions wOpt = new WriteOptions();
@@ -26,7 +33,7 @@ public class FlushTest {
       options.setMinWriteBufferNumberToMerge(10);
       flushOptions.setWaitForFlush(true);
       wOpt.setDisableWAL(true);
-      db = RocksDB.open(options, db_path);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
 
       db.put(wOpt, "key1".getBytes(), "value1".getBytes());
       db.put(wOpt, "key2".getBytes(), "value2".getBytes());
