@@ -625,14 +625,11 @@ struct DBOptions {
   // Default: false
   bool error_if_exists;
 
-  // If true, the implementation will do aggressive checking of the
-  // data it is processing and will stop early if it detects any
-  // errors.  This may have unforeseen ramifications: for example, a
-  // corruption of one DB entry may cause a large number of entries to
-  // become unreadable or for the entire DB to become unopenable.
-  // If any of the  writes to the database fails (Put, Delete, Merge, Write),
-  // the database will switch to read-only mode and fail all other
+  // If true, RocksDB will aggressively check consistency of the data.
+  // Also, if any of the  writes to the database fails (Put, Delete, Merge,
+  // Write), the database will switch to read-only mode and fail all other
   // Write operations.
+  // In most cases you want this to be set to true.
   // Default: true
   bool paranoid_checks;
 

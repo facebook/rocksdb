@@ -535,16 +535,7 @@ class VersionSet {
   uint64_t current_next_file_number() const { return next_file_number_.load(); }
 
   // Allocate and return a new file number
-  uint64_t NewFileNumber() { return next_file_number_.fetch_add(1) + 1; }
-
-  // Arrange to reuse "file_number" unless a newer file number has
-  // already been allocated.
-  // REQUIRES: "file_number" was returned by a call to NewFileNumber().
-  void ReuseLogFileNumber(uint64_t file_number) {
-    auto expected = file_number + 1;
-    std::atomic_compare_exchange_strong(&next_file_number_, &expected,
-                                        file_number);
-  }
+  uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
   // Return the last sequence number.
   uint64_t LastSequence() const {

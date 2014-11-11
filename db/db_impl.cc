@@ -3003,8 +3003,6 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   if (!s.ok()) {
     // how do we fail if we're not creating new log?
     assert(creating_new_log);
-    // Avoid chewing through file number space in a tight loop.
-    versions_->ReuseLogFileNumber(new_log_number);
     assert(!new_mem);
     assert(!new_log);
     return s;
