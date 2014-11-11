@@ -209,7 +209,7 @@ struct BTree<Key, Comparator>::Node {
 template<typename Key, class Comparator>
 typename BTree<Key, Comparator>::Node*
 BTree<Key, Comparator>::NewNode(int numEntries, int8_t type) {
-  char* mem = arena_->AllocateAligned(sizeof(Node) + sizeof(IndexEntry) * (numEntries - 1));
+  char* mem = arena_->AllocateAligned(sizeof(Node) + sizeof(IndexEntry) * std::max(0, numEntries - 1));
   return new (mem) Node(numEntries, type);
 }
 
@@ -227,7 +227,7 @@ inline void BTree<Key, Comparator>::Iterator::SetTree(const BTree* tree) {
 
 template<typename Key, class Comparator>
 inline bool BTree<Key, Comparator>::Iterator::Valid() const {
-  return node_ != nullptr;
+  return node_ != nullptr && offset_ != -1;
   // TODO return fase if we are pointing to rightmost index entry of the rightmost node
 }
 
@@ -320,14 +320,12 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
   Node* x = mappingTable_.getNode(rootPid_);
   auto stack = std::unique_ptr<class std::stack<Node*> >(new std::stack<Node*>());
   
-  int entryIndex = -1;
   while (true) {
     assert(x != nullptr);
-    // TODO In case parent routed us to wrong(being splitted) node,
+    // In case parent routed us to wrong(being splitted) node,
     // We might need to look at the next linked node
-    // We can conveniently check with high_key
-    if (x->highPtrPid == -1 && compare_(key, x->entries[x->numEntries - 1].key) > 0) {
-      // searching key is greater than highest key in this node
+    if (x->numEntries == 0 || (x->highPtrPid == -1 && compare_(key, x->entries[x->numEntries - 1].key) > 0)) {
+      // node is root or searching key is greater than highest key in this node
       if (x->linkPtrPid == -1) {
         // Reached the end of the tree
         return std::make_tuple(nullptr, -1, std::move(stack));
@@ -342,7 +340,7 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
     int right = x->numEntries;
     int middle = -1;
     // Binary search
-    while (left <= right) {
+    while (left < right) {
       middle = (left + right) / 2;
       int compared = compare_(key, x->entries[middle].key);
       if (compared == 0) {
@@ -355,7 +353,9 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
         left = middle + 1;
       }
     }
-    assert(left == right && middle == left);
+    if (left == right) {
+      middle = left;
+    }
     
     if (middle == x->numEntries) {
       assert(x->highPtrPid != -1 && x->type == Node::NODE_TYPE_INDEX); // This node must have highPtr
@@ -364,7 +364,7 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
       if (x->type == Node::NODE_TYPE_INDEX) {
         x = mappingTable_.getNode(x->entries[middle].pid);
       } else { // Leaf node
-        return std::make_tuple(x, entryIndex, std::move(stack)); 
+        return std::make_tuple(x, middle, std::move(stack)); 
       }
     }
   }
@@ -374,21 +374,39 @@ template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
 BTree<Key, Comparator>::FindLessThan(const Key& key) const {
   // TODO TBD. Similar to FindGreaterOrEqualTo
+  assert(false);
   return std::make_tuple(nullptr, -1);
 }
 
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
-BTree<Key, Comparator>::FindFirst()
-    const {
+BTree<Key, Comparator>::FindFirst() const {
+  // TODO TBD
+  assert(false);
   return std::make_tuple(nullptr, -1);
 }
 
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, int, std::unique_ptr<class std::stack<typename BTree<Key, Comparator>::Node*> > >
-BTree<Key, Comparator>::FindLast()
-    const {
-  return std::make_tuple(nullptr, -1, nullptr);
+BTree<Key, Comparator>::FindLast() const {
+  Node* x = mappingTable_.getNode(rootPid_);
+  auto stack = std::unique_ptr<class std::stack<Node*> >(new std::stack<Node*>());
+  
+  while (true) {
+    assert(x != nullptr);
+    if (x->linkPtrPid != -1) {
+      x = mappingTable_.getNode(x->linkPtrPid);
+      continue;
+    }
+    stack->push(x);
+    
+    if (x->type == Node::NODE_TYPE_INDEX) {
+      assert(x->highPtrPid != -1); // On the very right nodes, highPtrPid must not be -1
+      x = mappingTable_.getNode(x->highPtrPid);
+    } else { // Leaf node
+      return std::make_tuple(x, x->numEntries - 1, std::move(stack)); 
+    }
+  }
 }
 
 template<typename Key, class Comparator>
@@ -427,13 +445,13 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & entry
   int nodeIndex = 0;
   cur = left;
   int i = 0;
-  while (i < newSize) {
+  while (cur != right || nodeIndex < right->numEntries) {
     if (nodeIndex == left->numEntries && cur == left) {
       cur = right;
       nodeIndex = 0;
     }
 
-    if (!newEntryAdded && compare_(entry.key, node->entries[i].key) < 0) {
+    if (!newEntryAdded && (i >= node->numEntries || compare_(entry.key, node->entries[i].key) < 0)) {
       // Insert entry into current index, at the first time 
       cur->entries[nodeIndex] = entry;
       newEntryAdded = true;
@@ -510,8 +528,8 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
       int i = 0;
       bool newEntryAdded = false;
       bool prevEntryUpdated = (updateEntryKey == nullptr);
-      while (i < newSize) {
-        if (!newEntryAdded && compare_(newEntry.key, node->entries[i].key) < 0) {
+      while (nodeIndex < newSize) {
+        if (!newEntryAdded && (i >= node->numEntries || compare_(newEntry.key, node->entries[i].key) < 0)) {
           // Insert entry into current index, at the first time 
           newNode->entries[nodeIndex] = newEntry;
           newEntryAdded = true;
