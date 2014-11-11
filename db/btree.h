@@ -166,7 +166,7 @@ class BTree {
 
   bool splitIsNecessary(Node* node);
 
-  std::tuple<Node*, Node*> splitWithAddedEntry(Node* node, int entryIndex, const IndexEntry & entry);
+  std::tuple<Node*, Node*> splitWithAddedEntry(Node* node, const IndexEntry & entry, const Key updateEntryKey);
 
   // No copying allowed
   BTree(const BTree&);
@@ -187,10 +187,8 @@ template<typename Key, class Comparator>
 struct BTree<Key, Comparator>::Node {
   explicit Node(int32_t ne, int8_t t)
   : type(t), numEntries(ne) {
-    highKey = nullptr;
-    // lowKey = nullptr;
     linkPtrPid = -1;
-    lowPtrPid = -1;
+    highPtrPid = -1;
   }
 
   static const uint8_t NODE_TYPE_INDEX = 0;
@@ -198,12 +196,12 @@ struct BTree<Key, Comparator>::Node {
 
   int32_t pid;
   int8_t type;
-  Key highKey; // inclusive, upper bound of current node's keys(except at root node)
-  // Key lowKey; // exclusive
   int32_t linkPtrPid;
-  int32_t lowPtrPid; // Pointer to child node with range (-infty, k0]
+  int32_t highPtrPid; // Pointer to child node with range (k[n-1], infinity]. 
+                      // If -1, it doesn't exist. 
   int32_t const numEntries;
-  IndexEntry entries[1];
+  IndexEntry entries[1]; // In non-leaf node, a node pointed by entries[i].pid is 
+                         // responsible for keys in interval (entries[i-1].key, entries[i].key]
 
  private: 
 };
@@ -276,7 +274,7 @@ inline void BTree<Key, Comparator>::Iterator::Prev() {
         break;
       }
     }
-    assert(offset != -1);
+    assert(offset_ != -1);
   } else {
     offset_--;
   }
@@ -290,7 +288,6 @@ inline void BTree<Key, Comparator>::Iterator::Seek(const Key& target) {
     offset_ = -1;
     return;
   }
-  Key key = node_->entries[std::get<1>(tuple)].key;
   offset_ = std::get<1>(tuple);
   assert(offset_ != -1);
 }
@@ -329,7 +326,7 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
     // TODO In case parent routed us to wrong(being splitted) node,
     // We might need to look at the next linked node
     // We can conveniently check with high_key
-    if (x->highKey != nullptr && compare_(key, x->highKey) > 0) {
+    if (x->highPtrPid == -1 && compare_(key, x->entries[x->numEntries - 1].key) > 0) {
       // searching key is greater than highest key in this node
       if (x->linkPtrPid == -1) {
         // Reached the end of the tree
@@ -341,83 +338,57 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
     }
     stack->push(x);
 
-    Key curLowestKey = nullptr;
-    for (int i = 0; i < depth; i++) {// Iterate through delta chains
-      int left = 0;
-      int right = (*x)[i]->numEntries;
-      int middle = -1;
-      // Binary search
-      while (left < right) {
-        middle = (left + right) / 2;
-        int compared = compare_(key, (*x)[i]->entries[middle].key);
-        if (compared == 0) {
-          break;
-        } else if (compared < 0) {
-          // Search left
-          right = middle;
-        } else {
-          // Search right
-          left = middle + 1;
-        }
-      }
-      assert(left == right);
-      int selectedIndex = left;// This index is either equal key, or least greatest than search key on this depth
-      // In case we are at root node, and highKey is not defined but key is greater than any root node's keys
-      if (selectedIndex < (*x)[i]->numEntries) {
-        Key selectedKey = (*x)[i]->entries[selectedIndex].key;
-        assert(compare_(selectedKey, key) >= 0); // If we got here, selectedKey should always greater than or equal to search key
-        if (curLowestKey == nullptr || compare_(selectedKey, curLowestKey) < 0) {
-          // key <= selectedKey < curLowestKey
-          curLowestKey = selectedKey;
-          depthIndex = i;
-          entryIndex = selectedIndex;
-        }
+    int left = 0;
+    int right = x->numEntries;
+    int middle = -1;
+    // Binary search
+    while (left <= right) {
+      middle = (left + right) / 2;
+      int compared = compare_(key, x->entries[middle].key);
+      if (compared == 0) {
+        break;
+      } else if (compared < 0) {
+        // Search left
+        right = middle;
+      } else {
+        // Search right
+        left = middle + 1;
       }
     }
-
-    if ((*x)[depthIndex]->type == Node::NODE_TYPE_INDEX) {
-      if (entryIndex == 0) {
-        // our search key is less than any of the nodes' entries
-        x = mappingTable_.getNode((*x)[depthIndex]->lowPtrPid);
-      } else if (curLowestKey == nullptr) { 
-        // We are at root and search key is greater than any root nodes' entries
-        int numEntries = (*x)[depthIndex]->numEntries;
-        x = mappingTable_.getNode((*x)[depthIndex]->entries[numEntries - 1].pid);
-      } else {
-        x = mappingTable_.getNode((*x)[depthIndex]->entries[entryIndex - 1].pid);
-      }
+    assert(left == right && middle == left);
+    
+    if (middle == x->numEntries) {
+      assert(x->highPtrPid != -1 && x->type == Node::NODE_TYPE_INDEX); // This node must have highPtr
+      x = mappingTable_.getNode(x->highPtrPid);
     } else {
-      // We are at the leaf
-      if (curLowestKey == nullptr) {
-        // Current node is root node, and search key is greater than highest key in root node
-        // Reached the end of the tree, and greater or equal key not found
-        return std::make_tuple(nullptr, -1, -1, std::move(stack));
-      } else {
-        return std::make_tuple(x, depthIndex, entryIndex, std::move(stack)); 
+      if (x->type == Node::NODE_TYPE_INDEX) {
+        x = mappingTable_.getNode(x->entries[middle].pid);
+      } else { // Leaf node
+        return std::make_tuple(x, entryIndex, std::move(stack)); 
       }
     }
   }
 }
 
 template<typename Key, class Comparator>
-typename std::tuple<typename BTree<Key, Comparator>::Node*, int, int>
+typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
 BTree<Key, Comparator>::FindLessThan(const Key& key) const {
   // TODO TBD. Similar to FindGreaterOrEqualTo
-  return std::make_tuple(nullptr, -1, -1);
+  return std::make_tuple(nullptr, -1);
 }
 
 template<typename Key, class Comparator>
-typename std::tuple<typename BTree<Key, Comparator>::Node*, int, int>
+typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
 BTree<Key, Comparator>::FindFirst()
     const {
-  return std::make_tuple(nullptr, -1, -1);
+  return std::make_tuple(nullptr, -1);
 }
 
 template<typename Key, class Comparator>
-typename std::tuple<typename BTree<Key, Comparator>::Node*, int, int, std::unique_ptr<class std::stack<typename BTree<Key, Comparator>::Node*> > >
+typename std::tuple<typename BTree<Key, Comparator>::Node*, int, std::unique_ptr<class std::stack<typename BTree<Key, Comparator>::Node*> > >
 BTree<Key, Comparator>::FindLast()
     const {
-  return std::make_tuple(nullptr, -1, -1, nullptr);
+  return std::make_tuple(nullptr, -1, nullptr);
 }
 
 template<typename Key, class Comparator>
@@ -436,13 +407,13 @@ BTree<Key, Comparator>::BTree(const Comparator cmp, Arena* arena, int32_t fanOut
 template<typename Key, class Comparator>
 bool BTree<Key, Comparator>::splitIsNecessary(Node* node) {
   assert(node != nullptr);
-  return node->numEntriesSum() >= kMaxNodeSize_;
+  return node->numEntries >= kMaxNodeSize_;
 }
 
 // Create two new Nodes 
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, typename BTree<Key, Comparator>::Node*> 
-BTree<Key, Comparator>::splitWithAddedEntry(Node* node, int entryIndex, const IndexEntry & entry) {
+BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & entry, const Key updateEntryKey) {
   // Split function must consolidate the original and new node, so that calculating numEntries
   // would return correct value.
   int newSize = 1 + node->numEntries; // number of total elements in node including the element to be added
@@ -451,56 +422,40 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, int entryIndex, const In
   Node* right = NewNode(newSize - left->numEntries, node->type);
 
   bool newEntryAdded = false;
+  bool prevEntryUpdated = (updateEntryKey == nullptr);
   Node* cur;
   int nodeIndex = 0;
-  for (int i = 0; i < newSize; i++) {
-    if (i < left->numEntries) {
-      cur = left;
-      nodeIndex = i;
-    } else {
+  cur = left;
+  int i = 0;
+  while (i < newSize) {
+    if (nodeIndex == left->numEntries && cur == left) {
       cur = right;
-      nodeIndex = i - left->numEntries;
+      nodeIndex = 0;
     }
 
-    Key min = nullptr;
-    int minNodeIdx = -1;
-    for (int j = 0; j < chainDepth; j++) {
-      if (idx[j] < numEntries[j]) {
-        Key compared = node->entries[idx[j]].key;
-        if (min == nullptr || compare_(compared, min) < 0) {
-          min = compared;
-          minNodeIdx = j;
-        }  
-      }
-    }
-    if (!newEntryAdded && compare_(entry.key, min) < 0) {
-      // First time entry's key is smaller than min key
+    if (!newEntryAdded && compare_(entry.key, node->entries[i].key) < 0) {
+      // Insert entry into current index, at the first time 
       cur->entries[nodeIndex] = entry;
       newEntryAdded = true;
-      continue;//Do calculation again
+    } else {
+      cur->entries[nodeIndex] = node->entries[i];
+      i++;
+
+      if (!prevEntryUpdated && compare_(entry.key, node->entries[i].key) == 0) {
+        assert(updateEntryKey != nullptr); // It must be case when parent is being splitted; Must update the key
+        cur->entries[nodeIndex].key = updateEntryKey;
+        prevEntryUpdated = true;
+      }
     }
-
-    assert(minNodeIdx != -1 && min != nullptr);
-    int accesingIdx = idx[minNodeIdx]++;
-    cur->entries[nodeIndex] = (*node)[minNodeIdx]->entries[accesingIdx];
-  }
-
-  // Extract right node's low ptr, only if node is non-leaf
-  if (node->type == Node::NODE_TYPE_INDEX) {
-    right->lowPtrPid = left->entries[left->numEntries - 1].pid;
-    left->entries[left->numEntries - 1].pid = -1;
+    nodeIndex++;
   }
 
   right->pid = mappingTable_.addNode(right);
-  right->nextDelta = nullptr;
-  right->highKey = node->highKey;
+  right->highPtrPid = node->highPtrPid;
   right->linkPtrPid = node->linkPtrPid;
 
   left->pid = node->pid;
-  left->nextDelta = nullptr;
-  left->highKey = left->entries[left->numEntries - 1].key;
   left->linkPtrPid = right->pid;
-  left->lowPtrPid = node->lowPtrPid;  
 
   mappingTable_.updateNode(left->pid, left);
   return std::make_tuple(left, right);
@@ -509,20 +464,20 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, int entryIndex, const In
 template<typename Key, class Comparator>
 void BTree<Key, Comparator>::Insert(const Key& key) {
   Node* node;
-  int depthIndex;
   int entryIndex;
   unique_ptr<std::stack<Node*> > stack;
-  std::tie(node, depthIndex, entryIndex, stack) = FindGreaterOrEqual(key);
+  std::tie(node, entryIndex, stack) = FindGreaterOrEqual(key);
 
   // Our data structure does not allow duplicate insertion
-  assert(node == nullptr || !Equal(key, (*node)[depthIndex]->entries[entryIndex].key));
+  assert(node == nullptr || !Equal(key, node->entries[entryIndex].key));
 
   if (node == nullptr) {
     // Need to insert at the end of the tree
-    std::tie(node, depthIndex, entryIndex, stack) = FindLast();
+    std::tie(node, entryIndex, stack) = FindLast();
   }
   
   IndexEntry newEntry;
+  Key updateEntryKey = nullptr;
   newEntry.key = key;
   newEntry.obj = key;
   while (!stack->empty()) {
@@ -531,29 +486,52 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
     if (splitIsNecessary(node)) {
       Node* left;
       Node* right;
-      std::tie(left, right) = splitWithAddedEntry(node, depthIndex, entryIndex, newEntry);
-      // left->right->old left's next are all connected at this point.
-      // IndexEntry to insert on the upper level
-      newEntry.key = left->highKey;
+      std::tie(left, right) = splitWithAddedEntry(node, newEntry, updateEntryKey);
+      // left->right->(old left's next) are all connected at this point.
+      // IndexEntry to insert on the parent level
+      newEntry.key = right->entries[right->numEntries - 1].key; // highest key contained in the right node
       newEntry.pid = right->pid;
+      // When parent is modified, the old parent's indexEntry that pointed to left must be updated with the new high key
+      updateEntryKey = left->entries[left->numEntries - 1].key; // highest key contained in the left node
+
       if (stack->empty()) {
         // We are at the top of the tree, but need to split.(We need to create a new root)
-        // TODO
+        Node* newRoot = NewNode(1, Node::NODE_TYPE_INDEX);
+        newRoot->entries[0].key = left->entries[left->numEntries - 1].key;
+        newRoot->entries[0].pid = left->pid;
+        newRoot->highPtrPid = right->pid;
+        newRoot->pid = rootPid_;
+        mappingTable_.updateNode(rootPid_, newRoot);
       }
-    } else {
-      // Append a delta to current node and then exit
-      // TODO In case delta chain depth is too deep, we should consolidate the node,
-      // instead of attaching yet another delta node.
-      Node* delta = NewNode(1, node->type);
-      delta->pid = node->pid;
-      delta->nextDelta = node;
-      delta->highKey = node->highKey;
-      delta->linkPtrPid = node->linkPtrPid;
-      delta->lowPtrPid = node->lowPtrPid;
-      assert(delta->numEntries == 1);
-      delta->entries[0] = newEntry;
+    } else { // Split is unnecessary; Copy current node and replace it after inserting a new IndexEntry
+      int newSize = 1 + node->numEntries;
+      Node* newNode = NewNode(newSize, node->type);
+      int nodeIndex = 0;
+      int i = 0;
+      bool newEntryAdded = false;
+      bool prevEntryUpdated = (updateEntryKey == nullptr);
+      while (i < newSize) {
+        if (!newEntryAdded && compare_(newEntry.key, node->entries[i].key) < 0) {
+          // Insert entry into current index, at the first time 
+          newNode->entries[nodeIndex] = newEntry;
+          newEntryAdded = true;
+        } else {
+          newNode->entries[nodeIndex] = node->entries[i];
+          i++;
 
-      mappingTable_.updateNode(delta->pid, delta);
+          if (!prevEntryUpdated && compare_(newEntry.key, node->entries[i].key) == 0) {
+            assert(updateEntryKey != nullptr); // It must be case when parent is being splitted; Must update the key
+            newNode->entries[nodeIndex].key = updateEntryKey;
+            prevEntryUpdated = true;
+          }
+        }
+        nodeIndex++;
+      }
+
+      newNode->pid = node->pid;
+      newNode->highPtrPid = node->highPtrPid;
+      newNode->linkPtrPid = node->linkPtrPid;
+      mappingTable_.updateNode(newNode->pid, newNode);
       break;
     }
   }
@@ -562,10 +540,9 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
 template<typename Key, class Comparator>
 bool BTree<Key, Comparator>::Contains(const Key& key) const {
   Node* node;
-  int depthIndex;
   int entryIndex;
-  std::tie(node, depthIndex, entryIndex, std::ignore) = FindGreaterOrEqual(key);
-  if (node != nullptr && Equal(key, (*node)[depthIndex]->entries[entryIndex].key)) {
+  std::tie(node, entryIndex, std::ignore) = FindGreaterOrEqual(key);
+  if (node != nullptr && Equal(key, node->entries[entryIndex].key)) {
     return true;
   } else {
     return false;
