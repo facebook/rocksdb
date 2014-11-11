@@ -8,13 +8,16 @@
 #include <memory>
 
 #include "include/org_rocksdb_WriteBatch.h"
+#include "include/org_rocksdb_WriteBatch_Handler.h"
 #include "include/org_rocksdb_WriteBatchInternal.h"
 #include "include/org_rocksdb_WriteBatchTest.h"
 #include "rocksjni/portal.h"
+#include "rocksjni/writebatchhandlerjnicallback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/immutable_options.h"
 #include "db/memtable.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/status.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
@@ -226,6 +229,25 @@ void Java_org_rocksdb_WriteBatch_putLogData(
 
 /*
  * Class:     org_rocksdb_WriteBatch
+ * Method:    iterate
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatch_iterate(
+    JNIEnv* env , jobject jobj, jlong handlerHandle) {
+  rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
+  assert(wb != nullptr);
+
+  rocksdb::Status s = wb->Iterate(
+    reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handlerHandle));
+
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch
  * Method:    disposeInternal
  * Signature: (J)V
  */
@@ -274,6 +296,28 @@ void Java_org_rocksdb_WriteBatchInternal_append(
   assert(wb2 != nullptr);
 
   rocksdb::WriteBatchInternal::Append(wb1, wb2);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch_Handler
+ * Method:    createNewHandler0
+ * Signature: ()V
+ */
+void Java_org_rocksdb_WriteBatch_00024Handler_createNewHandler0(
+    JNIEnv* env, jobject jobj) {
+  const rocksdb::WriteBatchHandlerJniCallback* h =
+    new rocksdb::WriteBatchHandlerJniCallback(env, jobj);
+  rocksdb::WriteBatchHandlerJni::setHandle(env, jobj, h);
+}
+
+/*
+ * Class:     org_rocksdb_WriteBatch_Handler
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WriteBatch_00024Handler_disposeInternal(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  delete reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(handle);
 }
 
 /*
