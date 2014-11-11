@@ -1086,6 +1086,40 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * <p>Flush all memory table data.</p>
+   *
+   * <p>Note: it must be ensured that the FlushOptions instance
+   * is not GC'ed before this method finishes. If the wait parameter is
+   * set to false, flush processing is asynchronous.</p>
+   *
+   * @param flushOptions {@link org.rocksdb.FlushOptions} instance.
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void flush(FlushOptions flushOptions)
+      throws RocksDBException {
+    flush(nativeHandle_, flushOptions.nativeHandle_);
+  }
+
+  /**
+   * <p>Flush all memory table data.</p>
+   *
+   * <p>Note: it must be ensured that the FlushOptions instance
+   * is not GC'ed before this method finishes. If the wait parameter is
+   * set to false, flush processing is asynchronous.</p>
+   *
+   * @param flushOptions {@link org.rocksdb.FlushOptions} instance.
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle} instance.
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void flush(FlushOptions flushOptions,
+      ColumnFamilyHandle columnFamilyHandle) throws RocksDBException {
+    flush(nativeHandle_, flushOptions.nativeHandle_,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * Private constructor.
    */
   protected RocksDB() {
@@ -1197,10 +1231,13 @@ public class RocksDB extends RocksObject {
   protected native void releaseSnapshot(
       long nativeHandle, long snapshotHandle);
   private native void disposeInternal(long handle);
-
   private native long createColumnFamily(long handle, long opt_handle,
       String name) throws RocksDBException;
   private native void dropColumnFamily(long handle, long cfHandle) throws RocksDBException;
+  private native void flush(long handle, long flushOptHandle)
+      throws RocksDBException;
+  private native void flush(long handle, long flushOptHandle,
+      long cfHandle) throws RocksDBException;
 
   protected Options options_;
 }

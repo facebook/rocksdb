@@ -1255,3 +1255,48 @@ jstring Java_org_rocksdb_RocksDB_getProperty0__JJLjava_lang_String_2I(
 
   return env->NewStringUTF(property_value.data());
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::Flush
+
+void rocksdb_flush_helper(
+    JNIEnv* env, rocksdb::DB* db, const rocksdb::FlushOptions& flush_options,
+  rocksdb::ColumnFamilyHandle* column_family_handle) {
+  rocksdb::Status s;
+  if (column_family_handle != nullptr) {
+    s = db->Flush(flush_options, column_family_handle);
+  } else {
+    s = db->Flush(flush_options);
+  }
+  if (!s.ok()) {
+      rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    flush
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_RocksDB_flush__JJ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jlong jflush_options) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto flush_options = reinterpret_cast<rocksdb::FlushOptions*>(jflush_options);
+  rocksdb_flush_helper(env, db, *flush_options, nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    flush
+ * Signature: (JJJ)V
+ */
+void Java_org_rocksdb_RocksDB_flush__JJJ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+    jlong jflush_options, jlong jcf_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto flush_options = reinterpret_cast<rocksdb::FlushOptions*>(jflush_options);
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  rocksdb_flush_helper(env, db, *flush_options, cf_handle);
+}
+

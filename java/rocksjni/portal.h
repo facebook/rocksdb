@@ -505,6 +505,34 @@ class ColumnFamilyHandleJni {
   }
 };
 
+class FlushOptionsJni {
+ public:
+    // Get the java class id of org.rocksdb.FlushOptions.
+    static jclass getJClass(JNIEnv* env) {
+      jclass jclazz = env->FindClass("org/rocksdb/FlushOptions");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    // Get the field id of the member variable of org.rocksdb.FlushOptions
+    // that stores the pointer to rocksdb::FlushOptions.
+    static jfieldID getHandleFieldID(JNIEnv* env) {
+      static jfieldID fid = env->GetFieldID(
+          getJClass(env), "nativeHandle_", "J");
+      assert(fid != nullptr);
+      return fid;
+    }
+
+    // Pass the FlushOptions pointer to the java side.
+    static void setHandle(
+      JNIEnv* env, jobject jobj,
+      const rocksdb::FlushOptions* op) {
+      env->SetLongField(
+          jobj, getHandleFieldID(env),
+          reinterpret_cast<jlong>(op));
+    }
+};
+
 class ComparatorOptionsJni {
  public:
     // Get the java class id of org.rocksdb.ComparatorOptions.
