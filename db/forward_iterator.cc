@@ -264,10 +264,11 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         if (search_left_bound == search_right_bound) {
           f_idx = search_left_bound;
         } else if (search_left_bound < search_right_bound) {
-          f_idx = FindFileInRange(
-              level_files, internal_key, search_left_bound,
-              search_right_bound == FileIndexer::kLevelMaxIndex ?
-                level_files.size() : search_right_bound);
+          f_idx =
+              FindFileInRange(level_files, internal_key, search_left_bound,
+                              search_right_bound == FileIndexer::kLevelMaxIndex
+                                  ? static_cast<uint32_t>(level_files.size())
+                                  : search_right_bound);
         } else {
           // search_left_bound > search_right_bound
           // There are only 2 cases this can happen:

@@ -95,7 +95,7 @@ void PickWriteBufferSize(size_t total_write_buffer_limit, Options* options) {
 
   options->write_buffer_size = write_buffer_size;
   options->max_write_buffer_number =
-      total_write_buffer_limit / write_buffer_size;
+      static_cast<int>(total_write_buffer_limit / write_buffer_size);
   options->min_write_buffer_number_to_merge = 1;
 }
 
@@ -147,10 +147,10 @@ void OptimizeForLevel(int read_amplification_threshold,
 
   // This doesn't consider compaction and overheads of mem tables. But usually
   // it is in the same order of magnitude.
-  int expected_level0_compaction_size =
+  size_t expected_level0_compaction_size =
       options->level0_file_num_compaction_trigger * options->write_buffer_size;
   // Enlarge level1 target file size if level0 compaction size is larger.
-  int max_bytes_for_level_base = 10 * kBytesForOneMb;
+  uint64_t max_bytes_for_level_base = 10 * kBytesForOneMb;
   if (expected_level0_compaction_size > max_bytes_for_level_base) {
     max_bytes_for_level_base = expected_level0_compaction_size;
   }
@@ -160,7 +160,7 @@ void OptimizeForLevel(int read_amplification_threshold,
 
   const int kMinFileSize = 2 * kBytesForOneMb;
   // Allow at least 3-way parallelism for compaction between level 1 and 2.
-  int max_file_size = max_bytes_for_level_base / 3;
+  uint64_t max_file_size = max_bytes_for_level_base / 3;
   if (max_file_size < kMinFileSize) {
     options->target_file_size_base = kMinFileSize;
   } else {

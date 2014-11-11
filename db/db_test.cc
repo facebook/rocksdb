@@ -668,7 +668,7 @@ class DBTest {
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
                             const Options& options) {
     ColumnFamilyOptions cf_opts(options);
-    int cfi = handles_.size();
+    size_t cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
     for (auto cf : cfs) {
       ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
@@ -933,7 +933,7 @@ class DBTest {
     int num_levels =
         (cf == 0) ? db_->NumberLevels() : db_->NumberLevels(handles_[1]);
     std::string result;
-    int last_non_zero_offset = 0;
+    size_t last_non_zero_offset = 0;
     for (int level = 0; level < num_levels; level++) {
       int f = NumTableFilesAtLevel(level, cf);
       char buf[100];
@@ -947,7 +947,7 @@ class DBTest {
     return result;
   }
 
-  int CountFiles() {
+  size_t CountFiles() {
     std::vector<std::string> files;
     env_->GetChildren(dbname_, &files);
 
@@ -956,10 +956,10 @@ class DBTest {
       env_->GetChildren(last_options_.wal_dir, &logfiles);
     }
 
-    return static_cast<int>(files.size() + logfiles.size());
+    return files.size() + logfiles.size();
   }
 
-  int CountLiveFiles() {
+  size_t CountLiveFiles() {
     std::vector<LiveFileMetaData> metadata;
     db_->GetLiveFilesMetaData(&metadata);
     return metadata.size();
@@ -4326,7 +4326,8 @@ TEST(DBTest, RepeatedWritesToSameKey) {
         options.num_levels + options.level0_stop_writes_trigger;
 
     Random rnd(301);
-    std::string value = RandomString(&rnd, 2 * options.write_buffer_size);
+    std::string value =
+        RandomString(&rnd, static_cast<int>(2 * options.write_buffer_size));
     for (int i = 0; i < 5 * kMaxFiles; i++) {
       ASSERT_OK(Put(1, "key", value));
       ASSERT_LE(TotalTableFiles(1), kMaxFiles);
@@ -4657,7 +4658,7 @@ TEST(DBTest, CompactionFilterDeletesAll) {
 
   // this will produce empty file (delete compaction filter)
   ASSERT_OK(db_->CompactRange(nullptr, nullptr));
-  ASSERT_EQ(0, CountLiveFiles());
+  ASSERT_EQ(0U, CountLiveFiles());
 
   Reopen(options);
 
@@ -5845,7 +5846,7 @@ TEST(DBTest, DropWrites) {
     ASSERT_OK(Put("foo", "v1"));
     ASSERT_EQ("v1", Get("foo"));
     Compact("a", "z");
-    const int num_files = CountFiles();
+    const size_t num_files = CountFiles();
     // Force out-of-space errors
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
@@ -6031,7 +6032,7 @@ TEST(DBTest, FilesDeletedAfterCompaction) {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     ASSERT_OK(Put(1, "foo", "v2"));
     Compact(1, "a", "z");
-    const int num_files = CountLiveFiles();
+    const size_t num_files = CountLiveFiles();
     for (int i = 0; i < 10; i++) {
       ASSERT_OK(Put(1, "foo", "v2"));
       Compact(1, "a", "z");
@@ -6504,7 +6505,7 @@ TEST(DBTest, FlushOneColumnFamily) {
   ASSERT_OK(Put(6, "alyosha", "alyosha"));
   ASSERT_OK(Put(7, "popovich", "popovich"));
 
-  for (size_t i = 0; i < 8; ++i) {
+  for (int i = 0; i < 8; ++i) {
     Flush(i);
     auto tables = ListTableFiles(env_, dbname_);
     ASSERT_EQ(tables.size(), i + 1U);
@@ -6848,8 +6849,8 @@ TEST(DBTest, TransactionLogIteratorCorruptedLog) {
     // than 1025 entries
     auto iter = OpenTransactionLogIter(0);
     int count;
-    int last_sequence_read = ReadRecords(iter, count);
-    ASSERT_LT(last_sequence_read, 1025);
+    SequenceNumber last_sequence_read = ReadRecords(iter, count);
+    ASSERT_LT(last_sequence_read, 1025U);
     // Try to read past the gap, should be able to seek to key1025
     auto iter2 = OpenTransactionLogIter(last_sequence_read + 1);
     ExpectRecords(1, iter2);
@@ -8358,7 +8359,7 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
 
   ColumnFamilyMetaData cf_meta;
   dbfull()->GetColumnFamilyMetaData(handles_[1], &cf_meta);
-  int output_level = cf_meta.levels.size() - 1;
+  int output_level = static_cast<int>(cf_meta.levels.size()) - 1;
   for (int file_picked = 5; file_picked > 0; --file_picked) {
     std::set<std::string> overlapping_file_names;
     std::vector<std::string> compaction_input_file_names;

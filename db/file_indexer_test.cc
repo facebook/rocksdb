@@ -22,8 +22,15 @@ class IntComparator : public Comparator {
   int Compare(const Slice& a, const Slice& b) const {
     assert(a.size() == 8);
     assert(b.size() == 8);
-    return *reinterpret_cast<const int64_t*>(a.data()) -
-      *reinterpret_cast<const int64_t*>(b.data());
+    int64_t diff = *reinterpret_cast<const int64_t*>(a.data()) -
+                   *reinterpret_cast<const int64_t*>(b.data());
+    if (diff < 0) {
+      return -1;
+    } else if (diff == 0) {
+      return 0;
+    } else {
+      return 1;
+    }
   }
 
   const char* Name() const {

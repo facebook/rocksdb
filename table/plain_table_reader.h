@@ -123,7 +123,7 @@ class PlainTableReader: public TableReader {
   // sst file that stores data.
   const uint32_t data_start_offset_ = 0;
   const uint32_t data_end_offset_;
-  const size_t user_key_len_;
+  const uint32_t user_key_len_;
   const SliceTransform* prefix_extractor_;
 
   static const size_t kNumInternalBytes = 8;
@@ -135,7 +135,7 @@ class PlainTableReader: public TableReader {
 
   const ImmutableCFOptions& ioptions_;
   unique_ptr<RandomAccessFile> file_;
-  uint32_t file_size_;
+  uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 
   bool IsFixedLength() const {

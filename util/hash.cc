@@ -18,7 +18,7 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   const uint32_t m = 0xc6a4a793;
   const uint32_t r = 24;
   const char* limit = data + n;
-  uint32_t h = seed ^ (n * m);
+  uint32_t h = static_cast<uint32_t>(seed ^ (n * m));
 
   // Pick up four bytes at a time
   while (data + 4 <= limit) {

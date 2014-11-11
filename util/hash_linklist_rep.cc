@@ -200,7 +200,8 @@ class HashLinkListRep : public MemTableRep {
   }
 
   size_t GetHash(const Slice& slice) const {
-    return MurmurHash(slice.data(), slice.size(), 0) % bucket_size_;
+    return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
+           bucket_size_;
   }
 
   Pointer* GetBucket(size_t i) const {

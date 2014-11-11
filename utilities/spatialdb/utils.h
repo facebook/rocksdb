@@ -27,7 +27,7 @@ inline uint64_t GetQuadKeyFromTile(uint64_t tile_x, uint64_t tile_y,
                                    uint32_t tile_bits) {
   uint64_t quad_key = 0;
   for (uint32_t i = 0; i < tile_bits; ++i) {
-    uint32_t mask = (1LL << i);
+    uint64_t mask = static_cast<uint64_t>(1LL << i);
     quad_key |= (tile_x & mask) << i;
     quad_key |= (tile_y & mask) << (i + 1);
   }

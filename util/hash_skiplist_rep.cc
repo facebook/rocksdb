@@ -65,7 +65,8 @@ class HashSkipListRep : public MemTableRep {
   Arena* const arena_;
 
   inline size_t GetHash(const Slice& slice) const {
-    return MurmurHash(slice.data(), slice.size(), 0) % bucket_size_;
+    return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
+           bucket_size_;
   }
   inline Bucket* GetBucket(size_t i) const {
     return buckets_[i].load(std::memory_order_acquire);

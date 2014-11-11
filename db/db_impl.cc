@@ -2252,7 +2252,7 @@ SuperVersion* DBImpl::InstallSuperVersion(
   MaybeScheduleFlushOrCompaction();
 
   // Update max_total_in_memory_state_
-  auto old_memtable_size = 0;
+  size_t old_memtable_size = 0;
   if (old) {
     old_memtable_size = old->mutable_cf_options.write_buffer_size *
                         old->mutable_cf_options.max_write_buffer_number;
@@ -2920,7 +2920,8 @@ Status DBImpl::DelayWrite(uint64_t expiration_time) {
   auto delay = write_controller_.GetDelay();
   if (write_controller_.IsStopped() == false && delay > 0) {
     mutex_.Unlock();
-    env_->SleepForMicroseconds(delay);
+    // hopefully we don't have to sleep more than 2 billion microseconds
+    env_->SleepForMicroseconds(static_cast<int>(delay));
     mutex_.Lock();
   }
 

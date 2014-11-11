@@ -161,7 +161,7 @@ class CuckooReaderTest {
     ASSERT_EQ(static_cast<uint32_t>(cnt), num_items);
 
     it->SeekToLast();
-    cnt = num_items - 1;
+    cnt = static_cast<int>(num_items) - 1;
     ASSERT_TRUE(it->Valid());
     while (it->Valid()) {
       ASSERT_OK(it->status());
@@ -172,7 +172,7 @@ class CuckooReaderTest {
     }
     ASSERT_EQ(cnt, -1);
 
-    cnt = num_items / 2;
+    cnt = static_cast<int>(num_items) / 2;
     it->Seek(keys[cnt]);
     while (it->Valid()) {
       ASSERT_OK(it->status());

@@ -39,7 +39,7 @@ void Java_org_rocksdb_AbstractSlice_createNewSliceFromString(
 jint Java_org_rocksdb_AbstractSlice_size0(
     JNIEnv* env, jobject jobj, jlong handle) {
   const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  return slice->size();
+  return static_cast<jint>(slice->size());
 }
 
 /*
@@ -154,7 +154,7 @@ void Java_org_rocksdb_Slice_createNewSlice1(
 jbyteArray Java_org_rocksdb_Slice_data0(
     JNIEnv* env, jobject jobj, jlong handle) {
   const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  const int len = slice->size();
+  const int len = static_cast<int>(slice->size());
   const jbyteArray data = env->NewByteArray(len);
   env->SetByteArrayRegion(data, 0, len,
     reinterpret_cast<jbyte*>(const_cast<char*>(slice->data())));

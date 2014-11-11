@@ -124,9 +124,9 @@ Compaction::~Compaction() {
 
 void Compaction::GenerateFileLevels() {
   input_levels_.resize(num_input_levels());
-  for (int which = 0; which < num_input_levels(); which++) {
-    DoGenerateLevelFilesBrief(
-        &input_levels_[which], inputs_[which].files, &arena_);
+  for (size_t which = 0; which < num_input_levels(); which++) {
+    DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
+                              &arena_);
   }
 }
 
@@ -144,7 +144,7 @@ bool Compaction::IsTrivialMove() const {
 }
 
 void Compaction::AddInputDeletions(VersionEdit* out_edit) {
-  for (int which = 0; which < num_input_levels(); which++) {
+  for (size_t which = 0; which < num_input_levels(); which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
       out_edit->DeleteFile(level(which), inputs_[which][i]->fd.GetNumber());
     }
@@ -207,7 +207,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
 
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
-  for (int i = 0; i < num_input_levels(); i++) {
+  for (size_t i = 0; i < num_input_levels(); i++) {
     for (unsigned int j = 0; j < inputs_[i].size(); j++) {
       assert(mark_as_compacted ? !inputs_[i][j]->being_compacted :
                                   inputs_[i][j]->being_compacted);
@@ -293,7 +293,7 @@ void Compaction::Summary(char* output, int len) {
     return;
   }
 
-  for (int level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
+  for (size_t level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
     if (level_iter > 0) {
       write += snprintf(output + write, len - write, "], [");
       if (write < 0 || write >= len) {
@@ -317,7 +317,7 @@ uint64_t Compaction::OutputFilePreallocationSize(
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     preallocation_size = mutable_options.MaxFileSizeForLevel(output_level());
   } else {
-    for (int level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
+    for (size_t level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
       for (const auto& f : inputs_[level_iter].files) {
         preallocation_size += f->fd.GetFileSize();
       }

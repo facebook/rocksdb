@@ -182,7 +182,7 @@ Slice CuckooTableBuilder::GetValue(uint64_t idx) const {
 
 Status CuckooTableBuilder::MakeHashTable(std::vector<CuckooBucket>* buckets) {
   buckets->resize(hash_table_size_ + cuckoo_block_size_ - 1);
-  uint64_t make_space_for_key_call_id = 0;
+  uint32_t make_space_for_key_call_id = 0;
   for (uint32_t vector_idx = 0; vector_idx < num_entries_; vector_idx++) {
     uint64_t bucket_id;
     bool bucket_found = false;
@@ -254,7 +254,7 @@ Status CuckooTableBuilder::Finish() {
     }
     // Determine unused_user_key to fill empty buckets.
     std::string unused_user_key = smallest_user_key_;
-    int curr_pos = unused_user_key.size() - 1;
+    int curr_pos = static_cast<int>(unused_user_key.size()) - 1;
     while (curr_pos >= 0) {
       --unused_user_key[curr_pos];
       if (Slice(unused_user_key).compare(smallest_user_key_) < 0) {
@@ -265,7 +265,7 @@ Status CuckooTableBuilder::Finish() {
     if (curr_pos < 0) {
       // Try using the largest key to identify an unused key.
       unused_user_key = largest_user_key_;
-      curr_pos = unused_user_key.size() - 1;
+      curr_pos = static_cast<int>(unused_user_key.size()) - 1;
       while (curr_pos >= 0) {
         ++unused_user_key[curr_pos];
         if (Slice(unused_user_key).compare(largest_user_key_) > 0) {
@@ -429,9 +429,8 @@ uint64_t CuckooTableBuilder::FileSize() const {
 // If tree depth exceedes max depth, we return false indicating failure.
 bool CuckooTableBuilder::MakeSpaceForKey(
     const autovector<uint64_t>& hash_vals,
-    const uint64_t make_space_for_key_call_id,
-    std::vector<CuckooBucket>* buckets,
-    uint64_t* bucket_id) {
+    const uint32_t make_space_for_key_call_id,
+    std::vector<CuckooBucket>* buckets, uint64_t* bucket_id) {
   struct CuckooNode {
     uint64_t bucket_id;
     uint32_t depth;
@@ -495,7 +494,7 @@ bool CuckooTableBuilder::MakeSpaceForKey(
     // child with the parent. Stop when first level is reached in the tree
     // (happens when 0 <= bucket_to_replace_pos < num_hash_func_) and return
     // this location in first level for target key to be inserted.
-    uint32_t bucket_to_replace_pos = tree.size()-1;
+    uint32_t bucket_to_replace_pos = static_cast<uint32_t>(tree.size()) - 1;
     while (bucket_to_replace_pos >= num_hash_func_) {
       CuckooNode& curr_node = tree[bucket_to_replace_pos];
       (*buckets)[curr_node.bucket_id] =

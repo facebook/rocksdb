@@ -87,7 +87,7 @@ class BlockPrefixIndex::Builder {
 
   BlockPrefixIndex* Finish() {
     // For now, use roughly 1:1 prefix to bucket ratio.
-    uint32_t num_buckets = prefixes_.size() + 1;
+    uint32_t num_buckets = static_cast<uint32_t>(prefixes_.size()) + 1;
 
     // Collect prefix records that hash to the same bucket, into a single
     // linklist.

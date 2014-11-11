@@ -31,7 +31,7 @@ BlobStore* bs;
 namespace {
 std::string RandomString(Random* rnd, uint64_t len) {
   std::string r;
-  test::RandomString(rnd, len, &r);
+  test::RandomString(rnd, static_cast<int>(len), &r);
   return r;
 }
 }  // namespace

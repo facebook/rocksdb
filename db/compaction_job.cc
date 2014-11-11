@@ -415,32 +415,33 @@ Status CompactionJob::Run() {
   }
 
   compaction_stats_.micros = env_->NowMicros() - start_micros - imm_micros;
-  compaction_stats_.files_in_leveln = compact_->compaction->num_input_files(0);
+  compaction_stats_.files_in_leveln =
+      static_cast<int>(compact_->compaction->num_input_files(0));
   compaction_stats_.files_in_levelnp1 =
-      compact_->compaction->num_input_files(1);
+      static_cast<int>(compact_->compaction->num_input_files(1));
   MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
 
-  int num_output_files = compact_->outputs.size();
+  size_t num_output_files = compact_->outputs.size();
   if (compact_->builder != nullptr) {
     // An error occurred so ignore the last output.
     assert(num_output_files > 0);
     --num_output_files;
   }
-  compaction_stats_.files_out_levelnp1 = num_output_files;
+  compaction_stats_.files_out_levelnp1 = static_cast<int>(num_output_files);
 
-  for (int i = 0; i < compact_->compaction->num_input_files(0); i++) {
+  for (size_t i = 0; i < compact_->compaction->num_input_files(0); i++) {
     compaction_stats_.bytes_readn +=
         compact_->compaction->input(0, i)->fd.GetFileSize();
     compaction_stats_.num_input_records +=
         static_cast<uint64_t>(compact_->compaction->input(0, i)->num_entries);
   }
 
-  for (int i = 0; i < compact_->compaction->num_input_files(1); i++) {
+  for (size_t i = 0; i < compact_->compaction->num_input_files(1); i++) {
     compaction_stats_.bytes_readnp1 +=
         compact_->compaction->input(1, i)->fd.GetFileSize();
   }
 
-  for (int i = 0; i < num_output_files; i++) {
+  for (size_t i = 0; i < num_output_files; i++) {
     compaction_stats_.bytes_written += compact_->outputs[i].file_size;
   }
   if (compact_->num_input_records > compact_->num_output_records) {

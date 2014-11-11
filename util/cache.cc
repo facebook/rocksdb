@@ -145,7 +145,7 @@ class LRUCache {
 
   // Separate from constructor so caller can easily make an array of LRUCache
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
-  void SetRemoveScanCountLimit(size_t remove_scan_count_limit) {
+  void SetRemoveScanCountLimit(uint32_t remove_scan_count_limit) {
     remove_scan_count_limit_ = remove_scan_count_limit;
   }
 

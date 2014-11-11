@@ -109,7 +109,7 @@ TEST(CompactionPickerTest, Level0Trigger) {
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name, mutable_cf_options, &vstorage, &log_buffer));
   ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(2, compaction->num_input_files(0));
+  ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
 }
@@ -121,7 +121,7 @@ TEST(CompactionPickerTest, Level1Trigger) {
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name, mutable_cf_options, &vstorage, &log_buffer));
   ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(1, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(66U, compaction->input(0, 0)->fd.GetNumber());
 }
 
@@ -136,8 +136,8 @@ TEST(CompactionPickerTest, Level1Trigger2) {
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name, mutable_cf_options, &vstorage, &log_buffer));
   ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(1, compaction->num_input_files(0));
-  ASSERT_EQ(2, compaction->num_input_files(1));
+  ASSERT_EQ(1U, compaction->num_input_files(0));
+  ASSERT_EQ(2U, compaction->num_input_files(1));
   ASSERT_EQ(66U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(6U, compaction->input(1, 0)->fd.GetNumber());
   ASSERT_EQ(7U, compaction->input(1, 1)->fd.GetNumber());
@@ -164,7 +164,7 @@ TEST(CompactionPickerTest, LevelMaxScore) {
   std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
       cf_name, mutable_cf_options, &vstorage, &log_buffer));
   ASSERT_TRUE(compaction.get() != nullptr);
-  ASSERT_EQ(1, compaction->num_input_files(0));
+  ASSERT_EQ(1U, compaction->num_input_files(0));
   ASSERT_EQ(7U, compaction->input(0, 0)->fd.GetNumber());
 }
 

@@ -558,9 +558,9 @@ TEST(LogTest, ErrorJoinsRecords) {
 
   ASSERT_EQ("correct", Read());
   ASSERT_EQ("EOF", Read());
-  const unsigned int dropped = DroppedBytes();
-  ASSERT_LE(dropped, 2*kBlockSize + 100);
-  ASSERT_GE(dropped, 2*kBlockSize);
+  size_t dropped = DroppedBytes();
+  ASSERT_LE(dropped, 2 * kBlockSize + 100);
+  ASSERT_GE(dropped, 2 * kBlockSize);
 }
 
 TEST(LogTest, ReadStart) {

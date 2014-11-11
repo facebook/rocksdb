@@ -108,7 +108,7 @@ struct MutableCFOptions {
   int max_grandparent_overlap_factor;
   int expanded_compaction_factor;
   int source_compaction_factor;
-  int target_file_size_base;
+  uint64_t target_file_size_base;
   int target_file_size_multiplier;
   uint64_t max_bytes_for_level_base;
   int max_bytes_for_level_multiplier;

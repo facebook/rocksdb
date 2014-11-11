@@ -59,7 +59,7 @@ class EventListenerTest {
                             const ColumnFamilyOptions* options = nullptr) {
     ColumnFamilyOptions cf_opts;
     cf_opts = ColumnFamilyOptions(Options());
-    int cfi = handles_.size();
+    size_t cfi = handles_.size();
     handles_.resize(cfi + cfs.size());
     for (auto cf : cfs) {
       ASSERT_OK(db_->CreateColumnFamily(cf_opts, cf, &handles_[cfi++]));
@@ -188,7 +188,7 @@ TEST(EventListenerTest, OnSingleDBFlushTest) {
   ASSERT_OK(Put(6, "alyosha", "alyosha"));
   ASSERT_OK(Put(7, "popovich", "popovich"));
   for (size_t i = 1; i < 8; ++i) {
-    Flush(i);
+    Flush(static_cast<int>(i));
     dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
@@ -218,7 +218,7 @@ TEST(EventListenerTest, MultiCF) {
   ASSERT_OK(Put(6, "alyosha", "alyosha"));
   ASSERT_OK(Put(7, "popovich", "popovich"));
   for (size_t i = 1; i < 8; ++i) {
-    Flush(i);
+    Flush(static_cast<int>(i));
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }

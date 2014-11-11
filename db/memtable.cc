@@ -188,7 +188,7 @@ KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
 // into this scratch space.
 const char* EncodeKey(std::string* scratch, const Slice& target) {
   scratch->clear();
-  PutVarint32(scratch, target.size());
+  PutVarint32(scratch, static_cast<uint32_t>(target.size()));
   scratch->append(target.data(), target.size());
   return scratch->data();
 }
@@ -288,12 +288,12 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   //  key bytes    : char[internal_key.size()]
   //  value_size   : varint32 of value.size()
   //  value bytes  : char[value.size()]
-  size_t key_size = key.size();
-  size_t val_size = value.size();
-  size_t internal_key_size = key_size + 8;
-  const size_t encoded_len =
-      VarintLength(internal_key_size) + internal_key_size +
-      VarintLength(val_size) + val_size;
+  uint32_t key_size = static_cast<uint32_t>(key.size());
+  uint32_t val_size = static_cast<uint32_t>(value.size());
+  uint32_t internal_key_size = key_size + 8;
+  const uint32_t encoded_len = VarintLength(internal_key_size) +
+                               internal_key_size + VarintLength(val_size) +
+                               val_size;
   char* buf = nullptr;
   KeyHandle handle = table_->Allocate(encoded_len, &buf);
   assert(buf != nullptr);
@@ -502,8 +502,8 @@ void MemTable::Update(SequenceNumber seq,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = prev_value.size();
-          uint32_t new_size = value.size();
+          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+          uint32_t new_size = static_cast<uint32_t>(value.size());
 
           // Update value, if new value size  <= previous value size
           if (new_size <= prev_size ) {
@@ -560,10 +560,10 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t  prev_size = prev_value.size();
+          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
 
           char* prev_buffer = const_cast<char*>(prev_value.data());
-          uint32_t  new_prev_size = prev_size;
+          uint32_t new_prev_size = prev_size;
 
           std::string str_value;
           WriteLock wl(GetLock(lkey.user_key()));

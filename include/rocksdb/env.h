@@ -20,6 +20,7 @@
 #include <cstdarg>
 #include <string>
 #include <memory>
+#include <limits>
 #include <vector>
 #include <stdint.h>
 #include "rocksdb/status.h"
@@ -476,8 +477,8 @@ class WritableFile {
     if (new_last_preallocated_block > last_preallocated_block_) {
       size_t num_spanned_blocks =
         new_last_preallocated_block - last_preallocated_block_;
-      Allocate(block_size * last_preallocated_block_,
-               block_size * num_spanned_blocks);
+      Allocate(static_cast<off_t>(block_size * last_preallocated_block_),
+               static_cast<off_t>(block_size * num_spanned_blocks));
       last_preallocated_block_ = new_last_preallocated_block;
     }
   }
@@ -580,7 +581,8 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
+  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
   virtual ~Logger();
@@ -613,9 +615,7 @@ class Logger {
       Logv(new_format, ap);
     }
   }
-  virtual size_t GetLogFileSize() const {
-    return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
-  }
+  virtual size_t GetLogFileSize() const { return kDoNotSupportGetLogFileSize; }
   // Flush to the OS buffers
   virtual void Flush() {}
   virtual InfoLogLevel GetInfoLogLevel() const { return log_level_; }

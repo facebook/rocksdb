@@ -206,13 +206,19 @@ class LookupKey {
   ~LookupKey();
 
   // Return a key suitable for lookup in a MemTable.
-  Slice memtable_key() const { return Slice(start_, end_ - start_); }
+  Slice memtable_key() const {
+    return Slice(start_, static_cast<size_t>(end_ - start_));
+  }
 
   // Return an internal key (suitable for passing to an internal iterator)
-  Slice internal_key() const { return Slice(kstart_, end_ - kstart_); }
+  Slice internal_key() const {
+    return Slice(kstart_, static_cast<size_t>(end_ - kstart_));
+  }
 
   // Return the user key
-  Slice user_key() const { return Slice(kstart_, end_ - kstart_ - 8); }
+  Slice user_key() const {
+    return Slice(kstart_, static_cast<size_t>(end_ - kstart_ - 8));
+  }
 
  private:
   // We construct a char array of the form:
@@ -319,8 +325,8 @@ class IterKey {
 
   void EncodeLengthPrefixedKey(const Slice& key) {
     auto size = key.size();
-    EnlargeBufferIfNeeded(size + VarintLength(size));
-    char* ptr = EncodeVarint32(key_, size);
+    EnlargeBufferIfNeeded(size + static_cast<size_t>(VarintLength(size)));
+    char* ptr = EncodeVarint32(key_, static_cast<uint32_t>(size));
     memcpy(ptr, key.data(), size);
   }
 

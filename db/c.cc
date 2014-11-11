@@ -385,11 +385,9 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     unsigned char success;
     size_t new_value_len;
     char* tmp_new_value = (*full_merge_)(
-        state_,
-        key.data(), key.size(),
-        existing_value_data, existing_value_len,
-        &operand_pointers[0], &operand_sizes[0], n,
-        &success, &new_value_len);
+        state_, key.data(), key.size(), existing_value_data, existing_value_len,
+        &operand_pointers[0], &operand_sizes[0], static_cast<int>(n), &success,
+        &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
 
     if (delete_value_ != nullptr) {
@@ -417,7 +415,7 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     size_t new_value_len;
     char* tmp_new_value = (*partial_merge_)(
         state_, key.data(), key.size(), &operand_pointers[0], &operand_sizes[0],
-        operand_count, &success, &new_value_len);
+        static_cast<int>(operand_count), &success, &new_value_len);
     new_value->assign(tmp_new_value, new_value_len);
 
     if (delete_value_ != nullptr) {
@@ -2041,7 +2039,7 @@ void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level
 
 int rocksdb_livefiles_count(
   const rocksdb_livefiles_t* lf) {
-  return lf->rep.size();
+  return static_cast<int>(lf->rep.size());
 }
 
 const char* rocksdb_livefiles_name(

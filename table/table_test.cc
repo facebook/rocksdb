@@ -947,7 +947,7 @@ class Harness {
     if (keys.empty()) {
       return "foo";
     } else {
-      const int index = rnd->Uniform(keys.size());
+      const int index = rnd->Uniform(static_cast<int>(keys.size()));
       std::string result = keys[index];
       switch (rnd->Uniform(support_prev_ ? 3 : 1)) {
         case 0:

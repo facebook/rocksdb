@@ -28,7 +28,7 @@ static inline uint64_t CuckooHash(
   if (hash_cnt == 0 && identity_as_first_hash) {
     value = (*reinterpret_cast<const int64_t*>(user_key.data()));
   } else {
-    value = MurmurHash(user_key.data(), user_key.size(),
+    value = MurmurHash(user_key.data(), static_cast<int>(user_key.size()),
                        kCuckooMurmurSeedMultiplier * hash_cnt);
   }
   if (use_module_hash) {

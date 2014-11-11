@@ -203,7 +203,7 @@ class HashIndexBuilder : public IndexBuilder {
       // copy.
       pending_entry_prefix_ = key_prefix.ToString();
       pending_block_num_ = 1;
-      pending_entry_index_ = current_restart_index_;
+      pending_entry_index_ = static_cast<uint32_t>(current_restart_index_);
     } else {
       // entry number increments when keys share the prefix reside in
       // differnt data blocks.
@@ -234,7 +234,8 @@ class HashIndexBuilder : public IndexBuilder {
   void FlushPendingPrefix() {
     prefix_block_.append(pending_entry_prefix_.data(),
                          pending_entry_prefix_.size());
-    PutVarint32(&prefix_meta_block_, pending_entry_prefix_.size());
+    PutVarint32(&prefix_meta_block_,
+                static_cast<uint32_t>(pending_entry_prefix_.size()));
     PutVarint32(&prefix_meta_block_, pending_entry_index_);
     PutVarint32(&prefix_meta_block_, pending_block_num_);
   }
@@ -596,7 +597,8 @@ void BlockBasedTableBuilder::WriteRawBlock(const Slice& block_contents,
       }
       case kxxHash: {
         void* xxh = XXH32_init(0);
-        XXH32_update(xxh, block_contents.data(), block_contents.size());
+        XXH32_update(xxh, block_contents.data(),
+                     static_cast<uint32_t>(block_contents.size()));
         XXH32_update(xxh, trailer, 1);  // Extend  to cover block type
         EncodeFixed32(trailer_without_type, XXH32_digest(xxh));
         break;

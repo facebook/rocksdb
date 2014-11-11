@@ -64,7 +64,7 @@ CuckooTableReader::CuckooTableReader(
   }
   unused_key_ = unused_key->second;
 
-  key_length_ = props->fixed_key_len;
+  key_length_ = static_cast<uint32_t>(props->fixed_key_len);
   auto user_key_len = user_props.find(CuckooTablePropertyNames::kUserKeyLength);
   if (user_key_len == user_props.end()) {
     status_ = Status::Corruption("User key length not found");
@@ -274,7 +274,7 @@ void CuckooTableIterator::SeekToFirst() {
 
 void CuckooTableIterator::SeekToLast() {
   InitIfNeeded();
-  curr_key_idx_ = sorted_bucket_ids_.size() - 1;
+  curr_key_idx_ = static_cast<uint32_t>(sorted_bucket_ids_.size()) - 1;
   PrepareKVAtCurrIdx();
 }
 
@@ -288,7 +288,8 @@ void CuckooTableIterator::Seek(const Slice& target) {
       sorted_bucket_ids_.end(),
       kInvalidIndex,
       seek_comparator);
-  curr_key_idx_ = std::distance(sorted_bucket_ids_.begin(), seek_it);
+  curr_key_idx_ =
+      static_cast<uint32_t>(std::distance(sorted_bucket_ids_.begin(), seek_it));
   PrepareKVAtCurrIdx();
 }
 
@@ -327,7 +328,7 @@ void CuckooTableIterator::Next() {
 
 void CuckooTableIterator::Prev() {
   if (curr_key_idx_ == 0) {
-    curr_key_idx_ = sorted_bucket_ids_.size();
+    curr_key_idx_ = static_cast<uint32_t>(sorted_bucket_ids_.size());
   }
   if (!Valid()) {
     curr_value_.clear();

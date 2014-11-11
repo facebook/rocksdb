@@ -3,6 +3,12 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+
 #include "table/plain_table_index.h"
 #include "util/coding.h"
 #include "util/hash.h"
@@ -24,7 +30,8 @@ Status PlainTableIndex::InitFromRawData(Slice data) {
   if (!GetVarint32(&data, &num_prefixes_)) {
     return Status::Corruption("Couldn't read the index size!");
   }
-  sub_index_size_ = data.size() - index_size_ * kOffsetLen;
+  sub_index_size_ =
+      static_cast<uint32_t>(data.size()) - index_size_ * kOffsetLen;
 
   char* index_data_begin = const_cast<char*>(data.data());
   index_ = reinterpret_cast<uint32_t*>(index_data_begin);
@@ -55,13 +62,15 @@ void PlainTableIndexBuilder::IndexRecordList::AddRecord(murmur_t hash,
     num_records_in_current_group_ = 0;
   }
   auto& new_record = current_group_[num_records_in_current_group_++];
-  new_record.hash = hash;
+  // TODO(sdong) -- check if this is OK -- murmur_t is uint64_t, while we only
+  // use 32 bits here
+  new_record.hash = static_cast<uint32_t>(hash);
   new_record.offset = offset;
   new_record.next = nullptr;
 }
 
 void PlainTableIndexBuilder::AddKeyPrefix(Slice key_prefix_slice,
-                                          uint64_t key_offset) {
+                                          uint32_t key_offset) {
   if (is_first_record_ || prev_key_prefix_ != key_prefix_slice.ToString()) {
     ++num_prefixes_;
     if (!is_first_record_) {
@@ -149,7 +158,7 @@ Slice PlainTableIndexBuilder::FillIndexes(
     const std::vector<IndexRecord*>& hash_to_offsets,
     const std::vector<uint32_t>& entries_per_bucket) {
   Log(InfoLogLevel::DEBUG_LEVEL, ioptions_.info_log,
-      "Reserving %zu bytes for plain table's sub_index",
+      "Reserving %" PRIu32 " bytes for plain table's sub_index",
       sub_index_size_);
   auto total_allocate_size = GetTotalSize();
   char* allocated = arena_->AllocateAligned(
@@ -160,7 +169,7 @@ Slice PlainTableIndexBuilder::FillIndexes(
       reinterpret_cast<uint32_t*>(EncodeVarint32(temp_ptr, num_prefixes_));
   char* sub_index = reinterpret_cast<char*>(index + index_size_);
 
-  size_t sub_index_offset = 0;
+  uint32_t sub_index_offset = 0;
   for (uint32_t i = 0; i < index_size_; i++) {
     uint32_t num_keys_for_bucket = entries_per_bucket[i];
     switch (num_keys_for_bucket) {

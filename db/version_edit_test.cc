@@ -26,11 +26,12 @@ class VersionEditTest { };
 
 TEST(VersionEditTest, EncodeDecode) {
   static const uint64_t kBig = 1ull << 50;
+  static const uint32_t kBig32Bit = 1ull << 30;
 
   VersionEdit edit;
   for (int i = 0; i < 4; i++) {
     TestEncodeDecode(edit);
-    edit.AddFile(3, kBig + 300 + i, kBig + 400 + i, 0,
+    edit.AddFile(3, kBig + 300 + i, kBig32Bit + 400 + i, 0,
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
                  kBig + 500 + i, kBig + 600 + i);

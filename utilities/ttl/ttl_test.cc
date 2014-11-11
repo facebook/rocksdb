@@ -94,7 +94,8 @@ class TtlTest {
   void MakeKVMap(int64_t num_entries) {
     kvmap_.clear();
     int digits = 1;
-    for (int dummy = num_entries; dummy /= 10 ; ++digits);
+    for (int64_t dummy = num_entries; dummy /= 10; ++digits) {
+    }
     int digits_in_i = 1;
     for (int64_t i = 0; i < num_entries; i++) {
       std::string key = "key";
@@ -110,17 +111,18 @@ class TtlTest {
       AppendNumberTo(&value, i);
       kvmap_[key] = value;
     }
-    ASSERT_EQ((int)kvmap_.size(), num_entries);//check all insertions done
+    ASSERT_EQ(static_cast<int64_t>(kvmap_.size()),
+              num_entries);  // check all insertions done
   }
 
   // Makes a write-batch with key-vals from kvmap_ and 'Write''s it
-  void MakePutWriteBatch(const BatchOperation* batch_ops, int num_ops) {
-    ASSERT_LE(num_ops, (int)kvmap_.size());
+  void MakePutWriteBatch(const BatchOperation* batch_ops, int64_t num_ops) {
+    ASSERT_LE(num_ops, static_cast<int64_t>(kvmap_.size()));
     static WriteOptions wopts;
     static FlushOptions flush_opts;
     WriteBatch batch;
     kv_it_ = kvmap_.begin();
-    for (int i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
+    for (int64_t i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
       switch (batch_ops[i]) {
         case PUT:
           batch.Put(kv_it_->first, kv_it_->second);
@@ -137,15 +139,16 @@ class TtlTest {
   }
 
   // Puts num_entries starting from start_pos_map from kvmap_ into the database
-  void PutValues(int start_pos_map, int num_entries, bool flush = true,
+  void PutValues(int64_t start_pos_map, int64_t num_entries, bool flush = true,
                  ColumnFamilyHandle* cf = nullptr) {
     ASSERT_TRUE(db_ttl_);
-    ASSERT_LE(start_pos_map + num_entries, (int)kvmap_.size());
+    ASSERT_LE(start_pos_map + num_entries, static_cast<int64_t>(kvmap_.size()));
     static WriteOptions wopts;
     static FlushOptions flush_opts;
     kv_it_ = kvmap_.begin();
     advance(kv_it_, start_pos_map);
-    for (int i = 0; kv_it_ != kvmap_.end() && i < num_entries; i++, ++kv_it_) {
+    for (int64_t i = 0; kv_it_ != kvmap_.end() && i < num_entries;
+         i++, ++kv_it_) {
       ASSERT_OK(cf == nullptr
                     ? db_ttl_->Put(wopts, kv_it_->first, kv_it_->second)
                     : db_ttl_->Put(wopts, cf, kv_it_->first, kv_it_->second));
@@ -196,8 +199,8 @@ class TtlTest {
   // Gets should return true if check is true and false otherwise
   // Also checks that value that we got is the same as inserted; and =kNewValue
   //   if test_compaction_change is true
-  void SleepCompactCheck(int slp_tim, int st_pos, int span, bool check = true,
-                         bool test_compaction_change = false,
+  void SleepCompactCheck(int slp_tim, int64_t st_pos, int64_t span,
+                         bool check = true, bool test_compaction_change = false,
                          ColumnFamilyHandle* cf = nullptr) {
     ASSERT_TRUE(db_ttl_);
 
@@ -207,7 +210,7 @@ class TtlTest {
     kv_it_ = kvmap_.begin();
     advance(kv_it_, st_pos);
     std::string v;
-    for (int i = 0; kv_it_ != kvmap_.end() && i < span; i++, ++kv_it_) {
+    for (int64_t i = 0; kv_it_ != kvmap_.end() && i < span; i++, ++kv_it_) {
       Status s = (cf == nullptr) ? db_ttl_->Get(ropts, kv_it_->first, &v)
                                  : db_ttl_->Get(ropts, cf, kv_it_->first, &v);
       if (s.ok() != check) {
@@ -235,7 +238,8 @@ class TtlTest {
   }
 
   // Similar as SleepCompactCheck but uses TtlIterator to read from db
-  void SleepCompactCheckIter(int slp, int st_pos, int span, bool check=true) {
+  void SleepCompactCheckIter(int slp, int st_pos, int64_t span,
+                             bool check = true) {
     ASSERT_TRUE(db_ttl_);
     env_->Sleep(slp);
     ManualCompact();
@@ -250,9 +254,8 @@ class TtlTest {
         ASSERT_NE(dbiter->value().compare(kv_it_->second), 0);
       }
     } else {  // dbiter should have found out kvmap_[st_pos]
-      for (int i = st_pos;
-           kv_it_ != kvmap_.end() && i < st_pos + span;
-           i++, ++kv_it_)  {
+      for (int64_t i = st_pos; kv_it_ != kvmap_.end() && i < st_pos + span;
+           i++, ++kv_it_) {
         ASSERT_TRUE(dbiter->Valid());
         ASSERT_EQ(dbiter->value().compare(kv_it_->second), 0);
         dbiter->Next();
@@ -288,7 +291,7 @@ class TtlTest {
         return false; // Keep keys not matching the format "key<NUMBER>"
       }
 
-      int partition = kSampleSize_ / 3;
+      int64_t partition = kSampleSize_ / 3;
       if (num_key_end < partition) {
         return true;
       } else if (num_key_end < partition * 2) {
@@ -352,8 +355,8 @@ class TtlTest {
 // Partitions the sample-size provided into 3 sets over boundary1 and boundary2
 TEST(TtlTest, NoEffect) {
   MakeKVMap(kSampleSize_);
-  int boundary1 = kSampleSize_ / 3;
-  int boundary2 = 2 * boundary1;
+  int64_t boundary1 = kSampleSize_ / 3;
+  int64_t boundary2 = 2 * boundary1;
 
   OpenTtl();
   PutValues(0, boundary1);                       //T=0: Set1 never deleted
@@ -510,9 +513,9 @@ TEST(TtlTest, CompactionFilter) {
 
   OpenTtlWithTestCompaction(3);
   PutValues(0, kSampleSize_);                   // T=0:Insert Set1.
-  int partition = kSampleSize_ / 3;
-  SleepCompactCheck(1, 0, partition, false);   // Part dropped
-  SleepCompactCheck(0, partition, partition);  // Part kept
+  int64_t partition = kSampleSize_ / 3;
+  SleepCompactCheck(1, 0, partition, false);                  // Part dropped
+  SleepCompactCheck(0, partition, partition);                 // Part kept
   SleepCompactCheck(0, 2 * partition, partition, true, true); // Part changed
   CloseTtl();
 }

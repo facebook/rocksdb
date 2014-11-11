@@ -54,7 +54,8 @@ class BackupRateLimiter {
         (bytes_since_start_ * kMicrosInSecond) / max_bytes_per_second_;
 
     if (should_take_micros > interval) {
-      env_->SleepForMicroseconds(should_take_micros - interval);
+      env_->SleepForMicroseconds(
+          static_cast<int>(should_take_micros - interval));
       now = env_->NowMicros();
     }
     // reset interval
@@ -165,9 +166,7 @@ class BackupEngineImpl : public BackupEngine {
     uint64_t GetSize() const {
       return size_;
     }
-    uint32_t GetNumberFiles() {
-      return files_.size();
-    }
+    uint32_t GetNumberFiles() { return static_cast<uint32_t>(files_.size()); }
     void SetSequenceNumber(uint64_t sequence_number) {
       sequence_number_ = sequence_number;
     }

@@ -392,10 +392,9 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   }
   delete mem->Unref();
 
-  jbyteArray jstate = env->NewByteArray(state.size());
-  env->SetByteArrayRegion(
-      jstate, 0, state.size(),
-      reinterpret_cast<const jbyte*>(state.c_str()));
+  jbyteArray jstate = env->NewByteArray(static_cast<jsize>(state.size()));
+  env->SetByteArrayRegion(jstate, 0, static_cast<jsize>(state.size()),
+                          reinterpret_cast<const jbyte*>(state.c_str()));
 
   return jstate;
 }

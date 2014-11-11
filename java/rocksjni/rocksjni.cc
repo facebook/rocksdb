@@ -234,9 +234,9 @@ jobject Java_org_rocksdb_RocksDB_listColumnFamilies(
     for (std::vector<std::string>::size_type i = 0;
         i < column_family_names.size(); i++) {
       jbyteArray jcf_value =
-          env->NewByteArray(column_family_names[i].size());
-      env->SetByteArrayRegion(jcf_value, 0,
-          column_family_names[i].size(),
+          env->NewByteArray(static_cast<jsize>(column_family_names[i].size()));
+      env->SetByteArrayRegion(
+          jcf_value, 0, static_cast<jsize>(column_family_names[i].size()),
           reinterpret_cast<const jbyte*>(column_family_names[i].c_str()));
       env->CallBooleanMethod(jvalue_list,
           rocksdb::ListJni::getListAddMethodId(env), jcf_value);
@@ -516,10 +516,9 @@ jbyteArray rocksdb_get_helper(
   }
 
   if (s.ok()) {
-    jbyteArray jret_value = env->NewByteArray(value.size());
-    env->SetByteArrayRegion(
-        jret_value, 0, value.size(),
-        reinterpret_cast<const jbyte*>(value.c_str()));
+    jbyteArray jret_value = env->NewByteArray(static_cast<jsize>(value.size()));
+    env->SetByteArrayRegion(jret_value, 0, static_cast<jsize>(value.size()),
+                            reinterpret_cast<const jbyte*>(value.c_str()));
     return jret_value;
   }
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
@@ -712,9 +711,10 @@ jobject multi_get_helper(JNIEnv* env, jobject jdb, rocksdb::DB* db,
   // insert in java list
   for (std::vector<rocksdb::Status>::size_type i = 0; i != s.size(); i++) {
     if (s[i].ok()) {
-      jbyteArray jentry_value = env->NewByteArray(values[i].size());
+      jbyteArray jentry_value =
+          env->NewByteArray(static_cast<jsize>(values[i].size()));
       env->SetByteArrayRegion(
-          jentry_value, 0, values[i].size(),
+          jentry_value, 0, static_cast<jsize>(values[i].size()),
           reinterpret_cast<const jbyte*>(values[i].c_str()));
       env->CallBooleanMethod(
           jvalue_list, rocksdb::ListJni::getListAddMethodId(env),
@@ -1135,11 +1135,12 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
   rocksdb::Status s = db->NewIterators(rocksdb::ReadOptions(),
       cf_handles, &iterators);
   if (s.ok()) {
-    jlongArray jLongArray = env->NewLongArray(iterators.size());
-    for (std::vector<rocksdb::Iterator*>::size_type i = 0;
-        i < iterators.size(); i++) {
-      env->SetLongArrayRegion(jLongArray, i, 1,
-          reinterpret_cast<const jlong*>(&iterators[i]));
+    jlongArray jLongArray =
+        env->NewLongArray(static_cast<jsize>(iterators.size()));
+    for (std::vector<rocksdb::Iterator*>::size_type i = 0; i < iterators.size();
+         i++) {
+      env->SetLongArrayRegion(jLongArray, static_cast<jsize>(i), 1,
+                              reinterpret_cast<const jlong*>(&iterators[i]));
     }
     return jLongArray;
   }

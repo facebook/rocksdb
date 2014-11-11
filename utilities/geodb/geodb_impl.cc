@@ -397,10 +397,10 @@ std::string GeoDBImpl::TileToQuadKey(const Tile& tile, int levelOfDetail) {
 // Convert a quadkey to a tile and its level of detail
 //
 void GeoDBImpl::QuadKeyToTile(std::string quadkey, Tile* tile,
-                                     int *levelOfDetail) {
+                              int* levelOfDetail) {
   tile->x = tile->y = 0;
-  *levelOfDetail = quadkey.size();
-  const char* key = reinterpret_cast<const char *>(quadkey.c_str());
+  *levelOfDetail = static_cast<int>(quadkey.size());
+  const char* key = reinterpret_cast<const char*>(quadkey.c_str());
   for (int i = *levelOfDetail; i > 0; i--) {
     int mask = 1 << (i - 1);
     switch (key[*levelOfDetail - i]) {

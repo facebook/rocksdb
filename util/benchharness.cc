@@ -206,7 +206,8 @@ static double RunBenchmarkGetNSPerIteration(const BenchmarkFun& fun,
   size_t actualEpochs = 0;
 
   for (; actualEpochs < epochs; ++actualEpochs) {
-    for (unsigned int n = FLAGS_bm_min_iters; n < (1UL << 30); n *= 2) {
+    for (unsigned int n = static_cast<unsigned int>(FLAGS_bm_min_iters);
+         n < (1UL << 30); n *= 2) {
       auto const nsecs = fun(n);
       if (nsecs < minNanoseconds) {
         continue;

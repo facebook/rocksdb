@@ -19,7 +19,7 @@
 
 namespace rocksdb {
 
-static uint32_t TestGetTickerCount(const Options& options,
+static uint64_t TestGetTickerCount(const Options& options,
                                    Tickers ticker_type) {
   return options.statistics->getTickerCount(ticker_type);
 }

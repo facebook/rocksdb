@@ -133,7 +133,7 @@ class ColumnFamilyTest {
   void CreateColumnFamilies(
       const std::vector<std::string>& cfs,
       const std::vector<ColumnFamilyOptions> options = {}) {
-    int cfi = handles_.size();
+    int cfi = static_cast<int>(handles_.size());
     handles_.resize(cfi + cfs.size());
     names_.resize(cfi + cfs.size());
     for (size_t i = 0; i < cfs.size(); ++i) {
@@ -231,7 +231,7 @@ class ColumnFamilyTest {
       snprintf(buf, sizeof(buf), "%s%d", (level ? "," : ""), f);
       result += buf;
       if (f > 0) {
-        last_non_zero_offset = result.size();
+        last_non_zero_offset = static_cast<int>(result.size());
       }
     }
     result.resize(last_non_zero_offset);
@@ -287,8 +287,8 @@ class ColumnFamilyTest {
     assert(num_per_cf.size() == handles_.size());
 
     for (size_t i = 0; i < num_per_cf.size(); ++i) {
-      ASSERT_EQ(num_per_cf[i],
-                GetProperty(i, "rocksdb.num-immutable-mem-table"));
+      ASSERT_EQ(num_per_cf[i], GetProperty(static_cast<int>(i),
+                                           "rocksdb.num-immutable-mem-table"));
     }
   }
 
@@ -916,11 +916,11 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
 
   for (size_t i = 0; i < handles_.size(); ++i) {
-    PutRandomData(i, 10, 100);
+    PutRandomData(static_cast<int>(i), 10, 100);
   }
   int num_writable_file_start = env_->GetNumberOfNewWritableFileCalls();
   // this will trigger the flushes
-  for (size_t i = 0; i <= 4; ++i) {
+  for (int i = 0; i <= 4; ++i) {
     ASSERT_OK(Flush(i));
   }
 

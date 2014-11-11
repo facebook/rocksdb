@@ -596,7 +596,7 @@ TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
           break;
         case 2: {
           // Seek to random key
-          auto key_idx = rnd.Uniform(source_strings.size());
+          auto key_idx = rnd.Uniform(static_cast<int>(source_strings.size()));
           auto key = source_strings[key_idx];
           iter->Seek(key);
           result_iter->Seek(key);

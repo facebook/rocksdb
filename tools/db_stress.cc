@@ -113,7 +113,8 @@ DEFINE_bool(verbose, false, "Verbose");
 DEFINE_bool(progress_reports, true,
             "If true, db_stress will report number of finished operations");
 
-DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
+DEFINE_int32(write_buffer_size,
+             static_cast<int32_t>(rocksdb::Options().write_buffer_size),
              "Number of bytes to buffer in memtable before compacting");
 
 DEFINE_int32(max_write_buffer_number,
@@ -154,7 +155,8 @@ DEFINE_int32(level0_stop_writes_trigger,
              rocksdb::Options().level0_stop_writes_trigger,
              "Number of files in level-0 that will trigger put stop.");
 
-DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
+DEFINE_int32(block_size,
+             static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
 
 DEFINE_int32(max_background_compactions,
@@ -573,9 +575,9 @@ class SharedState {
 
   explicit SharedState(StressTest* stress_test)
       : cv_(&mu_),
-        seed_(FLAGS_seed),
+        seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),
-        log2_keys_per_lock_(FLAGS_log2_keys_per_lock),
+        log2_keys_per_lock_(static_cast<uint32_t>(FLAGS_log2_keys_per_lock)),
         num_threads_(FLAGS_threads),
         num_initialized_(0),
         num_populated_(0),
@@ -1451,7 +1453,7 @@ class StressTest {
           assert(count <=
                  (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
           if (iter->status().ok()) {
-            thread->stats.AddPrefixes(1, count);
+            thread->stats.AddPrefixes(1, static_cast<int>(count));
           } else {
             thread->stats.AddErrors(1);
           }
@@ -1489,7 +1491,8 @@ class StressTest {
         } else {
           MultiPut(thread, write_opts, column_family, key, v, sz);
         }
-        PrintKeyValue(rand_column_family, rand_key, value, sz);
+        PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key),
+                      value, sz);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
@@ -1553,16 +1556,19 @@ class StressTest {
               from_db = iter->value().ToString();
               iter->Next();
             } else if (iter->key().compare(k) < 0) {
-              VerificationAbort(shared, "An out of range key was found", cf, i);
+              VerificationAbort(shared, "An out of range key was found",
+                                static_cast<int>(cf), i);
             }
           } else {
             // The iterator found no value for the key in question, so do not
             // move to the next item in the iterator
             s = Status::NotFound(Slice());
           }
-          VerifyValue(cf, i, options, shared, from_db, s, true);
+          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
+                      true);
           if (from_db.length()) {
-            PrintKeyValue(cf, i, from_db.data(), from_db.length());
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.length());
           }
         }
       } else {
@@ -1575,9 +1581,11 @@ class StressTest {
           std::string keystr = Key(i);
           Slice k = keystr;
           Status s = db_->Get(options, column_families_[cf], k, &from_db);
-          VerifyValue(cf, i, options, shared, from_db, s, true);
+          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
+                      true);
           if (from_db.length()) {
-            PrintKeyValue(cf, i, from_db.data(), from_db.length());
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.length());
           }
         }
       }

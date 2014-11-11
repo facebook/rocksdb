@@ -82,7 +82,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
     }
 
     int type = rnd->Uniform(2);
-    int index = rnd->Uniform(source_strings.size());
+    int index = rnd->Uniform(static_cast<int>(source_strings.size()));
     auto& key = source_strings[index];
     switch (type) {
       case 0:
@@ -124,7 +124,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
         break;
       case 2: {
         // Seek to random key
-        auto key_idx = rnd->Uniform(source_strings.size());
+        auto key_idx = rnd->Uniform(static_cast<int>(source_strings.size()));
         auto key = source_strings[key_idx];
         iter->Seek(key);
         result_iter->Seek(key);
@@ -150,7 +150,7 @@ void DoRandomIteraratorTest(DB* db, std::vector<std::string> source_strings,
         break;
       default: {
         assert(type == 5);
-        auto key_idx = rnd->Uniform(source_strings.size());
+        auto key_idx = rnd->Uniform(static_cast<int>(source_strings.size()));
         auto key = source_strings[key_idx];
         std::string result;
         auto status = db->Get(ReadOptions(), key, &result);
@@ -325,7 +325,7 @@ TEST(ComparatorDBTest, SimpleSuffixReverseComparator) {
       source_prefixes.push_back(test::RandomHumanReadableString(&rnd, 8));
     }
     for (int j = 0; j < 20; j++) {
-      int prefix_index = rnd.Uniform(source_prefixes.size());
+      int prefix_index = rnd.Uniform(static_cast<int>(source_prefixes.size()));
       std::string key = source_prefixes[prefix_index] +
                         test::RandomHumanReadableString(&rnd, rnd.Uniform(8));
       source_strings.push_back(key);

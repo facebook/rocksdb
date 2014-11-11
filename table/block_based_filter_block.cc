@@ -99,7 +99,7 @@ Slice BlockBasedFilterBlockBuilder::Finish() {
   }
 
   // Append array of per-filter offsets
-  const uint32_t array_offset = result_.size();
+  const uint32_t array_offset = static_cast<uint32_t>(result_.size());
   for (size_t i = 0; i < filter_offsets_.size(); i++) {
     PutFixed32(&result_, filter_offsets_[i]);
   }
@@ -113,7 +113,7 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
   const size_t num_entries = start_.size();
   if (num_entries == 0) {
     // Fast path if there are no keys for this filter
-    filter_offsets_.push_back(result_.size());
+    filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
     return;
   }
 
@@ -127,8 +127,9 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
   }
 
   // Generate filter for current set of keys and append to result_.
-  filter_offsets_.push_back(result_.size());
-  policy_->CreateFilter(&tmp_entries_[0], num_entries, &result_);
+  filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
+  policy_->CreateFilter(&tmp_entries_[0], static_cast<int>(num_entries),
+                        &result_);
 
   tmp_entries_.clear();
   entries_.clear();

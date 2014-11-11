@@ -46,7 +46,7 @@ CompressionType GetCompressionType(
   // If the use has specified a different compression level for each level,
   // then pick the compression for that level.
   if (!ioptions.compression_per_level.empty()) {
-    const int n = ioptions.compression_per_level.size() - 1;
+    const int n = static_cast<int>(ioptions.compression_per_level.size()) - 1;
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
@@ -75,7 +75,7 @@ void CompactionPicker::SizeBeingCompacted(std::vector<uint64_t>& sizes) {
     uint64_t total = 0;
     for (auto c : compactions_in_progress_[level]) {
       assert(c->level() == level);
-      for (int i = 0; i < c->num_input_files(0); i++) {
+      for (size_t i = 0; i < c->num_input_files(0); i++) {
         total += c->input(0, i)->compensated_file_size;
       }
     }
@@ -870,7 +870,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       // If max read amplification is exceeding configured limits, then force
       // compaction without looking at filesize ratios and try to reduce
       // the number of files to fewer than level0_file_num_compaction_trigger.
-      unsigned int num_files = level_files.size() -
+      unsigned int num_files =
+          static_cast<unsigned int>(level_files.size()) -
           mutable_cf_options.level0_file_num_compaction_trigger;
       if ((c = PickCompactionUniversalReadAmp(
                cf_name, mutable_cf_options, vstorage, score, UINT_MAX,
@@ -1074,8 +1075,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   if (ratio_to_compress >= 0) {
     uint64_t total_size = vstorage->NumLevelBytes(kLevel0);
     uint64_t older_file_size = 0;
-    for (unsigned int i = files.size() - 1;
-         i >= first_index_after; i--) {
+    for (size_t i = files.size() - 1; i >= first_index_after; i--) {
       older_file_size += files[i]->fd.GetFileSize();
       if (older_file_size * 100L >= total_size * (long) ratio_to_compress) {
         enable_compression = false;

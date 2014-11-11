@@ -147,7 +147,6 @@ TESTS = \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
 	cuckoo_table_db_test \
-	write_batch_with_index_test \
 	flush_job_test \
 	wal_manager_test \
 	listener_test \

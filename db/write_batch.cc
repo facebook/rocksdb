@@ -374,7 +374,7 @@ class MemTableInserter : public WriteBatch::Handler {
         Status s = db_->Get(ropts, cf_handle, key, &prev_value);
 
         char* prev_buffer = const_cast<char*>(prev_value.c_str());
-        uint32_t prev_size = prev_value.size();
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
         auto status = moptions->inplace_callback(s.ok() ? prev_buffer : nullptr,
                                                  s.ok() ? &prev_size : nullptr,
                                                  value, &merged_value);

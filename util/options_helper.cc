@@ -40,12 +40,10 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
     throw type;
   }
 }
-uint32_t ParseInt(const std::string& value) {
-  return std::stoi(value);
-}
+int ParseInt(const std::string& value) { return std::stoi(value); }
 
 uint32_t ParseUint32(const std::string& value) {
-  return std::stoul(value);
+  return static_cast<uint32_t>(std::stoul(value));
 }
 
 uint64_t ParseUint64(const std::string& value) {
@@ -82,9 +80,9 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
   } else if (name == "arena_block_size") {
     new_options->arena_block_size = ParseInt64(value);
   } else if (name == "memtable_prefix_bloom_bits") {
-    new_options->memtable_prefix_bloom_bits = stoul(value);
+    new_options->memtable_prefix_bloom_bits = ParseUint32(value);
   } else if (name == "memtable_prefix_bloom_probes") {
-    new_options->memtable_prefix_bloom_probes = stoul(value);
+    new_options->memtable_prefix_bloom_probes = ParseUint32(value);
   } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
     new_options->memtable_prefix_bloom_huge_page_tlb_size =
       ParseInt64(value);

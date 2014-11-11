@@ -49,9 +49,9 @@ class MergerTest {
   MergerTest()
       : rnd_(3), merging_iterator_(nullptr), single_iterator_(nullptr) {}
   ~MergerTest() = default;
-  std::vector<std::string> GenerateStrings(int len, int string_len) {
+  std::vector<std::string> GenerateStrings(size_t len, int string_len) {
     std::vector<std::string> ret;
-    for (int i = 0; i < len; ++i) {
+    for (size_t i = 0; i < len; ++i) {
       ret.push_back(test::RandomHumanReadableString(&rnd_, string_len));
     }
     return ret;
@@ -119,7 +119,7 @@ class MergerTest {
   }
 
   void Generate(size_t num_iterators, size_t strings_per_iterator,
-                size_t letters_per_string) {
+                int letters_per_string) {
     std::vector<Iterator*> small_iterators;
     for (size_t i = 0; i < num_iterators; ++i) {
       auto strings = GenerateStrings(strings_per_iterator, letters_per_string);
@@ -127,8 +127,9 @@ class MergerTest {
       all_keys_.insert(all_keys_.end(), strings.begin(), strings.end());
     }
 
-    merging_iterator_.reset(NewMergingIterator(
-        BytewiseComparator(), &small_iterators[0], small_iterators.size()));
+    merging_iterator_.reset(
+        NewMergingIterator(BytewiseComparator(), &small_iterators[0],
+                           static_cast<int>(small_iterators.size())));
     single_iterator_.reset(new VectorIterator(all_keys_));
   }
 

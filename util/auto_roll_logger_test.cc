@@ -122,7 +122,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   }
 
   // -- Make the log file expire
-  sleep(time);
+  sleep(static_cast<unsigned int>(time));
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.

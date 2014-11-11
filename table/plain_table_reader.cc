@@ -98,8 +98,8 @@ PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
     : internal_comparator_(icomparator),
       encoding_type_(encoding_type),
       full_scan_mode_(false),
-      data_end_offset_(table_properties->data_size),
-      user_key_len_(table_properties->fixed_key_len),
+      data_end_offset_(static_cast<uint32_t>(table_properties->data_size)),
+      user_key_len_(static_cast<uint32_t>(table_properties->fixed_key_len)),
       prefix_extractor_(ioptions.prefix_extractor),
       enable_bloom_(false),
       bloom_(6, nullptr),
@@ -327,7 +327,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     // Allocate bloom filter here for total order mode.
     if (IsTotalOrderMode()) {
       uint32_t num_bloom_bits =
-          table_properties_->num_entries * bloom_bits_per_key;
+          static_cast<uint32_t>(table_properties_->num_entries) *
+          bloom_bits_per_key;
       if (num_bloom_bits > 0) {
         enable_bloom_ = true;
         bloom_.SetTotalBits(&arena_, num_bloom_bits, ioptions_.bloom_locality,
@@ -350,7 +351,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     bloom_.SetRawData(
         const_cast<unsigned char*>(
             reinterpret_cast<const unsigned char*>(bloom_block->data())),
-        bloom_block->size() * 8, num_blocks);
+        static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
   }
 
   PlainTableIndexBuilder index_builder(&arena_, ioptions_, index_sparseness,
@@ -509,7 +510,7 @@ Status PlainTableReader::Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
     return Status::Corruption(
         "Unexpected EOF when reading the next value's size.");
   }
-  *offset = *offset + (value_ptr - start) + value_size;
+  *offset = *offset + static_cast<uint32_t>(value_ptr - start) + value_size;
   if (*offset > data_end_offset_) {
     return Status::Corruption("Unexpected EOF when reading the next value. ");
   }

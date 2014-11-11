@@ -158,7 +158,7 @@ class PlainTableDBTest {
   // Return spread of files per level
   std::string FilesPerLevel() {
     std::string result;
-    int last_non_zero_offset = 0;
+    size_t last_non_zero_offset = 0;
     for (int level = 0; level < db_->NumberLevels(); level++) {
       int f = NumTableFilesAtLevel(level);
       char buf[100];

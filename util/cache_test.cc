@@ -28,7 +28,9 @@ static int DecodeKey(const Slice& k) {
   return DecodeFixed32(k.data());
 }
 static void* EncodeValue(uintptr_t v) { return reinterpret_cast<void*>(v); }
-static int DecodeValue(void* v) { return reinterpret_cast<uintptr_t>(v); }
+static int DecodeValue(void* v) {
+  return static_cast<int>(reinterpret_cast<uintptr_t>(v));
+}
 
 class CacheTest {
  public:

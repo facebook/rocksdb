@@ -92,7 +92,7 @@ class PlainTableIndex {
 
  private:
   uint32_t index_size_;
-  size_t sub_index_size_;
+  uint32_t sub_index_size_;
   uint32_t num_prefixes_;
 
   uint32_t* index_;
@@ -109,8 +109,8 @@ class PlainTableIndex {
 class PlainTableIndexBuilder {
  public:
   PlainTableIndexBuilder(Arena* arena, const ImmutableCFOptions& ioptions,
-                         uint32_t index_sparseness, double hash_table_ratio,
-                         double huge_page_tlb_size)
+                         size_t index_sparseness, double hash_table_ratio,
+                         size_t huge_page_tlb_size)
       : arena_(arena),
         ioptions_(ioptions),
         record_list_(kRecordsPerGroup),
@@ -124,7 +124,7 @@ class PlainTableIndexBuilder {
         hash_table_ratio_(hash_table_ratio),
         huge_page_tlb_size_(huge_page_tlb_size) {}
 
-  void AddKeyPrefix(Slice key_prefix_slice, uint64_t key_offset);
+  void AddKeyPrefix(Slice key_prefix_slice, uint32_t key_offset);
 
   Slice Finish();
 
@@ -205,13 +205,13 @@ class PlainTableIndexBuilder {
   uint32_t num_keys_per_prefix_;
 
   uint32_t prev_key_prefix_hash_;
-  uint32_t index_sparseness_;
+  size_t index_sparseness_;
   uint32_t index_size_;
-  size_t sub_index_size_;
+  uint32_t sub_index_size_;
 
   const SliceTransform* prefix_extractor_;
   double hash_table_ratio_;
-  double huge_page_tlb_size_;
+  size_t huge_page_tlb_size_;
 
   std::string prev_key_prefix_;
 

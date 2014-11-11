@@ -43,7 +43,7 @@ size_t EncodeSize(EntryType type, uint32_t key_size, char* out_buffer) {
 
 // Return position after the size byte(s). nullptr means error
 const char* DecodeSize(const char* offset, const char* limit,
-                       EntryType* entry_type, size_t* key_size) {
+                       EntryType* entry_type, uint32_t* key_size) {
   assert(offset < limit);
   *entry_type = static_cast<EntryType>(
       (static_cast<unsigned char>(offset[0]) & ~kSizeInlineLimit) >> 6);
@@ -73,10 +73,10 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
 
   Slice key_to_write = key;  // Portion of internal key to write out.
 
-  size_t user_key_size = fixed_user_key_len_;
+  uint32_t user_key_size = fixed_user_key_len_;
   if (encoding_type_ == kPlain) {
     if (fixed_user_key_len_ == kPlainTableVariableLength) {
-      user_key_size = key.size() - 8;
+      user_key_size = static_cast<uint32_t>(key.size() - 8);
       // Write key length
       char key_size_buf[5];  // tmp buffer for key size as varint32
       char* ptr = EncodeVarint32(key_size_buf, user_key_size);
@@ -93,7 +93,7 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
     char size_bytes[12];
     size_t size_bytes_pos = 0;
 
-    user_key_size = key.size() - 8;
+    user_key_size = static_cast<uint32_t>(key.size() - 8);
 
     Slice prefix =
         prefix_extractor_->Transform(Slice(key.data(), user_key_size));
@@ -112,10 +112,11 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
       if (key_count_for_prefix_ == 2) {
         // For second key within a prefix, need to encode prefix length
         size_bytes_pos +=
-            EncodeSize(kPrefixFromPreviousKey, pre_prefix_.GetKey().size(),
+            EncodeSize(kPrefixFromPreviousKey,
+                       static_cast<uint32_t>(pre_prefix_.GetKey().size()),
                        size_bytes + size_bytes_pos);
       }
-      size_t prefix_len = pre_prefix_.GetKey().size();
+      uint32_t prefix_len = static_cast<uint32_t>(pre_prefix_.GetKey().size());
       size_bytes_pos += EncodeSize(kKeySuffix, user_key_size - prefix_len,
                                    size_bytes + size_bytes_pos);
       Status s = file->Append(Slice(size_bytes, size_bytes_pos));
@@ -184,7 +185,7 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(
     const char* start, const char* limit, ParsedInternalKey* parsed_key,
     Slice* internal_key, size_t* bytes_read, bool* seekable) {
   const char* key_ptr = start;
-  size_t user_key_size = 0;
+  uint32_t user_key_size = 0;
   if (fixed_user_key_len_ != kPlainTableVariableLength) {
     user_key_size = fixed_user_key_len_;
     key_ptr = start;
@@ -195,7 +196,7 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(
       return Status::Corruption(
           "Unexpected EOF when reading the next key's size");
     }
-    user_key_size = static_cast<size_t>(tmp_size);
+    user_key_size = tmp_size;
     *bytes_read = key_ptr - start;
   }
   // dummy initial value to avoid compiler complain
@@ -227,7 +228,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
 
   bool expect_suffix = false;
   do {
-    size_t size = 0;
+    uint32_t size = 0;
     // dummy initial value to avoid compiler complain
     bool decoded_internal_key_valid = true;
     const char* pos = DecodeSize(key_ptr, limit, &entry_type, &size);

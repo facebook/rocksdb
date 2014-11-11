@@ -29,14 +29,14 @@ using GFLAGS::ParseCommandLineFlags;
 
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
-DEFINE_uint64(bucket_count, 100000, "number of buckets");
+DEFINE_int32(bucket_count, 100000, "number of buckets");
 DEFINE_uint64(num_locks, 10001, "number of locks");
 DEFINE_bool(random_prefix, false, "randomize prefix");
 DEFINE_uint64(total_prefixes, 100000, "total number of prefixes");
 DEFINE_uint64(items_per_prefix, 1, "total number of values per prefix");
 DEFINE_int64(write_buffer_size, 33554432, "");
-DEFINE_int64(max_write_buffer_number, 2, "");
-DEFINE_int64(min_write_buffer_number_to_merge, 1, "");
+DEFINE_int32(max_write_buffer_number, 2, "");
+DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
 DEFINE_int32(memtable_prefix_bloom_bits, 10000000, "");
 DEFINE_int32(memtable_prefix_bloom_probes, 10, "");

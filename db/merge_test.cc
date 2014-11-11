@@ -23,15 +23,11 @@ using namespace std;
 using namespace rocksdb;
 
 namespace {
-  int numMergeOperatorCalls;
-  void resetNumMergeOperatorCalls() {
-    numMergeOperatorCalls = 0;
-  }
+size_t num_merge_operator_calls;
+void resetNumMergeOperatorCalls() { num_merge_operator_calls = 0; }
 
-  int num_partial_merge_calls;
-  void resetNumPartialMergeCalls() {
-    num_partial_merge_calls = 0;
-  }
+size_t num_partial_merge_calls;
+void resetNumPartialMergeCalls() { num_partial_merge_calls = 0; }
 }
 
 class CountMergeOperator : public AssociativeMergeOperator {
@@ -45,7 +41,7 @@ class CountMergeOperator : public AssociativeMergeOperator {
                      const Slice& value,
                      std::string* new_value,
                      Logger* logger) const override {
-    ++numMergeOperatorCalls;
+    ++num_merge_operator_calls;
     if (existing_value == nullptr) {
       new_value->assign(value.data(), value.size());
       return true;
@@ -307,31 +303,31 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
   }
 }
 
-void testSuccessiveMerge(
-    Counters& counters, int max_num_merges, int num_merges) {
+void testSuccessiveMerge(Counters& counters, size_t max_num_merges,
+                         size_t num_merges) {
 
   counters.assert_remove("z");
   uint64_t sum = 0;
 
-  for (int i = 1; i <= num_merges; ++i) {
+  for (size_t i = 1; i <= num_merges; ++i) {
     resetNumMergeOperatorCalls();
     counters.assert_add("z", i);
     sum += i;
 
     if (i % (max_num_merges + 1) == 0) {
-      assert(numMergeOperatorCalls == max_num_merges + 1);
+      assert(num_merge_operator_calls == max_num_merges + 1);
     } else {
-      assert(numMergeOperatorCalls == 0);
+      assert(num_merge_operator_calls == 0);
     }
 
     resetNumMergeOperatorCalls();
     assert(counters.assert_get("z") == sum);
-    assert(numMergeOperatorCalls == i % (max_num_merges + 1));
+    assert(num_merge_operator_calls == i % (max_num_merges + 1));
   }
 }
 
-void testPartialMerge(Counters* counters, DB* db, int max_merge, int min_merge,
-                      int count) {
+void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
+                      size_t min_merge, size_t count) {
   FlushOptions o;
   o.wait = true;
 
@@ -339,7 +335,7 @@ void testPartialMerge(Counters* counters, DB* db, int max_merge, int min_merge,
   //              operands exceeds the threshold.
   uint64_t tmp_sum = 0;
   resetNumPartialMergeCalls();
-  for (int i = 1; i <= count; i++) {
+  for (size_t i = 1; i <= count; i++) {
     counters->assert_add("b", i);
     tmp_sum += i;
   }
@@ -348,7 +344,7 @@ void testPartialMerge(Counters* counters, DB* db, int max_merge, int min_merge,
   ASSERT_EQ(tmp_sum, counters->assert_get("b"));
   if (count > max_merge) {
     // in this case, FullMerge should be called instead.
-    ASSERT_EQ(num_partial_merge_calls, 0);
+    ASSERT_EQ(num_partial_merge_calls, 0U);
   } else {
     // if count >= min_merge, then partial merge should be called once.
     ASSERT_EQ((count >= min_merge), (num_partial_merge_calls == 1));
@@ -358,20 +354,18 @@ void testPartialMerge(Counters* counters, DB* db, int max_merge, int min_merge,
   resetNumPartialMergeCalls();
   tmp_sum = 0;
   db->Put(rocksdb::WriteOptions(), "c", "10");
-  for (int i = 1; i <= count; i++) {
+  for (size_t i = 1; i <= count; i++) {
     counters->assert_add("c", i);
     tmp_sum += i;
   }
   db->Flush(o);
   db->CompactRange(nullptr, nullptr);
   ASSERT_EQ(tmp_sum, counters->assert_get("c"));
-  ASSERT_EQ(num_partial_merge_calls, 0);
+  ASSERT_EQ(num_partial_merge_calls, 0U);
 }
 
-void testSingleBatchSuccessiveMerge(
-    DB* db,
-    int max_num_merges,
-    int num_merges) {
+void testSingleBatchSuccessiveMerge(DB* db, size_t max_num_merges,
+                                    size_t num_merges) {
   assert(num_merges > max_num_merges);
 
   Slice key("BatchSuccessiveMerge");
@@ -380,7 +374,7 @@ void testSingleBatchSuccessiveMerge(
 
   // Create the batch
   WriteBatch batch;
-  for (int i = 0; i < num_merges; ++i) {
+  for (size_t i = 0; i < num_merges; ++i) {
     batch.Merge(key, merge_value_slice);
   }
 
@@ -390,8 +384,9 @@ void testSingleBatchSuccessiveMerge(
     Status s = db->Write(WriteOptions(), &batch);
     assert(s.ok());
   }
-  assert(numMergeOperatorCalls ==
-      num_merges - (num_merges % (max_num_merges + 1)));
+  ASSERT_EQ(
+      num_merge_operator_calls,
+      static_cast<size_t>(num_merges - (num_merges % (max_num_merges + 1))));
 
   // Get the value
   resetNumMergeOperatorCalls();
@@ -403,7 +398,8 @@ void testSingleBatchSuccessiveMerge(
   assert(get_value_str.size() == sizeof(uint64_t));
   uint64_t get_value = DecodeFixed64(&get_value_str[0]);
   ASSERT_EQ(get_value, num_merges * merge_value);
-  ASSERT_EQ(numMergeOperatorCalls, (num_merges % (max_num_merges + 1)));
+  ASSERT_EQ(num_merge_operator_calls,
+            static_cast<size_t>((num_merges % (max_num_merges + 1))));
 }
 
 void runTest(int argc, const string& dbname, const bool use_ttl = false) {

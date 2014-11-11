@@ -213,9 +213,10 @@ class HashCuckooRep : public MemTableRep {
     static const int kMurmurHashSeeds[HashCuckooRepFactory::kMaxHashCount] = {
         545609244,  1769731426, 763324157,  13099088,   592422103,
         1899789565, 248369300,  1984183468, 1613664382, 1491157517};
-    return MurmurHash(slice.data(), slice.size(),
-                      kMurmurHashSeeds[hash_func_id]) %
-           bucket_count_;
+    return static_cast<unsigned int>(
+        MurmurHash(slice.data(), static_cast<int>(slice.size()),
+                   kMurmurHashSeeds[hash_func_id]) %
+        bucket_count_);
   }
 
   // A cuckoo path is a sequence of bucket ids, where each id points to a

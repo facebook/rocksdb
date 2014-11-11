@@ -132,7 +132,7 @@ static void CmpDestroy(void* arg) { }
 
 static int CmpCompare(void* arg, const char* a, size_t alen,
                       const char* b, size_t blen) {
-  int n = (alen < blen) ? alen : blen;
+  size_t n = (alen < blen) ? alen : blen;
   int r = memcmp(a, b, n);
   if (r == 0) {
     if (alen < blen) r = -1;

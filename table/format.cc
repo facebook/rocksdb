@@ -240,7 +240,7 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
         actual = crc32c::Value(data, n + 1);
         break;
       case kxxHash:
-        actual = XXH32(data, n + 1, 0);
+        actual = XXH32(data, static_cast<int>(n) + 1, 0);
         break;
       default:
         s = Status::Corruption("unknown checksum type");

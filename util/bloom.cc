@@ -55,7 +55,8 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   // +----------------------------------------------------------------+
   virtual Slice Finish(std::unique_ptr<const char[]>* buf) override {
     uint32_t total_bits, num_lines;
-    char* data = ReserveSpace(hash_entries_.size(), &total_bits, &num_lines);
+    char* data = ReserveSpace(static_cast<int>(hash_entries_.size()),
+                              &total_bits, &num_lines);
     assert(data);
 
     if (total_bits != 0 && num_lines != 0) {
@@ -111,7 +112,7 @@ char* FullFilterBitsBuilder::ReserveSpace(const int num_entry,
   assert(bits_per_key_);
   char* data = nullptr;
   if (num_entry != 0) {
-    uint32_t total_bits_tmp = num_entry * bits_per_key_;
+    uint32_t total_bits_tmp = num_entry * static_cast<uint32_t>(bits_per_key_);
 
     *total_bits = GetTotalBitsForLocality(total_bits_tmp);
     *num_lines = *total_bits / (CACHE_LINE_SIZE * 8);
@@ -152,8 +153,9 @@ class FullFilterBitsReader : public FilterBitsReader {
  public:
   explicit FullFilterBitsReader(const Slice& contents)
       : data_(const_cast<char*>(contents.data())),
-        data_len_(contents.size()),
-        num_probes_(0), num_lines_(0) {
+        data_len_(static_cast<uint32_t>(contents.size())),
+        num_probes_(0),
+        num_lines_(0) {
     assert(data_);
     GetFilterMeta(contents, &num_probes_, &num_lines_);
     // Sanitize broken parameter
@@ -210,7 +212,7 @@ class FullFilterBitsReader : public FilterBitsReader {
 
 void FullFilterBitsReader::GetFilterMeta(const Slice& filter,
     size_t* num_probes, uint32_t* num_lines) {
-  uint32_t len = filter.size();
+  uint32_t len = static_cast<uint32_t>(filter.size());
   if (len <= 5) {
     // filter is empty or broken
     *num_probes = 0;
@@ -225,7 +227,7 @@ void FullFilterBitsReader::GetFilterMeta(const Slice& filter,
 bool FullFilterBitsReader::HashMayMatch(const uint32_t& hash,
     const Slice& filter, const size_t& num_probes,
     const uint32_t& num_lines) {
-  uint32_t len = filter.size();
+  uint32_t len = static_cast<uint32_t>(filter.size());
   if (len <= 5) return false;  // remain the same with original filter
 
   // It is ensured the params are valid before calling it

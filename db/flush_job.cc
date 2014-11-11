@@ -150,9 +150,9 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
       memtables.push_back(m->NewIterator(ro, &arena));
     }
     {
-      ScopedArenaIterator iter(NewMergingIterator(&cfd_->internal_comparator(),
-                                                  &memtables[0],
-                                                  memtables.size(), &arena));
+      ScopedArenaIterator iter(
+          NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
+                             static_cast<int>(memtables.size()), &arena));
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] Level-0 flush table #%" PRIu64 ": started",
           cfd_->GetName().c_str(), meta.fd.GetNumber());

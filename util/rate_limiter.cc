@@ -47,7 +47,8 @@ GenericRateLimiter::GenericRateLimiter(
 GenericRateLimiter::~GenericRateLimiter() {
   MutexLock g(&request_mutex_);
   stop_ = true;
-  requests_to_wait_ = queue_[Env::IO_LOW].size() + queue_[Env::IO_HIGH].size();
+  requests_to_wait_ = static_cast<int32_t>(queue_[Env::IO_LOW].size() +
+                                           queue_[Env::IO_HIGH].size());
   for (auto& r : queue_[Env::IO_HIGH]) {
     r->cv.Signal();
   }

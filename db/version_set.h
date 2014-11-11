@@ -194,7 +194,7 @@ class VersionStorageInfo {
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   int NumLevelFiles(int level) const {
     assert(finalized_);
-    return files_[level].size();
+    return static_cast<int>(files_[level].size());
   }
 
   // Return the combined file size of all files at the specified level.

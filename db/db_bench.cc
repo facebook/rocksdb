@@ -251,7 +251,8 @@ DEFINE_int32(universal_compression_size_percent, -1,
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
 
-DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
+DEFINE_int32(block_size,
+             static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
 
 DEFINE_int32(block_restart_interval,
@@ -2111,8 +2112,9 @@ class Benchmark {
         for (uint64_t i = 0; i < num_; ++i) {
           values_[i] = i;
         }
-        std::shuffle(values_.begin(), values_.end(),
-            std::default_random_engine(FLAGS_seed));
+        std::shuffle(
+            values_.begin(), values_.end(),
+            std::default_random_engine(static_cast<unsigned int>(FLAGS_seed)));
       }
     }
 

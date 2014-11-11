@@ -30,12 +30,12 @@ TEST(RateLimiterTest, StartStop) {
 TEST(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
-    Arg(int64_t _target_rate, int _burst)
+    Arg(int32_t _target_rate, int _burst)
         : limiter(new GenericRateLimiter(_target_rate, 100 * 1000, 10)),
           request_size(_target_rate / 10),
           burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
-    int64_t request_size;
+    int32_t request_size;
     int burst;
   };
 
@@ -51,13 +51,12 @@ TEST(RateLimiterTest, Rate) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
                               Env::IO_HIGH);
       }
-      arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
-                            Env::IO_LOW);
+      arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_LOW);
     }
   };
 
   for (int i = 1; i <= 16; i*=2) {
-    int64_t target = i * 1024 * 10;
+    int32_t target = i * 1024 * 10;
     Arg arg(target, i / 4 + 1);
     auto start = env->NowMicros();
     for (int t = 0; t < i; ++t) {
@@ -68,7 +67,7 @@ TEST(RateLimiterTest, Rate) {
     auto elapsed = env->NowMicros() - start;
     double rate = arg.limiter->GetTotalBytesThrough()
                   * 1000000.0 / elapsed;
-    fprintf(stderr, "request size [1 - %" PRIi64 "], limit %" PRIi64
+    fprintf(stderr, "request size [1 - %" PRIi32 "], limit %" PRIi32
                     " KB/sec, actual rate: %lf KB/sec, elapsed %.2lf seconds\n",
             arg.request_size - 1, target / 1024, rate / 1024,
             elapsed / 1000000.0);

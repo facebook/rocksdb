@@ -6,6 +6,11 @@
 
 #include <vector>
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include "util/testharness.h"
 #include "util/benchharness.h"
 #include "db/version_set.h"
@@ -14,9 +19,9 @@
 
 namespace rocksdb {
 
-std::string MakeKey(unsigned int num) {
+std::string MakeKey(uint64_t num) {
   char buf[30];
-  snprintf(buf, sizeof(buf), "%016u", num);
+  snprintf(buf, sizeof(buf), "%016" PRIu64, num);
   return std::string(buf);
 }
 

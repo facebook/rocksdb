@@ -81,7 +81,7 @@ class PlainTableBuilder: public TableBuilder {
   WritableFile* file_;
   uint64_t offset_ = 0;
   uint32_t bloom_bits_per_key_;
-  uint32_t huge_page_tlb_size_;
+  size_t huge_page_tlb_size_;
   Status status_;
   TableProperties properties_;
   PlainTableKeyEncoder encoder_;

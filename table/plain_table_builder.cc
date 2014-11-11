@@ -6,8 +6,10 @@
 #ifndef ROCKSDB_LITE
 #include "table/plain_table_builder.h"
 
-#include <string>
 #include <assert.h>
+
+#include <string>
+#include <limits>
 #include <map>
 
 #include "rocksdb/comparator.h"
@@ -133,7 +135,8 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   // Write value
-  auto prev_offset = offset_;
+  assert(offset_ <= std::numeric_limits<uint32_t>::max());
+  auto prev_offset = static_cast<uint32_t>(offset_);
   // Write out the key
   encoder_.AppendKey(key, file_, &offset_, meta_bytes_buf,
                      &meta_bytes_buf_size);
@@ -142,7 +145,7 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   }
 
   // Write value length
-  int value_size = value.size();
+  uint32_t value_size = static_cast<uint32_t>(value.size());
   char* end_ptr =
       EncodeVarint32(meta_bytes_buf + meta_bytes_buf_size, value_size);
   assert(end_ptr <= meta_bytes_buf + sizeof(meta_bytes_buf));
@@ -180,10 +183,11 @@ Status PlainTableBuilder::Finish() {
   MetaIndexBuilder meta_index_builer;
 
   if (store_index_in_file_ && (properties_.num_entries > 0)) {
+    assert(properties_.num_entries <= std::numeric_limits<uint32_t>::max());
     bloom_block_.SetTotalBits(
-        &arena_, properties_.num_entries * bloom_bits_per_key_,
-        ioptions_.bloom_locality, huge_page_tlb_size_,
-        ioptions_.info_log);
+        &arena_,
+        static_cast<uint32_t>(properties_.num_entries) * bloom_bits_per_key_,
+        ioptions_.bloom_locality, huge_page_tlb_size_, ioptions_.info_log);
 
     PutVarint32(&properties_.user_collected_properties
                      [PlainTablePropertyNames::kNumBloomBlocks],

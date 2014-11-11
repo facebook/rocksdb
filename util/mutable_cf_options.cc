@@ -110,7 +110,7 @@ void MutableCFOptions::Dump(Logger* log) const {
       expanded_compaction_factor);
   Log(log, "                 source_compaction_factor: %d",
       source_compaction_factor);
-  Log(log, "                    target_file_size_base: %d",
+  Log(log, "                    target_file_size_base: %" PRIu64,
       target_file_size_base);
   Log(log, "              target_file_size_multiplier: %d",
       target_file_size_multiplier);

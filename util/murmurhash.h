@@ -36,7 +36,7 @@ typedef unsigned int murmur_t;
 namespace rocksdb {
 struct murmur_hash {
   size_t operator()(const Slice& slice) const {
-    return MurmurHash(slice.data(), slice.size(), 0);
+    return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0);
   }
 };
 }  // rocksdb

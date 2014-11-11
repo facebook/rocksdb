@@ -132,7 +132,9 @@ BlobStore::~BlobStore() {
 
 Status BlobStore::Put(const Slice& value, Blob* blob) {
   // convert size to number of blocks
-  Status s = Allocate((value.size() + block_size_ - 1) / block_size_, blob);
+  Status s = Allocate(
+      static_cast<uint32_t>((value.size() + block_size_ - 1) / block_size_),
+      blob);
   if (!s.ok()) {
     return s;
   }

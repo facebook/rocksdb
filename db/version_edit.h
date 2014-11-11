@@ -160,7 +160,7 @@ class VersionEdit {
   // Add the specified file at the specified number.
   // REQUIRES: This version has not been saved (see VersionSet::SaveTo)
   // REQUIRES: "smallest" and "largest" are smallest and largest keys in file
-  void AddFile(int level, uint64_t file, uint64_t file_path_id,
+  void AddFile(int level, uint64_t file, uint32_t file_path_id,
                uint64_t file_size, const InternalKey& smallest,
                const InternalKey& largest, const SequenceNumber& smallest_seqno,
                const SequenceNumber& largest_seqno) {
@@ -180,9 +180,7 @@ class VersionEdit {
   }
 
   // Number of edits
-  int NumEntries() {
-    return new_files_.size() + deleted_files_.size();
-  }
+  size_t NumEntries() { return new_files_.size() + deleted_files_.size(); }
 
   bool IsColumnFamilyManipulation() {
     return is_column_family_add_ || is_column_family_drop_;

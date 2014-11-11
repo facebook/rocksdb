@@ -971,8 +971,9 @@ void DBDumperCommand::DoCommand() {
   uint64_t s1=0,s2=0;
 
   // At this point, bucket_size=0 => time_range=0
-  uint64_t num_buckets = (bucket_size >= time_range) ? 1 :
-    ((time_range + bucket_size - 1) / bucket_size);
+  int num_buckets = (bucket_size >= time_range)
+                        ? 1
+                        : ((time_range + bucket_size - 1) / bucket_size);
   vector<uint64_t> bucket_counts(num_buckets, 0);
   if (is_db_ttl_ && !count_only_ && timestamp_ && !count_delim_) {
     fprintf(stdout, "Dumping key-values from %s to %s\n",

@@ -19,9 +19,14 @@ namespace rocksdb {
 
 class MemFile {
  public:
-  explicit MemFile(const std::string& fn) :
-    fn_(fn), refs_(0), size_(0), modified_time_(Now()),
-    rnd_((uint32_t)MurmurHash(fn.data(), fn.size(), 0)), fsynced_bytes_(0) {}
+  explicit MemFile(const std::string& fn)
+      : fn_(fn),
+        refs_(0),
+        size_(0),
+        modified_time_(Now()),
+        rnd_(static_cast<uint32_t>(
+            MurmurHash(fn.data(), static_cast<int>(fn.size()), 0))),
+        fsynced_bytes_(0) {}
 
   void Ref() {
     MutexLock lock(&mutex_);
@@ -61,7 +66,8 @@ class MemFile {
       return;
     }
     uint64_t buffered_bytes = size_ - fsynced_bytes_;
-    uint64_t start = fsynced_bytes_ + rnd_.Uniform(buffered_bytes);
+    uint64_t start =
+        fsynced_bytes_ + rnd_.Uniform(static_cast<int>(buffered_bytes));
     uint64_t end = std::min(start + 512, size_.load());
     MutexLock lock(&mutex_);
     for (uint64_t pos = start; pos < end; ++pos) {

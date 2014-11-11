@@ -153,15 +153,15 @@ TEST(DynamicBloomTest, perf) {
     return;
   }
 
-  for (uint64_t m = 1; m <= 8; ++m) {
+  for (uint32_t m = 1; m <= 8; ++m) {
     Arena arena;
-    const uint64_t num_keys = m * 8 * 1024 * 1024;
-    fprintf(stderr, "testing %" PRIu64 "M keys\n", m * 8);
+    const uint32_t num_keys = m * 8 * 1024 * 1024;
+    fprintf(stderr, "testing %" PRIu32 "M keys\n", m * 8);
 
     DynamicBloom std_bloom(&arena, num_keys * 10, 0, num_probes);
 
     timer.Start();
-    for (uint64_t i = 1; i <= num_keys; ++i) {
+    for (uint32_t i = 1; i <= num_keys; ++i) {
       std_bloom.Add(Slice(reinterpret_cast<const char*>(&i), 8));
     }
 
@@ -169,9 +169,9 @@ TEST(DynamicBloomTest, perf) {
     fprintf(stderr, "standard bloom, avg add latency %" PRIu64 "\n",
             elapsed / num_keys);
 
-    uint64_t count = 0;
+    uint32_t count = 0;
     timer.Start();
-    for (uint64_t i = 1; i <= num_keys; ++i) {
+    for (uint32_t i = 1; i <= num_keys; ++i) {
       if (std_bloom.MayContain(Slice(reinterpret_cast<const char*>(&i), 8))) {
         ++count;
       }
@@ -185,7 +185,7 @@ TEST(DynamicBloomTest, perf) {
     DynamicBloom blocked_bloom(&arena, num_keys * 10, 1, num_probes);
 
       timer.Start();
-      for (uint64_t i = 1; i <= num_keys; ++i) {
+      for (uint32_t i = 1; i <= num_keys; ++i) {
         blocked_bloom.Add(Slice(reinterpret_cast<const char*>(&i), 8));
       }
 
@@ -196,9 +196,9 @@ TEST(DynamicBloomTest, perf) {
 
       count = 0;
       timer.Start();
-      for (uint64_t i = 1; i <= num_keys; ++i) {
+      for (uint32_t i = 1; i <= num_keys; ++i) {
         if (blocked_bloom.MayContain(
-              Slice(reinterpret_cast<const char*>(&i), 8))) {
+                Slice(reinterpret_cast<const char*>(&i), 8))) {
           ++count;
         }
       }

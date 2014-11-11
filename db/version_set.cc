@@ -201,8 +201,8 @@ class FilePicker {
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
-  int search_left_bound_;
-  int search_right_bound_;
+  int32_t search_left_bound_;
+  int32_t search_right_bound_;
 #ifndef NDEBUG
   std::vector<FileMetaData*>* files_;
 #endif
@@ -258,11 +258,13 @@ class FilePicker {
           start_index = search_left_bound_;
         } else if (search_left_bound_ < search_right_bound_) {
           if (search_right_bound_ == FileIndexer::kLevelMaxIndex) {
-            search_right_bound_ = curr_file_level_->num_files - 1;
+            search_right_bound_ =
+                static_cast<int32_t>(curr_file_level_->num_files) - 1;
           }
-          start_index = FindFileInRange(*internal_comparator_,
-              *curr_file_level_, ikey_,
-              search_left_bound_, search_right_bound_);
+          start_index =
+              FindFileInRange(*internal_comparator_, *curr_file_level_, ikey_,
+                              static_cast<uint32_t>(search_left_bound_),
+                              static_cast<uint32_t>(search_right_bound_));
         } else {
           // search_left_bound > search_right_bound, key does not exist in
           // this level. Since no comparision is done in this level, it will
@@ -315,7 +317,8 @@ Version::~Version() {
 int FindFile(const InternalKeyComparator& icmp,
              const LevelFilesBrief& file_level,
              const Slice& key) {
-  return FindFileInRange(icmp, file_level, key, 0, file_level.num_files);
+  return FindFileInRange(icmp, file_level, key, 0,
+                         static_cast<uint32_t>(file_level.num_files));
 }
 
 void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
@@ -412,7 +415,7 @@ class LevelFileNumIterator : public Iterator {
                        const LevelFilesBrief* flevel)
       : icmp_(icmp),
         flevel_(flevel),
-        index_(flevel->num_files),
+        index_(static_cast<uint32_t>(flevel->num_files)),
         current_value_(0, 0, 0) {  // Marks as invalid
   }
   virtual bool Valid() const {
@@ -423,7 +426,9 @@ class LevelFileNumIterator : public Iterator {
   }
   virtual void SeekToFirst() { index_ = 0; }
   virtual void SeekToLast() {
-    index_ = (flevel_->num_files == 0) ? 0 : flevel_->num_files - 1;
+    index_ = (flevel_->num_files == 0)
+                 ? 0
+                 : static_cast<uint32_t>(flevel_->num_files) - 1;
   }
   virtual void Next() {
     assert(Valid());
@@ -432,7 +437,7 @@ class LevelFileNumIterator : public Iterator {
   virtual void Prev() {
     assert(Valid());
     if (index_ == 0) {
-      index_ = flevel_->num_files;  // Marks as invalid
+      index_ = static_cast<uint32_t>(flevel_->num_files);  // Marks as invalid
     } else {
       index_--;
     }
@@ -1213,7 +1218,7 @@ void VersionStorageInfo::GetOverlappingInputs(
           i = 0;
         }
       } else if (file_index) {
-        *file_index = i-1;
+        *file_index = static_cast<int>(i) - 1;
       }
     }
   }
@@ -1229,7 +1234,7 @@ void VersionStorageInfo::GetOverlappingInputsBinarySearch(
   assert(level > 0);
   int min = 0;
   int mid = 0;
-  int max = files_[level].size() -1;
+  int max = static_cast<int>(files_[level].size()) - 1;
   bool foundOverlap = false;
   const Comparator* user_cmp = user_comparator_;
 
@@ -2646,12 +2651,12 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.
   // TODO(opt): use concatenating iterator for level-0 if there is no overlap
-  const int space = (c->level() == 0 ?
-      c->input_levels(0)->num_files + c->num_input_levels() - 1:
-      c->num_input_levels());
-  Iterator** list = new Iterator*[space];
-  int num = 0;
-  for (int which = 0; which < c->num_input_levels(); which++) {
+  const size_t space = (c->level() == 0 ? c->input_levels(0)->num_files +
+                                              c->num_input_levels() - 1
+                                        : c->num_input_levels());
+  Iterator** list = new Iterator* [space];
+  size_t num = 0;
+  for (size_t which = 0; which < c->num_input_levels(); which++) {
     if (c->input_levels(which)->num_files != 0) {
       if (c->level(which) == 0) {
         const LevelFilesBrief* flevel = c->input_levels(which);
@@ -2673,8 +2678,9 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
     }
   }
   assert(num <= space);
-  Iterator* result = NewMergingIterator(
-      &c->column_family_data()->internal_comparator(), list, num);
+  Iterator* result =
+      NewMergingIterator(&c->column_family_data()->internal_comparator(), list,
+                         static_cast<int>(num));
   delete[] list;
   return result;
 }
@@ -2691,9 +2697,9 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         c->column_family_data()->GetName().c_str());
   }
 
-  for (int input = 0; input < c->num_input_levels(); ++input) {
+  for (size_t input = 0; input < c->num_input_levels(); ++input) {
     int level = c->level(input);
-    for (int i = 0; i < c->num_input_files(input); ++i) {
+    for (size_t i = 0; i < c->num_input_files(input); ++i) {
       uint64_t number = c->input(input, i)->fd.GetNumber();
       bool found = false;
       for (unsigned int j = 0; j < vstorage->files_[level].size(); j++) {

@@ -65,8 +65,8 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromBackup0(JNIEnv* env,
   const char* cwal_dir = env->GetStringUTFChars(jwal_dir, 0);
 
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
-  rocksdb::Status s =
-      rdb->RestoreDBFromBackup(jbackup_id, cdb_dir, cwal_dir, *opt);
+  rocksdb::Status s = rdb->RestoreDBFromBackup(
+      static_cast<rocksdb::BackupID>(jbackup_id), cdb_dir, cwal_dir, *opt);
 
   env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
   env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
