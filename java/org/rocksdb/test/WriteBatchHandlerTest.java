@@ -13,13 +13,20 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.ClassRule;
+import org.junit.Test;
+import org.rocksdb.WriteOptions;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
 
 public class WriteBatchHandlerTest {
-    static {
-        RocksDB.loadLibrary();
-    }
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
 
-    public static void main(final String[] args) throws IOException, RocksDBException {
+  @Test
+  public void writeBatchHandler() throws IOException, RocksDBException {
 
         // setup test data
         final List<Tuple<Action, Tuple<byte[], byte[]>>> testEvents = new ArrayList<>();
