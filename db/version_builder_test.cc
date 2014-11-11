@@ -127,14 +127,14 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
 }
 
 TEST(VersionBuilderTest, EstimatedActiveKeys) {
-  const uint64_t kTotalSamples = 20;
-  const uint64_t kNumLevels = 5;
-  const uint64_t kFilesPerLevel = 8;
-  const uint64_t kNumFiles = kNumLevels * kFilesPerLevel;
-  const uint64_t kEntriesPerFile = 1000;
-  const uint64_t kDeletionsPerFile = 100;
-  for (uint64_t i = 0; i < kNumFiles; ++i) {
-    Add(i / kFilesPerLevel, i + 1,
+  const uint32_t kTotalSamples = 20;
+  const uint32_t kNumLevels = 5;
+  const uint32_t kFilesPerLevel = 8;
+  const uint32_t kNumFiles = kNumLevels * kFilesPerLevel;
+  const uint32_t kEntriesPerFile = 1000;
+  const uint32_t kDeletionsPerFile = 100;
+  for (uint32_t i = 0; i < kNumFiles; ++i) {
+    Add(static_cast<int>(i / kFilesPerLevel), i + 1,
         std::to_string((i + 100) * 1000).c_str(),
         std::to_string((i + 100) * 1000 + 999).c_str(),
         100U,  0, 100, 100,
