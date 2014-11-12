@@ -22,6 +22,10 @@ public class ColumnFamilyTest {
     RocksDB db = null;
     Options options = new Options();
     options.setCreateIfMissing(true);
+
+    DBOptions dbOptions = new DBOptions();
+    dbOptions.setCreateIfMissing(true);
+
     try {
         db = RocksDB.open(options, db_path);
     } catch (RocksDBException e) {
@@ -43,7 +47,8 @@ public class ColumnFamilyTest {
 
     // Test createColumnFamily
     try {
-      db.createColumnFamily("new_cf");
+      db.createColumnFamily(new ColumnFamilyDescriptor("new_cf",
+          new ColumnFamilyOptions()));
     } catch (RocksDBException e) {
       assert(false);
     }
@@ -67,14 +72,15 @@ public class ColumnFamilyTest {
     }
 
     // Test open database with column family names
-    List<String> cfNames = new ArrayList<String>();
+    List<ColumnFamilyDescriptor> cfNames =
+        new ArrayList<>();
     List<ColumnFamilyHandle> columnFamilyHandleList =
-        new ArrayList<ColumnFamilyHandle>();
-    cfNames.add("default");
-    cfNames.add("new_cf");
+        new ArrayList<>();
+    cfNames.add(new ColumnFamilyDescriptor("default"));
+    cfNames.add(new ColumnFamilyDescriptor("new_cf"));
 
     try {
-      db = RocksDB.open(options, db_path, cfNames, columnFamilyHandleList);
+      db = RocksDB.open(dbOptions, db_path, cfNames, columnFamilyHandleList);
       assert(columnFamilyHandleList.size() == 2);
       db.put("dfkey1".getBytes(), "dfvalue".getBytes());
       db.put(columnFamilyHandleList.get(0), "dfkey2".getBytes(),
@@ -100,7 +106,8 @@ public class ColumnFamilyTest {
     // Test create write to and drop ColumnFamily
     ColumnFamilyHandle tmpColumnFamilyHandle = null;
     try {
-      tmpColumnFamilyHandle = db.createColumnFamily("tmpCF");
+      tmpColumnFamilyHandle = db.createColumnFamily(
+          new ColumnFamilyDescriptor("tmpCF", new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.dropColumnFamily(tmpColumnFamilyHandle);
       tmpColumnFamilyHandle.dispose();
@@ -214,8 +221,6 @@ public class ColumnFamilyTest {
       assert(new String(retValues.get(keys.get(0)))
           .equals("value"));
     } catch (RocksDBException e) {
-      assert(false);
-    } catch (IllegalArgumentException e) {
       assert(false);
     }
 

@@ -29,6 +29,20 @@ public class Options extends RocksObject
     env_ = RocksEnv.getDefault();
   }
 
+  /**
+   * Construct options for opening a RocksDB. Reusing database options
+   * and column family options.
+   *
+   * @param dbOptions {@link org.rocksdb.DBOptions} instance
+   * @param columnFamilyOptions {@link org.rocksdb.ColumnFamilyOptions}
+   *     instance
+   */
+  public Options(DBOptions dbOptions, ColumnFamilyOptions columnFamilyOptions) {
+    super();
+    newOptions(dbOptions.nativeHandle_, columnFamilyOptions.nativeHandle_);
+    env_ = RocksEnv.getDefault();
+  }
+
   @Override
   public Options setCreateIfMissing(boolean flag) {
     assert(isInitialized());

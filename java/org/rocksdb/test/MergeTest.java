@@ -7,7 +7,6 @@ package org.rocksdb.test;
 
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Collections;
 import org.rocksdb.*;
 
 public class MergeTest {
@@ -41,18 +40,22 @@ public class MergeTest {
 
   public static void testCFStringOption()
       throws InterruptedException, RocksDBException {
-    Options opt = new Options();
+    DBOptions opt = new DBOptions();
     opt.setCreateIfMissing(true);
     opt.setCreateMissingColumnFamilies(true);
-    opt.setMergeOperatorName("stringappend");
 
-    List<String> cfNames = new ArrayList<String>();
+    List<ColumnFamilyDescriptor> cfDescr =
+        new ArrayList<ColumnFamilyDescriptor>();
     List<ColumnFamilyHandle> columnFamilyHandleList =
     new ArrayList<ColumnFamilyHandle>();
-    cfNames.add("default");
-    cfNames.add("new_cf");
+    cfDescr.add(new ColumnFamilyDescriptor("default",
+        new ColumnFamilyOptions().setMergeOperatorName(
+            "stringappend")));
+    cfDescr.add(new ColumnFamilyDescriptor("default",
+        new ColumnFamilyOptions().setMergeOperatorName(
+            "stringappend")));
     RocksDB db = RocksDB.open(opt, db_cf_path_string,
-        cfNames, columnFamilyHandleList);
+        cfDescr, columnFamilyHandleList);
 
     // writing aa under key
     db.put(columnFamilyHandleList.get(1),
@@ -97,19 +100,23 @@ public class MergeTest {
 
   public static void testCFOperatorOption()
       throws InterruptedException, RocksDBException {
-    Options opt = new Options();
+    DBOptions opt = new DBOptions();
     opt.setCreateIfMissing(true);
     opt.setCreateMissingColumnFamilies(true);
     StringAppendOperator stringAppendOperator = new StringAppendOperator();
-    opt.setMergeOperator(stringAppendOperator);
 
-    List<String> cfNames = new ArrayList<String>();
+    List<ColumnFamilyDescriptor> cfDescr =
+        new ArrayList<ColumnFamilyDescriptor>();
     List<ColumnFamilyHandle> columnFamilyHandleList =
     new ArrayList<ColumnFamilyHandle>();
-    cfNames.add("default");
-    cfNames.add("new_cf");
+    cfDescr.add(new ColumnFamilyDescriptor("default",
+        new ColumnFamilyOptions().setMergeOperator(
+            stringAppendOperator)));
+    cfDescr.add(new ColumnFamilyDescriptor("new_cf",
+        new ColumnFamilyOptions().setMergeOperator(
+            stringAppendOperator)));
     RocksDB db = RocksDB.open(opt, db_path_operator,
-        cfNames, columnFamilyHandleList);
+        cfDescr, columnFamilyHandleList);
 
     // writing aa under key
     db.put(columnFamilyHandleList.get(1),
@@ -121,7 +128,10 @@ public class MergeTest {
     String strValue = new String(value);
 
     // Test also with createColumnFamily
-    ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily("new_cf2");
+    ColumnFamilyHandle columnFamilyHandle = db.createColumnFamily(
+        new ColumnFamilyDescriptor("new_cf2",
+            new ColumnFamilyOptions().setMergeOperator(
+                new StringAppendOperator())));
     // writing xx under cfkey2
     db.put(columnFamilyHandle, "cfkey2".getBytes(), "xx".getBytes());
     // merge yy under cfkey2
