@@ -206,6 +206,7 @@ class VersionStorageInfo {
   }
 
   const rocksdb::LevelFilesBrief& LevelFilesBrief(int level) const {
+    assert(level < static_cast<int>(level_files_brief_.size()));
     return level_files_brief_[level];
   }
 

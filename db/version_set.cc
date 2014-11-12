@@ -678,6 +678,11 @@ void Version::AddIterators(const ReadOptions& read_options,
                            MergeIteratorBuilder* merge_iter_builder) {
   assert(storage_info_.finalized_);
 
+  if (storage_info_.num_non_empty_levels() == 0) {
+    // No file in the Version.
+    return;
+  }
+
   // Merge all level zero files together since they may overlap
   for (size_t i = 0; i < storage_info_.LevelFilesBrief(0).num_files; i++) {
     const auto& file = storage_info_.LevelFilesBrief(0).files[i];
@@ -689,8 +694,8 @@ void Version::AddIterators(const ReadOptions& read_options,
   // For levels > 0, we can use a concatenating iterator that sequentially
   // walks through the non-overlapping files in the level, opening them
   // lazily.
-  for (int level = 1; level < storage_info_.num_levels(); level++) {
-    if (storage_info_.level_files_brief_[level].num_files != 0) {
+  for (int level = 1; level < storage_info_.num_non_empty_levels(); level++) {
+    if (storage_info_.LevelFilesBrief(level).num_files != 0) {
       merge_iter_builder->AddIterator(NewTwoLevelIterator(
           new LevelFileIteratorState(
               cfd_->table_cache(), read_options, soptions,
@@ -711,7 +716,7 @@ VersionStorageInfo::VersionStorageInfo(
       user_comparator_(user_comparator),
       // cfd is nullptr if Version is dummy
       num_levels_(levels),
-      num_non_empty_levels_(num_levels_),
+      num_non_empty_levels_(0),
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
