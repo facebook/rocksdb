@@ -23,120 +23,65 @@ public class RocksDBColumnFamilySample {
 
     System.out.println("RocksDBColumnFamilySample");
     RocksDB db = null;
-    DBOptions dbOptions = null;
-    List<RocksIterator> iterators = new ArrayList<>();
-    RocksIterator iterator = null;
-    ColumnFamilyHandle cfHandle = null;
+    Options options = null;
+    ColumnFamilyHandle columnFamilyHandle = null;
     WriteBatch wb = null;
     try {
-      // Setup DBOptions
-      dbOptions = new DBOptions().
-          setCreateIfMissing(true).
-          setCreateMissingColumnFamilies(true);
-      // Setup ColumnFamily descriptors
-      List<ColumnFamilyDescriptor> cfNames =
-          new ArrayList<>();
-      // Default column family
-      cfNames.add(new ColumnFamilyDescriptor("default"));
-      // New column families
-      cfNames.add(new ColumnFamilyDescriptor("cf_green",
-          new ColumnFamilyOptions().setComparator(
-              BuiltinComparator.BYTEWISE_COMPARATOR)));
-      cfNames.add(new ColumnFamilyDescriptor("cf_blue",
-          new ColumnFamilyOptions().setComparator(
-              BuiltinComparator.REVERSE_BYTEWISE_COMPARATOR)));
-      cfNames.add(new ColumnFamilyDescriptor("cf_red",
-          new ColumnFamilyOptions().
-              setMergeOperator(new StringAppendOperator())));
+      options = new Options().setCreateIfMissing(true);
+      db = RocksDB.open(options, db_path);
+      assert(db != null);
 
-      List<ColumnFamilyHandle> cfHandles =
-          new ArrayList<>();
-      db = RocksDB.open(dbOptions,
-          db_path, cfNames, cfHandles);
-      // List column families in database
-      System.out.println("List existent column families:");
-      List<byte[]> cfListing = RocksDB.listColumnFamilies(
-          new Options(), db_path);
-      for (byte[] cf : cfListing) {
-        System.out.format(" - %s\n", new String(cf));
-      }
-      // Bootstrapping values
-      System.out.println("Writing values to database.");
-      for (int i=0; i < cfNames.size(); i++) {
-        for (int j=0; j < 10; j++) {
-          db.put(cfHandles.get(i),
-              String.valueOf(j).getBytes(),
-              String.valueOf(j).getBytes());
-        }
-      }
-      // Retrieve values using get
-      System.out.println("Retrieve values with get.");
-      for (int i=0; i < cfNames.size(); i++) {
-        for (int j=0; j < 10; j++) {
-          System.out.format(" %s", new String(
-              db.get(cfHandles.get(i),
-                  String.valueOf(j).getBytes())));
-        }
-        System.out.println("");
-      }
-      // Add a new column family to existing database
-      System.out.println("Add new column family");
-      cfHandle = db.createColumnFamily(new ColumnFamilyDescriptor(
-          "cf_temp", new ColumnFamilyOptions().
-          setMergeOperator(new StringAppendOperator())));
-      System.out.println("Write key/value into new column family.");
-      db.put(cfHandle, "key".getBytes(), "value".getBytes());
-      System.out.format("Lookup 'key' retrieved value: %s\n", new String(
-          db.get(cfHandle, "key".getBytes())));
-      // Delete key
-      System.out.println("Delete key/value in new column family.");
-      db.remove(cfHandle, "key".getBytes());
-      // WriteBatch with column family
-      wb = new WriteBatch();
-      wb.put(cfHandle, "key".getBytes(), "value".getBytes());
-      wb.put(cfHandle, "key2".getBytes(), "value2".getBytes());
-      wb.remove(cfHandle, "key2".getBytes());
-      wb.merge(cfHandle, "key".getBytes(), "morevalues".getBytes());
-      db.write(new WriteOptions(), wb);
-      // Retrieve a single iterator with a cf handle
-      System.out.println("Retrieve values using a iterator on" +
-          " a column family.");
-      iterator = db.newIterator(cfHandle);
-      iterator.seekToFirst();
-      while(iterator.isValid()) {
-        System.out.format(" %s", new String(
-            iterator.value()));
-        iterator.next();
-      }
-      System.out.println("");
-      // Delete column family
-      System.out.println("Delete column family.");
-      db.dropColumnFamily(cfHandle);
-      // Retrieve values from cf using iterator
-      System.out.println("Retrieve values with iterators");
-      iterators = db.newIterators(cfHandles);
-      assert(iterators.size() == 4);
-      for (RocksIterator iter : iterators) {
-        iter.seekToFirst();
-        while(iter.isValid()) {
-          System.out.format(" %s", new String(
-              iter.value()));
-          iter.next();
-        }
-        System.out.println("");
-      }
+      // create column family
+      columnFamilyHandle = db.createColumnFamily(
+          new ColumnFamilyDescriptor("new_cf", new ColumnFamilyOptions()));
+      assert(columnFamilyHandle != null);
+
     } finally {
+      if (columnFamilyHandle != null) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
+        db = null;
       }
-      if (dbOptions != null) {
-        dbOptions.dispose();
+    }
+
+    // open DB with two column families
+    List<ColumnFamilyDescriptor> columnFamilyDescriptors = new ArrayList<>();
+    // have to open default column family
+    columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+        RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
+    // open the new one, too
+    columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+        "new_cf", new ColumnFamilyOptions()));
+    List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
+    try {
+      db = RocksDB.open(new DBOptions(), db_path,
+          columnFamilyDescriptors, columnFamilyHandles);
+      assert(db != null);
+
+      // put and get from non-default column family
+      db.put(columnFamilyHandles.get(0), new WriteOptions(),
+          "key".getBytes(), "value".getBytes());
+      String value = new String(db.get(columnFamilyHandles.get(0),
+          "key".getBytes()));
+
+      // atomic write
+      wb = new WriteBatch();
+      wb.put(columnFamilyHandles.get(0), "key2".getBytes(), "value2".getBytes());
+      wb.put(columnFamilyHandles.get(1), "key3".getBytes(), "value3".getBytes());
+      wb.remove(columnFamilyHandles.get(0), "key".getBytes());
+      db.write(new WriteOptions(), wb);
+
+      // drop column family
+      db.dropColumnFamily(columnFamilyHandles.get(1));
+
+    } finally {
+      for (ColumnFamilyHandle handle : columnFamilyHandles){
+        handle.dispose();
       }
-      if (iterator != null) {
-        iterator.dispose();
-      }
-      for (RocksIterator iter : iterators) {
-        iter.dispose();
+      if (db != null) {
+        db.close();
       }
       if (wb != null) {
         wb.dispose();

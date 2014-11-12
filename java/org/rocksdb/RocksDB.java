@@ -16,6 +16,7 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
+  public static final String DEFAULT_COLUMN_FAMILY = "default";
   public static final int NOT_FOUND = -1;
   private static final String[] compressionLibs_ = {
       "snappy", "z", "bzip2", "lz4", "lz4hc"};
