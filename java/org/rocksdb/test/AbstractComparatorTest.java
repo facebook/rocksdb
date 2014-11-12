@@ -36,6 +36,8 @@ public abstract class AbstractComparatorTest {
    *
    * @param db_path A path where we can store database
    *                files temporarily
+   *
+   * @throws java.io.IOException if IO error happens.
    */
   public void testRoundtrip(final Path db_path) throws IOException {
 

@@ -5,8 +5,6 @@
 
 package org.rocksdb;
 
-import java.util.*;
-
 /**
  * MergeOperator holds an operator to be applied when compacting
  * two merge operands held under the same key in order to obtain a single

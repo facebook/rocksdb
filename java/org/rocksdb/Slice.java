@@ -6,26 +6,26 @@
 package org.rocksdb;
 
 /**
- * Base class for slices which will receive
- * byte[] based access to the underlying data.
+ * <p>Base class for slices which will receive
+ * byte[] based access to the underlying data.</p>
  *
- * byte[] backed slices typically perform better with
+ * <p>byte[] backed slices typically perform better with
  * small keys and values. When using larger keys and
- * values consider using @see org.rocksdb.DirectSlice
+ * values consider using {@link org.rocksdb.DirectSlice}</p>
  */
 public class Slice extends AbstractSlice<byte[]> {
   /**
-   * Called from JNI to construct a new Java Slice
+   * <p>Called from JNI to construct a new Java Slice
    * without an underlying C++ object set
-   * at creation time.
+   * at creation time.</p>
    *
-   * Note: You should be aware that
+   * <p>Note: You should be aware that
    * {@see org.rocksdb.RocksObject#disOwnNativeHandle()} is intentionally
    * called from the default Slice constructor, and that it is marked as
    * private. This is so that developers cannot construct their own default
    * Slice objects (at present). As developers cannot construct their own
    * Slice objects through this, they are not creating underlying C++ Slice
-   * objects, and so there is nothing to free (dispose) from Java.
+   * objects, and so there is nothing to free (dispose) from Java.</p>
    */
   private Slice() {
     super();
@@ -33,9 +33,10 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   /**
-   * Constructs a slice
-   * where the data is taken from
-   * a String.
+   * <p>Constructs a slice where the data is taken from
+   * a String.</p>
+   *
+   * @param str String value.
    */
   public Slice(final String str) {
     super();
@@ -43,9 +44,11 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   /**
-   * Constructs a slice
-   * where the data is a copy of
-   * the byte array from a specific offset.
+   * <p>Constructs a slice where the data is a copy of
+   * the byte array from a specific offset.</p>
+   *
+   * @param data byte array.
+   * @param offset offset within the byte array.
    */
   public Slice(final byte[] data, final int offset) {
     super();
@@ -53,9 +56,10 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   /**
-   * Constructs a slice
-   * where the data is a copy of
-   * the byte array.
+   * <p>Constructs a slice where the data is a copy of
+   * the byte array.</p>
+   *
+   * @param data byte array.
    */
   public Slice(final byte[] data) {
     super();
@@ -63,8 +67,8 @@ public class Slice extends AbstractSlice<byte[]> {
   }
 
   /**
-   * Deletes underlying C++ slice pointer
-   * and any buffered data.
+   * <p>Deletes underlying C++ slice pointer
+   * and any buffered data.</p>
    *
    * <p>
    * Note that this function should be called only after all

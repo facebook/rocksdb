@@ -61,6 +61,9 @@ public class Options extends RocksObject
    * Use the specified object to interact with the environment,
    * e.g. to read/write files, schedule background work, etc.
    * Default: {@link RocksEnv#getDefault()}
+   *
+   * @param env {@link RocksEnv} instance.
+   * @return the instance of the current Options.
    */
   public Options setEnv(RocksEnv env) {
     assert(isInitialized());
@@ -69,6 +72,11 @@ public class Options extends RocksObject
     return this;
   }
 
+  /**
+   * Returns the set RocksEnv instance.
+   *
+   * @return {@link RocksEnv} instance set in the Options.
+   */
   public RocksEnv getEnv() {
     return env_;
   }

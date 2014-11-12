@@ -29,6 +29,8 @@ public class RocksEnv extends RocksObject {
    * belongs to rocksdb c++.  As a result, the returned RocksEnv will not
    * have the ownership of its c++ resource, and calling its dispose()
    * will be no-op.</p>
+   *
+   * @return the default {@link org.rocksdb.RocksEnv} instance.
    */
   public static RocksEnv getDefault() {
     return default_env_;
@@ -38,6 +40,10 @@ public class RocksEnv extends RocksObject {
    * <p>Sets the number of background worker threads of the flush pool
    * for this environment.</p>
    * <p>Default number: 1</p>
+   *
+   * @param num the number of threads
+   *
+   * @return current {@link org.rocksdb.RocksEnv} instance.
    */
   public RocksEnv setBackgroundThreads(int num) {
     return setBackgroundThreads(num, FLUSH_POOL);
@@ -52,6 +58,7 @@ public class RocksEnv extends RocksObject {
    *     FLUSH_POOL or COMPACTION_POOL.
    *
    * <p>Default number: 1</p>
+   * @return current {@link org.rocksdb.RocksEnv} instance.
    */
   public RocksEnv setBackgroundThreads(int num, int poolID) {
     setBackgroundThreads(nativeHandle_, num, poolID);
@@ -66,6 +73,8 @@ public class RocksEnv extends RocksObject {
    *
    * @param poolID the id to specified a thread pool.  Should be either
    *     FLUSH_POOL or COMPACTION_POOL.
+   *
+   * @return the thread pool queue length.
    */
   public int getThreadPoolQueueLen(int poolID) {
     return getThreadPoolQueueLen(nativeHandle_, poolID);

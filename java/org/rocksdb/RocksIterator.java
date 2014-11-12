@@ -112,6 +112,9 @@ public class RocksIterator extends RocksObject {
    * <p>Position at the first key in the source that at or past target
    * The iterator is valid after this call iff the source contains
    * an entry that comes at or past target.</p>
+   *
+   * @param target byte array describing a key or a
+   *     key prefix to seek for.
    */
   public void seek(byte[] target) {
     assert(isInitialized());
@@ -123,7 +126,8 @@ public class RocksIterator extends RocksObject {
    * If non-blocking IO is requested and this operation cannot be
    * satisfied without doing some IO, then this returns Status::Incomplete().
    *
-   * @throws org.rocksdb.RocksDBException
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
   public void status() throws RocksDBException {
     assert(isInitialized());
