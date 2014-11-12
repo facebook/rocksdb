@@ -131,6 +131,7 @@ class SanityTestZlibCompression : public SanityTest {
   Options options_;
 };
 
+#ifndef ROCKSDB_LITE
 class SanityTestPlainTableFactory : public SanityTest {
  public:
   explicit SanityTestPlainTableFactory(const std::string& path)
@@ -146,6 +147,7 @@ class SanityTestPlainTableFactory : public SanityTest {
  private:
   Options options_;
 };
+#endif  // ROCKSDB_LITE
 
 class SanityTestBloomFilter : public SanityTest {
  public:
@@ -165,10 +167,11 @@ class SanityTestBloomFilter : public SanityTest {
 namespace {
 bool RunSanityTests(const std::string& command, const std::string& path) {
   std::vector<SanityTest*> sanity_tests = {
-      new SanityTestBasic(path),
-      new SanityTestSpecialComparator(path),
+      new SanityTestBasic(path), new SanityTestSpecialComparator(path),
       new SanityTestZlibCompression(path),
+#ifndef ROCKSDB_LITE
       new SanityTestPlainTableFactory(path),
+#endif  // ROCKSDB_LITE
       new SanityTestBloomFilter(path)};
 
   if (command == "create") {

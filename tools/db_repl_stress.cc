@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -145,3 +146,11 @@ int main(int argc, const char** argv) {
 }
 
 #endif  // GFLAGS
+
+#else  // ROCKSDB_LITE
+#include <stdio.h>
+int main(int argc, char** argv) {
+  fprintf(stderr, "Not supported in lite mode.\n");
+  return 1;
+}
+#endif  // ROCKSDB_LITE

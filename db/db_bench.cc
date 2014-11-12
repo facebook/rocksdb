@@ -1878,13 +1878,14 @@ class Benchmark {
       exit(1);
     }
     switch (FLAGS_rep_factory) {
-      case kPrefixHash:
-        options.memtable_factory.reset(NewHashSkipListRepFactory(
-            FLAGS_hash_bucket_count));
-        break;
       case kSkipList:
         options.memtable_factory.reset(new SkipListFactory(
             FLAGS_skip_list_lookahead));
+        break;
+#ifndef ROCKSDB_LITE
+      case kPrefixHash:
+        options.memtable_factory.reset(
+            NewHashSkipListRepFactory(FLAGS_hash_bucket_count));
         break;
       case kHashLinkedList:
         options.memtable_factory.reset(NewHashLinkListRepFactory(
@@ -1899,8 +1900,14 @@ class Benchmark {
         options.memtable_factory.reset(NewHashCuckooRepFactory(
             options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));
         break;
+#else
+      default:
+        fprintf(stderr, "Only skip list is supported in lite mode\n");
+        exit(1);
+#endif  // ROCKSDB_LITE
     }
     if (FLAGS_use_plain_table) {
+#ifndef ROCKSDB_LITE
       if (FLAGS_rep_factory != kPrefixHash &&
           FLAGS_rep_factory != kHashLinkedList) {
         fprintf(stderr, "Waring: plain table is used with skipList\n");
@@ -1921,7 +1928,12 @@ class Benchmark {
       plain_table_options.hash_table_ratio = 0.75;
       options.table_factory = std::shared_ptr<TableFactory>(
           NewPlainTableFactory(plain_table_options));
+#else
+      fprintf(stderr, "Plain table is not supported in lite mode\n");
+      exit(1);
+#endif  // ROCKSDB_LITE
     } else if (FLAGS_use_cuckoo_table) {
+#ifndef ROCKSDB_LITE
       if (FLAGS_cuckoo_hash_ratio > 1 || FLAGS_cuckoo_hash_ratio < 0) {
         fprintf(stderr, "Invalid cuckoo_hash_ratio\n");
         exit(1);
@@ -1931,6 +1943,10 @@ class Benchmark {
       table_options.identity_as_first_hash = FLAGS_identity_as_first_hash;
       options.table_factory = std::shared_ptr<TableFactory>(
           NewCuckooTableFactory(table_options));
+#else
+      fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
+      exit(1);
+#endif  // ROCKSDB_LITE
     } else {
       BlockBasedTableOptions block_based_options;
       if (FLAGS_use_hash_search) {

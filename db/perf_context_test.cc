@@ -38,8 +38,13 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
       FLAGS_min_write_buffer_number_to_merge;
 
     if (FLAGS_use_set_based_memetable) {
+#ifndef ROCKSDB_LITE
       options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(0));
       options.memtable_factory.reset(NewHashSkipListRepFactory());
+#else
+      fprintf(stderr, "Prefix hash is not supported in lite mode\n");
+      exit(1);
+#endif  // ROCKSDB_LITE
     }
 
     Status s;

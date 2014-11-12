@@ -257,12 +257,18 @@ int main(int argc, char** argv) {
   options.compression = rocksdb::CompressionType::kNoCompression;
 
   if (FLAGS_table_factory == "cuckoo_hash") {
+#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
     rocksdb::CuckooTableOptions table_options;
     table_options.hash_table_ratio = 0.75;
     tf.reset(rocksdb::NewCuckooTableFactory(table_options));
+#else
+    fprintf(stderr, "Plain table is not supported in lite mode\n");
+    exit(1);
+#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "plain_table") {
+#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
 
@@ -274,6 +280,10 @@ int main(int argc, char** argv) {
     tf.reset(new rocksdb::PlainTableFactory(plain_table_options));
     options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
         FLAGS_prefix_len));
+#else
+    fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
+    exit(1);
+#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "block_based") {
     tf.reset(new rocksdb::BlockBasedTableFactory());
   } else {

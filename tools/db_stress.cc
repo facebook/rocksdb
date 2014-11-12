@@ -1789,16 +1789,24 @@ class StressTest {
       exit(1);
     }
     switch (FLAGS_rep_factory) {
-      case kHashSkipList:
-        options_.memtable_factory.reset(NewHashSkipListRepFactory(10000));
-        break;
       case kSkipList:
         // no need to do anything
+        break;
+#ifndef ROCKSDB_LITE
+      case kHashSkipList:
+        options_.memtable_factory.reset(NewHashSkipListRepFactory(10000));
         break;
       case kVectorRep:
         options_.memtable_factory.reset(new VectorRepFactory());
         break;
+#else
+      default:
+        fprintf(stderr,
+                "RocksdbLite only supports skip list mem table. Skip "
+                "--rep_factory\n");
+#endif  // ROCKSDB_LITE
     }
+
     static Random purge_percent(1000); // no benefit from non-determinism here
     if (static_cast<int32_t>(purge_percent.Uniform(100)) <
         FLAGS_purge_redundant_percent - 1) {
@@ -1884,9 +1892,14 @@ class StressTest {
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {
+#ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
       s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
       db_ = db_with_ttl;
+#else
+      fprintf(stderr, "TTL is not supported in RocksDBLite\n");
+      exit(1);
+#endif
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
