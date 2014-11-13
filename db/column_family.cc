@@ -524,6 +524,8 @@ void ColumnFamilyData::NotifyOnFlushCompleted(
     DB* db, const std::string& file_path,
     bool triggered_flush_slowdown,
     bool triggered_flush_stop) {
+
+#ifndef ROCKSDB_LITE
   auto listeners = ioptions()->listeners;
   for (auto listener : listeners) {
     listener->OnFlushCompleted(
@@ -531,6 +533,7 @@ void ColumnFamilyData::NotifyOnFlushCompleted(
         // Use path 0 as fulled memtables are first flushed into path 0.
         triggered_flush_slowdown, triggered_flush_stop);
   }
+#endif  // ROCKSDB_LITE
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(

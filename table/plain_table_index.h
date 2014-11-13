@@ -156,7 +156,7 @@ class PlainTableIndexBuilder {
       }
     }
 
-    void AddRecord(murmur_t hash, uint32_t offset);
+    void AddRecord(uint32_t hash, uint32_t offset);
 
     size_t GetNumRecords() const {
       return (groups_.size() - 1) * kNumRecordsPerGroup +

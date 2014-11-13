@@ -63,7 +63,6 @@ enum CompactionStyle : char {
                                // jobs are submitted via CompactFiles()
 };
 
-
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -102,6 +101,7 @@ struct Options;
 struct ColumnFamilyOptions {
   // Some functions that make it easier to optimize RocksDB
 
+#ifndef ROCKSDB_LITE
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
   ColumnFamilyOptions* OptimizeForPointLookup(
@@ -125,6 +125,7 @@ struct ColumnFamilyOptions {
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
   ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
+#endif  // ROCKSDB_LITE
 
   // -------------------
   // Parameters that affect behavior
@@ -591,9 +592,11 @@ struct ColumnFamilyOptions {
   // Default: 2
   uint32_t min_partial_merge_operands;
 
+#ifndef ROCKSDB_LITE
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
+#endif  // ROCKSDB_LITE
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -606,12 +609,14 @@ struct ColumnFamilyOptions {
 struct DBOptions {
   // Some functions that make it easier to optimize RocksDB
 
+#ifndef ROCKSDB_LITE
   // By default, RocksDB uses only one background thread for flush and
   // compaction. Calling this function will set it up such that total of
   // `total_threads` is used. Good value for `total_threads` is the number of
   // cores. You almost definitely want to call this function if your system is
   // bottlenecked by RocksDB.
   DBOptions* IncreaseParallelism(int total_threads = 16);
+#endif  // ROCKSDB_LITE
 
   // If true, the database will be created if it is missing.
   // Default: false

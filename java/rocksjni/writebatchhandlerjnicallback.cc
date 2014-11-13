@@ -91,9 +91,9 @@ bool WriteBatchHandlerJniCallback::Continue() {
  * on the result after you have finished with it
  */
 jbyteArray WriteBatchHandlerJniCallback::sliceToJArray(const Slice& s) {
-  jbyteArray ja = m_env->NewByteArray(s.size());
+  jbyteArray ja = m_env->NewByteArray(static_cast<jsize>(s.size()));
   m_env->SetByteArrayRegion(
-      ja, 0, s.size(),
+      ja, 0, static_cast<jsize>(s.size()),
       reinterpret_cast<const jbyte*>(s.data()));
   return ja;
 }

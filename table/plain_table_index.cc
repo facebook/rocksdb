@@ -55,16 +55,14 @@ PlainTableIndex::IndexSearchResult PlainTableIndex::GetOffset(
   }
 }
 
-void PlainTableIndexBuilder::IndexRecordList::AddRecord(murmur_t hash,
+void PlainTableIndexBuilder::IndexRecordList::AddRecord(uint32_t hash,
                                                         uint32_t offset) {
   if (num_records_in_current_group_ == kNumRecordsPerGroup) {
     current_group_ = AllocateNewGroup();
     num_records_in_current_group_ = 0;
   }
   auto& new_record = current_group_[num_records_in_current_group_++];
-  // TODO(sdong) -- check if this is OK -- murmur_t is uint64_t, while we only
-  // use 32 bits here
-  new_record.hash = static_cast<uint32_t>(hash);
+  new_record.hash = hash;
   new_record.offset = offset;
   new_record.next = nullptr;
 }

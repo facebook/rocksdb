@@ -1044,8 +1044,8 @@ Status CompactionJob::OpenCompactionOutputFile() {
 
   compact_->outputs.push_back(out);
   compact_->outfile->SetIOPriority(Env::IO_LOW);
-  compact_->outfile->SetPreallocationBlockSize(
-      compact_->compaction->OutputFilePreallocationSize(mutable_cf_options_));
+  compact_->outfile->SetPreallocationBlockSize(static_cast<size_t>(
+      compact_->compaction->OutputFilePreallocationSize(mutable_cf_options_)));
 
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   compact_->builder.reset(NewTableBuilder(

@@ -6,6 +6,8 @@
 
 #include "rocksdb/sst_dump_tool.h"
 
+#ifndef ROCKSDB_LITE
+
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -428,3 +430,5 @@ void SSTDumpTool::Run(int argc, char** argv) {
   }
 }
 }  // namespace rocksdb
+
+#endif  // ROCKSDB_LITE

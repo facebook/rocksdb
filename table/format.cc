@@ -188,9 +188,10 @@ Status ReadFooterFromFile(RandomAccessFile* file,
 
   char footer_space[Footer::kMaxEncodedLength];
   Slice footer_input;
-  size_t read_offset = (file_size > Footer::kMaxEncodedLength)
-                           ? (file_size - Footer::kMaxEncodedLength)
-                           : 0;
+  size_t read_offset =
+      (file_size > Footer::kMaxEncodedLength)
+          ? static_cast<size_t>(file_size - Footer::kMaxEncodedLength)
+          : 0;
   Status s = file->Read(read_offset, Footer::kMaxEncodedLength, &footer_input,
                         footer_space);
   if (!s.ok()) return s;
@@ -203,6 +204,9 @@ Status ReadFooterFromFile(RandomAccessFile* file,
 
   return footer->DecodeFrom(&footer_input);
 }
+
+// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
+namespace {
 
 // Read a block and check its CRC
 // contents is the result of reading.
@@ -254,6 +258,8 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
   }
   return s;
 }
+
+}  // namespace
 
 Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,

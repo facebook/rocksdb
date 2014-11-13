@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include "table/table_properties_internal.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"

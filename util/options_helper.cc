@@ -7,9 +7,12 @@
 #include <cctype>
 #include <unordered_set>
 #include "rocksdb/options.h"
+#include "rocksdb/utilities/convenience.h"
 #include "util/options_helper.h"
 
 namespace rocksdb {
+
+#ifndef ROCKSDB_LITE
 
 namespace {
 CompressionType ParseCompressionType(const std::string& type) {
@@ -50,8 +53,8 @@ uint64_t ParseUint64(const std::string& value) {
   return std::stoull(value);
 }
 
-int64_t ParseInt64(const std::string& value) {
-  return std::stol(value);
+size_t ParseSizeT(const std::string& value) {
+  return static_cast<size_t>(ParseUint64(value));
 }
 
 double ParseDouble(const std::string& value) {
@@ -76,24 +79,24 @@ template<typename OptionsType>
 bool ParseMemtableOptions(const std::string& name, const std::string& value,
                           OptionsType* new_options) {
   if (name == "write_buffer_size") {
-    new_options->write_buffer_size = ParseInt64(value);
+    new_options->write_buffer_size = ParseSizeT(value);
   } else if (name == "arena_block_size") {
-    new_options->arena_block_size = ParseInt64(value);
+    new_options->arena_block_size = ParseSizeT(value);
   } else if (name == "memtable_prefix_bloom_bits") {
     new_options->memtable_prefix_bloom_bits = ParseUint32(value);
   } else if (name == "memtable_prefix_bloom_probes") {
     new_options->memtable_prefix_bloom_probes = ParseUint32(value);
   } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
     new_options->memtable_prefix_bloom_huge_page_tlb_size =
-      ParseInt64(value);
+      ParseSizeT(value);
   } else if (name == "max_successive_merges") {
-    new_options->max_successive_merges = ParseInt64(value);
+    new_options->max_successive_merges = ParseSizeT(value);
   } else if (name == "filter_deletes") {
     new_options->filter_deletes = ParseBoolean(name, value);
   } else if (name == "max_write_buffer_number") {
     new_options->max_write_buffer_number = ParseInt(value);
   } else if (name == "inplace_update_num_locks") {
-    new_options->inplace_update_num_locks = ParseInt64(value);
+    new_options->inplace_update_num_locks = ParseSizeT(value);
   } else {
     return false;
   }
@@ -367,11 +370,11 @@ bool GetDBOptionsFromMap(
       } else if (o.first == "max_background_flushes") {
         new_options->max_background_flushes = ParseInt(o.second);
       } else if (o.first == "max_log_file_size") {
-        new_options->max_log_file_size = ParseInt64(o.second);
+        new_options->max_log_file_size = ParseSizeT(o.second);
       } else if (o.first == "log_file_time_to_roll") {
-        new_options->log_file_time_to_roll = ParseInt64(o.second);
+        new_options->log_file_time_to_roll = ParseSizeT(o.second);
       } else if (o.first == "keep_log_file_num") {
-        new_options->keep_log_file_num = ParseInt64(o.second);
+        new_options->keep_log_file_num = ParseSizeT(o.second);
       } else if (o.first == "max_manifest_file_size") {
         new_options->max_manifest_file_size = ParseUint64(o.second);
       } else if (o.first == "table_cache_numshardbits") {
@@ -383,7 +386,7 @@ bool GetDBOptionsFromMap(
       } else if (o.first == "WAL_size_limit_MB") {
         new_options->WAL_size_limit_MB = ParseUint64(o.second);
       } else if (o.first == "manifest_preallocation_size") {
-        new_options->manifest_preallocation_size = ParseInt64(o.second);
+        new_options->manifest_preallocation_size = ParseSizeT(o.second);
       } else if (o.first == "allow_os_buffer") {
         new_options->allow_os_buffer = ParseBoolean(o.first, o.second);
       } else if (o.first == "allow_mmap_reads") {
@@ -424,4 +427,5 @@ bool GetDBOptionsFromString(
   return GetDBOptionsFromMap(base_options, opts_map, new_options);
 }
 
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb

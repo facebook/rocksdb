@@ -64,8 +64,12 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     compression_per_level(options.compression_per_level),
     compression_opts(options.compression_opts),
     access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-    num_levels(options.num_levels),
-    listeners(options.listeners) {}
+    num_levels(options.num_levels)
+#ifndef ROCKSDB_LITE
+    , listeners(options.listeners) {}
+#else  // ROCKSDB_LITE
+    {}
+#endif  // ROCKSDB_LITE
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
@@ -113,8 +117,12 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       memtable_prefix_bloom_huge_page_tlb_size(0),
       bloom_locality(0),
       max_successive_merges(0),
-      min_partial_merge_operands(2),
-      listeners() {
+      min_partial_merge_operands(2)
+#ifndef ROCKSDB_LITE
+      , listeners() {
+#else  // ROCKSDB_LITE
+      {
+#endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -174,8 +182,12 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.memtable_prefix_bloom_huge_page_tlb_size),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
-      min_partial_merge_operands(options.min_partial_merge_operands),
-      listeners(options.listeners) {
+      min_partial_merge_operands(options.min_partial_merge_operands)
+#ifndef ROCKSDB_LITE
+      , listeners(options.listeners) {
+#else   // ROCKSDB_LITE
+      {
+#endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -496,6 +508,7 @@ Options::PrepareForBulkLoad()
   return this;
 }
 
+#ifndef ROCKSDB_LITE
 // Optimization functions
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
@@ -504,17 +517,15 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
   block_based_options.filter_policy.reset(NewBloomFilterPolicy(10));
   block_based_options.block_cache =
-    NewLRUCache(block_cache_size_mb * 1024 * 1024);
+      NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
-#ifndef ROCKSDB_LITE
   memtable_factory.reset(NewHashLinkListRepFactory());
-#endif
   return this;
 }
 
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
     uint64_t memtable_memory_budget) {
-  write_buffer_size = memtable_memory_budget / 4;
+  write_buffer_size = static_cast<size_t>(memtable_memory_budget / 4);
   // merge two memtables when flushing to L0
   min_write_buffer_number_to_merge = 2;
   // this means we'll use 50% extra memory in the worst case, but will reduce
@@ -546,7 +557,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
 
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
     uint64_t memtable_memory_budget) {
-  write_buffer_size = memtable_memory_budget / 4;
+  write_buffer_size = static_cast<size_t>(memtable_memory_budget / 4);
   // merge two memtables when flushing to L0
   min_write_buffer_number_to_merge = 2;
   // this means we'll use 50% extra memory in the worst case, but will reduce
@@ -565,5 +576,6 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   env->SetBackgroundThreads(1, Env::HIGH);
   return this;
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

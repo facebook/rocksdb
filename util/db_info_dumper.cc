@@ -2,9 +2,6 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
-// Must not be included from any .h files to avoid polluting the namespace
-// with macros.
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -16,9 +13,10 @@
 #include <algorithm>
 #include <vector>
 
+#include "db/filename.h"
 #include "rocksdb/options.h"
 #include "rocksdb/env.h"
-#include "db/filename.h"
+#include "util/db_info_dumper.h"
 
 namespace rocksdb {
 

@@ -258,6 +258,9 @@ class HashIndexBuilder : public IndexBuilder {
   uint64_t current_restart_index_ = 0;
 };
 
+// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
+namespace {
+
 // Create a index builder based on its type.
 IndexBuilder* CreateIndexBuilder(IndexType type, const Comparator* comparator,
                                  const SliceTransform* prefix_extractor) {
@@ -351,6 +354,8 @@ Slice CompressBlock(const Slice& raw,
   *type = kNoCompression;
   return raw;
 }
+
+}  // namespace
 
 // kBlockBasedTableMagicNumber was picked by running
 //    echo rocksdb.table.block_based | sha1sum
@@ -660,7 +665,7 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
     block_cache_compressed->Release(cache_handle);
 
     // Invalidate OS cache.
-    r->file->InvalidateCache(r->offset, size);
+    r->file->InvalidateCache(static_cast<size_t>(r->offset), size);
   }
   return Status::OK();
 }

@@ -17,6 +17,8 @@
 #include <utility>
 #include <vector>
 
+#include <gflags/gflags.h>
+
 using std::function;
 using std::get;
 using std::make_pair;
@@ -28,6 +30,12 @@ using std::string;
 using std::tuple;
 using std::vector;
 
+#ifndef GFLAGS
+bool FLAGS_benchmark = false;
+uint64_t FLAGS_bm_min_usec = 100;
+int64_t FLAGS_bm_min_iter = 1;
+int32_t FLAGS_bm_max_secs = 1;
+#else
 DEFINE_bool(benchmark, false, "Run benchmarks.");
 
 DEFINE_uint64(bm_min_usec, 100,
@@ -38,7 +46,7 @@ DEFINE_int64(bm_min_iters, 1,
 
 DEFINE_int32(bm_max_secs, 1,
              "Maximum # of seconds we'll spend on each benchmark.");
-
+#endif  // GFLAGS
 
 namespace rocksdb {
 namespace benchmark {

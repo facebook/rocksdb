@@ -119,10 +119,6 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
                            uint64_t table_magic_number, Env* env,
                            Logger* info_log, TableProperties** properties);
 
-// Seek to the properties block.
-// If it successfully seeks to the properties block, "is_found" will be
-// set to true.
-extern Status SeekToPropertiesBlock(Iterator* meta_iter, bool* is_found);
 
 // Find the meta block from the meta index block.
 Status FindMetaBlock(Iterator* meta_index_iter,

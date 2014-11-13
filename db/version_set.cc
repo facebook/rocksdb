@@ -2635,7 +2635,7 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   }
 
   // just one time extension to the right size
-  live_list->reserve(live_list->size() + total_files);
+  live_list->reserve(live_list->size() + static_cast<size_t>(total_files));
 
   for (auto cfd : *column_family_set_) {
     Version* dummy_versions = cfd->dummy_versions();

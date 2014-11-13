@@ -19,6 +19,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
+#include "table/table_properties_internal.h"
 #include "util/coding.h"
 
 namespace rocksdb {

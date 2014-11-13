@@ -23,27 +23,24 @@
 #include "util/autovector.h"
 
 namespace rocksdb {
-namespace merger {
-typedef std::priority_queue<
-          IteratorWrapper*,
-          std::vector<IteratorWrapper*>,
-          MaxIteratorComparator> MaxIterHeap;
+// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
+namespace {
+typedef std::priority_queue<IteratorWrapper*, std::vector<IteratorWrapper*>,
+                            MaxIteratorComparator> MergerMaxIterHeap;
 
-typedef std::priority_queue<
-          IteratorWrapper*,
-          std::vector<IteratorWrapper*>,
-          MinIteratorComparator> MinIterHeap;
+typedef std::priority_queue<IteratorWrapper*, std::vector<IteratorWrapper*>,
+                            MinIteratorComparator> MergerMinIterHeap;
 
 // Return's a new MaxHeap of IteratorWrapper's using the provided Comparator.
-MaxIterHeap NewMaxIterHeap(const Comparator* comparator) {
-  return MaxIterHeap(MaxIteratorComparator(comparator));
+MergerMaxIterHeap NewMergerMaxIterHeap(const Comparator* comparator) {
+  return MergerMaxIterHeap(MaxIteratorComparator(comparator));
 }
 
 // Return's a new MinHeap of IteratorWrapper's using the provided Comparator.
-MinIterHeap NewMinIterHeap(const Comparator* comparator) {
-  return MinIterHeap(MinIteratorComparator(comparator));
+MergerMinIterHeap NewMergerMinIterHeap(const Comparator* comparator) {
+  return MergerMinIterHeap(MinIteratorComparator(comparator));
 }
-}  // namespace merger
+}  // namespace
 
 const size_t kNumIterReserve = 4;
 
@@ -56,8 +53,8 @@ class MergingIterator : public Iterator {
         current_(nullptr),
         use_heap_(true),
         direction_(kForward),
-        maxHeap_(merger::NewMaxIterHeap(comparator_)),
-        minHeap_(merger::NewMinIterHeap(comparator_)) {
+        maxHeap_(NewMergerMaxIterHeap(comparator_)),
+        minHeap_(NewMergerMinIterHeap(comparator_)) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
@@ -271,8 +268,8 @@ class MergingIterator : public Iterator {
     kReverse
   };
   Direction direction_;
-  merger::MaxIterHeap maxHeap_;
-  merger::MinIterHeap minHeap_;
+  MergerMaxIterHeap maxHeap_;
+  MergerMinIterHeap minHeap_;
 };
 
 void MergingIterator::FindSmallest() {
@@ -299,8 +296,8 @@ void MergingIterator::FindLargest() {
 
 void MergingIterator::ClearHeaps() {
   use_heap_ = true;
-  maxHeap_ = merger::NewMaxIterHeap(comparator_);
-  minHeap_ = merger::NewMinIterHeap(comparator_);
+  maxHeap_ = NewMergerMaxIterHeap(comparator_);
+  minHeap_ = NewMergerMinIterHeap(comparator_);
 }
 
 Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n,

@@ -64,6 +64,7 @@
 #include "util/autovector.h"
 #include "util/build_version.h"
 #include "util/coding.h"
+#include "util/db_info_dumper.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/hash_linklist_rep.h"
 #include "util/logging.h"
@@ -3362,7 +3363,7 @@ Status DBImpl::GetDbIdentity(std::string& identity) {
   }
   char buffer[file_size];
   Slice id;
-  s = idfile->Read(file_size, &id, buffer);
+  s = idfile->Read(static_cast<size_t>(file_size), &id, buffer);
   if (!s.ok()) {
     return s;
   }

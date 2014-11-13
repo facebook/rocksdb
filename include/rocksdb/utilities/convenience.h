@@ -11,6 +11,7 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 // Take a map of option name and option value, apply them into the
 // base_options, and return the new options as a result
 bool GetColumnFamilyOptionsFromMap(
@@ -36,5 +37,6 @@ bool GetDBOptionsFromString(
     const DBOptions& base_options,
     const std::string& opts_str,
     DBOptions* new_options);
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

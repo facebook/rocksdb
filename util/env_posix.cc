@@ -201,7 +201,7 @@ class PosixSequentialFile: public SequentialFile {
   }
 
   virtual Status Skip(uint64_t n) {
-    if (fseek(file_, n, SEEK_CUR)) {
+    if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {
       return IOError(filename_, errno);
     }
     return Status::OK();
@@ -486,7 +486,7 @@ class PosixMmapFile : public WritableFile {
     const char* src = data.data();
     size_t left = data.size();
     TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
-    PrepareWrite(GetFileSize(), left);
+    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
     while (left > 0) {
       assert(base_ <= dst_);
       assert(dst_ <= limit_);
@@ -683,7 +683,7 @@ class PosixWritableFile : public WritableFile {
 
     TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
 
-    PrepareWrite(GetFileSize(), left);
+    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
     // if there is no space in the cache, then flush
     if (cursize_ + left > capacity_) {
       s = Flush();
@@ -1380,7 +1380,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status GetHostName(char* name, uint64_t len) {
-    int ret = gethostname(name, len);
+    int ret = gethostname(name, static_cast<size_t>(len));
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL)
         return Status::InvalidArgument(strerror(errno));
