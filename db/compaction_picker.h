@@ -73,9 +73,7 @@ class CompactionPicker {
     return NumberLevels() - 1;
   }
 
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage,
-      const MutableCFOptions& cf_options) const = 0;
+  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const = 0;
 
   // Sanitize the input set of compaction input files.
   // When the input parameters do not describe a valid compaction, the
@@ -191,9 +189,8 @@ class UniversalCompactionPicker : public CompactionPicker {
     return 0;
   }
 
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage,
-      const MutableCFOptions& cf_options) const override;
+  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
+      override;
 
  private:
   // Pick Universal compaction to limit read amplification
@@ -229,9 +226,8 @@ class LevelCompactionPicker : public CompactionPicker {
     return current_num_levels - 2;
   }
 
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage,
-      const MutableCFOptions& cf_options) const override;
+  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
+      override;
 
  private:
   // For the specfied level, pick a compaction.
@@ -270,9 +266,8 @@ class FIFOCompactionPicker : public CompactionPicker {
     return 0;
   }
 
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage,
-      const MutableCFOptions& cf_options) const override;
+  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
+      override;
 };
 
 class NullCompactionPicker : public CompactionPicker {
@@ -306,9 +301,8 @@ class NullCompactionPicker : public CompactionPicker {
   }
 
   // Always returns false.
-  virtual bool NeedsCompaction(
-      const VersionStorageInfo* vstorage,
-      const MutableCFOptions& cf_options) const override {
+  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
+      override {
     return false;
   }
 };

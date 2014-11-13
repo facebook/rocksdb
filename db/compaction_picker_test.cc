@@ -198,9 +198,8 @@ TEST(CompactionPickerTest, NeedsCompactionLevel) {
       }
       UpdateVersionStorageInfo();
       ASSERT_EQ(vstorage_->CompactionScoreLevel(0), level);
-      ASSERT_EQ(level_compaction_picker.NeedsCompaction(
-            vstorage_.get(), mutable_cf_options_),
-            vstorage_->CompactionScore(0) >= 1);
+      ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
+                vstorage_->CompactionScore(0) >= 1);
       // release the version storage
       DeleteVersionStorage();
     }
@@ -212,20 +211,17 @@ TEST(CompactionPickerTest, NeedsCompactionUniversal) {
   UniversalCompactionPicker universal_compaction_picker(
       ioptions_, &icmp_);
   // must return false when there's no files.
-  ASSERT_EQ(universal_compaction_picker.NeedsCompaction(
-          vstorage_.get(), mutable_cf_options_), false);
+  ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
+            false);
 
   // verify the trigger given different number of L0 files.
   for (int i = 1;
-       i <= mutable_cf_options_.level0_file_num_compaction_trigger * 2;
-       ++i) {
+       i <= mutable_cf_options_.level0_file_num_compaction_trigger * 2; ++i) {
     Add(0, i, std::to_string((i + 100) * 1000).c_str(),
-        std::to_string((i + 100) * 1000 + 999).c_str(),
-        1000000, 0, i * 100, i * 100 + 99);
-    ASSERT_EQ(
-        universal_compaction_picker.NeedsCompaction(
-            vstorage_.get(), mutable_cf_options_),
-        i >= mutable_cf_options_.level0_file_num_compaction_trigger);
+        std::to_string((i + 100) * 1000 + 999).c_str(), 1000000, 0, i * 100,
+        i * 100 + 99);
+    ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
+              vstorage_->CompactionScore(0) >= 1);
   }
 }
 
@@ -241,8 +237,7 @@ TEST(CompactionPickerTest, NeedsCompactionFIFO) {
   FIFOCompactionPicker fifo_compaction_picker(ioptions_, &icmp_);
 
   // must return false when there's no files.
-  ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(
-      vstorage_.get(), mutable_cf_options_), false);
+  ASSERT_EQ(fifo_compaction_picker.NeedsCompaction(vstorage_.get()), false);
 
   // verify whether compaction is needed based on the current
   // size of L0 files.
@@ -252,10 +247,8 @@ TEST(CompactionPickerTest, NeedsCompactionFIFO) {
         std::to_string((i + 100) * 1000 + 999).c_str(),
         kFileSize, 0, i * 100, i * 100 + 99);
     current_size += kFileSize;
-    ASSERT_EQ(
-        fifo_compaction_picker.NeedsCompaction(
-            vstorage_.get(), mutable_cf_options_),
-        current_size > fifo_options_.max_table_files_size);
+    ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
+              vstorage_->CompactionScore(0) >= 1);
   }
 }
 

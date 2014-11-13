@@ -235,8 +235,7 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
     case kCompactionPending:
       // 1 if the system already determines at least one compacdtion is needed.
       // 0 otherwise,
-      *value = (cfd_->compaction_picker()->NeedsCompaction(
-          vstorage, *cfd_->GetCurrentMutableCFOptions()) ? 1 : 0);
+      *value = (cfd_->compaction_picker()->NeedsCompaction(vstorage) ? 1 : 0);
       return true;
     case kBackgroundErrors:
       // Accumulated number of  errors in background flushes or compactions.
