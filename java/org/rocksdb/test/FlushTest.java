@@ -10,6 +10,8 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.rocksdb.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class FlushTest {
 
   @ClassRule
@@ -20,35 +22,44 @@ public class FlushTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void flush() {
+  public void flush() throws RocksDBException {
     RocksDB db = null;
-    Options options = new Options();
-    WriteOptions wOpt = new WriteOptions();
-    FlushOptions flushOptions = new FlushOptions();
-
+    Options options = null;
+    WriteOptions wOpt = null;
+    FlushOptions flushOptions = null;
     try {
+      options = new Options();
       // Setup options
       options.setCreateIfMissing(true);
       options.setMaxWriteBufferNumber(10);
       options.setMinWriteBufferNumberToMerge(10);
+      wOpt = new WriteOptions();
+      flushOptions = new FlushOptions();
       flushOptions.setWaitForFlush(true);
       wOpt.setDisableWAL(true);
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-
       db.put(wOpt, "key1".getBytes(), "value1".getBytes());
       db.put(wOpt, "key2".getBytes(), "value2".getBytes());
       db.put(wOpt, "key3".getBytes(), "value3".getBytes());
       db.put(wOpt, "key4".getBytes(), "value4".getBytes());
-      assert(db.getProperty("rocksdb.num-entries-active-mem-table").equals("4"));
+      assertThat(db.getProperty("rocksdb.num-entries-active-mem-table")).isEqualTo("4");
       db.flush(flushOptions);
-      assert(db.getProperty("rocksdb.num-entries-active-mem-table").equals("0"));
-    } catch (RocksDBException e) {
-      assert(false);
-    }
+      assertThat(db.getProperty("rocksdb.num-entries-active-mem-table")).
+          isEqualTo("0");
+    } finally {
+      if (flushOptions != null) {
+        flushOptions.dispose();
+      }
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+      if (wOpt != null) {
+        wOpt.dispose();
+      }
 
-    db.close();
-    options.dispose();
-    wOpt.dispose();
-    flushOptions.dispose();
+    }
   }
 }

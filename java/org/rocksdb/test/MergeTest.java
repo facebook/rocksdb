@@ -177,11 +177,12 @@ public class MergeTest {
 
       // Test also with createColumnFamily
       columnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf2"));
+          new ColumnFamilyDescriptor("new_cf2",
+              new ColumnFamilyOptions().setMergeOperator(stringAppendOperator)));
       // writing xx under cfkey2
       db.put(columnFamilyHandle, "cfkey2".getBytes(), "xx".getBytes());
       // merge yy under cfkey2
-      db.merge(columnFamilyHandle, "cfkey2".getBytes(), "yy".getBytes());
+      db.merge(columnFamilyHandle, new WriteOptions(), "cfkey2".getBytes(), "yy".getBytes());
       value = db.get(columnFamilyHandle, "cfkey2".getBytes());
       String strValueTmpCf = new String(value);
 

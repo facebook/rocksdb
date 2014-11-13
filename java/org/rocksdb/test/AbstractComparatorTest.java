@@ -12,6 +12,7 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Random;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.rocksdb.test.Types.byteToInt;
 import static org.rocksdb.test.Types.intToByte;
 
@@ -75,13 +76,13 @@ public abstract class AbstractComparatorTest {
       int count = 0;
       for (it.seekToFirst(); it.isValid(); it.next()) {
         final int thisKey = byteToInt(it.key());
-        assert(thisKey > lastKey);
+        assertThat(thisKey).isGreaterThan(lastKey);
         lastKey = thisKey;
         count++;
       }
       db.close();
 
-      assert(count == ITERATIONS);
+      assertThat(count).isEqualTo(ITERATIONS);
 
     } catch (final RocksDBException e) {
       System.err.format("[ERROR]: %s%n", e);

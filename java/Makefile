@@ -47,8 +47,7 @@ ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 endif
 
-JAVA_TESTS = org.rocksdb.test.AbstractComparatorTest\
-        org.rocksdb.test.BackupableDBTest\
+JAVA_TESTS = org.rocksdb.test.BackupableDBTest\
 		org.rocksdb.test.BlockBasedTableConfigTest\
 		org.rocksdb.test.ColumnFamilyOptionsTest\
 		org.rocksdb.test.ColumnFamilyTest\
@@ -71,7 +70,7 @@ JAVA_TESTS = org.rocksdb.test.AbstractComparatorTest\
 		org.rocksdb.test.RocksIteratorTest\
 		org.rocksdb.test.SnapshotTest\
 		org.rocksdb.test.StatisticsCollectorTest\
-		org.rocksdb.test.WirteBatchHandlerTest\
+		org.rocksdb.test.WriteBatchHandlerTest\
 		org.rocksdb.test.WriteBatchTest\
 		org.rocksdb.test.WriteOptionsTest\
 

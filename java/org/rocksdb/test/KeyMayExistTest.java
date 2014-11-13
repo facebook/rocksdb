@@ -34,7 +34,7 @@ public class KeyMayExistTest {
           .setCreateMissingColumnFamilies(true);
       // open database using cf names
       List<ColumnFamilyDescriptor> cfDescriptors =
-          new ArrayList<ColumnFamilyDescriptor>();
+          new ArrayList<>();
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfDescriptors.add(new ColumnFamilyDescriptor("default"));

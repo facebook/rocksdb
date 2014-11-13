@@ -75,10 +75,10 @@ public class WriteBatchHandlerTest {
 
         // compare the results to the test data
         final List<Tuple<Action, Tuple<byte[], byte[]>>> actualEvents = handler.getEvents();
-        assert(testEvents.size() == actualEvents.size());
+        assertThat(testEvents.size()).isSameAs(actualEvents.size());
 
         for(int i = 0; i < testEvents.size(); i++) {
-            assert(equals(testEvents.get(i), actualEvents.get(i)));
+            assertThat(equals(testEvents.get(i), actualEvents.get(i))).isTrue();
         }
 
         System.out.println("Passed WriteBatchHandler Test");
