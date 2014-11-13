@@ -337,10 +337,12 @@ class DBImpl : public DB {
   void RecordFlushIOStats();
   void RecordCompactionIOStats();
 
+#ifndef ROCKSDB_LITE
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
       Version* version, const std::vector<std::string>& input_file_names,
       const int output_level, int output_path_id);
+#endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 

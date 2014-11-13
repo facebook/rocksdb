@@ -83,10 +83,12 @@ class CompactionPicker {
   // files.  If it's not possible to conver an invalid input_files
   // into a valid one by adding more files, the function will return a
   // non-ok status with specific reason.
+#ifndef ROCKSDB_LITE
   Status SanitizeCompactionInputFiles(
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta,
       const int output_level) const;
+#endif  // ROCKSDB_LITE
 
   // Free up the files that participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
@@ -156,10 +158,12 @@ class CompactionPicker {
 
   // A helper function to SanitizeCompactionInputFiles() that
   // sanitizes "input_files" by adding necessary files.
+#ifndef ROCKSDB_LITE
   virtual Status SanitizeCompactionInputFilesForAllLevels(
       std::unordered_set<uint64_t>* input_files,
       const ColumnFamilyMetaData& cf_meta,
       const int output_level) const;
+#endif  // ROCKSDB_LITE
 
   // record all the ongoing compactions for all levels
   std::vector<std::set<Compaction*>> compactions_in_progress_;

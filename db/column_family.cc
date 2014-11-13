@@ -580,6 +580,7 @@ void ColumnFamilyData::ResetThreadLocalSuperVersions() {
   }
 }
 
+#ifndef ROCKSDB_LITE
 Status ColumnFamilyData::SetOptions(
       const std::unordered_map<std::string, std::string>& options_map) {
   MutableCFOptions new_mutable_cf_options;
@@ -591,6 +592,7 @@ Status ColumnFamilyData::SetOptions(
   }
   return s;
 }
+#endif  // ROCKSDB_LITE
 
 ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const DBOptions* db_options,

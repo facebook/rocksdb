@@ -1191,6 +1191,10 @@ Status DBImpl::CompactFiles(
     ColumnFamilyHandle* column_family,
     const std::vector<std::string>& input_file_names,
     const int output_level, const int output_path_id) {
+#ifdef ROCKSDB_LITE
+    // not supported in lite version
+  return Status::NotSupported("Not supported in ROCKSDB LITE");
+#else
   MutexLock l(&mutex_);
   if (column_family == nullptr) {
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
@@ -1210,8 +1214,10 @@ Status DBImpl::CompactFiles(
   // TODO(yhchiang): cfd should be deleted after its last reference.
   cfd->Unref();
   return s;
+#endif  // ROCKSDB_LITE
 }
 
+#ifndef ROCKSDB_LITE
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
@@ -1344,9 +1350,13 @@ Status DBImpl::CompactFilesImpl(
 
   return status;
 }
+#endif  // ROCKSDB_LITE
 
 Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {
+#ifdef ROCKSDB_LITE
+  return Status::NotSupported("Not supported in ROCKSDB LITE");
+#else
   auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   if (options_map.empty()) {
     Log(InfoLogLevel::WARN_LEVEL,
@@ -1382,6 +1392,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
         "[%s] SetOptions failed", cfd->GetName().c_str());
   }
   return s;
+#endif  // ROCKSDB_LITE
 }
 
 // return the same level if it cannot be moved

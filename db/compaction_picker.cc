@@ -446,6 +446,7 @@ Compaction* CompactionPicker::CompactRange(
   return c;
 }
 
+#ifndef ROCKSDB_LITE
 namespace {
 // Test whether two files have overlapping key-ranges.
 bool HaveOverlappingKeyRanges(
@@ -674,6 +675,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
 
   return Status::OK();
 }
+#endif  // ROCKSDB_LITE
 
 bool LevelCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage,
