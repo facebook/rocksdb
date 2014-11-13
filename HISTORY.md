@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* BackupEngine::NewBackupEngine() was deprecated; please use BackupEngine::Open() from now on.
+* BackupableDB/RestoreBackupableDB have new GarbageCollect() methods, which will clean up files from corrupt and obsolete backups.
+* BackupableDB/RestoreBackupableDB have new GetCorruptedBackups() methods which list corrupt backups.
 
 ## 3.7.0 (11/6/2014)
 ### Public API changes

@@ -646,6 +646,32 @@ TEST(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(db_->CreateNewBackup(!!(rnd.Next() % 2)));
   CloseBackupableDB();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+
+  // make sure that no corrupt backups have actually been deleted!
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/1"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/1"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5"));
+
+  // delete the corrupt backups and then make sure they're actually deleted
+  OpenBackupableDB();
+  ASSERT_OK(db_->DeleteBackup(5));
+  ASSERT_OK(db_->DeleteBackup(4));
+  ASSERT_OK(db_->DeleteBackup(3));
+  (void) db_->GarbageCollect();
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3") == false);
+  CloseBackupableDB();
 }
 
 // open DB, write, close DB, backup, restore, repeat
@@ -867,6 +893,8 @@ TEST(BackupableDBTest, DeleteTmpFiles) {
   file_manager_->WriteToFile(private_tmp_file, "tmp");
   ASSERT_EQ(true, file_manager_->FileExists(private_tmp_dir));
   OpenBackupableDB();
+  // Need to call this explicitly to delete tmp files
+  (void) db_->GarbageCollect();
   CloseBackupableDB();
   ASSERT_EQ(false, file_manager_->FileExists(shared_tmp));
   ASSERT_EQ(false, file_manager_->FileExists(private_tmp_file));

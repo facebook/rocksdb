@@ -121,8 +121,10 @@ class BackupEngineImpl : public BackupEngine {
   void StopBackup() {
     stop_backup_.store(true, std::memory_order_release);
   }
+  Status GarbageCollect();
 
   void GetBackupInfo(std::vector<BackupInfo>* backup_info);
+  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids);
   Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
                              const std::string& wal_dir,
                              const RestoreOptions& restore_options =
@@ -285,16 +287,11 @@ class BackupEngineImpl : public BackupEngine {
                            uint64_t size_limit,
                            uint32_t* checksum_value);
 
-  // Will delete all the files we don't need anymore
-  // If full_scan == true, it will do the full scan of files/ directory
-  // and delete all the files that are not referenced from backuped_file_infos__
-  void GarbageCollection(bool full_scan);
-
   // backup state data
   BackupID latest_backup_id_;
   std::map<BackupID, BackupMeta> backups_;
+  std::map<BackupID, std::pair<Status, BackupMeta> > corrupt_backups_;
   std::unordered_map<std::string, FileInfo> backuped_file_infos_;
-  std::vector<BackupID> obsolete_backups_;
   std::atomic<bool> stop_backup_;
 
   // options data
@@ -317,6 +314,13 @@ class BackupEngineImpl : public BackupEngine {
 BackupEngine* BackupEngine::NewBackupEngine(
     Env* db_env, const BackupableDBOptions& options) {
   return new BackupEngineImpl(db_env, options);
+}
+
+Status BackupEngine::Open(Env* env,
+                          const BackupableDBOptions& options,
+                          BackupEngine** backup_engine_ptr) {
+  *backup_engine_ptr = new BackupEngineImpl(env, options);
+  return Status::OK();
 }
 
 BackupEngineImpl::BackupEngineImpl(Env* db_env,
@@ -377,14 +381,10 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
 
   if (options_.destroy_old_data) {  // Destory old data
     assert(!read_only_);
-    for (auto& backup : backups_) {
-      backup.second.Delete();
-      obsolete_backups_.push_back(backup.first);
-    }
-    backups_.clear();
+    PurgeOldBackups(0);
+    (void) GarbageCollect();
     // start from beginning
     latest_backup_id_ = 0;
-    // GarbageCollection() will do the actual deletion
   } else {  // Load data from storage
     // load the backups if any
     for (auto& backup : backups_) {
@@ -392,16 +392,13 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
       if (!s.ok()) {
         Log(options_.info_log, "Backup %u corrupted -- %s", backup.first,
             s.ToString().c_str());
-        if (!read_only_) {
-          Log(options_.info_log, "-> Deleting backup %u", backup.first);
-        }
-        backup.second.Delete(!read_only_);
-        obsolete_backups_.push_back(backup.first);
+        corrupt_backups_.insert(std::make_pair(
+              backup.first, std::make_pair(s, backup.second)));
       }
     }
-    // delete obsolete backups from the structure
-    for (auto ob : obsolete_backups_) {
-      backups_.erase(ob);
+
+    for (auto corrupt : corrupt_backups_) {
+      backups_.erase(backups_.find(corrupt.first));
     }
 
     Status s = GetLatestBackupFileContents(&latest_backup_id_);
@@ -417,16 +414,17 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
   }
 
   // delete any backups that claim to be later than latest
-  for (auto itr = backups_.upper_bound(latest_backup_id_);
-       itr != backups_.end();) {
-    itr->second.Delete();
-    obsolete_backups_.push_back(itr->first);
-    itr = backups_.erase(itr);
+  std::vector<BackupID> later_ids;
+  for (auto itr = backups_.lower_bound(latest_backup_id_ + 1);
+       itr != backups_.end(); itr++) {
+    later_ids.push_back(itr->first);
+  }
+  for (auto id : later_ids) {
+    DeleteBackup(id);
   }
 
   if (!read_only_) {
     PutLatestBackupFileContents(latest_backup_id_);  // Ignore errors
-    GarbageCollection(true);
   }
   Log(options_.info_log, "Initialized BackupEngine, the latest backup is %u.",
       latest_backup_id_);
@@ -575,7 +573,7 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     Log(options_.info_log, "Backup Statistics %s\n",
         backup_statistics_.ToString().c_str());
     backups_.erase(new_backup_id);
-    GarbageCollection(true);
+    (void) GarbageCollect();
     return s;
   }
 
@@ -601,13 +599,15 @@ Status BackupEngineImpl::PurgeOldBackups(uint32_t num_backups_to_keep) {
   assert(!read_only_);
   Log(options_.info_log, "Purging old backups, keeping %u",
       num_backups_to_keep);
-  while (num_backups_to_keep < backups_.size()) {
-    Log(options_.info_log, "Deleting backup %u", backups_.begin()->first);
-    backups_.begin()->second.Delete();
-    obsolete_backups_.push_back(backups_.begin()->first);
-    backups_.erase(backups_.begin());
+  std::vector<BackupID> to_delete;
+  auto itr = backups_.begin();
+  while ((backups_.size() - to_delete.size()) > num_backups_to_keep) {
+    to_delete.push_back(itr->first);
+    itr++;
   }
-  GarbageCollection(false);
+  for (auto backup_id : to_delete) {
+    DeleteBackup(backup_id);
+  }
   return Status::OK();
 }
 
@@ -615,13 +615,37 @@ Status BackupEngineImpl::DeleteBackup(BackupID backup_id) {
   assert(!read_only_);
   Log(options_.info_log, "Deleting backup %u", backup_id);
   auto backup = backups_.find(backup_id);
-  if (backup == backups_.end()) {
-    return Status::NotFound("Backup not found");
+  if (backup != backups_.end()) {
+    backup->second.Delete();
+    backups_.erase(backup);
+  } else {
+    auto corrupt = corrupt_backups_.find(backup_id);
+    if (corrupt == corrupt_backups_.end()) {
+      return Status::NotFound("Backup not found");
+    }
+    corrupt->second.second.Delete();
+    corrupt_backups_.erase(corrupt);
   }
-  backup->second.Delete();
-  obsolete_backups_.push_back(backup_id);
-  backups_.erase(backup);
-  GarbageCollection(false);
+
+  std::vector<std::string> to_delete;
+  for (auto& itr : backuped_file_infos_) {
+    if (itr.second.refs == 0) {
+      Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
+      Log(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
+          s.ToString().c_str());
+      to_delete.push_back(itr.first);
+    }
+  }
+  for (auto& td : to_delete) {
+    backuped_file_infos_.erase(td);
+  }
+
+  // take care of private dirs -- GarbageCollect() will take care of them
+  // if they are not empty
+  std::string private_dir = GetPrivateFileRel(backup_id);
+  Status s = backup_env_->DeleteDir(GetAbsolutePath(private_dir));
+  Log(options_.info_log, "Deleting private dir %s -- %s",
+      private_dir.c_str(), s.ToString().c_str());
   return Status::OK();
 }
 
@@ -636,9 +660,22 @@ void BackupEngineImpl::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   }
 }
 
+void
+BackupEngineImpl::GetCorruptedBackups(
+    std::vector<BackupID>* corrupt_backup_ids) {
+  corrupt_backup_ids->reserve(corrupt_backups_.size());
+  for (auto& backup : corrupt_backups_) {
+    corrupt_backup_ids->push_back(backup.first);
+  }
+}
+
 Status BackupEngineImpl::RestoreDBFromBackup(
     BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
     const RestoreOptions& restore_options) {
+  auto corrupt_itr = corrupt_backups_.find(backup_id);
+  if (corrupt_itr != corrupt_backups_.end()) {
+    return corrupt_itr->second.first;
+  }
   auto backup_itr = backups_.find(backup_id);
   if (backup_itr == backups_.end()) {
     return Status::NotFound("Backup not found");
@@ -1005,83 +1042,59 @@ void BackupEngineImpl::DeleteChildren(const std::string& dir,
   }
 }
 
-void BackupEngineImpl::GarbageCollection(bool full_scan) {
+Status BackupEngineImpl::GarbageCollect() {
   assert(!read_only_);
   Log(options_.info_log, "Starting garbage collection");
-  std::vector<std::string> to_delete;
-  for (auto& itr : backuped_file_infos_) {
-    if (itr.second.refs == 0) {
-      Status s = backup_env_->DeleteFile(GetAbsolutePath(itr.first));
-      Log(options_.info_log, "Deleting %s -- %s", itr.first.c_str(),
-          s.ToString().c_str());
-      to_delete.push_back(itr.first);
-    }
-  }
-  for (auto& td : to_delete) {
-    backuped_file_infos_.erase(td);
-  }
-  if (!full_scan) {
-    // take care of private dirs -- if full_scan == true, then full_scan will
-    // take care of them
-    for (auto backup_id : obsolete_backups_) {
-      std::string private_dir = GetPrivateFileRel(backup_id);
-      Status s = backup_env_->DeleteDir(GetAbsolutePath(private_dir));
-      Log(options_.info_log, "Deleting private dir %s -- %s",
-          private_dir.c_str(), s.ToString().c_str());
-    }
-  }
-  obsolete_backups_.clear();
 
-  if (full_scan) {
-    Log(options_.info_log, "Starting full scan garbage collection");
-    // delete obsolete shared files
-    std::vector<std::string> shared_children;
-    backup_env_->GetChildren(GetAbsolutePath(GetSharedFileRel()),
-                             &shared_children);
-    for (auto& child : shared_children) {
-      std::string rel_fname = GetSharedFileRel(child);
-      // if it's not refcounted, delete it
-      if (backuped_file_infos_.find(rel_fname) == backuped_file_infos_.end()) {
-        // this might be a directory, but DeleteFile will just fail in that
-        // case, so we're good
-        Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
-        if (s.ok()) {
-          Log(options_.info_log, "Deleted %s", rel_fname.c_str());
-        }
+  // delete obsolete shared files
+  std::vector<std::string> shared_children;
+  backup_env_->GetChildren(GetAbsolutePath(GetSharedFileRel()),
+                           &shared_children);
+  for (auto& child : shared_children) {
+    std::string rel_fname = GetSharedFileRel(child);
+    // if it's not refcounted, delete it
+    if (backuped_file_infos_.find(rel_fname) == backuped_file_infos_.end()) {
+      // this might be a directory, but DeleteFile will just fail in that
+      // case, so we're good
+      Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
+      if (s.ok()) {
+        Log(options_.info_log, "Deleted %s", rel_fname.c_str());
       }
-    }
-
-    // delete obsolete private files
-    std::vector<std::string> private_children;
-    backup_env_->GetChildren(GetAbsolutePath(GetPrivateDirRel()),
-                             &private_children);
-    for (auto& child : private_children) {
-      BackupID backup_id = 0;
-      bool tmp_dir = child.find(".tmp") != std::string::npos;
-      sscanf(child.c_str(), "%u", &backup_id);
-      if (!tmp_dir &&  // if it's tmp_dir, delete it
-          (backup_id == 0 || backups_.find(backup_id) != backups_.end())) {
-        // it's either not a number or it's still alive. continue
-        continue;
-      }
-      // here we have to delete the dir and all its children
-      std::string full_private_path =
-          GetAbsolutePath(GetPrivateFileRel(backup_id, tmp_dir));
-      std::vector<std::string> subchildren;
-      backup_env_->GetChildren(full_private_path, &subchildren);
-      for (auto& subchild : subchildren) {
-        Status s = backup_env_->DeleteFile(full_private_path + subchild);
-        if (s.ok()) {
-          Log(options_.info_log, "Deleted %s",
-              (full_private_path + subchild).c_str());
-        }
-      }
-      // finally delete the private dir
-      Status s = backup_env_->DeleteDir(full_private_path);
-      Log(options_.info_log, "Deleted dir %s -- %s", full_private_path.c_str(),
-          s.ToString().c_str());
     }
   }
+
+  // delete obsolete private files
+  std::vector<std::string> private_children;
+  backup_env_->GetChildren(GetAbsolutePath(GetPrivateDirRel()),
+                           &private_children);
+  for (auto& child : private_children) {
+    BackupID backup_id = 0;
+    bool tmp_dir = child.find(".tmp") != std::string::npos;
+    sscanf(child.c_str(), "%u", &backup_id);
+    if (!tmp_dir &&  // if it's tmp_dir, delete it
+        (backup_id == 0 || backups_.find(backup_id) != backups_.end())) {
+      // it's either not a number or it's still alive. continue
+      continue;
+    }
+    // here we have to delete the dir and all its children
+    std::string full_private_path =
+        GetAbsolutePath(GetPrivateFileRel(backup_id, tmp_dir));
+    std::vector<std::string> subchildren;
+    backup_env_->GetChildren(full_private_path, &subchildren);
+    for (auto& subchild : subchildren) {
+      Status s = backup_env_->DeleteFile(full_private_path + subchild);
+      if (s.ok()) {
+        Log(options_.info_log, "Deleted %s",
+            (full_private_path + subchild).c_str());
+      }
+    }
+    // finally delete the private dir
+    Status s = backup_env_->DeleteDir(full_private_path);
+    Log(options_.info_log, "Deleted dir %s -- %s", full_private_path.c_str(),
+        s.ToString().c_str());
+  }
+
+  return Status::OK();
 }
 
 // ------- BackupMeta class --------
@@ -1257,6 +1270,10 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
     backup_engine_->GetBackupInfo(backup_info);
   }
 
+  virtual void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) {
+    backup_engine_->GetCorruptedBackups(corrupt_backup_ids);
+  }
+
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) {
@@ -1302,6 +1319,11 @@ void BackupableDB::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   backup_engine_->GetBackupInfo(backup_info);
 }
 
+void
+BackupableDB::GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) {
+  backup_engine_->GetCorruptedBackups(corrupt_backup_ids);
+}
+
 Status BackupableDB::PurgeOldBackups(uint32_t num_backups_to_keep) {
   return backup_engine_->PurgeOldBackups(num_backups_to_keep);
 }
@@ -1312,6 +1334,10 @@ Status BackupableDB::DeleteBackup(BackupID backup_id) {
 
 void BackupableDB::StopBackup() {
   backup_engine_->StopBackup();
+}
+
+Status BackupableDB::GarbageCollect() {
+  return backup_engine_->GarbageCollect();
 }
 
 // --- RestoreBackupableDB methods ------
@@ -1327,6 +1353,11 @@ RestoreBackupableDB::~RestoreBackupableDB() {
 void
 RestoreBackupableDB::GetBackupInfo(std::vector<BackupInfo>* backup_info) {
   backup_engine_->GetBackupInfo(backup_info);
+}
+
+void RestoreBackupableDB::GetCorruptedBackups(
+    std::vector<BackupID>* corrupt_backup_ids) {
+  backup_engine_->GetCorruptedBackups(corrupt_backup_ids);
 }
 
 Status RestoreBackupableDB::RestoreDBFromBackup(
@@ -1349,6 +1380,10 @@ Status RestoreBackupableDB::PurgeOldBackups(uint32_t num_backups_to_keep) {
 
 Status RestoreBackupableDB::DeleteBackup(BackupID backup_id) {
   return backup_engine_->DeleteBackup(backup_id);
+}
+
+Status RestoreBackupableDB::GarbageCollect() {
+  return backup_engine_->GarbageCollect();
 }
 
 }  // namespace rocksdb
