@@ -1669,7 +1669,9 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     bool is_compaction_needed = false;
     // no need to refcount since we're under a mutex
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (cfd->current()->storage_info()->NeedsCompaction()) {
+      if (cfd->compaction_picker()->NeedsCompaction(
+              cfd->current()->storage_info(),
+              *cfd->GetCurrentMutableCFOptions())) {
         is_compaction_needed = true;
         break;
       }

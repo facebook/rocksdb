@@ -94,7 +94,7 @@ class VersionStorageInfo {
 
   void Reserve(int level, size_t size) { files_[level].reserve(size); }
 
-  void MaybeAddFile(int level, FileMetaData* f);
+  void AddFile(int level, FileMetaData* f);
 
   void SetFinalized() { finalized_ = true; }
 
@@ -127,9 +127,6 @@ class VersionStorageInfo {
   void UpdateFilesBySize();
 
   int MaxInputLevel() const;
-
-  // Returns true iff some level needs a compaction.
-  bool NeedsCompaction() const;
 
   // Returns the maxmimum compaction score for levels 1 to max
   double max_compaction_score() const { return max_compaction_score_; }

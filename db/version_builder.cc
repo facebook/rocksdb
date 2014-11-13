@@ -284,7 +284,7 @@ class VersionBuilder::Rep {
     if (levels_[level].deleted_files.count(f->fd.GetNumber()) > 0) {
       // File is deleted: do nothing
     } else {
-      vstorage->MaybeAddFile(level, f);
+      vstorage->AddFile(level, f);
     }
   }
 };

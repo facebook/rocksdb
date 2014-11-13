@@ -1051,7 +1051,7 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
 
 } // anonymous namespace
 
-void VersionStorageInfo::MaybeAddFile(int level, FileMetaData* f) {
+void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
   assert(level < num_levels());
   auto* level_files = &files_[level];
   // Must not overlap
@@ -1121,22 +1121,6 @@ bool Version::Unref() {
   if (refs_ == 0) {
     delete this;
     return true;
-  }
-  return false;
-}
-
-bool VersionStorageInfo::NeedsCompaction() const {
-  // In universal compaction case, this check doesn't really
-  // check the compaction condition, but checks num of files threshold
-  // only. We are not going to miss any compaction opportunity
-  // but it's likely that more compactions are scheduled but
-  // ending up with nothing to do. We can improve it later.
-  // TODO(sdong): improve this function to be accurate for universal
-  //              compactions.
-  for (int i = 0; i <= MaxInputLevel(); i++) {
-    if (compaction_score_[i] >= 1) {
-      return true;
-    }
   }
   return false;
 }

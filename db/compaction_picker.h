@@ -73,6 +73,10 @@ class CompactionPicker {
     return NumberLevels() - 1;
   }
 
+  virtual bool NeedsCompaction(
+      const VersionStorageInfo* vstorage,
+      const MutableCFOptions& cf_options) const = 0;
+
   // Sanitize the input set of compaction input files.
   // When the input parameters do not describe a valid compaction, the
   // function will try to fix the input_files by adding necessary
@@ -108,7 +112,6 @@ class CompactionPicker {
       std::unordered_set<uint64_t>* input_set,
       const VersionStorageInfo* vstorage,
       const CompactionOptions& compact_options) const;
-
 
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }
@@ -184,6 +187,10 @@ class UniversalCompactionPicker : public CompactionPicker {
     return 0;
   }
 
+  virtual bool NeedsCompaction(
+      const VersionStorageInfo* vstorage,
+      const MutableCFOptions& cf_options) const override;
+
  private:
   // Pick Universal compaction to limit read amplification
   Compaction* PickCompactionUniversalReadAmp(
@@ -217,6 +224,10 @@ class LevelCompactionPicker : public CompactionPicker {
   virtual int MaxInputLevel(int current_num_levels) const override {
     return current_num_levels - 2;
   }
+
+  virtual bool NeedsCompaction(
+      const VersionStorageInfo* vstorage,
+      const MutableCFOptions& cf_options) const override;
 
  private:
   // For the specfied level, pick a compaction.
@@ -254,6 +265,10 @@ class FIFOCompactionPicker : public CompactionPicker {
   virtual int MaxOutputLevel() const override {
     return 0;
   }
+
+  virtual bool NeedsCompaction(
+      const VersionStorageInfo* vstorage,
+      const MutableCFOptions& cf_options) const override;
 };
 
 class NullCompactionPicker : public CompactionPicker {
@@ -284,6 +299,13 @@ class NullCompactionPicker : public CompactionPicker {
   // for compaction input.
   virtual int MaxInputLevel(int current_num_levels) const {
     return current_num_levels - 2;
+  }
+
+  // Always returns false.
+  virtual bool NeedsCompaction(
+      const VersionStorageInfo* vstorage,
+      const MutableCFOptions& cf_options) const override {
+    return false;
   }
 };
 

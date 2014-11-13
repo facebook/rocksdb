@@ -675,6 +675,17 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
   return Status::OK();
 }
 
+bool LevelCompactionPicker::NeedsCompaction(
+    const VersionStorageInfo* vstorage,
+    const MutableCFOptions& mutable_cf_options) const {
+  for (int i = 0; i <= vstorage->MaxInputLevel(); i++) {
+    if (vstorage->CompactionScore(i) >= 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 Compaction* LevelCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
@@ -827,6 +838,19 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   vstorage->SetNextCompactionIndex(level, nextIndex);
 
   return c;
+}
+
+bool UniversalCompactionPicker::NeedsCompaction(
+    const VersionStorageInfo* vstorage,
+    const MutableCFOptions& mutable_cf_options) const {
+  const int kLevel0 = 0;
+
+  if (vstorage->LevelFiles(kLevel0).size() <
+      static_cast<size_t>(
+          mutable_cf_options.level0_file_num_compaction_trigger)) {
+    return false;
+  }
+  return true;
 }
 
 // Universal style of compaction. Pick files that are contiguous in
@@ -1228,6 +1252,27 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   return c;
 }
 
+bool FIFOCompactionPicker::NeedsCompaction(
+    const VersionStorageInfo* vstorage,
+    const MutableCFOptions& mutable_cf_options) const {
+  const int kLevel0 = 0;
+  const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
+
+  if (level_files.size() == 0) {
+    return false;
+  }
+
+  uint64_t total_size = 0;
+  for (const auto& file : level_files) {
+    total_size += file->fd.file_size;
+  }
+  if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size) {
+    return false;
+  }
+
+  return true;
+}
+
 Compaction* FIFOCompactionPicker::PickCompaction(
     const std::string& cf_name, const MutableCFOptions& mutable_cf_options,
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
@@ -1236,7 +1281,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(kLevel0);
   uint64_t total_size = 0;
   for (const auto& file : level_files) {
-    total_size += file->compensated_file_size;
+    total_size += file->fd.file_size;
   }
 
   if (total_size <= ioptions_.compaction_options_fifo.max_table_files_size ||

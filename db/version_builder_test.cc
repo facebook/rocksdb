@@ -66,7 +66,7 @@ class VersionBuilderTest {
     f->refs = 0;
     f->num_entries = num_entries;
     f->num_deletions = num_deletions;
-    vstorage_.MaybeAddFile(level, f);
+    vstorage_.AddFile(level, f);
     if (sampled) {
       f->init_stats_from_file = true;
       vstorage_.UpdateAccumulatedStats(f);
