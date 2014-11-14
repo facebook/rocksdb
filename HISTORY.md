@@ -12,6 +12,7 @@
 
 ### New features
 * CompactFiles and EventListener, although they are still in experimental state
+* Full ColumnFamily support in RocksJava.
 
 ## 3.7.0 (11/6/2014)
 ### Public API changes
