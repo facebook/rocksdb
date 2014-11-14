@@ -83,9 +83,24 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   @Override
   public DBOptions setRateLimiterConfig(RateLimiterConfig config) {
+    assert(isInitialized());
     rateLimiterConfig_ = config;
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
+  }
+
+  @Override
+  public DBOptions setInfoLogLevel(InfoLogLevel infoLogLevel) {
+    assert(isInitialized());
+    setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
+    return this;
+  }
+
+  @Override
+  public InfoLogLevel infoLogLevel() {
+    assert(isInitialized());
+    return InfoLogLevel.getInfoLogLevel(
+        infoLogLevel(nativeHandle_));
   }
 
   @Override
@@ -487,6 +502,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setInfoLogLevel(long handle, byte logLevel);
+  private native byte infoLogLevel(long handle);
   private native void setMaxOpenFiles(long handle, int maxOpenFiles);
   private native int maxOpenFiles(long handle);
   private native void setMaxTotalWalSize(long handle,

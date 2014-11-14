@@ -604,6 +604,7 @@ public class Options extends RocksObject
   @Override
   public Options setMemTableConfig(MemTableConfig config)
       throws RocksDBException {
+    assert(isInitialized());
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
@@ -611,9 +612,24 @@ public class Options extends RocksObject
 
   @Override
   public Options setRateLimiterConfig(RateLimiterConfig config) {
+    assert(isInitialized());
     rateLimiterConfig_ = config;
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
+  }
+
+  @Override
+  public Options setInfoLogLevel(InfoLogLevel infoLogLevel) {
+    assert(isInitialized());
+    setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
+    return this;
+  }
+
+  @Override
+  public InfoLogLevel infoLogLevel() {
+    assert(isInitialized());
+    return InfoLogLevel.getInfoLogLevel(
+        infoLogLevel(nativeHandle_));
   }
 
   @Override
@@ -1025,6 +1041,8 @@ public class Options extends RocksObject
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setInfoLogLevel(long handle, byte logLevel);
+  private native byte infoLogLevel(long handle);
   private native void setMaxOpenFiles(long handle, int maxOpenFiles);
   private native int maxOpenFiles(long handle);
   private native void setMaxTotalWalSize(long handle,

@@ -627,6 +627,28 @@ void Java_org_rocksdb_Options_setRateLimiter(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setInfoLogLevel
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_Options_setInfoLogLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jlog_level) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->info_log_level =
+      static_cast<rocksdb::InfoLogLevel>(jlog_level);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    infoLogLevel
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_Options_infoLogLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return static_cast<jbyte>(
+      reinterpret_cast<rocksdb::Options*>(jhandle)->info_log_level);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    tableCacheNumshardbits
  * Signature: (J)I
  */
@@ -2833,6 +2855,28 @@ void Java_org_rocksdb_DBOptions_setRateLimiter(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->rate_limiter.reset(
       reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setInfoLogLevel
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_DBOptions_setInfoLogLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jlog_level) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->info_log_level =
+    static_cast<rocksdb::InfoLogLevel>(jlog_level);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    infoLogLevel
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_DBOptions_infoLogLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return static_cast<jbyte>(
+      reinterpret_cast<rocksdb::DBOptions*>(jhandle)->info_log_level);
 }
 
 /*
