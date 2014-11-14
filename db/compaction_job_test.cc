@@ -164,7 +164,9 @@ TEST(CompactionJobTest, Simple) {
   mutex_.Unlock();
   ASSERT_OK(compaction_job.Run());
   mutex_.Lock();
-  compaction_job.Install(Status::OK(), &mutex_);
+  Status s;
+  compaction_job.Install(&s, &mutex_);
+  ASSERT_OK(s);
   mutex_.Unlock();
 
   mock_table_factory_->AssertLatestFile(expected_results);

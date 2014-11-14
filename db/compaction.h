@@ -189,8 +189,8 @@ class Compaction {
       CompressionType output_compression, bool seek_compaction = false,
       bool deletion_compaction = false);
 
-  CompactionInputFiles* TEST_GetInputFiles(int level) {
-    return &inputs_[level];
+  CompactionInputFiles* TEST_GetInputFiles(int l) {
+    return &inputs_[l];
   }
 
  private:
