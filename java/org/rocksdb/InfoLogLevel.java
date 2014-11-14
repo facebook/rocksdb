@@ -32,6 +32,8 @@ public enum InfoLogLevel {
    * @param value byte representation of InfoLogLevel.
    *
    * @return {@link org.rocksdb.InfoLogLevel} instance or null.
+   * @throws java.lang.IllegalArgumentException if an invalid
+   *     value is provided.
    */
   public static InfoLogLevel getInfoLogLevel(byte value) {
     for (InfoLogLevel infoLogLevel : InfoLogLevel.values()) {
@@ -39,6 +41,7 @@ public enum InfoLogLevel {
         return infoLogLevel;
       }
     }
-    return null;
+    throw new IllegalArgumentException(
+        "Illegal value provided for InfoLogLevel.");
   }
 }

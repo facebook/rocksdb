@@ -604,7 +604,6 @@ public class Options extends RocksObject
   @Override
   public Options setMemTableConfig(MemTableConfig config)
       throws RocksDBException {
-    assert(isInitialized());
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
@@ -612,7 +611,6 @@ public class Options extends RocksObject
 
   @Override
   public Options setRateLimiterConfig(RateLimiterConfig config) {
-    assert(isInitialized());
     rateLimiterConfig_ = config;
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
