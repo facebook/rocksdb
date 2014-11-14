@@ -479,8 +479,11 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & entry
   return std::make_tuple(left, right);
 }
 
+int print_counter = 0;
+
 template<typename Key, class Comparator>
 void BTree<Key, Comparator>::Insert(const Key& key) {
+  printf("Inserting key : %s, count : %d\n", key, ++print_counter);
   Node* node;
   int entryIndex;
   unique_ptr<std::stack<Node*> > stack;
@@ -518,8 +521,9 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
         newRoot->entries[0].key = left->entries[left->numEntries - 1].key;
         newRoot->entries[0].pid = left->pid;
         newRoot->highPtrPid = right->pid;
-        newRoot->pid = rootPid_;
-        mappingTable_.updateNode(rootPid_, newRoot);
+        newRoot->pid = mappingTable_.addNode(newRoot);
+        // TODO Potentially Memory barrier
+        rootPid_ = newRoot->pid;
       }
     } else { // Split is unnecessary; Copy current node and replace it after inserting a new IndexEntry
       int newSize = 1 + node->numEntries;
