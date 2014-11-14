@@ -56,6 +56,7 @@ using rocksdb::NewBloomFilterPolicy;
 using rocksdb::NewLRUCache;
 using rocksdb::Options;
 using rocksdb::BlockBasedTableOptions;
+using rocksdb::CuckooTableOptions;
 using rocksdb::RandomAccessFile;
 using rocksdb::Range;
 using rocksdb::ReadOptions;
@@ -83,6 +84,7 @@ struct rocksdb_readoptions_t     { ReadOptions       rep; };
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
 struct rocksdb_options_t         { Options           rep; };
 struct rocksdb_block_based_table_options_t  { BlockBasedTableOptions rep; };
+struct rocksdb_cuckoo_table_options_t  { CuckooTableOptions rep; };
 struct rocksdb_seqfile_t         { SequentialFile*   rep; };
 struct rocksdb_randomfile_t      { RandomAccessFile* rep; };
 struct rocksdb_writablefile_t    { WritableFile*     rep; };
@@ -1117,6 +1119,51 @@ void rocksdb_options_set_block_based_table_factory(
   if (table_options) {
     opt->rep.table_factory.reset(
         rocksdb::NewBlockBasedTableFactory(table_options->rep));
+  }
+}
+
+
+rocksdb_cuckoo_table_options_t*
+rocksdb_cuckoo_options_create() {
+  return new rocksdb_cuckoo_table_options_t;
+}
+
+void rocksdb_cuckoo_options_destroy(
+    rocksdb_cuckoo_table_options_t* options) {
+  delete options;
+}
+
+void rocksdb_cuckoo_options_set_hash_ratio(
+    rocksdb_cuckoo_table_options_t* options, double v) {
+  options->rep.hash_table_ratio = v;
+}
+
+void rocksdb_cuckoo_options_set_max_search_depth(
+    rocksdb_cuckoo_table_options_t* options, uint32_t v) {
+  options->rep.max_search_depth = v;
+}
+
+void rocksdb_cuckoo_options_set_cuckoo_block_size(
+    rocksdb_cuckoo_table_options_t* options, uint32_t v) {
+  options->rep.cuckoo_block_size = v;
+}
+
+void rocksdb_cuckoo_options_set_identity_as_first_hash(
+    rocksdb_cuckoo_table_options_t* options, unsigned char v) {
+  options->rep.identity_as_first_hash = v;
+}
+
+void rocksdb_cuckoo_options_set_use_module_hash(
+    rocksdb_cuckoo_table_options_t* options, unsigned char v) {
+  options->rep.use_module_hash = v;
+}
+
+void rocksdb_options_set_cuckoo_table_factory(
+    rocksdb_options_t *opt,
+    rocksdb_cuckoo_table_options_t* table_options) {
+  if (table_options) {
+    opt->rep.table_factory.reset(
+        rocksdb::NewCuckooTableFactory(table_options->rep));
   }
 }
 

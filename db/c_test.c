@@ -801,8 +801,27 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
+
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
   }
 
+  StartPhase("cuckoo_options");
+  {
+    rocksdb_cuckoo_table_options_t* cuckoo_options;
+    cuckoo_options = rocksdb_cuckoo_options_create();
+    rocksdb_cuckoo_options_set_hash_ratio(cuckoo_options, 0.5);
+    rocksdb_cuckoo_options_set_max_search_depth(cuckoo_options, 200);
+    rocksdb_cuckoo_options_set_cuckoo_block_size(cuckoo_options, 10);
+    rocksdb_cuckoo_options_set_identity_as_first_hash(cuckoo_options, 1);
+    rocksdb_cuckoo_options_set_use_module_hash(cuckoo_options, 0);
+    rocksdb_options_set_cuckoo_table_factory(options, cuckoo_options);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_cuckoo_options_destroy(cuckoo_options);
+  }
 
   StartPhase("cleanup");
   rocksdb_close(db);
