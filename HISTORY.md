@@ -1,10 +1,17 @@
 # Rocksdb Change Log
 
-## Unreleased
+## 3.8.0 (11/14/2014)
 
+### Public API changes
 * BackupEngine::NewBackupEngine() was deprecated; please use BackupEngine::Open() from now on.
 * BackupableDB/RestoreBackupableDB have new GarbageCollect() methods, which will clean up files from corrupt and obsolete backups.
 * BackupableDB/RestoreBackupableDB have new GetCorruptedBackups() methods which list corrupt backups.
+
+### Cleanup
+* Bunch of code cleanup, some extra warnings turned on (-Wshadow, -Wshorten-64-to-32, -Wnon-virtual-dtor)
+
+### New features
+* CompactFiles and EventListener, although they are still in experimental state
 
 ## 3.7.0 (11/6/2014)
 ### Public API changes
