@@ -77,6 +77,8 @@ typedef struct rocksdb_mergeoperator_t   rocksdb_mergeoperator_t;
 typedef struct rocksdb_options_t         rocksdb_options_t;
 typedef struct rocksdb_block_based_table_options_t
     rocksdb_block_based_table_options_t;
+typedef struct rocksdb_cuckoo_table_options_t
+    rocksdb_cuckoo_table_options_t;
 typedef struct rocksdb_randomfile_t      rocksdb_randomfile_t;
 typedef struct rocksdb_readoptions_t     rocksdb_readoptions_t;
 typedef struct rocksdb_seqfile_t         rocksdb_seqfile_t;
@@ -375,6 +377,25 @@ extern void rocksdb_block_based_options_set_whole_key_filtering(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt, rocksdb_block_based_table_options_t* table_options);
+
+/* Cuckoo table options */
+
+extern rocksdb_cuckoo_table_options_t*
+    rocksdb_cuckoo_options_create();
+extern void rocksdb_cuckoo_options_destroy(
+    rocksdb_cuckoo_table_options_t* options);
+extern void rocksdb_cuckoo_options_set_hash_ratio(
+    rocksdb_cuckoo_table_options_t* options, double v);
+extern void rocksdb_cuckoo_options_set_max_search_depth(
+    rocksdb_cuckoo_table_options_t* options, uint32_t v);
+extern void rocksdb_cuckoo_options_set_cuckoo_block_size(
+    rocksdb_cuckoo_table_options_t* options, uint32_t v);
+extern void rocksdb_cuckoo_options_set_identity_as_first_hash(
+    rocksdb_cuckoo_table_options_t* options, unsigned char v);
+extern void rocksdb_cuckoo_options_set_use_module_hash(
+    rocksdb_cuckoo_table_options_t* options, unsigned char v);
+extern void rocksdb_options_set_cuckoo_table_factory(
+    rocksdb_options_t *opt, rocksdb_cuckoo_table_options_t* table_options);
 
 /* Options */
 
