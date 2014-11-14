@@ -521,6 +521,12 @@ class DB {
   virtual Status GetPropertiesOfAllTables(TablePropertiesCollection* props) {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
+
+  // Builds an openable snapshot of RocksDB on the same disk, which
+  // accepts an output directory on the same disk, and under the directory
+  // (1) hard-linked SST files pointing to existing live SST files
+  // (2) a copied manifest files and other files
+  virtual Status CreateCheckpoint(const std::string& snapshot_dir) = 0;
 #endif  // ROCKSDB_LITE
 
  private:

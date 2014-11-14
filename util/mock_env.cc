@@ -559,6 +559,19 @@ Status MockEnv::RenameFile(const std::string& src, const std::string& dest) {
   return Status::OK();
 }
 
+Status MockEnv::LinkFile(const std::string& src, const std::string& dest) {
+  auto s = NormalizePath(src);
+  auto t = NormalizePath(dest);
+  MutexLock lock(&mutex_);
+  if (file_map_.find(s) == file_map_.end()) {
+    return Status::IOError(s, "File not found");
+  }
+
+  DeleteFileInternal(t);
+  file_map_[t] = file_map_[s];
+  return Status::OK();
+}
+
 Status MockEnv::NewLogger(const std::string& fname,
                              shared_ptr<Logger>* result) {
   auto fn = NormalizePath(fname);

@@ -93,6 +93,8 @@ class HdfsEnv : public Env {
 
   virtual Status RenameFile(const std::string& src, const std::string& target);
 
+  virtual Status LinkFile(const std::string& src, const std::string& target);
+
   virtual Status LockFile(const std::string& fname, FileLock** lock);
 
   virtual Status UnlockFile(FileLock* lock);
@@ -290,6 +292,10 @@ class HdfsEnv : public Env {
   }
 
   virtual Status RenameFile(const std::string& src, const std::string& target){return notsup;}
+
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    return notsup;
+  }
 
   virtual Status LockFile(const std::string& fname, FileLock** lock){return notsup;}
 

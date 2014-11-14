@@ -1288,6 +1288,17 @@ class PosixEnv : public Env {
     return result;
   }
 
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    Status result;
+    if (link(src.c_str(), target.c_str()) != 0) {
+      if (errno == EXDEV) {
+        return Status::NotSupported("No cross FS links allowed");
+      }
+      result = IOError(src, errno);
+    }
+    return result;
+  }
+
   virtual Status LockFile(const std::string& fname, FileLock** lock) {
     *lock = nullptr;
     Status result;

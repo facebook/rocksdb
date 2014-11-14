@@ -247,6 +247,10 @@ class StackableDB : public DB {
     return db_->DefaultColumnFamily();
   }
 
+  virtual Status CreateCheckpoint(const std::string& snapshot_dir) override {
+    return db_->CreateCheckpoint(snapshot_dir);
+  }
+
  protected:
   DB* db_;
 };

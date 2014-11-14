@@ -178,6 +178,10 @@ class Env {
   virtual Status RenameFile(const std::string& src,
                             const std::string& target) = 0;
 
+  // Hard Link file src to target.
+  virtual Status LinkFile(const std::string& src,
+                          const std::string& target) = 0;
+
   // Lock the specified file.  Used to prevent concurrent access to
   // the same db by multiple processes.  On failure, stores nullptr in
   // *lock and returns non-OK.
@@ -747,6 +751,11 @@ class EnvWrapper : public Env {
   Status RenameFile(const std::string& s, const std::string& t) {
     return target_->RenameFile(s, t);
   }
+
+  Status LinkFile(const std::string& s, const std::string& t) {
+    return target_->LinkFile(s, t);
+  }
+
   Status LockFile(const std::string& f, FileLock** l) {
     return target_->LockFile(f, l);
   }

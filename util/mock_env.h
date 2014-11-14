@@ -69,6 +69,8 @@ class MockEnv : public EnvWrapper {
   virtual Status RenameFile(const std::string& src,
                             const std::string& target);
 
+  virtual Status LinkFile(const std::string& src, const std::string& target);
+
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result);
 

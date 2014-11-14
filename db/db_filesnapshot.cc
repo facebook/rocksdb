@@ -25,6 +25,7 @@
 #include "port/port.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
+#include "util/file_util.h"
 
 namespace rocksdb {
 
@@ -133,6 +134,114 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
 
 Status DBImpl::GetSortedWalFiles(VectorLogPtr& files) {
   return wal_manager_.GetSortedWalFiles(files);
+}
+
+// Builds an openable snapshot of RocksDB
+Status DBImpl::CreateCheckpoint(const std::string& snapshot_dir) {
+  Status s;
+  std::vector<std::string> live_files;
+  uint64_t manifest_file_size = 0;
+  uint64_t sequence_number = GetLatestSequenceNumber();
+  bool same_fs = true;
+
+  if (env_->FileExists(snapshot_dir)) {
+    return Status::InvalidArgument("Directory exists");
+  }
+
+  s = DisableFileDeletions();
+  if (s.ok()) {
+    // this will return live_files prefixed with "/"
+    s = GetLiveFiles(live_files, &manifest_file_size, true);
+  }
+  if (!s.ok()) {
+    EnableFileDeletions(false);
+    return s;
+  }
+
+  Log(db_options_.info_log,
+      "Started the snapshot process -- creating snapshot in directory %s",
+      snapshot_dir.c_str());
+
+  std::string full_private_path = snapshot_dir + ".tmp";
+
+  // create snapshot directory
+  s = env_->CreateDir(full_private_path);
+
+  // copy/hard link live_files
+  for (size_t i = 0; s.ok() && i < live_files.size(); ++i) {
+    uint64_t number;
+    FileType type;
+    bool ok = ParseFileName(live_files[i], &number, &type);
+    if (!ok) {
+      s = Status::Corruption("Can't parse file name. This is very bad");
+      break;
+    }
+    // we should only get sst, manifest and current files here
+    assert(type == kTableFile || type == kDescriptorFile ||
+           type == kCurrentFile);
+    assert(live_files[i].size() > 0 && live_files[i][0] == '/');
+    std::string src_fname = live_files[i];
+
+    // rules:
+    // * if it's kTableFile, then it's shared
+    // * if it's kDescriptorFile, limit the size to manifest_file_size
+    // * always copy if cross-device link
+    if ((type == kTableFile) && same_fs) {
+      Log(db_options_.info_log, "Hard Linking %s", src_fname.c_str());
+      s = env_->LinkFile(GetName() + src_fname, full_private_path + src_fname);
+      if (s.IsNotSupported()) {
+        same_fs = false;
+        s = Status::OK();
+      }
+    }
+    if ((type != kTableFile) || (!same_fs)) {
+      Log(db_options_.info_log, "Copying %s", src_fname.c_str());
+      s = CopyFile(env_, GetName() + src_fname, full_private_path + src_fname,
+                   (type == kDescriptorFile) ? manifest_file_size : 0);
+    }
+  }
+
+  // we copied all the files, enable file deletions
+  EnableFileDeletions(false);
+
+  if (s.ok()) {
+    // move tmp private backup to real snapshot directory
+    s = env_->RenameFile(full_private_path, snapshot_dir);
+  }
+  if (s.ok()) {
+    unique_ptr<Directory> snapshot_directory;
+    env_->NewDirectory(snapshot_dir, &snapshot_directory);
+    if (snapshot_directory != nullptr) {
+      s = snapshot_directory->Fsync();
+    }
+  }
+
+  if (!s.ok()) {
+    // clean all the files we might have created
+    Log(db_options_.info_log, "Snapshot failed -- %s", s.ToString().c_str());
+    // we have to delete the dir and all its children
+    std::vector<std::string> subchildren;
+    env_->GetChildren(full_private_path, &subchildren);
+    for (auto& subchild : subchildren) {
+      Status s1 = env_->DeleteFile(full_private_path + subchild);
+      if (s1.ok()) {
+        Log(db_options_.info_log, "Deleted %s",
+            (full_private_path + subchild).c_str());
+      }
+    }
+    // finally delete the private dir
+    Status s1 = env_->DeleteDir(full_private_path);
+    Log(db_options_.info_log, "Deleted dir %s -- %s", full_private_path.c_str(),
+        s1.ToString().c_str());
+    return s;
+  }
+
+  // here we know that we succeeded and installed the new snapshot
+  Log(db_options_.info_log, "Snapshot DONE. All is good");
+  Log(db_options_.info_log, "Snapshot sequence number: %" PRIu64,
+      sequence_number);
+
+  return s;
 }
 }
 
