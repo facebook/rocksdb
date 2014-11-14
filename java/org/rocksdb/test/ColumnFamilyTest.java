@@ -151,7 +151,8 @@ public class ColumnFamilyTest {
       cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfDescriptors, columnFamilyHandleList);
-      db.put(columnFamilyHandleList.get(0), new WriteOptions(), "key1".getBytes(), "value".getBytes());
+      db.put(columnFamilyHandleList.get(0), new WriteOptions(),
+          "key1".getBytes(), "value".getBytes());
       db.put("key2".getBytes(), "12345678".getBytes());
       byte[] outValue = new byte[5];
       // not found value
