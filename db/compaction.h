@@ -183,6 +183,16 @@ class Compaction {
   void SetupBottomMostLevel(VersionStorageInfo* vstorage, bool is_manual,
                             bool level0_only);
 
+  static Compaction* TEST_NewCompaction(
+      int num_levels, int start_level, int out_level, uint64_t target_file_size,
+      uint64_t max_grandparent_overlap_bytes, uint32_t output_path_id,
+      CompressionType output_compression, bool seek_compaction = false,
+      bool deletion_compaction = false);
+
+  CompactionInputFiles* TEST_GetInputFiles(int level) {
+    return &inputs_[level];
+  }
+
  private:
   friend class CompactionPicker;
   friend class UniversalCompactionPicker;

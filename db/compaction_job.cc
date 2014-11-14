@@ -231,6 +231,7 @@ void CompactionJob::Prepare() {
   // Generate file_levels_ for compaction berfore making Iterator
   compact_->compaction->GenerateFileLevels();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  assert(cfd != nullptr);
   LogToBuffer(
       log_buffer_, "[%s] Compacting %d@%d + %d@%d files, score %.2f",
       cfd->GetName().c_str(), compact_->compaction->num_input_files(0),
@@ -990,6 +991,7 @@ Status CompactionJob::InstallCompactionResults(port::Mutex* db_mutex) {
 inline SequenceNumber CompactionJob::findEarliestVisibleSnapshot(
     SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
     SequenceNumber* prev_snapshot) {
+  assert(snapshots.size());
   SequenceNumber prev __attribute__((unused)) = 0;
   for (const auto cur : snapshots) {
     assert(prev <= cur);

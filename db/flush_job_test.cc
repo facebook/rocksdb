@@ -28,7 +28,7 @@ class FlushJobTest {
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_controller_)),
         shutting_down_(false),
-        mock_table_factory_(new MockTableFactory()) {
+        mock_table_factory_(new mock::MockTableFactory()) {
     ASSERT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
@@ -73,7 +73,7 @@ class FlushJobTest {
   std::unique_ptr<VersionSet> versions_;
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;
-  std::shared_ptr<MockTableFactory> mock_table_factory_;
+  std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 };
 
 TEST(FlushJobTest, Empty) {

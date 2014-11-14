@@ -328,4 +328,15 @@ uint64_t Compaction::OutputFilePreallocationSize(
   return preallocation_size * 1.1;
 }
 
+Compaction* Compaction::TEST_NewCompaction(
+    int num_levels, int start_level, int out_level, uint64_t target_file_size,
+    uint64_t max_grandparent_overlap_bytes, uint32_t output_path_id,
+    CompressionType output_compression, bool seek_compaction,
+    bool deletion_compaction) {
+  return new Compaction(num_levels, start_level, out_level, target_file_size,
+                        max_grandparent_overlap_bytes, output_path_id,
+                        output_compression, seek_compaction,
+                        deletion_compaction);
+}
+
 }  // namespace rocksdb

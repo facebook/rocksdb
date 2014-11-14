@@ -21,18 +21,19 @@
 #include "util/testutil.h"
 
 namespace rocksdb {
+namespace mock {
 
+typedef std::map<std::string, std::string> MockFileContents;
 // NOTE this currently only supports bitwise comparator
 
 struct MockTableFileSystem {
   port::Mutex mutex;
-  std::map<uint32_t, std::map<std::string, std::string>> files;
+  std::map<uint32_t, MockFileContents> files;
 };
 
 class MockTableReader : public TableReader {
  public:
-  MockTableReader(const std::map<std::string, std::string>& table)
-      : table_(table) {}
+  explicit MockTableReader(const MockFileContents& table) : table_(table) {}
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena) override;
 
@@ -50,17 +51,16 @@ class MockTableReader : public TableReader {
   ~MockTableReader() {}
 
  private:
-  const std::map<std::string, std::string>& table_;
+  const MockFileContents& table_;
 };
 
 class MockTableIterator : public Iterator {
  public:
-  explicit MockTableIterator(const std::map<std::string, std::string>& table)
-      : table_(table) {
+  explicit MockTableIterator(const MockFileContents& table) : table_(table) {
     itr_ = table_.end();
   }
 
-  bool Valid() const { return itr_ == table_.end(); }
+  bool Valid() const { return itr_ != table_.end(); }
 
   void SeekToFirst() { itr_ = table_.begin(); }
 
@@ -91,8 +91,8 @@ class MockTableIterator : public Iterator {
   Status status() const { return Status::OK(); }
 
  private:
-  const std::map<std::string, std::string>& table_;
-  std::map<std::string, std::string>::const_iterator itr_;
+  const MockFileContents& table_;
+  MockFileContents::const_iterator itr_;
 };
 
 class MockTableBuilder : public TableBuilder {
@@ -128,7 +128,7 @@ class MockTableBuilder : public TableBuilder {
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
-  std::map<std::string, std::string> table_;
+  MockFileContents table_;
 };
 
 class MockTableFactory : public TableFactory {
@@ -147,6 +147,12 @@ class MockTableFactory : public TableFactory {
       const CompressionType compression_type,
       const CompressionOptions& compression_opts) const;
 
+  // This function will directly create mock table instead of going through
+  // MockTableBuilder. MockFileContents has to have a format of <internal_key,
+  // value>. Those key-value pairs will then be inserted into the mock table
+  Status CreateMockTable(Env* env, const std::string& fname,
+                         MockFileContents file_contents);
+
   virtual Status SanitizeOptions(const DBOptions& db_opts,
                                  const ColumnFamilyOptions& cf_opts) const {
     return Status::OK();
@@ -158,8 +164,8 @@ class MockTableFactory : public TableFactory {
 
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
-  void AssertSingleFile(
-      const std::map<std::string, std::string>& file_contents);
+  void AssertSingleFile(const MockFileContents& file_contents);
+  void AssertLatestFile(const MockFileContents& file_contents);
 
  private:
   uint32_t GetAndWriteNextID(WritableFile* file) const;
@@ -169,4 +175,5 @@ class MockTableFactory : public TableFactory {
   mutable std::atomic<uint32_t> next_id_;
 };
 
+}  // namespace mock
 }  // namespace rocksdb
