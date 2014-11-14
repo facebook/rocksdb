@@ -19,6 +19,7 @@
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
+#include "db/job_context.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/cache.h"

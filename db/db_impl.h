@@ -38,7 +38,6 @@
 #include "db/write_controller.h"
 #include "db/flush_scheduler.h"
 #include "db/write_thread.h"
-#include "db/job_context.h"
 
 namespace rocksdb {
 
@@ -49,6 +48,7 @@ class VersionEdit;
 class VersionSet;
 class CompactionFilterV2;
 class Arena;
+struct JobContext;
 
 class DBImpl : public DB {
  public:

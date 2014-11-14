@@ -21,7 +21,8 @@ class MemTable;
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
     return candidate_files.size() || sst_delete_files.size() ||
-           log_delete_files.size();
+           log_delete_files.size() || new_superversion != nullptr ||
+           superversions_to_free.size() > 0 || memtables_to_free.size() > 0;
   }
 
   // Structure to store information for candidate files to delete.
@@ -73,7 +74,7 @@ struct JobContext {
     new_superversion = create_superversion ? new SuperVersion() : nullptr;
   }
 
-  ~JobContext() {
+  void Clean() {
     // free pending memtables
     for (auto m : memtables_to_free) {
       delete m;
@@ -85,6 +86,16 @@ struct JobContext {
     // if new_superversion was not used, it will be non-nullptr and needs
     // to be freed here
     delete new_superversion;
+
+    memtables_to_free.clear();
+    superversions_to_free.clear();
+    new_superversion = nullptr;
+  }
+
+  ~JobContext() {
+    assert(memtables_to_free.size() == 0);
+    assert(superversions_to_free.size() == 0);
+    assert(new_superversion == nullptr);
   }
 };
 

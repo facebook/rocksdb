@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include "db/db_impl.h"
 #include "db/filename.h"
+#include "db/job_context.h"
 #include "db/version_set.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"

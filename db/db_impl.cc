@@ -32,6 +32,7 @@
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/filename.h"
+#include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/memtable.h"
@@ -287,6 +288,7 @@ DBImpl::~DBImpl() {
     if (job_context.HaveSomethingToDelete()) {
       PurgeObsoleteFiles(job_context);
     }
+    job_context.Clean();
   }
 
   // versions need to be destroyed before table_cache since it can hold
@@ -666,6 +668,7 @@ void DBImpl::DeleteObsoleteFiles() {
   if (job_context.HaveSomethingToDelete()) {
     PurgeObsoleteFiles(job_context);
   }
+  job_context.Clean();
 }
 
 Status DBImpl::Recover(
@@ -1343,6 +1346,7 @@ Status DBImpl::CompactFilesImpl(
     if (job_context.HaveSomethingToDelete()) {
       PurgeObsoleteFiles(job_context);
     }
+    job_context.Clean();
     mutex_.Lock();
   }
 
@@ -1808,6 +1812,7 @@ void DBImpl::BackgroundCallFlush() {
       if (job_context.HaveSomethingToDelete()) {
         PurgeObsoleteFiles(job_context);
       }
+      job_context.Clean();
       mutex_.Lock();
     }
 
@@ -1884,6 +1889,7 @@ void DBImpl::BackgroundCallCompaction() {
       if (job_context.HaveSomethingToDelete()) {
         PurgeObsoleteFiles(job_context);
       }
+      job_context.Clean();
       mutex_.Lock();
     }
 
@@ -2190,6 +2196,7 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
     if (job_context.HaveSomethingToDelete()) {
       state->db->PurgeObsoleteFiles(job_context);
     }
+    job_context.Clean();
   }
 
   delete state;
@@ -3306,6 +3313,7 @@ Status DBImpl::DeleteFile(std::string name) {
   if (job_context.HaveSomethingToDelete()) {
     PurgeObsoleteFiles(job_context);
   }
+  job_context.Clean();
   {
     MutexLock l(&mutex_);
     // schedule flush if file deletion means we freed the space for flushes to
