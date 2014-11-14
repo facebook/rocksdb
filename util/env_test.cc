@@ -552,6 +552,7 @@ TEST(EnvPosixTest, AllocateTest) {
   // allocate 100 MB
   size_t kPreallocateSize = 100 * 1024 * 1024;
   size_t kBlockSize = 512;
+  size_t kPageSize = 4096;
   std::string data(1024 * 1024, 'a');
   wfile->SetPreallocationBlockSize(kPreallocateSize);
   ASSERT_OK(wfile->Append(Slice(data)));
@@ -565,8 +566,7 @@ TEST(EnvPosixTest, AllocateTest) {
   // we only require that number of allocated blocks is at least what we expect.
   // It looks like some FS give us more blocks that we asked for. That's fine.
   // It might be worth investigating further.
-  auto st_blocks = f_stat.st_blocks;
-  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), st_blocks);
+  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
 
   // close the file, should deallocate the blocks
   wfile.reset();
@@ -574,7 +574,9 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
-  ASSERT_EQ((f_stat.st_size + kBlockSize - 1) / kBlockSize, (unsigned int)f_stat.st_blocks);
+  // Because the FS might give us more blocks, we add a full page to the size
+  // and expect the number of blocks to be less or equal to that.
+  ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize, (unsigned int)f_stat.st_blocks);
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 
