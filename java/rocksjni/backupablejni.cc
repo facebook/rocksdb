@@ -124,7 +124,7 @@ void Java_org_rocksdb_BackupableDBOptions_newBackupableDBOptions(
  * Signature: (J)Ljava/lang/String;
  */
 jstring Java_org_rocksdb_BackupableDBOptions_backupDir(
-    JNIEnv* env, jobject jopt, jlong jhandle, jstring jpath) {
+    JNIEnv* env, jobject jopt, jlong jhandle) {
   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
   return env->NewStringUTF(bopt->backup_dir.c_str());
 }

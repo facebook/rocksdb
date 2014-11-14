@@ -30,9 +30,11 @@ public class ColumnFamilyHandle extends RocksObject {
    * before freeing the native handle.</p>
    */
   @Override protected void disposeInternal() {
-    assert(isInitialized());
-    if (rocksDB_.isInitialized()) {
-      disposeInternal(nativeHandle_);
+    synchronized (rocksDB_) {
+      assert (isInitialized());
+      if (rocksDB_.isInitialized()) {
+        disposeInternal(nativeHandle_);
+      }
     }
   }
 

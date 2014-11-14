@@ -221,13 +221,3 @@ public class WriteBatch extends RocksObject {
     private native void disposeInternal(long handle);
   }
 }
-
-/**
- * Package-private class which provides java api to access
- * c++ WriteBatchInternal.
- */
-class WriteBatchInternal {
-  static native void setSequence(WriteBatch batch, long sn);
-  static native long sequence(WriteBatch batch);
-  static native void append(WriteBatch b1, WriteBatch b2);
-}

@@ -9,8 +9,8 @@
 
 #include "include/org_rocksdb_WriteBatch.h"
 #include "include/org_rocksdb_WriteBatch_Handler.h"
-#include "include/org_rocksdb_WriteBatchInternal.h"
-#include "include/org_rocksdb_WriteBatchTest.h"
+#include "include/org_rocksdb_test_WriteBatchInternal.h"
+#include "include/org_rocksdb_test_WriteBatchTest.h"
 #include "rocksjni/portal.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 #include "rocksdb/db.h"
@@ -257,11 +257,11 @@ void Java_org_rocksdb_WriteBatch_disposeInternal(
 }
 
 /*
- * Class:     org_rocksdb_WriteBatchInternal
+ * Class:     org_rocksdb_test_WriteBatchInternal
  * Method:    setSequence
  * Signature: (Lorg/rocksdb/WriteBatch;J)V
  */
-void Java_org_rocksdb_WriteBatchInternal_setSequence(
+void Java_org_rocksdb_test_WriteBatchInternal_setSequence(
     JNIEnv* env, jclass jclazz, jobject jobj, jlong jsn) {
   rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(wb != nullptr);
@@ -271,11 +271,11 @@ void Java_org_rocksdb_WriteBatchInternal_setSequence(
 }
 
 /*
- * Class:     org_rocksdb_WriteBatchInternal
+ * Class:     org_rocksdb_test_WriteBatchInternal
  * Method:    sequence
  * Signature: (Lorg/rocksdb/WriteBatch;)J
  */
-jlong Java_org_rocksdb_WriteBatchInternal_sequence(
+jlong Java_org_rocksdb_test_WriteBatchInternal_sequence(
     JNIEnv* env, jclass jclazz, jobject jobj) {
   rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(wb != nullptr);
@@ -284,11 +284,11 @@ jlong Java_org_rocksdb_WriteBatchInternal_sequence(
 }
 
 /*
- * Class:     org_rocksdb_WriteBatchInternal
+ * Class:     org_rocksdb_test_WriteBatchInternal
  * Method:    append
  * Signature: (Lorg/rocksdb/WriteBatch;Lorg/rocksdb/WriteBatch;)V
  */
-void Java_org_rocksdb_WriteBatchInternal_append(
+void Java_org_rocksdb_test_WriteBatchInternal_append(
     JNIEnv* env, jclass jclazz, jobject jwb1, jobject jwb2) {
   rocksdb::WriteBatch* wb1 = rocksdb::WriteBatchJni::getHandle(env, jwb1);
   assert(wb1 != nullptr);
@@ -321,11 +321,11 @@ void Java_org_rocksdb_WriteBatch_00024Handler_disposeInternal(
 }
 
 /*
- * Class:     org_rocksdb_WriteBatchTest
+ * Class:     org_rocksdb_test_WriteBatchTest
  * Method:    getContents
  * Signature: (Lorg/rocksdb/WriteBatch;)[B
  */
-jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
+jbyteArray Java_org_rocksdb_test_WriteBatchTest_getContents(
     JNIEnv* env, jclass jclazz, jobject jobj) {
   rocksdb::WriteBatch* b = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(b != nullptr);

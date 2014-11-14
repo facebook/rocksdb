@@ -5,30 +5,94 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.EncodingType;
+import org.rocksdb.Options;
 import org.rocksdb.PlainTableConfig;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class PlainTableConfigTest {
 
-  public static void main(String[] args) {
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void keySize() {
     PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setKeySize(5);
-    assert(plainTableConfig.keySize() == 5);
+    assertThat(plainTableConfig.keySize()).
+        isEqualTo(5);
+  }
+
+  @Test
+  public void bloomBitsPerKey() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setBloomBitsPerKey(11);
-    assert(plainTableConfig.bloomBitsPerKey() == 11);
+    assertThat(plainTableConfig.bloomBitsPerKey()).
+        isEqualTo(11);
+  }
+
+  @Test
+  public void hashTableRatio() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setHashTableRatio(0.95);
-    assert(plainTableConfig.hashTableRatio() == 0.95);
+    assertThat(plainTableConfig.hashTableRatio()).
+        isEqualTo(0.95);
+  }
+
+  @Test
+  public void indexSparseness() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setIndexSparseness(18);
-    assert(plainTableConfig.indexSparseness() == 18);
+    assertThat(plainTableConfig.indexSparseness()).
+        isEqualTo(18);
+  }
+
+  @Test
+  public void hugePageTlbSize() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setHugePageTlbSize(1);
-    assert(plainTableConfig.hugePageTlbSize() == 1);
+    assertThat(plainTableConfig.hugePageTlbSize()).
+        isEqualTo(1);
+  }
+
+  @Test
+  public void encodingType() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setEncodingType(EncodingType.kPrefix);
-    assert(plainTableConfig.encodingType().equals(
-        EncodingType.kPrefix));
+    assertThat(plainTableConfig.encodingType()).isEqualTo(
+        EncodingType.kPrefix);
+  }
+
+  @Test
+  public void fullScanMode() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setFullScanMode(true);
-    assert(plainTableConfig.fullScanMode());
+    assertThat(plainTableConfig.fullScanMode()).isTrue();  }
+
+  @Test
+  public void storeIndexInFile() {
+    PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setStoreIndexInFile(true);
-    assert(plainTableConfig.storeIndexInFile());
-    System.out.println("PlainTableConfig test passed");
+    assertThat(plainTableConfig.storeIndexInFile()).
+        isTrue();
+  }
+
+  @Test
+  public void plainTableConfig() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      PlainTableConfig plainTableConfig = new PlainTableConfig();
+      opt.setTableFormatConfig(plainTableConfig);
+      assertThat(opt.tableFactoryName()).isEqualTo("PlainTable");
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
   }
 }

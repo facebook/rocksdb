@@ -5,26 +5,33 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class MixedOptionsTest {
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void mixedOptionsTest(){
     // Set a table factory and check the names
     ColumnFamilyOptions cfOptions = new ColumnFamilyOptions();
     cfOptions.setTableFormatConfig(new BlockBasedTableConfig().
         setFilter(new BloomFilter()));
-    assert(cfOptions.tableFactoryName().equals(
-        "BlockBasedTable"));
+    assertThat(cfOptions.tableFactoryName()).isEqualTo(
+        "BlockBasedTable");
     cfOptions.setTableFormatConfig(new PlainTableConfig());
-    assert(cfOptions.tableFactoryName().equals("PlainTable"));
+    assertThat(cfOptions.tableFactoryName()).isEqualTo("PlainTable");
     // Initialize a dbOptions object from cf options and
     // db options
     DBOptions dbOptions = new DBOptions();
     Options options = new Options(dbOptions, cfOptions);
-    assert(options.tableFactoryName().equals("PlainTable"));
+    assertThat(options.tableFactoryName()).isEqualTo("PlainTable");
     // Free instances
     options.dispose();
     options = null;

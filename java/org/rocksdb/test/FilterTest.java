@@ -5,38 +5,44 @@
 
 package org.rocksdb.test;
 
+import org.junit.ClassRule;
+import org.junit.Test;
 import org.rocksdb.*;
 
 public class FilterTest {
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
-    Options options = new Options();
-    // test table config
-    BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
-    options.setTableFormatConfig(new BlockBasedTableConfig().
-        setFilter(new BloomFilter()));
-    options.dispose();
-    System.gc();
-    System.runFinalization();
-    // new Bloom filter
-    options = new Options();
-    blockConfig = new BlockBasedTableConfig();
-    blockConfig.setFilter(new BloomFilter());
-    options.setTableFormatConfig(blockConfig);
-    BloomFilter bloomFilter = new BloomFilter(10);
-    blockConfig.setFilter(bloomFilter);
-    options.setTableFormatConfig(blockConfig);
-    System.gc();
-    System.runFinalization();
-    blockConfig.setFilter(new BloomFilter(10, false));
-    options.setTableFormatConfig(blockConfig);
-    options.dispose();
-    options = null;
-    blockConfig = null;
-    System.gc();
-    System.runFinalization();
-    System.out.println("Filter test passed");
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Test
+  public void filter() {
+    Options options = null;
+    try {
+      options = new Options();
+      // test table config
+      options.setTableFormatConfig(new BlockBasedTableConfig().
+          setFilter(new BloomFilter()));
+      options.dispose();
+      System.gc();
+      System.runFinalization();
+      // new Bloom filter
+      options = new Options();
+      BlockBasedTableConfig blockConfig = new BlockBasedTableConfig();
+      blockConfig.setFilter(new BloomFilter());
+      options.setTableFormatConfig(blockConfig);
+      BloomFilter bloomFilter = new BloomFilter(10);
+      blockConfig.setFilter(bloomFilter);
+      options.setTableFormatConfig(blockConfig);
+      System.gc();
+      System.runFinalization();
+      blockConfig.setFilter(new BloomFilter(10, false));
+      options.setTableFormatConfig(blockConfig);
+
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+    }
   }
 }

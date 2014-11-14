@@ -276,6 +276,17 @@ void Java_org_rocksdb_Options_setParanoidChecks(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setEnv
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setEnv(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jenv) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->env =
+      reinterpret_cast<rocksdb::Env*>(jenv);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setMaxTotalWalSize
  * Signature: (JJ)V
  */

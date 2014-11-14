@@ -18,6 +18,7 @@ public class RocksEnv extends RocksObject {
 
   static {
     default_env_ = new RocksEnv(getDefaultEnvInternal());
+
   }
   private static native long getDefaultEnvInternal();
 
@@ -101,7 +102,7 @@ public class RocksEnv extends RocksObject {
    * {@link RocksObject} must implement to release their associated C++
    * resource.
    */
-  protected void disposeInternal() {
+  @Override protected void disposeInternal() {
     disposeInternal(nativeHandle_);
   }
   private native void disposeInternal(long handle);
