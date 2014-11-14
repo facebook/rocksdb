@@ -24,6 +24,7 @@ class CompactionJobTest {
   CompactionJobTest()
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/compaction_job_test"),
+        mutable_cf_options_(Options(), ImmutableCFOptions(Options())),
         table_cache_(NewLRUCache(50000, 16, 8)),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_controller_)),
@@ -37,7 +38,6 @@ class CompactionJobTest {
     cf_options_.table_factory = mock_table_factory_;
     column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
 
-    mutable_cf_options_.RefreshDerivedOptions(ImmutableCFOptions(Options()));
 
     ASSERT_OK(versions_->Recover(column_families, false));
   }
@@ -57,7 +57,7 @@ class CompactionJobTest {
     SequenceNumber sequence_number = 0;
     for (int i = 0; i < 2; ++i) {
       mock::MockFileContents contents;
-      SequenceNumber smallest_seqno, largest_seqno;
+      SequenceNumber smallest_seqno = 0, largest_seqno = 0;
       InternalKey smallest, largest;
       for (int k = 0; k < kKeysPerFile; ++k) {
         auto key = std::to_string(i * (kKeysPerFile / 2) + k);
