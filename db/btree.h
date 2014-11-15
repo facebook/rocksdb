@@ -431,7 +431,7 @@ bool BTree<Key, Comparator>::splitIsNecessary(Node* node) {
 // Create two new Nodes 
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, typename BTree<Key, Comparator>::Node*> 
-BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & entry, const Key updateEntryKey) {
+BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEntry, const Key updateEntryKey) {
   // Split function must consolidate the original and new node, so that calculating numEntries
   // would return correct value.
   int newSize = 1 + node->numEntries; // number of total elements in node including the element to be added
@@ -451,19 +451,36 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & entry
       nodeIndex = 0;
     }
 
-    if (!newEntryAdded && (i >= node->numEntries || compare_(entry.key, node->entries[i].key) < 0)) {
-      // Insert entry into current index, at the first time 
-      cur->entries[nodeIndex] = entry;
+    // if (!newEntryAdded && (i >= node->numEntries || compare_(entry.key, node->entries[i].key) < 0)) {
+    //   // Insert entry into current index, at the first time 
+    //   cur->entries[nodeIndex] = entry;
+    //   newEntryAdded = true;
+    if (!newEntryAdded &&
+        i < node->numEntries && 
+        compare_(newEntry.key, node->entries[i].key) < 0) {
+      // Normal case(insert in the middle of a node, or at leaf); Insert entry into current index
+      cur->entries[nodeIndex] = newEntry;
+      newEntryAdded = true;
+    } else if (!newEntryAdded &&
+        i == node->numEntries) {
+      // Fact that it reached here means new key is greater than anything in the node
+      assert(node->linkPtrPid == -1);
+      if (node->type == Node::NODE_TYPE_INDEX) {
+        cur->entries[nodeIndex].key = updateEntryKey;
+        cur->entries[nodeIndex].pid = node->highPtrPid;
+        cur->highPtrPid = newEntry.pid;  
+      } else { // Leaf
+        cur->entries[nodeIndex] = newEntry;
+      }
       newEntryAdded = true;
     } else {
       cur->entries[nodeIndex] = node->entries[i];
-      i++;
-
-      if (!prevEntryUpdated && compare_(entry.key, node->entries[i].key) == 0) {
+      if (!prevEntryUpdated && compare_(newEntry.key, node->entries[i].key) == 0) {
         assert(updateEntryKey != nullptr); // It must be case when parent is being splitted; Must update the key
         cur->entries[nodeIndex].key = updateEntryKey;
         prevEntryUpdated = true;
       }
+      i++;
     }
     nodeIndex++;
   }
@@ -479,11 +496,8 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & entry
   return std::make_tuple(left, right);
 }
 
-int print_counter = 0;
-
 template<typename Key, class Comparator>
 void BTree<Key, Comparator>::Insert(const Key& key) {
-  printf("Inserting key : %s, count : %d\n", key, ++print_counter);
   Node* node;
   int entryIndex;
   unique_ptr<std::stack<Node*> > stack;
@@ -533,19 +547,36 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
       bool newEntryAdded = false;
       bool prevEntryUpdated = (updateEntryKey == nullptr);
       while (nodeIndex < newSize) {
-        if (!newEntryAdded && (i >= node->numEntries || compare_(newEntry.key, node->entries[i].key) < 0)) {
-          // Insert entry into current index, at the first time 
+        // if (!newEntryAdded && (i >= node->numEntries || compare_(newEntry.key, node->entries[i].key) < 0)) {
+        //   // Insert entry into current index, at the first time 
+        //   newNode->entries[nodeIndex] = newEntry;
+        //   newEntryAdded = true;
+        if (!newEntryAdded &&
+            i < node->numEntries && 
+            compare_(newEntry.key, node->entries[i].key) < 0) {
+          // Normal case(insert in the middle of a node, or at leaf); Insert entry into current index
           newNode->entries[nodeIndex] = newEntry;
+          newEntryAdded = true;
+        } else if (!newEntryAdded &&
+            i == node->numEntries) {
+          // Fact that it reached here means new key is greater than anything in the node
+          assert(node->linkPtrPid == -1);
+          if (node->type == Node::NODE_TYPE_INDEX) {
+            newNode->entries[nodeIndex].key = updateEntryKey;
+            newNode->entries[nodeIndex].pid = node->highPtrPid;
+            newNode->highPtrPid = newEntry.pid;  
+          } else { // Leaf
+            newNode->entries[nodeIndex] = newEntry;
+          }
           newEntryAdded = true;
         } else {
           newNode->entries[nodeIndex] = node->entries[i];
-          i++;
-
           if (!prevEntryUpdated && compare_(newEntry.key, node->entries[i].key) == 0) {
             assert(updateEntryKey != nullptr); // It must be case when parent is being splitted; Must update the key
             newNode->entries[nodeIndex].key = updateEntryKey;
             prevEntryUpdated = true;
           }
+          i++;
         }
         nodeIndex++;
       }
