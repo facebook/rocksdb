@@ -44,7 +44,7 @@ public class RocksDB extends RocksObject {
     }
     try
     {
-      NativeLibraryLoader.loadLibraryFromJar(tmpDir);
+      NativeLibraryLoader.getInstance().loadLibraryFromJar(tmpDir);
     }
     catch (IOException e)
     {
