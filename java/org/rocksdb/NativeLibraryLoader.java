@@ -1,6 +1,9 @@
 package org.rocksdb;
 
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+
 import org.rocksdb.util.Environment;
 
 /**
@@ -8,42 +11,32 @@ import org.rocksdb.util.Environment;
  * The shared library is extracted to a temp folder and loaded from there.
  */
 public class NativeLibraryLoader {
-  private static String sharedLibraryName = Environment.getJniLibraryName("rocksdb");
-  private static String tempFileSuffix = "." + Environment.getJniLibraryExtension();
+  private static final String sharedLibraryName = Environment.getJniLibraryName("rocksdb");
+  private static final String tempFilePrefix = "librocksdbjni";
+  private static final String tempFileSuffix = "." + Environment.getJniLibraryExtension();
 
-  public static void loadLibraryFromJar(String tmpDir)
+  public static void loadLibraryFromJar(final String tmpDir)
       throws IOException {
-    File temp;
-    String tempFilePrefix = "librocksdbjni";
-    if(tmpDir == null || tmpDir.equals(""))
+    final File temp;
+    if(tmpDir == null || tmpDir.equals("")) {
       temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
-    else
-      temp = new File(tmpDir + "/" + sharedLibraryName);
-
-    temp.deleteOnExit();
+    } else {
+      temp = new File(tmpDir, sharedLibraryName);
+    }
 
     if (!temp.exists()) {
       throw new RuntimeException("File " + temp.getAbsolutePath() + " does not exist.");
+    } else {
+      temp.deleteOnExit();
     }
 
-    byte[] buffer = new byte[102400];
-    int readBytes;
-
-    InputStream is = ClassLoader.getSystemClassLoader().getResourceAsStream(sharedLibraryName);
-    if (is == null) {
-      throw new RuntimeException(sharedLibraryName + " was not found inside JAR.");
-    }
-
-    OutputStream os = null;
-    try {
-      os = new FileOutputStream(temp);
-      while ((readBytes = is.read(buffer)) != -1) {
-        os.write(buffer, 0, readBytes);
+    // attempt to copy the library from the JAR to the temp destination
+    try(final InputStream is = ClassLoader.getSystemClassLoader().getResourceAsStream(sharedLibraryName)) {
+      if (is == null) {
+        throw new RuntimeException(sharedLibraryName + " was not found inside JAR.");
+      } else {
+        Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
       }
-    } finally {
-      if(os != null)
-        os.close();
-      is.close();
     }
 
     System.load(temp.getAbsolutePath());
