@@ -39,8 +39,7 @@ public class BackupableDBTest {
       opt.setCreateIfMissing(true);
 
       bopt = new BackupableDBOptions(
-          backupFolder.getRoot().getAbsolutePath(), false,
-          true, false, true, 0, 0);
+          backupFolder.getRoot().getAbsolutePath());
       assertThat(bopt.backupDir()).isEqualTo(
           backupFolder.getRoot().getAbsolutePath());
 
