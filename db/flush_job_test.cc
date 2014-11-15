@@ -85,6 +85,7 @@ TEST(FlushJobTest, Empty) {
                      SequenceNumber(), &job_context, nullptr, nullptr,
                      kNoCompression, nullptr);
   ASSERT_OK(flush_job.Run());
+  job_context.Clean();
 }
 
 TEST(FlushJobTest, NonEmpty) {
@@ -113,6 +114,7 @@ TEST(FlushJobTest, NonEmpty) {
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();
   mock_table_factory_->AssertSingleFile(inserted_keys);
+  job_context.Clean();
 }
 
 }  // namespace rocksdb

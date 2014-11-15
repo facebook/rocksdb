@@ -69,6 +69,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
   if (should_purge_files)  {
     PurgeObsoleteFiles(job_context);
   }
+  job_context.Clean();
   LogFlush(db_options_.info_log);
   return Status::OK();
 }
