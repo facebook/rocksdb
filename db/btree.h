@@ -450,11 +450,7 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEn
       cur = right;
       nodeIndex = 0;
     }
-
-    // if (!newEntryAdded && (i >= node->numEntries || compare_(entry.key, node->entries[i].key) < 0)) {
-    //   // Insert entry into current index, at the first time 
-    //   cur->entries[nodeIndex] = entry;
-    //   newEntryAdded = true;
+    
     if (!newEntryAdded &&
         i < node->numEntries && 
         compare_(newEntry.key, node->entries[i].key) < 0) {
@@ -547,10 +543,6 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
       bool newEntryAdded = false;
       bool prevEntryUpdated = (updateEntryKey == nullptr);
       while (nodeIndex < newSize) {
-        // if (!newEntryAdded && (i >= node->numEntries || compare_(newEntry.key, node->entries[i].key) < 0)) {
-        //   // Insert entry into current index, at the first time 
-        //   newNode->entries[nodeIndex] = newEntry;
-        //   newEntryAdded = true;
         if (!newEntryAdded &&
             i < node->numEntries && 
             compare_(newEntry.key, node->entries[i].key) < 0) {
