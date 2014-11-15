@@ -165,6 +165,8 @@ public class Options extends RocksObject
 
   @Override
   public Options setMergeOperatorName(String name) {
+    assert (isInitialized());
+    assert (name != null);
     setMergeOperatorName(nativeHandle_, name);
     return this;
   }

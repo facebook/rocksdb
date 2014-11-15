@@ -146,10 +146,12 @@ void Java_org_rocksdb_Options_setComparatorHandle__JJ(
  * Signature: (JJjava/lang/String)V
  */
 void Java_org_rocksdb_Options_setMergeOperatorName(
-    JNIEnv* env, jobject jobj, jlong jhandle, jstring name) {
-  const char* op_name = env->GetStringUTFChars(name, 0);
-  reinterpret_cast<rocksdb::Options*>(jhandle)->merge_operator =
-    rocksdb::MergeOperators::CreateFromStringId(op_name);
+    JNIEnv* env, jobject jobj, jlong jhandle, jstring jop_name) {
+  auto options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  const char* op_name = env->GetStringUTFChars(jop_name, 0);
+  options->merge_operator = rocksdb::MergeOperators::CreateFromStringId(
+        op_name);
+  env->ReleaseStringUTFChars(jop_name, op_name);
 }
 
 /*
@@ -1884,10 +1886,12 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
  * Signature: (JJjava/lang/String)V
  */
 void Java_org_rocksdb_ColumnFamilyOptions_setMergeOperatorName(
-    JNIEnv* env, jobject jobj, jlong jhandle, jstring name) {
-  const char* op_name = env->GetStringUTFChars(name, 0);
-  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->merge_operator =
-    rocksdb::MergeOperators::CreateFromStringId(op_name);
+    JNIEnv* env, jobject jobj, jlong jhandle, jstring jop_name) {
+  auto options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  const char* op_name = env->GetStringUTFChars(jop_name, 0);
+  options->merge_operator = rocksdb::MergeOperators::CreateFromStringId(
+        op_name);
+  env->ReleaseStringUTFChars(jop_name, op_name);
 }
 
 /*

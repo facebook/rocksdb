@@ -56,6 +56,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.ComparatorTest\
 		org.rocksdb.test.DBOptionsTest\
 		org.rocksdb.test.DirectComparatorTest\
+		org.rocksdb.test.EnvironmentTest\
 		org.rocksdb.test.FilterTest\
 		org.rocksdb.test.FlushTest\
 		org.rocksdb.test.InfoLogLevelTest\
@@ -70,6 +71,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.RocksDBTest\
 		org.rocksdb.test.RocksEnvTest\
 		org.rocksdb.test.RocksIteratorTest\
+		org.rocksdb.test.SizeUnitTest\
 		org.rocksdb.test.SnapshotTest\
 		org.rocksdb.test.StatisticsCollectorTest\
 		org.rocksdb.test.WriteBatchHandlerTest\
@@ -130,7 +132,7 @@ resolve_test_deps:
 	test -s "$(JAVA_ASSERTJ_JAR)" || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" http://central.maven.org/maven2/org/assertj/assertj-core/1.7.0/assertj-core-1.7.0.jar
 
 test: java resolve_test_deps
-	java -ea -Djava.library.path=.:../ -cp "$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+	java -ea -Xcheck:jni -Djava.library.path=.:../ -cp "$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
 	javac org/rocksdb/benchmark/*.java

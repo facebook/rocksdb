@@ -127,6 +127,8 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMergeOperatorName(String name) {
+    assert (isInitialized());
+    assert (name != null);
     setMergeOperatorName(nativeHandle_, name);
     return this;
   }
