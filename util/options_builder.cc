@@ -158,7 +158,7 @@ void OptimizeForLevel(int read_amplification_threshold,
   // Now always set level multiplier to be 10
   options->max_bytes_for_level_multiplier = kBytesForLevelMultiplier;
 
-  const int kMinFileSize = 2 * kBytesForOneMb;
+  const uint64_t kMinFileSize = 2 * kBytesForOneMb;
   // Allow at least 3-way parallelism for compaction between level 1 and 2.
   uint64_t max_file_size = max_bytes_for_level_base / 3;
   if (max_file_size < kMinFileSize) {
