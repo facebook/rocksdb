@@ -147,6 +147,53 @@ jobject Java_org_rocksdb_RestoreBackupableDB_getBackupInfo(
 
 /*
  * Class:     org_rocksdb_RestoreBackupableDB
+ * Method:    getCorruptedBackups
+ * Signature: (J)Ljava/util/List;
+ */
+jobject Java_org_rocksdb_RestoreBackupableDB_getCorruptedBackups(
+    JNIEnv* env, jobject jbdb, jlong jhandle) {
+  std::vector<rocksdb::BackupID> backup_ids;
+  reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle)->
+      GetCorruptedBackups(&backup_ids);
+
+  jclass jclazz = env->FindClass("java/util/ArrayList");
+  jmethodID mid = rocksdb::ListJni::getArrayListConstructorMethodId(
+      env, jclazz);
+  jobject jbackup_id_handle_list = env->NewObject(jclazz, mid,
+      backup_ids.size());
+  // insert in java list
+  for (std::vector<rocksdb::BackupID>::size_type i = 0;
+      i != backup_ids.size(); i++) {
+    // convert BackupID to Integer
+    jclass jIntClazz = env->FindClass("java/lang/Integer");
+    jmethodID midLong = env->GetMethodID(jIntClazz, "<init>", "(I)V");
+    jobject obj = env->NewObject(jIntClazz, midLong,
+        (backup_ids[i]));
+    // add Integer to List
+    env->CallBooleanMethod(jbackup_id_handle_list,
+        rocksdb::ListJni::getListAddMethodId(env), obj);
+  }
+  return jbackup_id_handle_list;
+}
+
+/*
+ * Class:     org_rocksdb_RestoreBackupableDB
+ * Method:    garbageCollect
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RestoreBackupableDB_garbageCollect(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto db = reinterpret_cast<rocksdb::RestoreBackupableDB*>(
+      jhandle);
+  rocksdb::Status s = db->GarbageCollect();
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RestoreBackupableDB
  * Method:    dispose
  * Signature: (J)V
  */

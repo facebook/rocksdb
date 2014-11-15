@@ -93,6 +93,29 @@ public class BackupableDB extends RocksDB {
   }
 
   /**
+   * <p>Returns a list of corrupted backup ids. If there
+   * is no corrupted backup the method will return an
+   * empty list.</p>
+   *
+   * @return list of backup ids as Integer.
+   */
+  public List<Integer> getCorruptedBackups() {
+    return getCorruptedBackups(nativeHandle_);
+  }
+
+  /**
+   * <p>Will delete all the files we don't need anymore. It will
+   * do the full scan of the files/ directory and delete all the
+   * files that are not referenced.</p>
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void garbageCollect() throws RocksDBException {
+    garbageCollect(nativeHandle_);
+  }
+
+  /**
    * Close the BackupableDB instance and release resource.
    *
    * Internally, BackupableDB owns the {@code rocksdb::DB} pointer to its associated
@@ -126,4 +149,7 @@ public class BackupableDB extends RocksDB {
   private native void deleteBackup0(long nativeHandle, int backupId)
       throws RocksDBException;
   protected native List<BackupInfo> getBackupInfo(long handle);
+  private native List<Integer> getCorruptedBackups(long handle);
+  private native void garbageCollect(long handle)
+      throws RocksDBException;
 }

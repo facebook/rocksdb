@@ -102,6 +102,29 @@ public class RestoreBackupableDB extends RocksObject {
   }
 
   /**
+   * <p>Returns a list of corrupted backup ids. If there
+   * is no corrupted backup the method will return an
+   * empty list.</p>
+   *
+   * @return list of backup ids as Integer.
+   */
+  public List<Integer> getCorruptedBackups() {
+    return getCorruptedBackups(nativeHandle_);
+  }
+
+  /**
+   * <p>Will delete all the files we don't need anymore. It will
+   * do the full scan of the files/ directory and delete all the
+   * files that are not referenced.</p>
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void garbageCollect() throws RocksDBException {
+    garbageCollect(nativeHandle_);
+  }
+
+  /**
    * Release the memory allocated for the current instance
    * in the c++ side.
    */
@@ -121,6 +144,9 @@ public class RestoreBackupableDB extends RocksObject {
       throws RocksDBException;
   private native void deleteBackup0(long nativeHandle, int backupId)
       throws RocksDBException;
-  protected native List<BackupInfo> getBackupInfo(long handle);
+  private native List<BackupInfo> getBackupInfo(long handle);
+  private native List<Integer> getCorruptedBackups(long handle);
+  private native void garbageCollect(long handle)
+      throws RocksDBException;
   private native void dispose(long nativeHandle);
 }

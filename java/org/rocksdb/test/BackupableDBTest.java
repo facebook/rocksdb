@@ -56,6 +56,9 @@ public class BackupableDBTest {
           isEqualTo(0);
 
       bdb.createNewBackup(true);
+      assertThat(bdb.getCorruptedBackups().size()).
+          isEqualTo(0);
+      bdb.garbageCollect();
       backupInfos = bdb.getBackupInfos();
       assertThat(backupInfos.size()).
           isEqualTo(1);
@@ -102,6 +105,9 @@ public class BackupableDBTest {
           ropt);
       // do nothing because there is only one backup
       rdb.purgeOldBackups(1);
+      rdb.garbageCollect();
+      assertThat(rdb.getCorruptedBackups().size()).
+          isEqualTo(0);
       restoreInfos = rdb.getBackupInfos();
       assertThat(restoreInfos.size()).
           isEqualTo(1);
