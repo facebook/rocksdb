@@ -3268,6 +3268,7 @@ Status DBImpl::DeleteFile(std::string name) {
     if (!status.ok()) {
       Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
           "DeleteFile %s failed. File not found\n", name.c_str());
+      job_context.Clean();
       return Status::InvalidArgument("File not found");
     }
     assert(level < cfd->NumberLevels());
@@ -3276,6 +3277,7 @@ Status DBImpl::DeleteFile(std::string name) {
     if (metadata->being_compacted) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "DeleteFile %s Skipped. File about to be compacted\n", name.c_str());
+      job_context.Clean();
       return Status::OK();
     }
 
@@ -3287,6 +3289,7 @@ Status DBImpl::DeleteFile(std::string name) {
       if (vstoreage->NumLevelFiles(i) != 0) {
         Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
             "DeleteFile %s FAILED. File not in last level\n", name.c_str());
+        job_context.Clean();
         return Status::InvalidArgument("File not in last level");
       }
     }
@@ -3296,6 +3299,7 @@ Status DBImpl::DeleteFile(std::string name) {
       Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
           "DeleteFile %s failed ---"
           " target file in level 0 must be the oldest.", name.c_str());
+      job_context.Clean();
       return Status::InvalidArgument("File in level 0, but not oldest");
     }
     edit.SetColumnFamily(cfd->GetID());
