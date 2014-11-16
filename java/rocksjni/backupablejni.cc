@@ -210,114 +210,114 @@ jboolean Java_org_rocksdb_BackupableDBOptions_sync(
 }
 
 /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    setDestroyOldData
-  * Signature: (JZ)V
-  */
- void Java_org_rocksdb_BackupableDBOptions_setDestroyOldData(
-     JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   bopt->destroy_old_data = flag;
- }
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setDestroyOldData
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setDestroyOldData(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->destroy_old_data = flag;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    destroyOldData
-  * Signature: (J)Z
-  */
- jboolean Java_org_rocksdb_BackupableDBOptions_destroyOldData(
-     JNIEnv* env, jobject jobj, jlong jhandle) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   return bopt->destroy_old_data;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    destroyOldData
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_BackupableDBOptions_destroyOldData(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return bopt->destroy_old_data;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    setBackupLogFiles
-  * Signature: (JZ)V
-  */
- void Java_org_rocksdb_BackupableDBOptions_setBackupLogFiles(
-     JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   bopt->backup_log_files = flag;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setBackupLogFiles
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setBackupLogFiles(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->backup_log_files = flag;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    backupLogFiles
-  * Signature: (J)Z
-  */
- jboolean Java_org_rocksdb_BackupableDBOptions_backupLogFiles(
-     JNIEnv* env, jobject jobj, jlong jhandle) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   return bopt->backup_log_files;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    backupLogFiles
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_BackupableDBOptions_backupLogFiles(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return bopt->backup_log_files;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    setBackupRateLimit
-  * Signature: (JJ)V
-  */
- void Java_org_rocksdb_BackupableDBOptions_setBackupRateLimit(
-     JNIEnv* env, jobject jobj, jlong jhandle, jlong jbackup_rate_limit) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   bopt->backup_rate_limit = jbackup_rate_limit;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setBackupRateLimit
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setBackupRateLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jbackup_rate_limit) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->backup_rate_limit = jbackup_rate_limit;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    backupRateLimit
-  * Signature: (J)J
-  */
- jlong Java_org_rocksdb_BackupableDBOptions_backupRateLimit(
-     JNIEnv* env, jobject jobj, jlong jhandle) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   return bopt->backup_rate_limit;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    backupRateLimit
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_BackupableDBOptions_backupRateLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return bopt->backup_rate_limit;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    setRestoreRateLimit
-  * Signature: (JJ)V
-  */
- void Java_org_rocksdb_BackupableDBOptions_setRestoreRateLimit(
-     JNIEnv* env, jobject jobj, jlong jhandle, jlong jrestore_rate_limit) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   bopt->restore_rate_limit = jrestore_rate_limit;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setRestoreRateLimit
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setRestoreRateLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrestore_rate_limit) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->restore_rate_limit = jrestore_rate_limit;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    restoreRateLimit
-  * Signature: (J)J
-  */
- jlong Java_org_rocksdb_BackupableDBOptions_restoreRateLimit(
-     JNIEnv* env, jobject jobj, jlong jhandle) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   return bopt->restore_rate_limit;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    restoreRateLimit
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_BackupableDBOptions_restoreRateLimit(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return bopt->restore_rate_limit;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    setShareFilesWithChecksum
-  * Signature: (JZ)V
-  */
- void Java_org_rocksdb_BackupableDBOptions_setShareFilesWithChecksum(
-     JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   bopt->share_files_with_checksum = flag;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    setShareFilesWithChecksum
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_BackupableDBOptions_setShareFilesWithChecksum(
+    JNIEnv* env, jobject jobj, jlong jhandle, jboolean flag) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  bopt->share_files_with_checksum = flag;
+}
 
- /*
-  * Class:     org_rocksdb_BackupableDBOptions
-  * Method:    shareFilesWithChecksum
-  * Signature: (J)Z
-  */
- jboolean Java_org_rocksdb_BackupableDBOptions_shareFilesWithChecksum(
-     JNIEnv* env, jobject jobj, jlong jhandle) {
-   auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
-   return bopt->share_files_with_checksum;
- }
+/*
+ * Class:     org_rocksdb_BackupableDBOptions
+ * Method:    shareFilesWithChecksum
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_BackupableDBOptions_shareFilesWithChecksum(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto bopt = reinterpret_cast<rocksdb::BackupableDBOptions*>(jhandle);
+  return bopt->share_files_with_checksum;
+}
 
 /*
  * Class:     org_rocksdb_BackupableDBOptions
