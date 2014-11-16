@@ -273,7 +273,7 @@ public class MergeTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void nullStringInSetMergeOperatorByNameOptions() {
     Options opt = null;
     try {
@@ -286,7 +286,7 @@ public class MergeTest {
     }
   }
 
-  @Test(expected = AssertionError.class)
+  @Test(expected = IllegalArgumentException.class)
   public void
       nullStringInSetMergeOperatorByNameColumnFamilyOptions() {
     ColumnFamilyOptions opt = null;
