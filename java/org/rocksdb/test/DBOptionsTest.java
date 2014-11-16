@@ -9,6 +9,7 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.*;
 
+import java.util.Properties;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,6 +22,56 @@ public class DBOptionsTest {
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
+
+  @Test
+  public void getDBOptionsFromProps() {
+    DBOptions opt = null;
+    try {
+      // setup sample properties
+      Properties properties = new Properties();
+      properties.put("allow_mmap_reads", "true");
+      properties.put("bytes_per_sync", "13");
+      opt = DBOptions.getDBOptionsFromProps(properties);
+      assertThat(opt).isNotNull();
+      assertThat(String.valueOf(opt.allowMmapReads())).
+          isEqualTo(properties.get("allow_mmap_reads"));
+      assertThat(String.valueOf(opt.bytesPerSync())).
+          isEqualTo(properties.get("bytes_per_sync"));
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void failDBOptionsFromPropsWithIllegalValue() {
+    DBOptions opt = null;
+    try {
+      // setup sample properties
+      Properties properties = new Properties();
+      properties.put("tomato", "1024");
+      properties.put("burger", "2");
+      opt = DBOptions.
+          getDBOptionsFromProps(properties);
+      assertThat(opt).isNull();
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void failDBOptionsFromPropsWithNullValue() {
+    DBOptions.getDBOptionsFromProps(null);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void failDBOptionsFromPropsWithEmptyProps() {
+    DBOptions.getDBOptionsFromProps(
+        new Properties());
+  }
 
   @Test
   public void createIfMissing() {

@@ -31,6 +31,7 @@
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/utilities/convenience.h"
 #include "utilities/merge_operators.h"
 
 /*
@@ -1778,6 +1779,31 @@ void Java_org_rocksdb_ColumnFamilyOptions_newColumnFamilyOptions(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    getColumnFamilyOptionsFromProps
+ * Signature: (Ljava/util/String;)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
+    JNIEnv* env, jclass jclazz, jstring jopt_string) {
+  jlong ret_value = 0;
+  rocksdb::ColumnFamilyOptions* cf_options =
+      new rocksdb::ColumnFamilyOptions();
+  const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
+  bool status = rocksdb::GetColumnFamilyOptionsFromString(
+      rocksdb::ColumnFamilyOptions(), opt_string, cf_options);
+  env->ReleaseStringUTFChars(jopt_string, opt_string);
+  // Check if ColumnFamilyOptions creation was possible.
+  if (status) {
+    ret_value = reinterpret_cast<jlong>(cf_options);
+  } else {
+    // if operation failed the ColumnFamilyOptions need to be deleted
+    // again to prevent a memory leak.
+    delete cf_options;
+  }
+  return ret_value;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    disposeInternal
  * Signature: (J)V
  */
@@ -2749,6 +2775,31 @@ void Java_org_rocksdb_DBOptions_newDBOptions(JNIEnv* env,
     jobject jobj) {
   rocksdb::DBOptions* dbop = new rocksdb::DBOptions();
   rocksdb::DBOptionsJni::setHandle(env, jobj, dbop);
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    getDBOptionsFromProps
+ * Signature: (Ljava/util/String;)J
+ */
+jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps(
+    JNIEnv* env, jclass jclazz, jstring jopt_string) {
+  jlong ret_value = 0;
+  rocksdb::DBOptions* db_options =
+      new rocksdb::DBOptions();
+  const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
+  bool status = rocksdb::GetDBOptionsFromString(
+      rocksdb::DBOptions(), opt_string, db_options);
+  env->ReleaseStringUTFChars(jopt_string, opt_string);
+  // Check if DBOptions creation was possible.
+  if (status) {
+    ret_value = reinterpret_cast<jlong>(db_options);
+  } else {
+    // if operation failed the DBOptions need to be deleted
+    // again to prevent a memory leak.
+    delete db_options;
+  }
+  return ret_value;
 }
 
 /*

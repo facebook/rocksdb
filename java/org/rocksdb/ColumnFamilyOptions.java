@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Properties;
+
 /**
  * ColumnFamilyOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
@@ -27,6 +29,58 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions() {
     super();
     newColumnFamilyOptions();
+  }
+
+  /**
+   * <p>Private constructor to be used by
+   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
+   *
+   * @param handle native handle to ColumnFamilyOptions instance.
+   */
+  private ColumnFamilyOptions(long handle) {
+    super();
+    nativeHandle_ = handle;
+  }
+
+  /**
+   * <p>Method to get a options instance by using pre-configured
+   * property values. If one or many values are undefined in
+   * the context of RocksDB the method will return a null
+   * value.</p>
+   *
+   * <p><strong>Note</strong>: Property keys can be derived from
+   * getter methods within the options class. Example: the method
+   * {@code writeBufferSize()} has a property key:
+   * {@code write_buffer_size}.</p>
+   *
+   * @param properties {@link java.util.Properties} instance.
+   *
+   * @return {@link org.rocksdb.ColumnFamilyOptions instance}
+   *     or null.
+   *
+   * @throws java.lang.IllegalArgumentException if null or empty
+   *     {@link Properties} instance is passed to the method call.
+   */
+  public static ColumnFamilyOptions getColumnFamilyOptionsFromProps(
+      Properties properties) {
+    if (properties == null || properties.size() == 0) {
+      throw new IllegalArgumentException(
+          "Properties value must contain at least one value.");
+    }
+    ColumnFamilyOptions columnFamilyOptions = null;
+    StringBuilder stringBuilder = new StringBuilder();
+    for (final String name : properties.stringPropertyNames()){
+      stringBuilder.append(name);
+      stringBuilder.append("=");
+      stringBuilder.append(properties.getProperty(name));
+      stringBuilder.append(";");
+    }
+    long handle = getColumnFamilyOptionsFromProps(
+        stringBuilder.toString());
+    if (handle != 0){
+      columnFamilyOptions = new ColumnFamilyOptions(handle);
+    }
+    return columnFamilyOptions;
   }
 
   @Override
@@ -521,6 +575,9 @@ public class ColumnFamilyOptions extends RocksObject
     assert(isInitialized());
     disposeInternal(nativeHandle_);
   }
+
+  private static native long getColumnFamilyOptionsFromProps(
+      String optString);
 
   private native void newColumnFamilyOptions();
   private native void disposeInternal(long handle);
