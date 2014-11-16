@@ -57,6 +57,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBTest\
 		org.rocksdb.test.DirectComparatorTest\
 		org.rocksdb.test.FilterTest\
 		org.rocksdb.test.FlushTest\
+		org.rocksdb.test.InfoLogLevelTest\
 		org.rocksdb.test.KeyMayExistTest\
 		org.rocksdb.test.MemTableTest\
 		org.rocksdb.test.MergeTest\

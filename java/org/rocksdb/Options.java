@@ -617,6 +617,20 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setInfoLogLevel(InfoLogLevel infoLogLevel) {
+    assert(isInitialized());
+    setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
+    return this;
+  }
+
+  @Override
+  public InfoLogLevel infoLogLevel() {
+    assert(isInitialized());
+    return InfoLogLevel.getInfoLogLevel(
+        infoLogLevel(nativeHandle_));
+  }
+
+  @Override
   public String memTableFactoryName() {
     assert(isInitialized());
     return memTableFactoryName(nativeHandle_);
@@ -1025,6 +1039,8 @@ public class Options extends RocksObject
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setInfoLogLevel(long handle, byte logLevel);
+  private native byte infoLogLevel(long handle);
   private native void setMaxOpenFiles(long handle, int maxOpenFiles);
   private native int maxOpenFiles(long handle);
   private native void setMaxTotalWalSize(long handle,

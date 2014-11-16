@@ -114,6 +114,20 @@ public interface DBOptionsInterface {
   Object setRateLimiterConfig(RateLimiterConfig config);
 
   /**
+   * <p>Sets the RocksDB log level. Default level is INFO</p>
+   *
+   * @param infoLogLevel log level to set.
+   * @return the instance of the current Object.
+   */
+  Object setInfoLogLevel(InfoLogLevel infoLogLevel);
+
+  /**
+   * <p>Returns currently set log level.</p>
+   * @return {@link org.rocksdb.InfoLogLevel} instance.
+   */
+  InfoLogLevel infoLogLevel();
+
+  /**
    * Number of open files that can be used by the DB.  You may need to
    * increase this if your database has a large working set. Value -1 means
    * files opened are always kept open. You can estimate number of files based
