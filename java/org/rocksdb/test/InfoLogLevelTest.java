@@ -50,6 +50,8 @@ public class InfoLogLevelTest {
       db = RocksDB.open(options,
           dbFolder.getRoot().getAbsolutePath());
       db.put("key".getBytes(), "value".getBytes());
+      // As InfoLogLevel is set to FATAL_LEVEL, here we expect the log
+      // content to be empty.
       assertThat(getLogContents()).isEmpty();
     } finally {
       if (db != null) {
