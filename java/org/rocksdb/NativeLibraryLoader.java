@@ -34,10 +34,12 @@ public class NativeLibraryLoader {
    * @param tmpDir A temporary directory to use
    *   to copy the native library to. If null,
    *   or the empty string, we rely on Java's
-   *   {@see java.io.File#createTempFile(String, String) }
+   *   {@link java.io.File#createTempFile(String, String)}
    *   function to provide a temporary location.
    *   The temporary file will be registered for deletion
    *   on exit.
+   *
+   * @throws java.io.IOException if a filesystem operation fails.
    */
   public void loadLibraryFromJar(final String tmpDir)
       throws IOException {
