@@ -1036,9 +1036,21 @@ public class RocksDB extends RocksObject {
    * <p> Similar to GetProperty(), but only works for a subset of properties whose
    * return value is a numerical value. Return the value as long.</p>
    *
+   * <p><strong>Note</strong>: As the returned property is of type
+   * {@code uint64_t} on C++ side the returning value can be negative
+   * because Java supports in Java 7 only signed long values.</p>
+   *
+   * <p><strong>Java 7</strong>: To mitigate the problem of the non
+   * existent unsigned long tpye, values should be encapsulated using
+   * {@link java.math.BigInteger} to reflect the correct value. The correct
+   * behavior is guaranteed if {@code 2^64} is added to negative values.</p>
+   *
+   * <p><strong>Java 8</strong>: In Java 8 the value should be treated as
+   * unsigned long using provided methods of type {@link Long}.</p>
+   *
    * @param property to be fetched.
    *
-   * @return property value
+   * @return numerical property value.
    *
    * @throws RocksDBException if an error happens in the underlying native code.
    */
@@ -1050,11 +1062,23 @@ public class RocksDB extends RocksObject {
    * <p> Similar to GetProperty(), but only works for a subset of properties whose
    * return value is a numerical value. Return the value as long.</p>
    *
+   * <p><strong>Note</strong>: As the returned property is of type
+   * {@code uint64_t} on C++ side the returning value can be negative
+   * because Java supports in Java 7 only signed long values.</p>
+   *
+   * <p><strong>Java 7</strong>: To mitigate the problem of the non
+   * existent unsigned long tpye, values should be encapsulated using
+   * {@link java.math.BigInteger} to reflect the correct value. The correct
+   * behavior is guaranteed if {@code 2^64} is added to negative values.</p>
+   *
+   * <p><strong>Java 8</strong>: In Java 8 the value should be treated as
+   * unsigned long using provided methods of type {@link Long}.</p>
+   *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
    * @param property to be fetched.
    *
-   * @return property value
+   * @return numerical property value
    *
    * @throws RocksDBException if an error happens in the underlying native code.
    */
