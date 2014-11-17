@@ -1379,3 +1379,117 @@ void Java_org_rocksdb_RocksDB_flush__JJJ(
   auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   rocksdb_flush_helper(env, db, *flush_options, cf_handle);
 }
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::CompactRange - Full
+
+void rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
+    rocksdb::ColumnFamilyHandle* cf_handle, jboolean jreduce_level,
+    jint jtarget_level, jint jtarget_path_id) {
+
+  rocksdb::Status s;
+  if (cf_handle != nullptr) {
+    s = db->CompactRange(cf_handle, nullptr, nullptr, jreduce_level,
+        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+  } else {
+    // backwards compatibility
+    s = db->CompactRange(nullptr, nullptr, jreduce_level,
+        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+  }
+
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    compactRange0
+ * Signature: (JZII)V
+ */
+void Java_org_rocksdb_RocksDB_compactRange0__JZII(JNIEnv* env,
+    jobject jdb, jlong jdb_handle, jboolean jreduce_level,
+    jint jtarget_level, jint jtarget_path_id) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  rocksdb_compactrange_helper(env, db, nullptr, jreduce_level,
+      jtarget_level, jtarget_path_id);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    compactRange
+ * Signature: (JZIIJ)V
+ */
+void Java_org_rocksdb_RocksDB_compactRange__JZIIJ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle,
+     jboolean jreduce_level, jint jtarget_level,
+     jint jtarget_path_id, jlong jcf_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  rocksdb_compactrange_helper(env, db, cf_handle, jreduce_level,
+      jtarget_level, jtarget_path_id);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::CompactRange - Range
+
+void rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
+    rocksdb::ColumnFamilyHandle* cf_handle, jbyteArray jbegin, jint jbegin_len,
+    jbyteArray jend, jint jend_len, jboolean jreduce_level, jint jtarget_level,
+    jint jtarget_path_id) {
+
+  jbyte* begin = env->GetByteArrayElements(jbegin, 0);
+  jbyte* end = env->GetByteArrayElements(jend, 0);
+  const rocksdb::Slice begin_slice(reinterpret_cast<char*>(begin), jbegin_len);
+  const rocksdb::Slice end_slice(reinterpret_cast<char*>(end), jend_len);
+
+  rocksdb::Status s;
+  if (cf_handle != nullptr) {
+    s = db->CompactRange(cf_handle, &begin_slice, &end_slice, jreduce_level,
+        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+  } else {
+    // backwards compatibility
+    s = db->CompactRange(&begin_slice, &end_slice, jreduce_level,
+        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+  }
+
+  env->ReleaseByteArrayElements(jbegin, begin, JNI_ABORT);
+  env->ReleaseByteArrayElements(jend, end, JNI_ABORT);
+
+  if (s.ok()) {
+    return;
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    compactRange0
+ * Signature: (J[BI[BIZII)V
+ */
+void Java_org_rocksdb_RocksDB_compactRange0__J_3BI_3BIZII(JNIEnv* env,
+    jobject jdb, jlong jdb_handle, jbyteArray jbegin, jint jbegin_len,
+    jbyteArray jend, jint jend_len, jboolean jreduce_level,
+    jint jtarget_level, jint jtarget_path_id) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  rocksdb_compactrange_helper(env, db, nullptr, jbegin, jbegin_len,
+      jend, jend_len, jreduce_level, jtarget_level, jtarget_path_id);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    compactRange
+ * Signature: (JJ[BI[BIZII)V
+ */
+void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
+    JNIEnv* env, jobject jdb, jlong jdb_handle, jbyteArray jbegin,
+    jint jbegin_len, jbyteArray jend, jint jend_len,
+    jboolean jreduce_level, jint jtarget_level,
+    jint jtarget_path_id, jlong jcf_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  rocksdb_compactrange_helper(env, db, cf_handle, jbegin, jbegin_len,
+      jend, jend_len, jreduce_level, jtarget_level, jtarget_path_id);
+}
+

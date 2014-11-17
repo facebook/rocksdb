@@ -1252,6 +1252,287 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * <p>Full compaction of the underlying storage using key
+   * range mode.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.
+   * </p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange(boolean, int, int)}</li>
+   * <li>{@link #compactRange(byte[], byte[])}</li>
+   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
+   * </ul>
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange() throws RocksDBException {
+    compactRange0(nativeHandle_, false, -1, 0);
+  }
+
+  /**
+   * <p>Compaction of the underlying storage using key
+   * using key range {@code [begin, end]}.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.
+   * </p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange()}</li>
+   * <li>{@link #compactRange(boolean, int, int)}</li>
+   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
+   * </ul>
+   *
+   * @param begin start of key range (included in range)
+   * @param end end of key range (excluded from range)
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(byte[] begin, byte[] end)
+      throws RocksDBException {
+    compactRange0(nativeHandle_, begin, begin.length, end,
+        end.length, false, -1, 0);
+  }
+
+  /**
+   * <p>Full compaction of the underlying storage using key
+   * range mode.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.
+   * In this case, client could set reduce_level to true, to move
+   * the files back to the minimum level capable of holding the data
+   * set or a given level (specified by non-negative target_level).
+   * </p>
+   * <p>Compaction outputs should be placed in options.db_paths
+   * [target_path_id]. Behavior is undefined if target_path_id is
+   * out of range.</p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange()}</li>
+   * <li>{@link #compactRange(byte[], byte[])}</li>
+   * <li>{@link #compactRange(byte[], byte[], boolean, int, int)}</li>
+   * </ul>
+   *
+   * @param reduce_level reduce level after compaction
+   * @param target_level target level to compact to
+   * @param target_path_id the target path id of output path
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(boolean reduce_level, int target_level,
+      int target_path_id) throws RocksDBException {
+    compactRange0(nativeHandle_, reduce_level,
+        target_level, target_path_id);
+  }
+
+
+  /**
+   * <p>Compaction of the underlying storage using key
+   * using key range {@code [begin, end]}.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.
+   * In this case, client could set reduce_level to true, to move
+   * the files back to the minimum level capable of holding the data
+   * set or a given level (specified by non-negative target_level).
+   * </p>
+   * <p>Compaction outputs should be placed in options.db_paths
+   * [target_path_id]. Behavior is undefined if target_path_id is
+   * out of range.</p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange()}</li>
+   * <li>{@link #compactRange(boolean, int, int)}</li>
+   * <li>{@link #compactRange(byte[], byte[])}</li>
+   * </ul>
+   *
+   * @param begin start of key range (included in range)
+   * @param end end of key range (excluded from range)
+   * @param reduce_level reduce level after compaction
+   * @param target_level target level to compact to
+   * @param target_path_id the target path id of output path
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(byte[] begin, byte[] end,
+      boolean reduce_level, int target_level, int target_path_id)
+      throws RocksDBException {
+    compactRange0(nativeHandle_, begin, begin.length, end, end.length,
+        reduce_level, target_level, target_path_id);
+  }
+
+  /**
+   * <p>Full compaction of the underlying storage of a column family
+   * using key range mode.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.</p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
+   * </li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
+   * </li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
+   *   boolean, int, int)}
+   * </li>
+   * </ul>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance.
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(ColumnFamilyHandle columnFamilyHandle)
+      throws RocksDBException {
+    compactRange(nativeHandle_, false, -1, 0,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * <p>Compaction of the underlying storage of a column family
+   * using key range {@code [begin, end]}.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.</p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
+   * </li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
+   *   boolean, int, int)}
+   * </li>
+   * </ul>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance.
+   * @param begin start of key range (included in range)
+   * @param end end of key range (excluded from range)
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(ColumnFamilyHandle columnFamilyHandle,
+      byte[] begin, byte[] end) throws RocksDBException {
+    compactRange(nativeHandle_, begin, begin.length, end, end.length,
+        false, -1, 0, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * <p>Full compaction of the underlying storage of a column family
+   * using key range mode.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.
+   * In this case, client could set reduce_level to true, to move
+   * the files back to the minimum level capable of holding the data
+   * set or a given level (specified by non-negative target_level).
+   * </p>
+   * <p>Compaction outputs should be placed in options.db_paths
+   * [target_path_id]. Behavior is undefined if target_path_id is
+   * out of range.</p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
+   * </li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[],
+   *   boolean, int, int)}
+   * </li>
+   * </ul>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance.
+   * @param reduce_level reduce level after compaction
+   * @param target_level target level to compact to
+   * @param target_path_id the target path id of output path
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(ColumnFamilyHandle columnFamilyHandle,
+      boolean reduce_level, int target_level, int target_path_id)
+      throws RocksDBException {
+    compactRange(nativeHandle_, reduce_level, target_level,
+        target_path_id, columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
+   * <p>Compaction of the underlying storage of a column family
+   * using key range {@code [begin, end]}.</p>
+   * <p><strong>Note</strong>: After the entire database is compacted,
+   * all data are pushed down to the last level containing any data.
+   * If the total data size after compaction is reduced, that level
+   * might not be appropriate for hosting all the files.
+   * In this case, client could set reduce_level to true, to move
+   * the files back to the minimum level capable of holding the data
+   * set or a given level (specified by non-negative target_level).
+   * </p>
+   * <p>Compaction outputs should be placed in options.db_paths
+   * [target_path_id]. Behavior is undefined if target_path_id is
+   * out of range.</p>
+   *
+   * <p><strong>See also</strong></p>
+   * <ul>
+   * <li>{@link #compactRange(ColumnFamilyHandle)}</li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, boolean, int, int)}
+   * </li>
+   * <li>
+   *   {@link #compactRange(ColumnFamilyHandle, byte[], byte[])}
+   * </li>
+   * </ul>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance.
+   * @param begin start of key range (included in range)
+   * @param end end of key range (excluded from range)
+   * @param reduce_level reduce level after compaction
+   * @param target_level target level to compact to
+   * @param target_path_id the target path id of output path
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   */
+  public void compactRange(ColumnFamilyHandle columnFamilyHandle,
+      byte[] begin, byte[] end, boolean reduce_level, int target_level,
+      int target_path_id) throws RocksDBException {
+    compactRange(nativeHandle_, begin, begin.length, end, end.length,
+        reduce_level, target_level, target_path_id,
+        columnFamilyHandle.nativeHandle_);
+  }
+
+  /**
    * Private constructor.
    */
   protected RocksDB() {
@@ -1375,6 +1656,16 @@ public class RocksDB extends RocksObject {
   private native void flush(long handle, long flushOptHandle)
       throws RocksDBException;
   private native void flush(long handle, long flushOptHandle,
+      long cfHandle) throws RocksDBException;
+  private native void compactRange0(long handle, boolean reduce_level, int target_level,
+      int target_path_id) throws RocksDBException;
+  private native void compactRange0(long handle, byte[] begin, int beginLen, byte[] end,
+      int endLen, boolean reduce_level, int target_level, int target_path_id)
+      throws RocksDBException;
+  private native void compactRange(long handle, boolean reduce_level, int target_level,
+      int target_path_id, long cfHandle) throws RocksDBException;
+  private native void compactRange(long handle, byte[] begin, int beginLen, byte[] end,
+      int endLen, boolean reduce_level, int target_level, int target_path_id,
       long cfHandle) throws RocksDBException;
 
   protected DBOptionsInterface options_;
