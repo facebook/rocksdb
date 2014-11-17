@@ -43,18 +43,54 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
     throw type;
   }
 }
-int ParseInt(const std::string& value) { return std::stoi(value); }
-
-uint32_t ParseUint32(const std::string& value) {
-  return static_cast<uint32_t>(std::stoul(value));
-}
 
 uint64_t ParseUint64(const std::string& value) {
-  return std::stoull(value);
+  size_t endchar;
+  uint64_t num = std::stoull(value.c_str(), &endchar);
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10LL;
+    else if (c == 'm' || c == 'M')
+      num <<= 20LL;
+    else if (c == 'g' || c == 'G')
+      num <<= 30LL;
+    else if (c == 't' || c == 'T')
+      num <<= 40LL;
+  }
+
+  return num;
 }
 
 size_t ParseSizeT(const std::string& value) {
   return static_cast<size_t>(ParseUint64(value));
+}
+
+uint32_t ParseUint32(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 32LL) == 0) {
+    return static_cast<uint32_t>(num);
+  } else {
+    throw std::out_of_range(value);
+  }
+}
+
+int ParseInt(const std::string& value) {
+  size_t endchar;
+  int num = std::stoi(value.c_str(), &endchar);
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10;
+    else if (c == 'm' || c == 'M')
+      num <<= 20;
+    else if (c == 'g' || c == 'G')
+      num <<= 30;
+  }
+
+  return num;
 }
 
 double ParseDouble(const std::string& value) {

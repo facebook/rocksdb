@@ -298,6 +298,28 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
   // Missing option name
   ASSERT_TRUE(!GetColumnFamilyOptionsFromString(base_cf_opt,
               "write_buffer_size=13; =100;", &new_cf_opt));
+  // Units (k)
+  ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
+              "memtable_prefix_bloom_bits=14k;max_write_buffer_number=-15K",
+              &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 14*1024);
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number, -15*1024);
+  // Units (m)
+  ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
+              "max_write_buffer_number=16m;inplace_update_num_locks=17M",
+              &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16*1024*1024);
+  ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17*1024*1024);
+  // Units (g)
+  ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
+              "write_buffer_size=18g;arena_block_size=19G", &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 18*1024LL*1024LL*1024LL);
+  ASSERT_EQ(new_cf_opt.arena_block_size, 19*1024LL*1024LL*1024LL);
+  // Units (t)
+  ASSERT_TRUE(GetColumnFamilyOptionsFromString(base_cf_opt,
+              "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 20*1024LL*1024LL*1024LL*1024LL);
+  ASSERT_EQ(new_cf_opt.arena_block_size, 21*1024LL*1024LL*1024LL*1024LL);
 }
 
 }  // namespace rocksdb
