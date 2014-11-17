@@ -385,17 +385,22 @@ Status CompactionJob::Run() {
         compact_->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
 
         status = ProcessKeyValueCompaction(&imm_micros, input.get(), true);
+        if (!status.ok()) {
+          break;
+        }
 
         compact_->CleanupBatchBuffer();
         compact_->CleanupMergedBuffer();
       }
     }  // done processing all prefix batches
     // finish the last batch
-    if (compact_->key_str_buf_.size() > 0) {
-      CallCompactionFilterV2(compaction_filter_v2);
+    if (status.ok()) {
+      if (compact_->key_str_buf_.size() > 0) {
+        CallCompactionFilterV2(compaction_filter_v2);
+      }
+      compact_->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
+      status = ProcessKeyValueCompaction(&imm_micros, input.get(), true);
     }
-    compact_->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
-    status = ProcessKeyValueCompaction(&imm_micros, input.get(), true);
   }  // checking for compaction filter v2
 
   if (status.ok() &&
