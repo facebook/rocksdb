@@ -32,17 +32,6 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   /**
-   * <p>Private constructor to be used by
-   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
-   *
-   * @param handle native handle to ColumnFamilyOptions instance.
-   */
-  private ColumnFamilyOptions(long handle) {
-    super();
-    nativeHandle_ = handle;
-  }
-
-  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
@@ -574,6 +563,17 @@ public class ColumnFamilyOptions extends RocksObject
   @Override protected void disposeInternal() {
     assert(isInitialized());
     disposeInternal(nativeHandle_);
+  }
+
+  /**
+   * <p>Private constructor to be used by
+   * {@link #getColumnFamilyOptionsFromProps(java.util.Properties)}</p>
+   *
+   * @param handle native handle to ColumnFamilyOptions instance.
+   */
+  private ColumnFamilyOptions(long handle) {
+    super();
+    nativeHandle_ = handle;
   }
 
   private static native long getColumnFamilyOptionsFromProps(

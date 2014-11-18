@@ -32,17 +32,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   /**
-   * <p>Private constructor to be used by
-   * {@link #getDBOptionsFromProps(java.util.Properties)}</p>
-   *
-   * @param handle native handle to DBOptions instance.
-   */
-  private DBOptions(long handle) {
-    super();
-    nativeHandle_ = handle;
-  }
-
-  /**
    * <p>Method to get a options instance by using pre-configured
    * property values. If one or many values are undefined in
    * the context of RocksDB the method will return a null
@@ -540,6 +529,17 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   static final int DEFAULT_NUM_SHARD_BITS = -1;
+
+  /**
+   * <p>Private constructor to be used by
+   * {@link #getDBOptionsFromProps(java.util.Properties)}</p>
+   *
+   * @param handle native handle to DBOptions instance.
+   */
+  private DBOptions(long handle) {
+    super();
+    nativeHandle_ = handle;
+  }
 
   private static native long getDBOptionsFromProps(
       String optString);
