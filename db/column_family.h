@@ -172,9 +172,10 @@ class ColumnFamilyData {
   void SetLogNumber(uint64_t log_number) { log_number_ = log_number; }
   uint64_t GetLogNumber() const { return log_number_; }
 
-  // thread-safe
-  // To be deprecated! Please don't not use this function anymore!
+  // !!! To be deprecated! Please don't not use this function anymore!
   const Options* options() const { return &options_; }
+
+  // thread-safe
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }
   // REQUIRES: DB mutex held
@@ -443,10 +444,6 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
 
   // REQUIRES: Seek() called first
   virtual MemTable* GetMemTable() const override;
-
-  // Returns options for selected column family
-  // REQUIRES: Seek() called first
-  virtual const Options* GetOptions() const override;
 
   // Returns column family handle for the selected column family
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;

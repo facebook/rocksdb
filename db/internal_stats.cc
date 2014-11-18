@@ -361,8 +361,8 @@ void InternalStats::DumpCFStats(std::string* value) {
   const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
 
   int num_levels_to_check =
-      (cfd_->options()->compaction_style != kCompactionStyleUniversal &&
-       cfd_->options()->compaction_style != kCompactionStyleFIFO)
+      (cfd_->ioptions()->compaction_style != kCompactionStyleUniversal &&
+       cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
           ? vstorage->num_levels() - 1
           : 1;
 

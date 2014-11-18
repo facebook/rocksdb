@@ -185,6 +185,8 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
     }
   } else if (name == "max_mem_compaction_level") {
     new_options->max_mem_compaction_level = ParseInt(value);
+  } else if (name == "verify_checksums_in_compaction") {
+    new_options->verify_checksums_in_compaction = ParseBoolean(name, value);
   } else {
     return false;
   }
@@ -330,9 +332,6 @@ bool GetColumnFamilyOptionsFromMap(
           ParseBoolean(o.first, o.second);
       } else if (o.first == "compaction_style") {
         new_options->compaction_style = ParseCompactionStyle(o.second);
-      } else if (o.first == "verify_checksums_in_compaction") {
-        new_options->verify_checksums_in_compaction =
-          ParseBoolean(o.first, o.second);
       } else if (o.first == "compaction_options_universal") {
         // TODO(ljin): add support
         throw o.first;

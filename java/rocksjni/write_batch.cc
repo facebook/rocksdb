@@ -344,7 +344,7 @@ jbyteArray Java_org_rocksdb_test_WriteBatchTest_getContents(
       rocksdb::ImmutableCFOptions(options)));
   mem->Ref();
   std::string state;
-  rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
   rocksdb::Status s =
       rocksdb::WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;

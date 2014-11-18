@@ -32,7 +32,7 @@ static std::string PrintContents(WriteBatch* b) {
                                MutableCFOptions(options, ioptions));
   mem->Ref();
   std::string state;
-  ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  ColumnFamilyMemTablesDefault cf_mems_default(mem);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
   Arena arena;

@@ -421,7 +421,10 @@ struct ColumnFamilyOptions {
 
   // If true, compaction will verify checksum on every read that happens
   // as part of compaction
+  //
   // Default: true
+  //
+  // Dynamically changeable through SetOptions() API
   bool verify_checksums_in_compaction;
 
   // The options needed to support Universal Style compactions

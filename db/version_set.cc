@@ -2639,7 +2639,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   auto cfd = c->column_family_data();
   ReadOptions read_options;
   read_options.verify_checksums =
-    cfd->options()->verify_checksums_in_compaction;
+    c->mutable_cf_options()->verify_checksums_in_compaction;
   read_options.fill_cache = false;
 
   // Level-0 files have to be merged together.  For other levels,

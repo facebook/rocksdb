@@ -1879,7 +1879,7 @@ TEST(MemTableTest, Simple) {
   batch.Put(std::string("k2"), std::string("v2"));
   batch.Put(std::string("k3"), std::string("v3"));
   batch.Put(std::string("largekey"), std::string("vlarge"));
-  ColumnFamilyMemTablesDefault cf_mems_default(memtable, &options);
+  ColumnFamilyMemTablesDefault cf_mems_default(memtable);
   ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, &cf_mems_default).ok());
 
   Arena arena;

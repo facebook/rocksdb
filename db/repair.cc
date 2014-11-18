@@ -222,7 +222,7 @@ class Repairer {
     WriteBatch batch;
     MemTable* mem = new MemTable(icmp_, ioptions_,
                                  MutableCFOptions(options_, ioptions_));
-    auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem, &options_);
+    auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem);
     mem->Ref();
     int counter = 0;
     while (reader.ReadRecord(&record, &scratch)) {

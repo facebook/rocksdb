@@ -752,11 +752,6 @@ MemTable* ColumnFamilyMemTablesImpl::GetMemTable() const {
   return current_->mem();
 }
 
-const Options* ColumnFamilyMemTablesImpl::GetOptions() const {
-  assert(current_ != nullptr);
-  return current_->options();
-}
-
 ColumnFamilyHandle* ColumnFamilyMemTablesImpl::GetColumnFamilyHandle() {
   assert(current_ != nullptr);
   return &handle_;
