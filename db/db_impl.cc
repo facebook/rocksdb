@@ -1095,24 +1095,25 @@ Status DBImpl::FlushMemTableToOutputFile(
 #ifndef ROCKSDB_LITE
   if (s.ok()) {
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, file_number);
+    NotifyOnFlushCompleted(cfd, file_number, mutable_cf_options);
   }
 #endif  // ROCKSDB_LITE
   return s;
 }
 
 void DBImpl::NotifyOnFlushCompleted(
-    ColumnFamilyData* cfd, uint64_t file_number) {
+    ColumnFamilyData* cfd, uint64_t file_number,
+    const MutableCFOptions& mutable_cf_options) {
   mutex_.AssertHeld();
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
   bool triggered_flush_slowdown =
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
-       cfd->options()->level0_slowdown_writes_trigger);
+       mutable_cf_options.level0_slowdown_writes_trigger);
   bool triggered_flush_stop =
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
-       cfd->options()->level0_stop_writes_trigger);
+       mutable_cf_options.level0_stop_writes_trigger);
   notifying_events_++;
   // release lock while notifying events
   mutex_.Unlock();

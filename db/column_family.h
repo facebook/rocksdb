@@ -173,6 +173,7 @@ class ColumnFamilyData {
   uint64_t GetLogNumber() const { return log_number_; }
 
   // thread-safe
+  // To be deprecated! Please don't not use this function anymore!
   const Options* options() const { return &options_; }
   const EnvOptions* soptions() const;
   const ImmutableCFOptions* ioptions() const { return &ioptions_; }

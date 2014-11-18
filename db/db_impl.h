@@ -261,7 +261,8 @@ class DBImpl : public DB {
   Iterator* NewInternalIterator(const ReadOptions&, ColumnFamilyData* cfd,
                                 SuperVersion* super_version, Arena* arena);
 
-  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number);
+  void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number,
+                              const MutableCFOptions& mutable_cf_options);
 
  private:
   friend class DB;
