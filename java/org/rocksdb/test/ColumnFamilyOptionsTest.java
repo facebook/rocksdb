@@ -9,6 +9,7 @@ import org.junit.ClassRule;
 import org.junit.Test;
 import org.rocksdb.*;
 
+import java.util.Properties;
 import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,6 +22,57 @@ public class ColumnFamilyOptionsTest {
 
   public static final Random rand = PlatformRandomHelper.
       getPlatformSpecificRandomFactory();
+
+  @Test
+  public void getColumnFamilyOptionsFromProps() {
+    ColumnFamilyOptions opt = null;
+    try {
+      // setup sample properties
+      Properties properties = new Properties();
+      properties.put("write_buffer_size", "112");
+      properties.put("max_write_buffer_number", "13");
+      opt = ColumnFamilyOptions.
+          getColumnFamilyOptionsFromProps(properties);
+      assertThat(opt).isNotNull();
+      assertThat(String.valueOf(opt.writeBufferSize())).
+          isEqualTo(properties.get("write_buffer_size"));
+      assertThat(String.valueOf(opt.maxWriteBufferNumber())).
+          isEqualTo(properties.get("max_write_buffer_number"));
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void failColumnFamilyOptionsFromPropsWithIllegalValue() {
+    ColumnFamilyOptions opt = null;
+    try {
+      // setup sample properties
+      Properties properties = new Properties();
+      properties.put("tomato", "1024");
+      properties.put("burger", "2");
+      opt = ColumnFamilyOptions.
+          getColumnFamilyOptionsFromProps(properties);
+      assertThat(opt).isNull();
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void failColumnFamilyOptionsFromPropsWithNullValue() {
+    ColumnFamilyOptions.getColumnFamilyOptionsFromProps(null);
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void failColumnFamilyOptionsFromPropsWithEmptyProps() {
+    ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
+        new Properties());
+  }
 
   @Test
   public void writeBufferSize() throws RocksDBException {

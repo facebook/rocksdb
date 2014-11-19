@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.Properties;
+
 /**
  * DBOptions to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
@@ -27,6 +29,47 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
     super();
     numShardBits_ = DEFAULT_NUM_SHARD_BITS;
     newDBOptions();
+  }
+
+  /**
+   * <p>Method to get a options instance by using pre-configured
+   * property values. If one or many values are undefined in
+   * the context of RocksDB the method will return a null
+   * value.</p>
+   *
+   * <p><strong>Note</strong>: Property keys can be derived from
+   * getter methods within the options class. Example: the method
+   * {@code allowMmapReads()} has a property key:
+   * {@code allow_mmap_reads}.</p>
+   *
+   * @param properties {@link java.util.Properties} instance.
+   *
+   * @return {@link org.rocksdb.DBOptions instance}
+   *     or null.
+   *
+   * @throws java.lang.IllegalArgumentException if null or empty
+   *     {@link java.util.Properties} instance is passed to the method call.
+   */
+  public static DBOptions getDBOptionsFromProps(
+      Properties properties) {
+    if (properties == null || properties.size() == 0) {
+      throw new IllegalArgumentException(
+          "Properties value must contain at least one value.");
+    }
+    DBOptions dbOptions = null;
+    StringBuilder stringBuilder = new StringBuilder();
+    for (final String name : properties.stringPropertyNames()){
+      stringBuilder.append(name);
+      stringBuilder.append("=");
+      stringBuilder.append(properties.getProperty(name));
+      stringBuilder.append(";");
+    }
+    long handle = getDBOptionsFromProps(
+        stringBuilder.toString());
+    if (handle != 0){
+      dbOptions = new DBOptions(handle);
+    }
+    return dbOptions;
   }
 
   @Override
@@ -486,6 +529,20 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   static final int DEFAULT_NUM_SHARD_BITS = -1;
+
+  /**
+   * <p>Private constructor to be used by
+   * {@link #getDBOptionsFromProps(java.util.Properties)}</p>
+   *
+   * @param handle native handle to DBOptions instance.
+   */
+  private DBOptions(long handle) {
+    super();
+    nativeHandle_ = handle;
+  }
+
+  private static native long getDBOptionsFromProps(
+      String optString);
 
   private native void newDBOptions();
   private native void disposeInternal(long handle);
