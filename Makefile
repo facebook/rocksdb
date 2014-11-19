@@ -597,6 +597,7 @@ rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	cd java;$(MAKE) javalib;
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
+	cd java;strip $(ROCKSDBJNILIB)
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
 	cd java/javadoc;jar -cf ../$(ROCKSDB_JAVADOCS_JAR) *
 	cd java;jar -cf $(ROCKSDB_SOURCES_JAR) org
