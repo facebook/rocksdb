@@ -6,6 +6,7 @@
 #pragma once
 
 #include <string>
+#include <stdexcept>
 #include "util/mutable_cf_options.h"
 #include "rocksdb/status.h"
 
