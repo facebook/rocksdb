@@ -35,6 +35,7 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksdb/utilities/checkpoint.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/hash.h"
@@ -1616,6 +1617,7 @@ TEST(DBTest, GetSnapshotLink) {
     DB* snapshotDB;
     ReadOptions roptions;
     std::string result;
+    Checkpoint* checkpoint;
 
     options = CurrentOptions(options);
     delete db_;
@@ -1631,7 +1633,8 @@ TEST(DBTest, GetSnapshotLink) {
     std::string key = std::string("foo");
     ASSERT_OK(Put(key, "v1"));
     // Take a snapshot
-    ASSERT_OK(db_->CreateCheckpoint(snapshot_name));
+    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
+    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
     ASSERT_OK(Put(key, "v2"));
     ASSERT_EQ("v2", Get(key));
     ASSERT_OK(Flush());
@@ -7524,10 +7527,6 @@ class ModelDB: public DB {
   virtual void GetColumnFamilyMetaData(
       ColumnFamilyHandle* column_family,
       ColumnFamilyMetaData* metadata) {}
-
-  virtual Status CreateCheckpoint(const std::string& snapshot_dir) {
-    return Status::NotSupported("Not supported in Model DB");
-  }
 
  private:
   class ModelIter: public Iterator {

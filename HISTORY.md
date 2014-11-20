@@ -3,6 +3,12 @@
 ### Unreleased Features
 * Add rocksdb::GetThreadList(), which returns the current status of all rocksdb-related threads.
 
+### Public API changes
+* New API to create a checkpoint added. Given a directory name, creates a new
+  database which is an image of the existing database.
+*New API LinkFile added to Env. If you implement your own Env class, an
+ implementation of the API LinkFile will have to be provided.
+
 ## 3.8.0 (11/14/2014)
 
 ### Public API changes
