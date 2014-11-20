@@ -86,13 +86,20 @@ JAVA_TESTCLASSPATH = $(ROCKSDB_JAR):$(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_M
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	-find . -name "hs*.log" -exec rm {} \;
+	rm -rf include/*
 	rm -rf javadoc/*
 	rm -rf test-libs/
+	rm -rf target
+	rm librocksdbjni*
+	rm rocksdbjni*
+
 
 javadocs:
 	mkdir -p javadoc; javadoc -d javadoc -sourcepath . -subpackages org -exclude org.rocksdb.test
 
-java: javadocs resolve_test_deps
+javalib: java javadocs
+
+java: resolve_test_deps
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
 	javac -cp $(JAVA_TESTCLASSPATH) org/rocksdb/test/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md

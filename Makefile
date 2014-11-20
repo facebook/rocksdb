@@ -594,9 +594,10 @@ libsnappy.a:
 
 rocksdbjavastatic: libz.a libbz2.a libsnappy.a
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j
-	cd java;$(MAKE) java;
+	cd java;$(MAKE) javalib;
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a
+	cd java;strip $(ROCKSDBJNILIB)
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
 	cd java/javadoc;jar -cf ../$(ROCKSDB_JAVADOCS_JAR) *
 	cd java;jar -cf $(ROCKSDB_SOURCES_JAR) org
@@ -615,7 +616,7 @@ rocksdbjavastaticpublish: rocksdbjavastaticrelease
 
 rocksdbjava:
 	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
-	cd java;$(MAKE) java;
+	cd java;$(MAKE) javalib;
 	rm -f ./java/$(ROCKSDBJNILIB)
 	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	cd java;jar -cf $(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class HISTORY*.md $(ROCKSDBJNILIB)
