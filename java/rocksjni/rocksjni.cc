@@ -1492,4 +1492,3 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
   rocksdb_compactrange_helper(env, db, cf_handle, jbegin, jbegin_len,
       jend, jend_len, jreduce_level, jtarget_level, jtarget_path_id);
 }
-
