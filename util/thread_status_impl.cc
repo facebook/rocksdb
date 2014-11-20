@@ -21,13 +21,7 @@ std::unordered_map<const void*, std::unordered_set<const void*>>
     ThreadStatusImpl::db_key_map_;
 
 ThreadStatusImpl::~ThreadStatusImpl() {
-  std::lock_guard<std::mutex> lck(thread_list_mutex_);
-  for (auto* thread_data : thread_data_set_) {
-    assert(thread_data->thread_type == ThreadStatus::ThreadType::USER_THREAD);
-    delete thread_data;
-  }
   assert(thread_data_set_.size() == 0);
-  thread_data_set_.clear();
 }
 
 void ThreadStatusImpl::UnregisterThread() {
@@ -35,6 +29,7 @@ void ThreadStatusImpl::UnregisterThread() {
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
     thread_data_set_.erase(thread_status_data_);
     delete thread_status_data_;
+    thread_status_data_ = nullptr;
   }
 }
 
