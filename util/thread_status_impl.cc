@@ -68,8 +68,7 @@ Status ThreadStatusImpl::GetThreadList(
         std::memory_order_relaxed);
     auto cf_key = thread_data->cf_key.load(
         std::memory_order_relaxed);
-    auto iter = cf_info_map_.find(
-        thread_data->cf_key.load(std::memory_order_relaxed));
+    auto iter = cf_info_map_.find(cf_key);
     assert(cf_key == 0 || iter != cf_info_map_.end());
     auto* cf_info = iter != cf_info_map_.end() ?
         iter->second : nullptr;

@@ -16,7 +16,7 @@ void ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(
   assert(cf_info_map_.size() == handles.size());
   for (auto* handle : handles) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
-    auto iter = cf_info_map_.find(cfd);
+    auto iter __attribute__((unused)) = cf_info_map_.find(cfd);
     assert(iter != cf_info_map_.end());
     assert(iter->second);
     assert(iter->second->cf_name == cfd->GetName());
