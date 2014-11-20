@@ -150,8 +150,8 @@ void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
   for (auto cf_key : db_pair->second) {
     auto cf_pair = cf_info_map_.find(cf_key);
     assert(cf_pair != cf_info_map_.end());
-    result = cf_info_map_.erase(cf_key);
     delete cf_pair->second;
+    result = cf_info_map_.erase(cf_key);
     assert(result);
   }
   db_key_map_.erase(db_key);
