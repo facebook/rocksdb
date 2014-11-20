@@ -33,6 +33,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "rocksdb/thread_status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
@@ -48,6 +49,7 @@
 #include "util/sync_point.h"
 #include "util/testutil.h"
 #include "util/mock_env.h"
+#include "util/thread_status_impl.h"
 
 namespace rocksdb {
 
@@ -8980,6 +8982,60 @@ TEST(DBTest, DynamicMemtableOptions) {
   sleeping_task_low3.WakeUp();
   sleeping_task_low3.WaitUntilDone();
 }
+
+#if ROCKSDB_USING_THREAD_STATUS
+TEST(DBTest, GetThreadList) {
+  Options options;
+  options.env = env_;
+
+  std::vector<ThreadStatus> thread_list;
+  Status s = GetThreadList(&thread_list);
+
+  for (int i = 0; i < 2; ++i) {
+    // repeat the test with differet number of high / low priority threads
+    const int kTestCount = 3;
+    const unsigned int kHighPriCounts[kTestCount] = {3, 2, 5};
+    const unsigned int kLowPriCounts[kTestCount] = {10, 15, 3};
+    for (int test = 0; test < kTestCount; ++test) {
+      // Change the number of threads in high / low priority pool.
+      env_->SetBackgroundThreads(kHighPriCounts[test], Env::HIGH);
+      env_->SetBackgroundThreads(kLowPriCounts[test], Env::LOW);
+      // Wait to ensure the all threads has been registered
+      env_->SleepForMicroseconds(100000);
+      s = GetThreadList(&thread_list);
+      ASSERT_OK(s);
+      unsigned int thread_type_counts[ThreadStatus::ThreadType::TOTAL];
+      memset(thread_type_counts, 0, sizeof(thread_type_counts));
+      for (auto thread : thread_list) {
+        ASSERT_LT(thread.thread_type, ThreadStatus::ThreadType::TOTAL);
+        thread_type_counts[thread.thread_type]++;
+      }
+      // Verify the total number of threades
+      ASSERT_EQ(
+          thread_list.size(),
+          kHighPriCounts[test] + kLowPriCounts[test]);
+      // Verify the number of high-priority threads
+      ASSERT_EQ(
+          thread_type_counts[ThreadStatus::ThreadType::ROCKSDB_HIGH_PRIORITY],
+          kHighPriCounts[test]);
+      // Verify the number of low-priority threads
+      ASSERT_EQ(
+          thread_type_counts[ThreadStatus::ThreadType::ROCKSDB_LOW_PRIORITY],
+          kLowPriCounts[test]);
+    }
+    if (i == 0) {
+      // repeat the test with multiple column families
+      CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
+      ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_);
+    }
+  }
+  db_->DropColumnFamily(handles_[2]);
+  handles_.erase(handles_.begin() + 2);
+  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_);
+  Close();
+  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_);
+}
+#endif  // ROCKSDB_USING_THREAD_STATUS
 
 TEST(DBTest, DynamicCompactionOptions) {
   // minimum write buffer size is enforced at 64KB

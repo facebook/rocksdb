@@ -9,6 +9,7 @@
 #include "db/merge_context.h"
 #include "db/db_iter.h"
 #include "util/perf_context_imp.h"
+#include "util/thread_status_impl.h"
 
 namespace rocksdb {
 
@@ -152,6 +153,10 @@ Status DB::OpenForReadOnly(
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;
+    for (auto* h : *handles) {
+      impl->NewThreadStatusCfInfo(
+          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
+    }
   } else {
     for (auto h : *handles) {
       delete h;

@@ -75,6 +75,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
+#include "util/thread_status_impl.h"
 
 namespace rocksdb {
 
@@ -241,6 +242,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 }
 
 DBImpl::~DBImpl() {
+  EraseThreadStatusDbInfo();
   mutex_.Lock();
 
   if (flush_on_destroy_) {
@@ -2453,40 +2455,50 @@ std::vector<Status> DBImpl::MultiGet(
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   const std::string& column_family_name,
                                   ColumnFamilyHandle** handle) {
+  Status s;
   *handle = nullptr;
-  MutexLock l(&mutex_);
+  {
+    MutexLock l(&mutex_);
 
-  if (versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name) !=
-      nullptr) {
-    return Status::InvalidArgument("Column family already exists");
+    if (versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name) !=
+        nullptr) {
+      return Status::InvalidArgument("Column family already exists");
+    }
+    VersionEdit edit;
+    edit.AddColumnFamily(column_family_name);
+    uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
+    edit.SetColumnFamily(new_id);
+    edit.SetLogNumber(logfile_number_);
+    edit.SetComparatorName(cf_options.comparator->Name());
+
+    // LogAndApply will both write the creation in MANIFEST and create
+    // ColumnFamilyData object
+    Options opt(db_options_, cf_options);
+    s = versions_->LogAndApply(nullptr,
+        MutableCFOptions(opt, ImmutableCFOptions(opt)),
+        &edit, &mutex_, db_directory_.get(), false, &cf_options);
+    if (s.ok()) {
+      single_column_family_mode_ = false;
+      auto* cfd =
+          versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
+      assert(cfd != nullptr);
+      delete InstallSuperVersion(
+          cfd, nullptr, *cfd->GetLatestMutableCFOptions());
+      *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "Created column family [%s] (ID %u)",
+          column_family_name.c_str(), (unsigned)cfd->GetID());
+    } else {
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Creating column family [%s] FAILED -- %s",
+          column_family_name.c_str(), s.ToString().c_str());
+    }
   }
-  VersionEdit edit;
-  edit.AddColumnFamily(column_family_name);
-  uint32_t new_id = versions_->GetColumnFamilySet()->GetNextColumnFamilyID();
-  edit.SetColumnFamily(new_id);
-  edit.SetLogNumber(logfile_number_);
-  edit.SetComparatorName(cf_options.comparator->Name());
 
-  // LogAndApply will both write the creation in MANIFEST and create
-  // ColumnFamilyData object
-  Options opt(db_options_, cf_options);
-  Status s = versions_->LogAndApply(nullptr,
-      MutableCFOptions(opt, ImmutableCFOptions(opt)),
-      &edit, &mutex_, db_directory_.get(), false, &cf_options);
+  // this is outside the mutex
   if (s.ok()) {
-    single_column_family_mode_ = false;
-    auto cfd =
-        versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name);
-    assert(cfd != nullptr);
-    delete InstallSuperVersion(cfd, nullptr, *cfd->GetLatestMutableCFOptions());
-    *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "Created column family [%s] (ID %u)",
-        column_family_name.c_str(), (unsigned)cfd->GetID());
-  } else {
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "Creating column family [%s] FAILED -- %s",
-        column_family_name.c_str(), s.ToString().c_str());
+    NewThreadStatusCfInfo(
+        reinterpret_cast<ColumnFamilyHandleImpl*>(*handle)->cfd());
   }
   return s;
 }
@@ -2520,6 +2532,10 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
   }
 
   if (s.ok()) {
+    // Note that here we erase the associated cf_info of the to-be-dropped
+    // cfd before its ref-count goes to zero to avoid having to erase cf_info
+    // later inside db_mutex.
+    EraseThreadStatusCfInfo(cfd);
     assert(cfd->IsDropped());
     auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
     max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
@@ -3602,8 +3618,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     // their Listeners.  To address this, we should have NotifyOnDatabaseOpen()
     // here which passes the created ColumnFamilyHandle to the Listeners
     // as the first event after DB::Open().
+    for (auto* h : *handles) {
+      impl->NewThreadStatusCfInfo(
+          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
+    }
   } else {
-    for (auto h : *handles) {
+    for (auto* h : *handles) {
       delete h;
     }
     handles->clear();
@@ -3701,6 +3721,38 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   }
   return result;
 }
+
+#if ROCKSDB_USING_THREAD_STATUS
+void DBImpl::NewThreadStatusCfInfo(
+    ColumnFamilyData* cfd) const {
+  ThreadStatusImpl::NewColumnFamilyInfo(
+      this, GetName(), cfd, cfd->GetName());
+}
+
+void DBImpl::EraseThreadStatusCfInfo(
+    ColumnFamilyData* cfd) const {
+  ThreadStatusImpl::EraseColumnFamilyInfo(cfd);
+}
+
+void DBImpl::EraseThreadStatusDbInfo() const {
+  ThreadStatusImpl::EraseDatabaseInfo(this);
+}
+
+Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+  return thread_local_status.GetThreadList(thread_list);
+}
+#else
+void DBImpl::NewThreadStatusCfInfo(
+    ColumnFamilyData* cfd) const {
+}
+
+void DBImpl::EraseThreadStatusCfInfo(
+    ColumnFamilyData* cfd) const {
+}
+
+void DBImpl::EraseThreadStatusDbInfo() const {
+}
+#endif  // ROCKSDB_USING_THREAD_STATUS
 
 //
 // A global method that can dump out the build version

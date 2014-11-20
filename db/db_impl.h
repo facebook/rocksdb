@@ -34,6 +34,7 @@
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "util/scoped_arena_iterator.h"
+#include "util/hash.h"
 #include "db/internal_stats.h"
 #include "db/write_controller.h"
 #include "db/flush_scheduler.h"
@@ -263,6 +264,12 @@ class DBImpl : public DB {
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number,
                               const MutableCFOptions& mutable_cf_options);
+
+  void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
+
+  void EraseThreadStatusCfInfo(ColumnFamilyData* cfd) const;
+
+  void EraseThreadStatusDbInfo() const;
 
  private:
   friend class DB;

@@ -150,7 +150,8 @@ TESTS = \
 	flush_job_test \
 	wal_manager_test \
 	listener_test \
-	compaction_job_test
+	compaction_job_test \
+	thread_list_test
 
 TOOLS = \
         sst_dump \
@@ -508,6 +509,9 @@ cuckoo_table_db_test: db/cuckoo_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 listener_test: db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)

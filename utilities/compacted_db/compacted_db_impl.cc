@@ -8,6 +8,7 @@
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "table/get_context.h"
+#include "util/thread_status_impl.h"
 
 namespace rocksdb {
 
@@ -102,6 +103,7 @@ Status CompactedDBImpl::Init(const Options& options) {
   if (!s.ok()) {
     return s;
   }
+  NewThreadStatusCfInfo(cfd_);
   version_ = cfd_->GetSuperVersion()->current;
   user_comparator_ = cfd_->user_comparator();
   auto* vstorage = version_->storage_info();

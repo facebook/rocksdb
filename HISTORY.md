@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 
+### Unreleased Features
+* Add rocksdb::GetThreadList(), which returns the current status of all rocksdb-related threads.
+
 ## 3.8.0 (11/14/2014)
 
 ### Public API changes
