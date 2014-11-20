@@ -438,6 +438,12 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEn
   
   Node* left = NewNode(newSize / 2, node->type);
   Node* right = NewNode(newSize - left->numEntries, node->type);
+  right->pid = mappingTable_.addNode(right);
+  right->highPtrPid = node->highPtrPid;
+  right->linkPtrPid = node->linkPtrPid;
+
+  left->pid = node->pid;
+  left->linkPtrPid = right->pid;
 
   bool newEntryAdded = false;
   bool prevEntryUpdated = (updateEntryKey == nullptr);
@@ -480,13 +486,6 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEn
     }
     nodeIndex++;
   }
-
-  right->pid = mappingTable_.addNode(right);
-  right->highPtrPid = node->highPtrPid;
-  right->linkPtrPid = node->linkPtrPid;
-
-  left->pid = node->pid;
-  left->linkPtrPid = right->pid;
 
   mappingTable_.updateNode(left->pid, left);
   return std::make_tuple(left, right);
@@ -538,6 +537,9 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
     } else { // Split is unnecessary; Copy current node and replace it after inserting a new IndexEntry
       int newSize = 1 + node->numEntries;
       Node* newNode = NewNode(newSize, node->type);
+      newNode->pid = node->pid;
+      newNode->highPtrPid = node->highPtrPid;
+      newNode->linkPtrPid = node->linkPtrPid;
       int nodeIndex = 0;
       int i = 0;
       bool newEntryAdded = false;
@@ -572,10 +574,6 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
         }
         nodeIndex++;
       }
-
-      newNode->pid = node->pid;
-      newNode->highPtrPid = node->highPtrPid;
-      newNode->linkPtrPid = node->linkPtrPid;
       mappingTable_.updateNode(newNode->pid, newNode);
       break;
     }
