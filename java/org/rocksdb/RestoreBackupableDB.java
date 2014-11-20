@@ -115,9 +115,9 @@ public class RestoreBackupableDB extends RocksObject {
    * is no corrupted backup the method will return an
    * empty list.</p>
    *
-   * @return list of backup ids as Integer.
+   * @return array of backup ids as int ids.
    */
-  public List<Integer> getCorruptedBackups() {
+  public int[] getCorruptedBackups() {
     assert(isInitialized());
     return getCorruptedBackups(nativeHandle_);
   }
@@ -155,7 +155,7 @@ public class RestoreBackupableDB extends RocksObject {
   private native void deleteBackup0(long nativeHandle, int backupId)
       throws RocksDBException;
   private native List<BackupInfo> getBackupInfo(long handle);
-  private native List<Integer> getCorruptedBackups(long handle);
+  private native int[] getCorruptedBackups(long handle);
   private native void garbageCollect(long handle)
       throws RocksDBException;
   private native void dispose(long nativeHandle);

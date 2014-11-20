@@ -95,32 +95,25 @@ jobject Java_org_rocksdb_BackupableDB_getBackupInfo(
 /*
  * Class:     org_rocksdb_BackupableDB
  * Method:    getCorruptedBackups
- * Signature: (J)Ljava/util/List;
+ * Signature: (J)[I;
  */
-jobject Java_org_rocksdb_BackupableDB_getCorruptedBackups(
+jintArray Java_org_rocksdb_BackupableDB_getCorruptedBackups(
     JNIEnv* env, jobject jbdb, jlong jhandle) {
   std::vector<rocksdb::BackupID> backup_ids;
   reinterpret_cast<rocksdb::BackupableDB*>(jhandle)->
       GetCorruptedBackups(&backup_ids);
-
-  jclass jclazz = env->FindClass("java/util/ArrayList");
-  jmethodID mid = rocksdb::ListJni::getArrayListConstructorMethodId(
-      env, jclazz);
-  jobject jbackup_id_handle_list = env->NewObject(jclazz, mid,
-      backup_ids.size());
-  // insert in java list
+  // store backupids in int array
+  const int kIdSize = backup_ids.size();
+  int int_backup_ids[kIdSize];
   for (std::vector<rocksdb::BackupID>::size_type i = 0;
       i != backup_ids.size(); i++) {
-    // convert BackupID to Integer
-    jclass jIntClazz = env->FindClass("java/lang/Integer");
-    jmethodID midLong = env->GetMethodID(jIntClazz, "<init>", "(I)V");
-    jobject obj = env->NewObject(jIntClazz, midLong,
-        (backup_ids[i]));
-    // add Integer to List
-    env->CallBooleanMethod(jbackup_id_handle_list,
-        rocksdb::ListJni::getListAddMethodId(env), obj);
+    int_backup_ids[i] = backup_ids[i];
   }
-  return jbackup_id_handle_list;
+  // Store ints in java array
+  jintArray ret_backup_ids;
+  ret_backup_ids = env->NewIntArray(kIdSize);
+  env->SetIntArrayRegion(ret_backup_ids, 0, kIdSize, int_backup_ids);
+  return ret_backup_ids;
 }
 
 /*

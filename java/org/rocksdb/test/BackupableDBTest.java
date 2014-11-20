@@ -369,7 +369,7 @@ public class BackupableDBTest {
   private List<BackupInfo> verifyNumberOfValidBackups(BackupableDB bdb,
      int expectedNumberOfBackups) throws RocksDBException {
     // Verify that backups exist
-    assertThat(bdb.getCorruptedBackups().size()).
+    assertThat(bdb.getCorruptedBackups().length).
         isEqualTo(0);
     bdb.garbageCollect();
     List<BackupInfo> backupInfo = bdb.getBackupInfos();
@@ -390,7 +390,7 @@ public class BackupableDBTest {
       RestoreBackupableDB rdb, int expectedNumberOfBackups)
       throws RocksDBException {
     // Verify that backups exist
-    assertThat(rdb.getCorruptedBackups().size()).
+    assertThat(rdb.getCorruptedBackups().length).
         isEqualTo(0);
     rdb.garbageCollect();
     List<BackupInfo> backupInfo = rdb.getBackupInfos();

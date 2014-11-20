@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.io.File;
+import java.nio.file.Path;
+
 /**
  * <p>BackupableDBOptions to control the behavior of a backupable database.
  * It will be used during the creation of a {@link org.rocksdb.BackupableDB}.
@@ -21,10 +24,14 @@ public class BackupableDBOptions extends RocksObject {
    *
    * @param path Where to keep the backup files. Has to be different than db name.
    *     Best to set this to {@code db name_ + "/backups"}
+   * @throws java.lang.IllegalArgumentException if illegal path is used.
    */
   public BackupableDBOptions(String path) {
     super();
-    assert(path != null);
+    File backupPath = path == null ? null : new File(path);
+    if (backupPath == null || !backupPath.isDirectory() || !backupPath.canWrite()) {
+      throw new IllegalArgumentException("Illegal path provided.");
+    }
     newBackupableDBOptions(path);
   }
 

@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class BackupableDBOptionsTest {
 
-  private final static String ARBITRARY_PATH = "/path";
+  private final static String ARBITRARY_PATH = "/tmp";
 
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
@@ -164,7 +164,7 @@ public class BackupableDBOptionsTest {
 
   @Test
   public void failBackupDirIsNull() {
-    exception.expect(AssertionError.class);
+    exception.expect(IllegalArgumentException.class);
     new BackupableDBOptions(null);
   }
 
