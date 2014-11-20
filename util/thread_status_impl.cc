@@ -129,7 +129,7 @@ void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
   // 2. Remove it from the set.
   auto db_pair = db_key_map_.find(cf_info->db_key);
   assert(db_pair != db_key_map_.end());
-  int result __attribute__((unused)) = db_pair->second.erase(cf_key);
+  size_t result __attribute__((unused)) = db_pair->second.erase(cf_key);
   assert(result);
 
   delete cf_info;
@@ -146,7 +146,7 @@ void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
     return;
   }
 
-  int result __attribute__((unused)) = 0;
+  size_t result __attribute__((unused)) = 0;
   for (auto cf_key : db_pair->second) {
     auto cf_pair = cf_info_map_.find(cf_key);
     assert(cf_pair != cf_info_map_.end());
