@@ -131,10 +131,10 @@ class ThreadStatusImpl {
       bool check_exist);
 
  protected:
-  // The thread-local variable for storing thread status.
-  static __thread ThreadStatusData* thread_status_data_;
 
 #if ROCKSDB_USING_THREAD_STATUS
+  // The thread-local variable for storing thread status.
+  static __thread ThreadStatusData* thread_status_data_;
 
   // Obtain the pointer to the thread status data.  It also performs
   // initialization when necessary.
@@ -157,6 +157,8 @@ class ThreadStatusImpl {
   // associated to the same db_key faster.
   static std::unordered_map<
       const void*, std::unordered_set<const void*>> db_key_map_;
+#else
+  static ThreadStatusData* thread_status_data_;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
