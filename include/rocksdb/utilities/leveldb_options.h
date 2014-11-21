@@ -18,7 +18,7 @@ class Comparator;
 class Env;
 class FilterPolicy;
 class Logger;
-class Options;
+struct Options;
 class Snapshot;
 
 enum CompressionType : char;
