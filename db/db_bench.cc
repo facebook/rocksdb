@@ -1193,7 +1193,7 @@ class Benchmark {
     while (start < s.size() && isspace(s[start])) {
       start++;
     }
-    unsigned int limit = s.size();
+    unsigned int limit = static_cast<unsigned int>(s.size());
     while (limit > start && isspace(s[limit-1])) {
       limit--;
     }
