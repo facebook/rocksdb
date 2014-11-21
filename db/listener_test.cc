@@ -135,10 +135,12 @@ class EventListenerTest {
   }
 
   Status Flush(int cf = 0) {
+    FlushOptions opt = FlushOptions();
+    opt.wait = true;
     if (cf == 0) {
-      return db_->Flush(FlushOptions());
+      return db_->Flush(opt);
     } else {
-      return db_->Flush(FlushOptions(), handles_[cf]);
+      return db_->Flush(opt, handles_[cf]);
     }
   }
 
