@@ -16,7 +16,11 @@
 #include <gflags/gflags.h>
 
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
+#include "table/block_based_table_factory.h"
 #include "util/testharness.h"
+#include "rocksdb/cache.h"
+#include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/convenience.h"
 
 using GFLAGS::ParseCommandLineFlags;
@@ -320,6 +324,34 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
               "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 20*1024UL*1024UL*1024UL*1024UL);
   ASSERT_EQ(new_cf_opt.arena_block_size, 21*1024UL*1024UL*1024UL*1024UL);
+}
+
+TEST(OptionsTest, ConvertOptionsTest) {
+  LevelDBOptions leveldb_opt;
+  Options converted_opt = ConvertOptions(leveldb_opt);
+
+  ASSERT_EQ(converted_opt.create_if_missing, leveldb_opt.create_if_missing);
+  ASSERT_EQ(converted_opt.error_if_exists, leveldb_opt.error_if_exists);
+  ASSERT_EQ(converted_opt.paranoid_checks, leveldb_opt.paranoid_checks);
+  ASSERT_EQ(converted_opt.env, leveldb_opt.env);
+  ASSERT_EQ(converted_opt.info_log.get(), leveldb_opt.info_log);
+  ASSERT_EQ(converted_opt.write_buffer_size, leveldb_opt.write_buffer_size);
+  ASSERT_EQ(converted_opt.max_open_files, leveldb_opt.max_open_files);
+  ASSERT_EQ(converted_opt.compression, leveldb_opt.compression);
+
+  std::shared_ptr<BlockBasedTableFactory> table_factory =
+      std::dynamic_pointer_cast<BlockBasedTableFactory>(
+          converted_opt.table_factory);
+
+  ASSERT_TRUE(table_factory.get() != nullptr);
+
+  const BlockBasedTableOptions table_opt = table_factory->GetTableOptions();
+
+  ASSERT_EQ(table_opt.block_cache->GetCapacity(), 8UL << 20);
+  ASSERT_EQ(table_opt.block_size, leveldb_opt.block_size);
+  ASSERT_EQ(table_opt.block_restart_interval,
+            leveldb_opt.block_restart_interval);
+  ASSERT_EQ(table_opt.filter_policy.get(), leveldb_opt.filter_policy);
 }
 
 }  // namespace rocksdb
