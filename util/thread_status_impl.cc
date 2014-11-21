@@ -9,8 +9,6 @@
 
 namespace rocksdb {
 
-ThreadStatusImpl thread_local_status;
-
 #if ROCKSDB_USING_THREAD_STATUS
 __thread ThreadStatusData* ThreadStatusImpl::thread_status_data_ = nullptr;
 std::mutex ThreadStatusImpl::thread_list_mutex_;
@@ -19,6 +17,8 @@ std::unordered_map<const void*, ConstantColumnFamilyInfo*>
     ThreadStatusImpl::cf_info_map_;
 std::unordered_map<const void*, std::unordered_set<const void*>>
     ThreadStatusImpl::db_key_map_;
+
+ThreadStatusImpl thread_local_status;
 
 ThreadStatusImpl::~ThreadStatusImpl() {
   assert(thread_data_set_.size() == 0);
@@ -188,5 +188,6 @@ void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
 void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
 }
 
+ThreadStatusImpl thread_local_status;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 }  // namespace rocksdb
