@@ -179,8 +179,9 @@ class Env {
                             const std::string& target) = 0;
 
   // Hard Link file src to target.
-  virtual Status LinkFile(const std::string& src,
-                          const std::string& target) = 0;
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    return Status::NotSupported("LinkFile is not supported for this Env");
+  }
 
   // Lock the specified file.  Used to prevent concurrent access to
   // the same db by multiple processes.  On failure, stores nullptr in
