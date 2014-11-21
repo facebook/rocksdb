@@ -147,6 +147,46 @@ jobject Java_org_rocksdb_RestoreBackupableDB_getBackupInfo(
 
 /*
  * Class:     org_rocksdb_RestoreBackupableDB
+ * Method:    getCorruptedBackups
+ * Signature: (J)[I;
+ */
+jintArray Java_org_rocksdb_RestoreBackupableDB_getCorruptedBackups(
+    JNIEnv* env, jobject jbdb, jlong jhandle) {
+  std::vector<rocksdb::BackupID> backup_ids;
+  reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle)->
+      GetCorruptedBackups(&backup_ids);
+  // store backupids in int array
+  const int kIdSize = backup_ids.size();
+  int int_backup_ids[kIdSize];
+  for (std::vector<rocksdb::BackupID>::size_type i = 0;
+      i != backup_ids.size(); i++) {
+    int_backup_ids[i] = backup_ids[i];
+  }
+  // Store ints in java array
+  jintArray ret_backup_ids;
+  ret_backup_ids = env->NewIntArray(kIdSize);
+  env->SetIntArrayRegion(ret_backup_ids, 0, kIdSize, int_backup_ids);
+  return ret_backup_ids;
+}
+
+/*
+ * Class:     org_rocksdb_RestoreBackupableDB
+ * Method:    garbageCollect
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RestoreBackupableDB_garbageCollect(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto db = reinterpret_cast<rocksdb::RestoreBackupableDB*>(
+      jhandle);
+  rocksdb::Status s = db->GarbageCollect();
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RestoreBackupableDB
  * Method:    dispose
  * Signature: (J)V
  */

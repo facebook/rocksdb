@@ -8,21 +8,23 @@ package org.rocksdb;
 import java.util.List;
 
 /**
- * A subclass of RocksDB which supports backup-related operations.
+ * <p>A subclass of RocksDB which supports
+ * backup-related operations.</p>
  *
  * @see org.rocksdb.BackupableDBOptions
  */
 public class BackupableDB extends RocksDB {
   /**
-   * Open a {@code BackupableDB} under the specified path.
+   * <p>Open a {@code BackupableDB} under the specified path.
    * Note that the backup path should be set properly in the
-   * input BackupableDBOptions.
+   * input BackupableDBOptions.</p>
    *
    * @param opt {@link org.rocksdb.Options} to set for the database.
    * @param bopt {@link org.rocksdb.BackupableDBOptions} to use.
    * @param db_path Path to store data to. The path for storing the backup should be
    *     specified in the {@link org.rocksdb.BackupableDBOptions}.
-   * @return BackupableDB reference to the opened database.
+   *
+   * @return {@link BackupableDB} reference to the opened database.
    *
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
@@ -43,8 +45,8 @@ public class BackupableDB extends RocksDB {
   }
 
   /**
-   * Captures the state of the database in the latest backup.
-   * Note that this function is not thread-safe.
+   * <p>Captures the state of the database in the latest backup.
+   * Note that this function is not thread-safe.</p>
    *
    * @param flushBeforeBackup if true, then all data will be flushed
    *     before creating backup.
@@ -54,11 +56,12 @@ public class BackupableDB extends RocksDB {
    */
   public void createNewBackup(boolean flushBeforeBackup)
       throws RocksDBException {
+    assert(isInitialized());
     createNewBackup(nativeHandle_, flushBeforeBackup);
   }
 
   /**
-   * Deletes old backups, keeping latest numBackupsToKeep alive.
+   * <p>Deletes old backups, keeping latest numBackupsToKeep alive.</p>
    *
    * @param numBackupsToKeep Number of latest backups to keep.
    *
@@ -67,11 +70,12 @@ public class BackupableDB extends RocksDB {
    */
   public void purgeOldBackups(int numBackupsToKeep)
       throws RocksDBException {
+    assert(isInitialized());
     purgeOldBackups(nativeHandle_, numBackupsToKeep);
   }
 
   /**
-   * Deletes a specific backup.
+   * <p>Deletes a specific backup.</p>
    *
    * @param backupId of backup to delete.
    *
@@ -79,25 +83,54 @@ public class BackupableDB extends RocksDB {
    *    native library.
    */
   public void deleteBackup(int backupId) throws RocksDBException {
+    assert(isInitialized());
     deleteBackup0(nativeHandle_, backupId);
   }
 
   /**
-   * Returns a list of {@link BackupInfo} instances, which describe
-   * already made backups.
+   * <p>Returns a list of {@link BackupInfo} instances, which describe
+   * already made backups.</p>
    *
    * @return List of {@link BackupInfo} instances.
    */
   public List<BackupInfo> getBackupInfos() {
+    assert(isInitialized());
     return getBackupInfo(nativeHandle_);
   }
 
   /**
-   * Close the BackupableDB instance and release resource.
+   * <p>Returns a list of corrupted backup ids. If there
+   * is no corrupted backup the method will return an
+   * empty list.</p>
    *
-   * Internally, BackupableDB owns the {@code rocksdb::DB} pointer to its associated
-   * {@link org.rocksdb.RocksDB}. The release of that RocksDB pointer is handled in the destructor
-   * of the c++ {@code rocksdb::BackupableDB} and should be transparent to Java developers.
+   * @return array of backup ids as int ids.
+   */
+  public int[] getCorruptedBackups() {
+    assert(isInitialized());
+    return getCorruptedBackups(nativeHandle_);
+  }
+
+  /**
+   * <p>Will delete all the files we don't need anymore. It will
+   * do the full scan of the files/ directory and delete all the
+   * files that are not referenced.</p>
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void garbageCollect() throws RocksDBException {
+    assert(isInitialized());
+    garbageCollect(nativeHandle_);
+  }
+
+  /**
+   * <p>Close the BackupableDB instance and release resource.</p>
+   *
+   * <p>Internally, {@link BackupableDB} owns the {@code rocksdb::DB}
+   * pointer to its associated {@link org.rocksdb.RocksDB}.
+   * The release of that RocksDB pointer is handled in the destructor
+   * of the c++ {@code rocksdb::BackupableDB} and should be transparent
+   * to Java developers.</p>
    */
   @Override public synchronized void close() {
     if (isInitialized()) {
@@ -106,8 +139,9 @@ public class BackupableDB extends RocksDB {
   }
 
   /**
-   * A protected construction that will be used in the static factory
-   * method {@link #open(Options, BackupableDBOptions, String)}.
+   * <p>A protected construction that will be used in the static
+   * factory method {@link #open(Options, BackupableDBOptions, String)}.
+   * </p>
    */
   protected BackupableDB() {
     super();
@@ -126,4 +160,7 @@ public class BackupableDB extends RocksDB {
   private native void deleteBackup0(long nativeHandle, int backupId)
       throws RocksDBException;
   protected native List<BackupInfo> getBackupInfo(long handle);
+  private native int[] getCorruptedBackups(long handle);
+  private native void garbageCollect(long handle)
+      throws RocksDBException;
 }
