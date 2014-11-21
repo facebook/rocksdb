@@ -4,6 +4,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.BackupableDBOptions\
 	org.rocksdb.BlockBasedTableConfig\
 	org.rocksdb.BloomFilter\
+	org.rocksdb.Checkpoint\
 	org.rocksdb.ColumnFamilyHandle\
 	org.rocksdb.ColumnFamilyOptions\
 	org.rocksdb.Comparator\
@@ -50,6 +51,7 @@ endif
 JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
         org.rocksdb.test.BackupableDBTest\
 		org.rocksdb.test.BlockBasedTableConfigTest\
+		org.rocksdb.test.CheckpointTest\
 		org.rocksdb.test.ColumnFamilyOptionsTest\
 		org.rocksdb.test.ColumnFamilyTest\
 		org.rocksdb.test.ComparatorOptionsTest\
