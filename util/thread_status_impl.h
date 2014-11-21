@@ -127,7 +127,8 @@ class ThreadStatusImpl {
   // Verifies whether the input ColumnFamilyHandles matches
   // the information stored in the current cf_info_map.
   static void TEST_VerifyColumnFamilyInfoMap(
-      const std::vector<ColumnFamilyHandle*>& handles);
+      const std::vector<ColumnFamilyHandle*>& handles,
+      bool check_exist);
 
  protected:
   // The thread-local variable for storing thread status.

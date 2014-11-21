@@ -884,6 +884,12 @@ struct DBOptions {
   // When rate limiter is enabled, it automatically enables bytes_per_sync
   // to 1MB.
   uint64_t bytes_per_sync;
+
+  // If true, then the status of the threads involved in this DB will
+  // be tracked and available via GetThreadList() API.
+  //
+  // Default: false
+  bool enable_thread_tracking;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

@@ -11,15 +11,22 @@
 
 namespace rocksdb {
 void ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(
-    const std::vector<ColumnFamilyHandle*>& handles) {
+    const std::vector<ColumnFamilyHandle*>& handles,
+    bool check_exist) {
   std::unique_lock<std::mutex> lock(thread_list_mutex_);
-  assert(cf_info_map_.size() == handles.size());
+  if (check_exist) {
+    assert(cf_info_map_.size() == handles.size());
+  }
   for (auto* handle : handles) {
     auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(handle)->cfd();
     auto iter __attribute__((unused)) = cf_info_map_.find(cfd);
-    assert(iter != cf_info_map_.end());
-    assert(iter->second);
-    assert(iter->second->cf_name == cfd->GetName());
+    if (check_exist) {
+      assert(iter != cf_info_map_.end());
+      assert(iter->second);
+      assert(iter->second->cf_name == cfd->GetName());
+    } else {
+      assert(iter == cf_info_map_.end());
+    }
   }
 }
 }  // namespace rocksdb

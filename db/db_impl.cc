@@ -3725,17 +3725,23 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 #if ROCKSDB_USING_THREAD_STATUS
 void DBImpl::NewThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {
-  ThreadStatusImpl::NewColumnFamilyInfo(
-      this, GetName(), cfd, cfd->GetName());
+  if (db_options_.enable_thread_tracking) {
+    ThreadStatusImpl::NewColumnFamilyInfo(
+        this, GetName(), cfd, cfd->GetName());
+  }
 }
 
 void DBImpl::EraseThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {
-  ThreadStatusImpl::EraseColumnFamilyInfo(cfd);
+  if (db_options_.enable_thread_tracking) {
+    ThreadStatusImpl::EraseColumnFamilyInfo(cfd);
+  }
 }
 
 void DBImpl::EraseThreadStatusDbInfo() const {
-  ThreadStatusImpl::EraseDatabaseInfo(this);
+  if (db_options_.enable_thread_tracking) {
+    ThreadStatusImpl::EraseDatabaseInfo(this);
+  }
 }
 
 Status GetThreadList(std::vector<ThreadStatus>* thread_list) {

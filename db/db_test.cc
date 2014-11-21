@@ -8986,6 +8986,8 @@ TEST(DBTest, DynamicMemtableOptions) {
 TEST(DBTest, GetThreadList) {
   Options options;
   options.env = env_;
+  options.enable_thread_tracking = true;
+  TryReopen(options);
 
   std::vector<ThreadStatus> thread_list;
   Status s = GetThreadList(&thread_list);
@@ -9025,14 +9027,24 @@ TEST(DBTest, GetThreadList) {
     if (i == 0) {
       // repeat the test with multiple column families
       CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
-      ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_);
+      ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
     }
   }
   db_->DropColumnFamily(handles_[2]);
   handles_.erase(handles_.begin() + 2);
-  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_);
+  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
   Close();
-  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_);
+  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
+}
+
+TEST(DBTest, DisableThreadList) {
+  Options options;
+  options.env = env_;
+  options.enable_thread_tracking = false;
+  TryReopen(options);
+  CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
+  // Verify non of the column family info exists
+  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, false);
 }
 #endif  // ROCKSDB_USING_THREAD_STATUS
 

@@ -232,7 +232,8 @@ DBOptions::DBOptions()
       advise_random_on_open(true),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
-      bytes_per_sync(0) {}
+      bytes_per_sync(0),
+      enable_thread_tracking(false) {}
 
 DBOptions::DBOptions(const Options& options)
     : create_if_missing(options.create_if_missing),
@@ -274,7 +275,8 @@ DBOptions::DBOptions(const Options& options)
       advise_random_on_open(options.advise_random_on_open),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       use_adaptive_mutex(options.use_adaptive_mutex),
-      bytes_per_sync(options.bytes_per_sync) {}
+      bytes_per_sync(options.bytes_per_sync),
+      enable_thread_tracking(options.enable_thread_tracking) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
@@ -342,6 +344,8 @@ void DBOptions::Dump(Logger* log) const {
         rate_limiter.get());
     Log(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
+    Log(log, "                    enable_thread_tracking: %d",
+        enable_thread_tracking);
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {
