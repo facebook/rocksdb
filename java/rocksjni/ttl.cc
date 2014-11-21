@@ -40,3 +40,36 @@ void Java_org_rocksdb_TtlDB_open(JNIEnv* env, jobject jttldb,
   }
   rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
 }
+
+/*
+ * Class:     org_rocksdb_TtlDB
+ * Method:    createColumnFamilyWithTtl
+ * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;I)J;
+ */
+jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
+    JNIEnv* env, jobject jobj, jlong jdb_handle,
+    jobject jcf_descriptor, jint jttl) {
+  rocksdb::ColumnFamilyHandle* handle;
+  auto db_handle = reinterpret_cast<rocksdb::DBWithTTL*>(jdb_handle);
+
+  jstring jstr = (jstring) env->CallObjectMethod(jcf_descriptor,
+      rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
+      env));
+  // get CF Options
+  jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
+      rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
+      env));
+  rocksdb::ColumnFamilyOptions* cfOptions =
+      rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
+
+  const char* cfname = env->GetStringUTFChars(jstr, 0);
+  rocksdb::Status s = db_handle->CreateColumnFamilyWithTtl(
+      *cfOptions, cfname, &handle, jttl);
+  env->ReleaseStringUTFChars(jstr, cfname);
+
+  if (s.ok()) {
+    return reinterpret_cast<jlong>(handle);
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  return 0;
+}

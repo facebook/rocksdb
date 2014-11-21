@@ -9,9 +9,9 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.rocksdb.Options;
-import org.rocksdb.RocksDBException;
-import org.rocksdb.TtlDB;
+import org.rocksdb.*;
+
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,21 +25,83 @@ public class TtlDBTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void ttlDBOpen() throws RocksDBException, InterruptedException {
+  public void ttlDBOpen() throws RocksDBException,
+      InterruptedException {
     Options options = null;
     TtlDB ttlDB = null;
     try {
-      options = new Options().setCreateIfMissing(true);
+      options = new Options().
+          setCreateIfMissing(true).
+          setMaxGrandparentOverlapFactor(0).
+          setMaxMemCompactionLevel(0);
+      ttlDB = TtlDB.open(options,
+          dbFolder.getRoot().getAbsolutePath());
+      ttlDB.put("key".getBytes(), "value".getBytes());
+      assertThat(ttlDB.get("key".getBytes())).
+          isEqualTo("value".getBytes());
+      assertThat(ttlDB.get("key".getBytes())).isNotNull();
+    } finally {
+      if (ttlDB != null) {
+        ttlDB.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void ttlDBOpenWithTtl() throws RocksDBException,
+      InterruptedException {
+    Options options = null;
+    TtlDB ttlDB = null;
+    try {
+      options = new Options().
+          setCreateIfMissing(true).
+          setMaxGrandparentOverlapFactor(0).
+          setMaxMemCompactionLevel(0);
       ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           1, false);
       ttlDB.put("key".getBytes(), "value".getBytes());
       assertThat(ttlDB.get("key".getBytes())).
           isEqualTo("value".getBytes());
-      Thread.sleep(1250);
-      ttlDB.compactRange();
+      TimeUnit.SECONDS.sleep(2);
 
+      ttlDB.compactRange();
       assertThat(ttlDB.get("key".getBytes())).isNull();
     } finally {
+      if (ttlDB != null) {
+        ttlDB.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void createTtlColumnFamily() throws RocksDBException,
+      InterruptedException {
+    Options options = null;
+    TtlDB ttlDB = null;
+    ColumnFamilyHandle columnFamilyHandle = null;
+    try {
+      options = new Options().setCreateIfMissing(true);
+      ttlDB = TtlDB.open(options,
+          dbFolder.getRoot().getAbsolutePath());
+      columnFamilyHandle = ttlDB.createColumnFamilyWithTtl(
+          new ColumnFamilyDescriptor("new_cf"), 1);
+      ttlDB.put(columnFamilyHandle, "key".getBytes(),
+          "value".getBytes());
+      assertThat(ttlDB.get(columnFamilyHandle, "key".getBytes())).
+          isEqualTo("value".getBytes());
+      Thread.sleep(2500);
+      ttlDB.compactRange(columnFamilyHandle);
+      assertThat(ttlDB.get(columnFamilyHandle, "key".getBytes())).isNull();
+    } finally {
+      if (columnFamilyHandle != null) {
+        columnFamilyHandle.dispose();
+      }
       if (ttlDB != null) {
         ttlDB.close();
       }
