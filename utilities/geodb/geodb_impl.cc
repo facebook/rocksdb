@@ -17,6 +17,7 @@
 #include <limits>
 #include "db/filename.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
 //
 // There are two types of keys. The first type of key-values
@@ -116,9 +117,8 @@ Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   }
 
   // split the key into p + quadkey + id + lat + lon
-  std::vector<std::string> parts;
   Slice key = iter->key();
-  StringSplit(&parts, key.ToString(), ':');
+  std::vector<std::string> parts = StringSplit(key.ToString(), ':');
   assert(parts.size() == 5);
   assert(parts[0] == "p");
   assert(parts[1] == quadkey);
@@ -180,9 +180,8 @@ Status GeoDBImpl::SearchRadial(const GeoPosition& pos,
          number_of_values > 0 && iter->Valid() && iter->status().ok();
          iter->Next()) {
       // split the key into p + quadkey + id + lat + lon
-      std::vector<std::string> parts;
       Slice key = iter->key();
-      StringSplit(&parts, key.ToString(), ':');
+      std::vector<std::string> parts = StringSplit(key.ToString(), ':');
       assert(parts.size() == 5);
       assert(parts[0] == "p");
       std::string* quadkey = &parts[1];
@@ -241,16 +240,6 @@ std::string GeoDBImpl::MakeQuadKeyPrefix(std::string quadkey) {
   std::string key = "p:";
   key.append(quadkey);
   return key;
-}
-
-void GeoDBImpl::StringSplit(std::vector<std::string>* tokens,
-                            const std::string &text, char sep) {
-  std::size_t start = 0, end = 0;
-  while ((end = text.find(sep, start)) != std::string::npos) {
-    tokens->push_back(text.substr(start, end - start));
-    start = end + 1;
-  }
-  tokens->push_back(text.substr(start));
 }
 
 // convert degrees to radians

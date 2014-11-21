@@ -92,7 +92,7 @@ LDBCommand* LDBCommand::InitFromCmdLineArgs(
 
   for (const auto& arg : args) {
     if (arg[0] == '-' && arg[1] == '-'){
-      vector<string> splits = stringSplit(arg, '=');
+      vector<string> splits = StringSplit(arg, '=');
       if (splits.size() == 2) {
         string optionKey = splits[0].substr(OPTION_PREFIX.size());
         option_map[optionKey] = splits[1];

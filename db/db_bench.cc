@@ -3058,8 +3058,8 @@ int main(int argc, char** argv) {
     dbstats = rocksdb::CreateDBStatistics();
   }
 
-  std::vector<std::string> fanout =
-    rocksdb::stringSplit(FLAGS_max_bytes_for_level_multiplier_additional, ',');
+  std::vector<std::string> fanout = rocksdb::StringSplit(
+      FLAGS_max_bytes_for_level_multiplier_additional, ',');
   for (unsigned int j= 0; j < fanout.size(); j++) {
     FLAGS_max_bytes_for_level_multiplier_additional_v.push_back(
       std::stoi(fanout[j]));

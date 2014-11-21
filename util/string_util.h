@@ -10,6 +10,6 @@
 #pragma once
 namespace rocksdb {
 
-extern std::vector<std::string> stringSplit(std::string arg, char delim);
+extern std::vector<std::string> StringSplit(const std::string& arg, char delim);
 
 }  // namespace rocksdb
