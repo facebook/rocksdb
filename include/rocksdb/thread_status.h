@@ -12,7 +12,8 @@
 #define ROCKSDB_USING_THREAD_STATUS \
     !defined(ROCKSDB_LITE) && \
     !defined(NROCKSDB_THREAD_STATUS) && \
-    !defined(OS_MACOSX)
+    !defined(OS_MACOSX) && \
+    !defined(IOS_CROSS_COMPILE)
 #endif
 
 namespace rocksdb {
