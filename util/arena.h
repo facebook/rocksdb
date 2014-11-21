@@ -35,7 +35,10 @@ class Arena {
   static const size_t kMinBlockSize;
   static const size_t kMaxBlockSize;
 
-  explicit Arena(size_t block_size = kMinBlockSize);
+  // huge_page_size: if 0, don't use huge page TLB. If > 0 (should set to the
+  // supported hugepage size of the system), block allocation will try huge
+  // page TLB first. If allocation fails, will fall back to normal case.
+  explicit Arena(size_t block_size = kMinBlockSize, size_t huge_page_size = 0);
   ~Arena();
 
   char* Allocate(size_t bytes);
@@ -100,6 +103,8 @@ class Arena {
   // How many bytes left in currently active block?
   size_t alloc_bytes_remaining_ = 0;
 
+  size_t hugetlb_size_ = 0;
+  char* AllocateFromHugePage(size_t bytes);
   char* AllocateFallback(size_t bytes, bool aligned);
   char* AllocateNewBlock(size_t block_bytes);
 

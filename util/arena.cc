@@ -32,13 +32,20 @@ size_t OptimizeBlockSize(size_t block_size) {
   return block_size;
 }
 
-Arena::Arena(size_t block_size) : kBlockSize(OptimizeBlockSize(block_size)) {
+Arena::Arena(size_t block_size, size_t huge_page_size)
+    : kBlockSize(OptimizeBlockSize(block_size)) {
   assert(kBlockSize >= kMinBlockSize && kBlockSize <= kMaxBlockSize &&
          kBlockSize % kAlignUnit == 0);
   alloc_bytes_remaining_ = sizeof(inline_block_);
   blocks_memory_ += alloc_bytes_remaining_;
   aligned_alloc_ptr_ = inline_block_;
   unaligned_alloc_ptr_ = inline_block_ + alloc_bytes_remaining_;
+#ifdef MAP_HUGETLB
+  hugetlb_size_ = huge_page_size;
+  if (hugetlb_size_ && kBlockSize > hugetlb_size_) {
+    hugetlb_size_ = ((kBlockSize - 1U) / hugetlb_size_ + 1U) * hugetlb_size_;
+  }
+#endif
 }
 
 Arena::~Arena() {
@@ -62,18 +69,47 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   }
 
   // We waste the remaining space in the current block.
-  auto block_head = AllocateNewBlock(kBlockSize);
-  alloc_bytes_remaining_ = kBlockSize - bytes;
+  size_t size;
+  char* block_head = nullptr;
+  if (hugetlb_size_) {
+    size = hugetlb_size_;
+    block_head = AllocateFromHugePage(size);
+  }
+  if (!block_head) {
+    size = kBlockSize;
+    block_head = AllocateNewBlock(size);
+  }
+  alloc_bytes_remaining_ = size - bytes;
 
   if (aligned) {
     aligned_alloc_ptr_ = block_head + bytes;
-    unaligned_alloc_ptr_ = block_head + kBlockSize;
+    unaligned_alloc_ptr_ = block_head + size;
     return block_head;
   } else {
     aligned_alloc_ptr_ = block_head;
-    unaligned_alloc_ptr_ = block_head + kBlockSize - bytes;
+    unaligned_alloc_ptr_ = block_head + size - bytes;
     return unaligned_alloc_ptr_;
   }
+}
+
+char* Arena::AllocateFromHugePage(size_t bytes) {
+#ifdef MAP_HUGETLB
+  if (hugetlb_size_ == 0) {
+    return nullptr;
+  }
+
+  void* addr = mmap(nullptr, bytes, (PROT_READ | PROT_WRITE),
+                    (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
+
+  if (addr == MAP_FAILED) {
+    return nullptr;
+  }
+  huge_blocks_.push_back(MmapInfo(addr, bytes));
+  blocks_memory_ += bytes;
+  return reinterpret_cast<char*>(addr);
+#else
+  return nullptr;
+#endif
 }
 
 char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
@@ -88,17 +124,14 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
     size_t reserved_size =
         ((bytes - 1U) / huge_page_size + 1U) * huge_page_size;
     assert(reserved_size >= bytes);
-    void* addr = mmap(nullptr, reserved_size, (PROT_READ | PROT_WRITE),
-                      (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
 
-    if (addr == MAP_FAILED) {
+    char* addr = AllocateFromHugePage(reserved_size);
+    if (addr == nullptr) {
       Warn(logger, "AllocateAligned fail to allocate huge TLB pages: %s",
            strerror(errno));
       // fail back to malloc
     } else {
-      blocks_memory_ += reserved_size;
-      huge_blocks_.push_back(MmapInfo(addr, reserved_size));
-      return reinterpret_cast<char*>(addr);
+      return addr;
     }
   }
 #endif
