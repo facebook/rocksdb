@@ -40,5 +40,5 @@ public class ColumnFamilyHandle extends RocksObject {
 
   private native void disposeInternal(long handle);
 
-  private RocksDB rocksDB_;
+  private final RocksDB rocksDB_;
 }

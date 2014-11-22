@@ -459,16 +459,22 @@ public class DbBenchmark {
     compressionType_ = (String) flags.get(Flag.compression_type);
     compression_ = CompressionType.NONE;
     try {
-      if (compressionType_.equals("snappy")) {
-        System.loadLibrary("snappy");
-      } else if (compressionType_.equals("zlib")) {
-        System.loadLibrary("z");
-      } else if (compressionType_.equals("bzip2")) {
-        System.loadLibrary("bzip2");
-      } else if (compressionType_.equals("lz4")) {
-        System.loadLibrary("lz4");
-      } else if (compressionType_.equals("lz4hc")) {
-        System.loadLibrary("lz4hc");
+      switch (compressionType_) {
+        case "snappy":
+          System.loadLibrary("snappy");
+          break;
+        case "zlib":
+          System.loadLibrary("z");
+          break;
+        case "bzip2":
+          System.loadLibrary("bzip2");
+          break;
+        case "lz4":
+          System.loadLibrary("lz4");
+          break;
+        case "lz4hc":
+          System.loadLibrary("lz4hc");
+          break;
       }
     } catch (UnsatisfiedLinkError e) {
       System.err.format("Unable to load %s library:%s%n" +
@@ -495,26 +501,32 @@ public class DbBenchmark {
     } else {
       options.setCreateIfMissing(false);
     }
-    if (memtable_.equals("skip_list")) {
-      options.setMemTableConfig(new SkipListMemTableConfig());
-    } else if (memtable_.equals("vector")) {
-      options.setMemTableConfig(new VectorMemTableConfig());
-    } else if (memtable_.equals("hash_linkedlist")) {
-      options.setMemTableConfig(
-          new HashLinkedListMemTableConfig()
-              .setBucketCount(hashBucketCount_));
-      options.useFixedLengthPrefixExtractor(prefixSize_);
-    } else if (memtable_.equals("hash_skiplist") ||
-               memtable_.equals("prefix_hash")) {
-      options.setMemTableConfig(
-          new HashSkipListMemTableConfig()
-              .setBucketCount(hashBucketCount_));
-      options.useFixedLengthPrefixExtractor(prefixSize_);
-    } else {
-      System.err.format(
-          "unable to detect the specified memtable, " +
-          "use the default memtable factory %s%n",
-          options.memTableFactoryName());
+    switch (memtable_) {
+      case "skip_list":
+        options.setMemTableConfig(new SkipListMemTableConfig());
+        break;
+      case "vector":
+        options.setMemTableConfig(new VectorMemTableConfig());
+        break;
+      case "hash_linkedlist":
+        options.setMemTableConfig(
+            new HashLinkedListMemTableConfig()
+                .setBucketCount(hashBucketCount_));
+        options.useFixedLengthPrefixExtractor(prefixSize_);
+        break;
+      case "hash_skiplist":
+      case "prefix_hash":
+        options.setMemTableConfig(
+            new HashSkipListMemTableConfig()
+                .setBucketCount(hashBucketCount_));
+        options.useFixedLengthPrefixExtractor(prefixSize_);
+        break;
+      default:
+        System.err.format(
+            "unable to detect the specified memtable, " +
+                "use the default memtable factory %s%n",
+            options.memTableFactoryName());
+        break;
     }
     if (usePlainTable_) {
       options.setTableFormatConfig(
@@ -645,53 +657,65 @@ public class DbBenchmark {
       int currentTaskId = 0;
       boolean known = true;
 
-      if (benchmark.equals("fillseq")) {
-        tasks.add(new WriteSequentialTask(
-            currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
-      } else if (benchmark.equals("fillbatch")) {
-        tasks.add(new WriteRandomTask(
-            currentTaskId++, randSeed_, num_ / 1000, num_, writeOpt, 1000));
-      } else if (benchmark.equals("fillrandom")) {
-        tasks.add(new WriteRandomTask(
-            currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
-      } else if (benchmark.equals("filluniquerandom")) {
-        tasks.add(new WriteUniqueRandomTask(
-            currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
-      } else if (benchmark.equals("fillsync")) {
-        writeOpt.setSync(true);
-        tasks.add(new WriteRandomTask(
-            currentTaskId++, randSeed_, num_ / 1000, num_ / 1000,
-            writeOpt, 1));
-      } else if (benchmark.equals("readseq")) {
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadSequentialTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
-        }
-      } else if (benchmark.equals("readrandom")) {
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
-        }
-      } else if (benchmark.equals("readwhilewriting")) {
-        WriteTask writeTask = new WriteRandomTask(
-            -1, randSeed_, Long.MAX_VALUE, num_, writeOpt, 1, writesPerSeconds_);
-        writeTask.stats_.setExcludeFromMerge();
-        bgTasks.add(writeTask);
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
-        }
-      } else if (benchmark.equals("readhot")) {
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_ / 100));
-        }
-      } else if (benchmark.equals("delete")) {
-        destroyDb();
-        open(options);
-      } else {
-        known = false;
-        System.err.println("Unknown benchmark: " + benchmark);
+      switch (benchmark) {
+        case "fillseq":
+          tasks.add(new WriteSequentialTask(
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
+          break;
+        case "fillbatch":
+          tasks.add(new WriteRandomTask(
+              currentTaskId++, randSeed_, num_ / 1000, num_, writeOpt, 1000));
+          break;
+        case "fillrandom":
+          tasks.add(new WriteRandomTask(
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
+          break;
+        case "filluniquerandom":
+          tasks.add(new WriteUniqueRandomTask(
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
+          break;
+        case "fillsync":
+          writeOpt.setSync(true);
+          tasks.add(new WriteRandomTask(
+              currentTaskId++, randSeed_, num_ / 1000, num_ / 1000,
+              writeOpt, 1));
+          break;
+        case "readseq":
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadSequentialTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_));
+          }
+          break;
+        case "readrandom":
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadRandomTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_));
+          }
+          break;
+        case "readwhilewriting":
+          WriteTask writeTask = new WriteRandomTask(
+              -1, randSeed_, Long.MAX_VALUE, num_, writeOpt, 1, writesPerSeconds_);
+          writeTask.stats_.setExcludeFromMerge();
+          bgTasks.add(writeTask);
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadRandomTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_));
+          }
+          break;
+        case "readhot":
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadRandomTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_ / 100));
+          }
+          break;
+        case "delete":
+          destroyDb();
+          open(options);
+          break;
+        default:
+          known = false;
+          System.err.println("Unknown benchmark: " + benchmark);
+          break;
       }
       if (known) {
         ExecutorService executor = Executors.newCachedThreadPool();
@@ -800,7 +824,7 @@ public class DbBenchmark {
 
     System.out.printf(
         "%-16s : %11.5f micros/op; %6.1f MB/s;%s %d / %d task(s) finished.\n",
-        benchmark, (double) elapsedSeconds / stats.done_ * 1e6,
+        benchmark, elapsedSeconds / stats.done_ * 1e6,
         (stats.bytes_ / 1048576.0) / elapsedSeconds, extra,
         taskFinishedCount, concurrentThreads);
   }

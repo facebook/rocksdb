@@ -57,6 +57,9 @@ public class InfoLogLevelTest {
       if (db != null) {
         db.close();
       }
+      if (options != null) {
+        options.dispose();
+      }
     }
   }
 
@@ -83,6 +86,12 @@ public class InfoLogLevelTest {
     } finally {
       if (db != null) {
         db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+      if (dbOptions != null) {
+        dbOptions.dispose();
       }
     }
   }

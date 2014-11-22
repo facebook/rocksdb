@@ -162,5 +162,5 @@ public class RocksIterator extends RocksObject {
   private native void seek0(long handle, byte[] target, int targetLen);
   private native void status0(long handle);
 
-  RocksDB rocksDB_;
+  final RocksDB rocksDB_;
 }
