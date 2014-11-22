@@ -40,8 +40,7 @@ class BTree {
   //
   // TODO Actually I'll create node from existing node when inserting, and after relink other references,
   // I'll remove the original node from memory. Is it possible to do that with arena?
-  explicit BTree(Comparator cmp, Arena* arena, 
-    int32_t fanOutFactor = 128, int32_t maxNodeSize = 128);
+  explicit BTree(Comparator cmp, Arena* arena, int32_t maxNodeSize = 256);
 
   // Insert key into the tree.
   // REQUIRES: nothing that compares equal to key is currently in the tree.
@@ -101,7 +100,7 @@ class BTree {
   // Maps from logical node id to physical pointer to a Node. Adopted from Bw-Tree.
   class MappingTable {
   public:
-    MappingTable(Arena* arena, int capacity = 10000) 
+    MappingTable(Arena* arena, int capacity = 50000) 
     : arena_(arena), capacity_(capacity) {
       char* mem = arena_->AllocateAligned(sizeof(Node*) * capacity);
       table_ = (Node**) mem; 
@@ -136,7 +135,6 @@ class BTree {
   };
 
  private:
-  const int32_t kFanOut_;
   const int32_t kMaxNodeSize_;
 
   // Immutable after construction
@@ -319,7 +317,7 @@ std::tuple<typename BTree<Key, Comparator>::Node*, int, std::unique_ptr<class st
 BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
   Node* x = mappingTable_.getNode(rootPid_);
   auto stack = std::unique_ptr<class std::stack<Node*> >(new std::stack<Node*>());
-  
+
   while (true) {
     assert(x != nullptr);
     // In case parent routed us to wrong(being splitted) node,
@@ -381,9 +379,15 @@ BTree<Key, Comparator>::FindLessThan(const Key& key) const {
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
 BTree<Key, Comparator>::FindFirst() const {
-  // TODO TBD
-  assert(false);
-  return std::make_tuple(nullptr, -1);
+  Node* x = mappingTable_.getNode(rootPid_);
+  while (true) {
+    assert(x != nullptr);
+    if (x->type == Node::NODE_TYPE_INDEX) {
+      x = mappingTable_.getNode(x->entries[0].pid);
+    } else { // Leaf node
+      return std::make_tuple(x, 0); 
+    }
+  }
 }
 
 template<typename Key, class Comparator>
@@ -410,13 +414,11 @@ BTree<Key, Comparator>::FindLast() const {
 }
 
 template<typename Key, class Comparator>
-BTree<Key, Comparator>::BTree(const Comparator cmp, Arena* arena, int32_t fanOutFactor, int32_t maxNodeSize)
-    : kFanOut_(fanOutFactor),
-      kMaxNodeSize_(maxNodeSize),
+BTree<Key, Comparator>::BTree(const Comparator cmp, Arena* arena, int32_t maxNodeSize)
+    : kMaxNodeSize_(maxNodeSize),
       compare_(cmp),
       arena_(arena),
       mappingTable_(arena) {
-  assert(kFanOut_ > 0);
   assert(kMaxNodeSize_ > 0);
   Node* root = NewNode(0, Node::NODE_TYPE_LEAF);
   rootPid_ = mappingTable_.addNode(root);
