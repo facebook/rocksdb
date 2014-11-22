@@ -13,7 +13,7 @@ namespace rocksdb {
 __thread ThreadStatusData* ThreadStatusImpl::thread_status_data_ = nullptr;
 std::mutex ThreadStatusImpl::thread_list_mutex_;
 std::unordered_set<ThreadStatusData*> ThreadStatusImpl::thread_data_set_;
-std::unordered_map<const void*, ConstantColumnFamilyInfo*>
+std::unordered_map<const void*, std::unique_ptr<ConstantColumnFamilyInfo>>
     ThreadStatusImpl::cf_info_map_;
 std::unordered_map<const void*, std::unordered_set<const void*>>
     ThreadStatusImpl::db_key_map_;
@@ -66,7 +66,7 @@ Status ThreadStatusImpl::GetThreadList(
     auto iter = cf_info_map_.find(cf_key);
     assert(cf_key == 0 || iter != cf_info_map_.end());
     auto* cf_info = iter != cf_info_map_.end() ?
-        iter->second : nullptr;
+        iter->second.get() : nullptr;
     auto* event_info = thread_data->event_info.load(
         std::memory_order_relaxed);
     const std::string* db_name = nullptr;
@@ -106,7 +106,8 @@ void ThreadStatusImpl::NewColumnFamilyInfo(
     const void* cf_key, const std::string& cf_name) {
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
 
-  cf_info_map_[cf_key] = new ConstantColumnFamilyInfo(db_key, db_name, cf_name);
+  cf_info_map_[cf_key].reset(
+      new ConstantColumnFamilyInfo(db_key, db_name, cf_name));
   db_key_map_[db_key].insert(cf_key);
 }
 
@@ -115,7 +116,7 @@ void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
   auto cf_pair = cf_info_map_.find(cf_key);
   assert(cf_pair != cf_info_map_.end());
 
-  auto* cf_info = cf_pair->second;
+  auto* cf_info = cf_pair->second.get();
   assert(cf_info);
 
   // Remove its entry from db_key_map_ by the following steps:
@@ -126,7 +127,7 @@ void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
   size_t result __attribute__((unused)) = db_pair->second.erase(cf_key);
   assert(result);
 
-  delete cf_info;
+  cf_pair->second.reset();
   result = cf_info_map_.erase(cf_key);
   assert(result);
 }
@@ -144,7 +145,7 @@ void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
   for (auto cf_key : db_pair->second) {
     auto cf_pair = cf_info_map_.find(cf_key);
     assert(cf_pair != cf_info_map_.end());
-    delete cf_pair->second;
+    cf_pair->second.reset();
     result = cf_info_map_.erase(cf_key);
     assert(result);
   }

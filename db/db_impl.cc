@@ -2493,7 +2493,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
           "Creating column family [%s] FAILED -- %s",
           column_family_name.c_str(), s.ToString().c_str());
     }
-  }
+  }  // MutexLock l(&mutex_)
 
   // this is outside the mutex
   if (s.ok()) {
@@ -3545,6 +3545,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         if (cfd != nullptr) {
           handles->push_back(
               new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
+          impl->NewThreadStatusCfInfo(cfd);
         } else {
           if (db_options.create_missing_column_families) {
             // missing column family, create it
@@ -3609,19 +3610,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     impl->opened_successfully_ = true;
     *dbptr = impl;
-    // TODO(yhchiang): Add NotifyOnDatabaseOpen() here.
-    // Since the column-family handles are only available after DB::Open(),
-    // typically developers will need to pass the returned ColumnFamilyHandles
-    // to their EventListeners in order to maintain the mapping between
-    // column-family-name to ColumnFamilyHandle.  However, some database
-    // events might happen before the user passing those ColumnFamilyHandle to
-    // their Listeners.  To address this, we should have NotifyOnDatabaseOpen()
-    // here which passes the created ColumnFamilyHandle to the Listeners
-    // as the first event after DB::Open().
-    for (auto* h : *handles) {
-      impl->NewThreadStatusCfInfo(
-          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
-    }
   } else {
     for (auto* h : *handles) {
       delete h;

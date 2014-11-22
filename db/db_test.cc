@@ -9031,6 +9031,7 @@ TEST(DBTest, GetThreadList) {
     }
   }
   db_->DropColumnFamily(handles_[2]);
+  delete handles_[2];
   handles_.erase(handles_.begin() + 2);
   ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
   Close();

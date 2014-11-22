@@ -151,7 +151,7 @@ class ThreadStatusImpl {
   // closing while GetThreadList function already get the pointer to its
   // CopnstantColumnFamilyInfo.
   static std::unordered_map<
-      const void*, ConstantColumnFamilyInfo*> cf_info_map_;
+      const void*, std::unique_ptr<ConstantColumnFamilyInfo>> cf_info_map_;
 
   // A db_key to cf_key map that allows erasing elements in cf_info_map
   // associated to the same db_key faster.
