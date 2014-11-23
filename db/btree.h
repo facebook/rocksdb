@@ -40,7 +40,7 @@ class BTree {
   //
   // TODO Actually I'll create node from existing node when inserting, and after relink other references,
   // I'll remove the original node from memory. Is it possible to do that with arena?
-  explicit BTree(Comparator cmp, Arena* arena, int32_t maxNodeSize = 256);
+  explicit BTree(Comparator cmp, Arena* arena, int32_t maxNodeSize = 64);
 
   // Insert key into the tree.
   // REQUIRES: nothing that compares equal to key is currently in the tree.
@@ -225,7 +225,7 @@ inline void BTree<Key, Comparator>::Iterator::SetTree(const BTree* tree) {
 
 template<typename Key, class Comparator>
 inline bool BTree<Key, Comparator>::Iterator::Valid() const {
-  return node_ != nullptr && offset_ != -1;
+  return node_ != nullptr && offset_ != -1 && offset_ < node_->numEntries;
   // TODO return fase if we are pointing to rightmost index entry of the rightmost node
 }
 
@@ -239,12 +239,14 @@ template<typename Key, class Comparator>
 inline void BTree<Key, Comparator>::Iterator::Next() {
   assert(Valid());
   if (offset_ == (int)(node_->numEntries - 1)) {
-    node_ = tree_->mappingTable_.getNode(node_->linkPtrPid);
-    if (node_ == nullptr) {
+    if (node_->linkPtrPid == -1) {
+      node_ = nullptr;
       offset_ = -1;
       return;
     }
+    node_ = tree_->mappingTable_.getNode(node_->linkPtrPid);
     offset_ = 0;
+    assert(node_ != nullptr);
   } else {
     offset_++;
   }
@@ -422,6 +424,7 @@ BTree<Key, Comparator>::BTree(const Comparator cmp, Arena* arena, int32_t maxNod
   assert(kMaxNodeSize_ > 0);
   Node* root = NewNode(0, Node::NODE_TYPE_LEAF);
   rootPid_ = mappingTable_.addNode(root);
+  root->pid = rootPid_;
 }
 
 template<typename Key, class Comparator>
