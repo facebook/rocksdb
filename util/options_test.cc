@@ -13,7 +13,6 @@
 
 #include <unordered_map>
 #include <inttypes.h>
-#include <gflags/gflags.h>
 
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
@@ -23,8 +22,13 @@
 #include "rocksdb/utilities/leveldb_options.h"
 #include "rocksdb/utilities/convenience.h"
 
+#ifndef GFLAGS
+bool FLAGS_enable_print = false;
+#else
+#include <gflags/gflags.h>
 using GFLAGS::ParseCommandLineFlags;
 DEFINE_bool(enable_print, false, "Print options generated to console.");
+#endif  // GFLAGS
 
 namespace rocksdb {
 
@@ -357,6 +361,8 @@ TEST(OptionsTest, ConvertOptionsTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+#ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);
+#endif  // GFLAGS
   return rocksdb::test::RunAllTests();
 }
