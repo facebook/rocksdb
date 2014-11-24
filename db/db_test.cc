@@ -1660,6 +1660,7 @@ TEST(DBTest, GetSnapshotLink) {
     delete db_;
     db_ = nullptr;
     ASSERT_OK(DestroyDB(dbname_, options));
+    delete checkpoint;
 
     // Restore DB name
     dbname_ = test::TmpDir(env_) + "/db_test";
