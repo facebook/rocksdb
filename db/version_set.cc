@@ -2436,7 +2436,6 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
           v->storage_info()->num_levels() - 1);
       cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
       v->PrepareApply(*cfd->GetLatestMutableCFOptions(), size_being_compacted);
-      delete builder;
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
              cfd->GetName().c_str(), (unsigned int)cfd->GetID());
@@ -2449,6 +2448,11 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
       printf("%s \n", v->DebugString(hex).c_str());
       delete v;
+    }
+
+    // Free builders
+    for (auto& builder : builders) {
+      delete builder.second;
     }
 
     next_file_number_.store(next_file + 1);
