@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <stdio.h>
+#include <vector>
+#include <map>
 
 #include "db/version_set.h"
 #include "rocksdb/env.h"
@@ -390,6 +392,19 @@ private:
   string from_;
   bool null_to_;
   string to_;
+};
+
+class DBFileDumperCommand : public LDBCommand {
+ public:
+  static string Name() { return "dump_live_files"; }
+
+  DBFileDumperCommand(const vector<string>& params,
+                      const map<string, string>& options,
+                      const vector<string>& flags);
+
+  static void Help(string& ret);
+
+  virtual void DoCommand();
 };
 
 class DBDumperCommand: public LDBCommand {

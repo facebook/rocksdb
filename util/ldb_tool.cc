@@ -80,6 +80,7 @@ public:
     DBLoaderCommand::Help(ret);
     ManifestDumpCommand::Help(ret);
     ListColumnFamiliesCommand::Help(ret);
+    DBFileDumperCommand::Help(ret);
     InternalDumpCommand::Help(ret);
 
     fprintf(stderr, "%s\n", ret.c_str());

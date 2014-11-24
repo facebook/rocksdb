@@ -378,6 +378,22 @@ class LDBTestCase(unittest.TestCase):
         my_check_output("rm -f %s" % sstFilePath, shell=True)
         self.assertRunFAIL("checkconsistency")
 
+    def dumpLiveFiles(self, params, dumpFile):
+        return 0 == run_err_null("./ldb dump_live_files %s > %s" % (
+            params, dumpFile))
+
+    def testDumpLiveFiles(self):
+        print "Running testDumpLiveFiles..."
+
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put x1 y1 --create_if_missing", "OK")
+        self.assertRunOK("put x2 y2", "OK")
+        dumpFilePath = os.path.join(self.TMP_DIR, "dump1")
+        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+        self.assertRunOK("delete x1", "OK")
+        self.assertRunOK("put x3 y3", "OK")
+        dumpFilePath = os.path.join(self.TMP_DIR, "dump2")
+        self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
 
 if __name__ == "__main__":
     unittest.main()
