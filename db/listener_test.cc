@@ -175,6 +175,7 @@ class TestFlushListener : public EventListener {
 
 TEST(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
+  options.write_buffer_size = 100000;
   TestFlushListener* listener = new TestFlushListener();
   options.listeners.emplace_back(listener);
   std::vector<std::string> cf_names = {
@@ -182,15 +183,15 @@ TEST(EventListenerTest, OnSingleDBFlushTest) {
       "nikitich", "alyosha", "popovich"};
   CreateAndReopenWithCF(cf_names, &options);
 
-  ASSERT_OK(Put(1, "pikachu", "pikachu"));
-  ASSERT_OK(Put(2, "ilya", "ilya"));
-  ASSERT_OK(Put(3, "muromec", "muromec"));
-  ASSERT_OK(Put(4, "dobrynia", "dobrynia"));
-  ASSERT_OK(Put(5, "nikitich", "nikitich"));
-  ASSERT_OK(Put(6, "alyosha", "alyosha"));
-  ASSERT_OK(Put(7, "popovich", "popovich"));
+  ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
+  ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
+  ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
+  ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
+  ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
+  ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
+  ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (size_t i = 1; i < 8; ++i) {
-    Flush(static_cast<int>(i));
+    ASSERT_OK(Flush(static_cast<int>(i)));
     dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
@@ -205,6 +206,7 @@ TEST(EventListenerTest, OnSingleDBFlushTest) {
 
 TEST(EventListenerTest, MultiCF) {
   Options options;
+  options.write_buffer_size = 100000;
   TestFlushListener* listener = new TestFlushListener();
   options.listeners.emplace_back(listener);
   std::vector<std::string> cf_names = {
@@ -212,15 +214,15 @@ TEST(EventListenerTest, MultiCF) {
       "nikitich", "alyosha", "popovich"};
   CreateAndReopenWithCF(cf_names, &options);
 
-  ASSERT_OK(Put(1, "pikachu", "pikachu"));
-  ASSERT_OK(Put(2, "ilya", "ilya"));
-  ASSERT_OK(Put(3, "muromec", "muromec"));
-  ASSERT_OK(Put(4, "dobrynia", "dobrynia"));
-  ASSERT_OK(Put(5, "nikitich", "nikitich"));
-  ASSERT_OK(Put(6, "alyosha", "alyosha"));
-  ASSERT_OK(Put(7, "popovich", "popovich"));
+  ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
+  ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
+  ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
+  ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
+  ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
+  ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
+  ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (size_t i = 1; i < 8; ++i) {
-    Flush(static_cast<int>(i));
+    ASSERT_OK(Flush(static_cast<int>(i)));
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }
