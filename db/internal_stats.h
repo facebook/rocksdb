@@ -52,6 +52,8 @@ extern DBPropertyType GetPropertyType(const Slice& property,
                                       bool* is_int_property,
                                       bool* need_out_of_mutex);
 
+
+#ifndef ROCKSDB_LITE
 class InternalStats {
  public:
   enum InternalCFStatsType {
@@ -295,5 +297,75 @@ class InternalStats {
   ColumnFamilyData* cfd_;
   const uint64_t started_at_;
 };
+
+#else
+
+class InternalStats {
+ public:
+  enum InternalCFStatsType {
+    LEVEL0_SLOWDOWN,
+    MEMTABLE_COMPACTION,
+    LEVEL0_NUM_FILES,
+    WRITE_STALLS_ENUM_MAX,
+    BYTES_FLUSHED,
+    INTERNAL_CF_STATS_ENUM_MAX,
+  };
+
+  enum InternalDBStatsType {
+    WAL_FILE_BYTES,
+    WAL_FILE_SYNCED,
+    BYTES_WRITTEN,
+    NUMBER_KEYS_WRITTEN,
+    WRITE_DONE_BY_OTHER,
+    WRITE_DONE_BY_SELF,
+    WRITE_WITH_WAL,
+    INTERNAL_DB_STATS_ENUM_MAX,
+  };
+
+  InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd) {}
+
+  struct CompactionStats {
+    uint64_t micros;
+    uint64_t bytes_readn;
+    uint64_t bytes_readnp1;
+    uint64_t bytes_written;
+    int files_in_leveln;
+    int files_in_levelnp1;
+    int files_out_levelnp1;
+    uint64_t num_input_records;
+    uint64_t num_dropped_records;
+    int count;
+
+    explicit CompactionStats(int _count = 0) {}
+
+    explicit CompactionStats(const CompactionStats& c) {}
+
+    void Add(const CompactionStats& c) {}
+
+    void Subtract(const CompactionStats& c) {}
+  };
+
+  void AddCompactionStats(int level, const CompactionStats& stats) {}
+
+  void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {}
+
+  void AddCFStats(InternalCFStatsType type, uint64_t value) {}
+
+  void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+
+  uint64_t GetBackgroundErrorCount() const { return 0; }
+
+  uint64_t BumpAndGetBackgroundErrorCount() { return 0; }
+
+  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
+                         std::string* value) { return false; }
+
+  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
+                      DBImpl* db) const { return false; }
+
+  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
+                                uint64_t* value) const { return false; }
+};
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb

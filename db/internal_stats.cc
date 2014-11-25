@@ -15,11 +15,13 @@
 #include <inttypes.h>
 #include <vector>
 #include "db/column_family.h"
+
 #include "db/db_impl.h"
 #include "util/string_util.h"
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
 namespace {
 const double kMB = 1048576.0;
 const double kGB = kMB * 1024;
@@ -496,5 +498,15 @@ void InternalStats::DumpCFStats(std::string* value) {
   cf_stats_snapshot_.stall_us = total_stall_us;
   cf_stats_snapshot_.stall_count = total_stall_count;
 }
+
+
+#else
+
+DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
+                               bool* need_out_of_mutex) {
+  return kUnknown;
+}
+
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
