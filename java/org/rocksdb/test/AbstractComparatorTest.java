@@ -95,8 +95,6 @@ public abstract class AbstractComparatorTest {
       if (opt != null) {
         opt.dispose();
       }
-
-      removeDb(db_path); // cleanup after ourselves!
     }
   }
 
@@ -126,44 +124,5 @@ public abstract class AbstractComparatorTest {
     }
 
     return result;
-  }
-
-  /**
-   * Utility method for deleting database files
-   *
-   * @param db_path The path to the database to remove
-   *                from the filesystem
-   */
-  private static void removeDb(final Path db_path) throws IOException {
-    Files.walkFileTree(db_path, new SimpleFileVisitor<Path>() {
-      @Override
-      public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs)
-          throws IOException {
-        Files.delete(file);
-        return FileVisitResult.CONTINUE;
-      }
-
-      @Override
-      public FileVisitResult visitFileFailed(final Path file, IOException exc)
-          throws IOException {
-        // try to delete the file anyway, even if its attributes
-        // could not be read, since delete-only access is
-        // theoretically possible
-        Files.delete(file);
-        return FileVisitResult.CONTINUE;
-      }
-
-      @Override
-      public FileVisitResult postVisitDirectory(final Path dir, IOException exc)
-          throws IOException {
-        if (exc == null) {
-          Files.delete(dir);
-          return FileVisitResult.CONTINUE;
-        } else {
-          // directory iteration failed; propagate exception
-          throw exc;
-        }
-      }
-    });
   }
 }
