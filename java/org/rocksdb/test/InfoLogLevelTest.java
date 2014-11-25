@@ -96,6 +96,17 @@ public class InfoLogLevelTest {
     }
   }
 
+  @Test(expected = IllegalArgumentException.class)
+  public void failIfIllegalByteValueProvided() {
+    InfoLogLevel.getInfoLogLevel((byte)-1);
+  }
+
+  @Test
+  public void valueOf() {
+    assertThat(InfoLogLevel.valueOf("DEBUG_LEVEL")).
+        isEqualTo(InfoLogLevel.DEBUG_LEVEL);
+  }
+
   /**
    * Read LOG file contents into String.
    *

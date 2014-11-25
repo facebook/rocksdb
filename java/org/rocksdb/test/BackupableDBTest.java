@@ -215,14 +215,26 @@ public class BackupableDBTest {
       bdb.createNewBackup(true);
       bdb.createNewBackup(true);
       bdb.createNewBackup(true);
-      verifyNumberOfValidBackups(bdb, 4);
+      List<BackupInfo> infos = verifyNumberOfValidBackups(bdb, 4);
+      assertThat(infos.get(1).size()).
+          isEqualTo(infos.get(2).size());
+      assertThat(infos.get(1).numberFiles()).
+          isEqualTo(infos.get(2).numberFiles());
+      long maxTimeBeforePurge = Long.MIN_VALUE;
+      for (BackupInfo backupInfo : infos) {
+        if (maxTimeBeforePurge < backupInfo.timestamp()) {
+          maxTimeBeforePurge = backupInfo.timestamp();
+        }
+      }
       // init RestoreBackupableDB
       rdb = new RestoreBackupableDB(bopt);
       // the same number of backups must
       // exist using RestoreBackupableDB.
       verifyNumberOfValidBackups(rdb, 4);
       rdb.purgeOldBackups(1);
-      verifyNumberOfValidBackups(rdb, 1);
+      infos = verifyNumberOfValidBackups(rdb, 1);
+      assertThat(infos.get(0).timestamp()).
+          isEqualTo(maxTimeBeforePurge);
     } finally {
       if (bdb != null) {
         bdb.close();

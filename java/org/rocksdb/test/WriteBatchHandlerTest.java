@@ -5,7 +5,6 @@
 
 package org.rocksdb.test;
 
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteBatch;
 
@@ -13,9 +12,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+
 import org.junit.ClassRule;
 import org.junit.Test;
-import org.rocksdb.WriteOptions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,143 +26,148 @@ public class WriteBatchHandlerTest {
 
   @Test
   public void writeBatchHandler() throws IOException, RocksDBException {
+    WriteBatch batch = null;
+    CapturingWriteBatchHandler handler = null;
+    try {
+      // setup test data
+      final List<Tuple<Action, Tuple<byte[], byte[]>>> testEvents = new ArrayList<>();
+      testEvents.add(new Tuple<>(Action.DELETE,
+          new Tuple<byte[], byte[]>("k0".getBytes(), null)));
+      testEvents.add(new Tuple<>(Action.PUT,
+          new Tuple<>("k1".getBytes(), "v1".getBytes())));
+      testEvents.add(new Tuple<>(Action.PUT,
+          new Tuple<>("k2".getBytes(), "v2".getBytes())));
+      testEvents.add(new Tuple<>(Action.PUT,
+          new Tuple<>("k3".getBytes(), "v3".getBytes())));
+      testEvents.add(new Tuple<>(Action.LOG,
+          new Tuple<byte[], byte[]>(null, "log1".getBytes())));
+      testEvents.add(new Tuple<>(Action.MERGE,
+          new Tuple<>("k2".getBytes(), "v22".getBytes())));
+      testEvents.add(new Tuple<>(Action.DELETE,
+          new Tuple<byte[], byte[]>("k3".getBytes(), null)));
 
-        // setup test data
-        final List<Tuple<Action, Tuple<byte[], byte[]>>> testEvents = new ArrayList<>();
-        testEvents.add(new Tuple<>(Action.DELETE,
-            new Tuple<byte[], byte[]>("k0".getBytes(), null)));
-        testEvents.add(new Tuple<>(Action.PUT,
-            new Tuple<>("k1".getBytes(), "v1".getBytes())));
-        testEvents.add(new Tuple<>(Action.PUT,
-            new Tuple<>("k2".getBytes(), "v2".getBytes())));
-        testEvents.add(new Tuple<>(Action.PUT,
-            new Tuple<>("k3".getBytes(), "v3".getBytes())));
-        testEvents.add(new Tuple<>(Action.LOG,
-            new Tuple<byte[], byte[]>(null, "log1".getBytes())));
-        testEvents.add(new Tuple<>(Action.MERGE,
-            new Tuple<>("k2".getBytes(), "v22".getBytes())));
-        testEvents.add(new Tuple<>(Action.DELETE,
-            new Tuple<byte[], byte[]>("k3".getBytes(), null)));
+      // load test data to the write batch
+      batch = new WriteBatch();
+      for (final Tuple<Action, Tuple<byte[], byte[]>> testEvent : testEvents) {
+        final Tuple<byte[], byte[]> data = testEvent.value;
+        switch (testEvent.key) {
 
-        // load test data to the write batch
-        final WriteBatch batch = new WriteBatch();
-        for(final Tuple<Action, Tuple<byte[], byte[]>> testEvent : testEvents) {
-            final Tuple<byte[], byte[]> data = testEvent.value;
-            switch(testEvent.key) {
+          case PUT:
+            batch.put(data.key, data.value);
+            break;
 
-                case PUT:
-                    batch.put(data.key, data.value);
-                    break;
+          case MERGE:
+            batch.merge(data.key, data.value);
+            break;
 
-                case MERGE:
-                    batch.merge(data.key, data.value);
-                    break;
+          case DELETE:
+            batch.remove(data.key);
+            break;
 
-                case DELETE:
-                    batch.remove(data.key);
-                    break;
-
-                case LOG:
-                    batch.putLogData(data.value);
-                    break;
-            }
+          case LOG:
+            batch.putLogData(data.value);
+            break;
         }
+      }
 
-        // attempt to read test data back from the WriteBatch by iterating with a handler
-        final CapturingWriteBatchHandler handler = new CapturingWriteBatchHandler();
-        batch.iterate(handler);
+      // attempt to read test data back from the WriteBatch by iterating with a handler
+      handler = new CapturingWriteBatchHandler();
+      batch.iterate(handler);
 
-        // compare the results to the test data
-        final List<Tuple<Action, Tuple<byte[], byte[]>>> actualEvents = handler.getEvents();
-        assertThat(testEvents.size()).isSameAs(actualEvents.size());
+      // compare the results to the test data
+      final List<Tuple<Action, Tuple<byte[], byte[]>>> actualEvents = handler.getEvents();
+      assertThat(testEvents.size()).isSameAs(actualEvents.size());
 
-        for(int i = 0; i < testEvents.size(); i++) {
-            assertThat(equals(testEvents.get(i), actualEvents.get(i))).isTrue();
-        }
+      for (int i = 0; i < testEvents.size(); i++) {
+        assertThat(equals(testEvents.get(i), actualEvents.get(i))).isTrue();
+      }
+    } finally {
+      if (handler != null) {
+        handler.dispose();
+      }
+      if (batch != null) {
+        batch.dispose();
+      }
+    }
+  }
 
-        System.out.println("Passed WriteBatchHandler Test");
+  private static boolean equals(final Tuple<Action, Tuple<byte[], byte[]>> expected,
+                                final Tuple<Action, Tuple<byte[], byte[]>> actual) {
+    if (!expected.key.equals(actual.key)) {
+      return false;
     }
 
-    private static boolean equals(final Tuple<Action, Tuple<byte[], byte[]>> expected,
-                                  final Tuple<Action, Tuple<byte[], byte[]>> actual) {
-        if(!expected.key.equals(actual.key)) {
-            return false;
-        }
+    final Tuple<byte[], byte[]> expectedData = expected.value;
+    final Tuple<byte[], byte[]> actualData = actual.value;
 
-        final Tuple<byte[], byte[]> expectedData = expected.value;
-        final Tuple<byte[], byte[]> actualData = actual.value;
+    return equals(expectedData.key, actualData.key)
+        && equals(expectedData.value, actualData.value);
+  }
 
-        if(equals(expectedData.key, actualData.key)) {
-            return equals(expectedData.value, actualData.value);
-        } else {
-            return false;
-        }
+  private static boolean equals(byte[] expected, byte[] actual) {
+    if (expected != null) {
+      return Arrays.equals(expected, actual);
+    } else {
+      return actual == null;
     }
+  }
 
-    private static boolean equals(byte[] expected, byte[] actual) {
-        if(expected != null) {
-            return  Arrays.equals(expected, actual);
-        } else {
-            return actual == null;
-        }
+  private static class Tuple<K, V> {
+    public final K key;
+    public final V value;
+
+    public Tuple(final K key, final V value) {
+      this.key = key;
+      this.value = value;
     }
+  }
 
-    private static class Tuple<K, V> {
-        public final K key;
-        public final V value;
+  /**
+   * Enumeration of Write Batch
+   * event actions
+   */
+  private enum Action {
+    PUT,
+    MERGE,
+    DELETE,
+    LOG
+  }
 
-        public Tuple(final K key, final V value) {
-            this.key = key;
-            this.value = value;
-        }
-    }
+  /**
+   * A simple WriteBatch Handler which adds a record
+   * of each event that it receives to a list
+   */
+  private static class CapturingWriteBatchHandler extends WriteBatch.Handler {
+
+    private final List<Tuple<Action, Tuple<byte[], byte[]>>> events = new ArrayList<>();
 
     /**
-     * Enumeration of Write Batch
-     * event actions
+     * Returns a copy of the current events list
+     *
+     * @return a list of the events which have happened upto now
      */
-    private enum Action {
-        PUT,
-        MERGE,
-        DELETE,
-        LOG
+    public List<Tuple<Action, Tuple<byte[], byte[]>>> getEvents() {
+      return new ArrayList<>(events);
     }
 
-    /**
-     * A simple WriteBatch Handler which adds a record
-     * of each event that it receives to a list
-     */
-    private static class CapturingWriteBatchHandler extends WriteBatch.Handler {
-
-        private final List<Tuple<Action, Tuple<byte[], byte[]>>> events = new ArrayList<>();
-
-        /**
-         * Returns a copy of the current events list
-         *
-         * @return a list of the events which have happened upto now
-         */
-        public List<Tuple<Action, Tuple<byte[], byte[]>>> getEvents() {
-            return new ArrayList<>(events);
-        }
-
-        @Override
-        public void put(final byte[] key, final byte[] value) {
-            events.add(new Tuple<>(Action.PUT, new Tuple<>(key, value)));
-        }
-
-        @Override
-        public void merge(final byte[] key, final byte[] value) {
-            events.add(new Tuple<>(Action.MERGE, new Tuple<>(key, value)));
-        }
-
-        @Override
-        public void delete(final byte[] key) {
-            events.add(new Tuple<>(Action.DELETE, new Tuple<byte[], byte[]>(key, null)));
-        }
-
-        @Override
-        public void logData(final byte[] blob) {
-            events.add(new Tuple<>(Action.LOG, new Tuple<byte[], byte[]>(null, blob)));
-        }
+    @Override
+    public void put(final byte[] key, final byte[] value) {
+      events.add(new Tuple<>(Action.PUT, new Tuple<>(key, value)));
     }
+
+    @Override
+    public void merge(final byte[] key, final byte[] value) {
+      events.add(new Tuple<>(Action.MERGE, new Tuple<>(key, value)));
+    }
+
+    @Override
+    public void delete(final byte[] key) {
+      events.add(new Tuple<>(Action.DELETE, new Tuple<byte[], byte[]>(key, null)));
+    }
+
+    @Override
+    public void logData(final byte[] blob) {
+      events.add(new Tuple<>(Action.LOG, new Tuple<byte[], byte[]>(null, blob)));
+    }
+  }
 }

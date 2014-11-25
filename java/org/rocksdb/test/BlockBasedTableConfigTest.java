@@ -84,6 +84,9 @@ public class BlockBasedTableConfigTest {
   @Test
   public void checksumType() {
     BlockBasedTableConfig blockBasedTableConfig = new BlockBasedTableConfig();
+    assertThat(ChecksumType.values().length).isEqualTo(3);
+    assertThat(ChecksumType.valueOf("kxxHash")).
+        isEqualTo(ChecksumType.kxxHash);
     blockBasedTableConfig.setChecksumType(ChecksumType.kNoChecksum);
     blockBasedTableConfig.setChecksumType(ChecksumType.kxxHash);
     assertThat(blockBasedTableConfig.checksumType().equals(
