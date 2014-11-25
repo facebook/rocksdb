@@ -156,10 +156,12 @@ jintArray Java_org_rocksdb_RestoreBackupableDB_getCorruptedBackups(
   reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle)->
       GetCorruptedBackups(&backup_ids);
   // store backupids in int array
-  const int kIdSize = backup_ids.size();
+  const std::vector<rocksdb::BackupID>::size_type
+        kIdSize = backup_ids.size();
+
   int int_backup_ids[kIdSize];
   for (std::vector<rocksdb::BackupID>::size_type i = 0;
-      i != backup_ids.size(); i++) {
+      i != kIdSize; i++) {
     int_backup_ids[i] = backup_ids[i];
   }
   // Store ints in java array
