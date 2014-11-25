@@ -135,7 +135,8 @@ public abstract class AbstractComparatorTest {
       final Random random = new Random();
       for (int i = 0; i < ITERATIONS; i++) {
         final byte key[] = intToByte(random.nextInt());
-        if (i > 0 && db.get(cfHandles.get(1), key) != null) { // does key already exist (avoid duplicates)
+        if (i > 0 && db.get(cfHandles.get(1), key) != null) {
+          // does key already exist (avoid duplicates)
           i--; // generate a different key
         } else {
           db.put(cfHandles.get(1), key, "value".getBytes());
