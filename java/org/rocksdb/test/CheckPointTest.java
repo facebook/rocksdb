@@ -12,7 +12,7 @@ import org.rocksdb.RocksDBException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class CheckpointTest {
+public class CheckPointTest {
 
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
@@ -74,7 +74,7 @@ public class CheckpointTest {
     Checkpoint.create(null);
   }
 
-  @Test(expected = IllegalArgumentException.class)
+  @Test(expected = IllegalStateException.class)
   public void failIfDbNotInitialized() throws RocksDBException {
     RocksDB db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
     db.dispose();

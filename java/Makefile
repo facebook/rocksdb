@@ -51,7 +51,7 @@ endif
 JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
         org.rocksdb.test.BackupableDBTest\
 		org.rocksdb.test.BlockBasedTableConfigTest\
-		org.rocksdb.test.CheckpointTest\
+		org.rocksdb.test.CheckPointTest\
 		org.rocksdb.test.ColumnFamilyOptionsTest\
 		org.rocksdb.test.ColumnFamilyTest\
 		org.rocksdb.test.ComparatorOptionsTest\
