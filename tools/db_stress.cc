@@ -52,6 +52,7 @@ int main() {
 #include "util/logging.h"
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
+#include "util/string_util.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -801,23 +802,23 @@ class StressTest {
     options_table_ = {
       {"write_buffer_size",
         {
-          std::to_string(FLAGS_write_buffer_size),
-          std::to_string(FLAGS_write_buffer_size * 2),
-          std::to_string(FLAGS_write_buffer_size * 4)
+          ToString(FLAGS_write_buffer_size),
+          ToString(FLAGS_write_buffer_size * 2),
+          ToString(FLAGS_write_buffer_size * 4)
         }
       },
       {"max_write_buffer_number",
         {
-          std::to_string(FLAGS_max_write_buffer_number),
-          std::to_string(FLAGS_max_write_buffer_number * 2),
-          std::to_string(FLAGS_max_write_buffer_number * 4)
+          ToString(FLAGS_max_write_buffer_number),
+          ToString(FLAGS_max_write_buffer_number * 2),
+          ToString(FLAGS_max_write_buffer_number * 4)
         }
       },
       {"arena_block_size",
         {
-          std::to_string(Options().arena_block_size),
-          std::to_string(FLAGS_write_buffer_size / 4),
-          std::to_string(FLAGS_write_buffer_size / 8),
+          ToString(Options().arena_block_size),
+          ToString(FLAGS_write_buffer_size / 4),
+          ToString(FLAGS_write_buffer_size / 8),
         }
       },
       {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
@@ -825,7 +826,7 @@ class StressTest {
       {"memtable_prefix_bloom_huge_page_tlb_size",
         {
           "0",
-          std::to_string(2 * 1024 * 1024)
+          ToString(2 * 1024 * 1024)
         }
       },
       {"max_successive_merges", {"0", "2", "4"}},
@@ -837,70 +838,70 @@ class StressTest {
       {"hard_rate_limit", {"0", "1.1", "2.0"}},
       {"level0_file_num_compaction_trigger",
         {
-          std::to_string(FLAGS_level0_file_num_compaction_trigger),
-          std::to_string(FLAGS_level0_file_num_compaction_trigger + 2),
-          std::to_string(FLAGS_level0_file_num_compaction_trigger + 4),
+          ToString(FLAGS_level0_file_num_compaction_trigger),
+          ToString(FLAGS_level0_file_num_compaction_trigger + 2),
+          ToString(FLAGS_level0_file_num_compaction_trigger + 4),
         }
       },
       {"level0_slowdown_writes_trigger",
         {
-          std::to_string(FLAGS_level0_slowdown_writes_trigger),
-          std::to_string(FLAGS_level0_slowdown_writes_trigger + 2),
-          std::to_string(FLAGS_level0_slowdown_writes_trigger + 4),
+          ToString(FLAGS_level0_slowdown_writes_trigger),
+          ToString(FLAGS_level0_slowdown_writes_trigger + 2),
+          ToString(FLAGS_level0_slowdown_writes_trigger + 4),
         }
       },
       {"level0_stop_writes_trigger",
         {
-          std::to_string(FLAGS_level0_stop_writes_trigger),
-          std::to_string(FLAGS_level0_stop_writes_trigger + 2),
-          std::to_string(FLAGS_level0_stop_writes_trigger + 4),
+          ToString(FLAGS_level0_stop_writes_trigger),
+          ToString(FLAGS_level0_stop_writes_trigger + 2),
+          ToString(FLAGS_level0_stop_writes_trigger + 4),
         }
       },
       {"max_grandparent_overlap_factor",
         {
-          std::to_string(Options().max_grandparent_overlap_factor - 5),
-          std::to_string(Options().max_grandparent_overlap_factor),
-          std::to_string(Options().max_grandparent_overlap_factor + 5),
+          ToString(Options().max_grandparent_overlap_factor - 5),
+          ToString(Options().max_grandparent_overlap_factor),
+          ToString(Options().max_grandparent_overlap_factor + 5),
         }
       },
       {"expanded_compaction_factor",
         {
-          std::to_string(Options().expanded_compaction_factor - 5),
-          std::to_string(Options().expanded_compaction_factor),
-          std::to_string(Options().expanded_compaction_factor + 5),
+          ToString(Options().expanded_compaction_factor - 5),
+          ToString(Options().expanded_compaction_factor),
+          ToString(Options().expanded_compaction_factor + 5),
         }
       },
       {"source_compaction_factor",
         {
-          std::to_string(Options().source_compaction_factor),
-          std::to_string(Options().source_compaction_factor * 2),
-          std::to_string(Options().source_compaction_factor * 4),
+          ToString(Options().source_compaction_factor),
+          ToString(Options().source_compaction_factor * 2),
+          ToString(Options().source_compaction_factor * 4),
         }
       },
       {"target_file_size_base",
         {
-          std::to_string(FLAGS_target_file_size_base),
-          std::to_string(FLAGS_target_file_size_base * 2),
-          std::to_string(FLAGS_target_file_size_base * 4),
+          ToString(FLAGS_target_file_size_base),
+          ToString(FLAGS_target_file_size_base * 2),
+          ToString(FLAGS_target_file_size_base * 4),
         }
       },
       {"target_file_size_multiplier",
         {
-          std::to_string(FLAGS_target_file_size_multiplier),
+          ToString(FLAGS_target_file_size_multiplier),
           "1",
           "2",
         }
       },
       {"max_bytes_for_level_base",
         {
-          std::to_string(FLAGS_max_bytes_for_level_base / 2),
-          std::to_string(FLAGS_max_bytes_for_level_base),
-          std::to_string(FLAGS_max_bytes_for_level_base * 2),
+          ToString(FLAGS_max_bytes_for_level_base / 2),
+          ToString(FLAGS_max_bytes_for_level_base),
+          ToString(FLAGS_max_bytes_for_level_base * 2),
         }
       },
       {"max_bytes_for_level_multiplier",
         {
-          std::to_string(FLAGS_max_bytes_for_level_multiplier),
+          ToString(FLAGS_max_bytes_for_level_multiplier),
           "1",
           "2",
         }
@@ -1377,7 +1378,7 @@ class StressTest {
           // drop column family and then create it again (can't drop default)
           int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
           std::string new_name =
-              std::to_string(new_column_family_name_.fetch_add(1));
+              ToString(new_column_family_name_.fetch_add(1));
           {
             MutexLock l(thread->shared->GetMutex());
             fprintf(
@@ -1881,7 +1882,7 @@ class StressTest {
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
       }
       while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
-        std::string name = std::to_string(new_column_family_name_.load());
+        std::string name = ToString(new_column_family_name_.load());
         new_column_family_name_++;
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
         column_family_names_.push_back(name);

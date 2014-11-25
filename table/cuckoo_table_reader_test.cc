@@ -387,7 +387,7 @@ std::string GetFileName(uint64_t num) {
     FLAGS_file_dir = test::TmpDir();
   }
   return FLAGS_file_dir + "/cuckoo_read_benchmark" +
-    std::to_string(num/1000000) + "Mkeys";
+    ToString(num/1000000) + "Mkeys";
 }
 
 // Create last level file as we are interested in measuring performance of

@@ -133,7 +133,7 @@ TEST(CacheTest, UsageTest) {
 
   // make sure the cache will be overloaded
   for (uint64_t i = 1; i < kCapacity; ++i) {
-    auto key = std::to_string(i);
+    auto key = ToString(i);
     cache->Release(
         cache->Insert(key, (void*)value, key.size() + 5, dumbDeleter)
     );
@@ -402,13 +402,13 @@ TEST(CacheTest, BadEviction) {
 
   // Insert n+1 entries, but not releasing.
   for (int i = 0; i < n+1; i++) {
-    std::string key = std::to_string(i+1);
+    std::string key = ToString(i+1);
     handles[i] = cache->Insert(key, new Value(i+1), 1, &deleter);
   }
 
   // Guess what's in the cache now?
   for (int i = 0; i < n+1; i++) {
-    std::string key = std::to_string(i+1);
+    std::string key = ToString(i+1);
     auto h = cache->Lookup(key);
     std::cout << key << (h?" found\n":" not found\n");
     // Only the first entry should be missing

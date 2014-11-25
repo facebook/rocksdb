@@ -1039,9 +1039,9 @@ TEST(TablePropertyTest, PrefixScanTest) {
              pos->first.compare(0, prefix.size(), prefix) == 0;
          ++pos) {
       ++num;
-      auto key = prefix + "." + std::to_string(num);
+      auto key = prefix + "." + ToString(num);
       ASSERT_EQ(key, pos->first);
-      ASSERT_EQ(std::to_string(num), pos->second);
+      ASSERT_EQ(ToString(num), pos->second);
     }
     ASSERT_EQ(3, num);
   }

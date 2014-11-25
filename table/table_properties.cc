@@ -7,6 +7,8 @@
 #include "rocksdb/table_properties.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/env.h"
+#include "port/port.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -31,7 +33,7 @@ namespace {
       const std::string& prop_delim,
       const std::string& kv_delim) {
     AppendProperty(
-        props, key, std::to_string(value), prop_delim, kv_delim
+        props, key, ToString(value), prop_delim, kv_delim
     );
   }
 }

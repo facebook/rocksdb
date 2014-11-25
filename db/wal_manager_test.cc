@@ -73,7 +73,7 @@ class WalManagerTest {
     for (int i = 1; i <= num_logs; ++i) {
       RollTheLog(true);
       for (int k = 0; k < entries_per_log; ++k) {
-        Put(std::to_string(k), std::string(1024, 'a'));
+        Put(ToString(k), std::string(1024, 'a'));
       }
     }
   }

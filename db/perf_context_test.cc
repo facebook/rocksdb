@@ -14,6 +14,7 @@
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
+#include "util/string_util.h"
 
 
 bool FLAGS_random_key = false;
@@ -66,21 +67,21 @@ TEST(PerfContextTest, SeekIntoDeletion) {
   ReadOptions read_options;
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     db->Put(write_options, key, value);
   }
 
   for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
-    std::string key = "k" + std::to_string(i);
+    std::string key = "k" + ToString(i);
     db->Delete(write_options, key);
   }
 
   HistogramImpl hist_get;
   HistogramImpl hist_get_time;
   for (int i = 0; i < FLAGS_total_keys - 1; ++i) {
-    std::string key = "k" + std::to_string(i);
+    std::string key = "k" + ToString(i);
     std::string value;
 
     perf_context.Reset();
@@ -118,7 +119,7 @@ TEST(PerfContextTest, SeekIntoDeletion) {
   HistogramImpl hist_seek;
   for (int i = 0; i < FLAGS_total_keys; ++i) {
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
-    std::string key = "k" + std::to_string(i);
+    std::string key = "k" + ToString(i);
 
     perf_context.Reset();
     StopWatchNano timer(Env::Default(), true);
@@ -231,8 +232,8 @@ void ProfileQueries(bool enabled_time = false) {
       db->Flush(fo);
       continue;
     }
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     std::vector<std::string> values;
 
@@ -245,8 +246,8 @@ void ProfileQueries(bool enabled_time = false) {
   }
 
   for (const int i : keys) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
@@ -335,8 +336,8 @@ void ProfileQueries(bool enabled_time = false) {
   hist_mget_num_memtable_checked.Clear();
 
   for (const int i : keys) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
@@ -451,8 +452,8 @@ TEST(PerfContextTest, SeekKeyComparison) {
   SetPerfLevel(kEnableTime);
   StopWatchNano timer(Env::Default());
   for (const int i : keys) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     perf_context.Reset();
     timer.Start();
@@ -471,8 +472,8 @@ TEST(PerfContextTest, SeekKeyComparison) {
   HistogramImpl hist_next;
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     perf_context.Reset();

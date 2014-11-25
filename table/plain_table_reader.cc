@@ -36,6 +36,7 @@
 #include "util/murmurhash.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 
 
 namespace rocksdb {
@@ -380,14 +381,14 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   // Fill two table properties.
   if (!index_in_file) {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        std::to_string(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
+        ToString(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        std::to_string(index_.GetSubIndexSize());
+        ToString(index_.GetSubIndexSize());
   } else {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        std::to_string(0);
+        ToString(0);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        std::to_string(0);
+        ToString(0);
   }
 
   return Status::OK();

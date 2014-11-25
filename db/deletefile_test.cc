@@ -79,7 +79,7 @@ class DeleteFileTest {
     options.sync = false;
     ReadOptions roptions;
     for (int i = startkey; i < (numkeys + startkey) ; i++) {
-      std::string temp = std::to_string(i);
+      std::string temp = ToString(i);
       Slice key(temp);
       Slice value(temp);
       ASSERT_OK(db_->Put(options, key, value));

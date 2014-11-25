@@ -16,6 +16,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "util/string_util.h"
 
 #ifndef GFLAGS
 bool FLAGS_benchmark = false;
@@ -283,7 +284,7 @@ static const ScaleInfo kMetricSuffixes[] {
 static string HumanReadable(double n, unsigned int decimals,
                             const ScaleInfo* scales) {
   if (std::isinf(n) || std::isnan(n)) {
-    return std::to_string(n);
+    return ToString(n);
   }
 
   const double absValue = fabs(n);

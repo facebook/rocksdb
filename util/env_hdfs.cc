@@ -443,7 +443,7 @@ Status HdfsEnv::NewDirectory(const std::string& name,
       Log(InfoLogLevel::FATAL_LEVEL,
           mylog, "NewDirectory hdfsExists call failed");
       throw HdfsFatalException("hdfsExists call failed with error " +
-                               std::to_string(value) + " on path " + name +
+                               ToString(value) + " on path " + name +
                                ".\n");
   }
 }
@@ -460,7 +460,7 @@ bool HdfsEnv::FileExists(const std::string& fname) {
       Log(InfoLogLevel::FATAL_LEVEL,
           mylog, "FileExists hdfsExists call failed");
       throw HdfsFatalException("hdfsExists call failed with error " +
-                               std::to_string(value) + " on path " + fname +
+                               ToString(value) + " on path " + fname +
                                ".\n");
   }
 }
@@ -499,7 +499,7 @@ Status HdfsEnv::GetChildren(const std::string& path,
     Log(InfoLogLevel::FATAL_LEVEL, mylog,
         "GetChildren hdfsExists call failed");
     throw HdfsFatalException("hdfsExists call failed with error " +
-                             std::to_string(value) + ".\n");
+                             ToString(value) + ".\n");
   }
   return Status::OK();
 }
@@ -530,7 +530,7 @@ Status HdfsEnv::CreateDirIfMissing(const std::string& name) {
       Log(InfoLogLevel::FATAL_LEVEL, mylog,
           "CreateDirIfMissing hdfsExists call failed");
       throw HdfsFatalException("hdfsExists call failed with error " +
-                               std::to_string(value) + ".\n");
+                               ToString(value) + ".\n");
   }
 };
 

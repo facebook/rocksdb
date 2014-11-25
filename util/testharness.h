@@ -17,6 +17,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace test {

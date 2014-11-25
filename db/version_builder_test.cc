@@ -135,8 +135,8 @@ TEST(VersionBuilderTest, EstimatedActiveKeys) {
   const uint32_t kDeletionsPerFile = 100;
   for (uint32_t i = 0; i < kNumFiles; ++i) {
     Add(static_cast<int>(i / kFilesPerLevel), i + 1,
-        std::to_string((i + 100) * 1000).c_str(),
-        std::to_string((i + 100) * 1000 + 999).c_str(),
+        ToString((i + 100) * 1000).c_str(),
+        ToString((i + 100) * 1000 + 999).c_str(),
         100U,  0, 100, 100,
         kEntriesPerFile, kDeletionsPerFile,
         (i < kTotalSamples));

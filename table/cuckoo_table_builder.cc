@@ -21,6 +21,7 @@
 #include "table/meta_blocks.h"
 #include "util/autovector.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 const std::string CuckooTablePropertyNames::kEmptyKey =
@@ -88,7 +89,7 @@ void CuckooTableBuilder::Add(const Slice& key, const Slice& value) {
   }
   if (ikey.type != kTypeDeletion && ikey.type != kTypeValue) {
     status_ = Status::NotSupported("Unsupported key type " +
-                                   std::to_string(ikey.type));
+                                   ToString(ikey.type));
     return;
   }
 

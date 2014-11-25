@@ -17,6 +17,8 @@
 #include "rocksdb/table.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/filter_policy.h"
+#include "port/port.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -43,8 +45,8 @@ class SanityTest {
       return s;
     }
     for (int i = 0; i < 1000000; ++i) {
-      std::string k = "key" + std::to_string(i);
-      std::string v = "value" + std::to_string(i);
+      std::string k = "key" + ToString(i);
+      std::string v = "value" + ToString(i);
       s = db->Put(WriteOptions(), Slice(k), Slice(v));
       if (!s.ok()) {
         return s;
@@ -61,8 +63,8 @@ class SanityTest {
       return s;
     }
     for (int i = 0; i < 1000000; ++i) {
-      std::string k = "key" + std::to_string(i);
-      std::string v = "value" + std::to_string(i);
+      std::string k = "key" + ToString(i);
+      std::string v = "value" + ToString(i);
       std::string result;
       s = db->Get(ReadOptions(), Slice(k), &result);
       if (!s.ok()) {

@@ -258,10 +258,10 @@ TEST(EventListenerTest, MultiDBMultiListeners) {
   std::vector<std::vector<ColumnFamilyHandle *>> vec_handles;
 
   for (int d = 0; d < kNumDBs; ++d) {
-    ASSERT_OK(DestroyDB(dbname_ + std::to_string(d), options));
+    ASSERT_OK(DestroyDB(dbname_ + ToString(d), options));
     DB* db;
     std::vector<ColumnFamilyHandle*> handles;
-    ASSERT_OK(DB::Open(options, dbname_ + std::to_string(d), &db));
+    ASSERT_OK(DB::Open(options, dbname_ + ToString(d), &db));
     for (size_t c = 0; c < cf_names.size(); ++c) {
       ColumnFamilyHandle* handle;
       db->CreateColumnFamily(cf_opts, cf_names[c], &handle);
@@ -331,7 +331,7 @@ TEST(EventListenerTest, DisableBGCompaction) {
   db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   // keep writing until writes are forced to stop.
   for (int i = 0; static_cast<int>(cf_meta.file_count) < kStopTrigger; ++i) {
-    Put(1, std::to_string(i), std::string(100000, 'x'), wopts);
+    Put(1, ToString(i), std::string(100000, 'x'), wopts);
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kStopTrigger - kSlowdownTrigger);

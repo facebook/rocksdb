@@ -60,8 +60,8 @@ class CompactionJobTest {
       SequenceNumber smallest_seqno = 0, largest_seqno = 0;
       InternalKey smallest, largest;
       for (int k = 0; k < kKeysPerFile; ++k) {
-        auto key = std::to_string(i * (kKeysPerFile / 2) + k);
-        auto value = std::to_string(i * kKeysPerFile + k);
+        auto key = ToString(i * (kKeysPerFile / 2) + k);
+        auto value = ToString(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
         if (k == 0) {
           smallest = internal_key;

@@ -1293,15 +1293,15 @@ void ChangeCompactionStyleCommand::DoCommand() {
     // level 0 should have only 1 file
     if (i == 0 && num_files != 1) {
       exec_state_ = LDBCommandExecuteResult::FAILED("Number of db files at "
-        "level 0 after compaction is " + std::to_string(num_files) +
+        "level 0 after compaction is " + ToString(num_files) +
         ", not 1.\n");
       return;
     }
     // other levels should have no file
     if (i > 0 && num_files != 0) {
       exec_state_ = LDBCommandExecuteResult::FAILED("Number of db files at "
-        "level " + std::to_string(i) + " after compaction is " +
-        std::to_string(num_files) + ", not 0.\n");
+        "level " + ToString(i) + " after compaction is " +
+        ToString(num_files) + ", not 0.\n");
       return;
     }
   }

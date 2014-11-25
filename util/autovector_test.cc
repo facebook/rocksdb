@@ -53,7 +53,7 @@ TEST(AutoVectorTest, EmplaceBack) {
   autovector<ValType, kSize> vec;
 
   for (size_t i = 0; i < 1000 * kSize; ++i) {
-    vec.emplace_back(i, std::to_string(i + 123));
+    vec.emplace_back(i, ToString(i + 123));
     ASSERT_TRUE(!vec.empty());
     if (i < kSize) {
       ASSERT_TRUE(vec.only_in_stack());
@@ -63,7 +63,7 @@ TEST(AutoVectorTest, EmplaceBack) {
 
     ASSERT_EQ(i + 1, vec.size());
     ASSERT_EQ(i, vec[i].first);
-    ASSERT_EQ(std::to_string(i + 123), vec[i].second);
+    ASSERT_EQ(ToString(i + 123), vec[i].second);
   }
 
   vec.clear();
@@ -129,7 +129,7 @@ TEST(AutoVectorTest, CopyAndAssignment) {
 TEST(AutoVectorTest, Iterators) {
   autovector<std::string, kSize> vec;
   for (size_t i = 0; i < kSize * 1000; ++i) {
-    vec.push_back(std::to_string(i));
+    vec.push_back(ToString(i));
   }
 
   // basic operator test

@@ -50,6 +50,7 @@
 #include "util/sync_point.h"
 #include "util/testutil.h"
 #include "util/mock_env.h"
+#include "util/string_util.h"
 #include "util/thread_status_impl.h"
 
 namespace rocksdb {
@@ -1494,7 +1495,7 @@ TEST(DBTest, GetPropertiesOfAllTablesTest) {
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      db_->Put(WriteOptions(), std::to_string(table * 100 + i), "val");
+      db_->Put(WriteOptions(), ToString(table * 100 + i), "val");
     }
     db_->Flush(FlushOptions());
   }
@@ -1508,7 +1509,7 @@ TEST(DBTest, GetPropertiesOfAllTablesTest) {
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 2; ++i) {
-    Get(std::to_string(i * 100 + 0));
+    Get(ToString(i * 100 + 0));
   }
 
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
@@ -1518,7 +1519,7 @@ TEST(DBTest, GetPropertiesOfAllTablesTest) {
   // fetch key from 1st and 2nd table, which will internally place that table to
   // the table cache.
   for (int i = 0; i < 4; ++i) {
-    Get(std::to_string(i * 100 + 0));
+    Get(ToString(i * 100 + 0));
   }
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 }
@@ -4747,7 +4748,7 @@ TEST(DBTest, CompactionFilterDeletesAll) {
   // put some data
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10 + table; ++i) {
-      Put(std::to_string(table * 100 + i), "val");
+      Put(ToString(table * 100 + i), "val");
     }
     Flush();
   }
@@ -6994,7 +6995,7 @@ TEST(DBTest, TransactionLogIteratorCorruptedLog) {
     Options options = OptionsForLogIterTest();
     DestroyAndReopen(options);
     for (int i = 0; i < 1024; i++) {
-      Put("key"+std::to_string(i), DummyString(10));
+      Put("key"+ToString(i), DummyString(10));
     }
     dbfull()->Flush(FlushOptions());
     // Corrupt this log to create a gap
@@ -7062,20 +7063,20 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
   struct Handler : public WriteBatch::Handler {
     std::string seen;
     virtual Status PutCF(uint32_t cf, const Slice& key, const Slice& value) {
-      seen += "Put(" + std::to_string(cf) + ", " + key.ToString() + ", " +
-              std::to_string(value.size()) + ")";
+      seen += "Put(" + ToString(cf) + ", " + key.ToString() + ", " +
+              ToString(value.size()) + ")";
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) {
-      seen += "Merge(" + std::to_string(cf) + ", " + key.ToString() + ", " +
-              std::to_string(value.size()) + ")";
+      seen += "Merge(" + ToString(cf) + ", " + key.ToString() + ", " +
+              ToString(value.size()) + ")";
       return Status::OK();
     }
     virtual void LogData(const Slice& blob) {
       seen += "LogData(" + blob.ToString() + ")";
     }
     virtual Status DeleteCF(uint32_t cf, const Slice& key) {
-      seen += "Delete(" + std::to_string(cf) + ", " + key.ToString() + ")";
+      seen += "Delete(" + ToString(cf) + ", " + key.ToString() + ")";
       return Status::OK();
     }
   } handler;
@@ -7203,7 +7204,7 @@ TEST(DBTest, MultiThreaded) {
   do {
     std::vector<std::string> cfs;
     for (int i = 1; i < kColumnFamilies; ++i) {
-      cfs.push_back(std::to_string(i));
+      cfs.push_back(ToString(i));
     }
     CreateAndReopenWithCF(cfs, CurrentOptions());
     // Initialize state
@@ -7256,7 +7257,7 @@ static void GCThreadBody(void* arg) {
   WriteOptions wo;
 
   for (int i = 0; i < kGCNumKeys; ++i) {
-    std::string kv(std::to_string(i + id * kGCNumKeys));
+    std::string kv(ToString(i + id * kGCNumKeys));
     ASSERT_OK(db->Put(wo, kv, kv));
   }
   t->done = true;
@@ -7292,7 +7293,7 @@ TEST(DBTest, GroupCommitTest) {
 
     std::vector<std::string> expected_db;
     for (int i = 0; i < kGCNumThreads * kGCNumKeys; ++i) {
-      expected_db.push_back(std::to_string(i));
+      expected_db.push_back(ToString(i));
     }
     sort(expected_db.begin(), expected_db.end());
 
@@ -8176,7 +8177,7 @@ TEST(DBTest, FIFOCompactionTest) {
     Random rnd(301);
     for (int i = 0; i < 6; ++i) {
       for (int j = 0; j < 100; ++j) {
-        ASSERT_OK(Put(std::to_string(i * 100 + j), RandomString(&rnd, 1024)));
+        ASSERT_OK(Put(ToString(i * 100 + j), RandomString(&rnd, 1024)));
       }
       // flush should happen here
     }
@@ -8189,7 +8190,7 @@ TEST(DBTest, FIFOCompactionTest) {
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
     for (int i = 0; i < 50; ++i) {
       // these keys should be deleted in previous compaction
-      ASSERT_EQ("NOT_FOUND", Get(std::to_string(i)));
+      ASSERT_EQ("NOT_FOUND", Get(ToString(i)));
     }
   }
 }
@@ -8517,7 +8518,7 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
 
   Random rnd(301);
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kTestValueSize)));
+    ASSERT_OK(Put(1, ToString(key), RandomString(&rnd, kTestValueSize)));
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();
@@ -8549,7 +8550,7 @@ TEST(DBTest, CompactFilesOnLevelCompaction) {
 
   // make sure all key-values are still there.
   for (int key = 64 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_NE(Get(1, std::to_string(key)), "NOT_FOUND");
+    ASSERT_NE(Get(1, ToString(key)), "NOT_FOUND");
   }
 }
 
@@ -8571,7 +8572,7 @@ TEST(DBTest, CompactFilesOnUniversalCompaction) {
   ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
   Random rnd(301);
   for (int key = 1024 * kEntriesPerBuffer; key >= 0; --key) {
-    ASSERT_OK(Put(1, std::to_string(key), RandomString(&rnd, kTestValueSize)));
+    ASSERT_OK(Put(1, ToString(key), RandomString(&rnd, kTestValueSize)));
   }
   dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
   dbfull()->TEST_WaitForCompact();
@@ -9112,7 +9113,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // result in 2 32KB L1 files.
   ASSERT_OK(dbfull()->SetOptions({
     {"level0_file_num_compaction_trigger", "2"},
-    {"target_file_size_base", std::to_string(k32KB) }
+    {"target_file_size_base", ToString(k32KB) }
   }));
 
   gen_l0_kb(0, 64, 1);
@@ -9133,7 +9134,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // fill L1 and L2. L1 size should be around 256KB while L2 size should be
   // around 256KB x 4.
   ASSERT_OK(dbfull()->SetOptions({
-    {"max_bytes_for_level_base", std::to_string(k1MB) }
+    {"max_bytes_for_level_base", ToString(k1MB) }
   }));
 
   // writing 96 x 64KB => 6 * 1024KB
@@ -9155,7 +9156,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // reduces to 128KB from 256KB which was asserted previously. Same for L2.
   ASSERT_OK(dbfull()->SetOptions({
     {"max_bytes_for_level_multiplier", "2"},
-    {"max_bytes_for_level_base", std::to_string(k128KB) }
+    {"max_bytes_for_level_base", ToString(k128KB) }
   }));
 
   // writing 20 x 64KB = 10 x 128KB
@@ -9255,7 +9256,7 @@ TEST(DBTest, DynamicCompactionOptions) {
   // L1 - L3. Then thrink max_bytes_for_level_base and disable auto compaction
   // at the same time, we should see some level with score greater than 2.
   ASSERT_OK(dbfull()->SetOptions({
-    {"max_bytes_for_level_base", std::to_string(k1MB) }
+    {"max_bytes_for_level_base", ToString(k1MB) }
   }));
   // writing 40 x 64KB = 10 x 256KB
   // (L1 + L2 + L3) = (1 + 2 + 4) * 256KB

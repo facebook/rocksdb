@@ -1350,7 +1350,7 @@ class Benchmark {
   }
 
   std::string GetDbNameForMultiple(std::string base_name, size_t id) {
-    return base_name + std::to_string(id);
+    return base_name + ToString(id);
   }
 
   std::string ColumnFamilyName(int i) {

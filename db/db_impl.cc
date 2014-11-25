@@ -75,6 +75,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
+#include "util/string_util.h"
 #include "util/thread_status_impl.h"
 
 namespace rocksdb {
@@ -3121,7 +3122,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
     bool ret_value = GetIntPropertyInternal(column_family, property_type,
                                             need_out_of_mutex, &int_value);
     if (ret_value) {
-      *value = std::to_string(int_value);
+      *value = ToString(int_value);
     }
     return ret_value;
   } else {
@@ -3378,8 +3379,8 @@ Status DBImpl::CheckConsistency() {
     } else if (fsize != md.size) {
       corruption_messages += "Sst file size mismatch: " + file_path +
                              ". Size recorded in manifest " +
-                             std::to_string(md.size) + ", actual size " +
-                             std::to_string(fsize) + "\n";
+                             ToString(md.size) + ", actual size " +
+                             ToString(fsize) + "\n";
     }
   }
   if (corruption_messages.size() == 0) {

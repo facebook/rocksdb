@@ -192,8 +192,8 @@ TEST(CompactionPickerTest, NeedsCompactionLevel) {
       // start a brand new version in each test.
       NewVersionStorage(kLevels, kCompactionStyleLevel);
       for (int i = 0; i < file_count; ++i) {
-        Add(level, i, std::to_string((i + 100) * 1000).c_str(),
-            std::to_string((i + 100) * 1000 + 999).c_str(),
+        Add(level, i, ToString((i + 100) * 1000).c_str(),
+            ToString((i + 100) * 1000 + 999).c_str(),
             file_size, 0, i * 100, i * 100 + 99);
       }
       UpdateVersionStorageInfo();
@@ -217,8 +217,8 @@ TEST(CompactionPickerTest, NeedsCompactionUniversal) {
   // verify the trigger given different number of L0 files.
   for (int i = 1;
        i <= mutable_cf_options_.level0_file_num_compaction_trigger * 2; ++i) {
-    Add(0, i, std::to_string((i + 100) * 1000).c_str(),
-        std::to_string((i + 100) * 1000 + 999).c_str(), 1000000, 0, i * 100,
+    Add(0, i, ToString((i + 100) * 1000).c_str(),
+        ToString((i + 100) * 1000 + 999).c_str(), 1000000, 0, i * 100,
         i * 100 + 99);
     ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
@@ -243,8 +243,8 @@ TEST(CompactionPickerTest, NeedsCompactionFIFO) {
   // size of L0 files.
   uint64_t current_size = 0;
   for (int i = 1; i <= kFileCount; ++i) {
-    Add(0, i, std::to_string((i + 100) * 1000).c_str(),
-        std::to_string((i + 100) * 1000 + 999).c_str(),
+    Add(0, i, ToString((i + 100) * 1000).c_str(),
+        ToString((i + 100) * 1000 + 999).c_str(),
         kFileSize, 0, i * 100, i * 100 + 99);
     current_size += kFileSize;
     ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),

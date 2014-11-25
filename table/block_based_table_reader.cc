@@ -38,6 +38,7 @@
 #include "util/coding.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -1264,7 +1265,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
     }
     default: {
       std::string error_message =
-          "Unrecognized index type: " + std::to_string(rep_->index_type);
+          "Unrecognized index type: " + ToString(rep_->index_type);
       return Status::InvalidArgument(error_message.c_str());
     }
   }

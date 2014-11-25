@@ -442,7 +442,7 @@ TEST(PrefixTest, DynamicPrefixIterator) {
     for (auto prefix : prefixes) {
       TestKey test_key(prefix, FLAGS_items_per_prefix / 2);
       Slice key = TestKeyToSlice(test_key);
-      std::string value = "v" + std::to_string(0);
+      std::string value = "v" + ToString(0);
 
       perf_context.Reset();
       StopWatchNano timer(Env::Default(), true);

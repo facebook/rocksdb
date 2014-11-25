@@ -16,6 +16,7 @@
 #include <vector>
 #include "db/column_family.h"
 #include "db/db_impl.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -433,7 +434,7 @@ void InternalStats::DumpCFStats(std::string* value) {
       double w_amp = (comp_stats_[level].bytes_readn == 0) ? 0.0
           : comp_stats_[level].bytes_written /
             static_cast<double>(comp_stats_[level].bytes_readn);
-      PrintLevelStats(buf, sizeof(buf), "L" + std::to_string(level), files,
+      PrintLevelStats(buf, sizeof(buf), "L" + ToString(level), files,
                       files_being_compacted[level],
                       vstorage->NumLevelBytes(level), compaction_score[level],
                       rw_amp, w_amp, stall_us, stalls, comp_stats_[level]);

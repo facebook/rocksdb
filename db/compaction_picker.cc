@@ -19,6 +19,7 @@
 #include "db/filename.h"
 #include "util/log_buffer.h"
 #include "util/statistics.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -262,7 +263,7 @@ Status CompactionPicker::GetCompactionInputsFromFileNumbers(
         "Cannot find matched SST files for the following file numbers:");
     for (auto fn : *input_set) {
       message += " ";
-      message += std::to_string(fn);
+      message += ToString(fn);
     }
     return Status::InvalidArgument(message);
   }
@@ -616,7 +617,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
     return Status::InvalidArgument(
         "Output level for column family " + cf_meta.name +
         " must between [0, " +
-        std::to_string(cf_meta.levels[cf_meta.levels.size() - 1].level) +
+        ToString(cf_meta.levels[cf_meta.levels.size() - 1].level) +
         "].");
   }
 
@@ -624,7 +625,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
     return Status::InvalidArgument(
         "Exceed the maximum output level defined by "
         "the current compaction algorithm --- " +
-            std::to_string(MaxOutputLevel()));
+            ToString(MaxOutputLevel()));
   }
 
   if (output_level < 0) {

@@ -97,8 +97,8 @@ TEST(FlushJobTest, NonEmpty) {
   new_mem->Ref();
   std::map<std::string, std::string> inserted_keys;
   for (int i = 1; i < 10000; ++i) {
-    std::string key(std::to_string(i));
-    std::string value("value" + std::to_string(i));
+    std::string key(ToString(i));
+    std::string value("value" + ToString(i));
     new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
     InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
     inserted_keys.insert({internal_key.Encode().ToString(), value});

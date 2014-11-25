@@ -628,7 +628,7 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
   };
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], std::to_string(i)));
+    ASSERT_OK(Put(key_list[i], ToString(i)));
   }
 
   dbfull()->TEST_FlushMemTable();
@@ -639,7 +639,7 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(std::to_string(i), iter->value().ToString());
+    ASSERT_EQ(ToString(i), iter->value().ToString());
     iter->Next();
   }
 
@@ -676,7 +676,7 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
       MakeLongKeyWithPrefix(26, '6')};
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], std::to_string(i)));
+    ASSERT_OK(Put(key_list[i], ToString(i)));
   }
 
   dbfull()->TEST_FlushMemTable();
@@ -687,7 +687,7 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(std::to_string(i), iter->value().ToString());
+    ASSERT_EQ(ToString(i), iter->value().ToString());
     iter->Next();
   }
 

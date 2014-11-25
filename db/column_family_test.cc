@@ -218,7 +218,7 @@ class ColumnFamilyTest {
 
   int NumTableFilesAtLevel(int level, int cf) {
     return GetProperty(cf,
-                       "rocksdb.num-files-at-level" + std::to_string(level));
+                       "rocksdb.num-files-at-level" + ToString(level));
   }
 
   // Return spread of files per level
@@ -387,7 +387,7 @@ TEST(ColumnFamilyTest, DropTest) {
     Open({"default"});
     CreateColumnFamiliesAndReopen({"pikachu"});
     for (int i = 0; i < 100; ++i) {
-      ASSERT_OK(Put(1, std::to_string(i), "bar" + std::to_string(i)));
+      ASSERT_OK(Put(1, ToString(i), "bar" + ToString(i)));
     }
     ASSERT_OK(Flush(1));
 
@@ -774,14 +774,14 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
     PutRandomData(1, 11, 10000);
     WaitForFlush(1);
-    ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(1));
+    ASSERT_EQ(ToString(i + 1), FilesPerLevel(1));
   }
 
   // SETUP column family "two" -- level style with 4 levels
   for (int i = 0; i < two.level0_file_num_compaction_trigger - 1; ++i) {
     PutRandomData(2, 15, 10000);
     WaitForFlush(2);
-    ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(2));
+    ASSERT_EQ(ToString(i + 1), FilesPerLevel(2));
   }
 
   // TRIGGER compaction "one"

@@ -603,7 +603,8 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Create the files
   std::vector<std::string> fnames;
   for (int i = 0; i < 1000; ++i) {
-    fnames.push_back(GetOnDiskTestDir() + "/" + "testfile" + std::to_string(i));
+    fnames.push_back(
+        GetOnDiskTestDir() + "/" + "testfile" + ToString(i));
 
     // Create file.
     unique_ptr<WritableFile> wfile;

@@ -31,6 +31,7 @@
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -355,9 +356,9 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
                                    SequenceNumber* sequence) {
   if (type != kAliveLogFile && type != kArchivedLogFile) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "[WalManger] Unknown file type %s", std::to_string(type).c_str());
+        "[WalManger] Unknown file type %s", ToString(type).c_str());
     return Status::NotSupported(
-        "File Type Not Known " + std::to_string(type));
+        "File Type Not Known " + ToString(type));
   }
   {
     MutexLock l(&read_first_record_cache_mutex_);
