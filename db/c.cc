@@ -1269,6 +1269,10 @@ void rocksdb_options_set_max_open_files(rocksdb_options_t* opt, int n) {
   opt->rep.max_open_files = n;
 }
 
+void rocksdb_options_set_max_total_wal_size(rocksdb_options_t* opt, uint64_t n) {
+  opt->rep.max_total_wal_size = n;
+}
+
 void rocksdb_options_set_target_file_size_base(
     rocksdb_options_t* opt, uint64_t n) {
   opt->rep.target_file_size_base = n;

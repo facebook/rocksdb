@@ -440,6 +440,7 @@ extern void rocksdb_options_set_info_log(rocksdb_options_t*, rocksdb_logger_t*);
 extern void rocksdb_options_set_info_log_level(rocksdb_options_t*, int);
 extern void rocksdb_options_set_write_buffer_size(rocksdb_options_t*, size_t);
 extern void rocksdb_options_set_max_open_files(rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_total_wal_size(rocksdb_options_t* opt, uint64_t n);
 extern void rocksdb_options_set_compression_options(
     rocksdb_options_t*, int, int, int);
 extern void rocksdb_options_set_prefix_extractor(
