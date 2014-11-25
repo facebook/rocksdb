@@ -26,7 +26,7 @@ public class ComparatorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void javaComparator() throws IOException {
+     public void javaComparator() throws IOException, RocksDBException {
 
     final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
       @Override
@@ -48,6 +48,32 @@ public class ComparatorTest {
 
     // test the round-tripability of keys written and read with the Comparator
     comparatorTest.testRoundtrip(FileSystems.getDefault().getPath(
+        dbFolder.getRoot().getAbsolutePath()));
+  }
+
+  @Test
+  public void javaComparatorCf() throws IOException, RocksDBException {
+
+    final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
+      @Override
+      public AbstractComparator getAscendingIntKeyComparator() {
+        return new Comparator(new ComparatorOptions()) {
+
+          @Override
+          public String name() {
+            return "test.AscendingIntKeyComparator";
+          }
+
+          @Override
+          public int compare(final Slice a, final Slice b) {
+            return compareIntKeys(a.data(), b.data());
+          }
+        };
+      }
+    };
+
+    // test the round-tripability of keys written and read with the Comparator
+    comparatorTest.testRoundtripCf(FileSystems.getDefault().getPath(
         dbFolder.getRoot().getAbsolutePath()));
   }
 

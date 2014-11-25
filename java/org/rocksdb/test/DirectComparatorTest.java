@@ -23,7 +23,7 @@ public class DirectComparatorTest {
   public TemporaryFolder dbFolder = new TemporaryFolder();
 
   @Test
-  public void directComparator() throws IOException {
+  public void directComparator() throws IOException, RocksDBException {
 
     final AbstractComparatorTest comparatorTest = new AbstractComparatorTest() {
       @Override

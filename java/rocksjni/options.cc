@@ -1874,9 +1874,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
  * Method:    setComparatorHandle
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JI(
+void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJ(
     JNIEnv* env, jobject jobj, jlong jopt_handle, jlong jcomparator_handle) {
-  reinterpret_cast<rocksdb::Options*>(jopt_handle)->comparator =
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->comparator =
       reinterpret_cast<rocksdb::Comparator*>(jcomparator_handle);
 }
 
