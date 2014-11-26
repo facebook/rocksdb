@@ -86,7 +86,6 @@ JAVA_TESTCLASSPATH = $(ROCKSDB_JAR):$(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_M
 
 clean:
 	-find . -name "*.class" -exec rm {} \;
-	-find . -name "hs*.log" -exec rm {} \;
 	rm -rf include/*
 	rm -rf javadoc/*
 	rm -rf test-libs/
