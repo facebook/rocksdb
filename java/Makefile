@@ -91,7 +91,7 @@ clean:
 	rm -rf javadoc/*
 	rm -rf test-libs/
 	rm -rf target
-	rm -f librocksdbjni*
+	rm -rf librocksdbjni*
 	rm -f rocksdbjni*
 
 
