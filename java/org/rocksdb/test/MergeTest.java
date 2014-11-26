@@ -8,6 +8,7 @@ package org.rocksdb.test;
 import java.util.List;
 import java.util.ArrayList;
 
+import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -247,6 +248,52 @@ public class MergeTest {
       if (db != null) {
         db.close();
       }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void emptyStringInSetMergeOperatorByName() {
+    Options opt = null;
+    ColumnFamilyOptions cOpt = null;
+    try {
+      opt = new Options();
+      cOpt = new ColumnFamilyOptions();
+      opt.setMergeOperatorName("");
+      cOpt.setMergeOperatorName("");
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+      if (cOpt != null) {
+        cOpt.dispose();
+      }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void nullStringInSetMergeOperatorByNameOptions() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      opt.setMergeOperatorName(null);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void
+      nullStringInSetMergeOperatorByNameColumnFamilyOptions() {
+    ColumnFamilyOptions opt = null;
+    try {
+      opt = new ColumnFamilyOptions();
+      opt.setMergeOperatorName(null);
+    } finally {
       if (opt != null) {
         opt.dispose();
       }
