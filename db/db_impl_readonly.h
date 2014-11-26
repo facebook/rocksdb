@@ -4,6 +4,9 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #pragma once
+
+#ifndef ROCKSDB_LITE
+
 #include "db/db_impl.h"
 #include <vector>
 #include <string>
@@ -100,3 +103,5 @@ class DBImplReadOnly : public DBImpl {
   void operator=(const DBImplReadOnly&);
 };
 }
+
+#endif  // !ROCKSDB_LITE

@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+
 #include "db/db_impl_readonly.h"
 #include "utilities/compacted_db/compacted_db_impl.h"
 #include "db/db_impl.h"
@@ -12,6 +13,8 @@
 #include "util/thread_status_impl.h"
 
 namespace rocksdb {
+
+#ifndef ROCKSDB_LITE
 
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
@@ -97,12 +100,10 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 
   // Try to first open DB as fully compacted DB
   Status s;
-#ifndef ROCKSDB_LITE
   s = CompactedDBImpl::Open(options, dbname, dbptr);
   if (s.ok()) {
     return s;
   }
-#endif
 
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
@@ -167,5 +168,20 @@ Status DB::OpenForReadOnly(
   return s;
 }
 
+#else  // !ROCKSDB_LITE
+
+Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
+                           DB** dbptr, bool error_if_log_file_exist) {
+  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
+}
+
+Status DB::OpenForReadOnly(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    bool error_if_log_file_exist) {
+  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
+}
+#endif  // !ROCKSDB_LITE
 
 }   // namespace rocksdb

@@ -101,6 +101,9 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
   static Status OpenForReadOnly(const Options& options,
       const std::string& name, DB** dbptr,
       bool error_if_log_file_exist = false);
@@ -110,6 +113,9 @@ class DB {
   // database that should be opened. However, you always need to specify default
   // column family. The default column family name is 'default' and it's stored
   // in rocksdb::kDefaultColumnFamilyName
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
