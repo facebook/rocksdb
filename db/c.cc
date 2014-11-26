@@ -80,7 +80,10 @@ struct rocksdb_writebatch_t      { WriteBatch        rep; };
 struct rocksdb_snapshot_t        { const Snapshot*   rep; };
 struct rocksdb_flushoptions_t    { FlushOptions      rep; };
 struct rocksdb_fifo_compaction_options_t { CompactionOptionsFIFO rep; };
-struct rocksdb_readoptions_t     { ReadOptions       rep; };
+struct rocksdb_readoptions_t {
+   ReadOptions rep;
+   Slice upper_bound; // stack variable to set pointer to in ReadOptions
+};
 struct rocksdb_writeoptions_t    { WriteOptions      rep; };
 struct rocksdb_options_t         { Options           rep; };
 struct rocksdb_block_based_table_options_t  { BlockBasedTableOptions rep; };
@@ -1891,8 +1894,14 @@ void rocksdb_readoptions_set_snapshot(
 void rocksdb_readoptions_set_iterate_upper_bound(
     rocksdb_readoptions_t* opt,
     const char* key, size_t keylen) {
-  Slice prefix = Slice(key, keylen);
-  opt->rep.iterate_upper_bound = &prefix;
+  if (key == nullptr) {
+    opt->upper_bound = Slice();
+    opt->rep.iterate_upper_bound = nullptr;
+
+  } else {
+    opt->upper_bound = Slice(key, keylen);
+    opt->rep.iterate_upper_bound = &opt->upper_bound;
+  }
 }
 
 void rocksdb_readoptions_set_read_tier(
