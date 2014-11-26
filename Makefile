@@ -6,8 +6,16 @@
 
 #-----------------------------------------------
 
+CFLAGS += ${EXTRA_CFLAGS}
+CXXFLAGS += ${EXTRA_CXXFLAGS}
+LDFLAGS += $(EXTRA_LDFLAGS)
+MACHINE ?= $(shell uname -m)
+
 ifneq ($(MAKECMDGOALS),dbg)
-OPT += -O2 -fno-omit-frame-pointer -momit-leaf-frame-pointer
+OPT += -O2 -fno-omit-frame-pointer
+ifneq ($(MACHINE),ppc64) # ppc64 doesn't support -momit-leaf-frame-pointer
+OPT += -momit-leaf-frame-pointer
+endif
 else
 # intentionally left blank
 endif
