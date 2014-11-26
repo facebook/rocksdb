@@ -11,8 +11,12 @@ namespace rocksdb {
 
 namespace {
 
-double Log2(double n) {
+inline double Log2(double n) {
+#ifndef OS_ANDROID
+  return log2(n);
+#else
   return log(n) / log(2);
+#endif
 }
 
 // For now, always use 1-0 as level bytes multiplier.
