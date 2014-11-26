@@ -253,12 +253,13 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
     internal_stats_.reset(
         new InternalStats(ioptions_.num_levels, db_options->env, this));
     table_cache_.reset(new TableCache(ioptions_, env_options, _table_cache));
-    if (ioptions_.compaction_style == kCompactionStyleUniversal) {
-      compaction_picker_.reset(
-          new UniversalCompactionPicker(ioptions_, &internal_comparator_));
-    } else if (ioptions_.compaction_style == kCompactionStyleLevel) {
+    if (ioptions_.compaction_style == kCompactionStyleLevel) {
       compaction_picker_.reset(
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
+#ifndef ROCKSDB_LITE
+    } else if (ioptions_.compaction_style == kCompactionStyleUniversal) {
+      compaction_picker_.reset(
+          new UniversalCompactionPicker(ioptions_, &internal_comparator_));
     } else if (ioptions_.compaction_style == kCompactionStyleFIFO) {
       compaction_picker_.reset(
           new FIFOCompactionPicker(ioptions_, &internal_comparator_));
@@ -269,6 +270,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
           "Column family %s does not use any background compaction. "
           "Compactions can only be done via CompactFiles\n",
           GetName().c_str());
+#endif  // !ROCKSDB_LITE
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, ioptions_.info_log,
           "Unable to recognize the specified compaction style %d. "

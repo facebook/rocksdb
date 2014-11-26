@@ -28,6 +28,7 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
                                     int read_amp_threshold,
                                     int write_amp_threshold,
                                     uint64_t target_db_size) {
+#ifndef ROCKSDB_LITE
   // Estimate read amplification and write amplification of two compaction
   // styles. If there is hard limit to force a choice, make the choice.
   // Otherwise, calculate a score based on threshold and expected value of
@@ -78,6 +79,9 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
   } else {
     return kCompactionStyleUniversal;
   }
+#else
+  return kCompactionStyleLevel;
+#endif  // !ROCKSDB_LITE
 }
 
 // Pick mem table size
@@ -107,12 +111,14 @@ void PickWriteBufferSize(size_t total_write_buffer_limit, Options* options) {
   options->min_write_buffer_number_to_merge = 1;
 }
 
+#ifndef ROCKSDB_LITE
 void OptimizeForUniversal(Options* options) {
   options->level0_file_num_compaction_trigger = 2;
   options->level0_slowdown_writes_trigger = 30;
   options->level0_stop_writes_trigger = 40;
   options->max_open_files = -1;
 }
+#endif
 
 // Optimize parameters for level-based compaction
 void OptimizeForLevel(int read_amplification_threshold,
@@ -192,9 +198,13 @@ Options GetOptions(size_t total_write_buffer_limit,
   options.compaction_style =
       PickCompactionStyle(write_buffer_size, read_amplification_threshold,
                           write_amplification_threshold, target_db_size);
+#ifndef ROCKSDB_LITE
   if (options.compaction_style == kCompactionStyleUniversal) {
     OptimizeForUniversal(&options);
   } else {
+#else
+  {
+#endif  // !ROCKSDB_LITE
     OptimizeForLevel(read_amplification_threshold,
                      write_amplification_threshold, target_db_size, &options);
   }

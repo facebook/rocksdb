@@ -169,6 +169,36 @@ class CompactionPicker {
   const InternalKeyComparator* const icmp_;
 };
 
+class LevelCompactionPicker : public CompactionPicker {
+ public:
+  LevelCompactionPicker(const ImmutableCFOptions& ioptions,
+                        const InternalKeyComparator* icmp)
+      : CompactionPicker(ioptions, icmp) {}
+  virtual Compaction* PickCompaction(const std::string& cf_name,
+                                     const MutableCFOptions& mutable_cf_options,
+                                     VersionStorageInfo* vstorage,
+                                     LogBuffer* log_buffer) override;
+
+  // Returns current_num_levels - 2, meaning the last level cannot be
+  // compaction input level.
+  virtual int MaxInputLevel(int current_num_levels) const override {
+    return current_num_levels - 2;
+  }
+
+  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
+      override;
+
+ private:
+  // For the specfied level, pick a compaction.
+  // Returns nullptr if there is no compaction to be done.
+  // If level is 0 and there is already a compaction on that level, this
+  // function will return nullptr.
+  Compaction* PickCompactionBySize(const MutableCFOptions& mutable_cf_options,
+                                   VersionStorageInfo* vstorage, int level,
+                                   double score);
+};
+
+#ifndef ROCKSDB_LITE
 class UniversalCompactionPicker : public CompactionPicker {
  public:
   UniversalCompactionPicker(const ImmutableCFOptions& ioptions,
@@ -208,35 +238,6 @@ class UniversalCompactionPicker : public CompactionPicker {
   // size.
   static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
                             uint64_t file_size);
-};
-
-class LevelCompactionPicker : public CompactionPicker {
- public:
-  LevelCompactionPicker(const ImmutableCFOptions& ioptions,
-                        const InternalKeyComparator* icmp)
-      : CompactionPicker(ioptions, icmp) {}
-  virtual Compaction* PickCompaction(const std::string& cf_name,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     VersionStorageInfo* vstorage,
-                                     LogBuffer* log_buffer) override;
-
-  // Returns current_num_levels - 2, meaning the last level cannot be
-  // compaction input level.
-  virtual int MaxInputLevel(int current_num_levels) const override {
-    return current_num_levels - 2;
-  }
-
-  virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
-      override;
-
- private:
-  // For the specfied level, pick a compaction.
-  // Returns nullptr if there is no compaction to be done.
-  // If level is 0 and there is already a compaction on that level, this
-  // function will return nullptr.
-  Compaction* PickCompactionBySize(const MutableCFOptions& mutable_cf_options,
-                                   VersionStorageInfo* vstorage, int level,
-                                   double score);
 };
 
 class FIFOCompactionPicker : public CompactionPicker {
@@ -306,6 +307,7 @@ class NullCompactionPicker : public CompactionPicker {
     return false;
   }
 };
+#endif  // !ROCKSDB_LITE
 
 // Utility function
 extern uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files);

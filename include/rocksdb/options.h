@@ -56,11 +56,18 @@ enum CompressionType : char {
 };
 
 enum CompactionStyle : char {
-  kCompactionStyleLevel = 0x0,      // level based compaction style
-  kCompactionStyleUniversal = 0x1,  // Universal compaction style
-  kCompactionStyleFIFO = 0x2,    // FIFO compaction style
-  kCompactionStyleNone = 0x3,  // Disable background compaction. Compaction
-                               // jobs are submitted via CompactFiles()
+  // level based compaction style
+  kCompactionStyleLevel = 0x0,
+  // Universal compaction style
+  // Not supported in ROCKSDB_LITE.
+  kCompactionStyleUniversal = 0x1,
+  // FIFO compaction style
+  // Not supported in ROCKSDB_LITE
+  kCompactionStyleFIFO = 0x2,
+  // Disable background compaction. Compaction jobs are submitted
+  // via CompactFiles().
+  // Not supported in ROCKSDB_LITE
+  kCompactionStyleNone = 0x3,
 };
 
 struct CompactionOptionsFIFO {
@@ -101,9 +108,10 @@ struct Options;
 struct ColumnFamilyOptions {
   // Some functions that make it easier to optimize RocksDB
 
-#ifndef ROCKSDB_LITE
   // Use this if you don't need to keep the data sorted, i.e. you'll never use
   // an iterator, only Put() and Get() API calls
+  //
+  // Not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeForPointLookup(
       uint64_t block_cache_size_mb);
 
@@ -121,11 +129,12 @@ struct ColumnFamilyOptions {
   // biggest performance gains.
   // Note: we might use more memory than memtable_memory_budget during high
   // write rate period
+  //
+  // OptimizeUniversalStyleCompaction is not supported in ROCKSDB_LITE
   ColumnFamilyOptions* OptimizeLevelStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
   ColumnFamilyOptions* OptimizeUniversalStyleCompaction(
       uint64_t memtable_memory_budget = 512 * 1024 * 1024);
-#endif  // ROCKSDB_LITE
 
   // -------------------
   // Parameters that affect behavior

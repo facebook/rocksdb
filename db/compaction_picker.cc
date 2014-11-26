@@ -387,6 +387,7 @@ Compaction* CompactionPicker::CompactRange(
     begin = nullptr;
     end = nullptr;
   }
+
   vstorage->GetOverlappingInputs(input_level, begin, end, &inputs);
   if (inputs.empty()) {
     return nullptr;
@@ -676,7 +677,7 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
 
   return Status::OK();
 }
-#endif  // ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
 
 bool LevelCompactionPicker::NeedsCompaction(const VersionStorageInfo* vstorage)
     const {
@@ -842,6 +843,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   return c;
 }
 
+#ifndef ROCKSDB_LITE
 bool UniversalCompactionPicker::NeedsCompaction(
     const VersionStorageInfo* vstorage) const {
   const int kLevel0 = 0;
@@ -1324,5 +1326,7 @@ Compaction* FIFOCompactionPicker::CompactRange(
   log_buffer.FlushBufferToLog();
   return c;
 }
+
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
