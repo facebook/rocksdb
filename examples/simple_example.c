@@ -6,7 +6,7 @@
 
 #include <unistd.h>	// sysconf() - get CPU count
 
-char DBPath[] = "/tmp/rocksdb_simple_example";
+const char DBPath[] = "/tmp/rocksdb_simple_example";
 
 int main (int argc, char **argv) {
 	rocksdb_t *db;
