@@ -166,8 +166,11 @@ jintArray Java_org_rocksdb_RestoreBackupableDB_getCorruptedBackups(
   }
   // Store ints in java array
   jintArray ret_backup_ids;
-  ret_backup_ids = env->NewIntArray(kIdSize);
-  env->SetIntArrayRegion(ret_backup_ids, 0, kIdSize, int_backup_ids);
+  // Its ok to loose precision here (64->32)
+  jsize ret_backup_ids_size = static_cast<jsize>(kIdSize);
+  ret_backup_ids = env->NewIntArray(ret_backup_ids_size);
+  env->SetIntArrayRegion(ret_backup_ids, 0, ret_backup_ids_size,
+      int_backup_ids);
   return ret_backup_ids;
 }
 
