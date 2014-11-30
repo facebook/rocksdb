@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <assert.h>
 
 #include "rocksdb/c.h"
@@ -35,6 +36,7 @@ int main (int argc, char **argv) {
 	value = rocksdb_get (db, readoptions, key, strlen (key), &len, &err);
 //	assert (!err);
 	assert (strcmp (value, "value") == 0);
+	free (value);
 
 	rocksdb_close (db);
 
