@@ -47,13 +47,13 @@ void createSST(const std::string& file_name,
   Options opts;
   const ImmutableCFOptions imoptions(opts);
   rocksdb::InternalKeyComparator ikc(opts.comparator);
-  TableBuilder* tb = nullptr;
+  unique_ptr<TableBuilder> tb;
 
   env->NewWritableFile(file_name, &file, env_options);
   opts.table_factory = tf;
-  tb = opts.table_factory->NewTableBuilder(imoptions, ikc, file.get(),
-                                           CompressionType::kNoCompression,
-                                           CompressionOptions());
+  tb.reset(opts.table_factory->NewTableBuilder(imoptions, ikc, file.get(),
+                                               CompressionType::kNoCompression,
+                                               CompressionOptions()));
 
   // Populate slightly more than 1K keys
   uint32_t num_keys = 1024;
