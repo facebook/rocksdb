@@ -163,15 +163,6 @@ public class DbBenchmark {
     EXISTING
   }
 
-  enum CompressionType {
-    NONE,
-    SNAPPY,
-    ZLIB,
-    BZIP2,
-    LZ4,
-    LZ4HC
-  }
-
   static {
     RocksDB.loadLibrary();
   }
@@ -457,24 +448,16 @@ public class DbBenchmark {
     // options.setPrefixSize((Integer)flags_.get(Flag.prefix_size));
     // options.setKeysPerPrefix((Long)flags_.get(Flag.keys_per_prefix));
     compressionType_ = (String) flags.get(Flag.compression_type);
-    compression_ = CompressionType.NONE;
+    compression_ = CompressionType.NO_COMPRESSION;
     try {
-      switch (compressionType_) {
-        case "snappy":
-          System.loadLibrary("snappy");
-          break;
-        case "zlib":
-          System.loadLibrary("z");
-          break;
-        case "bzip2":
-          System.loadLibrary("bzip2");
-          break;
-        case "lz4":
-          System.loadLibrary("lz4");
-          break;
-        case "lz4hc":
-          System.loadLibrary("lz4hc");
-          break;
+      if (compressionType_!=null) {
+          final CompressionType compressionType =
+              CompressionType.getCompressionType(compressionType_);
+          if (compressionType != null &&
+              compressionType != CompressionType.NO_COMPRESSION) {
+            System.loadLibrary(compressionType.getLibraryName());
+          }
+
       }
     } catch (UnsatisfiedLinkError e) {
       System.err.format("Unable to load %s library:%s%n" +

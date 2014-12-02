@@ -63,10 +63,6 @@ public class PlainTableConfigTest {
   public void encodingType() {
     PlainTableConfig plainTableConfig = new PlainTableConfig();
     plainTableConfig.setEncodingType(EncodingType.kPrefix);
-    assertThat(EncodingType.valueOf("kPrefix")).isEqualTo(
-        EncodingType.kPrefix);
-    assertThat(EncodingType.values().length).
-        isEqualTo(2);
     assertThat(plainTableConfig.encodingType()).isEqualTo(
         EncodingType.kPrefix);
   }
