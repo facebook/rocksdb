@@ -19,12 +19,12 @@
 #include <algorithm>
 #include <limits>
 
-#include "db/db_impl.h"
-#include "db/job_context.h"
-#include "db/version_set.h"
-#include "db/internal_stats.h"
 #include "db/compaction_picker.h"
+#include "db/db_impl.h"
+#include "db/internal_stats.h"
+#include "db/job_context.h"
 #include "db/table_properties_collector.h"
+#include "db/version_set.h"
 #include "db/write_controller.h"
 #include "util/autovector.h"
 #include "util/hash_skiplist_rep.h"
