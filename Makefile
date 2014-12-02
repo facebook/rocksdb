@@ -111,6 +111,7 @@ TESTS = \
 	filelock_test \
 	filename_test \
 	block_based_filter_block_test \
+	btree_test \
 	full_filter_block_test \
 	histogram_test \
 	log_test \
@@ -438,6 +439,9 @@ table_test: table/table_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 block_test: table/block_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) table/block_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+btree_test: db/btree_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/btree_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 skiplist_test: db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/skiplist_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
