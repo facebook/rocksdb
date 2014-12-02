@@ -31,6 +31,7 @@
 #include "db/table_cache.h"
 #include "db/compaction.h"
 #include "db/version_builder.h"
+#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "table/table_reader.h"
@@ -1490,9 +1491,11 @@ struct VersionSet::ManifestWriter {
 
 VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
                        const EnvOptions& storage_options, Cache* table_cache,
+                       WriteBuffer* write_buffer,
                        WriteController* write_controller)
     : column_family_set_(new ColumnFamilySet(
-          dbname, db_options, storage_options, table_cache, write_controller)),
+          dbname, db_options, storage_options, table_cache,
+          write_buffer, write_controller)),
       env_(db_options->env),
       dbname_(dbname),
       db_options_(db_options),
@@ -2215,7 +2218,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
       options->max_open_files - 10, options->table_cache_numshardbits,
       options->table_cache_remove_scan_count_limit));
   WriteController wc;
-  VersionSet versions(dbname, options, env_options, tc.get(), &wc);
+  WriteBuffer wb(options->db_write_buffer_size);
+  VersionSet versions(dbname, options, env_options, tc.get(), &wb, &wc);
   Status status;
 
   std::vector<ColumnFamilyDescriptor> dummy;

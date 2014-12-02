@@ -3445,7 +3445,7 @@ class ChangeFilterFactory : public CompactionFilterFactory {
 
 // TODO(kailiu) The tests on UniversalCompaction has some issues:
 //  1. A lot of magic numbers ("11" or "12").
-//  2. Made assumption on the memtable flush conidtions, which may change from
+//  2. Made assumption on the memtable flush conditions, which may change from
 //     time to time.
 TEST(DBTest, UniversalCompactionTrigger) {
   Options options;
@@ -3521,7 +3521,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   }
   dbfull()->TEST_WaitForCompact();
   // Before compaction, we have 4 files at level 0, with size 4, 0.4, 1, 1.
-  // After comapction, we should have 2 files, with size 4, 2.4.
+  // After compaction, we should have 2 files, with size 4, 2.4.
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 2);
   for (int i = 1; i < options.num_levels ; i++) {
     ASSERT_EQ(NumTableFilesAtLevel(i, 1), 0);
@@ -3549,7 +3549,7 @@ TEST(DBTest, UniversalCompactionTrigger) {
   }
   dbfull()->TEST_WaitForCompact();
   // Before compaction, we have 4 files at level 0, with size 4, 2.4, 1, 1.
-  // After comapction, we should have 3 files, with size 4, 2.4, 2.
+  // After compaction, we should have 3 files, with size 4, 2.4, 2.
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 3);
   for (int i = 1; i < options.num_levels ; i++) {
     ASSERT_EQ(NumTableFilesAtLevel(i, 1), 0);
@@ -6799,6 +6799,86 @@ TEST(DBTest, RecoverCheckFileAmount) {
               static_cast<uint64_t>(1));
     ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
               static_cast<uint64_t>(1));
+  }
+}
+
+TEST(DBTest, SharedWriteBuffer) {
+  Options options;
+  options.db_write_buffer_size = 100000;  // this is the real limit
+  options.write_buffer_size    = 500000;  // this is never hit
+  CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
+
+  // Trigger a flush on every CF
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  ASSERT_OK(Put(1, Key(1), DummyString(1)));
+  ASSERT_OK(Put(3, Key(1), DummyString(90000)));
+  ASSERT_OK(Put(2, Key(2), DummyString(20000)));
+  ASSERT_OK(Put(2, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[0]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(1));
+  }
+
+  // Flush 'dobrynia' and 'nikitich'
+  ASSERT_OK(Put(2, Key(2), DummyString(50000)));
+  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
+  ASSERT_OK(Put(2, Key(3), DummyString(20000)));
+  ASSERT_OK(Put(3, Key(2), DummyString(40000)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(2));
+  }
+
+  // Make 'dobrynia' and 'nikitich' both take up 40% of space
+  // When 'pikachu' puts us over 100%, all 3 flush.
+  ASSERT_OK(Put(2, Key(2), DummyString(40000)));
+  ASSERT_OK(Put(1, Key(2), DummyString(20000)));
+  ASSERT_OK(Put(0, Key(1), DummyString(1)));
+  dbfull()->TEST_WaitForFlushMemTable(handles_[2]);
+  dbfull()->TEST_WaitForFlushMemTable(handles_[3]);
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(1));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(3));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(3));
+  }
+
+  // Some remaining writes so 'default' and 'nikitich' flush on closure.
+  ASSERT_OK(Put(3, Key(1), DummyString(1)));
+  ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
+                           options);
+  {
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "default"),
+              static_cast<uint64_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "pikachu"),
+              static_cast<uint64_t>(2));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "dobrynia"),
+              static_cast<uint64_t>(3));
+    ASSERT_EQ(GetNumberOfSstFilesForColumnFamily(db_, "nikitich"),
+              static_cast<uint64_t>(4));
   }
 }
 

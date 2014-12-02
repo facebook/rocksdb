@@ -21,6 +21,9 @@
 
 #include "db/compaction_picker.h"
 #include "db/db_impl.h"
+#include "db/job_context.h"
+#include "db/version_set.h"
+#include "db/writebuffer.h"
 #include "db/internal_stats.h"
 #include "db/job_context.h"
 #include "db/table_properties_collector.h"
@@ -223,6 +226,7 @@ void SuperVersionUnrefHandle(void* ptr) {
 ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
                                    Version* _dummy_versions,
                                    Cache* _table_cache,
+                                   WriteBuffer* write_buffer,
                                    const ColumnFamilyOptions& cf_options,
                                    const DBOptions* db_options,
                                    const EnvOptions& env_options,
@@ -237,6 +241,7 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       options_(*db_options, SanitizeOptions(&internal_comparator_, cf_options)),
       ioptions_(options_),
       mutable_cf_options_(options_, ioptions_),
+      write_buffer_(write_buffer),
       mem_(nullptr),
       imm_(options_.min_write_buffer_number_to_merge),
       super_version_(nullptr),
@@ -413,13 +418,19 @@ void ColumnFamilyData::SetCurrent(Version* current_version) {
   current_ = current_version;
 }
 
-void ColumnFamilyData::CreateNewMemtable(
+MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options) {
   assert(current_ != nullptr);
+  return new MemTable(internal_comparator_, ioptions_,
+                      mutable_cf_options, write_buffer_);
+}
+
+void ColumnFamilyData::CreateNewMemtable(
+    const MutableCFOptions& mutable_cf_options) {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  mem_ = new MemTable(internal_comparator_, ioptions_, mutable_cf_options);
+  SetMemtable(ConstructNewMemtable(mutable_cf_options));
   mem_->Ref();
 }
 
@@ -600,9 +611,10 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
                                  const DBOptions* db_options,
                                  const EnvOptions& env_options,
                                  Cache* table_cache,
+                                 WriteBuffer* write_buffer,
                                  WriteController* write_controller)
     : max_column_family_(0),
-      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr,
+      dummy_cfd_(new ColumnFamilyData(0, "", nullptr, nullptr, nullptr,
                                       ColumnFamilyOptions(), db_options,
                                       env_options, nullptr)),
       default_cfd_cache_(nullptr),
@@ -610,6 +622,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       db_options_(db_options),
       env_options_(env_options),
       table_cache_(table_cache),
+      write_buffer_(write_buffer),
       write_controller_(write_controller),
       spin_lock_(ATOMIC_FLAG_INIT) {
   // initialize linked list
@@ -674,8 +687,9 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const ColumnFamilyOptions& options) {
   assert(column_families_.find(name) == column_families_.end());
   ColumnFamilyData* new_cfd =
-      new ColumnFamilyData(id, name, dummy_versions, table_cache_, options,
-                           db_options_, env_options_, this);
+      new ColumnFamilyData(id, name, dummy_versions, table_cache_,
+                           write_buffer_, options, db_options_,
+                           env_options_, this);
   Lock();
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});

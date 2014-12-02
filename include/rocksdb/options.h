@@ -205,6 +205,9 @@ struct ColumnFamilyOptions {
   // Also, a larger write buffer will result in a longer recovery time
   // the next time the database is opened.
   //
+  // Note that write_buffer_size is enforced per column family.
+  // See db_write_buffer_size for sharing memory across column families.
+  //
   // Default: 4MB
   //
   // Dynamically changeable through SetOptions() API
@@ -858,6 +861,18 @@ struct DBOptions {
   // access pattern is random, when a sst file is opened.
   // Default: true
   bool advise_random_on_open;
+
+  // Amount of data to build up in memtables across all column
+  // families before writing to disk.
+  //
+  // This is distinct from write_buffer_size, which enforces a limit
+  // for a single memtable.
+  //
+  // This feature is disabled by default. Specify a non-zero value
+  // to enable it.
+  //
+  // Default: 0 (disabled)
+  size_t db_write_buffer_size;
 
   // Specify the file access pattern once a compaction is started.
   // It will be applied to all input files of a compaction.

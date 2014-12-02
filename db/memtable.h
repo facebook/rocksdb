@@ -19,16 +19,17 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/immutable_options.h"
+#include "db/memtable_allocator.h"
 #include "util/arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
-class Arena;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
+class WriteBuffer;
 
 struct MemTableOptions {
   explicit MemTableOptions(
@@ -67,7 +68,8 @@ class MemTable {
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
-                    const MutableCFOptions& mutable_cf_options);
+                    const MutableCFOptions& mutable_cf_options,
+                    WriteBuffer* write_buffer);
 
   ~MemTable();
 
@@ -183,7 +185,10 @@ class MemTable {
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
   // Notify the underlying storage that no more items will be added
-  void MarkImmutable() { table_->MarkReadOnly(); }
+  void MarkImmutable() {
+    table_->MarkReadOnly();
+    allocator_.DoneAllocating();
+  }
 
   // return true if the current MemTableRep supports merge operator.
   bool IsMergeOperatorSupported() const {
@@ -200,8 +205,6 @@ class MemTable {
     return comparator_.comparator;
   }
 
-  const Arena& TEST_GetArena() const { return arena_; }
-
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
 
  private:
@@ -217,6 +220,7 @@ class MemTable {
   int refs_;
   const size_t kArenaBlockSize;
   Arena arena_;
+  MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
 
   uint64_t num_entries_;

@@ -50,6 +50,7 @@ class LookupKey;
 class MemTable;
 class Version;
 class VersionSet;
+class WriteBuffer;
 class MergeContext;
 class ColumnFamilyData;
 class ColumnFamilySet;
@@ -475,7 +476,7 @@ class VersionSet {
  public:
   VersionSet(const std::string& dbname, const DBOptions* db_options,
              const EnvOptions& env_options, Cache* table_cache,
-             WriteController* write_controller);
+             WriteBuffer* write_buffer, WriteController* write_controller);
   ~VersionSet();
 
   // Apply *edit to the current version to form a new descriptor that

@@ -14,8 +14,8 @@
 //  (4) Items are never deleted.
 // The liberal use of assertions is encouraged to enforce (1).
 //
-// The factory will be passed an Arena object when a new MemTableRep is
-// requested. The API for this object is in rocksdb/arena.h.
+// The factory will be passed an MemTableAllocator object when a new MemTableRep
+// is requested.
 //
 // Users can implement their own memtable representations. We include three
 // types built in:
@@ -41,6 +41,7 @@
 namespace rocksdb {
 
 class Arena;
+class MemTableAllocator;
 class LookupKey;
 class Slice;
 class SliceTransform;
@@ -65,7 +66,7 @@ class MemTableRep {
     virtual ~KeyComparator() { }
   };
 
-  explicit MemTableRep(Arena* arena) : arena_(arena) {}
+  explicit MemTableRep(MemTableAllocator* allocator) : allocator_(allocator) {}
 
   // Allocate a buf of len size for storing key. The idea is that a specific
   // memtable representation knows its underlying data structure better. By
@@ -101,7 +102,7 @@ class MemTableRep {
                    bool (*callback_func)(void* arg, const char* entry));
 
   // Report an approximation of how much memory has been used other than memory
-  // that was allocated through the arena.
+  // that was allocated through the allocator.
   virtual size_t ApproximateMemoryUsage() = 0;
 
   virtual ~MemTableRep() { }
@@ -150,7 +151,7 @@ class MemTableRep {
 
   // Return an iterator that has a special Seek semantics. The result of
   // a Seek might only include keys with the same prefix as the target key.
-  // arena: If not null, the arena needs to be used to allocate the Iterator.
+  // arena: If not null, the arena is used to allocate the Iterator.
   //        When destroying the iterator, the caller will not call "delete"
   //        but Iterator::~Iterator() directly. The destructor needs to destroy
   //        all the states but those allocated in arena.
@@ -171,7 +172,7 @@ class MemTableRep {
   // user key.
   virtual Slice UserKey(const char* key) const;
 
-  Arena* arena_;
+  MemTableAllocator* allocator_;
 };
 
 // This is the base class for all factories that are used by RocksDB to create
@@ -180,7 +181,8 @@ class MemTableRepFactory {
  public:
   virtual ~MemTableRepFactory() {}
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Arena*, const SliceTransform*,
+                                         MemTableAllocator*,
+                                         const SliceTransform*,
                                          Logger* logger) = 0;
   virtual const char* Name() const = 0;
 };
@@ -197,7 +199,8 @@ class SkipListFactory : public MemTableRepFactory {
   explicit SkipListFactory(size_t lookahead = 0) : lookahead_(lookahead) {}
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Arena*, const SliceTransform*,
+                                         MemTableAllocator*,
+                                         const SliceTransform*,
                                          Logger* logger) override;
   virtual const char* Name() const override { return "SkipListFactory"; }
 
@@ -220,7 +223,8 @@ class VectorRepFactory : public MemTableRepFactory {
  public:
   explicit VectorRepFactory(size_t count = 0) : count_(count) { }
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Arena*, const SliceTransform*,
+                                         MemTableAllocator*,
+                                         const SliceTransform*,
                                          Logger* logger) override;
   virtual const char* Name() const override {
     return "VectorRepFactory";

@@ -20,6 +20,7 @@
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
+#include "db/writebuffer.h"
 
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
@@ -427,15 +428,15 @@ uint64_t TableConstructor::cur_uniq_id_ = 1;
 
 class MemTableConstructor: public Constructor {
  public:
-  explicit MemTableConstructor(const Comparator* cmp)
+  explicit MemTableConstructor(const Comparator* cmp, WriteBuffer* wb)
       : Constructor(cmp),
         internal_comparator_(cmp),
+        write_buffer_(wb),
         table_factory_(new SkipListFactory) {
-    Options options;
-    options.memtable_factory = table_factory_;
-    ImmutableCFOptions ioptions(options);
+    options_.memtable_factory = table_factory_;
+    ImmutableCFOptions ioptions(options_);
     memtable_ = new MemTable(internal_comparator_, ioptions,
-                             MutableCFOptions(options, ioptions));
+                             MutableCFOptions(options_, ioptions), wb);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -446,11 +447,10 @@ class MemTableConstructor: public Constructor {
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& kv_map) {
     delete memtable_->Unref();
-    Options options;
-    options.memtable_factory = table_factory_;
-    ImmutableCFOptions mem_ioptions(options);
+    ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
-                             MutableCFOptions(options, mem_ioptions));
+                             MutableCFOptions(options_, mem_ioptions),
+                             write_buffer_);
     memtable_->Ref();
     int seq = 1;
     for (const auto kv : kv_map) {
@@ -471,6 +471,8 @@ class MemTableConstructor: public Constructor {
  private:
   mutable Arena arena_;
   InternalKeyComparator internal_comparator_;
+  Options options_;
+  WriteBuffer* write_buffer_;
   MemTable* memtable_;
   std::shared_ptr<SkipListFactory> table_factory_;
 };
@@ -696,7 +698,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
 
 class Harness {
  public:
-  Harness() : ioptions_(options_), constructor_(nullptr) {}
+  Harness()
+    : ioptions_(options_), constructor_(nullptr),
+      write_buffer_(options_.db_write_buffer_size) {}
 
   void Init(const TestArgs& args) {
     delete constructor_;
@@ -773,7 +777,8 @@ class Harness {
         table_options_.block_size = 256;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
-        constructor_ = new MemTableConstructor(options_.comparator);
+        constructor_ = new MemTableConstructor(options_.comparator,
+                                               &write_buffer_);
         break;
       case DB_TEST:
         table_options_.block_size = 256;
@@ -981,6 +986,7 @@ class Harness {
   ImmutableCFOptions ioptions_;
   BlockBasedTableOptions table_options_ = BlockBasedTableOptions();
   Constructor* constructor_;
+  WriteBuffer write_buffer_;
   bool support_prev_;
   bool only_support_prefix_seek_;
   shared_ptr<InternalKeyComparator> internal_comparator_;
@@ -1870,8 +1876,9 @@ TEST(MemTableTest, Simple) {
   Options options;
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
+  WriteBuffer wb(options.db_write_buffer_size);
   MemTable* memtable = new MemTable(cmp, ioptions,
-                                    MutableCFOptions(options, ioptions));
+                                    MutableCFOptions(options, ioptions), &wb);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

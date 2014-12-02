@@ -24,6 +24,7 @@
 #include "db/column_family.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
+#include "db/writebuffer.h"
 #include "memtable_list.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
@@ -435,6 +436,8 @@ class DBImpl : public DB {
   bool single_column_family_mode_;
 
   std::unique_ptr<Directory> db_directory_;
+
+  WriteBuffer write_buffer_;
 
   WriteThread write_thread_;
 

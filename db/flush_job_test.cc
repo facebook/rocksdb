@@ -9,6 +9,7 @@
 #include "db/flush_job.h"
 #include "db/column_family.h"
 #include "db/version_set.h"
+#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -25,8 +26,10 @@ class FlushJobTest {
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/flush_job_test"),
         table_cache_(NewLRUCache(50000, 16, 8)),
+        write_buffer_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_controller_)),
+                                 table_cache_.get(), &write_buffer_,
+                                 &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
     ASSERT_OK(env_->CreateDirIfMissing(dbname_));
@@ -69,6 +72,7 @@ class FlushJobTest {
   std::shared_ptr<Cache> table_cache_;
   WriteController write_controller_;
   DBOptions db_options_;
+  WriteBuffer write_buffer_;
   ColumnFamilyOptions cf_options_;
   std::unique_ptr<VersionSet> versions_;
   port::Mutex mutex_;
@@ -91,9 +95,7 @@ TEST(FlushJobTest, Empty) {
 TEST(FlushJobTest, NonEmpty) {
   JobContext job_context;
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-
-  auto new_mem = new MemTable(cfd->internal_comparator(), *cfd->ioptions(),
-                              *cfd->GetLatestMutableCFOptions());
+  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions());
   new_mem->Ref();
   std::map<std::string, std::string> inserted_keys;
   for (int i = 1; i < 10000; ++i) {

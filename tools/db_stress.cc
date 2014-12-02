@@ -114,6 +114,9 @@ DEFINE_bool(verbose, false, "Verbose");
 DEFINE_bool(progress_reports, true,
             "If true, db_stress will report number of finished operations");
 
+DEFINE_uint64(db_write_buffer_size, rocksdb::Options().db_write_buffer_size,
+              "Number of bytes to buffer in all memtables before compacting");
+
 DEFINE_int32(write_buffer_size,
              static_cast<int32_t>(rocksdb::Options().write_buffer_size),
              "Number of bytes to buffer in memtable before compacting");
@@ -1682,6 +1685,7 @@ class StressTest {
     fprintf(stdout, "Write percentage    : %d%%\n", FLAGS_writepercent);
     fprintf(stdout, "Delete percentage   : %d%%\n", FLAGS_delpercent);
     fprintf(stdout, "Iterate percentage  : %d%%\n", FLAGS_iterpercent);
+    fprintf(stdout, "DB-write-buffer-size: %lu\n", FLAGS_db_write_buffer_size);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout,
             "Iterations          : %lu\n",
@@ -1753,6 +1757,7 @@ class StressTest {
     block_based_options.filter_policy = filter_policy_;
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
+    options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
     options_.write_buffer_size = FLAGS_write_buffer_size;
     options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options_.min_write_buffer_number_to_merge =

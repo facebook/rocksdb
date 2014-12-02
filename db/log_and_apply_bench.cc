@@ -15,6 +15,7 @@
 #include "util/benchharness.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
+#include "db/writebuffer.h"
 #include "util/mutexlock.h"
 
 namespace rocksdb {
@@ -52,9 +53,10 @@ void BM_LogAndApply(int iters, int num_base_files) {
     // Notice we are using the default options not through SanitizeOptions().
     // We might want to initialize some options manually if needed.
     options.db_paths.emplace_back(dbname, 0);
+    WriteBuffer wb(options.db_write_buffer_size);
     // The parameter of table cache is passed in as null, so any file I/O
     // operation is likely to fail.
-    vset = new VersionSet(dbname, &options, sopt, nullptr, &wc);
+    vset = new VersionSet(dbname, &options, sopt, nullptr, &wb, &wc);
     std::vector<ColumnFamilyDescriptor> dummy;
     dummy.push_back(ColumnFamilyDescriptor());
     ASSERT_OK(vset->Recover(dummy));

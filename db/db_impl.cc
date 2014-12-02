@@ -44,6 +44,7 @@
 #include "db/forward_iterator.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
+#include "db/writebuffer.h"
 #include "db/write_batch_internal.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
@@ -201,6 +202,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       default_cf_handle_(nullptr),
       total_log_size_(0),
       max_total_in_memory_state_(0),
+      write_buffer_(options.db_write_buffer_size),
       tmp_batch_(),
       bg_schedule_needed_(false),
       bg_compaction_scheduled_(0),
@@ -231,7 +233,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
                   db_options_.table_cache_remove_scan_count_limit);
 
   versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_controller_));
+                                 table_cache_.get(), &write_buffer_,
+                                 &write_controller_));
   column_family_memtables_.reset(new ColumnFamilyMemTablesImpl(
       versions_->GetColumnFamilySet(), &flush_scheduler_));
 
@@ -2823,6 +2826,23 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
       }
     }
     MaybeScheduleFlushOrCompaction();
+  } else if (UNLIKELY(write_buffer_.ShouldFlush())) {
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "Flushing all column families. Write buffer is using %" PRIu64
+        " bytes out of a total of %" PRIu64 ".",
+        write_buffer_.memory_usage(), write_buffer_.buffer_size());
+    // no need to refcount because drop is happening in write thread, so can't
+    // happen while we're in the write thread
+    for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (!cfd->mem()->IsEmpty()) {
+        status = SetNewMemtableAndNewLogFile(cfd, &context);
+        if (!status.ok()) {
+          break;
+        }
+        cfd->imm()->FlushRequested();
+      }
+    }
+    MaybeScheduleFlushOrCompaction();
   }
 
   if (UNLIKELY(status.ok() && !bg_error_.ok())) {
@@ -3030,8 +3050,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     }
 
     if (s.ok()) {
-      new_mem = new MemTable(cfd->internal_comparator(), *cfd->ioptions(),
-                             mutable_cf_options);
+      new_mem = cfd->ConstructNewMemtable(mutable_cf_options);
       new_superversion = new SuperVersion();
     }
   }

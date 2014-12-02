@@ -13,6 +13,7 @@
 #include "db/log_writer.h"
 #include "db/column_family.h"
 #include "db/version_set.h"
+#include "db/writebuffer.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "table/mock_table.h"
@@ -28,6 +29,7 @@ class WalManagerTest {
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/wal_manager_test"),
         table_cache_(NewLRUCache(50000, 16, 8)),
+        write_buffer_(db_options_.db_write_buffer_size),
         current_log_number_(0) {
     DestroyDB(dbname_, Options());
   }
@@ -40,7 +42,8 @@ class WalManagerTest {
     db_options_.wal_dir = dbname_;
 
     versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
-                                   table_cache_.get(), &write_controller_));
+                                   table_cache_.get(), &write_buffer_,
+                                   &write_controller_));
 
     wal_manager_.reset(new WalManager(db_options_, env_options_));
   }
@@ -93,6 +96,7 @@ class WalManagerTest {
   EnvOptions env_options_;
   std::shared_ptr<Cache> table_cache_;
   DBOptions db_options_;
+  WriteBuffer write_buffer_;
   std::unique_ptr<VersionSet> versions_;
   std::unique_ptr<WalManager> wal_manager_;
 

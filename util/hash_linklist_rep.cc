@@ -45,10 +45,10 @@ struct SkipListBucketHeader {
   MemtableSkipList skip_list;
 
   explicit SkipListBucketHeader(const MemTableRep::KeyComparator& cmp,
-                                Arena* arena, uint32_t count)
+                                MemTableAllocator* allocator, uint32_t count)
       : Counting_header(this,  // Pointing to itself to indicate header type.
                         count),
-        skip_list(cmp, arena) {}
+        skip_list(cmp, allocator) {}
 };
 
 struct Node {
@@ -143,10 +143,11 @@ struct Node {
 // which can be significant decrease of memory utilization.
 class HashLinkListRep : public MemTableRep {
  public:
-  HashLinkListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
-                  const SliceTransform* transform, size_t bucket_size,
-                  uint32_t threshold_use_skiplist, size_t huge_page_tlb_size,
-                  Logger* logger, int bucket_entries_logging_threshold,
+  HashLinkListRep(const MemTableRep::KeyComparator& compare,
+                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  size_t bucket_size, uint32_t threshold_use_skiplist,
+                  size_t huge_page_tlb_size, Logger* logger,
+                  int bucket_entries_logging_threshold,
                   bool if_log_bucket_dist_when_flash);
 
   virtual KeyHandle Allocate(const size_t len, char** buf) override;
@@ -166,7 +167,7 @@ class HashLinkListRep : public MemTableRep {
   virtual MemTableRep::Iterator* GetIterator(Arena* arena = nullptr) override;
 
   virtual MemTableRep::Iterator* GetDynamicPrefixIterator(
-      Arena* arena = nullptr) override;
+       Arena* arena = nullptr) override;
 
  private:
   friend class DynamicIterator;
@@ -233,8 +234,8 @@ class HashLinkListRep : public MemTableRep {
 
   class FullListIterator : public MemTableRep::Iterator {
    public:
-    explicit FullListIterator(MemtableSkipList* list, Arena* arena)
-        : iter_(list), full_list_(list), arena_(arena) {}
+    explicit FullListIterator(MemtableSkipList* list, Allocator* allocator)
+        : iter_(list), full_list_(list), allocator_(allocator) {}
 
     virtual ~FullListIterator() {
     }
@@ -288,7 +289,7 @@ class HashLinkListRep : public MemTableRep {
     MemtableSkipList::Iterator iter_;
     // To destruct with the iterator.
     std::unique_ptr<MemtableSkipList> full_list_;
-    std::unique_ptr<Arena> arena_;
+    std::unique_ptr<Allocator> allocator_;
     std::string tmp_;       // For passing to EncodeKey
   };
 
@@ -453,13 +454,14 @@ class HashLinkListRep : public MemTableRep {
 };
 
 HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
-                                 Arena* arena, const SliceTransform* transform,
+                                 MemTableAllocator* allocator,
+                                 const SliceTransform* transform,
                                  size_t bucket_size,
                                  uint32_t threshold_use_skiplist,
                                  size_t huge_page_tlb_size, Logger* logger,
                                  int bucket_entries_logging_threshold,
                                  bool if_log_bucket_dist_when_flash)
-    : MemTableRep(arena),
+    : MemTableRep(allocator),
       bucket_size_(bucket_size),
       // Threshold to use skip list doesn't make sense if less than 3, so we
       // force it to be minimum of 3 to simplify implementation.
@@ -469,7 +471,7 @@ HashLinkListRep::HashLinkListRep(const MemTableRep::KeyComparator& compare,
       logger_(logger),
       bucket_entries_logging_threshold_(bucket_entries_logging_threshold),
       if_log_bucket_dist_when_flash_(if_log_bucket_dist_when_flash) {
-  char* mem = arena_->AllocateAligned(sizeof(Pointer) * bucket_size,
+  char* mem = allocator_->AllocateAligned(sizeof(Pointer) * bucket_size,
                                       huge_page_tlb_size, logger);
 
   buckets_ = new (mem) Pointer[bucket_size];
@@ -483,7 +485,7 @@ HashLinkListRep::~HashLinkListRep() {
 }
 
 KeyHandle HashLinkListRep::Allocate(const size_t len, char** buf) {
-  char* mem = arena_->AllocateAligned(sizeof(Node) + len);
+  char* mem = allocator_->AllocateAligned(sizeof(Node) + len);
   Node* x = new (mem) Node();
   *buf = x->key;
   return static_cast<void*>(x);
@@ -559,7 +561,7 @@ void HashLinkListRep::Insert(KeyHandle handle) {
     // the new node. Otherwise, we might need to change next pointer of first.
     // In that case, a reader might sees the next pointer is NULL and wrongly
     // think the node is a bucket header.
-    auto* mem = arena_->AllocateAligned(sizeof(BucketHeader));
+    auto* mem = allocator_->AllocateAligned(sizeof(BucketHeader));
     header = new (mem) BucketHeader(first, 1);
     bucket.store(header, std::memory_order_release);
   } else {
@@ -591,9 +593,9 @@ void HashLinkListRep::Insert(KeyHandle handle) {
     LinkListIterator bucket_iter(
         this, reinterpret_cast<Node*>(
                   first_next_pointer->load(std::memory_order_relaxed)));
-    auto mem = arena_->AllocateAligned(sizeof(SkipListBucketHeader));
+    auto mem = allocator_->AllocateAligned(sizeof(SkipListBucketHeader));
     SkipListBucketHeader* new_skip_list_header = new (mem)
-        SkipListBucketHeader(compare_, arena_, header->num_entries + 1);
+        SkipListBucketHeader(compare_, allocator_, header->num_entries + 1);
     auto& skip_list = new_skip_list_header->skip_list;
 
     // Add all current entries to the skip list
@@ -669,7 +671,7 @@ bool HashLinkListRep::Contains(const char* key) const {
 }
 
 size_t HashLinkListRep::ApproximateMemoryUsage() {
-  // Memory is always allocated from the arena.
+  // Memory is always allocated from the allocator.
   return 0;
 }
 
@@ -700,7 +702,7 @@ void HashLinkListRep::Get(const LookupKey& k, void* callback_args,
 
 MemTableRep::Iterator* HashLinkListRep::GetIterator(Arena* alloc_arena) {
   // allocate a new arena of similar size to the one currently in use
-  Arena* new_arena = new Arena(arena_->BlockSize());
+  Arena* new_arena = new Arena(allocator_->BlockSize());
   auto list = new MemtableSkipList(compare_, new_arena);
   HistogramImpl keys_per_bucket_hist;
 
@@ -784,9 +786,9 @@ Node* HashLinkListRep::FindGreaterOrEqualInBucket(Node* head,
 } // anon namespace
 
 MemTableRep* HashLinkListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
     const SliceTransform* transform, Logger* logger) {
-  return new HashLinkListRep(compare, arena, transform, bucket_count_,
+  return new HashLinkListRep(compare, allocator, transform, bucket_count_,
                              threshold_use_skiplist_, huge_page_tlb_size_,
                              logger, bucket_entries_logging_threshold_,
                              if_log_bucket_dist_when_flash_);

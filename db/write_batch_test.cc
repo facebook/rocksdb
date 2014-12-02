@@ -13,6 +13,7 @@
 #include "db/memtable.h"
 #include "db/column_family.h"
 #include "db/write_batch_internal.h"
+#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -28,8 +29,9 @@ static std::string PrintContents(WriteBatch* b) {
   Options options;
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
+  WriteBuffer wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions,
-                               MutableCFOptions(options, ioptions));
+                               MutableCFOptions(options, ioptions), &wb);
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);

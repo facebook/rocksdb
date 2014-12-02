@@ -9,6 +9,7 @@
 #include "db/compaction_job.h"
 #include "db/column_family.h"
 #include "db/version_set.h"
+#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/db.h"
@@ -26,8 +27,10 @@ class CompactionJobTest {
         dbname_(test::TmpDir() + "/compaction_job_test"),
         mutable_cf_options_(Options(), ImmutableCFOptions(Options())),
         table_cache_(NewLRUCache(50000, 16, 8)),
+        write_buffer_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
-                                 table_cache_.get(), &write_controller_)),
+                                 table_cache_.get(), &write_buffer_,
+                                 &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
     ASSERT_OK(env_->CreateDirIfMissing(dbname_));
@@ -125,6 +128,7 @@ class CompactionJobTest {
   WriteController write_controller_;
   DBOptions db_options_;
   ColumnFamilyOptions cf_options_;
+  WriteBuffer write_buffer_;
   std::unique_ptr<VersionSet> versions_;
   port::Mutex mutex_;
   std::atomic<bool> shutting_down_;

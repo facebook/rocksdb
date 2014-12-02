@@ -7,7 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// Arena is an implementation of Arena class. For a request of small size,
+// Arena is an implementation of Allocator class. For a request of small size,
 // it allocates a block with pre-defined block size. For a request of big
 // size, it uses malloc to directly get the requested size.
 
@@ -17,15 +17,13 @@
 #include <vector>
 #include <assert.h>
 #include <stdint.h>
-#include "util/arena.h"
+#include "util/allocator.h"
 
 namespace rocksdb {
 
-class Logger;
-
 const size_t kInlineSize = 2048;
 
-class Arena {
+class Arena : public Allocator {
  public:
   // No copying allowed
   Arena(const Arena&) = delete;
@@ -41,7 +39,7 @@ class Arena {
   explicit Arena(size_t block_size = kMinBlockSize, size_t huge_page_size = 0);
   ~Arena();
 
-  char* Allocate(size_t bytes);
+  char* Allocate(size_t bytes) override;
 
   // huge_page_size: if >0, will try to allocate from huage page TLB.
   // The argument will be the size of the page size for huge page TLB. Bytes
@@ -56,7 +54,7 @@ class Arena {
   // huge_page_tlb_size > 0, we highly recommend a logger is passed in.
   // Otherwise, the error message will be printed out to stderr directly.
   char* AllocateAligned(size_t bytes, size_t huge_page_size = 0,
-                        Logger* logger = nullptr);
+                        Logger* logger = nullptr) override;
 
   // Returns an estimate of the total memory usage of data allocated
   // by the arena (exclude the space allocated but not yet used for future
@@ -74,7 +72,7 @@ class Arena {
   // same size of that allocation.
   size_t IrregularBlockNum() const { return irregular_block_num; }
 
-  size_t BlockSize() const { return kBlockSize; }
+  size_t BlockSize() const override { return kBlockSize; }
 
  private:
   char inline_block_[kInlineSize];

@@ -201,8 +201,9 @@ class ColumnFamilyData {
   MemTable* mem() { return mem_; }
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
-  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void SetCurrent(Version* current);
+  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options);
+  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);
 
   TableCache* table_cache() const { return table_cache_.get(); }
@@ -264,6 +265,7 @@ class ColumnFamilyData {
   friend class ColumnFamilySet;
   ColumnFamilyData(uint32_t id, const std::string& name,
                    Version* dummy_versions, Cache* table_cache,
+                   WriteBuffer* write_buffer,
                    const ColumnFamilyOptions& options,
                    const DBOptions* db_options, const EnvOptions& env_options,
                    ColumnFamilySet* column_family_set);
@@ -293,6 +295,8 @@ class ColumnFamilyData {
   std::unique_ptr<TableCache> table_cache_;
 
   std::unique_ptr<InternalStats> internal_stats_;
+
+  WriteBuffer* write_buffer_;
 
   MemTable* mem_;
   MemTableList imm_;
@@ -366,7 +370,7 @@ class ColumnFamilySet {
 
   ColumnFamilySet(const std::string& dbname, const DBOptions* db_options,
                   const EnvOptions& env_options, Cache* table_cache,
-                  WriteController* write_controller);
+                  WriteBuffer* write_buffer, WriteController* write_controller);
   ~ColumnFamilySet();
 
   ColumnFamilyData* GetDefault() const;
@@ -421,6 +425,7 @@ class ColumnFamilySet {
   const DBOptions* const db_options_;
   const EnvOptions env_options_;
   Cache* table_cache_;
+  WriteBuffer* write_buffer_;
   WriteController* write_controller_;
   std::atomic_flag spin_lock_;
 };

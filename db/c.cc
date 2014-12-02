@@ -1264,6 +1264,11 @@ void rocksdb_options_set_info_log_level(
   opt->rep.info_log_level = static_cast<InfoLogLevel>(v);
 }
 
+void rocksdb_options_set_db_write_buffer_size(rocksdb_options_t* opt,
+                                              size_t s) {
+  opt->rep.db_write_buffer_size = s;
+}
+
 void rocksdb_options_set_write_buffer_size(rocksdb_options_t* opt, size_t s) {
   opt->rep.write_buffer_size = s;
 }

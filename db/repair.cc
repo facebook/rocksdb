@@ -45,6 +45,7 @@
 #include "db/memtable.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
+#include "db/writebuffer.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -220,8 +221,9 @@ class Repairer {
     std::string scratch;
     Slice record;
     WriteBatch batch;
+    WriteBuffer wb(options_.db_write_buffer_size);
     MemTable* mem = new MemTable(icmp_, ioptions_,
-                                 MutableCFOptions(options_, ioptions_));
+                                 MutableCFOptions(options_, ioptions_), &wb);
     auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem);
     mem->Ref();
     int counter = 0;

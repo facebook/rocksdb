@@ -15,6 +15,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/writebuffer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -52,14 +53,17 @@ MemTableOptions::MemTableOptions(
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
-                   const MutableCFOptions& mutable_cf_options)
+                   const MutableCFOptions& mutable_cf_options,
+                   WriteBuffer* write_buffer)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
       arena_(moptions_.arena_block_size),
+      allocator_(&arena_, write_buffer),
       table_(ioptions.memtable_factory->CreateMemTableRep(
-          comparator_, &arena_, ioptions.prefix_extractor, ioptions.info_log)),
+          comparator_, &allocator_, ioptions.prefix_extractor,
+          ioptions.info_log)),
       num_entries_(0),
       flush_in_progress_(false),
       flush_completed_(false),
@@ -76,7 +80,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   assert(!should_flush_);
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
-        &arena_,
+        &allocator_,
         moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
         moptions_.memtable_prefix_bloom_probes, nullptr,
         moptions_.memtable_prefix_bloom_huge_page_tlb_size,
@@ -179,7 +183,7 @@ Slice MemTableRep::UserKey(const char* key) const {
 }
 
 KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
-  *buf = arena_->Allocate(len);
+  *buf = allocator_->Allocate(len);
   return static_cast<KeyHandle>(*buf);
 }
 

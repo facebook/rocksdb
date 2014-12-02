@@ -17,6 +17,7 @@
 #include <inttypes.h>
 #include <limits>
 
+#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
@@ -230,6 +231,7 @@ DBOptions::DBOptions()
       skip_log_error_on_recovery(false),
       stats_dump_period_sec(3600),
       advise_random_on_open(true),
+      db_write_buffer_size(0),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
@@ -273,6 +275,7 @@ DBOptions::DBOptions(const Options& options)
       skip_log_error_on_recovery(options.skip_log_error_on_recovery),
       stats_dump_period_sec(options.stats_dump_period_sec),
       advise_random_on_open(options.advise_random_on_open),
+      db_write_buffer_size(options.db_write_buffer_size),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
@@ -336,6 +339,8 @@ void DBOptions::Dump(Logger* log) const {
         stats_dump_period_sec);
     Log(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
+    Log(log, "                   Options.db_write_buffer_size: %zd",
+        db_write_buffer_size);
     Log(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
     Log(log, "                      Options.use_adaptive_mutex: %d",

@@ -53,6 +53,8 @@ public:
     ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE +
         "=<block_size_in_bytes>\n");
     ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
+    ret.append("  --" + LDBCommand::ARG_DB_WRITE_BUFFER_SIZE +
+        "=<int,e.g.:16777216>\n");
     ret.append("  --" + LDBCommand::ARG_WRITE_BUFFER_SIZE +
         "=<int,e.g.:4194304>\n");
     ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");

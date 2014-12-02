@@ -23,9 +23,10 @@ namespace {
 
 class HashSkipListRep : public MemTableRep {
  public:
-  HashSkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
-                  const SliceTransform* transform, size_t bucket_size,
-                  int32_t skiplist_height, int32_t skiplist_branching_factor);
+  HashSkipListRep(const MemTableRep::KeyComparator& compare,
+                  MemTableAllocator* allocator, const SliceTransform* transform,
+                  size_t bucket_size, int32_t skiplist_height,
+                  int32_t skiplist_branching_factor);
 
   virtual void Insert(KeyHandle handle) override;
 
@@ -62,7 +63,7 @@ class HashSkipListRep : public MemTableRep {
 
   const MemTableRep::KeyComparator& compare_;
   // immutable after construction
-  Arena* const arena_;
+  MemTableAllocator* const allocator_;
 
   inline size_t GetHash(const Slice& slice) const {
     return MurmurHash(slice.data(), static_cast<int>(slice.size()), 0) %
@@ -221,17 +222,19 @@ class HashSkipListRep : public MemTableRep {
 };
 
 HashSkipListRep::HashSkipListRep(const MemTableRep::KeyComparator& compare,
-                                 Arena* arena, const SliceTransform* transform,
+                                 MemTableAllocator* allocator,
+                                 const SliceTransform* transform,
                                  size_t bucket_size, int32_t skiplist_height,
                                  int32_t skiplist_branching_factor)
-    : MemTableRep(arena),
+    : MemTableRep(allocator),
       bucket_size_(bucket_size),
       skiplist_height_(skiplist_height),
       skiplist_branching_factor_(skiplist_branching_factor),
       transform_(transform),
       compare_(compare),
-      arena_(arena) {
-  auto mem = arena->AllocateAligned(sizeof(std::atomic<void*>) * bucket_size);
+      allocator_(allocator) {
+  auto mem = allocator->AllocateAligned(
+               sizeof(std::atomic<void*>) * bucket_size);
   buckets_ = new (mem) std::atomic<Bucket*>[bucket_size];
 
   for (size_t i = 0; i < bucket_size_; ++i) {
@@ -247,8 +250,8 @@ HashSkipListRep::Bucket* HashSkipListRep::GetInitializedBucket(
   size_t hash = GetHash(transformed);
   auto bucket = GetBucket(hash);
   if (bucket == nullptr) {
-    auto addr = arena_->AllocateAligned(sizeof(Bucket));
-    bucket = new (addr) Bucket(compare_, arena_, skiplist_height_,
+    auto addr = allocator_->AllocateAligned(sizeof(Bucket));
+    bucket = new (addr) Bucket(compare_, allocator_, skiplist_height_,
                                skiplist_branching_factor_);
     buckets_[hash].store(bucket, std::memory_order_release);
   }
@@ -291,7 +294,7 @@ void HashSkipListRep::Get(const LookupKey& k, void* callback_args,
 
 MemTableRep::Iterator* HashSkipListRep::GetIterator(Arena* arena) {
   // allocate a new arena of similar size to the one currently in use
-  Arena* new_arena = new Arena(arena_->BlockSize());
+  Arena* new_arena = new Arena(allocator_->BlockSize());
   auto list = new Bucket(compare_, new_arena);
   for (size_t i = 0; i < bucket_size_; ++i) {
     auto bucket = GetBucket(i);
@@ -322,9 +325,9 @@ MemTableRep::Iterator* HashSkipListRep::GetDynamicPrefixIterator(Arena* arena) {
 } // anon namespace
 
 MemTableRep* HashSkipListRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
     const SliceTransform* transform, Logger* logger) {
-  return new HashSkipListRep(compare, arena, transform, bucket_count_,
+  return new HashSkipListRep(compare, allocator, transform, bucket_count_,
                              skiplist_height_, skiplist_branching_factor_);
 }
 

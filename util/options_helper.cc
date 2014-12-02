@@ -437,6 +437,8 @@ bool GetDBOptionsFromMap(
         new_options->stats_dump_period_sec = ParseUint32(o.second);
       } else if (o.first == "advise_random_on_open") {
         new_options->advise_random_on_open = ParseBoolean(o.first, o.second);
+      } else if (o.first == "db_write_buffer_size") {
+        new_options->db_write_buffer_size = ParseUint64(o.second);
       } else if (o.first == "use_adaptive_mutex") {
         new_options->use_adaptive_mutex = ParseBoolean(o.first, o.second);
       } else if (o.first == "bytes_per_sync") {

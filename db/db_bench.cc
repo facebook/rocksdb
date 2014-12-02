@@ -198,6 +198,9 @@ DEFINE_bool(enable_numa, false,
             "CPU and memory of same node. Use \"$numactl --hardware\" command "
             "to see NUMA memory architecture.");
 
+DEFINE_int64(db_write_buffer_size, rocksdb::Options().db_write_buffer_size,
+             "Number of bytes to buffer in all memtables before compacting");
+
 DEFINE_int64(write_buffer_size, rocksdb::Options().write_buffer_size,
              "Number of bytes to buffer in memtable before compacting");
 
@@ -1834,6 +1837,7 @@ class Benchmark {
     Options options;
     options.create_if_missing = !FLAGS_use_existing_db;
     options.create_missing_column_families = FLAGS_num_column_families > 1;
+    options.db_write_buffer_size = FLAGS_db_write_buffer_size;
     options.write_buffer_size = FLAGS_write_buffer_size;
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =

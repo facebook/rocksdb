@@ -34,9 +34,8 @@
 #include <assert.h>
 #include <atomic>
 #include <stdlib.h>
-#include "util/arena.h"
 #include "port/port.h"
-#include "util/arena.h"
+#include "util/allocator.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -48,9 +47,9 @@ class SkipList {
 
  public:
   // Create a new SkipList object that will use "cmp" for comparing keys,
-  // and will allocate memory using "*arena".  Objects allocated in the arena
-  // must remain allocated for the lifetime of the skiplist object.
-  explicit SkipList(Comparator cmp, Arena* arena,
+  // and will allocate memory using "*allocator".  Objects allocated in the
+  // allocator must remain allocated for the lifetime of the skiplist object.
+  explicit SkipList(Comparator cmp, Allocator* allocator,
                     int32_t max_height = 12, int32_t branching_factor = 4);
 
   // Insert key into the list.
@@ -110,7 +109,7 @@ class SkipList {
 
   // Immutable after construction
   Comparator const compare_;
-  Arena* const arena_;    // Arena used for allocations of nodes
+  Allocator* const allocator_;    // Allocator used for allocations of nodes
 
   Node* const head_;
 
@@ -196,7 +195,7 @@ struct SkipList<Key, Comparator>::Node {
 template<typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node*
 SkipList<Key, Comparator>::NewNode(const Key& key, int height) {
-  char* mem = arena_->AllocateAligned(
+  char* mem = allocator_->AllocateAligned(
       sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
   return new (mem) Node(key);
 }
@@ -356,23 +355,24 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
 }
 
 template<typename Key, class Comparator>
-SkipList<Key, Comparator>::SkipList(const Comparator cmp, Arena* arena,
+SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
                                    int32_t max_height,
                                    int32_t branching_factor)
     : kMaxHeight_(max_height),
       kBranching_(branching_factor),
       compare_(cmp),
-      arena_(arena),
+      allocator_(allocator),
       head_(NewNode(0 /* any key will do */, max_height)),
       max_height_(1),
       prev_height_(1),
       rnd_(0xdeadbeef) {
   assert(kMaxHeight_ > 0);
   assert(kBranching_ > 0);
-  // Allocate the prev_ Node* array, directly from the passed-in arena.
+  // Allocate the prev_ Node* array, directly from the passed-in allocator.
   // prev_ does not need to be freed, as its life cycle is tied up with
-  // the arena as a whole.
-  prev_ = (Node**) arena_->AllocateAligned(sizeof(Node*) * kMaxHeight_);
+  // the allocator as a whole.
+  prev_ = reinterpret_cast<Node**>(
+            allocator_->AllocateAligned(sizeof(Node*) * kMaxHeight_));
   for (int i = 0; i < kMaxHeight_; i++) {
     head_->SetNext(i, nullptr);
     prev_[i] = head_;

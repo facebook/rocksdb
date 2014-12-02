@@ -10,6 +10,7 @@
 #include "db/db_impl.h"
 #include "db/log_reader.h"
 #include "db/filename.h"
+#include "db/writebuffer.h"
 #include "db/write_batch_internal.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/cache.h"
@@ -44,6 +45,7 @@ const string LDBCommand::ARG_FIX_PREFIX_LEN = "fix_prefix_len";
 const string LDBCommand::ARG_COMPRESSION_TYPE = "compression_type";
 const string LDBCommand::ARG_BLOCK_SIZE = "block_size";
 const string LDBCommand::ARG_AUTO_COMPACTION = "auto_compaction";
+const string LDBCommand::ARG_DB_WRITE_BUFFER_SIZE = "db_write_buffer_size";
 const string LDBCommand::ARG_WRITE_BUFFER_SIZE = "write_buffer_size";
 const string LDBCommand::ARG_FILE_SIZE = "file_size";
 const string LDBCommand::ARG_CREATE_IF_MISSING = "create_if_missing";
@@ -273,6 +275,17 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       // Unknown compression.
       exec_state_ = LDBCommandExecuteResult::FAILED(
                       "Unknown compression level: " + comp);
+    }
+  }
+
+  int db_write_buffer_size;
+  if (ParseIntOption(option_map_, ARG_DB_WRITE_BUFFER_SIZE,
+        db_write_buffer_size, exec_state_)) {
+    if (db_write_buffer_size >= 0) {
+      opt.db_write_buffer_size = db_write_buffer_size;
+    } else {
+      exec_state_ = LDBCommandExecuteResult::FAILED(ARG_DB_WRITE_BUFFER_SIZE +
+                      " must be >= 0.");
     }
   }
 
@@ -584,7 +597,8 @@ void ManifestDumpCommand::DoCommand() {
   // SanitizeOptions(), we need to initialize it manually.
   options.db_paths.emplace_back("dummy", 0);
   WriteController wc;
-  VersionSet versions(dbname, &options, sopt, tc.get(), &wc);
+  WriteBuffer wb(options.db_write_buffer_size);
+  VersionSet versions(dbname, &options, sopt, tc.get(), &wb, &wc);
   Status s = versions.DumpManifest(options, file, verbose_, is_key_hex_);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", manifestfile.c_str(),
@@ -1111,7 +1125,8 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
                   opt.table_cache_remove_scan_count_limit));
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc;
-  VersionSet versions(db_path_, &opt, soptions, tc.get(), &wc);
+  WriteBuffer wb(opt.db_write_buffer_size);
+  VersionSet versions(db_path_, &opt, soptions, tc.get(), &wb, &wc);
   std::vector<ColumnFamilyDescriptor> dummy;
   ColumnFamilyDescriptor dummy_descriptor(kDefaultColumnFamilyName,
                                           ColumnFamilyOptions(opt));

@@ -53,6 +53,7 @@ public:
   static const string ARG_COMPRESSION_TYPE;
   static const string ARG_BLOCK_SIZE;
   static const string ARG_AUTO_COMPACTION;
+  static const string ARG_DB_WRITE_BUFFER_SIZE;
   static const string ARG_WRITE_BUFFER_SIZE;
   static const string ARG_FILE_SIZE;
   static const string ARG_CREATE_IF_MISSING;

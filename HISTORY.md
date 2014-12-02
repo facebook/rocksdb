@@ -8,6 +8,7 @@
   database which is an image of the existing database.
 *New API LinkFile added to Env. If you implement your own Env class, an
  implementation of the API LinkFile will have to be provided.
+* MemTableRep takes MemTableAllocator instead of Arena
 
 ## 3.8.0 (11/14/2014)
 

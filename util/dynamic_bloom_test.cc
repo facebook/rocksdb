@@ -21,6 +21,7 @@ int main() {
 
 #include "dynamic_bloom.h"
 #include "port/port.h"
+#include "util/arena.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 #include "util/testutil.h"

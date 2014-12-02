@@ -9,7 +9,6 @@
 
 #include "rocksdb/slice.h"
 
-#include "util/arena.h"
 #include "port/port_posix.h"
 
 #include <atomic>
@@ -18,11 +17,12 @@
 namespace rocksdb {
 
 class Slice;
+class Allocator;
 class Logger;
 
 class DynamicBloom {
  public:
-  // arena: pass arena to bloom filter, hence trace the usage of memory
+  // allocator: pass allocator to bloom filter, hence trace the usage of memory
   // total_bits: fixed total bits for the bloom
   // num_probes: number of hash probes for a single key
   // locality:  If positive, optimize for cache line locality, 0 otherwise.
@@ -32,7 +32,7 @@ class DynamicBloom {
   //                      it to be allocated, like:
   //                         sysctl -w vm.nr_hugepages=20
   //                     See linux doc Documentation/vm/hugetlbpage.txt
-  explicit DynamicBloom(Arena* arena,
+  explicit DynamicBloom(Allocator* allocator,
                         uint32_t total_bits, uint32_t locality = 0,
                         uint32_t num_probes = 6,
                         uint32_t (*hash_func)(const Slice& key) = nullptr,
@@ -42,8 +42,9 @@ class DynamicBloom {
   explicit DynamicBloom(uint32_t num_probes = 6,
                         uint32_t (*hash_func)(const Slice& key) = nullptr);
 
-  void SetTotalBits(Arena* arena, uint32_t total_bits, uint32_t locality,
-                    size_t huge_page_tlb_size, Logger* logger);
+  void SetTotalBits(Allocator* allocator, uint32_t total_bits,
+                    uint32_t locality, size_t huge_page_tlb_size,
+                    Logger* logger);
 
   ~DynamicBloom() {}
 
