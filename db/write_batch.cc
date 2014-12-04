@@ -48,20 +48,6 @@ WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
 
-void WriteBatch::Handler::Put(const Slice& key, const Slice& value) {
-  // you need to either implement Put or PutCF
-  throw std::runtime_error("Handler::Put not implemented!");
-}
-
-void WriteBatch::Handler::Merge(const Slice& key, const Slice& value) {
-  throw std::runtime_error("Handler::Merge not implemented!");
-}
-
-void WriteBatch::Handler::Delete(const Slice& key) {
-  // you need to either implement Delete or DeleteCF
-  throw std::runtime_error("Handler::Delete not implemented!");
-}
-
 void WriteBatch::Handler::LogData(const Slice& blob) {
   // If the user has not specified something to do with blobs, then we ignore
   // them.

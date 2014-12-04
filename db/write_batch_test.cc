@@ -187,6 +187,39 @@ namespace {
   };
 }
 
+TEST(WriteBatchTest, MergeNotImplemented) {
+  WriteBatch batch;
+  batch.Merge(Slice("foo"), Slice("bar"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Merge(foo, bar)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST(WriteBatchTest, PutNotImplemented) {
+  WriteBatch batch;
+  batch.Put(Slice("k1"), Slice("v1"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST(WriteBatchTest, DeleteNotImplemented) {
+  WriteBatch batch;
+  batch.Delete(Slice("k2"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Delete(k2)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
 TEST(WriteBatchTest, Blob) {
   WriteBatch batch;
   batch.Put(Slice("k1"), Slice("v1"));
