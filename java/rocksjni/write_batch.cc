@@ -19,6 +19,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/status.h"
 #include "db/write_batch_internal.h"
+#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "util/logging.h"
@@ -337,11 +338,12 @@ jbyteArray Java_org_rocksdb_test_WriteBatchTest_getContents(
   rocksdb::InternalKeyComparator cmp(rocksdb::BytewiseComparator());
   auto factory = std::make_shared<rocksdb::SkipListFactory>();
   rocksdb::Options options;
+  rocksdb::WriteBuffer wb(options.db_write_buffer_size);
   options.memtable_factory = factory;
   rocksdb::MemTable* mem = new rocksdb::MemTable(
       cmp, rocksdb::ImmutableCFOptions(options),
-      rocksdb::MutableCFOptions(options,
-      rocksdb::ImmutableCFOptions(options)));
+      rocksdb::MutableCFOptions(options, rocksdb::ImmutableCFOptions(options)),
+      &wb);
   mem->Ref();
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
