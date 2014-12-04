@@ -31,18 +31,18 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
       buf, len,
       "\n** Compaction Stats [%s] **\n"
       "Level   Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
-      "Write(GB) Wnew(GB) RW-Amp W-Amp Rd(MB/s) Wr(MB/s)  Rn(cnt) "
-      "Rnp1(cnt) Wnp1(cnt) Wnew(cnt)  Comp(sec) Comp(cnt) Avg(sec) "
+      "Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) "
+      "Comp(sec) Comp(cnt) Avg(sec) "
       "Stall(sec) Stall(cnt) Avg(ms)     RecordIn   RecordDrop\n"
       "--------------------------------------------------------------------"
       "--------------------------------------------------------------------"
-      "--------------------------------------------------------------------\n",
+      "----------------------------------------------------------\n",
       cf_name.c_str());
 }
 
 void PrintLevelStats(char* buf, size_t len, const std::string& name,
     int num_files, int being_compacted, double total_file_size, double score,
-    double rw_amp, double w_amp, double stall_us, uint64_t stalls,
+    double w_amp, double stall_us, uint64_t stalls,
     const InternalStats::CompactionStats& stats) {
   uint64_t bytes_read = stats.bytes_readn + stats.bytes_readnp1;
   uint64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
@@ -55,15 +55,11 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            "%8.1f "                    /* Rnp1(GB) */
            "%9.1f "                    /* Write(GB) */
            "%8.1f "                    /* Wnew(GB) */
-           "%6.1f "                    /* RW-Amp */
+           "%9.1f "                    /* Moved(GB) */
            "%5.1f "                    /* W-Amp */
            "%8.1f "                    /* Rd(MB/s) */
            "%8.1f "                    /* Wr(MB/s) */
-           "%8d "                      /* Rn(cnt) */
-           "%9d "                      /* Rnp1(cnt) */
-           "%9d "                      /* Wnp1(cnt) */
-           "%9d "                      /* Wnew(cnt) */
-           "%10.0f "                   /* Comp(sec) */
+           "%9.0f "                   /* Comp(sec) */
            "%9d "                      /* Comp(cnt) */
            "%8.3f "                    /* Avg(sec) */
            "%10.2f "                   /* Stall(sec) */
@@ -76,10 +72,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            name.c_str(), num_files, being_compacted, total_file_size / kMB,
            score, bytes_read / kGB, stats.bytes_readn / kGB,
            stats.bytes_readnp1 / kGB, stats.bytes_written / kGB,
-           bytes_new / kGB, rw_amp, w_amp, bytes_read / kMB / elapsed,
-           stats.bytes_written / kMB / elapsed, stats.files_in_leveln,
-           stats.files_in_levelnp1, stats.files_out_levelnp1,
-           stats.files_out_levelnp1 - stats.files_in_levelnp1,
+           bytes_new / kGB, stats.bytes_moved / kGB,
+           w_amp, bytes_read / kMB / elapsed,
+           stats.bytes_written / kMB / elapsed,
            stats.micros / 1000000.0, stats.count,
            stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
            stall_us / 1000000.0, stalls,
@@ -428,29 +423,22 @@ void InternalStats::DumpCFStats(std::string* value) {
       total_slowdown_count_soft += stall_leveln_slowdown_count_soft_[level];
       total_slowdown_hard += stall_leveln_slowdown_hard_[level];
       total_slowdown_count_hard += stall_leveln_slowdown_count_hard_[level];
-      int64_t bytes_read = comp_stats_[level].bytes_readn +
-                           comp_stats_[level].bytes_readnp1;
-      double rw_amp = (comp_stats_[level].bytes_readn == 0) ? 0.0
-          : (comp_stats_[level].bytes_written + bytes_read) /
-            static_cast<double>(comp_stats_[level].bytes_readn);
       double w_amp = (comp_stats_[level].bytes_readn == 0) ? 0.0
           : comp_stats_[level].bytes_written /
             static_cast<double>(comp_stats_[level].bytes_readn);
       PrintLevelStats(buf, sizeof(buf), "L" + ToString(level), files,
                       files_being_compacted[level],
                       vstorage->NumLevelBytes(level), compaction_score[level],
-                      rw_amp, w_amp, stall_us, stalls, comp_stats_[level]);
+                      w_amp, stall_us, stalls, comp_stats_[level]);
       value->append(buf);
     }
   }
   uint64_t curr_ingest = cf_stats_value_[BYTES_FLUSHED];
   // Cumulative summary
-  double rw_amp = (stats_sum.bytes_written + stats_sum.bytes_readn +
-      stats_sum.bytes_readnp1) / static_cast<double>(curr_ingest + 1);
   double w_amp = stats_sum.bytes_written / static_cast<double>(curr_ingest + 1);
   // Stats summary across levels
   PrintLevelStats(buf, sizeof(buf), "Sum", total_files,
-      total_files_being_compacted, total_file_size, 0, rw_amp, w_amp,
+      total_files_being_compacted, total_file_size, 0, w_amp,
       total_stall_us, total_stall_count, stats_sum);
   value->append(buf);
   // Interval summary
@@ -458,12 +446,9 @@ void InternalStats::DumpCFStats(std::string* value) {
       curr_ingest - cf_stats_snapshot_.ingest_bytes + 1;
   CompactionStats interval_stats(stats_sum);
   interval_stats.Subtract(cf_stats_snapshot_.comp_stats);
-  rw_amp = (interval_stats.bytes_written +
-      interval_stats.bytes_readn + interval_stats.bytes_readnp1) /
-      static_cast<double>(interval_ingest);
   w_amp = interval_stats.bytes_written / static_cast<double>(interval_ingest);
   PrintLevelStats(buf, sizeof(buf), "Int", 0, 0, 0, 0,
-      rw_amp, w_amp, total_stall_us - cf_stats_snapshot_.stall_us,
+      w_amp, total_stall_us - cf_stats_snapshot_.stall_us,
       total_stall_count - cf_stats_snapshot_.stall_count, interval_stats);
   value->append(buf);
 

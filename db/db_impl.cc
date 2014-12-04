@@ -2070,6 +2070,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                   *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
+    c->column_family_data()->internal_stats()->IncBytesMoved(
+        c->level() + 1, f->fd.GetFileSize());
     LogToBuffer(log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64
                             " bytes %s: %s\n",
                 c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),

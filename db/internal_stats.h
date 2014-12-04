@@ -119,6 +119,9 @@ class InternalStats {
     // Total bytes written during compaction between levels N and N+1
     uint64_t bytes_written;
 
+    // Total bytes moved to this level
+    uint64_t bytes_moved;
+
     // Files read from level N during compaction between levels N and N+1
     int files_in_leveln;
 
@@ -143,6 +146,7 @@ class InternalStats {
           bytes_readn(0),
           bytes_readnp1(0),
           bytes_written(0),
+          bytes_moved(0),
           files_in_leveln(0),
           files_in_levelnp1(0),
           files_out_levelnp1(0),
@@ -155,6 +159,7 @@ class InternalStats {
           bytes_readn(c.bytes_readn),
           bytes_readnp1(c.bytes_readnp1),
           bytes_written(c.bytes_written),
+          bytes_moved(c.bytes_moved),
           files_in_leveln(c.files_in_leveln),
           files_in_levelnp1(c.files_in_levelnp1),
           files_out_levelnp1(c.files_out_levelnp1),
@@ -167,6 +172,7 @@ class InternalStats {
       this->bytes_readn += c.bytes_readn;
       this->bytes_readnp1 += c.bytes_readnp1;
       this->bytes_written += c.bytes_written;
+      this->bytes_moved += c.bytes_moved;
       this->files_in_leveln += c.files_in_leveln;
       this->files_in_levelnp1 += c.files_in_levelnp1;
       this->files_out_levelnp1 += c.files_out_levelnp1;
@@ -180,6 +186,7 @@ class InternalStats {
       this->bytes_readn -= c.bytes_readn;
       this->bytes_readnp1 -= c.bytes_readnp1;
       this->bytes_written -= c.bytes_written;
+      this->bytes_moved -= c.bytes_moved;
       this->files_in_leveln -= c.files_in_leveln;
       this->files_in_levelnp1 -= c.files_in_levelnp1;
       this->files_out_levelnp1 -= c.files_out_levelnp1;
@@ -191,6 +198,10 @@ class InternalStats {
 
   void AddCompactionStats(int level, const CompactionStats& stats) {
     comp_stats_[level].Add(stats);
+  }
+
+  void IncBytesMoved(int level, uint64_t amount) {
+    comp_stats_[level].bytes_moved += amount;
   }
 
   void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {
@@ -329,6 +340,7 @@ class InternalStats {
     uint64_t bytes_readn;
     uint64_t bytes_readnp1;
     uint64_t bytes_written;
+    uint64_t bytes_moved;
     int files_in_leveln;
     int files_in_levelnp1;
     int files_out_levelnp1;
@@ -346,6 +358,8 @@ class InternalStats {
   };
 
   void AddCompactionStats(int level, const CompactionStats& stats) {}
+
+  void IncBytesMoved(int level, uint64_t amount) {}
 
   void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {}
 
