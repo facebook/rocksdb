@@ -322,6 +322,7 @@ struct ColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t target_file_size_base;
+
   // By default target_file_size_multiplier is 1, which means
   // by default files in different levels will have similar size.
   //
@@ -341,6 +342,7 @@ struct ColumnFamilyOptions {
   //
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base;
+
   // Default: 10.
   //
   // Dynamically changeable through SetOptions() API
