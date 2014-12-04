@@ -51,7 +51,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
 
 ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
-    throw std::runtime_error("pthread_key_create failed");
+    abort();
   }
   head_.next = &head_;
   head_.prev = &head_;
@@ -98,7 +98,7 @@ ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
         inst->RemoveThreadData(tls_);
       }
       delete tls_;
-      throw std::runtime_error("pthread_setspecific failed");
+      abort();
     }
   }
   return tls_;
