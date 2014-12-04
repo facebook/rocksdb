@@ -11,14 +11,6 @@ namespace rocksdb {
 
 namespace {
 
-inline double Log2(double n) {
-#ifndef OS_ANDROID
-  return log2(n);
-#else
-  return log(n) / log(2);
-#endif
-}
-
 // For now, always use 1-0 as level bytes multiplier.
 const int kBytesForLevelMultiplier = 10;
 const size_t kBytesForOneMb = 1024 * 1024;
@@ -37,7 +29,7 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
       ::log(target_db_size / write_buffer_size) / ::log(kBytesForLevelMultiplier)));
 
   int expected_max_files_universal =
-      static_cast<int>(ceil(Log2(target_db_size / write_buffer_size)));
+      static_cast<int>(ceil(log2(target_db_size / write_buffer_size)));
 
   const int kEstimatedLevel0FilesInLevelStyle = 2;
   // Estimate write amplification:
