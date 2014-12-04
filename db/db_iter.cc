@@ -281,8 +281,9 @@ void DBIter::MergeValuesNewToOld() {
   if (!user_merge_operator_) {
     Log(InfoLogLevel::ERROR_LEVEL,
         logger_, "Options::merge_operator is null.");
-    throw std::logic_error("DBIter::MergeValuesNewToOld() with"
-                           " Options::merge_operator null");
+    status_ = Status::InvalidArgument("user_merge_operator_ must be set.");
+    valid_ = false;
+    return;
   }
 
   // Start the merge process by pushing the first operand
