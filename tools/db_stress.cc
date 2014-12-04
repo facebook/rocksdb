@@ -1685,7 +1685,7 @@ class StressTest {
     fprintf(stdout, "Write percentage    : %d%%\n", FLAGS_writepercent);
     fprintf(stdout, "Delete percentage   : %d%%\n", FLAGS_delpercent);
     fprintf(stdout, "Iterate percentage  : %d%%\n", FLAGS_iterpercent);
-    fprintf(stdout, "DB-write-buffer-size: %lu\n", FLAGS_db_write_buffer_size);
+    fprintf(stdout, "DB-write-buffer-size: %llu\n", FLAGS_db_write_buffer_size);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout,
             "Iterations          : %lu\n",
