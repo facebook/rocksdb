@@ -238,7 +238,7 @@ class HdfsEnv : public Env {
   explicit HdfsEnv(const std::string& fsname) {
     fprintf(stderr, "You have not build rocksdb with HDFS support\n");
     fprintf(stderr, "Please see hdfs/README for details\n");
-    throw std::exception();
+    abort();
   }
 
   virtual ~HdfsEnv() {
