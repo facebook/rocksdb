@@ -841,6 +841,7 @@ class JniUtil {
       const char *utf = env->GetStringUTFChars(js, NULL);
       std::string name(utf);
       env->ReleaseStringUTFChars(js, utf);
+      env->DeleteLocalRef(js);
       return name;
     }
 };

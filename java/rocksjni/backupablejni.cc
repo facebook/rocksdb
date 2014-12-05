@@ -145,9 +145,8 @@ void Java_org_rocksdb_BackupableDB_garbageCollect(JNIEnv* env,
  */
 void Java_org_rocksdb_BackupableDBOptions_newBackupableDBOptions(
     JNIEnv* env, jobject jobj, jstring jpath) {
-  const char* cpath = env->GetStringUTFChars(jpath, 0);
+  std::string cpath = rocksdb::JniUtil::copyString(env, jpath);
   auto bopt = new rocksdb::BackupableDBOptions(cpath);
-  env->ReleaseStringUTFChars(jpath, cpath);
   rocksdb::BackupableDBOptionsJni::setHandle(env, jobj, bopt);
 }
 
