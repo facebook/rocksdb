@@ -1228,7 +1228,7 @@ jstring Java_org_rocksdb_RocksDB_getProperty0__JLjava_lang_String_2I(
   auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
 
   std::string property = rocksdb::JniUtil::copyString(env, jproperty);
-  rocksdb::Slice property_slice(property, jproperty_len);
+  rocksdb::Slice property_slice(property.c_str(), jproperty_len);
 
   std::string property_value;
   bool retCode = db->GetProperty(property_slice, &property_value);
@@ -1251,7 +1251,7 @@ jstring Java_org_rocksdb_RocksDB_getProperty0__JJLjava_lang_String_2I(
   auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
 
   std::string property = rocksdb::JniUtil::copyString(env, jproperty);
-  rocksdb::Slice property_slice(property, jproperty_len);
+  rocksdb::Slice property_slice(property.c_str(), jproperty_len);
   std::string property_value;
   bool retCode = db->GetProperty(cf_handle, property_slice, &property_value);
   if (!retCode) {
@@ -1272,7 +1272,7 @@ jlong Java_org_rocksdb_RocksDB_getLongProperty__JLjava_lang_String_2I(
   auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
 
   std::string property = rocksdb::JniUtil::copyString(env, jproperty);
-  rocksdb::Slice property_slice(property, jproperty_len);
+  rocksdb::Slice property_slice(property.c_str(), jproperty_len);
 
   uint64_t property_value = 0;
   bool retCode = db->GetIntProperty(property_slice, &property_value);
@@ -1294,7 +1294,7 @@ jlong Java_org_rocksdb_RocksDB_getLongProperty__JJLjava_lang_String_2I(
   auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
 
   std::string property = rocksdb::JniUtil::copyString(env, jproperty);
-  rocksdb::Slice property_slice(property, jproperty_len);
+  rocksdb::Slice property_slice(property.c_str(), jproperty_len);
 
   uint64_t property_value;
   bool retCode = db->GetIntProperty(cf_handle, property_slice, &property_value);
