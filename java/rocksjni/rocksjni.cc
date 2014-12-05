@@ -265,7 +265,9 @@ void rocksdb_put_helper(
   // by passing JNI_ABORT, it will simply release the reference without
   // copying the result back to the java byte array.
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
   env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+  env->DeleteLocalRef(jentry_value);
 
   if (s.ok()) {
     return;
@@ -404,6 +406,7 @@ jboolean key_may_exist_helper(JNIEnv* env, rocksdb::DB* db,
     env->CallObjectMethod(jstring_buffer, mid, new_value_str);
   }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
   return static_cast<jboolean>(keyMayExist);
 }
 
@@ -504,7 +507,7 @@ jbyteArray rocksdb_get_helper(
   // by passing JNI_ABORT, it will simply release the reference without
   // copying the result back to the java byte array.
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
-
+  env->DeleteLocalRef(jkey);
   if (s.IsNotFound()) {
     return nullptr;
   }
@@ -617,6 +620,7 @@ jint rocksdb_get_helper(
   // by passing JNI_ABORT, it will simply release the reference without
   // copying the result back to the java byte array.
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
 
   if (s.IsNotFound()) {
     return kNotFound;
@@ -872,6 +876,7 @@ void rocksdb_remove_helper(
   // by passing JNI_ABORT, it will simply release the reference without
   // copying the result back to the java byte array.
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
 
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
@@ -972,7 +977,9 @@ void rocksdb_merge_helper(
   // by passing JNI_ABORT, it will simply release the reference without
   // copying the result back to the java byte array.
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
   env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+  env->DeleteLocalRef(jentry_value);
 
   if (s.ok()) {
     return;

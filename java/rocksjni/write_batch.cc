@@ -86,7 +86,9 @@ void write_batch_put_helper(
     wb->Put(key_slice, value_slice);
   }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
   env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+  env->DeleteLocalRef(jentry_value);
 }
 
 /*
@@ -139,7 +141,9 @@ void write_batch_merge_helper(
     wb->Merge(key_slice, value_slice);
   }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
   env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+  env->DeleteLocalRef(jentry_value);
 }
 
 /*
@@ -187,6 +191,7 @@ void write_batch_remove_helper(
     wb->Delete(key_slice);
   }
   env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+  env->DeleteLocalRef(jkey);
 }
 
 /*
@@ -226,6 +231,7 @@ void Java_org_rocksdb_WriteBatch_putLogData(
   rocksdb::Slice blob_slice(reinterpret_cast<char*>(blob), jblob_len);
   wb->PutLogData(blob_slice);
   env->ReleaseByteArrayElements(jblob, blob, JNI_ABORT);
+  env->DeleteLocalRef(jblob);
 }
 
 /*

@@ -17,8 +17,6 @@
 #include "rocksdb/slice.h"
 #include "rocksjni/portal.h"
 
-// <editor-fold desc="org.rocksdb.AbstractSlice>
-
 /*
  * Class:     org_rocksdb_AbstractSlice
  * Method:    createNewSliceFromString
@@ -101,10 +99,6 @@ void Java_org_rocksdb_AbstractSlice_disposeInternal(
   delete reinterpret_cast<rocksdb::Slice*>(handle);
 }
 
-// </editor-fold>
-
-// <editor-fold desc="org.rocksdb.Slice>
-
 /*
  * Class:     org_rocksdb_Slice
  * Method:    createNewSlice0
@@ -128,21 +122,21 @@ void Java_org_rocksdb_Slice_createNewSlice0(
  * Signature: ([B)V
  */
 void Java_org_rocksdb_Slice_createNewSlice1(
-    JNIEnv * env, jobject jobj, jbyteArray data) {
+    JNIEnv * env, jobject jobj, jbyteArray jdata) {
 
-  const int len = env->GetArrayLength(data);
+  const int len = env->GetArrayLength(jdata);
 
   jboolean isCopy;
-  jbyte* ptrData = env->GetByteArrayElements(data, &isCopy);
+  jbyte* ptrData = env->GetByteArrayElements(jdata, &isCopy);
   const char* buf = new char[len];
   memcpy(const_cast<char*>(buf), ptrData, len);
 
   const rocksdb::Slice* slice =
-    new rocksdb::Slice(buf, env->GetArrayLength(data));
+    new rocksdb::Slice(buf, env->GetArrayLength(jdata));
   rocksdb::AbstractSliceJni::setHandle(env, jobj, slice);
 
-  env->ReleaseByteArrayElements(data, ptrData, JNI_ABORT);
-
+  env->ReleaseByteArrayElements(jdata, ptrData, JNI_ABORT);
+  env->DeleteLocalRef(jdata);
   // NOTE: buf will be deleted in the org.rocksdb.Slice#dispose method
 }
 
@@ -171,10 +165,6 @@ void Java_org_rocksdb_Slice_disposeInternalBuf(
     const rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
     delete [] slice->data_;
 }
-
-// </editor-fold>
-
-// <editor-fold desc="org.rocksdb.DirectSlice>
 
 /*
  * Class:     org_rocksdb_DirectSlice
@@ -247,5 +237,3 @@ void Java_org_rocksdb_DirectSlice_removePrefix0(
   rocksdb::Slice* slice = reinterpret_cast<rocksdb::Slice*>(handle);
   slice->remove_prefix(length);
 }
-
-// </editor-fold>
