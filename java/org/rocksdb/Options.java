@@ -44,6 +44,13 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setIncreaseParallelism(int totalThreads) {
+    assert(isInitialized());
+    setIncreaseParallelism(nativeHandle_, totalThreads);
+    return this;
+  }
+
+  @Override
   public Options setCreateIfMissing(boolean flag) {
     assert(isInitialized());
     setCreateIfMissing(nativeHandle_, flag);
@@ -1032,6 +1039,7 @@ public class Options extends RocksObject
   private native void prepareForBulkLoad(long handle);
 
   // DB native handles
+  private native void setIncreaseParallelism(long handle, int totalThreads);
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
   private native void setCreateMissingColumnFamilies(

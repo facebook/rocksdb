@@ -8,6 +8,21 @@ package org.rocksdb;
 public interface DBOptionsInterface {
 
   /**
+   * <p>By default, RocksDB uses only one background thread for flush and
+   * compaction. Calling this function will set it up such that total of
+   * `total_threads` is used.</p>
+   *
+   * <p>You almost definitely want to call this function if your system is
+   * bottlenecked by RocksDB.</p>
+   *
+   * @param The total number of threads to be used by RocksDB. A good value
+   *            is the number of cores.
+   *
+   * @return the instance of the current Options
+   */
+  Object setIncreaseParallelism(int totalThreads);
+
+  /**
    * If this value is set to true, then the database will be created
    * if it is missing during {@code RocksDB.open()}.
    * Default: false
