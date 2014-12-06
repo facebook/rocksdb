@@ -161,6 +161,8 @@ TESTS = \
 	compaction_job_test \
 	thread_list_test
 
+SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
+
 TOOLS = \
         sst_dump \
 	db_sanity_test \
@@ -245,6 +247,10 @@ coverage:
 
 check: $(TESTS) ldb
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
+	python tools/ldb_test.py
+
+check_some: $(SUBSET) ldb
+	for t in $(SUBSET); do echo "***** Running $$t"; ./$$t || exit 1; done
 	python tools/ldb_test.py
 
 ldb_tests: ldb
