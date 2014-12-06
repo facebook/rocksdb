@@ -53,6 +53,5 @@ public class MixedOptionsTest {
     options.optimizeUniversalStyleCompaction(400);
     options.optimizeForPointLookup(1024);
     options.prepareForBulkLoad();
-    System.out.println("Mixed options test passed");
   }
 }

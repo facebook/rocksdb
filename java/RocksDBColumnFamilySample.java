@@ -44,6 +44,9 @@ public class RocksDBColumnFamilySample {
         db.close();
         db = null;
       }
+      if (options != null) {
+        options.dispose();
+      }
     }
 
     // open DB with two column families

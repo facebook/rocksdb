@@ -18,8 +18,6 @@ import org.rocksdb.util.Environment;
 public class RocksDB extends RocksObject {
   public static final String DEFAULT_COLUMN_FAMILY = "default";
   public static final int NOT_FOUND = -1;
-  private static final String[] compressionLibs_ = {
-      "snappy", "z", "bzip2", "lz4", "lz4hc"};
 
   static {
     RocksDB.loadLibrary();
@@ -35,9 +33,11 @@ public class RocksDB extends RocksObject {
   public static synchronized void loadLibrary() {
     String tmpDir = System.getenv("ROCKSDB_SHAREDLIB_DIR");
     // loading possibly necessary libraries.
-    for (String lib : compressionLibs_) {
+    for (CompressionType compressionType : CompressionType.values()) {
       try {
-      System.loadLibrary(lib);
+        if (compressionType.getLibraryName() != null) {
+          System.loadLibrary(compressionType.getLibraryName());
+        }
       } catch (UnsatisfiedLinkError e) {
         // since it may be optional, we ignore its loading failure here.
       }
@@ -60,10 +60,14 @@ public class RocksDB extends RocksObject {
    *     of a library.
    */
   public static synchronized void loadLibrary(List<String> paths) {
-    for (String lib : compressionLibs_) {
+    for (CompressionType compressionType : CompressionType.values()) {
+      if (compressionType.equals(CompressionType.NO_COMPRESSION)) {
+        continue;
+      }
       for (String path : paths) {
         try {
-          System.load(path + "/" + Environment.getSharedLibraryName(lib));
+          System.load(path + "/" + Environment.getSharedLibraryName(
+              compressionType.getLibraryName()));
           break;
         } catch (UnsatisfiedLinkError e) {
           // since they are optional, we ignore loading fails.

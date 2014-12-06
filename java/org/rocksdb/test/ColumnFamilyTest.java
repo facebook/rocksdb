@@ -171,6 +171,9 @@ public class ColumnFamilyTest {
       if (db != null) {
         db.close();
       }
+      if (options != null) {
+        options.dispose();
+      }
     }
   }
 

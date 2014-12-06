@@ -57,6 +57,9 @@ public class InfoLogLevelTest {
       if (db != null) {
         db.close();
       }
+      if (options != null) {
+        options.dispose();
+      }
     }
   }
 
@@ -84,7 +87,24 @@ public class InfoLogLevelTest {
       if (db != null) {
         db.close();
       }
+      if (options != null) {
+        options.dispose();
+      }
+      if (dbOptions != null) {
+        dbOptions.dispose();
+      }
     }
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void failIfIllegalByteValueProvided() {
+    InfoLogLevel.getInfoLogLevel((byte)-1);
+  }
+
+  @Test
+  public void valueOf() {
+    assertThat(InfoLogLevel.valueOf("DEBUG_LEVEL")).
+        isEqualTo(InfoLogLevel.DEBUG_LEVEL);
   }
 
   /**

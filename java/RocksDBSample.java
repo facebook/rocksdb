@@ -119,7 +119,7 @@ public class RocksDBSample {
       byte[] value = db.get("hello".getBytes());
       assert("world".equals(new String(value)));
       String str = db.getProperty("rocksdb.stats");
-      assert(str != null && str != "");
+      assert(str != null && !str.equals(""));
     } catch (RocksDBException e) {
       System.out.format("[ERROR] caught the unexpceted exception -- %s\n", e);
       assert(db == null);
