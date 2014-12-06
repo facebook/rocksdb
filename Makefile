@@ -43,6 +43,12 @@ else
 OPT += -DNDEBUG
 endif
 
+ifneq ($(filter -DROCKSDB_LITE,$(OPT)),) 
+	# found
+	CFLAGS += -fno-exceptions
+	CXXFLAGS += -fno-exceptions
+endif
+
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
 	# ASAN compile flags
