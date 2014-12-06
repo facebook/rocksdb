@@ -248,6 +248,8 @@ class DBImpl : public DB {
 
   ColumnFamilyHandle* DefaultColumnFamily() const;
 
+  const SnapshotList& snapshots() const { return snapshots_; }
+
  protected:
   Env* const env_;
   const std::string dbname_;

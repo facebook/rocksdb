@@ -2718,10 +2718,13 @@ bool DBImpl::IsSnapshotSupported() const {
 }
 
 const Snapshot* DBImpl::GetSnapshot() {
+  int64_t unix_time = 0;
+  env_->GetCurrentTime(&unix_time);  // Ignore error
+
   MutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
   if (!IsSnapshotSupported()) return nullptr;
-  return snapshots_.New(versions_->LastSequence());
+  return snapshots_.New(versions_->LastSequence(), unix_time);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {

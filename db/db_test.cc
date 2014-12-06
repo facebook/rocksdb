@@ -173,7 +173,9 @@ class SpecialEnv : public EnvWrapper {
 
   std::function<void()>* table_write_callback_;
 
-  explicit SpecialEnv(Env* base) : EnvWrapper(base), rnd_(301) {
+  int64_t addon_time_;
+
+  explicit SpecialEnv(Env* base) : EnvWrapper(base), rnd_(301), addon_time_(0) {
     delay_sstable_sync_.store(false, std::memory_order_release);
     drop_writes_.store(false, std::memory_order_release);
     no_space_.store(false, std::memory_order_release);
@@ -367,6 +369,14 @@ class SpecialEnv : public EnvWrapper {
   virtual void SleepForMicroseconds(int micros) {
     sleep_counter_.Increment();
     target()->SleepForMicroseconds(micros);
+  }
+
+  virtual Status GetCurrentTime(int64_t* unix_time) override {
+    Status s = target()->GetCurrentTime(unix_time);
+    if (s.ok()) {
+      *unix_time += addon_time_;
+    }
+    return s;
   }
 };
 
@@ -812,6 +822,19 @@ class DBTest {
       result = s.ToString();
     }
     return result;
+  }
+
+  uint64_t GetNumSnapshots() {
+    uint64_t int_num;
+    ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-snapshots", &int_num));
+    return int_num;
+  }
+
+  uint64_t GetTimeOldestSnapshots() {
+    uint64_t int_num;
+    ASSERT_TRUE(
+        dbfull()->GetIntProperty("rocksdb.oldest-snapshot-time", &int_num));
+    return int_num;
   }
 
   // Return a string that contains all key,value pairs in order,
@@ -5429,13 +5452,25 @@ TEST(DBTest, Snapshot) {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
     Put(0, "foo", "0v1");
     Put(1, "foo", "1v1");
+
     const Snapshot* s1 = db_->GetSnapshot();
+    ASSERT_EQ(1U, GetNumSnapshots());
+    uint64_t time_snap1 = GetTimeOldestSnapshots();
+    ASSERT_GT(time_snap1, 0U);
     Put(0, "foo", "0v2");
     Put(1, "foo", "1v2");
+
+    env_->addon_time_++;
+
     const Snapshot* s2 = db_->GetSnapshot();
+    ASSERT_EQ(2U, GetNumSnapshots());
+    ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     Put(0, "foo", "0v3");
     Put(1, "foo", "1v3");
+
     const Snapshot* s3 = db_->GetSnapshot();
+    ASSERT_EQ(3U, GetNumSnapshots());
+    ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
 
     Put(0, "foo", "0v4");
     Put(1, "foo", "1v4");
@@ -5449,6 +5484,8 @@ TEST(DBTest, Snapshot) {
     ASSERT_EQ("1v4", Get(1, "foo"));
 
     db_->ReleaseSnapshot(s3);
+    ASSERT_EQ(2U, GetNumSnapshots());
+    ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ("0v1", Get(0, "foo", s1));
     ASSERT_EQ("1v1", Get(1, "foo", s1));
     ASSERT_EQ("0v2", Get(0, "foo", s2));
@@ -5461,8 +5498,11 @@ TEST(DBTest, Snapshot) {
     ASSERT_EQ("1v2", Get(1, "foo", s2));
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
+    ASSERT_EQ(1U, GetNumSnapshots());
+    ASSERT_LT(time_snap1, GetTimeOldestSnapshots());
 
     db_->ReleaseSnapshot(s2);
+    ASSERT_EQ(0U, GetNumSnapshots());
     ASSERT_EQ("0v4", Get(0, "foo"));
     ASSERT_EQ("1v4", Get(1, "foo"));
   } while (ChangeOptions(kSkipHashCuckoo));

@@ -136,6 +136,10 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kEstimatedUsageByTableReaders;
   } else if (in == "is-file-deletions-enabled") {
     return kIsFileDeletionEnabled;
+  } else if (in == "num-snapshots") {
+    return kNumSnapshots;
+  } else if (in == "oldest-snapshot-time") {
+    return kOldestSnapshotTime;
   }
   return kUnknown;
 }
@@ -262,6 +266,12 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       *value = cfd_->mem()->GetNumEntries() +
                cfd_->imm()->current()->GetTotalNumEntries() +
                vstorage->GetEstimatedActiveKeys();
+      return true;
+    case kNumSnapshots:
+      *value = db->snapshots().count();
+      return true;
+    case kOldestSnapshotTime:
+      *value = static_cast<uint64_t>(db->snapshots().GetOldestSnapshotTime());
       return true;
 #ifndef ROCKSDB_LITE
     case kIsFileDeletionEnabled:

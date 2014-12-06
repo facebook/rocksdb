@@ -46,6 +46,8 @@ enum DBPropertyType : uint32_t {
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
   kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
                                   // 0 means file deletions enabled
+  kNumSnapshots,                  // Number of snapshots in the system
+  kOldestSnapshotTime,            // Unix timestamp of the first snapshot
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,
