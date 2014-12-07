@@ -1252,13 +1252,10 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Full compaction of the underlying storage using key
-   * range mode.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.
-   * </p>
+   * <p>Range compaction of database.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
    *
    * <p><strong>See also</strong></p>
    * <ul>
@@ -1275,13 +1272,10 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Compaction of the underlying storage using key
-   * using key range {@code [begin, end]}.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.
-   * </p>
+   * <p>Range compaction of database.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
    *
    * <p><strong>See also</strong></p>
    * <ul>
@@ -1303,16 +1297,11 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Full compaction of the underlying storage using key
-   * range mode.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.
-   * In this case, client could set reduce_level to true, to move
-   * the files back to the minimum level capable of holding the data
-   * set or a given level (specified by non-negative target_level).
-   * </p>
+   * <p>Range compaction of database.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
+   *
    * <p>Compaction outputs should be placed in options.db_paths
    * [target_path_id]. Behavior is undefined if target_path_id is
    * out of range.</p>
@@ -1339,16 +1328,11 @@ public class RocksDB extends RocksObject {
 
 
   /**
-   * <p>Compaction of the underlying storage using key
-   * using key range {@code [begin, end]}.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.
-   * In this case, client could set reduce_level to true, to move
-   * the files back to the minimum level capable of holding the data
-   * set or a given level (specified by non-negative target_level).
-   * </p>
+   * <p>Range compaction of database.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
+   *
    * <p>Compaction outputs should be placed in options.db_paths
    * [target_path_id]. Behavior is undefined if target_path_id is
    * out of range.</p>
@@ -1377,12 +1361,10 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Full compaction of the underlying storage of a column family
-   * using key range mode.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.</p>
+   * <p>Range compaction of column family.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
    *
    * <p><strong>See also</strong></p>
    * <ul>
@@ -1411,12 +1393,10 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Compaction of the underlying storage of a column family
-   * using key range {@code [begin, end]}.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.</p>
+   * <p>Range compaction of column family.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
    *
    * <p><strong>See also</strong></p>
    * <ul>
@@ -1445,16 +1425,11 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Full compaction of the underlying storage of a column family
-   * using key range mode.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.
-   * In this case, client could set reduce_level to true, to move
-   * the files back to the minimum level capable of holding the data
-   * set or a given level (specified by non-negative target_level).
-   * </p>
+   * <p>Range compaction of column family.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
+   *
    * <p>Compaction outputs should be placed in options.db_paths
    * [target_path_id]. Behavior is undefined if target_path_id is
    * out of range.</p>
@@ -1488,16 +1463,11 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * <p>Compaction of the underlying storage of a column family
-   * using key range {@code [begin, end]}.</p>
-   * <p><strong>Note</strong>: After the entire database is compacted,
-   * all data are pushed down to the last level containing any data.
-   * If the total data size after compaction is reduced, that level
-   * might not be appropriate for hosting all the files.
-   * In this case, client could set reduce_level to true, to move
-   * the files back to the minimum level capable of holding the data
-   * set or a given level (specified by non-negative target_level).
-   * </p>
+   * <p>Range compaction of column family.</p>
+   * <p><strong>Note</strong>: After the database has been compacted,
+   * all data will have been pushed down to the last level containing
+   * any data.</p>
+   *
    * <p>Compaction outputs should be placed in options.db_paths
    * [target_path_id]. Behavior is undefined if target_path_id is
    * out of range.</p>
