@@ -113,6 +113,7 @@ void Java_org_rocksdb_RocksIterator_seek0(
   it->Seek(target_slice);
 
   env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+  env->DeleteLocalRef(jtarget);
 }
 
 /*

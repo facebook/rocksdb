@@ -61,16 +61,12 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromBackup0(JNIEnv* env,
     jstring jwal_dir, jlong jopt_handle) {
   auto opt = reinterpret_cast<rocksdb::RestoreOptions*>(jopt_handle);
 
-  const char* cdb_dir = env->GetStringUTFChars(jdb_dir, 0);
-  const char* cwal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  std::string cdb_dir = rocksdb::JniUtil::copyString(env, jdb_dir);
+  std::string cwal_dir = rocksdb::JniUtil::copyString(env, jwal_dir);
 
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s = rdb->RestoreDBFromBackup(
       static_cast<rocksdb::BackupID>(jbackup_id), cdb_dir, cwal_dir, *opt);
-
-  env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
-  env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
-
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
@@ -86,16 +82,12 @@ void Java_org_rocksdb_RestoreBackupableDB_restoreDBFromLatestBackup0(
     jlong jopt_handle) {
   auto opt = reinterpret_cast<rocksdb::RestoreOptions*>(jopt_handle);
 
-  const char* cdb_dir = env->GetStringUTFChars(jdb_dir, 0);
-  const char* cwal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  std::string cdb_dir = rocksdb::JniUtil::copyString(env, jdb_dir);
+  std::string cwal_dir = rocksdb::JniUtil::copyString(env, jwal_dir);
 
   auto rdb = reinterpret_cast<rocksdb::RestoreBackupableDB*>(jhandle);
   rocksdb::Status s =
       rdb->RestoreDBFromLatestBackup(cdb_dir, cwal_dir, *opt);
-
-  env->ReleaseStringUTFChars(jdb_dir, cdb_dir);
-  env->ReleaseStringUTFChars(jwal_dir, cwal_dir);
-
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }

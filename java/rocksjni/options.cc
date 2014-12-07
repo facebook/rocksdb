@@ -148,10 +148,9 @@ void Java_org_rocksdb_Options_setComparatorHandle__JJ(
 void Java_org_rocksdb_Options_setMergeOperatorName(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jop_name) {
   auto options = reinterpret_cast<rocksdb::Options*>(jhandle);
-  const char* op_name = env->GetStringUTFChars(jop_name, 0);
+  std::string op_name = rocksdb::JniUtil::copyString(env, jop_name);
   options->merge_operator = rocksdb::MergeOperators::CreateFromStringId(
         op_name);
-  env->ReleaseStringUTFChars(jop_name, op_name);
 }
 
 /*
@@ -392,9 +391,8 @@ jstring Java_org_rocksdb_Options_dbLogDir(
  */
 void Java_org_rocksdb_Options_setDbLogDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jdb_log_dir) {
-  const char* log_dir = env->GetStringUTFChars(jdb_log_dir, 0);
+  std::string log_dir = rocksdb::JniUtil::copyString(env, jdb_log_dir);
   reinterpret_cast<rocksdb::Options*>(jhandle)->db_log_dir.assign(log_dir);
-  env->ReleaseStringUTFChars(jdb_log_dir, log_dir);
 }
 
 /*
@@ -415,9 +413,8 @@ jstring Java_org_rocksdb_Options_walDir(
  */
 void Java_org_rocksdb_Options_setWalDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jwal_dir) {
-  const char* wal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  std::string wal_dir = rocksdb::JniUtil::copyString(env, jwal_dir);
   reinterpret_cast<rocksdb::Options*>(jhandle)->wal_dir.assign(wal_dir);
-  env->ReleaseStringUTFChars(jwal_dir, wal_dir);
 }
 
 /*
@@ -1789,10 +1786,9 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
   jlong ret_value = 0;
   rocksdb::ColumnFamilyOptions* cf_options =
       new rocksdb::ColumnFamilyOptions();
-  const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
+  std::string opt_string = rocksdb::JniUtil::copyString(env, jopt_string);
   bool status = rocksdb::GetColumnFamilyOptionsFromString(
       rocksdb::ColumnFamilyOptions(), opt_string, cf_options);
-  env->ReleaseStringUTFChars(jopt_string, opt_string);
   // Check if ColumnFamilyOptions creation was possible.
   if (status) {
     ret_value = reinterpret_cast<jlong>(cf_options);
@@ -1888,10 +1884,9 @@ void Java_org_rocksdb_ColumnFamilyOptions_setComparatorHandle__JJ(
 void Java_org_rocksdb_ColumnFamilyOptions_setMergeOperatorName(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jop_name) {
   auto options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
-  const char* op_name = env->GetStringUTFChars(jop_name, 0);
+  std::string op_name = rocksdb::JniUtil::copyString(env, jop_name);
   options->merge_operator = rocksdb::MergeOperators::CreateFromStringId(
         op_name);
-  env->ReleaseStringUTFChars(jop_name, op_name);
 }
 
 /*
@@ -2791,10 +2786,9 @@ jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps(
   jlong ret_value = 0;
   rocksdb::DBOptions* db_options =
       new rocksdb::DBOptions();
-  const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
+  std::string opt_string = rocksdb::JniUtil::copyString(env, jopt_string);
   bool status = rocksdb::GetDBOptionsFromString(
       rocksdb::DBOptions(), opt_string, db_options);
-  env->ReleaseStringUTFChars(jopt_string, opt_string);
   // Check if DBOptions creation was possible.
   if (status) {
     ret_value = reinterpret_cast<jlong>(db_options);
@@ -3050,9 +3044,8 @@ jboolean Java_org_rocksdb_DBOptions_useFsync(
  */
 void Java_org_rocksdb_DBOptions_setDbLogDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jdb_log_dir) {
-  const char* log_dir = env->GetStringUTFChars(jdb_log_dir, 0);
+  std::string log_dir = rocksdb::JniUtil::copyString(env, jdb_log_dir);
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->db_log_dir.assign(log_dir);
-  env->ReleaseStringUTFChars(jdb_log_dir, log_dir);
 }
 
 /*
@@ -3073,9 +3066,8 @@ jstring Java_org_rocksdb_DBOptions_dbLogDir(
  */
 void Java_org_rocksdb_DBOptions_setWalDir(
     JNIEnv* env, jobject jobj, jlong jhandle, jstring jwal_dir) {
-  const char* wal_dir = env->GetStringUTFChars(jwal_dir, 0);
+  std::string wal_dir = rocksdb::JniUtil::copyString(env, jwal_dir);
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->wal_dir.assign(wal_dir);
-  env->ReleaseStringUTFChars(jwal_dir, wal_dir);
 }
 
 /*

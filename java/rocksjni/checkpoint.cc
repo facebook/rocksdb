@@ -50,11 +50,10 @@ void Java_org_rocksdb_Checkpoint_createCheckpoint(
     jstring jcheckpoint_path) {
   auto checkpoint = reinterpret_cast<rocksdb::Checkpoint*>(
       jcheckpoint_handle);
-  const char* checkpoint_path = env->GetStringUTFChars(
-      jcheckpoint_path, 0);
+  std::string checkpoint_path = rocksdb::JniUtil::copyString(
+      env, jcheckpoint_path);
   rocksdb::Status s = checkpoint->CreateCheckpoint(
       checkpoint_path);
-  env->ReleaseStringUTFChars(jcheckpoint_path, checkpoint_path);
   if (!s.ok()) {
       rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
   }
