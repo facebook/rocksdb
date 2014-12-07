@@ -37,10 +37,10 @@ class BTreeTest { };
 TEST(BTreeTest, Empty) {
   Arena arena;
   TestComparator cmp;
-  BTree<Key, TestComparator> list(cmp, &arena);
-  ASSERT_TRUE(!list.Contains(10));
+  BTree<Key, TestComparator> tree(cmp, &arena);
+  ASSERT_TRUE(!tree.Contains(10));
 
-  BTree<Key, TestComparator>::Iterator iter(&list);
+  BTree<Key, TestComparator>::Iterator iter(&tree);
   ASSERT_TRUE(!iter.Valid());
   iter.SeekToFirst();
   ASSERT_TRUE(!iter.Valid());
@@ -52,109 +52,120 @@ TEST(BTreeTest, Empty) {
 
 
 
-// TEST(SkipTest, InsertAndLookup) {
-//   std::cout << "Here" << std::endl;
-//   const int N = 2000;
-//   const int R = 5000;
-//   Random rnd(1000);
-//   std::set<Key> keys;
-//   Arena arena;
-//   TestComparator cmp;
-//   SkipList<Key, TestComparator> list(cmp, &arena);
-//   for (int i = 0; i < N; i++) {
-//     Key key = rnd.Next() % R;
-//     if (keys.insert(key).second) {
-//       list.Insert(key);
-//     }
-//   }
+TEST(BTreeTest, InsertAndLookup) {
+  std::cout << "Here" << std::endl;
+  const int N = 500000;
+  const int R = 2500000;
+  Random rnd(1000);
+  std::set<Key> keys;
+  Arena arena;
+  TestComparator cmp;
+  int maxNodeSize = 32;
+  BTree<Key, TestComparator> tree(cmp, &arena, maxNodeSize);
+  int count = 0;
+  for (int i = 0; i < N; i++) {
+    Key key = rnd.Next() % R;
+    if (keys.insert(key).second) {
+      count++;
+      printf("inserting=%llu, count=%d\n", key, count);
+      tree.Insert(key);
+      ASSERT_TRUE(tree.Contains(key));
+    }
+  }
 
-//   for (int i = 0; i < R; i++) {
-//     if (list.Contains(i)) {
-//       ASSERT_EQ(keys.count(i), 1U);
-//     } else {
-//       ASSERT_EQ(keys.count(i), 0U);
-//     }
-//   }
+  printf("size of set = %lu\n", keys.size());
+  
 
-//   // Simple iterator tests
-//   {
-//     SkipList<Key, TestComparator>::Iterator iter(&list);
-//     ASSERT_TRUE(!iter.Valid());
+  for (int i = 0; i < R; i++) {
+    // printf("i=%d, ", i);
+    if (tree.Contains(i)) {
+      // printf(", contains=true\n");
+      ASSERT_EQ(keys.count(i), 1U);
+    } else {
+      // printf(", contains=false\n");
+      ASSERT_EQ(keys.count(i), 0U);
+    }
+  }
 
-//     iter.Seek(0);
-//     ASSERT_TRUE(iter.Valid());
-//     ASSERT_EQ(*(keys.begin()), iter.key());
+  // Simple iterator tests
+  {
+    BTree<Key, TestComparator>::Iterator iter(&tree);
+    ASSERT_TRUE(!iter.Valid());
 
-//     iter.SeekToFirst();
-//     ASSERT_TRUE(iter.Valid());
-//     ASSERT_EQ(*(keys.begin()), iter.key());
+    iter.Seek(0);
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(*(keys.begin()), iter.key());
 
-//     iter.SeekToLast();
-//     ASSERT_TRUE(iter.Valid());
-//     ASSERT_EQ(*(keys.rbegin()), iter.key());
-//   }
+    iter.SeekToFirst();
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(*(keys.begin()), iter.key());
 
-//   // Forward iteration test
-//   for (int i = 0; i < R; i++) {
-//     SkipList<Key, TestComparator>::Iterator iter(&list);
-//     iter.Seek(i);
+    iter.SeekToLast();
+    ASSERT_TRUE(iter.Valid());
+    ASSERT_EQ(*(keys.rbegin()), iter.key());
+  }
 
-//     // Compare against model iterator
-//     std::set<Key>::iterator model_iter = keys.lower_bound(i);
-//     for (int j = 0; j < 3; j++) {
-//       if (model_iter == keys.end()) {
-//         ASSERT_TRUE(!iter.Valid());
-//         break;
-//       } else {
-//         ASSERT_TRUE(iter.Valid());
-//         ASSERT_EQ(*model_iter, iter.key());
-//         ++model_iter;
-//         iter.Next();
-//       }
-//     }
-//   }
+  // Forward iteration test
+  for (int i = 0; i < R; i++) {
+    BTree<Key, TestComparator>::Iterator iter(&tree);
+    iter.Seek(i);
 
-//   // Backward iteration test
-//   {
-//     SkipList<Key, TestComparator>::Iterator iter(&list);
-//     iter.SeekToLast();
+    // Compare against model iterator
+    std::set<Key>::iterator model_iter = keys.lower_bound(i);
+    for (int j = 0; j < 3; j++) {
+      if (model_iter == keys.end()) {
+        ASSERT_TRUE(!iter.Valid());
+        break;
+      } else {
+        ASSERT_TRUE(iter.Valid());
+        ASSERT_EQ(*model_iter, iter.key());
+        ++model_iter;
+        iter.Next();
+      }
+    }
+  }
 
-//     // Compare against model iterator
-//     for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
-//          model_iter != keys.rend();
-//          ++model_iter) {
-//       ASSERT_TRUE(iter.Valid());
-//       ASSERT_EQ(*model_iter, iter.key());
-//       iter.Prev();
-//     }
-//     ASSERT_TRUE(!iter.Valid());
-//   }
-// }
+  // Backward iteration test
+  {
+    BTree<Key, TestComparator>::Iterator iter(&tree);
+    iter.SeekToLast();
 
-// // We want to make sure that with a single writer and multiple
-// // concurrent readers (with no synchronization other than when a
-// // reader's iterator is created), the reader always observes all the
-// // data that was present in the skip list when the iterator was
-// // constructor.  Because insertions are happening concurrently, we may
-// // also observe new values that were inserted since the iterator was
-// // constructed, but we should never miss any values that were present
-// // at iterator construction time.
-// //
-// // We generate multi-part keys:
-// //     <key,gen,hash>
-// // where:
-// //     key is in range [0..K-1]
-// //     gen is a generation number for key
-// //     hash is hash(key,gen)
-// //
-// // The insertion code picks a random key, sets gen to be 1 + the last
-// // generation number inserted for that key, and sets hash to Hash(key,gen).
-// //
-// // At the beginning of a read, we snapshot the last inserted
-// // generation number for each key.  We then iterate, including random
-// // calls to Next() and Seek().  For every key we encounter, we
-// // check that it is either expected given the initial snapshot or has
-// // been concurrently added since the iterator started.
+    // Compare against model iterator
+    for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
+         model_iter != keys.rend();
+         ++model_iter) {
+      ASSERT_TRUE(iter.Valid());
+      ASSERT_EQ(*model_iter, iter.key());
+      iter.Prev();
+    }
+    ASSERT_TRUE(!iter.Valid());
+  }
+}
+
+// We want to make sure that with a single writer and multiple
+// concurrent readers (with no synchronization other than when a
+// reader's iterator is created), the reader always observes all the
+// data that was present in the skip list when the iterator was
+// constructor.  Because insertions are happening concurrently, we may
+// also observe new values that were inserted since the iterator was
+// constructed, but we should never miss any values that were present
+// at iterator construction time.
+//
+// We generate multi-part keys:
+//     <key,gen,hash>
+// where:
+//     key is in range [0..K-1]
+//     gen is a generation number for key
+//     hash is hash(key,gen)
+//
+// The insertion code picks a random key, sets gen to be 1 + the last
+// generation number inserted for that key, and sets hash to Hash(key,gen).
+//
+// At the beginning of a read, we snapshot the last inserted
+// generation number for each key.  We then iterate, including random
+// calls to Next() and Seek().  For every key we encounter, we
+// check that it is either expected given the initial snapshot or has
+// been concurrently added since the iterator started.
 // class ConcurrentTest {
 //  private:
 //   static const uint32_t K = 4;

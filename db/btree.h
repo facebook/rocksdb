@@ -164,7 +164,7 @@ class BTree {
 
   bool splitIsNecessary(Node* node);
 
-  std::tuple<Node*, Node*> splitWithAddedEntry(Node* node, const IndexEntry & entry, const Key updateEntryKey);
+  std::tuple<Node*, Node*> splitWithAddedEntry(Node* node, const IndexEntry & entry, bool shouldUpdateEntryKey, const Key updateEntryKey);
 
   // No copying allowed
   BTree(const BTree&);
@@ -436,7 +436,7 @@ bool BTree<Key, Comparator>::splitIsNecessary(Node* node) {
 // Create two new Nodes 
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, typename BTree<Key, Comparator>::Node*> 
-BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEntry, const Key updateEntryKey) {
+BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEntry, bool shouldUpdateEntryKey, const Key updateEntryKey) {
   // Split function must consolidate the original and new node, so that calculating numEntries
   // would return correct value.
   int newSize = 1 + node->numEntries; // number of total elements in node including the element to be added
@@ -451,7 +451,7 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEn
   left->linkPtrPid = right->pid;
 
   bool newEntryAdded = false;
-  bool prevEntryUpdated = (updateEntryKey == nullptr);
+  bool prevEntryUpdated = !shouldUpdateEntryKey;
   Node* cur;
   int nodeIndex = 0;
   cur = left;
@@ -471,19 +471,19 @@ BTree<Key, Comparator>::splitWithAddedEntry(Node* node, const IndexEntry & newEn
     } else if (!newEntryAdded &&
         i == node->numEntries) {
       // Fact that it reached here means new key is greater than anything in the node
-      assert(node->linkPtrPid == -1);
-      if (node->type == Node::NODE_TYPE_INDEX) {
+      if (node->type == Node::NODE_TYPE_INDEX && compare_(newEntry.key, node->entries[node->numEntries - 1].key) > 0) {
+        // Second condition distinguishes the children being splitted was to the rightmost of their level
+        assert(node->linkPtrPid == -1);
         cur->entries[nodeIndex].key = updateEntryKey;
         cur->entries[nodeIndex].pid = node->highPtrPid;
         cur->highPtrPid = newEntry.pid;  
-      } else { // Leaf
+      } else { // Leaf or children being splitted was second entry from the rightmost
         cur->entries[nodeIndex] = newEntry;
       }
       newEntryAdded = true;
     } else {
       cur->entries[nodeIndex] = node->entries[i];
       if (!prevEntryUpdated && compare_(newEntry.key, node->entries[i].key) == 0) {
-        assert(updateEntryKey != nullptr); // It must be case when parent is being splitted; Must update the key
         cur->entries[nodeIndex].key = updateEntryKey;
         prevEntryUpdated = true;
       }
@@ -500,7 +500,7 @@ template<typename Key, class Comparator>
 void BTree<Key, Comparator>::Insert(const Key& key) {
   Node* node;
   int entryIndex;
-  unique_ptr<std::stack<Node*> > stack;
+  std::unique_ptr<std::stack<Node*> > stack;
   std::tie(node, entryIndex, stack) = FindGreaterOrEqual(key);
 
   // Our data structure does not allow duplicate insertion
@@ -512,7 +512,8 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
   }
   
   IndexEntry newEntry;
-  Key updateEntryKey = nullptr;
+  bool shouldUpdateEntryKey = false;
+  Key updateEntryKey;
   newEntry.key = key;
   newEntry.obj = key;
   while (!stack->empty()) {
@@ -521,12 +522,13 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
     if (splitIsNecessary(node)) {
       Node* left;
       Node* right;
-      std::tie(left, right) = splitWithAddedEntry(node, newEntry, updateEntryKey);
+      std::tie(left, right) = splitWithAddedEntry(node, newEntry, shouldUpdateEntryKey, updateEntryKey);
       // left->right->(old left's next) are all connected at this point.
       // IndexEntry to insert on the parent level
       newEntry.key = right->entries[right->numEntries - 1].key; // highest key contained in the right node
       newEntry.pid = right->pid;
       // When parent is modified, the old parent's indexEntry that pointed to left must be updated with the new high key
+      shouldUpdateEntryKey = true;
       updateEntryKey = left->entries[left->numEntries - 1].key; // highest key contained in the left node
 
       if (stack->empty()) {
@@ -548,7 +550,7 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
       int nodeIndex = 0;
       int i = 0;
       bool newEntryAdded = false;
-      bool prevEntryUpdated = (updateEntryKey == nullptr);
+      bool prevEntryUpdated = !shouldUpdateEntryKey;
       while (nodeIndex < newSize) {
         if (!newEntryAdded &&
             i < node->numEntries && 
@@ -559,19 +561,19 @@ void BTree<Key, Comparator>::Insert(const Key& key) {
         } else if (!newEntryAdded &&
             i == node->numEntries) {
           // Fact that it reached here means new key is greater than anything in the node
-          assert(node->linkPtrPid == -1);
-          if (node->type == Node::NODE_TYPE_INDEX) {
+          if (node->type == Node::NODE_TYPE_INDEX && compare_(newEntry.key, node->entries[node->numEntries - 1].key) > 0) {
+            // Second condition distinguishes the children being splitted was to the rightmost of their level
+            assert(node->linkPtrPid == -1);
             newNode->entries[nodeIndex].key = updateEntryKey;
             newNode->entries[nodeIndex].pid = node->highPtrPid;
             newNode->highPtrPid = newEntry.pid;  
-          } else { // Leaf
+          } else { // Leaf or children being splitted was second entry from the rightmost
             newNode->entries[nodeIndex] = newEntry;
           }
           newEntryAdded = true;
         } else {
           newNode->entries[nodeIndex] = node->entries[i];
           if (!prevEntryUpdated && compare_(newEntry.key, node->entries[i].key) == 0) {
-            assert(updateEntryKey != nullptr); // It must be case when parent is being splitted; Must update the key
             newNode->entries[nodeIndex].key = updateEntryKey;
             prevEntryUpdated = true;
           }
