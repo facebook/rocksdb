@@ -1,7 +1,11 @@
 # Rocksdb Change Log
 
-### Unreleased Features
-* Add rocksdb::GetThreadList(), which returns the current status of all rocksdb-related threads.
+### 3.9.0 (12/8/2014)
+
+### New Features
+* Add rocksdb::GetThreadList(), which in the future will return the current status of all
+  rocksdb-related threads.  We will have more code instruments in the following RocksDB
+  releases.
 
 ### Public API changes
 * New API to create a checkpoint added. Given a directory name, creates a new
@@ -9,6 +13,9 @@
 *New API LinkFile added to Env. If you implement your own Env class, an
  implementation of the API LinkFile will have to be provided.
 * MemTableRep takes MemTableAllocator instead of Arena
+
+### Improvements
+* RocksDBLite library now becomes smaller and will be compiled with -fno-exceptions flag.
 
 ## 3.8.0 (11/14/2014)
 
