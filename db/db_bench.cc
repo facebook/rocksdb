@@ -1367,11 +1367,13 @@ class Benchmark {
   }
 
   void Run() {
+    Options open_options;  // keep options around to properly destroy db later
+
     if (!SanityCheck()) {
       exit(1);
     }
     PrintHeader();
-    Open();
+    Open(&open_options);
     const char* benchmarks = FLAGS_benchmarks.c_str();
     while (benchmarks != nullptr) {
       const char* sep = strchr(benchmarks, ',');
@@ -1532,15 +1534,15 @@ class Benchmark {
             delete db_.db;
             db_.db = nullptr;
             db_.cfh.clear();
-            DestroyDB(FLAGS_db, Options());
+            DestroyDB(FLAGS_db, open_options);
           }
           for (size_t i = 0; i < multi_dbs_.size(); i++) {
             delete multi_dbs_[i].db;
-            DestroyDB(GetDbNameForMultiple(FLAGS_db, i), Options());
+            DestroyDB(GetDbNameForMultiple(FLAGS_db, i), open_options);
           }
           multi_dbs_.clear();
         }
-        Open();
+        Open(&open_options);  // use open_options for the last accessed
       }
 
       if (method != nullptr) {
@@ -1832,9 +1834,11 @@ class Benchmark {
     }
   }
 
-  void Open() {
+  void Open(Options* opts) {
+    Options& options = *opts;
+
     assert(db_.db == nullptr);
-    Options options;
+
     options.create_if_missing = !FLAGS_use_existing_db;
     options.create_missing_column_families = FLAGS_num_column_families > 1;
     options.db_write_buffer_size = FLAGS_db_write_buffer_size;
