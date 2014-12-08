@@ -686,7 +686,7 @@ struct DBOptions {
   // column families whose memtables are backed by the oldest live WAL file
   // (i.e. the ones that are causing all the space amplification). If set to 0
   // (default), we will dynamically choose the WAL size limit to be
-  // [sum of all write_buffer_size * max_write_buffer_number] * 2
+  // [sum of all write_buffer_size * max_write_buffer_number] * 4
   // Default: 0
   uint64_t max_total_wal_size;
 

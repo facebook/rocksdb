@@ -230,6 +230,10 @@ class DBImpl : public DB {
   // REQUIRES: mutex locked
   // pass the pointer that you got from TEST_BeginWrite()
   void TEST_EndWrite(void* w);
+
+  uint64_t TEST_max_total_in_memory_state() {
+    return max_total_in_memory_state_;
+  }
 #endif  // ROCKSDB_LITE
 
   // Returns the list of live files in 'live' and the list

@@ -2272,6 +2272,15 @@ SuperVersion* DBImpl::InstallSuperVersion(
     ColumnFamilyData* cfd, SuperVersion* new_sv,
     const MutableCFOptions& mutable_cf_options) {
   mutex_.AssertHeld();
+
+  // Update max_total_in_memory_state_
+  size_t old_memtable_size = 0;
+  auto* old_sv = cfd->GetSuperVersion();
+  if (old_sv) {
+    old_memtable_size = old_sv->mutable_cf_options.write_buffer_size *
+                        old_sv->mutable_cf_options.max_write_buffer_number;
+  }
+
   auto* old = cfd->InstallSuperVersion(
       new_sv ? new_sv : new SuperVersion(), &mutex_, mutable_cf_options);
 
@@ -2281,11 +2290,6 @@ SuperVersion* DBImpl::InstallSuperVersion(
   MaybeScheduleFlushOrCompaction();
 
   // Update max_total_in_memory_state_
-  size_t old_memtable_size = 0;
-  if (old) {
-    old_memtable_size = old->mutable_cf_options.write_buffer_size *
-                        old->mutable_cf_options.max_write_buffer_number;
-  }
   max_total_in_memory_state_ =
       max_total_in_memory_state_ - old_memtable_size +
       mutable_cf_options.write_buffer_size *

@@ -529,8 +529,28 @@ TEST(ColumnFamilyTest, FlushTest) {
   ASSERT_OK(Put(1, "mirko", "v3"));
   ASSERT_OK(Put(0, "foo", "v2"));
   ASSERT_OK(Put(2, "fodor", "v5"));
-  for (int i = 0; i < 3; ++i) {
-    Flush(i);
+
+  for (int j = 0; j < 2; j++) {
+    ReadOptions ro;
+    std::vector<Iterator*> iterators;
+    // Hold super version.
+    if (j == 0) {
+      ASSERT_OK(db_->NewIterators(ro, handles_, &iterators));
+    }
+
+    for (int i = 0; i < 3; ++i) {
+      uint64_t max_total_in_memory_state =
+          dbfull()->TEST_max_total_in_memory_state();
+      Flush(i);
+      ASSERT_EQ(dbfull()->TEST_max_total_in_memory_state(),
+                max_total_in_memory_state);
+    }
+    ASSERT_OK(Put(1, "foofoo", "bar"));
+    ASSERT_OK(Put(0, "foofoo", "bar"));
+
+    for (auto* it : iterators) {
+      delete it;
+    }
   }
   Reopen();
 
