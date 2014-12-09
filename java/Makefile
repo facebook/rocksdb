@@ -58,6 +58,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.ComparatorTest\
 		org.rocksdb.test.DBOptionsTest\
 		org.rocksdb.test.DirectComparatorTest\
+		org.rocksdb.test.DirectSliceTest\
 		org.rocksdb.test.EnvironmentTest\
 		org.rocksdb.test.FilterTest\
 		org.rocksdb.test.FlushTest\
@@ -74,6 +75,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.RocksEnvTest\
 		org.rocksdb.test.RocksIteratorTest\
 		org.rocksdb.test.SizeUnitTest\
+		org.rocksdb.test.SliceTest\
 		org.rocksdb.test.SnapshotTest\
 		org.rocksdb.test.StatisticsCollectorTest\
 		org.rocksdb.test.WriteBatchHandlerTest\
