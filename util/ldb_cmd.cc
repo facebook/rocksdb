@@ -1343,12 +1343,16 @@ class InMemoryHandler : public WriteBatch::Handler {
   }
 
   virtual void Put(const Slice& key, const Slice& value) {
-    row_ << "PUT : ";
-    commonPutMerge(key, value);
+   PutMerge(key,value,"PUT : ");
   }
 
   virtual void Merge(const Slice& key, const Slice& value) {
-    row_ << "MERGE : ";
+   PutMerge(key,value,"MERGE : ");
+  }
+
+  virtual void PutMerge(const Slice& key, const Slice& value, string putmerge)
+  {
+    row_ << putmerge;
     commonPutMerge(key, value);
   }
 
