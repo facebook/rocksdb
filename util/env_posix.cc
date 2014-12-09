@@ -1694,11 +1694,10 @@ class PosixEnv : public Env {
       }
       if (num > total_threads_limit_ ||
           (num < total_threads_limit_ && allow_reduce)) {
-        total_threads_limit_ = num;
+        total_threads_limit_ = std::max(1, num);
         WakeUpAllThreads();
         StartBGThreads();
       }
-      assert(total_threads_limit_ > 0);
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
     }
 
