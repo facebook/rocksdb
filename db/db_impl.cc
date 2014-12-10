@@ -1985,6 +1985,9 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 
     // SetNewMemtableAndNewLogFile() will release and reacquire mutex
     // during execution
+    /**
+     * Need to put an assertFalse()
+     */
     s = SetNewMemtableAndNewLogFile(cfd, &context);
     cfd->imm()->FlushRequested();
     MaybeScheduleFlushOrCompaction();

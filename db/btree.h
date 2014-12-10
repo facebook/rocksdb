@@ -24,6 +24,7 @@
 #include "util/arena.h"
 #include "port/port.h"
 #include "util/arena.h"
+#include <iostream>
 
 namespace rocksdb {
 
@@ -34,6 +35,7 @@ class BTree {
   struct IndexEntry;
 
  public:
+  std::tuple<Node*, int> FindLessThan(const Key& key) const;
   // Create a new BTree object that will use "cmp" for comparing keys,
   // and will allocate memory using "*arena".  Objects allocated in the arena
   // must remain allocated for the lifetime of the skiplist object.
@@ -152,7 +154,7 @@ class BTree {
 
   // Return the latest node with a key < key.
   // Return nullptr if there is no such node.
-  std::tuple<Node*, int> FindLessThan(const Key& key) const;
+  // std::tuple<Node*, int> FindLessThan(const Key& key) const;
 
   // Return nullptr if tree is empty
   // Else, return the left-most leaf node
@@ -260,21 +262,7 @@ inline void BTree<Key, Comparator>::Iterator::Prev() {
     Key currentKey = node_->entries[0].key;
     auto tuple = tree_->FindLessThan(currentKey);
     node_ = std::get<0>(tuple);
-    if (node_ == nullptr) { // Reached beginning of the tree.
-      offset_ = -1;
-      return;
-    }
-    // A possible corner case would be that a new key lower than current 
-    // node's lowest was added and it was prepended in the current node.
-    // Then we shouldn't just start from the back end of the vector
-    offset_ = -1;
-    for (int i = node_->numEntries - 1; i >= 0; i--) {
-      if (tree_->compare_(currentKey, node_->entries[i].key) < 0) {
-        offset_ = i;
-        break;
-      }
-    }
-    assert(offset_ != -1);
+    offset_ = std::get<1>(tuple);
   } else {
     offset_--;
   }
@@ -373,9 +361,78 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
 BTree<Key, Comparator>::FindLessThan(const Key& key) const {
-  // TODO TBD. Similar to FindGreaterOrEqualTo
-  assert(false);
-  return std::make_tuple(nullptr, -1);
+  // assert(false);
+  // return std::make_tuple(nullptr,-1);
+  // std::cout << std::endl;
+
+  // std::cout << "Looking for : " << key << std::endl;
+
+  // This function will only be called if the given key is the first in its node
+
+  // Find the node where this key would be inserted
+  Node* node;
+  // int temp;
+  int entryIndex;
+  std::unique_ptr<std::stack<Node*> > stack;
+  std::tie(node, entryIndex, stack) = FindGreaterOrEqual(key);
+  int32_t curr_pid = node->pid;
+  Key lastEntry;
+  
+  // std::cout << "Current pid : " << curr_pid << std::endl;
+  // std::cout << "Entry index : " << entryIndex << std::endl;
+  // std::cout << "Greatest entry : " << node->entries[node->numEntries-1].key << std::endl;
+  // std::cout << "Root pid : " << rootPid_ << std::endl;
+  
+  if (entryIndex != 0) {
+    return std::make_tuple(node, entryIndex - 1);
+  }
+
+  while (entryIndex == 0 && node->pid != rootPid_) {
+    entryIndex = -1;
+    lastEntry = node->entries[node->numEntries - 1].key;
+    stack->pop();
+    node = stack->top();
+
+    for (int i=0; i<node->numEntries; i++) {
+      if (compare_(lastEntry, node->entries[i].key) == 0) {
+        entryIndex = i;
+      }
+    }
+
+    // std::cout << "EOL entryIndex : " << entryIndex << std::endl;
+    // std::cout << "Greatest entry : " << node->entries[node->numEntries-1].key << std::endl;
+
+  }
+
+  if (entryIndex == 0 && node->pid == rootPid_) {
+    return std::make_tuple(nullptr, -1);
+  }
+
+  if (entryIndex == -1) {
+    entryIndex = node->numEntries;
+  }
+
+  Key greatestKey = node->entries[entryIndex-1].key;
+  node = mappingTable_.getNode(node->entries[entryIndex-1].pid);
+
+  while (node->type != Node::NODE_TYPE_LEAF) {
+    // std::cout << "Greatest entry : " << node->entries[node->numEntries-1].key << std::endl;
+    if (node->entries[node->numEntries-1].key != greatestKey) {
+      node = mappingTable_.getNode(node->linkPtrPid);
+    }
+    if (node->highPtrPid != -1) {
+      node = mappingTable_.getNode(node->highPtrPid);
+    } else {
+      node = mappingTable_.getNode(node->entries[node->numEntries - 1].pid);
+    }
+  }
+
+  if (node->linkPtrPid != -1 && node->linkPtrPid != curr_pid) {
+    node = mappingTable_.getNode(node->linkPtrPid);
+  }
+
+  return std::make_tuple(node, node->numEntries-1);
+
 }
 
 template<typename Key, class Comparator>
