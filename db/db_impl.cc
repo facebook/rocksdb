@@ -77,7 +77,6 @@
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "util/string_util.h"
-#include "util/thread_status_impl.h"
 
 namespace rocksdb {
 
@@ -246,7 +245,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 }
 
 DBImpl::~DBImpl() {
-  EraseThreadStatusDbInfo();
   mutex_.Lock();
 
   if (flush_on_destroy_) {
@@ -2505,11 +2503,6 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     }
   }  // MutexLock l(&mutex_)
 
-  // this is outside the mutex
-  if (s.ok()) {
-    NewThreadStatusCfInfo(
-        reinterpret_cast<ColumnFamilyHandleImpl*>(*handle)->cfd());
-  }
   return s;
 }
 
@@ -2545,7 +2538,6 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     // Note that here we erase the associated cf_info of the to-be-dropped
     // cfd before its ref-count goes to zero to avoid having to erase cf_info
     // later inside db_mutex.
-    EraseThreadStatusCfInfo(cfd);
     assert(cfd->IsDropped());
     auto* mutable_cf_options = cfd->GetLatestMutableCFOptions();
     max_total_in_memory_state_ -= mutable_cf_options->write_buffer_size *
@@ -3574,7 +3566,6 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
         if (cfd != nullptr) {
           handles->push_back(
               new ColumnFamilyHandleImpl(cfd, impl, &impl->mutex_));
-          impl->NewThreadStatusCfInfo(cfd);
         } else {
           if (db_options.create_missing_column_families) {
             // missing column family, create it
@@ -3738,44 +3729,6 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   }
   return result;
 }
-
-#if ROCKSDB_USING_THREAD_STATUS
-void DBImpl::NewThreadStatusCfInfo(
-    ColumnFamilyData* cfd) const {
-  if (db_options_.enable_thread_tracking) {
-    ThreadStatusImpl::NewColumnFamilyInfo(
-        this, GetName(), cfd, cfd->GetName());
-  }
-}
-
-void DBImpl::EraseThreadStatusCfInfo(
-    ColumnFamilyData* cfd) const {
-  if (db_options_.enable_thread_tracking) {
-    ThreadStatusImpl::EraseColumnFamilyInfo(cfd);
-  }
-}
-
-void DBImpl::EraseThreadStatusDbInfo() const {
-  if (db_options_.enable_thread_tracking) {
-    ThreadStatusImpl::EraseDatabaseInfo(this);
-  }
-}
-
-Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
-  return thread_local_status.GetThreadList(thread_list);
-}
-#else
-void DBImpl::NewThreadStatusCfInfo(
-    ColumnFamilyData* cfd) const {
-}
-
-void DBImpl::EraseThreadStatusCfInfo(
-    ColumnFamilyData* cfd) const {
-}
-
-void DBImpl::EraseThreadStatusDbInfo() const {
-}
-#endif  // ROCKSDB_USING_THREAD_STATUS
 
 //
 // A global method that can dump out the build version

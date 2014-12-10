@@ -2,11 +2,6 @@
 
 ### 3.9.0 (12/8/2014)
 
-### New Features
-* Add rocksdb::GetThreadList(), which in the future will return the current status of all
-  rocksdb-related threads.  We will have more code instruments in the following RocksDB
-  releases.
-
 ### Public API changes
 * New API to create a checkpoint added. Given a directory name, creates a new
   database which is an image of the existing database.

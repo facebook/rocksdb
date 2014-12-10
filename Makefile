@@ -164,8 +164,7 @@ TESTS = \
 	flush_job_test \
 	wal_manager_test \
 	listener_test \
-	compaction_job_test \
-	thread_list_test
+	compaction_job_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 

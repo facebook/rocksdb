@@ -267,12 +267,6 @@ class DBImpl : public DB {
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number,
                               const MutableCFOptions& mutable_cf_options);
 
-  void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
-
-  void EraseThreadStatusCfInfo(ColumnFamilyData* cfd) const;
-
-  void EraseThreadStatusDbInfo() const;
-
  private:
   friend class DB;
   friend class InternalStats;

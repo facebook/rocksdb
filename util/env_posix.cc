@@ -42,7 +42,6 @@
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
-#include "util/thread_status_impl.h"
 
 // Get nano time for mach systems
 #ifdef __MACH__
@@ -75,10 +74,6 @@
 int rocksdb_kill_odds = 0;
 
 namespace rocksdb {
-
-#if ROCKSDB_USING_THREAD_STATUS
-extern ThreadStatusImpl thread_local_status;
-#endif
 
 namespace {
 
@@ -1667,18 +1662,8 @@ class PosixEnv : public Env {
       BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
       size_t thread_id = meta->thread_id_;
       ThreadPool* tp = meta->thread_pool_;
-#if ROCKSDB_USING_THREAD_STATUS
-      // for thread-status
-      thread_local_status.SetThreadType(
-          (tp->GetThreadPriority() == Env::Priority::HIGH ?
-              ThreadStatus::ThreadType::ROCKSDB_HIGH_PRIORITY :
-              ThreadStatus::ThreadType::ROCKSDB_LOW_PRIORITY));
-#endif
       delete meta;
       tp->BGThread(thread_id);
-#if ROCKSDB_USING_THREAD_STATUS
-      thread_local_status.UnregisterThread();
-#endif
       return nullptr;
     }
 

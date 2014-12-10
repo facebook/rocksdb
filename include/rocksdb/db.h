@@ -22,7 +22,6 @@
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/listener.h"
-#include "rocksdb/thread_status.h"
 
 namespace rocksdb {
 
@@ -546,11 +545,6 @@ Status DestroyDB(const std::string& name, const Options& options);
 // Some data may be lost, so be careful when calling this function
 // on a database that contains important information.
 Status RepairDB(const std::string& dbname, const Options& options);
-#endif
-
-#if ROCKSDB_USING_THREAD_STATUS
-// Obtain the status of all rocksdb-related threads.
-Status GetThreadList(std::vector<ThreadStatus>* thread_list);
 #endif
 
 
