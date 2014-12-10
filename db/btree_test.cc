@@ -116,20 +116,20 @@ TEST(BTreeTest, InsertAndLookup) {
   }
 
   // Backward iteration test
-  // {
-  //   BTree<Key, TestComparator>::Iterator iter(&tree);
-  //   iter.SeekToLast();
+  {
+    BTree<Key, TestComparator>::Iterator iter(&tree);
+    iter.SeekToLast();
 
-  //   // Compare against model iterator
-  //   for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
-  //        model_iter != keys.rend();
-  //        ++model_iter) {
-  //     ASSERT_TRUE(iter.Valid());
-  //     ASSERT_EQ(*model_iter, iter.key());
-  //     iter.Prev();
-  //   }
-  //   ASSERT_TRUE(!iter.Valid());
-  // }
+    // Compare against model iterator
+    for (std::set<Key>::reverse_iterator model_iter = keys.rbegin();
+         model_iter != keys.rend();
+         ++model_iter) {
+      ASSERT_TRUE(iter.Valid());
+      ASSERT_EQ(*model_iter, iter.key());
+      iter.Prev();
+    }
+    ASSERT_TRUE(!iter.Valid());
+  }
 }
 
 // We want to make sure that with a single writer and multiple
