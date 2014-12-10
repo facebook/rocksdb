@@ -18,6 +18,7 @@ db_dir="/tmp/rocksdb/"
 wal_dir="/tmp/rocksdb/"
 output_dir="/tmp/output"
 
+
 # Test 1: bulk load
 OUTPUT_DIR=$output_dir NUM_KEYS=$n DB_DIR=$db_dir WAL_DIR=$wal_dir \
   ./benchmark.sh bulkload
@@ -43,3 +44,9 @@ OUTPUT_DIR=$output_dir NUM_KEYS=$n DB_DIR=$db_dir WAL_DIR=$wal_dir \
 OUTPUT_DIR=$output_dir NUM_KEYS=$n DB_DIR=$db_dir WAL_DIR=$wal_dir \
   DURATION=$duration NUM_READ_THREADS=$num_read_threads WRITES_PER_SECOND=$wps \
   ./benchmark.sh readwhilewriting
+
+# Test 6: random seek + next()'s while writing
+OUTPUT_DIR=$output_dir NUM_KEYS=$n DB_DIR=$db_dir WAL_DIR=$wal_dir \
+  DURATION=$duration NUM_READ_THREADS=$num_read_threads WRITES_PER_SECOND=$wps \
+  NUM_NEXTS_PER_SEEK=10 \
+  ./benchmark.sh rangescanwhilewriting

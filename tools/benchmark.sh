@@ -28,6 +28,7 @@ fi
 
 num_read_threads=${NUM_READ_THREADS:-16}
 writes_per_second=${WRITES_PER_SEC:-$((80 * K))}  # (only for readwhilewriting)
+num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}      # (only for rangescanwhilewriting)
 cache_size=$((1 * G))
 duration=${DURATION:-0}
 
@@ -56,8 +57,6 @@ const_params="
   --target_file_size_base=$((128 * M)) \
   --max_bytes_for_level_base=$((1 * G)) \
   \
-  --sync=0 \
-  --disable_data_sync=1 \
   --verify_checksum=1 \
   --delete_obsolete_files_period_micros=$((60 * M)) \
   --max_grandparent_overlap_factor=10 \
@@ -93,6 +92,7 @@ function run_bulkload {
        --use_existing_db=0 \
        --num=$num_keys \
        --disable_auto_compactions=1 \
+       --sync=0 \
        --disable_data_sync=1 \
        --threads=1 2>&1 | tee $output_dir/benchmark_bulkload_fillrandom.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
@@ -102,6 +102,7 @@ function run_bulkload {
        --use_existing_db=1 \
        --num=$num_keys \
        --disable_auto_compactions=1 \
+       --sync=0 \
        --disable_data_sync=1 \
        --threads=1 2>&1 | tee $output_dir/benchmark_bulkload_compact.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_compact.log
@@ -113,6 +114,8 @@ function run_fillseq {
   cmd="./db_bench $params_w --benchmarks=fillseq \
        --use_existing_db=0 \
        --num=$num_keys \
+       --sync=1 \
+       --disable_data_sync=0 \
        --threads=1 2>&1 | tee $output_dir/benchmark_fillseq.log"
   echo $cmd | tee $output_dir/benchmark_fillseq.log
   eval $cmd
@@ -123,6 +126,8 @@ function run_overwrite {
   cmd="./db_bench $params_w --benchmarks=overwrite \
        --use_existing_db=1 \
        --num=$num_keys \
+       --sync=1 \
+       --disable_data_sync=0 \
        --threads=1 2>&1 | tee $output_dir/benchmark_overwrite.log"
   echo $cmd | tee $output_dir/benchmark_overwrite.log
   eval $cmd
@@ -133,6 +138,8 @@ function run_filluniquerandom {
   cmd="./db_bench $params_w --benchmarks=filluniquerandom \
        --use_existing_db=0 \
        --num=$num_keys \
+       --sync=1 \
+       --disable_data_sync=0 \
        --threads=1 2>&1 | tee $output_dir/benchmark_filluniquerandom.log"
   echo $cmd | tee $output_dir/benchmark_filluniquerandom.log
   eval $cmd
@@ -155,10 +162,27 @@ function run_readwhilewriting {
   cmd="./db_bench $params_r --benchmarks=readwhilewriting \
        --use_existing_db=1 \
        --num=$num_keys \
+       --sync=1 \
+       --disable_data_sync=0 \
        --threads=$num_read_threads \
        --writes_per_second=$writes_per_second \
        2>&1 | tee $output_dir/benchmark_readwhilewriting.log"
   echo $cmd | tee $output_dir/benchmark_readwhilewriting.log
+  eval $cmd
+}
+
+function run_rangescanwhilewriting {
+  echo "Range scan $num_keys random keys from database whiling writing.."
+  cmd="./db_bench $params_r --benchmarks=seekrandomwhilewriting \
+       --use_existing_db=1 \
+       --num=$num_keys \
+       --sync=1 \
+       --disable_data_sync=0 \
+       --threads=$num_read_threads \
+       --writes_per_second=$writes_per_second \
+       --seek_nexts=$num_nexts_per_seek \
+       2>&1 | tee $output_dir/benchmark_rangescanwhilewriting.log"
+  echo $cmd | tee $output_dir/benchmark_rangescanwhilewriting.log
   eval $cmd
 }
 
@@ -168,7 +192,6 @@ function now() {
 
 report="$output_dir/report.txt"
 
-# print start time
 echo "===== Benchmark ====="
 
 # Run!!!
@@ -188,6 +211,8 @@ for job in ${jobs[@]}; do
     run_readrandom
   elif [ $job = readwhilewriting ]; then
     run_readwhilewriting
+  elif [ $job = rangescanwhilewriting ]; then
+    run_rangescanwhilewriting
   else
     echo "unknown job $job"
     exit
@@ -195,12 +220,17 @@ for job in ${jobs[@]}; do
   end=$(now)
 
   echo "Complete $job in $((end-start)) seconds" | tee -a $report
-  if [[ $job = readrandom || $job = readwhilewriting ]]; then
+  if [[ $job = readrandom || $job = readwhilewriting || $job == rangescanwhilewriting ]]; then
+    lat=$(grep "micros\/op" "$output_dir/benchmark_$job.log" | grep "ops\/sec" | awk '{print $3}')
     qps=$(grep "micros\/op" "$output_dir/benchmark_$job.log" | grep "ops\/sec" | awk '{print $5}')
     line=$(grep "rocksdb.db.get.micros" "$output_dir/benchmark_$job.log")
     p50=$(echo $line | awk '{print $7}')
     p99=$(echo $line | awk '{print $13}')
-    echo "Read latency p50 = $p50 us, p99 = $p99 us" | tee -a $report
+    print_percentile=$(echo "$p50 != 0 || $p99 != 0" | bc);
+    if [ $print_percentile == "1" ]; then
+      echo "Read latency p50 = $p50 us, p99 = $p99 us" | tee -a $report
+    fi
     echo "QPS = $qps ops/sec" | tee -a $report
+    echo "Avg Latency = $lat micros/op " | tee -a $report
   fi
 done
