@@ -16,6 +16,8 @@
 #include <inttypes.h>
 #include <algorithm>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "db/dbformat.h"
@@ -69,10 +71,10 @@ class VersionBuilder::Rep {
     }
   };
 
-  typedef std::set<FileMetaData*, FileComparator> FileSet;
   struct LevelState {
-    std::set<uint64_t> deleted_files;
-    FileSet* added_files;
+    std::unordered_set<uint64_t> deleted_files;
+    // Map from file number to file meta data.
+    std::unordered_map<uint64_t, FileMetaData*> added_files;
   };
 
   const EnvOptions& env_options_;
@@ -93,25 +95,13 @@ class VersionBuilder::Rep {
     level_nonzero_cmp_.sort_method = FileComparator::kLevelNon0;
     level_nonzero_cmp_.internal_comparator =
         base_vstorage_->InternalComparator();
-
-    levels_[0].added_files = new FileSet(level_zero_cmp_);
-    for (int level = 1; level < base_vstorage_->num_levels(); level++) {
-      levels_[level].added_files = new FileSet(level_nonzero_cmp_);
-    }
   }
 
   ~Rep() {
     for (int level = 0; level < base_vstorage_->num_levels(); level++) {
-      const FileSet* added = levels_[level].added_files;
-      std::vector<FileMetaData*> to_unref;
-      to_unref.reserve(added->size());
-      for (FileSet::const_iterator it = added->begin(); it != added->end();
-           ++it) {
-        to_unref.push_back(*it);
-      }
-      delete added;
-      for (uint32_t i = 0; i < to_unref.size(); i++) {
-        FileMetaData* f = to_unref[i];
+      const auto& added = levels_[level].added_files;
+      for (auto& pair : added) {
+        FileMetaData* f = pair.second;
         f->refs--;
         if (f->refs <= 0) {
           if (f->table_reader_handle) {
@@ -175,27 +165,20 @@ class VersionBuilder::Rep {
     // is possibly moved from lower level to higher level in current
     // version
     for (int l = level + 1; !found && l < base_vstorage_->num_levels(); l++) {
-      const FileSet* added = levels_[l].added_files;
-      for (FileSet::const_iterator added_iter = added->begin();
-           added_iter != added->end(); ++added_iter) {
-        FileMetaData* f = *added_iter;
-        if (f->fd.GetNumber() == number) {
-          found = true;
-          break;
-        }
+      auto& level_added = levels_[l].added_files;
+      auto got = level_added.find(number);
+      if (got != level_added.end()) {
+        found = true;
+        break;
       }
     }
 
     // maybe this file was added in a previous edit that was Applied
     if (!found) {
-      const FileSet* added = levels_[level].added_files;
-      for (FileSet::const_iterator added_iter = added->begin();
-           added_iter != added->end(); ++added_iter) {
-        FileMetaData* f = *added_iter;
-        if (f->fd.GetNumber() == number) {
-          found = true;
-          break;
-        }
+      auto& level_added = levels_[level].added_files;
+      auto got = level_added.find(number);
+      if (got != level_added.end()) {
+        found = true;
       }
     }
     if (!found) {
@@ -224,8 +207,10 @@ class VersionBuilder::Rep {
       FileMetaData* f = new FileMetaData(new_file.second);
       f->refs = 1;
 
+      assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
+             levels_[level].added_files.end());
       levels_[level].deleted_files.erase(f->fd.GetNumber());
-      levels_[level].added_files->insert(f);
+      levels_[level].added_files[f->fd.GetNumber()] = f;
     }
   }
 
@@ -241,8 +226,16 @@ class VersionBuilder::Rep {
       const auto& base_files = base_vstorage_->LevelFiles(level);
       auto base_iter = base_files.begin();
       auto base_end = base_files.end();
-      const auto& added_files = *levels_[level].added_files;
-      vstorage->Reserve(level, base_files.size() + added_files.size());
+      const auto& unordered_added_files = levels_[level].added_files;
+      vstorage->Reserve(level,
+                        base_files.size() + unordered_added_files.size());
+
+      // Sort added files for the level.
+      autovector<FileMetaData*> added_files;
+      for (const auto& pair : unordered_added_files) {
+        added_files.push_back(pair.second);
+      }
+      std::sort(added_files.begin(), added_files.end(), cmp);
 
       for (const auto& added : added_files) {
         // Add all smaller files listed in base_
@@ -266,7 +259,8 @@ class VersionBuilder::Rep {
   void LoadTableHandlers() {
     assert(table_cache_ != nullptr);
     for (int level = 0; level < base_vstorage_->num_levels(); level++) {
-      for (auto& file_meta : *(levels_[level].added_files)) {
+      for (auto& file_meta_pair : levels_[level].added_files) {
+        auto* file_meta = file_meta_pair.second;
         assert(!file_meta->table_reader_handle);
         table_cache_->FindTable(
             env_options_, *(base_vstorage_->InternalComparator()),
