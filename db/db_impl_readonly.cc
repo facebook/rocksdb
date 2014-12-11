@@ -151,7 +151,9 @@ Status DB::OpenForReadOnly(
     }
   }
   impl->mutex_.Unlock();
-  if (!s.ok()) {
+  if (s.ok()) {
+    *dbptr = impl;
+  } else {
     for (auto h : *handles) {
       delete h;
     }
