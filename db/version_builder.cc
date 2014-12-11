@@ -231,13 +231,26 @@ class VersionBuilder::Rep {
                         base_files.size() + unordered_added_files.size());
 
       // Sort added files for the level.
-      autovector<FileMetaData*> added_files;
+      std::vector<FileMetaData*> added_files;
+      added_files.reserve(unordered_added_files.size());
       for (const auto& pair : unordered_added_files) {
         added_files.push_back(pair.second);
       }
       std::sort(added_files.begin(), added_files.end(), cmp);
 
+#ifndef NDEBUG
+      FileMetaData* prev_file = nullptr;
+#endif
+
       for (const auto& added : added_files) {
+#ifndef NDEBUG
+        if (level > 0 && prev_file != nullptr) {
+          assert(base_vstorage_->InternalComparator()->Compare(
+                     prev_file->smallest, added->smallest) <= 0);
+        }
+        prev_file = added;
+#endif
+
         // Add all smaller files listed in base_
         for (auto bpos = std::upper_bound(base_iter, base_end, added, cmp);
              base_iter != bpos; ++base_iter) {
