@@ -5,8 +5,8 @@
 ### Public API changes
 * New API to create a checkpoint added. Given a directory name, creates a new
   database which is an image of the existing database.
-*New API LinkFile added to Env. If you implement your own Env class, an
- implementation of the API LinkFile will have to be provided.
+* New API LinkFile added to Env. If you implement your own Env class, an
+  implementation of the API LinkFile will have to be provided.
 * MemTableRep takes MemTableAllocator instead of Arena
 
 ### Improvements
