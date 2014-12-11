@@ -190,30 +190,30 @@ TEST(CacheTest, EntriesArePinned) {
   Insert(100, 101);
   Cache::Handle* h1 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(101, DecodeValue(cache_->Value(h1)));
-  ASSERT_EQ(1, cache_->GetUsage());
+  ASSERT_EQ(1U, cache_->GetUsage());
 
   Insert(100, 102);
   Cache::Handle* h2 = cache_->Lookup(EncodeKey(100));
   ASSERT_EQ(102, DecodeValue(cache_->Value(h2)));
   ASSERT_EQ(0U, deleted_keys_.size());
-  ASSERT_EQ(2, cache_->GetUsage());
+  ASSERT_EQ(2U, cache_->GetUsage());
 
   cache_->Release(h1);
   ASSERT_EQ(1U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[0]);
   ASSERT_EQ(101, deleted_values_[0]);
-  ASSERT_EQ(1, cache_->GetUsage());
+  ASSERT_EQ(1U, cache_->GetUsage());
 
   Erase(100);
   ASSERT_EQ(-1, Lookup(100));
   ASSERT_EQ(1U, deleted_keys_.size());
-  ASSERT_EQ(1, cache_->GetUsage());
+  ASSERT_EQ(1U, cache_->GetUsage());
 
   cache_->Release(h2);
   ASSERT_EQ(2U, deleted_keys_.size());
   ASSERT_EQ(100, deleted_keys_[1]);
   ASSERT_EQ(102, deleted_values_[1]);
-  ASSERT_EQ(0, cache_->GetUsage());
+  ASSERT_EQ(0U, cache_->GetUsage());
 }
 
 TEST(CacheTest, EvictionPolicy) {
@@ -336,9 +336,9 @@ TEST(CacheTest, NewId) {
 
 class Value {
  private:
-  int v_;
+  size_t v_;
  public:
-  explicit Value(int v) : v_(v) { }
+  explicit Value(size_t v) : v_(v) { }
 
   ~Value() { std::cout << v_ << " is destructed\n"; }
 };
@@ -350,7 +350,7 @@ void deleter(const Slice& key, void* value) {
 }  // namespace
 
 TEST(CacheTest, OverCapacity) {
-  int n = 10;
+  size_t n = 10;
 
   // a LRUCache with n entries and one shard only
   std::shared_ptr<Cache> cache = NewLRUCache(n, 0);
@@ -358,13 +358,13 @@ TEST(CacheTest, OverCapacity) {
   std::vector<Cache::Handle*> handles(n+1);
 
   // Insert n+1 entries, but not releasing.
-  for (int i = 0; i < n+1; i++) {
+  for (size_t i = 0; i < n + 1; i++) {
     std::string key = ToString(i+1);
     handles[i] = cache->Insert(key, new Value(i+1), 1, &deleter);
   }
 
   // Guess what's in the cache now?
-  for (int i = 0; i < n+1; i++) {
+  for (size_t i = 0; i < n + 1; i++) {
     std::string key = ToString(i+1);
     auto h = cache->Lookup(key);
     std::cout << key << (h?" found\n":" not found\n");
@@ -373,8 +373,8 @@ TEST(CacheTest, OverCapacity) {
   }
 
   // the cache is over capacity since nothing could be evicted
-  ASSERT_EQ(n + 1, cache->GetUsage());
-  for (int i = 0; i < n+1; i++) {
+  ASSERT_EQ(n + 1U, cache->GetUsage());
+  for (size_t i = 0; i < n + 1; i++) {
     cache->Release(handles[i]);
   }
 
@@ -384,14 +384,14 @@ TEST(CacheTest, OverCapacity) {
   // element 0 is evicted and the rest is there
   // This is consistent with the LRU policy since the element 0
   // was released first
-  for (int i = 0; i < n+1; i++) {
+  for (size_t i = 0; i < n + 1; i++) {
     std::string key = ToString(i+1);
     auto h = cache->Lookup(key);
     if (h) {
-      ASSERT_NE(i, 0);
+      ASSERT_NE(i, 0U);
       cache->Release(h);
     } else {
-      ASSERT_EQ(i, 0);
+      ASSERT_EQ(i, 0U);
     }
   }
 }
