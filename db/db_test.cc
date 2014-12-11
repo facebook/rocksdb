@@ -1622,6 +1622,11 @@ TEST(DBTest, GetSnapshot) {
       std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
       ASSERT_OK(Put(1, key, "v1"));
       const Snapshot* s1 = db_->GetSnapshot();
+      if (option_config_ == kHashCuckoo) {
+        // NOt supported case.
+        ASSERT_TRUE(s1 == nullptr);
+        break;
+      }
       ASSERT_OK(Put(1, key, "v2"));
       ASSERT_EQ("v2", Get(1, key));
       ASSERT_EQ("v1", Get(1, key, s1));
@@ -1630,8 +1635,7 @@ TEST(DBTest, GetSnapshot) {
       ASSERT_EQ("v1", Get(1, key, s1));
       db_->ReleaseSnapshot(s1);
     }
-    // skip as HashCuckooRep does not support snapshot
-  } while (ChangeOptions(kSkipHashCuckoo));
+  } while (ChangeOptions());
 }
 
 TEST(DBTest, GetSnapshotLink) {

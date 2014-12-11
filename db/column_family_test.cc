@@ -731,6 +731,27 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   Close();
 }
 
+TEST(ColumnFamilyTest, MemtableNotSupportSnapshot) {
+  Open();
+  auto* s1 = dbfull()->GetSnapshot();
+  ASSERT_TRUE(s1 != nullptr);
+  dbfull()->ReleaseSnapshot(s1);
+
+  // Add a column family that doesn't support snapshot
+  ColumnFamilyOptions first;
+  first.memtable_factory.reset(NewHashCuckooRepFactory(1024 * 1024));
+  CreateColumnFamilies({"first"}, {first});
+  auto* s2 = dbfull()->GetSnapshot();
+  ASSERT_TRUE(s2 == nullptr);
+
+  // Add a column family that supports snapshot. Snapshot stays not supported.
+  ColumnFamilyOptions second;
+  CreateColumnFamilies({"second"}, {second});
+  auto* s3 = dbfull()->GetSnapshot();
+  ASSERT_TRUE(s3 == nullptr);
+  Close();
+}
+
 TEST(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});

@@ -202,6 +202,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       default_cf_handle_(nullptr),
       total_log_size_(0),
       max_total_in_memory_state_(0),
+      is_snapshot_supported_(true),
       write_buffer_(options.db_write_buffer_size),
       tmp_batch_(),
       bg_schedule_needed_(false),
@@ -1305,8 +1306,8 @@ Status DBImpl::CompactFilesImpl(
   CompactionJob compaction_job(c.get(), db_options_, *c->mutable_cf_options(),
                                env_options_, versions_.get(), &shutting_down_,
                                &log_buffer, db_directory_.get(), stats_,
-                               &snapshots_, IsSnapshotSupported(), table_cache_,
-                               std::move(yield_callback));
+                               &snapshots_, is_snapshot_supported_,
+                               table_cache_, std::move(yield_callback));
   compaction_job.Prepare();
 
   mutex_.Unlock();
@@ -2090,7 +2091,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     CompactionJob compaction_job(c.get(), db_options_, *c->mutable_cf_options(),
                                  env_options_, versions_.get(), &shutting_down_,
                                  log_buffer, db_directory_.get(), stats_,
-                                 &snapshots_, IsSnapshotSupported(),
+                                 &snapshots_, is_snapshot_supported_,
                                  table_cache_, std::move(yield_callback));
     compaction_job.Prepare();
     mutex_.Unlock();
@@ -2494,6 +2495,11 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
       assert(cfd != nullptr);
       delete InstallSuperVersion(
           cfd, nullptr, *cfd->GetLatestMutableCFOptions());
+
+      if (!cfd->mem()->IsSnapshotSupported()) {
+        is_snapshot_supported_ = false;
+      }
+
       *handle = new ColumnFamilyHandleImpl(cfd, this, &mutex_);
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "Created column family [%s] (ID %u)",
@@ -2520,6 +2526,8 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     return Status::InvalidArgument("Can't drop default column family");
   }
 
+  bool cf_support_snapshot = cfd->mem()->IsSnapshotSupported();
+
   VersionEdit edit;
   edit.DropColumnFamily();
   edit.SetColumnFamily(cfd->GetID());
@@ -2538,6 +2546,19 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
       write_thread_.ExitWriteThread(&w, &w, s);
+    }
+
+    if (!cf_support_snapshot) {
+      // Dropped Column Family doesn't support snapshot. Need to recalculate
+      // is_snapshot_supported_.
+      bool new_is_snapshot_supported = true;
+      for (auto c : *versions_->GetColumnFamilySet()) {
+        if (!c->mem()->IsSnapshotSupported()) {
+          new_is_snapshot_supported = false;
+          break;
+        }
+      }
+      is_snapshot_supported_ = new_is_snapshot_supported;
     }
   }
 
@@ -2712,22 +2733,13 @@ Status DBImpl::NewIterators(
   return Status::OK();
 }
 
-bool DBImpl::IsSnapshotSupported() const {
-  for (auto cfd : *versions_->GetColumnFamilySet()) {
-    if (!cfd->mem()->IsSnapshotSupported()) {
-      return false;
-    }
-  }
-  return true;
-}
-
 const Snapshot* DBImpl::GetSnapshot() {
   int64_t unix_time = 0;
   env_->GetCurrentTime(&unix_time);  // Ignore error
 
   MutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
-  if (!IsSnapshotSupported()) return nullptr;
+  if (!is_snapshot_supported_) return nullptr;
   return snapshots_.New(versions_->LastSequence(), unix_time);
 }
 
@@ -3621,6 +3633,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
             break;
           }
         }
+      }
+      if (!cfd->mem()->IsSnapshotSupported()) {
+        impl->is_snapshot_supported_ = false;
       }
       if (cfd->ioptions()->merge_operator != nullptr &&
           !cfd->mem()->IsMergeOperatorSupported()) {
