@@ -72,7 +72,7 @@ jobject
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count) {
   return
-  Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(
+  Java_org_rocksdb_RocksDB_open_ROnly__JLjava_lang_String_2Ljava_util_List_2I(
     env, jdb, jopt_handle, jdb_path, jcfdesc_list, jcfdesc_count, true);
 }
 
@@ -87,7 +87,7 @@ jobject
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count) {
     return
-    Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(
+    Java_org_rocksdb_RocksDB_open_ROnly__JLjava_lang_String_2Ljava_util_List_2I(
       env, jdb, jopt_handle, jdb_path, jcfdesc_list, jcfdesc_count, false);
 }
 
@@ -98,7 +98,7 @@ jobject
  * Helper function for opening with or without ReadOnly switch
  */
 jobject
-    Java_org_rocksdb_RocksDB_openWithROnlySwitch__JLjava_lang_String_2Ljava_util_List_2I(
+    Java_org_rocksdb_RocksDB_open_ROnly__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count, bool openROnly) {
   auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
@@ -139,7 +139,7 @@ jobject
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(cfname,
           *cfOptions));
   }
-  if(openROnly)
+  if (openROnly)
     rocksdb::Status s = rocksdb::DB::OpenForReadOnly(*opt,
       db_path, column_families, &handles, &db);
   else
