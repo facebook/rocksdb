@@ -63,7 +63,7 @@ void Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2(
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    openROnly
+ * Method:    openROnly 
  * Signature: (JLjava/lang/String;Ljava/util/List;I)Ljava/util/List;
  * Uses Merged function
  */
