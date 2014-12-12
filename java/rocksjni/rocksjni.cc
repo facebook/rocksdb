@@ -71,7 +71,9 @@ jobject
     Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count) {
-  return Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(env,jdb,jopt_handle,jdb_path,jcfdesc_list,jcfdesc_count,false,true);
+  return 
+  Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(
+    env, jdb, jopt_handle, jdb_path, jcfdesc_list, jcfdesc_count, true);
 }
 
 /*
@@ -80,16 +82,25 @@ jobject
  * Signature: (JLjava/lang/String;Ljava/util/List;I)Ljava/util/List;
  * Uses Merged function
  */
-jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
+jobject 
+    Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count) {
-    return Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(env,jdb,jopt_handle,jdb_path,jcfdesc_list,jcfdesc_count,true,false);
+    return 
+    Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(
+      env, jdb, jopt_handle, jdb_path, jcfdesc_list, jcfdesc_count, false);
 }
 
-jobject Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List_2I(
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    openWithROnlySwitch
+ * Signature: (JLjava/lang/String;Ljava/util/List;I)Ljava/util/List;
+ * Helper function for opening with or without ReadOnly switch
+ */
+jobject 
+    Java_org_rocksdb_RocksDB_openWithROnlySwitch__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
-    jobject jcfdesc_list, jint jcfdesc_count, bool open, bool openROnly)
-{
+    jobject jcfdesc_list, jint jcfdesc_count, bool openROnly) {
   auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   rocksdb::DB* db = nullptr;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
@@ -127,14 +138,13 @@ jobject Java_org_rocksdb_RocksDB_openMerged__JLjava_lang_String_2Ljava_util_List
       jcfnames_for_free.push_back(jstr);
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(cfname,
           *cfOptions));
-  }
-
-  if(open)
-    rocksdb::Status s = rocksdb::DB::Open(*opt, db_path, column_families,
-        &handles, &db);
+  }    
   if(openROnly)
     rocksdb::Status s = rocksdb::DB::OpenForReadOnly(*opt,
       db_path, column_families, &handles, &db);
+  else
+    rocksdb::Status s = rocksdb::DB::Open(*opt, db_path, column_families,
+        &handles, &db);
   env->ReleaseStringUTFChars(jdb_path, db_path);
   // free jbyte allocations
   for (std::vector<jbyte*>::size_type i = 0;

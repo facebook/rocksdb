@@ -314,7 +314,6 @@ class InMemoryEnv : public EnvWrapper {
     file_map_.erase(fname);
   }
 
-
   virtual Status fileOperations(const std::string& fname, uint64_t* file_size,
       bool fileSize, bool deletefile) {
     MutexLock lock(&mutex_);
@@ -330,9 +329,9 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
-	virtual Status DeleteFile(const std::string& fname) {
-		return fileOperations(fname, 0, false, true);
-	}
+  virtual Status DeleteFile(const std::string& fname) {
+	  return fileOperations(fname, 0, false, true);
+  }
 
   virtual Status CreateDir(const std::string& dirname) {
     return Status::OK();
@@ -346,9 +345,9 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
-	virtual Status GetFileSize(const std::string& fname, uint64_t* file_size) {
-		return fileOperations(fname, file_size, true, false);
-	}
+  virtual Status GetFileSize(const std::string& fname, uint64_t* file_size) {
+    return fileOperations(fname, file_size, true, false);
+  }
 
   virtual Status GetFileModificationTime(const std::string& fname,
                                          uint64_t* time) {
