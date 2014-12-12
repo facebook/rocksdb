@@ -139,13 +139,12 @@ jobject
           *cfOptions));
   }
   if (openROnly) {
-    s = rocksdb::DB::OpenForReadOnly(*opt,
-      db_path, column_families, &handles, &db);
+    s = rocksdb::DB::OpenForReadOnly(*opt, db_path, column_families, &handles,
+      &db);
+  } else {
+    s = rocksdb::DB::Open(*opt, db_path, column_families, &handles, &db);
   }
-  else {
-    s = rocksdb::DB::Open(*opt, db_path, column_families,
-  }
-        &handles, &db);
+
   env->ReleaseStringUTFChars(jdb_path, db_path);
   // free jbyte allocations
   for (std::vector<jbyte*>::size_type i = 0;
