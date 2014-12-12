@@ -330,7 +330,7 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status DeleteFile(const std::string& fname) {
-	  return fileOperations(fname, 0, false, true);
+    return fileOperations(fname, 0, false, true);
   }
 
   virtual Status CreateDir(const std::string& dirname) {
