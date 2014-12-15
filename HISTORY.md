@@ -2,6 +2,7 @@
 
 ### Unreleased Features
 * Changed the LRU caching algorithm so that referenced blocks (by iterators) are never evicted
+* By default we now optimize the compilation for the compilation platform (using -march=native). If you want to build portable binary, use 'PORTABLE=1' before the make command.
 
 ### 3.9.0 (12/8/2014)
 

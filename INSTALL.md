@@ -2,7 +2,7 @@
 
 RocksDB's library should be able to compile without any dependency installed,
 although we recommend installing some compression libraries (see below).
-We do depend on newer gcc with C++11 support.
+We do depend on newer gcc/clang with C++11 support.
 
 There are few options when compiling RocksDB:
 
@@ -15,9 +15,9 @@ There are few options when compiling RocksDB:
 * `make all` will compile our static library, and all our tools and unit tests. Our tools
 depend on gflags. You will need to have gflags installed to run `make all`.
 
-* if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 " to make sure
-SSE4.2 is used to speed up CRC32 when calculating data checksum.
-
+* By default the binary we produce is optimized for the platform you're compiling on
+(-march=native). If you want to build a portable binary, add 'PORTABLE=1' before
+your make commands, like this: `PORTABLE=1 make static_lib`
 
 ## Dependencies
 
@@ -76,13 +76,7 @@ SSE4.2 is used to speed up CRC32 when calculating data checksum.
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
             * run `brew tap homebrew/dupes; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
-    * Install zlib, bzip2 and snappy libraries for compression.
-    * Install gflags. We have included a script
-    `build_tools/mac-install-gflags.sh`, which should automatically install it (execute this file instead of runing using "source" command).
-    If you installed gflags by other means (for example, `brew install gflags`),
-    please set `LIBRARY_PATH` and `CPATH` accordingly.
-    * Please note that some of the optimizations/features are disabled in OSX.
-    We did not run any production workloads on it.
+    * run `brew install rocksdb`
 
 * **iOS**:
   * Run: `TARGET_OS=IOS make static_lib`. When building the project which uses rocksdb iOS library, make sure to define two important pre-processing macros: `ROCKSDB_LITE` and `IOS_CROSS_COMPILE`.

@@ -48,7 +48,7 @@ LIBUNWIND_REV=2c060e64064559905d46fd194000d61592087bdc
 LIBUNWIND="/mnt/gvfs/third-party2/libunwind/$LIBUNWIND_REV/1.1/gcc-4.8.1-glibc-2.17/675d945/lib/libunwind.a"
 
 # use Intel SSE support for checksum calculations
-export USE_SSE=" -msse -msse4.2 "
+export USE_SSE=1
 
 BINUTILS="/mnt/gvfs/third-party2/binutils/2aff2e7b474cd3e6ab23495ad1224b7d214b9f8e/2.21.1/centos6-native/da39a3e/bin"
 AR="$BINUTILS/ar"

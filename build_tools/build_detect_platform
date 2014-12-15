@@ -308,8 +308,12 @@ if test "$USE_HDFS"; then
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
-# if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 "
-COMMON_FLAGS="$COMMON_FLAGS $USE_SSE"
+if test "$USE_SSE"; then
+  # if Intel SSE instruction set is supported, set USE_SSE=1
+  COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
+elif test -z "$PORTABLE"; then
+  COMMON_FLAGS="$COMMON_FLAGS -march=native -mtune=native "
+fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
