@@ -22,7 +22,7 @@ package org.rocksdb;
  * non-const method, all threads accessing the same WriteBatch must use
  * external synchronization.
  */
-public class WriteBatch extends RocksObject {
+public class WriteBatch extends RocksObject implements WriteBatchInterface {
   /**
    * Constructs a WriteBatch instance.
    */
@@ -41,98 +41,44 @@ public class WriteBatch extends RocksObject {
     newWriteBatch(reserved_bytes);
   }
 
-  /**
-   * Returns the number of updates in the batch.
-   *
-   * @return number of items in WriteBatch
-   */
+  @Override
   public native int count();
 
-  /**
-   * <p>Store the mapping "key-&gt;value" in the database.</p>
-   *
-   * @param key the specified key to be inserted.
-   * @param value the value associated with the specified key.
-   */
+  @Override
   public void put(byte[] key, byte[] value) {
     put(key, key.length, value, value.length);
   }
 
-  /**
-   * <p>Store the mapping "key-&gt;value" within given column
-   * family.</p>
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param key the specified key to be inserted.
-   * @param value the value associated with the specified key.
-   */
+  @Override
   public void put(ColumnFamilyHandle columnFamilyHandle,
       byte[] key, byte[] value) {
     put(key, key.length, value, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
-  /**
-   * <p>Merge "value" with the existing value of "key" in the database.
-   * "key-&gt;merge(existing, value)"</p>
-   *
-   * @param key the specified key to be merged.
-   * @param value the value to be merged with the current value for
-   * the specified key.
-   */
+  @Override
   public void merge(byte[] key, byte[] value) {
     merge(key, key.length, value, value.length);
   }
 
-  /**
-   * <p>Merge "value" with the existing value of "key" in given column family.
-   * "key-&gt;merge(existing, value)"</p>
-   *
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-   * @param key the specified key to be merged.
-   * @param value the value to be merged with the current value for
-   * the specified key.
-   */
+  @Override
   public void merge(ColumnFamilyHandle columnFamilyHandle,
       byte[] key, byte[] value) {
     merge(key, key.length, value, value.length,
         columnFamilyHandle.nativeHandle_);
   }
 
-  /**
-   * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
-   *
-   * @param key Key to delete within database
-   */
+  @Override
   public void remove(byte[] key) {
     remove(key, key.length);
   }
 
-  /**
-   * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-   *
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-   * @param key Key to delete within database
-   */
+  @Override
   public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
     remove(key, key.length, columnFamilyHandle.nativeHandle_);
   }
 
-  /**
-   * Append a blob of arbitrary size to the records in this batch. The blob will
-   * be stored in the transaction log but not in any other file. In particular,
-   * it will not be persisted to the SST files. When iterating over this
-   * WriteBatch, WriteBatch::Handler::LogData will be called with the contents
-   * of the blob as it is encountered. Blobs, puts, deletes, and merges will be
-   * encountered in the same order in thich they were inserted. The blob will
-   * NOT consume sequence number(s) and will NOT increase the count of the batch
-   *
-   * Example application: add timestamps to the transaction log for use in
-   * replication.
-   *
-   * @param blob binary object to be inserted
-   */
+  @Override
   public void putLogData(byte[] blob) {
     putLogData(blob, blob.length);
   }
@@ -149,9 +95,7 @@ public class WriteBatch extends RocksObject {
     iterate(handler.nativeHandle_);
   }
 
-  /**
-   * Clear all updates buffered in this batch
-   */
+  @Override
   public native void clear();
 
   /**
