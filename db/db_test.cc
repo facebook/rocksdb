@@ -1004,6 +1004,12 @@ class DBTest {
     return size;
   }
 
+  void Compact(int cf, const Slice& start, const Slice& limit,
+               uint32_t target_path_id) {
+    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit, false, -1,
+                                target_path_id));
+  }
+
   void Compact(int cf, const Slice& start, const Slice& limit) {
     ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit));
   }
@@ -4087,6 +4093,233 @@ TEST(DBTest, UniversalCompactionSecondPathRatio) {
   Destroy(options);
 }
 
+TEST(DBTest, LevelCompactionThirdPath) {
+  Options options;
+  options.db_paths.emplace_back(dbname_, 500 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 4;
+  options.max_bytes_for_level_base = 400 * 1024;
+  //  options = CurrentOptions(options);
+
+  std::vector<std::string> filenames;
+  env_->GetChildren(options.db_paths[1].path, &filenames);
+  // Delete archival files.
+  for (size_t i = 0; i < filenames.size(); ++i) {
+    env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
+  }
+  env_->DeleteDir(options.db_paths[1].path);
+  Reopen(options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // First three 110KB files are not going to second path.
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  // Another 110KB triggers a compaction to 400K file to fill up first path
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(3, GetSstFileCount(options.db_paths[1].path));
+
+  // (1, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4", FilesPerLevel(0));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 1)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,1", FilesPerLevel(0));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 2)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,2", FilesPerLevel(0));
+  ASSERT_EQ(2, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 3)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,3", FilesPerLevel(0));
+  ASSERT_EQ(3, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,4", FilesPerLevel(0));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 5)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,5", FilesPerLevel(0));
+  ASSERT_EQ(5, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 6)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,6", FilesPerLevel(0));
+  ASSERT_EQ(6, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 7)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,7", FilesPerLevel(0));
+  ASSERT_EQ(7, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  // (1, 4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+  ASSERT_EQ(8, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(4, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Reopen(options);
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Destroy(options);
+}
+
+TEST(DBTest, LevelCompactionPathUse) {
+  Options options;
+  options.db_paths.emplace_back(dbname_, 500 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
+  options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 4;
+  options.max_bytes_for_level_base = 400 * 1024;
+  //  options = CurrentOptions(options);
+
+  std::vector<std::string> filenames;
+  env_->GetChildren(options.db_paths[1].path, &filenames);
+  // Delete archival files.
+  for (size_t i = 0; i < filenames.size(); ++i) {
+    env_->DeleteFile(options.db_paths[1].path + "/" + filenames[i]);
+  }
+  env_->DeleteDir(options.db_paths[1].path);
+  Reopen(options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // Always gets compacted into 1 Level1 file,
+  // 0/1 Level 0 file
+  for (int num = 0; num < 3; num++) {
+    key_idx = 0;
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,1", FilesPerLevel(0));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  key_idx = 0;
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,1", FilesPerLevel(0));
+  ASSERT_EQ(0, GetSstFileCount(options.db_paths[2].path));
+  ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+  ASSERT_EQ(1, GetSstFileCount(dbname_));
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Reopen(options);
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Destroy(options);
+}
+
 TEST(DBTest, UniversalCompactionFourPaths) {
   Options options;
   options.db_paths.emplace_back(dbname_, 300 * 1024);
@@ -5951,6 +6184,75 @@ TEST(DBTest, ManualCompactionOutputPathId) {
   // Fail when compacting to an invalid path ID
   ASSERT_TRUE(db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 2)
                   .IsInvalidArgument());
+}
+
+TEST(DBTest, ManualLevelCompactionOutputPathId) {
+  Options options = CurrentOptions();
+  options.db_paths.emplace_back(dbname_ + "_2", 2 * 10485760);
+  options.db_paths.emplace_back(dbname_ + "_3", 100 * 10485760);
+  options.db_paths.emplace_back(dbname_ + "_4", 120 * 10485760);
+  options.max_background_flushes = 1;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
+      << "Need to update this test to match kMaxMemCompactLevel";
+
+  // iter - 0 with 7 levels
+  // iter - 1 with 3 levels
+  for (int iter = 0; iter < 2; ++iter) {
+    MakeTables(3, "p", "q", 1);
+    ASSERT_EQ("3", FilesPerLevel(1));
+    ASSERT_EQ(3, GetSstFileCount(options.db_paths[0].path));
+    ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+    // Compaction range falls before files
+    Compact(1, "", "c");
+    ASSERT_EQ("3", FilesPerLevel(1));
+
+    // Compaction range falls after files
+    Compact(1, "r", "z");
+    ASSERT_EQ("3", FilesPerLevel(1));
+
+    // Compaction range overlaps files
+    Compact(1, "p1", "p9", 1);
+    ASSERT_EQ("0,1", FilesPerLevel(1));
+    ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+    ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
+    ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+    // Populate a different range
+    MakeTables(3, "c", "e", 1);
+    ASSERT_EQ("3,1", FilesPerLevel(1));
+
+    // Compact just the new range
+    Compact(1, "b", "f", 1);
+    ASSERT_EQ("0,2", FilesPerLevel(1));
+    ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
+    ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
+    ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+    // Compact all
+    MakeTables(1, "a", "z", 1);
+    ASSERT_EQ("1,2", FilesPerLevel(1));
+    ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
+    ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
+    db_->CompactRange(handles_[1], nullptr, nullptr, false, 1, 1);
+    ASSERT_EQ("0,1", FilesPerLevel(1));
+    ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+    ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
+    ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+    if (iter == 0) {
+      DestroyAndReopen(options);
+      options = CurrentOptions();
+      options.db_paths.emplace_back(dbname_ + "_2", 2 * 10485760);
+      options.db_paths.emplace_back(dbname_ + "_3", 100 * 10485760);
+      options.db_paths.emplace_back(dbname_ + "_4", 120 * 10485760);
+      options.max_background_flushes = 1;
+      options.num_levels = 3;
+      options.create_if_missing = true;
+      CreateAndReopenWithCF({"pikachu"}, options);
+    }
+  }
 }
 
 TEST(DBTest, DBOpen_Options) {

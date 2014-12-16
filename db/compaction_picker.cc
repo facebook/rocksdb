@@ -769,6 +769,44 @@ Compaction* LevelCompactionPicker::PickCompaction(
   return c;
 }
 
+/*
+ * Find the optimal path to place a file
+ * Given a level, finds the path where levels up to it will fit in levels
+ * up to and including this path
+ */
+uint32_t LevelCompactionPicker::GetPathId(
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options, int level) {
+  uint32_t p = 0;
+  assert(!ioptions.db_paths.empty());
+
+  // size remaining in the most recent path
+  uint64_t current_path_size = ioptions.db_paths[0].target_size;
+
+  uint64_t level_size;
+  int cur_level = 0;
+
+  level_size = mutable_cf_options.max_bytes_for_level_base;
+
+  // Last path is the fallback
+  while (p < ioptions.db_paths.size() - 1) {
+    if (level_size <= current_path_size) {
+      if (cur_level == level) {
+        // Does desired level fit in this path?
+        return p;
+      } else {
+        current_path_size -= level_size;
+        level_size *= mutable_cf_options.max_bytes_for_level_multiplier;
+        cur_level++;
+        continue;
+      }
+    }
+    p++;
+    current_path_size = ioptions.db_paths[p].target_size;
+  }
+  return p;
+}
+
 Compaction* LevelCompactionPicker::PickCompactionBySize(
     const MutableCFOptions& mutable_cf_options, VersionStorageInfo* vstorage,
     int level, double score) {
@@ -786,7 +824,8 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   assert(level + 1 < NumberLevels());
   c = new Compaction(vstorage->num_levels(), level, level + 1,
                      mutable_cf_options.MaxFileSizeForLevel(level + 1),
-                     mutable_cf_options.MaxGrandParentOverlapBytes(level), 0,
+                     mutable_cf_options.MaxGrandParentOverlapBytes(level),
+                     GetPathId(ioptions_, mutable_cf_options, level + 1),
                      GetCompressionType(ioptions_, level + 1));
   c->score_ = score;
 
@@ -960,6 +999,7 @@ uint32_t UniversalCompactionPicker::GetPathId(
   uint64_t future_size = file_size *
     (100 - ioptions.compaction_options_universal.size_ratio) / 100;
   uint32_t p = 0;
+  assert(!ioptions.db_paths.empty());
   for (; p < ioptions.db_paths.size() - 1; p++) {
     uint64_t target_size = ioptions.db_paths[p].target_size;
     if (target_size > file_size &&

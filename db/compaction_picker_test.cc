@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "db/compaction_picker.h"
+#include <limits>
 #include <string>
 #include "util/logging.h"
 #include "util/testharness.h"
@@ -47,6 +48,8 @@ class CompactionPickerTest {
     fifo_options_.max_table_files_size = 1;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
     size_being_compacted_.resize(options_.num_levels);
+    ioptions_.db_paths.emplace_back("dummy",
+                                    std::numeric_limits<uint64_t>::max());
   }
 
   ~CompactionPickerTest() {

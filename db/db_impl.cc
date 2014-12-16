@@ -67,6 +67,7 @@
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/db_info_dumper.h"
+#include "util/file_util.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/hash_linklist_rep.h"
 #include "util/logging.h"
@@ -2059,10 +2060,31 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
+    FileMetaData ftemp;
+    uint64_t fdnum = f->fd.GetNumber();
+    uint32_t fdpath = f->fd.GetPathId();
     c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-    c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
-                       f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno);
+    // Need to move file if file is to be stored in a new path
+    if (c->GetOutputPathId() != f->fd.GetPathId()) {
+      fdnum = versions_->NewFileNumber();
+      std::string source = TableFileName(db_options_.db_paths,
+                                         f->fd.GetNumber(), f->fd.GetPathId());
+      std::string destination =
+          TableFileName(db_options_.db_paths, fdnum, c->GetOutputPathId());
+      Status s = CopyFile(env_, source, destination, 0);
+      if (s.ok()) {
+        fdpath = c->GetOutputPathId();
+      } else {
+        fdnum = f->fd.GetNumber();
+        if (!s.IsShutdownInProgress()) {
+          Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+              "Compaction error: %s", s.ToString().c_str());
+        }
+      }
+    }
+    c->edit()->AddFile(c->level() + 1, fdnum, fdpath, f->fd.GetFileSize(),
+                       f->smallest, f->largest, f->smallest_seqno,
+                       f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(),
                                     c->edit(), &mutex_, db_directory_.get());
@@ -3519,18 +3541,20 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (!s.ok()) {
     return s;
   }
+
   if (db_options.db_paths.size() > 1) {
     for (auto& cfd : column_families) {
-      if (cfd.options.compaction_style != kCompactionStyleUniversal) {
+      if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
+          (cfd.options.compaction_style != kCompactionStyleLevel)) {
         return Status::NotSupported(
             "More than one DB paths are only supported in "
-            "universal compaction style. ");
+            "universal and level compaction styles. ");
       }
     }
 
     if (db_options.db_paths.size() > 4) {
       return Status::NotSupported(
-        "More than four DB paths are not supported yet. ");
+          "More than four DB paths are not supported yet. ");
     }
   }
 

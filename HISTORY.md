@@ -14,9 +14,13 @@
 ### Public API changes
 * New API to create a checkpoint added. Given a directory name, creates a new
   database which is an image of the existing database.
-*New API LinkFile added to Env. If you implement your own Env class, an
- implementation of the API LinkFile will have to be provided.
+* New API LinkFile added to Env. If you implement your own Env class, an
+  implementation of the API LinkFile will have to be provided.
 * MemTableRep takes MemTableAllocator instead of Arena
+* We now allow level-compaction to place files in different paths by
+  specifying them in db_paths along with the target_size.
+  Lower numbered levels will be placed earlier in the db_paths and higher
+  numbered levels will be placed later in the db_paths vector.
 
 ### Improvements
 * RocksDBLite library now becomes smaller and will be compiled with -fno-exceptions flag.

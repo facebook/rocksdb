@@ -40,6 +40,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
+#include "util/file_util.h"
 #include "util/logging.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
@@ -194,6 +195,12 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
       level = base->storage_info()->PickLevelForMemTableOutput(
           mutable_cf_options_, min_user_key, max_user_key);
+      // If level does not match path id, reset level back to 0
+      uint32_t fdpath = LevelCompactionPicker::GetPathId(
+          *cfd_->ioptions(), mutable_cf_options_, level);
+      if (fdpath != 0) {
+        level = 0;
+      }
     }
     edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
                   meta.fd.GetFileSize(), meta.smallest, meta.largest,

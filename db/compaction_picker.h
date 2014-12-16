@@ -188,6 +188,11 @@ class LevelCompactionPicker : public CompactionPicker {
   virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
       override;
 
+  // Pick a path ID to place a newly generated file, with its level
+  static uint32_t GetPathId(const ImmutableCFOptions& ioptions,
+                            const MutableCFOptions& mutable_cf_options,
+                            int level);
+
  private:
   // For the specfied level, pick a compaction.
   // Returns nullptr if there is no compaction to be done.
