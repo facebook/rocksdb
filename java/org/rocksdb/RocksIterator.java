@@ -6,9 +6,9 @@
 package org.rocksdb;
 
 /**
- * <p>An iterator yields a sequence of key/value pairs from a source.
- * The following class defines the interface. Multiple implementations
- * are provided by this library.  In particular, iterators are provided
+ * <p>An iterator that yields a sequence of key/value pairs from a source.
+ * Multiple implementations are provided by this library.
+ * In particular, iterators are provided
  * to access the contents of a Table or a DB.</p>
  *
  * <p>Multiple threads can invoke const methods on an RocksIterator without
@@ -18,7 +18,7 @@ package org.rocksdb;
  *
  * @see org.rocksdb.RocksObject
  */
-public class RocksIterator extends RocksObject {
+public class RocksIterator extends RocksObject implements RocksIteratorInterface {
   public RocksIterator(RocksDB rocksDB, long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
@@ -30,55 +30,46 @@ public class RocksIterator extends RocksObject {
     rocksDB_ = rocksDB;
   }
 
-  /**
-   * An iterator is either positioned at a key/value pair, or
-   * not valid.  This method returns true iff the iterator is valid.
-   *
-   * @return true if iterator is valid.
-   */
+  @Override
   public boolean isValid() {
     assert(isInitialized());
     return isValid0(nativeHandle_);
   }
 
-  /**
-   * Position at the first key in the source.  The iterator is Valid()
-   * after this call iff the source is not empty.
-   */
+  @Override
   public void seekToFirst() {
     assert(isInitialized());
     seekToFirst0(nativeHandle_);
   }
 
-  /**
-   * Position at the last key in the source.  The iterator is
-   * valid after this call iff the source is not empty.
-   */
+  @Override
   public void seekToLast() {
     assert(isInitialized());
     seekToLast0(nativeHandle_);
   }
 
-  /**
-   * <p>Moves to the next entry in the source.  After this call, Valid() is
-   * true iff the iterator was not positioned at the last entry in the source.</p>
-   *
-   * <p>REQUIRES: {@link #isValid()}</p>
-   */
+  @Override
+  public void seek(byte[] target) {
+    assert(isInitialized());
+    seek0(nativeHandle_, target, target.length);
+  }
+
+  @Override
   public void next() {
     assert(isInitialized());
     next0(nativeHandle_);
   }
 
-  /**
-   * <p>Moves to the previous entry in the source.  After this call, Valid() is
-   * true iff the iterator was not positioned at the first entry in source.</p>
-   *
-   * <p>REQUIRES: {@link #isValid()}</p>
-   */
+  @Override
   public void prev() {
     assert(isInitialized());
     prev0(nativeHandle_);
+  }
+
+  @Override
+  public void status() throws RocksDBException {
+    assert(isInitialized());
+    status0(nativeHandle_);
   }
 
   /**
@@ -106,32 +97,6 @@ public class RocksIterator extends RocksObject {
   public byte[] value() {
     assert(isInitialized());
     return value0(nativeHandle_);
-  }
-
-  /**
-   * <p>Position at the first key in the source that at or past target
-   * The iterator is valid after this call iff the source contains
-   * an entry that comes at or past target.</p>
-   *
-   * @param target byte array describing a key or a
-   *     key prefix to seek for.
-   */
-  public void seek(byte[] target) {
-    assert(isInitialized());
-    seek0(nativeHandle_, target, target.length);
-  }
-
-  /**
-   * If an error has occurred, return it.  Else return an ok status.
-   * If non-blocking IO is requested and this operation cannot be
-   * satisfied without doing some IO, then this returns Status::Incomplete().
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
-   */
-  public void status() throws RocksDBException {
-    assert(isInitialized());
-    status0(nativeHandle_);
   }
 
   /**
