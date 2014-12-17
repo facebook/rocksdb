@@ -1112,6 +1112,9 @@ Status DBImpl::FlushMemTableToOutputFile(
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number,
     const MutableCFOptions& mutable_cf_options) {
+  if (cfd->ioptions()->listeners.size() == 0U) {
+    return;
+  }
   mutex_.AssertHeld();
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
