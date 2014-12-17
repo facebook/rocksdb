@@ -2060,31 +2060,10 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
-    FileMetaData ftemp;
-    uint64_t fdnum = f->fd.GetNumber();
-    uint32_t fdpath = f->fd.GetPathId();
     c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-    // Need to move file if file is to be stored in a new path
-    if (c->GetOutputPathId() != f->fd.GetPathId()) {
-      fdnum = versions_->NewFileNumber();
-      std::string source = TableFileName(db_options_.db_paths,
-                                         f->fd.GetNumber(), f->fd.GetPathId());
-      std::string destination =
-          TableFileName(db_options_.db_paths, fdnum, c->GetOutputPathId());
-      Status s = CopyFile(env_, source, destination, 0);
-      if (s.ok()) {
-        fdpath = c->GetOutputPathId();
-      } else {
-        fdnum = f->fd.GetNumber();
-        if (!s.IsShutdownInProgress()) {
-          Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-              "Compaction error: %s", s.ToString().c_str());
-        }
-      }
-    }
-    c->edit()->AddFile(c->level() + 1, fdnum, fdpath, f->fd.GetFileSize(),
-                       f->smallest, f->largest, f->smallest_seqno,
-                       f->largest_seqno);
+    c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
+                       f->fd.GetFileSize(), f->smallest, f->largest,
+                       f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(),
                                     c->edit(), &mutex_, db_directory_.get());

@@ -119,7 +119,7 @@ class Compaction {
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 
-  // If true, then the comaction can be done by simply deleting input files.
+  // If true, then the compaction can be done by simply deleting input files.
   bool IsDeletionCompaction() const {
     return deletion_compaction_;
   }

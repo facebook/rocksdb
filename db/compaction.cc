@@ -140,6 +140,7 @@ bool Compaction::IsTrivialMove() const {
           num_input_levels() == 2 &&
           num_input_files(0) == 1 &&
           num_input_files(1) == 0 &&
+          input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 
