@@ -37,8 +37,8 @@ public class KeyMayExistTest {
           new ArrayList<>();
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
-      cfDescriptors.add(new ColumnFamilyDescriptor("default"));
-      cfDescriptors.add(new ColumnFamilyDescriptor("new_cf"));
+      cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+      cfDescriptors.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
       db = RocksDB.open(options,
           dbFolder.getRoot().getAbsolutePath(),
           cfDescriptors, columnFamilyHandleList);

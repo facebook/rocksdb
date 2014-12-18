@@ -8,7 +8,6 @@ package org.rocksdb.test;
 import java.util.List;
 import java.util.ArrayList;
 
-import org.junit.Assert;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -73,10 +72,10 @@ public class MergeTest {
 
       List<ColumnFamilyDescriptor> cfDescriptors =
           new ArrayList<>();
-      cfDescriptors.add(new ColumnFamilyDescriptor("default",
+      cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
           new ColumnFamilyOptions().setMergeOperatorName(
               "stringappend")));
-      cfDescriptors.add(new ColumnFamilyDescriptor("default",
+      cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
           new ColumnFamilyOptions().setMergeOperatorName(
               "stringappend")));
       db = RocksDB.open(opt, db_path_string,
@@ -158,10 +157,10 @@ public class MergeTest {
           new ArrayList<>();
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
-      cfDescriptors.add(new ColumnFamilyDescriptor("default",
+      cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
           new ColumnFamilyOptions().setMergeOperator(
               stringAppendOperator)));
-      cfDescriptors.add(new ColumnFamilyDescriptor("new_cf",
+      cfDescriptors.add(new ColumnFamilyDescriptor("new_cf".getBytes(),
           new ColumnFamilyOptions().setMergeOperator(
               stringAppendOperator)));
       db = RocksDB.open(opt, db_path_string,
@@ -178,7 +177,7 @@ public class MergeTest {
 
       // Test also with createColumnFamily
       columnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf2",
+          new ColumnFamilyDescriptor("new_cf2".getBytes(),
               new ColumnFamilyOptions().setMergeOperator(stringAppendOperator)));
       // writing xx under cfkey2
       db.put(columnFamilyHandle, "cfkey2".getBytes(), "xx".getBytes());

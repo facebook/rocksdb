@@ -16,7 +16,7 @@ import org.rocksdb.util.Environment;
  * indicates sth wrong at the RocksDB library side and the call failed.
  */
 public class RocksDB extends RocksObject {
-  public static final String DEFAULT_COLUMN_FAMILY = "default";
+  public static final byte[] DEFAULT_COLUMN_FAMILY = "default".getBytes();
   public static final int NOT_FOUND = -1;
 
   static {

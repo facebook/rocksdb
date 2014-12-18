@@ -58,9 +58,9 @@ public class ReadOnlyTest {
       db = RocksDB.open(
           dbFolder.getRoot().getAbsolutePath(), cfDescriptors, columnFamilyHandleList);
       columnFamilyHandleList.add(db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf", new ColumnFamilyOptions())));
+          new ColumnFamilyDescriptor("new_cf".getBytes(), new ColumnFamilyOptions())));
       columnFamilyHandleList.add(db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf2", new ColumnFamilyOptions())));
+          new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions())));
       db.put(columnFamilyHandleList.get(2), "key2".getBytes(),
           "value2".getBytes());
 
@@ -75,7 +75,7 @@ public class ReadOnlyTest {
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
       cfDescriptors.add(
-          new ColumnFamilyDescriptor("new_cf2", new ColumnFamilyOptions()));
+          new ColumnFamilyDescriptor("new_cf2".getBytes(), new ColumnFamilyOptions()));
       db3 = RocksDB.openReadOnly(
           dbFolder.getRoot().getAbsolutePath(), cfDescriptors, readOnlyColumnFamilyHandleList2);
       assertThat(new String(db3.get(readOnlyColumnFamilyHandleList2.get(1),

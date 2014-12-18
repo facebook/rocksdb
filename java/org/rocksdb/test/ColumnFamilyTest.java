@@ -68,7 +68,7 @@ public class ColumnFamilyTest {
       dbOptions.setCreateIfMissing(true);
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-      db.createColumnFamily(new ColumnFamilyDescriptor("new_cf",
+      db.createColumnFamily(new ColumnFamilyDescriptor("new_cf".getBytes(),
           new ColumnFamilyOptions()));
       db.close();
       List<byte[]> columnFamilyNames;
@@ -102,7 +102,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -191,12 +191,12 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
       tmpColumnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("tmpCF", new ColumnFamilyOptions()));
+          new ColumnFamilyDescriptor("tmpCF".getBytes(), new ColumnFamilyOptions()));
       db.put(tmpColumnFamilyHandle, "key".getBytes(), "value".getBytes());
       db.dropColumnFamily(tmpColumnFamilyHandle);
       tmpColumnFamilyHandle.dispose();
@@ -226,7 +226,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -273,7 +273,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -322,7 +322,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfDescriptors.add(new ColumnFamilyDescriptor("new_cf"));
+      cfDescriptors.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfDescriptors, columnFamilyHandleList);
@@ -367,7 +367,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -409,7 +409,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -459,7 +459,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -487,7 +487,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -515,7 +515,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
@@ -543,7 +543,7 @@ public class ColumnFamilyTest {
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
       cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
-      cfNames.add(new ColumnFamilyDescriptor("new_cf"));
+      cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
