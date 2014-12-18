@@ -15,8 +15,8 @@ public interface DBOptionsInterface {
    * <p>You almost definitely want to call this function if your system is
    * bottlenecked by RocksDB.</p>
    *
-   * @param The total number of threads to be used by RocksDB. A good value
-   *            is the number of cores.
+   * @param totalThreads The total number of threads to be used by RocksDB.
+   *     A good value is the number of cores.
    *
    * @return the instance of the current Options
    */
