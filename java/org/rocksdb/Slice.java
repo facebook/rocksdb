@@ -77,8 +77,8 @@ public class Slice extends AbstractSlice<byte[]> {
    */
   @Override
   protected void disposeInternal() {
-    super.disposeInternal();
     disposeInternalBuf(nativeHandle_);
+    super.disposeInternal();
   }
 
   @Override protected final native byte[] data0(long handle);

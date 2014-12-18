@@ -56,6 +56,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final ByteBuffer data, final int length) {
     super();
+    assert(data.isDirect());
     createNewDirectSlice0(data, length);
   }
 
@@ -68,6 +69,7 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    */
   public DirectSlice(final ByteBuffer data) {
     super();
+    assert(data.isDirect());
     createNewDirectSlice1(data);
   }
 

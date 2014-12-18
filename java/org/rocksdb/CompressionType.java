@@ -29,6 +29,8 @@ public enum CompressionType {
    * <p>If library cannot be found the enumeration
    * value {@code NO_COMPRESSION} will be returned.</p>
    *
+   * @param libraryName compression library name.
+   *
    * @return CompressionType instance.
    */
   public static CompressionType getCompressionType(String libraryName) {
