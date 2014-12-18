@@ -13,6 +13,7 @@ import org.rocksdb.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,6 +25,9 @@ public class RocksDBTest {
 
   @Rule
   public TemporaryFolder dbFolder = new TemporaryFolder();
+
+  public static final Random rand = PlatformRandomHelper.
+      getPlatformSpecificRandomFactory();
 
   @Test
   public void open() throws RocksDBException {
@@ -309,6 +313,428 @@ public class RocksDBTest {
       }
       if (wOpt != null) {
         wOpt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void fullCompactRange() throws RocksDBException {
+    RocksDB db = null;
+    Options opt = null;
+    try {
+      opt = new Options().
+          setCreateIfMissing(true).
+          setDisableAutoCompactions(true).
+          setCompactionStyle(CompactionStyle.LEVEL).
+          setNumLevels(4).
+          setWriteBufferSize(100<<10).
+          setLevelZeroFileNumCompactionTrigger(3).
+          setTargetFileSizeBase(200 << 10).
+          setTargetFileSizeMultiplier(1).
+          setMaxBytesForLevelBase(500 << 10).
+          setMaxBytesForLevelMultiplier(1).
+          setDisableAutoCompactions(false);
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath());
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put((String.valueOf(i)).getBytes(), b);
+      }
+      db.compactRange();
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void fullCompactRangeColumnFamily()
+      throws RocksDBException {
+    RocksDB db = null;
+    DBOptions opt = null;
+    List<ColumnFamilyHandle> columnFamilyHandles =
+        new ArrayList<>();
+    try {
+      opt = new DBOptions().
+          setCreateIfMissing(true).
+          setCreateMissingColumnFamilies(true);
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          new ArrayList<>();
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          RocksDB.DEFAULT_COLUMN_FAMILY));
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          "new_cf",
+          new ColumnFamilyOptions().
+              setDisableAutoCompactions(true).
+              setCompactionStyle(CompactionStyle.LEVEL).
+              setNumLevels(4).
+              setWriteBufferSize(100 << 10).
+              setLevelZeroFileNumCompactionTrigger(3).
+              setTargetFileSizeBase(200 << 10).
+              setTargetFileSizeMultiplier(1).
+              setMaxBytesForLevelBase(500 << 10).
+              setMaxBytesForLevelMultiplier(1).
+              setDisableAutoCompactions(false)));
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles);
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put(columnFamilyHandles.get(1),
+            String.valueOf(i).getBytes(), b);
+      }
+      db.compactRange(columnFamilyHandles.get(1));
+    } finally {
+      for (ColumnFamilyHandle handle : columnFamilyHandles) {
+        handle.dispose();
+      }
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compactRangeWithKeys()
+      throws RocksDBException {
+    RocksDB db = null;
+    Options opt = null;
+    try {
+      opt = new Options().
+          setCreateIfMissing(true).
+          setDisableAutoCompactions(true).
+          setCompactionStyle(CompactionStyle.LEVEL).
+          setNumLevels(4).
+          setWriteBufferSize(100<<10).
+          setLevelZeroFileNumCompactionTrigger(3).
+          setTargetFileSizeBase(200 << 10).
+          setTargetFileSizeMultiplier(1).
+          setMaxBytesForLevelBase(500 << 10).
+          setMaxBytesForLevelMultiplier(1).
+          setDisableAutoCompactions(false);
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath());
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put((String.valueOf(i)).getBytes(), b);
+      }
+      db.compactRange("0".getBytes(), "201".getBytes());
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compactRangeWithKeysReduce()
+      throws RocksDBException {
+    RocksDB db = null;
+    Options opt = null;
+    try {
+      opt = new Options().
+          setCreateIfMissing(true).
+          setDisableAutoCompactions(true).
+          setCompactionStyle(CompactionStyle.LEVEL).
+          setNumLevels(4).
+          setWriteBufferSize(100<<10).
+          setLevelZeroFileNumCompactionTrigger(3).
+          setTargetFileSizeBase(200 << 10).
+          setTargetFileSizeMultiplier(1).
+          setMaxBytesForLevelBase(500 << 10).
+          setMaxBytesForLevelMultiplier(1).
+          setDisableAutoCompactions(false);
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath());
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put((String.valueOf(i)).getBytes(), b);
+      }
+      db.compactRange("0".getBytes(), "201".getBytes(),
+          true, 0, 0);
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compactRangeWithKeysColumnFamily()
+      throws RocksDBException {
+    RocksDB db = null;
+    DBOptions opt = null;
+    List<ColumnFamilyHandle> columnFamilyHandles =
+        new ArrayList<>();
+    try {
+      opt = new DBOptions().
+          setCreateIfMissing(true).
+          setCreateMissingColumnFamilies(true);
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          new ArrayList<>();
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          RocksDB.DEFAULT_COLUMN_FAMILY));
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          "new_cf",
+          new ColumnFamilyOptions().
+              setDisableAutoCompactions(true).
+              setCompactionStyle(CompactionStyle.LEVEL).
+              setNumLevels(4).
+              setWriteBufferSize(100<<10).
+              setLevelZeroFileNumCompactionTrigger(3).
+              setTargetFileSizeBase(200 << 10).
+              setTargetFileSizeMultiplier(1).
+              setMaxBytesForLevelBase(500 << 10).
+              setMaxBytesForLevelMultiplier(1).
+              setDisableAutoCompactions(false)));
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles);
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put(columnFamilyHandles.get(1),
+            String.valueOf(i).getBytes(), b);
+      }
+      db.compactRange(columnFamilyHandles.get(1),
+          "0".getBytes(), "201".getBytes());
+    } finally {
+      for (ColumnFamilyHandle handle : columnFamilyHandles) {
+        handle.dispose();
+      }
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compactRangeWithKeysReduceColumnFamily()
+      throws RocksDBException {
+    RocksDB db = null;
+    DBOptions opt = null;
+    List<ColumnFamilyHandle> columnFamilyHandles =
+        new ArrayList<>();
+    try {
+      opt = new DBOptions().
+          setCreateIfMissing(true).
+          setCreateMissingColumnFamilies(true);
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          new ArrayList<>();
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          RocksDB.DEFAULT_COLUMN_FAMILY));
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          "new_cf",
+          new ColumnFamilyOptions().
+              setDisableAutoCompactions(true).
+              setCompactionStyle(CompactionStyle.LEVEL).
+              setNumLevels(4).
+              setWriteBufferSize(100<<10).
+              setLevelZeroFileNumCompactionTrigger(3).
+              setTargetFileSizeBase(200 << 10).
+              setTargetFileSizeMultiplier(1).
+              setMaxBytesForLevelBase(500 << 10).
+              setMaxBytesForLevelMultiplier(1).
+              setDisableAutoCompactions(false)));
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles);
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put(columnFamilyHandles.get(1),
+            String.valueOf(i).getBytes(), b);
+      }
+      db.compactRange(columnFamilyHandles.get(1), "0".getBytes(),
+          "201".getBytes(), true, 0, 0);
+    } finally {
+      for (ColumnFamilyHandle handle : columnFamilyHandles) {
+        handle.dispose();
+      }
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compactRangeToLevel()
+      throws RocksDBException, InterruptedException {
+    RocksDB db = null;
+    Options opt = null;
+    try {
+      opt = new Options().
+          setCreateIfMissing(true).
+          setCompactionStyle(CompactionStyle.LEVEL).
+          setNumLevels(4).
+          setWriteBufferSize(100<<10).
+          setLevelZeroFileNumCompactionTrigger(3).
+          setTargetFileSizeBase(200 << 10).
+          setTargetFileSizeMultiplier(1).
+          setMaxBytesForLevelBase(500 << 10).
+          setMaxBytesForLevelMultiplier(1).
+          setDisableAutoCompactions(false);
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath());
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put((String.valueOf(i)).getBytes(), b);
+      }
+      db.flush(new FlushOptions().setWaitForFlush(true));
+      db.close();
+      opt.setTargetFileSizeBase(Long.MAX_VALUE).
+          setTargetFileSizeMultiplier(1).
+          setMaxBytesForLevelBase(Long.MAX_VALUE).
+          setMaxBytesForLevelMultiplier(1).
+          setDisableAutoCompactions(true);
+
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath());
+
+      db.compactRange(true, 0, 0);
+      for (int i = 0; i < 4; i++) {
+        if (i == 0) {
+          assertThat(
+              db.getProperty("rocksdb.num-files-at-level" + i)).
+              isEqualTo("1");
+        } else {
+          assertThat(
+              db.getProperty("rocksdb.num-files-at-level" + i)).
+              isEqualTo("0");
+        }
+      }
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compactRangeToLevelColumnFamily()
+      throws RocksDBException {
+    RocksDB db = null;
+    DBOptions opt = null;
+    List<ColumnFamilyHandle> columnFamilyHandles =
+        new ArrayList<>();
+    try {
+      opt = new DBOptions().
+          setCreateIfMissing(true).
+          setCreateMissingColumnFamilies(true);
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors =
+          new ArrayList<>();
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          RocksDB.DEFAULT_COLUMN_FAMILY));
+      columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
+          "new_cf",
+          new ColumnFamilyOptions().
+              setDisableAutoCompactions(true).
+              setCompactionStyle(CompactionStyle.LEVEL).
+              setNumLevels(4).
+              setWriteBufferSize(100 << 10).
+              setLevelZeroFileNumCompactionTrigger(3).
+              setTargetFileSizeBase(200 << 10).
+              setTargetFileSizeMultiplier(1).
+              setMaxBytesForLevelBase(500 << 10).
+              setMaxBytesForLevelMultiplier(1).
+              setDisableAutoCompactions(false)));
+      // open database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles);
+      // fill database with key/value pairs
+      byte[] b = new byte[10000];
+      for (int i = 0; i < 200; i++) {
+        rand.nextBytes(b);
+        db.put(columnFamilyHandles.get(1),
+            String.valueOf(i).getBytes(), b);
+      }
+      db.flush(new FlushOptions().setWaitForFlush(true),
+          columnFamilyHandles.get(1));
+      // free column families
+      for (ColumnFamilyHandle handle : columnFamilyHandles) {
+        handle.dispose();
+      }
+      // clear column family handles for reopen
+      columnFamilyHandles.clear();
+      db.close();
+      columnFamilyDescriptors.get(1).
+          columnFamilyOptions().
+          setTargetFileSizeBase(Long.MAX_VALUE).
+          setTargetFileSizeMultiplier(1).
+          setMaxBytesForLevelBase(Long.MAX_VALUE).
+          setMaxBytesForLevelMultiplier(1).
+          setDisableAutoCompactions(true);
+      // reopen database
+      db = RocksDB.open(opt,
+          dbFolder.getRoot().getAbsolutePath(),
+          columnFamilyDescriptors,
+          columnFamilyHandles);
+      // compact new column family
+      db.compactRange(columnFamilyHandles.get(1), true, 0, 0);
+      // check if new column family is compacted to level zero
+      for (int i = 0; i < 4; i++) {
+        if (i == 0) {
+          assertThat(db.getProperty(columnFamilyHandles.get(1),
+              "rocksdb.num-files-at-level" + i)).
+              isEqualTo("1");
+        } else {
+          assertThat(db.getProperty(columnFamilyHandles.get(1),
+              "rocksdb.num-files-at-level" + i)).
+              isEqualTo("0");
+        }
+      }
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (opt != null) {
+        opt.dispose();
       }
     }
   }
