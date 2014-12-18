@@ -314,23 +314,14 @@ class InMemoryEnv : public EnvWrapper {
     file_map_.erase(fname);
   }
 
-  virtual Status fileOperations(const std::string& fname, uint64_t* file_size,
-      bool fileSize, bool deletefile) {
+  virtual Status DeleteFile(const std::string& fname) {
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
       return Status::IOError(fname, "File not found");
     }
-    if (fileSize)
-      *file_size = file_map_[fname]->Size();
 
-    if (deletefile)
-      DeleteFileInternal(fname);
-
+    DeleteFileInternal(fname);
     return Status::OK();
-  }
-
-  virtual Status DeleteFile(const std::string& fname) {
-    return fileOperations(fname, 0, false, true);
   }
 
   virtual Status CreateDir(const std::string& dirname) {
@@ -346,7 +337,13 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status GetFileSize(const std::string& fname, uint64_t* file_size) {
-    return fileOperations(fname, file_size, true, false);
+    MutexLock lock(&mutex_);
+    if (file_map_.find(fname) == file_map_.end()) {
+      return Status::IOError(fname, "File not found");
+    }
+
+    *file_size = file_map_[fname]->Size();
+    return Status::OK();
   }
 
   virtual Status GetFileModificationTime(const std::string& fname,
