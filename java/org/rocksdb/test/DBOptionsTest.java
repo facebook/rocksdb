@@ -74,6 +74,20 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void setIncreaseParallelism() {
+    DBOptions opt = null;
+    try {
+      opt = new DBOptions();
+      final int threads = Runtime.getRuntime().availableProcessors() * 2;
+      opt.setIncreaseParallelism(threads);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void createIfMissing() {
     DBOptions opt = null;
     try {

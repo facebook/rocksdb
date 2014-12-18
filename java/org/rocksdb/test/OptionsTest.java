@@ -23,6 +23,20 @@ public class OptionsTest {
       getPlatformSpecificRandomFactory();
 
   @Test
+  public void setIncreaseParallelism() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      final int threads = Runtime.getRuntime().availableProcessors() * 2;
+      opt.setIncreaseParallelism(threads);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void writeBufferSize() throws RocksDBException {
     Options opt = null;
     try {

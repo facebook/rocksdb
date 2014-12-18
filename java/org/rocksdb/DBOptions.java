@@ -73,6 +73,13 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
+  public DBOptions setIncreaseParallelism(int totalThreads) {
+    assert (isInitialized());
+    setIncreaseParallelism(nativeHandle_, totalThreads);
+    return this;
+  }
+
+  @Override
   public DBOptions setCreateIfMissing(boolean flag) {
     assert(isInitialized());
     setCreateIfMissing(nativeHandle_, flag);
@@ -547,6 +554,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void newDBOptions();
   private native void disposeInternal(long handle);
 
+  private native void setIncreaseParallelism(long handle, int totalThreads);
   private native void setCreateIfMissing(long handle, boolean flag);
   private native boolean createIfMissing(long handle);
   private native void setCreateMissingColumnFamilies(
