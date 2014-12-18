@@ -1068,7 +1068,7 @@ class PosixFileLock : public FileLock {
 void PthreadCall(const char* label, int result) {
   if (result != 0) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
-    exit(1);
+    abort();
   }
 }
 
