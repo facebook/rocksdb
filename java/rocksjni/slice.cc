@@ -229,7 +229,7 @@ jobject Java_org_rocksdb_DirectSlice_data0(
 jbyte Java_org_rocksdb_DirectSlice_get0(
     JNIEnv* env, jobject jobj, jlong handle, jint offset) {
   const auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
-  return (slice)[offset];
+  return (*slice)[offset];
 }
 
 /*
@@ -239,7 +239,7 @@ jbyte Java_org_rocksdb_DirectSlice_get0(
  */
 void Java_org_rocksdb_DirectSlice_clear0(
     JNIEnv* env, jobject jobj, jlong handle) {
-  const auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
   delete [] slice->data_;
   slice->clear();
 }
@@ -251,7 +251,7 @@ void Java_org_rocksdb_DirectSlice_clear0(
  */
 void Java_org_rocksdb_DirectSlice_removePrefix0(
     JNIEnv* env, jobject jobj, jlong handle, jint length) {
-  const auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
+  auto* slice = reinterpret_cast<rocksdb::Slice*>(handle);
   slice->remove_prefix(length);
 }
 
