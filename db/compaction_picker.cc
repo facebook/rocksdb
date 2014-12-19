@@ -695,15 +695,6 @@ Compaction* LevelCompactionPicker::PickCompaction(
   Compaction* c = nullptr;
   int level = -1;
 
-  // Compute the compactions needed. It is better to do it here
-  // and also in LogAndApply(), otherwise the values could be stale.
-  std::vector<uint64_t> size_being_compacted(NumberLevels() - 1);
-  SizeBeingCompacted(size_being_compacted);
-
-  CompactionOptionsFIFO dummy_compaction_options_fifo;
-  vstorage->ComputeCompactionScore(
-      mutable_cf_options, dummy_compaction_options_fifo, size_being_compacted);
-
   // We prefer compactions triggered by too much data in a level over
   // the compactions triggered by seeks.
   //
@@ -766,6 +757,21 @@ Compaction* LevelCompactionPicker::PickCompaction(
   compactions_in_progress_[level].insert(c);
 
   c->mutable_cf_options_ = mutable_cf_options;
+
+  // Creating a compaction influences the compaction score because the score
+  // takes running compactions into account (by skipping files that are already
+  // being compacted). Since we just changed compaction score, we recalculate it
+  // here
+  {  // this piece of code recomputes compaction score
+    std::vector<uint64_t> size_being_compacted(NumberLevels() - 1);
+    SizeBeingCompacted(size_being_compacted);
+
+    CompactionOptionsFIFO dummy_compaction_options_fifo;
+    vstorage->ComputeCompactionScore(mutable_cf_options,
+                                     dummy_compaction_options_fifo,
+                                     size_being_compacted);
+  }
+
   return c;
 }
 

@@ -223,14 +223,11 @@ void SuperVersionUnrefHandle(void* ptr) {
 }
 }  // anonymous namespace
 
-ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
-                                   Version* _dummy_versions,
-                                   Cache* _table_cache,
-                                   WriteBuffer* write_buffer,
-                                   const ColumnFamilyOptions& cf_options,
-                                   const DBOptions* db_options,
-                                   const EnvOptions& env_options,
-                                   ColumnFamilySet* column_family_set)
+ColumnFamilyData::ColumnFamilyData(
+    uint32_t id, const std::string& name, Version* _dummy_versions,
+    Cache* _table_cache, WriteBuffer* write_buffer,
+    const ColumnFamilyOptions& cf_options, const DBOptions* db_options,
+    const EnvOptions& env_options, ColumnFamilySet* column_family_set)
     : id_(id),
       name_(name),
       dummy_versions_(_dummy_versions),
@@ -250,7 +247,9 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
       next_(nullptr),
       prev_(nullptr),
       log_number_(0),
-      column_family_set_(column_family_set) {
+      column_family_set_(column_family_set),
+      pending_flush_(false),
+      pending_compaction_(false) {
   Ref();
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
@@ -285,10 +284,14 @@ ColumnFamilyData::ColumnFamilyData(uint32_t id, const std::string& name,
           new LevelCompactionPicker(ioptions_, &internal_comparator_));
     }
 
-    Log(InfoLogLevel::INFO_LEVEL,
-        ioptions_.info_log, "Options for column family \"%s\":\n",
-        name.c_str());
-    options_.Dump(ioptions_.info_log);
+    if (column_family_set_->NumberOfColumnFamilies() < 10) {
+      Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
+          "--------------- Options for column family [%s]:\n", name.c_str());
+      options_.Dump(ioptions_.info_log);
+    } else {
+      Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
+          "\t(skipping printing options)\n");
+    }
   }
 
   RecalculateWriteStallConditions(mutable_cf_options_);
@@ -312,6 +315,11 @@ ColumnFamilyData::~ColumnFamilyData() {
   if (current_ != nullptr) {
     current_->Unref();
   }
+
+  // It would be wrong if this ColumnFamilyData is in flush_queue_ or
+  // compaction_queue_ and we destroyed it
+  assert(!pending_flush_);
+  assert(!pending_compaction_);
 
   if (super_version_ != nullptr) {
     // Release SuperVersion reference kept in ThreadLocalPtr.
@@ -432,6 +440,10 @@ void ColumnFamilyData::CreateNewMemtable(
   }
   SetMemtable(ConstructNewMemtable(mutable_cf_options));
   mem_->Ref();
+}
+
+bool ColumnFamilyData::NeedsCompaction() const {
+  return compaction_picker_->NeedsCompaction(current_->storage_info());
 }
 
 Compaction* ColumnFamilyData::PickCompaction(

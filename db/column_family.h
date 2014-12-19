@@ -210,8 +210,11 @@ class ColumnFamilyData {
 
   // See documentation in compaction_picker.h
   // REQUIRES: DB mutex held
+  bool NeedsCompaction() const;
+  // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
                              LogBuffer* log_buffer);
+  // REQUIRES: DB mutex held
   Compaction* CompactRange(
       const MutableCFOptions& mutable_cf_options,
       int input_level, int output_level, uint32_t output_path_id,
@@ -248,6 +251,7 @@ class ColumnFamilyData {
   // if its reference count is zero and needs deletion or nullptr if not
   // As argument takes a pointer to allocated SuperVersion to enable
   // the clients to allocate SuperVersion outside of mutex.
+  // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
                                     port::Mutex* db_mutex,
                                     const MutableCFOptions& mutable_cf_options);
@@ -260,6 +264,12 @@ class ColumnFamilyData {
       DB* db, const std::string& file_path,
       bool triggered_flush_slowdown,
       bool triggered_flush_stop);
+
+  // Protected by DB mutex
+  void set_pending_flush(bool value) { pending_flush_ = value; }
+  void set_pending_compaction(bool value) { pending_compaction_ = value; }
+  bool pending_flush() { return pending_flush_; }
+  bool pending_compaction() { return pending_compaction_; }
 
  private:
   friend class ColumnFamilySet;
@@ -328,6 +338,13 @@ class ColumnFamilyData {
   ColumnFamilySet* column_family_set_;
 
   std::unique_ptr<WriteControllerToken> write_controller_token_;
+
+  // If true --> this ColumnFamily is currently present in DBImpl::flush_queue_
+  bool pending_flush_;
+
+  // If true --> this ColumnFamily is currently present in
+  // DBImpl::compaction_queue_
+  bool pending_compaction_;
 };
 
 // ColumnFamilySet has interesting thread-safety requirements

@@ -362,6 +362,8 @@ class DBImpl : public DB {
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
 
   void MaybeScheduleFlushOrCompaction();
+  void SchedulePendingFlush(ColumnFamilyData* cfd);
+  void SchedulePendingCompaction(ColumnFamilyData* cfd);
   static void BGWorkCompaction(void* db);
   static void BGWorkFlush(void* db);
   void BackgroundCallCompaction();
@@ -392,6 +394,12 @@ class DBImpl : public DB {
   // If target_level < 0, automatically calculate the minimum level that could
   // hold the data set.
   Status ReFitLevel(ColumnFamilyData* cfd, int level, int target_level = -1);
+
+  // helper functions for adding and removing from flush & compaction queues
+  void AddToCompactionQueue(ColumnFamilyData* cfd);
+  ColumnFamilyData* PopFirstFromCompactionQueue();
+  void AddToFlushQueue(ColumnFamilyData* cfd);
+  ColumnFamilyData* PopFirstFromFlushQueue();
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
@@ -460,9 +468,32 @@ class DBImpl : public DB {
   // State is protected with db mutex.
   std::list<uint64_t> pending_outputs_;
 
-  // At least one compaction or flush job is pending but not yet scheduled
-  // because of the max background thread limit.
-  bool bg_schedule_needed_;
+  // flush_queue_ and compaction_queue_ hold column families that we need to
+  // flush and compact, respectively.
+  // A column family is inserted into flush_queue_ when it satisfies condition
+  // cfd->imm()->IsFlushPending()
+  // A column family is inserted into compaction_queue_ when it satisfied
+  // condition cfd->NeedsCompaction()
+  // Column families in this list are all Ref()-erenced
+  // TODO(icanadi) Provide some kind of ReferencedColumnFamily class that will
+  // do RAII on ColumnFamilyData
+  // Column families are in this queue when they need to be flushed or
+  // compacted. Consumers of these queues are flush and compaction threads. When
+  // column family is put on this queue, we increase unscheduled_flushes_ and
+  // unscheduled_compactions_. When these variables are bigger than zero, that
+  // means we need to schedule background threads for compaction and thread.
+  // Once the background threads are scheduled, we decrease unscheduled_flushes_
+  // and unscheduled_compactions_. That way we keep track of number of
+  // compaction and flush threads we need to schedule. This scheduling is done
+  // in MaybeScheduleFlushOrCompaction()
+  // invariant(column family present in flush_queue_ <==>
+  // ColumnFamilyData::pending_flush_ == true)
+  std::deque<ColumnFamilyData*> flush_queue_;
+  // invariant(column family present in compaction_queue_ <==>
+  // ColumnFamilyData::pending_compaction_ == true)
+  std::deque<ColumnFamilyData*> compaction_queue_;
+  int unscheduled_flushes_;
+  int unscheduled_compactions_;
 
   // count how many background compactions are running or have been scheduled
   int bg_compaction_scheduled_;
@@ -553,9 +584,17 @@ class DBImpl : public DB {
       ColumnFamilyData* cfd, JobContext* job_context,
       const MutableCFOptions& mutable_cf_options);
 
-  SuperVersion* InstallSuperVersion(
-    ColumnFamilyData* cfd, SuperVersion* new_sv,
-    const MutableCFOptions& mutable_cf_options);
+  // All ColumnFamily state changes go through this function. Here we analyze
+  // the new state and we schedule background work if we detect that the new
+  // state needs flush or compaction.
+  // If dont_schedule_bg_work == true, then caller asks us to not schedule flush
+  // or compaction here, but it also promises to schedule needed background
+  // work. We use this to  scheduling background compactions when we are in the
+  // write thread, which is very performance critical. Caller schedules
+  // background work as soon as it exits the write thread
+  SuperVersion* InstallSuperVersion(ColumnFamilyData* cfd, SuperVersion* new_sv,
+                                    const MutableCFOptions& mutable_cf_options,
+                                    bool dont_schedule_bg_work = false);
 
   // Find Super version and reference it. Based on options, it might return
   // the thread local cached one.
