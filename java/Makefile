@@ -81,6 +81,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.WriteBatchHandlerTest\
 		org.rocksdb.test.WriteBatchTest\
 		org.rocksdb.test.WriteOptionsTest\
+		org.rocksdb.test.WriteBatchWithIndexTest
 
 JAVA_TEST_LIBDIR = ./test-libs/
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)junit-4.12-beta-2.jar
