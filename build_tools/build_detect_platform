@@ -312,7 +312,7 @@ if test "$USE_SSE"; then
   # if Intel SSE instruction set is supported, set USE_SSE=1
   COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
 elif test -z "$PORTABLE"; then
-  COMMON_FLAGS="$COMMON_FLAGS -march=native -mtune=native "
+  COMMON_FLAGS="$COMMON_FLAGS -march=native "
 fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
