@@ -202,8 +202,18 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  return std::vector<Status>(
-      keys.size(), Status::NotSupported("MultiGet not supported with TTL"));
+  auto statuses = db_->MultiGet(options, column_family, keys, values);
+  for (size_t i = 0; i < keys.size(); ++i) {
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    statuses[i] = SanityCheckTimestamp((*values)[i]);
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    statuses[i] = StripTS(&(*values)[i]);
+  }
+  return statuses;
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,

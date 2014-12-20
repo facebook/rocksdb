@@ -194,6 +194,25 @@ class TtlTest {
     }
   }
 
+  // checks the whole kvmap_ to return correct values using MultiGet
+  void SimpleMultiGetTest() {
+    static ReadOptions ropts;
+    std::vector<Slice> keys;
+    std::vector<std::string> values;
+
+    for (auto& kv : kvmap_) {
+      keys.emplace_back(kv.first);
+    }
+
+    auto statuses = db_ttl_->MultiGet(ropts, keys, &values);
+    size_t i = 0;
+    for (auto& kv : kvmap_) {
+      ASSERT_OK(statuses[i]);
+      ASSERT_EQ(values[i], kv.second);
+      ++i;
+    }
+  }
+
   // Sleeps for slp_tim then runs a manual compaction
   // Checks span starting from st_pos from kvmap_ in the db and
   // Gets should return true if check is true and false otherwise
@@ -529,6 +548,17 @@ TEST(TtlTest, KeyMayExist) {
   PutValues(0, kSampleSize_, false);
 
   SimpleKeyMayExistCheck();
+
+  CloseTtl();
+}
+
+TEST(TtlTest, MultiGetTest) {
+  MakeKVMap(kSampleSize_);
+
+  OpenTtl();
+  PutValues(0, kSampleSize_, false);
+
+  SimpleMultiGetTest();
 
   CloseTtl();
 }
