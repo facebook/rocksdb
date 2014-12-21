@@ -1801,17 +1801,18 @@ Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
   ColumnFamilyData* cfd = nullptr;
   while (!flush_queue_.empty()) {
     // This cfd is already referenced
-    cfd = PopFirstFromFlushQueue();
+    auto first_cfd = PopFirstFromFlushQueue();
 
-    if (cfd->IsDropped() || !cfd->imm()->IsFlushPending()) {
+    if (first_cfd->IsDropped() || !first_cfd->imm()->IsFlushPending()) {
       // can't flush this CF, try next one
-      if (cfd->Unref()) {
-        delete cfd;
+      if (first_cfd->Unref()) {
+        delete first_cfd;
       }
       continue;
     }
 
     // found a flush!
+    cfd = first_cfd;
     break;
   }
 
