@@ -2018,26 +2018,29 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     return Status::OK();
   }
 
-  // FLUSH preempts compaction
-  // TODO(icanadi) we should only do this if max_background_flushes == 0
-  // BackgroundFlush() will only execute a single flush. We keep calling it as
-  // long as there's more flushes to be done
-  while (!flush_queue_.empty()) {
-    LogToBuffer(
-        log_buffer,
-        "BackgroundCompaction calling BackgroundFlush. flush slots available "
-        "%d, compaction slots available %d",
-        db_options_.max_background_flushes - bg_flush_scheduled_,
-        db_options_.max_background_compactions - bg_compaction_scheduled_);
-    auto flush_status = BackgroundFlush(madeProgress, job_context, log_buffer);
-    if (!flush_status.ok()) {
-      if (is_manual) {
-        manual_compaction_->status = flush_status;
-        manual_compaction_->done = true;
-        manual_compaction_->in_progress = false;
-        manual_compaction_ = nullptr;
+  // If there are no flush threads, then compaction thread needs to execute the
+  // flushes
+  if (db_options_.max_background_flushes == 0) {
+    // BackgroundFlush() will only execute a single flush. We keep calling it as
+    // long as there's more flushes to be done
+    while (!flush_queue_.empty()) {
+      LogToBuffer(
+          log_buffer,
+          "BackgroundCompaction calling BackgroundFlush. flush slots available "
+          "%d, compaction slots available %d",
+          db_options_.max_background_flushes - bg_flush_scheduled_,
+          db_options_.max_background_compactions - bg_compaction_scheduled_);
+      auto flush_status =
+          BackgroundFlush(madeProgress, job_context, log_buffer);
+      if (!flush_status.ok()) {
+        if (is_manual) {
+          manual_compaction_->status = flush_status;
+          manual_compaction_->done = true;
+          manual_compaction_->in_progress = false;
+          manual_compaction_ = nullptr;
+        }
+        return flush_status;
       }
-      return flush_status;
     }
   }
 
