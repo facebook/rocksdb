@@ -6,7 +6,7 @@
 #include <mutex>
 #include <condition_variable>
 
-#include "util/thread_status_impl.h"
+#include "util/thread_status_updater.h"
 #include "util/testharness.h"
 #include "rocksdb/db.h"
 
@@ -21,16 +21,16 @@ class SleepingBackgroundTask {
       : db_key_(db_key), db_name_(db_name),
         cf_key_(cf_key), cf_name_(cf_name),
         should_sleep_(true), sleeping_count_(0) {
-    ThreadStatusImpl::NewColumnFamilyInfo(
+    Env::Default()->GetThreadStatusUpdater()->NewColumnFamilyInfo(
         db_key_, db_name_, cf_key_, cf_name_);
   }
 
   ~SleepingBackgroundTask() {
-    ThreadStatusImpl::EraseDatabaseInfo(db_key_);
+    Env::Default()->GetThreadStatusUpdater()->EraseDatabaseInfo(db_key_);
   }
 
   void DoSleep() {
-    thread_local_status.SetColumnFamilyInfoKey(cf_key_);
+    Env::Default()->GetThreadStatusUpdater()->SetColumnFamilyInfoKey(cf_key_);
     std::unique_lock<std::mutex> l(mutex_);
     sleeping_count_++;
     while (should_sleep_) {
@@ -38,7 +38,7 @@ class SleepingBackgroundTask {
     }
     sleeping_count_--;
     bg_cv_.notify_all();
-    thread_local_status.SetColumnFamilyInfoKey(0);
+    Env::Default()->GetThreadStatusUpdater()->SetColumnFamilyInfoKey(0);
   }
   void WakeUp() {
     std::unique_lock<std::mutex> l(mutex_);
@@ -101,7 +101,7 @@ TEST(ThreadListTest, SimpleColumnFamilyInfoTest) {
   std::vector<ThreadStatus> thread_list;
 
   // Verify the number of sleeping threads in each pool.
-  GetThreadList(&thread_list);
+  env->GetThreadList(&thread_list);
   int sleeping_count[ThreadStatus::ThreadType::TOTAL] = {0};
   for (auto thread_status : thread_list) {
     if (thread_status.cf_name == "pikachu" &&
@@ -122,7 +122,7 @@ TEST(ThreadListTest, SimpleColumnFamilyInfoTest) {
   sleeping_task.WaitUntilDone();
 
   // Verify none of the threads are sleeping
-  GetThreadList(&thread_list);
+  env->GetThreadList(&thread_list);
   for (int i = 0; i < ThreadStatus::ThreadType::TOTAL; ++i) {
     sleeping_count[i] = 0;
   }

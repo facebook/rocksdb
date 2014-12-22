@@ -78,7 +78,8 @@
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "util/string_util.h"
-#include "util/thread_status_impl.h"
+#include "util/thread_status_updater.h"
+#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -3844,30 +3845,27 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
 }
 
 #if ROCKSDB_USING_THREAD_STATUS
+
 void DBImpl::NewThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {
   if (db_options_.enable_thread_tracking) {
-    ThreadStatusImpl::NewColumnFamilyInfo(
-        this, GetName(), cfd, cfd->GetName());
+    ThreadStatusUtil::NewColumnFamilyInfo(this, cfd);
   }
 }
 
 void DBImpl::EraseThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {
   if (db_options_.enable_thread_tracking) {
-    ThreadStatusImpl::EraseColumnFamilyInfo(cfd);
+    ThreadStatusUtil::EraseColumnFamilyInfo(cfd);
   }
 }
 
 void DBImpl::EraseThreadStatusDbInfo() const {
   if (db_options_.enable_thread_tracking) {
-    ThreadStatusImpl::EraseDatabaseInfo(this);
+    ThreadStatusUtil::EraseDatabaseInfo(this);
   }
 }
 
-Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
-  return thread_local_status.GetThreadList(thread_list);
-}
 #else
 void DBImpl::NewThreadStatusCfInfo(
     ColumnFamilyData* cfd) const {

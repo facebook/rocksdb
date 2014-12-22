@@ -24,6 +24,7 @@
 #include <vector>
 #include <stdint.h>
 #include "rocksdb/status.h"
+#include "rocksdb/thread_status.h"
 
 namespace rocksdb {
 
@@ -37,6 +38,7 @@ class RandomRWFile;
 class Directory;
 struct DBOptions;
 class RateLimiter;
+class ThreadStatusUpdater;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -83,7 +85,8 @@ struct EnvOptions {
 
 class Env {
  public:
-  Env() { }
+  Env() : thread_status_updater_(nullptr) {}
+
   virtual ~Env();
 
   // Return a default environment suitable for the current operating
@@ -302,11 +305,33 @@ class Env {
   virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
       const;
 
+  // Returns the status of all threads that belong to the current Env.
+  virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+    return Status::NotSupported("Not supported.");
+  }
+
+  // Returns the pointer to ThreadStatusUpdater.  This function will be
+  // used in RocksDB internally to update thread status and supports
+  // GetThreadList().
+  virtual ThreadStatusUpdater* GetThreadStatusUpdater() const {
+    return thread_status_updater_;
+  }
+
+ protected:
+  // The pointer to an internal structure that will update the
+  // status of each thread.
+  ThreadStatusUpdater* thread_status_updater_;
+
  private:
   // No copying allowed
   Env(const Env&);
   void operator=(const Env&);
 };
+
+// The factory function to construct a ThreadStatusUpdater.  Any Env
+// that supports GetThreadList() feature should call this function in its
+// constructor to initialize thread_status_updater_.
+ThreadStatusUpdater* CreateThreadStatusUpdater();
 
 // A file abstraction for reading sequentially through a file
 class SequentialFile {
@@ -805,8 +830,17 @@ class EnvWrapper : public Env {
   void LowerThreadPoolIOPriority(Priority pool = LOW) override {
     target_->LowerThreadPoolIOPriority(pool);
   }
+
   std::string TimeToString(uint64_t time) {
     return target_->TimeToString(time);
+  }
+
+  Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+    return target_->GetThreadList(thread_list);
+  }
+
+  ThreadStatusUpdater* GetThreadStatusUpdater() const override {
+    return target_->GetThreadStatusUpdater();
   }
 
  private:

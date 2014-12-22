@@ -8,7 +8,6 @@
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "table/get_context.h"
-#include "util/thread_status_impl.h"
 
 namespace rocksdb {
 

@@ -5,12 +5,12 @@
 
 #include <mutex>
 
-#include "util/thread_status_impl.h"
+#include "util/thread_status_updater.h"
 #include "db/column_family.h"
 #if ROCKSDB_USING_THREAD_STATUS
 
 namespace rocksdb {
-void ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(
+void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     const std::vector<ColumnFamilyHandle*>& handles,
     bool check_exist) {
   std::unique_lock<std::mutex> lock(thread_list_mutex_);

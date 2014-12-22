@@ -3,8 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 //
-// The implementation of ThreadStatus.  It is implemented via combination
-// of macros and thread-local variables.
+// The implementation of ThreadStatus.
 //
 // Note that we make get and set access to ThreadStatusData lockless.
 // As a result, ThreadStatusData as a whole is not atomic.  However,
@@ -43,10 +42,7 @@ namespace rocksdb {
 
 class ColumnFamilyHandle;
 
-// The mutable version of ThreadStatus.  It has a static set maintaining
-// the set of current registered threades.
-//
-// Note that it is suggested to call the above macros.
+// The structure that keeps constant information about a column family.
 struct ConstantColumnFamilyInfo {
 #if ROCKSDB_USING_THREAD_STATUS
  public:
@@ -61,6 +57,7 @@ struct ConstantColumnFamilyInfo {
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
+// The structure that describes an event.
 struct ThreadEventInfo {
 #if ROCKSDB_USING_THREAD_STATUS
  public:
@@ -84,13 +81,22 @@ struct ThreadStatusData {
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
-class ThreadStatusImpl {
+// The class that stores and updates the status of the current thread
+// using a thread-local ThreadStatusData.
+//
+// In most of the case, you should use ThreadStatusUtil to update
+// the status of the current thread instead of using ThreadSatusUpdater
+// directly.
+//
+// @see ThreadStatusUtil
+class ThreadStatusUpdater {
  public:
-  ThreadStatusImpl() {}
+  ThreadStatusUpdater() {}
 
   // Releases all ThreadStatusData of all active threads.
-  ~ThreadStatusImpl();
+  virtual ~ThreadStatusUpdater() {}
 
+  // Unregister the current thread.
   void UnregisterThread();
 
   // Set the thread type of the current thread.
@@ -104,29 +110,30 @@ class ThreadStatusImpl {
   // its thread-local pointer of ThreadEventInfo to the correct entry.
   void SetEventInfoPtr(const ThreadEventInfo* event_info);
 
+  // Obtain the status of all active registered threads.
   Status GetThreadList(
-      std::vector<ThreadStatus>* thread_list) const;
+      std::vector<ThreadStatus>* thread_list);
 
   // Create an entry in the global ColumnFamilyInfo table for the
   // specified column family.  This function should be called only
   // when the current thread does not hold db_mutex.
-  static void NewColumnFamilyInfo(
+  void NewColumnFamilyInfo(
       const void* db_key, const std::string& db_name,
       const void* cf_key, const std::string& cf_name);
 
   // Erase all ConstantColumnFamilyInfo that is associated with the
   // specified db instance.  This function should be called only when
   // the current thread does not hold db_mutex.
-  static void EraseDatabaseInfo(const void* db_key);
+  void EraseDatabaseInfo(const void* db_key);
 
   // Erase the ConstantColumnFamilyInfo that is associated with the
   // specified ColumnFamilyData.  This function should be called only
   // when the current thread does not hold db_mutex.
-  static void EraseColumnFamilyInfo(const void* cf_key);
+  void EraseColumnFamilyInfo(const void* cf_key);
 
   // Verifies whether the input ColumnFamilyHandles matches
   // the information stored in the current cf_info_map.
-  static void TEST_VerifyColumnFamilyInfoMap(
+  void TEST_VerifyColumnFamilyInfoMap(
       const std::vector<ColumnFamilyHandle*>& handles,
       bool check_exist);
 
@@ -141,27 +148,25 @@ class ThreadStatusImpl {
   ThreadStatusData* InitAndGet();
 
   // The mutex that protects cf_info_map and db_key_map.
-  static std::mutex thread_list_mutex_;
+  std::mutex thread_list_mutex_;
 
   // The current status data of all active threads.
-  static std::unordered_set<ThreadStatusData*> thread_data_set_;
+  std::unordered_set<ThreadStatusData*> thread_data_set_;
 
   // A global map that keeps the column family information.  It is stored
   // globally instead of inside DB is to avoid the situation where DB is
   // closing while GetThreadList function already get the pointer to its
   // CopnstantColumnFamilyInfo.
-  static std::unordered_map<
+  std::unordered_map<
       const void*, std::unique_ptr<ConstantColumnFamilyInfo>> cf_info_map_;
 
   // A db_key to cf_key map that allows erasing elements in cf_info_map
   // associated to the same db_key faster.
-  static std::unordered_map<
+  std::unordered_map<
       const void*, std::unordered_set<const void*>> db_key_map_;
 #else
   static ThreadStatusData* thread_status_data_;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
-
-extern ThreadStatusImpl thread_local_status;
 }  // namespace rocksdb

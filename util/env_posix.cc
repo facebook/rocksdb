@@ -42,7 +42,8 @@
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
-#include "util/thread_status_impl.h"
+#include "util/thread_status_updater.h"
+#include "util/thread_status_util.h"
 
 // Get nano time for mach systems
 #ifdef __MACH__
@@ -76,10 +77,6 @@ int rocksdb_kill_odds = 0;
 
 namespace rocksdb {
 
-#if ROCKSDB_USING_THREAD_STATUS
-extern ThreadStatusImpl thread_local_status;
-#endif
-
 namespace {
 
 // A wrapper for fadvise, if the platform doesn't support fadvise,
@@ -90,6 +87,10 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #else
   return 0;  // simply do nothing.
 #endif
+}
+
+ThreadStatusUpdater* CreateThreadStatusUpdater() {
+  return new ThreadStatusUpdater();
 }
 
 // list of pathnames that are locked
@@ -1076,10 +1077,16 @@ class PosixEnv : public Env {
  public:
   PosixEnv();
 
-  virtual ~PosixEnv(){
+  virtual ~PosixEnv() {
     for (const auto tid : threads_to_join_) {
       pthread_join(tid, nullptr);
     }
+    for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
+      thread_pools_[pool_id].JoinAllThreads();
+    }
+    // All threads must be joined before the deletion of
+    // thread_status_updater_.
+    delete thread_status_updater_;
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
@@ -1356,6 +1363,12 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
+  virtual Status GetThreadList(
+      std::vector<ThreadStatus>* thread_list) override {
+    assert(thread_status_updater_);
+    return thread_status_updater_->GetThreadList(thread_list);
+  }
+
   static uint64_t gettid(pthread_t tid) {
     uint64_t thread_id = 0;
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
@@ -1534,12 +1547,17 @@ class PosixEnv : public Env {
           queue_(),
           queue_len_(0),
           exit_all_threads_(false),
-          low_io_priority_(false) {
+          low_io_priority_(false),
+          env_(nullptr) {
       PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
       PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
     }
 
     ~ThreadPool() {
+      assert(bgthreads_.size() == 0U);
+    }
+
+    void JoinAllThreads() {
       PthreadCall("lock", pthread_mutex_lock(&mu_));
       assert(!exit_all_threads_);
       exit_all_threads_ = true;
@@ -1548,6 +1566,11 @@ class PosixEnv : public Env {
       for (const auto tid : bgthreads_) {
         pthread_join(tid, nullptr);
       }
+      bgthreads_.clear();
+    }
+
+    void SetHostEnv(Env* env) {
+      env_ = env;
     }
 
     void LowerIOPriority() {
@@ -1669,7 +1692,7 @@ class PosixEnv : public Env {
       ThreadPool* tp = meta->thread_pool_;
 #if ROCKSDB_USING_THREAD_STATUS
       // for thread-status
-      thread_local_status.SetThreadType(
+      ThreadStatusUtil::SetThreadType(tp->env_,
           (tp->GetThreadPriority() == Env::Priority::HIGH ?
               ThreadStatus::ThreadType::ROCKSDB_HIGH_PRIORITY :
               ThreadStatus::ThreadType::ROCKSDB_LOW_PRIORITY));
@@ -1677,7 +1700,7 @@ class PosixEnv : public Env {
       delete meta;
       tp->BGThread(thread_id);
 #if ROCKSDB_USING_THREAD_STATUS
-      thread_local_status.UnregisterThread();
+      ThreadStatusUtil::UnregisterThread();
 #endif
       return nullptr;
     }
@@ -1779,6 +1802,7 @@ class PosixEnv : public Env {
     bool exit_all_threads_;
     bool low_io_priority_;
     Env::Priority priority_;
+    Env* env_;
   };
 
   std::vector<ThreadPool> thread_pools_;
@@ -1796,7 +1820,10 @@ PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
   for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
     thread_pools_[pool_id].SetThreadPriority(
         static_cast<Env::Priority>(pool_id));
+    // This allows later initializing the thread-local-env of each thread.
+    thread_pools_[pool_id].SetHostEnv(this);
   }
+  thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
 void PosixEnv::Schedule(void (*function)(void*), void* arg, Priority pri) {

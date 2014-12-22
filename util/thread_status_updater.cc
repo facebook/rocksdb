@@ -5,26 +5,15 @@
 
 #include "port/likely.h"
 #include "util/mutexlock.h"
-#include "util/thread_status_impl.h"
+#include "util/thread_status_updater.h"
 
 namespace rocksdb {
 
 #if ROCKSDB_USING_THREAD_STATUS
-__thread ThreadStatusData* ThreadStatusImpl::thread_status_data_ = nullptr;
-std::mutex ThreadStatusImpl::thread_list_mutex_;
-std::unordered_set<ThreadStatusData*> ThreadStatusImpl::thread_data_set_;
-std::unordered_map<const void*, std::unique_ptr<ConstantColumnFamilyInfo>>
-    ThreadStatusImpl::cf_info_map_;
-std::unordered_map<const void*, std::unordered_set<const void*>>
-    ThreadStatusImpl::db_key_map_;
 
-ThreadStatusImpl thread_local_status;
+__thread ThreadStatusData* ThreadStatusUpdater::thread_status_data_ = nullptr;
 
-ThreadStatusImpl::~ThreadStatusImpl() {
-  assert(thread_data_set_.size() == 0);
-}
-
-void ThreadStatusImpl::UnregisterThread() {
+void ThreadStatusUpdater::UnregisterThread() {
   if (thread_status_data_ != nullptr) {
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
     thread_data_set_.erase(thread_status_data_);
@@ -33,26 +22,26 @@ void ThreadStatusImpl::UnregisterThread() {
   }
 }
 
-void ThreadStatusImpl::SetThreadType(
+void ThreadStatusUpdater::SetThreadType(
     ThreadStatus::ThreadType ttype) {
   auto* data = InitAndGet();
   data->thread_type.store(ttype, std::memory_order_relaxed);
 }
 
-void ThreadStatusImpl::SetColumnFamilyInfoKey(
+void ThreadStatusUpdater::SetColumnFamilyInfoKey(
     const void* cf_key) {
   auto* data = InitAndGet();
   data->cf_key.store(cf_key, std::memory_order_relaxed);
 }
 
-void ThreadStatusImpl::SetEventInfoPtr(
+void ThreadStatusUpdater::SetEventInfoPtr(
     const ThreadEventInfo* event_info) {
   auto* data = InitAndGet();
   data->event_info.store(event_info, std::memory_order_relaxed);
 }
 
-Status ThreadStatusImpl::GetThreadList(
-    std::vector<ThreadStatus>* thread_list) const {
+Status ThreadStatusUpdater::GetThreadList(
+    std::vector<ThreadStatus>* thread_list) {
   thread_list->clear();
   std::vector<std::shared_ptr<ThreadStatusData>> valid_list;
 
@@ -90,7 +79,7 @@ Status ThreadStatusImpl::GetThreadList(
   return Status::OK();
 }
 
-ThreadStatusData* ThreadStatusImpl::InitAndGet() {
+ThreadStatusData* ThreadStatusUpdater::InitAndGet() {
   if (UNLIKELY(thread_status_data_ == nullptr)) {
     thread_status_data_ = new ThreadStatusData();
     thread_status_data_->thread_id = reinterpret_cast<uint64_t>(
@@ -101,7 +90,7 @@ ThreadStatusData* ThreadStatusImpl::InitAndGet() {
   return thread_status_data_;
 }
 
-void ThreadStatusImpl::NewColumnFamilyInfo(
+void ThreadStatusUpdater::NewColumnFamilyInfo(
     const void* db_key, const std::string& db_name,
     const void* cf_key, const std::string& cf_name) {
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
@@ -111,7 +100,7 @@ void ThreadStatusImpl::NewColumnFamilyInfo(
   db_key_map_[db_key].insert(cf_key);
 }
 
-void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
+void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   auto cf_pair = cf_info_map_.find(cf_key);
   assert(cf_pair != cf_info_map_.end());
@@ -132,7 +121,7 @@ void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
   assert(result);
 }
 
-void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
+void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   auto db_pair = db_key_map_.find(db_key);
   if (UNLIKELY(db_pair == db_key_map_.end())) {
@@ -154,41 +143,37 @@ void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
 
 #else
 
-ThreadStatusImpl::~ThreadStatusImpl() {
+void ThreadStatusUpdater::UnregisterThread() {
 }
 
-void ThreadStatusImpl::UnregisterThread() {
-}
-
-void ThreadStatusImpl::SetThreadType(
+void ThreadStatusUpdater::SetThreadType(
     ThreadStatus::ThreadType ttype) {
 }
 
-void ThreadStatusImpl::SetColumnFamilyInfoKey(
+void ThreadStatusUpdater::SetColumnFamilyInfoKey(
     const void* cf_key) {
 }
 
-void ThreadStatusImpl::SetEventInfoPtr(
+void ThreadStatusUpdater::SetEventInfoPtr(
     const ThreadEventInfo* event_info) {
 }
 
-Status ThreadStatusImpl::GetThreadList(
-    std::vector<ThreadStatus>* thread_list) const {
+Status ThreadStatusUpdater::GetThreadList(
+    std::vector<ThreadStatus>* thread_list) {
   return Status::NotSupported(
       "GetThreadList is not supported in the current running environment.");
 }
 
-void ThreadStatusImpl::NewColumnFamilyInfo(
+void ThreadStatusUpdater::NewColumnFamilyInfo(
     const void* db_key, const std::string& db_name,
     const void* cf_key, const std::string& cf_name) {
 }
 
-void ThreadStatusImpl::EraseColumnFamilyInfo(const void* cf_key) {
+void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
 }
 
-void ThreadStatusImpl::EraseDatabaseInfo(const void* db_key) {
+void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
 }
 
-ThreadStatusImpl thread_local_status;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 }  // namespace rocksdb

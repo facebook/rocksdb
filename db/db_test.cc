@@ -51,7 +51,7 @@
 #include "util/testutil.h"
 #include "util/mock_env.h"
 #include "util/string_util.h"
-#include "util/thread_status_impl.h"
+#include "util/thread_status_updater.h"
 
 namespace rocksdb {
 
@@ -9418,7 +9418,7 @@ TEST(DBTest, GetThreadList) {
   TryReopen(options);
 
   std::vector<ThreadStatus> thread_list;
-  Status s = GetThreadList(&thread_list);
+  Status s = env_->GetThreadList(&thread_list);
 
   for (int i = 0; i < 2; ++i) {
     // repeat the test with differet number of high / low priority threads
@@ -9431,7 +9431,7 @@ TEST(DBTest, GetThreadList) {
       env_->SetBackgroundThreads(kLowPriCounts[test], Env::LOW);
       // Wait to ensure the all threads has been registered
       env_->SleepForMicroseconds(100000);
-      s = GetThreadList(&thread_list);
+      s = env_->GetThreadList(&thread_list);
       ASSERT_OK(s);
       unsigned int thread_type_counts[ThreadStatus::ThreadType::TOTAL];
       memset(thread_type_counts, 0, sizeof(thread_type_counts));
@@ -9455,15 +9455,18 @@ TEST(DBTest, GetThreadList) {
     if (i == 0) {
       // repeat the test with multiple column families
       CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
-      ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
+      env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(
+          handles_, true);
     }
   }
   db_->DropColumnFamily(handles_[2]);
   delete handles_[2];
   handles_.erase(handles_.begin() + 2);
-  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
+  env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(
+      handles_, true);
   Close();
-  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, true);
+  env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(
+      handles_, true);
 }
 
 TEST(DBTest, DisableThreadList) {
@@ -9473,7 +9476,8 @@ TEST(DBTest, DisableThreadList) {
   TryReopen(options);
   CreateAndReopenWithCF({"pikachu", "about-to-remove"}, options);
   // Verify non of the column family info exists
-  ThreadStatusImpl::TEST_VerifyColumnFamilyInfoMap(handles_, false);
+  env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(
+      handles_, false);
 }
 #endif  // ROCKSDB_USING_THREAD_STATUS
 
