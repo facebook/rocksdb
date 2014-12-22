@@ -33,7 +33,7 @@ int main() {
 
   // open DB with two column families
   std::vector<ColumnFamilyDescriptor> column_families;
-  // have to open default column familiy
+  // have to open default column family
   column_families.push_back(ColumnFamilyDescriptor(
       kDefaultColumnFamilyName, ColumnFamilyOptions()));
   // open the new one, too
