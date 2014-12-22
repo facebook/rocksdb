@@ -367,9 +367,8 @@ DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
              "deletepercent), so deletepercent must be smaller than (100 - "
              "FLAGS_readwritepercent)");
 
-DEFINE_uint64(delete_obsolete_files_period_micros, 0, "Option to delete "
-              "obsolete files periodically. 0 means that obsolete files are"
-              " deleted after every compaction run.");
+DEFINE_uint64(delete_obsolete_files_period_micros, 0,
+              "Ignored. Left here for backward compatibility");
 
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
@@ -2008,8 +2007,6 @@ class Benchmark {
         options.compression_per_level[i] = FLAGS_compression_type_e;
       }
     }
-    options.delete_obsolete_files_period_micros =
-      FLAGS_delete_obsolete_files_period_micros;
     options.soft_rate_limit = FLAGS_soft_rate_limit;
     options.hard_rate_limit = FLAGS_hard_rate_limit;
     options.rate_limit_delay_max_milliseconds =

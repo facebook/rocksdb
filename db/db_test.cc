@@ -85,7 +85,7 @@ static bool LZ4HCCompressionSupported(const CompressionOptions &options) {
   return port::LZ4HC_Compress(options, in.data(), in.size(), &out);
 }
 
-static std::string RandomString(Random *rnd, int len) {
+static std::string RandomString(Random* rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
   return r;
@@ -9991,6 +9991,36 @@ TEST(DBTest, DontDeletePendingOutputs) {
   // db/db_test.cc:975: IO error:
   // /tmp/rocksdbtest-1552237650/db_test/000009.sst: No such file or directory
   Compact("a", "b");
+}
+
+TEST(DBTest, DontDeleteMovedFile) {
+  // This test triggers move compaction and verifies that the file is not
+  // deleted when it's part of move compaction
+  Options options = CurrentOptions();
+  options.env = env_;
+  options.create_if_missing = true;
+  options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB
+  options.level0_file_num_compaction_trigger =
+      2;  // trigger compaction when we have 2 files
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  // Create two 1MB sst files
+  for (int i = 0; i < 2; ++i) {
+    // Create 1MB sst file
+    for (int j = 0; j < 100; ++j) {
+      ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+    }
+    ASSERT_OK(Flush());
+  }
+  // this should execute both L0->L1 and L1->(move)->L2 compactions
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+  // If the moved file is actually deleted (the move-safeguard in
+  // ~Version::Version() is not there), we get this failure:
+  // Corruption: Can't access /000009.sst
+  Reopen(options);
 }
 
 }  // namespace rocksdb

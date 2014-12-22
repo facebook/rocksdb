@@ -7,6 +7,7 @@
   specifying them in db_paths along with the target_size.
   Lower numbered levels will be placed earlier in the db_paths and higher
   numbered levels will be placed later in the db_paths vector.
+* Potentially big performance improvements if you're using RocksDB with lots of column families (100-1000)
 
 ### 3.9.0 (12/8/2014)
 

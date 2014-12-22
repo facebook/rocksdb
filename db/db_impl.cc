@@ -213,7 +213,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       bg_flush_scheduled_(0),
       manual_compaction_(nullptr),
       disable_delete_obsolete_files_(0),
-      delete_obsolete_files_last_run_(options.env->NowMicros()),
+      delete_obsolete_files_next_run_(
+          options.env->NowMicros() +
+          db_options_.delete_obsolete_files_period_micros),
       last_stats_dump_time_microsec_(0),
       flush_on_destroy_(false),
       env_options_(options),
@@ -421,14 +423,17 @@ void DBImpl::MaybeDumpStats() {
   }
 }
 
-// Returns the list of live files in 'sst_live' and the list
-// of all files in the filesystem in 'candidate_files'.
+// If it's doing full scan:
+// * Returns the list of live files in 'full_scan_sst_live' and the list
+// of all files in the filesystem in 'full_scan_candidate_files'.
+// Otherwise, gets obsolete files from VersionSet.
 // no_full_scan = true -- never do the full scan using GetChildren()
 // force = false -- don't force the full scan, except every
 //  db_options_.delete_obsolete_files_period_micros
 // force = true -- force the full scan
 void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                                bool no_full_scan) {
+  // TODO(icanadi) clean up FindObsoleteFiles, no need to do full scans anymore
   mutex_.AssertHeld();
 
   // if deletion is disabled, do nothing
@@ -445,10 +450,10 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     doing_the_full_scan = true;
   } else {
     const uint64_t now_micros = env_->NowMicros();
-    if (delete_obsolete_files_last_run_ +
-        db_options_.delete_obsolete_files_period_micros < now_micros) {
+    if (delete_obsolete_files_next_run_ < now_micros) {
       doing_the_full_scan = true;
-      delete_obsolete_files_last_run_ = now_micros;
+      delete_obsolete_files_next_run_ =
+          now_micros + db_options_.delete_obsolete_files_period_micros;
     }
   }
 
@@ -462,13 +467,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   job_context->log_number = versions_->MinLogNumber();
   job_context->prev_log_number = versions_->prev_log_number();
 
-  if (!doing_the_full_scan && !job_context->HaveSomethingToDelete()) {
-    // avoid filling up sst_live if we're sure that we
-    // are not going to do the full scan and that we don't have
-    // anything to delete at the moment
-    return;
-  }
-
   // don't delete live files
   if (pending_outputs_.size()) {
     job_context->min_pending_output = *pending_outputs_.begin();
@@ -476,11 +474,16 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     // delete all of them
     job_context->min_pending_output = std::numeric_limits<uint64_t>::max();
   }
-  versions_->AddLiveFiles(&job_context->sst_live);
 
   if (doing_the_full_scan) {
-    for (uint32_t path_id = 0;
-         path_id < db_options_.db_paths.size(); path_id++) {
+    // Here we find all files in the DB directory and all the live files. In the
+    // DeleteObsoleteFiles(), we will calculate a set difference (all_files -
+    // live_files) and delete all files in that difference. If we're not doing
+    // the full scan we don't need to get live files, because all files returned
+    // by GetObsoleteFiles() will be dead (and need to be deleted)
+    versions_->AddLiveFiles(&job_context->full_scan_sst_live);
+    for (uint32_t path_id = 0; path_id < db_options_.db_paths.size();
+         path_id++) {
       // set of all files in the directory. We'll exclude files that are still
       // alive in the subsequent processings.
       std::vector<std::string> files;
@@ -488,7 +491,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                         &files);  // Ignore errors
       for (std::string file : files) {
         // TODO(icanadi) clean up this mess to avoid having one-off "/" prefixes
-        job_context->candidate_files.emplace_back("/" + file, path_id);
+        job_context->full_scan_candidate_files.emplace_back("/" + file,
+                                                            path_id);
       }
     }
 
@@ -497,7 +501,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       std::vector<std::string> log_files;
       env_->GetChildren(db_options_.wal_dir, &log_files);  // Ignore errors
       for (std::string log_file : log_files) {
-        job_context->candidate_files.emplace_back(log_file, 0);
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
       }
     }
     // Add info log files in db_log_dir
@@ -506,7 +510,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       // Ignore errors
       env_->GetChildren(db_options_.db_log_dir, &info_log_files);
       for (std::string log_file : info_log_files) {
-        job_context->candidate_files.emplace_back(log_file, 0);
+        job_context->full_scan_candidate_files.emplace_back(log_file, 0);
       }
     }
   }
@@ -543,11 +547,11 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
   // Now, convert live list to an unordered map, WITHOUT mutex held;
   // set is slow.
   std::unordered_map<uint64_t, const FileDescriptor*> sst_live_map;
-  for (const FileDescriptor& fd : state.sst_live) {
+  for (const FileDescriptor& fd : state.full_scan_sst_live) {
     sst_live_map[fd.GetNumber()] = &fd;
   }
 
-  auto candidate_files = state.candidate_files;
+  auto candidate_files = state.full_scan_candidate_files;
   candidate_files.reserve(candidate_files.size() +
                           state.sst_delete_files.size() +
                           state.log_delete_files.size());
@@ -1491,6 +1495,7 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : cfd->current()->storage_info()->LevelFiles(level)) {
+      f->moved = true;
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
@@ -2137,6 +2142,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
+    f->moved = true;
     c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,

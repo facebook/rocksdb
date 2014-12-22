@@ -20,7 +20,7 @@ class MemTable;
 
 struct JobContext {
   inline bool HaveSomethingToDelete() const {
-    return candidate_files.size() || sst_delete_files.size() ||
+    return full_scan_candidate_files.size() || sst_delete_files.size() ||
            log_delete_files.size() || new_superversion != nullptr ||
            superversions_to_free.size() > 0 || memtables_to_free.size() > 0;
   }
@@ -39,10 +39,12 @@ struct JobContext {
   // a list of all files that we'll consider deleting
   // (every once in a while this is filled up with all files
   // in the DB directory)
-  std::vector<CandidateFileInfo> candidate_files;
+  // (filled only if we're doing full scan)
+  std::vector<CandidateFileInfo> full_scan_candidate_files;
 
   // the list of all live sst files that cannot be deleted
-  std::vector<FileDescriptor> sst_live;
+  // (filled only if we're doing full scan)
+  std::vector<FileDescriptor> full_scan_sst_live;
 
   // a list of sst files that we need to delete
   std::vector<FileMetaData*> sst_delete_files;

@@ -206,6 +206,7 @@ class VersionBuilder::Rep {
       const int level = new_file.first;
       FileMetaData* f = new FileMetaData(new_file.second);
       f->refs = 1;
+      f->moved = false;
 
       assert(levels_[level].added_files.find(f->fd.GetNumber()) ==
              levels_[level].added_files.end());

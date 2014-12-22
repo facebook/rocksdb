@@ -309,7 +309,13 @@ Version::~Version() {
           cfd_->table_cache()->ReleaseHandle(f->table_reader_handle);
           f->table_reader_handle = nullptr;
         }
-        vset_->obsolete_files_.push_back(f);
+        if (!f->moved) {
+          vset_->obsolete_files_.push_back(f);
+        } else {
+          // moved!
+          // TODO(icanadi) delete this outside of mutex
+          delete f;
+        }
       }
     }
   }
