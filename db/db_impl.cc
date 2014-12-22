@@ -3305,6 +3305,9 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
             true,
             &num_output_records,
             log_buffer);
+        if (!status.ok()) {
+          break;
+        }
 
         compact->CleanupBatchBuffer();
         compact->CleanupMergedBuffer();
@@ -3315,20 +3318,22 @@ Status DBImpl::DoCompactionWork(CompactionState* compact,
       CallCompactionFilterV2(compact, compaction_filter_v2);
     }
     compact->MergeKeyValueSliceBuffer(&cfd->internal_comparator());
-    status = ProcessKeyValueCompaction(
-        mutable_cf_options,
-        is_snapshot_supported,
-        visible_at_tip,
-        earliest_snapshot,
-        latest_snapshot,
-        deletion_state,
-        bottommost_level,
-        imm_micros,
-        input.get(),
-        compact,
-        true,
-        &num_output_records,
-        log_buffer);
+    if (status.ok()) {
+      status = ProcessKeyValueCompaction(
+          mutable_cf_options,
+          is_snapshot_supported,
+          visible_at_tip,
+          earliest_snapshot,
+          latest_snapshot,
+          deletion_state,
+          bottommost_level,
+          imm_micros,
+          input.get(),
+          compact,
+          true,
+          &num_output_records,
+          log_buffer);
+    }
   }  // checking for compaction filter v2
 
   if (status.ok() && (shutting_down_.Acquire_Load() || cfd->IsDropped())) {
