@@ -15,6 +15,8 @@
 * Add rocksdb::GetThreadList(), which in the future will return the current status of all
   rocksdb-related threads.  We will have more code instruments in the following RocksDB
   releases.
+* Change convert function in rocksdb/utilities/convenience.h to return Status instead of boolean.
+  Also add support for nested options in convert function
 
 ### Public API changes
 * New API to create a checkpoint added. Given a directory name, creates a new

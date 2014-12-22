@@ -84,6 +84,14 @@ class Tester {
     return *this;
   }
 
+  Tester& IsNotOk(const Status& s) {
+    if (s.ok()) {
+      ss_ << " Error status expected";
+      ok_ = false;
+    }
+    return *this;
+  }
+
 #define BINARY_OP(name,op)                              \
   template <class X, class Y>                           \
   Tester& name(const X& x, const Y& y) {                \
@@ -114,6 +122,7 @@ class Tester {
 
 #define ASSERT_TRUE(c) ::rocksdb::test::Tester(__FILE__, __LINE__).Is((c), #c)
 #define ASSERT_OK(s) ::rocksdb::test::Tester(__FILE__, __LINE__).IsOk((s))
+#define ASSERT_NOK(s) ::rocksdb::test::Tester(__FILE__, __LINE__).IsNotOk((s))
 #define ASSERT_EQ(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsEq((a),(b))
 #define ASSERT_NE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsNe((a),(b))
 #define ASSERT_GE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsGe((a),(b))

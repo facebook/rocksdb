@@ -175,7 +175,7 @@ TOOLS = \
         db_stress \
         ldb \
 	db_repl_stress \
-  options_test \
+	options_test \
 	blob_store_bench
 
 PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench cache_bench perf_context_test $(TOOLS)
@@ -536,7 +536,7 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
-options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+options_test: util/options_test.o util/options_helper.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/options_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)

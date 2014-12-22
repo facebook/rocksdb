@@ -1801,11 +1801,11 @@ jlong Java_org_rocksdb_ColumnFamilyOptions_getColumnFamilyOptionsFromProps(
   rocksdb::ColumnFamilyOptions* cf_options =
       new rocksdb::ColumnFamilyOptions();
   const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
-  bool status = rocksdb::GetColumnFamilyOptionsFromString(
+  rocksdb::Status status = rocksdb::GetColumnFamilyOptionsFromString(
       rocksdb::ColumnFamilyOptions(), opt_string, cf_options);
   env->ReleaseStringUTFChars(jopt_string, opt_string);
   // Check if ColumnFamilyOptions creation was possible.
-  if (status) {
+  if (status.ok()) {
     ret_value = reinterpret_cast<jlong>(cf_options);
   } else {
     // if operation failed the ColumnFamilyOptions need to be deleted
@@ -2803,11 +2803,11 @@ jlong Java_org_rocksdb_DBOptions_getDBOptionsFromProps(
   rocksdb::DBOptions* db_options =
       new rocksdb::DBOptions();
   const char* opt_string = env->GetStringUTFChars(jopt_string, 0);
-  bool status = rocksdb::GetDBOptionsFromString(
+  rocksdb::Status status = rocksdb::GetDBOptionsFromString(
       rocksdb::DBOptions(), opt_string, db_options);
   env->ReleaseStringUTFChars(jopt_string, opt_string);
   // Check if DBOptions creation was possible.
-  if (status) {
+  if (status.ok()) {
     ret_value = reinterpret_cast<jlong>(db_options);
   } else {
     // if operation failed the DBOptions need to be deleted

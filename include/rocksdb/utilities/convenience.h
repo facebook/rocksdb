@@ -8,35 +8,51 @@
 #include <unordered_map>
 #include <string>
 #include "rocksdb/options.h"
+#include "rocksdb/table.h"
 
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 // Take a map of option name and option value, apply them into the
 // base_options, and return the new options as a result
-bool GetColumnFamilyOptionsFromMap(
+Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     ColumnFamilyOptions* new_options);
 
-bool GetDBOptionsFromMap(
+Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
     DBOptions* new_options);
+
+Status GetBlockBasedTableOptionsFromMap(
+    const BlockBasedTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    BlockBasedTableOptions* new_table_options);
 
 // Take a string representation of option names and  values, apply them into the
 // base_options, and return the new options as a result. The string has the
 // following format:
 //   "write_buffer_size=1024;max_write_buffer_number=2"
-bool GetColumnFamilyOptionsFromString(
+// Nested options config is also possible. For example, you can define
+// BlockBasedTableOptions as part of the string for block-based table factory:
+//   "write_buffer_size=1024;block_based_table_factory={block_size=4k};"
+//   "max_write_buffer_num=2"
+Status GetColumnFamilyOptionsFromString(
     const ColumnFamilyOptions& base_options,
     const std::string& opts_str,
     ColumnFamilyOptions* new_options);
 
-bool GetDBOptionsFromString(
+Status GetDBOptionsFromString(
     const DBOptions& base_options,
     const std::string& opts_str,
     DBOptions* new_options);
+
+Status GetBlockBasedTableOptionsFromString(
+    const BlockBasedTableOptions& table_options,
+    const std::string& opts_str,
+    BlockBasedTableOptions* new_table_options);
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
