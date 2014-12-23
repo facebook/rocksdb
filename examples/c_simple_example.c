@@ -14,8 +14,8 @@ int main(int argc, char **argv) {
 	rocksdb_options_t *options = rocksdb_options_create();
 	// Optimize RocksDB. This is the easiest way to
 	// get RocksDB to perform well
-	int cpus = sysconf(_SC_NPROCESSORS_ONLN);	// get # of online cores
-	rocksdb_options_increase_parallelism(options, cpus);
+	long cpus = sysconf(_SC_NPROCESSORS_ONLN);	// get # of online cores
+	rocksdb_options_increase_parallelism(options, (int)(cpus));
 	rocksdb_options_optimize_level_style_compaction(options, 0);
 	// create the DB if it's not already present
 	rocksdb_options_set_create_if_missing(options, 1);
@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 	// Put key-value
 	rocksdb_writeoptions_t *writeoptions = rocksdb_writeoptions_create();
 	const char key[] = "key";
-	char *value = "value";
+	const char *value = "value";
 	rocksdb_put(db, writeoptions, key, strlen (key), value,	\
 			strlen (value), &err);
 	assert(!err);
@@ -38,7 +38,6 @@ int main(int argc, char **argv) {
 	value = rocksdb_get(db, readoptions, key, strlen (key), &len, &err);
 	assert(!err);
 	assert(strcmp(value, "value") == 0);
-	free(value);
 
 	// cleanup
 	rocksdb_writeoptions_destroy(writeoptions);
