@@ -165,7 +165,8 @@ TESTS = \
 	wal_manager_test \
 	listener_test \
 	compaction_job_test \
-	thread_list_test
+	thread_list_test \
+	sst_dump_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -538,6 +539,9 @@ compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNES
 
 options_test: util/options_test.o util/options_helper.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/options_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
 $(MEMENVLIBRARY) : $(MEMENVOBJECTS)
 	rm -f $@

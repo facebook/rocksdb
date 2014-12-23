@@ -67,6 +67,11 @@ class TableReader {
   // key is the key to search for
   virtual Status Get(const ReadOptions& readOptions, const Slice& key,
                      GetContext* get_context) = 0;
+
+  // convert db file to a human readable form
+  virtual Status DumpTable(WritableFile* out_file) {
+    return Status::NotSupported("DumpTable() not supported");
+  }
 };
 
 }  // namespace rocksdb

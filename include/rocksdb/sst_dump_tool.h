@@ -9,7 +9,7 @@ namespace rocksdb {
 
 class SSTDumpTool {
  public:
-  void Run(int argc, char** argv);
+  int Run(int argc, char** argv);
 };
 
 }  // namespace rocksdb

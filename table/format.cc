@@ -51,6 +51,25 @@ Status BlockHandle::DecodeFrom(Slice* input) {
     return Status::Corruption("bad block handle");
   }
 }
+
+// Return a string that contains the copy of handle.
+std::string BlockHandle::ToString(bool hex) const {
+  std::string handle_str;
+  EncodeTo(&handle_str);
+  if (hex) {
+    std::string result;
+    char buf[10];
+    for (size_t i = 0; i < handle_str.size(); i++) {
+      snprintf(buf, sizeof(buf), "%02X",
+               static_cast<unsigned char>(handle_str[i]));
+      result += buf;
+    }
+    return result;
+  } else {
+    return handle_str;
+  }
+}
+
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
 // legacy footer format:
@@ -175,6 +194,27 @@ Status Footer::DecodeFrom(Slice* input) {
     // We skip over any leftover data (just padding for now) in "input"
     const char* end = magic_ptr + kMagicNumberLengthByte;
     *input = Slice(end, input->data() + input->size() - end);
+  }
+  return result;
+}
+
+std::string Footer::ToString() const {
+  std::string result, handle_;
+  result.reserve(1024);
+
+  bool legacy = IsLegacyFooterFormat(table_magic_number_);
+  if (legacy) {
+    result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
+    result.append("index handle: " + index_handle_.ToString() + "\n  ");
+    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
+                  "\n  ");
+  } else {
+    result.append("checksum: " + std::to_string(checksum_) + "\n  ");
+    result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
+    result.append("index handle: " + index_handle_.ToString() + "\n  ");
+    result.append("footer version: " + std::to_string(version_) + "\n  ");
+    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
+                  "\n  ");
   }
   return result;
 }

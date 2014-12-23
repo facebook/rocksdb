@@ -82,6 +82,9 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
                               uint64_t block_offset = kNotValid) override;
   virtual size_t ApproximateMemoryUsage() const override;
 
+  // convert this object to a human readable form
+  std::string ToString() const override;
+
  private:
   const FilterPolicy* policy_;
   const SliceTransform* prefix_extractor_;

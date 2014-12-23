@@ -1312,4 +1312,217 @@ bool BlockBasedTable::TEST_index_reader_preloaded() const {
   return rep_->index_reader != nullptr;
 }
 
+Status BlockBasedTable::DumpTable(WritableFile* out_file) {
+  // Output Footer
+  out_file->Append(
+      "Footer Details:\n"
+      "--------------------------------------\n"
+      "  ");
+  out_file->Append(rep_->footer.ToString().c_str());
+  out_file->Append("\n");
+
+  // Output MetaIndex
+  out_file->Append(
+      "Metaindex Details:\n"
+      "--------------------------------------\n");
+  std::unique_ptr<Block> meta;
+  std::unique_ptr<Iterator> meta_iter;
+  Status s = ReadMetaBlock(rep_, &meta, &meta_iter);
+  if (s.ok()) {
+    for (meta_iter->SeekToFirst(); meta_iter->Valid(); meta_iter->Next()) {
+      s = meta_iter->status();
+      if (!s.ok()) {
+        return s;
+      }
+      if (meta_iter->key() == rocksdb::kPropertiesBlock) {
+        out_file->Append("  Properties block handle: ");
+        out_file->Append(meta_iter->value().ToString(true).c_str());
+        out_file->Append("\n");
+      } else if (strstr(meta_iter->key().ToString().c_str(),
+                        "filter.rocksdb.") != nullptr) {
+        out_file->Append("  Filter block handle: ");
+        out_file->Append(meta_iter->value().ToString(true).c_str());
+        out_file->Append("\n");
+      }
+    }
+    out_file->Append("\n");
+  } else {
+    return s;
+  }
+
+  // Output TableProperties
+  const rocksdb::TableProperties* table_properties;
+  table_properties = rep_->table_properties.get();
+
+  if (table_properties != nullptr) {
+    out_file->Append(
+        "Table Properties:\n"
+        "--------------------------------------\n"
+        "  ");
+    out_file->Append(table_properties->ToString("\n  ", ": ").c_str());
+    out_file->Append("\n");
+  }
+
+  // Output Filter blocks
+  if (!rep_->filter && !table_properties->filter_policy_name.empty()) {
+    // Support only BloomFilter as off now
+    rocksdb::BlockBasedTableOptions table_options;
+    table_options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(1));
+    if (table_properties->filter_policy_name.compare(
+            table_options.filter_policy->Name()) == 0) {
+      std::string filter_block_key = kFilterBlockPrefix;
+      filter_block_key.append(table_properties->filter_policy_name);
+      BlockHandle handle;
+      if (FindMetaBlock(meta_iter.get(), filter_block_key, &handle).ok()) {
+        BlockContents block;
+        if (ReadBlockContents(rep_->file.get(), rep_->footer, ReadOptions(),
+                              handle, &block, rep_->ioptions.env, false).ok()) {
+          rep_->filter.reset(
+              new BlockBasedFilterBlockReader(rep_->ioptions.prefix_extractor,
+                                              table_options, std::move(block)));
+        }
+      }
+    }
+  }
+  if (rep_->filter) {
+    out_file->Append(
+        "Filter Details:\n"
+        "--------------------------------------\n"
+        "  ");
+    out_file->Append(rep_->filter->ToString().c_str());
+    out_file->Append("\n");
+  }
+
+  // Output Index block
+  s = DumpIndexBlock(out_file);
+  if (!s.ok()) {
+    return s;
+  }
+  // Output Data blocks
+  s = DumpDataBlocks(out_file);
+
+  return s;
+}
+
+Status BlockBasedTable::DumpIndexBlock(WritableFile* out_file) {
+  out_file->Append(
+      "Index Details:\n"
+      "--------------------------------------\n");
+
+  std::unique_ptr<Iterator> blockhandles_iter(NewIndexIterator(ReadOptions()));
+  Status s = blockhandles_iter->status();
+  if (!s.ok()) {
+    out_file->Append("Can not read Index Block \n\n");
+    return s;
+  }
+
+  out_file->Append("  Block key hex dump: Data block handle\n");
+  out_file->Append("  Block key ascii\n\n");
+  for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
+       blockhandles_iter->Next()) {
+    s = blockhandles_iter->status();
+    if (!s.ok()) {
+      break;
+    }
+    Slice key = blockhandles_iter->key();
+    InternalKey ikey;
+    ikey.DecodeFrom(key);
+
+    out_file->Append("  HEX    ");
+    out_file->Append(ikey.user_key().ToString(true).c_str());
+    out_file->Append(": ");
+    out_file->Append(blockhandles_iter->value().ToString(true).c_str());
+    out_file->Append("\n");
+
+    std::string str_key = ikey.user_key().ToString();
+    std::string res_key("");
+    char cspace = ' ';
+    for (size_t i = 0; i < str_key.size(); i++) {
+      res_key.append(&str_key[i], 1);
+      res_key.append(1, cspace);
+    }
+    out_file->Append("  ASCII  ");
+    out_file->Append(res_key.c_str());
+    out_file->Append("\n  ------\n");
+  }
+  out_file->Append("\n");
+  return Status::OK();
+}
+
+Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
+  std::unique_ptr<Iterator> blockhandles_iter(NewIndexIterator(ReadOptions()));
+  Status s = blockhandles_iter->status();
+  if (!s.ok()) {
+    out_file->Append("Can not read Index Block \n\n");
+    return s;
+  }
+
+  size_t block_id = 1;
+  for (blockhandles_iter->SeekToFirst(); blockhandles_iter->Valid();
+       block_id++, blockhandles_iter->Next()) {
+    s = blockhandles_iter->status();
+    if (!s.ok()) {
+      break;
+    }
+
+    out_file->Append("Data Block # ");
+    out_file->Append(std::to_string(block_id));
+    out_file->Append(" @ ");
+    out_file->Append(blockhandles_iter->value().ToString(true).c_str());
+    out_file->Append("\n");
+    out_file->Append("--------------------------------------\n");
+
+    std::unique_ptr<Iterator> datablock_iter;
+    datablock_iter.reset(
+        NewDataBlockIterator(rep_, ReadOptions(), blockhandles_iter->value()));
+    s = datablock_iter->status();
+
+    if (!s.ok()) {
+      out_file->Append("Error reading the block - Skipped \n\n");
+      continue;
+    }
+
+    for (datablock_iter->SeekToFirst(); datablock_iter->Valid();
+         datablock_iter->Next()) {
+      s = datablock_iter->status();
+      if (!s.ok()) {
+        out_file->Append("Error reading the block - Skipped \n");
+        break;
+      }
+      Slice key = datablock_iter->key();
+      Slice value = datablock_iter->value();
+      InternalKey ikey, iValue;
+      ikey.DecodeFrom(key);
+      iValue.DecodeFrom(value);
+
+      out_file->Append("  HEX    ");
+      out_file->Append(ikey.user_key().ToString(true).c_str());
+      out_file->Append(": ");
+      out_file->Append(iValue.user_key().ToString(true).c_str());
+      out_file->Append("\n");
+
+      std::string str_key = ikey.user_key().ToString();
+      std::string str_value = iValue.user_key().ToString();
+      std::string res_key(""), res_value("");
+      char cspace = ' ';
+      for (size_t i = 0; i < str_key.size(); i++) {
+        res_key.append(&str_key[i], 1);
+        res_key.append(1, cspace);
+      }
+      for (size_t i = 0; i < str_value.size(); i++) {
+        res_value.append(&str_value[i], 1);
+        res_value.append(1, cspace);
+      }
+
+      out_file->Append("  ASCII  ");
+      out_file->Append(res_key.c_str());
+      out_file->Append(": ");
+      out_file->Append(res_value.c_str());
+      out_file->Append("\n  ------\n");
+    }
+    out_file->Append("\n");
+  }
+  return Status::OK();
+}
+
 }  // namespace rocksdb

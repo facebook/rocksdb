@@ -75,6 +75,12 @@ class FilterBlockReader {
                               uint64_t block_offset = kNotValid) = 0;
   virtual size_t ApproximateMemoryUsage() const = 0;
 
+  // convert this object to a human readable form
+  virtual std::string ToString() const {
+    std::string error_msg("Unsupported filter \n");
+    return error_msg;
+  }
+
  private:
   // No copying allowed
   FilterBlockReader(const FilterBlockReader&);

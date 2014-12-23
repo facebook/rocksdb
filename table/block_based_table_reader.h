@@ -100,6 +100,9 @@ class BlockBasedTable : public TableReader {
 
   size_t ApproximateMemoryUsage() const override;
 
+  // convert SST file to a human readable form
+  Status DumpTable(WritableFile* out_file) override;
+
   ~BlockBasedTable();
 
   bool TEST_filter_block_preloaded() const;
@@ -203,6 +206,10 @@ class BlockBasedTable : public TableReader {
   // The longest prefix of the cache key used to identify blocks.
   // For Posix files the unique ID is three varints.
   static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
+
+  // Helper functions for DumpTable()
+  Status DumpIndexBlock(WritableFile* out_file);
+  Status DumpDataBlocks(WritableFile* out_file);
 
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;

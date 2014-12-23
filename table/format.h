@@ -42,6 +42,9 @@ class BlockHandle {
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
 
+  // Return a string that contains the copy of handle.
+  std::string ToString(bool hex = true) const;
+
   // if the block handle's offset and size are both "0", we will view it
   // as a null block handle that points to no where.
   bool IsNull() const {
@@ -128,6 +131,9 @@ class Footer {
   };
 
   static const uint64_t kInvalidTableMagicNumber = 0;
+
+  // convert this object to a human readable form
+  std::string ToString() const;
 
  private:
   // REQUIRES: magic number wasn't initialized.

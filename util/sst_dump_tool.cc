@@ -73,6 +73,15 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
   return s;
 }
 
+Status SstFileReader::DumpTable(const std::string& out_filename) {
+  unique_ptr<WritableFile> out_file;
+  Env* env = Env::Default();
+  env->NewWritableFile(out_filename, &out_file, soptions_);
+  Status s = table_reader_->DumpTable(out_file.get());
+  out_file->Close();
+  return s;
+}
+
 Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
                                           RandomAccessFile* file,
                                           uint64_t file_size) {
@@ -206,7 +215,7 @@ namespace {
 
 void print_help() {
   fprintf(stderr,
-          "sst_dump [--command=check|scan|none] [--verify_checksum] "
+          "sst_dump [--command=check|scan|none|raw] [--verify_checksum] "
           "--file=data_dir_OR_sst_file"
           " [--output_hex]"
           " [--input_key_hex]"
@@ -235,7 +244,7 @@ string HexToString(const string& str) {
 
 }  // namespace
 
-void SSTDumpTool::Run(int argc, char** argv) {
+int SSTDumpTool::Run(int argc, char** argv) {
   const char* dir_or_file = nullptr;
   uint64_t read_num = -1;
   std::string command;
@@ -318,8 +327,29 @@ void SSTDumpTool::Run(int argc, char** argv) {
     if (dir) {
       filename = std::string(dir_or_file) + "/" + filename;
     }
+
     rocksdb::SstFileReader reader(filename, verify_checksum,
                                   output_hex);
+    if (!reader.getStatus().ok()) {
+      fprintf(stderr, "%s: %s\n", filename.c_str(),
+              reader.getStatus().ToString().c_str());
+      exit(1);
+    }
+
+    if (command == "raw") {
+      std::string out_filename = filename.substr(0, filename.length() - 4);
+      out_filename.append("_dump.txt");
+
+      st = reader.DumpTable(out_filename);
+      if (!st.ok()) {
+        fprintf(stderr, "%s: %s\n", filename.c_str(), st.ToString().c_str());
+        exit(1);
+      } else {
+        fprintf(stdout, "raw dump written to file %s\n", &out_filename[0]);
+      }
+      continue;
+    }
+
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
       st = reader.ReadSequential(command != "check",
@@ -360,6 +390,7 @@ void SSTDumpTool::Run(int argc, char** argv) {
       }
     }
   }
+  return 0;
 }
 }  // namespace rocksdb
 

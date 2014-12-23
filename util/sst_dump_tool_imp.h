@@ -49,6 +49,9 @@ class SstFileReader {
   uint64_t GetReadNumber() { return read_num_; }
   TableProperties* GetInitTableProperties() { return table_properties_.get(); }
 
+  Status DumpTable(const std::string& out_filename);
+  Status getStatus() { return init_result_; }
+
  private:
   Status NewTableReader(const std::string& file_path);
   Status ReadTableProperties(uint64_t table_magic_number,
