@@ -8896,12 +8896,14 @@ namespace {
   void VerifyCompactionResult(
       const ColumnFamilyMetaData& cf_meta,
       const std::set<std::string>& overlapping_file_numbers) {
+#ifndef NDEBUG
     for (auto& level : cf_meta.levels) {
       for (auto& file : level.files) {
         assert(overlapping_file_numbers.find(file.name) ==
                overlapping_file_numbers.end());
       }
     }
+#endif
   }
 
   const SstFileMetaData* PickFileRandomly(
