@@ -103,28 +103,27 @@ class BTree {
   class MappingTable {
   public:
     MappingTable(Arena* arena, int capacity = 50000) 
-    : arena_(arena), capacity_(capacity) {
+    : arena_(arena), capacity_(capacity), size_(reinterpret_cast<void*>(0)) {
       char* mem = arena_->AllocateAligned(sizeof(Node*) * capacity);
       table_ = (Node**) mem; 
-      size_ = 0;
     }
 
     Node* getNode(int pid) const {
-      assert(pid < size_);
+      assert(pid < static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load())));
       return table_[pid];
     }
 
     // No need to synchronize since externally synchronized, and newly being added
     int addNode(Node* node) {
-      assert(size_ < capacity_);
-      int pid = size_;
+      assert(static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load())) < capacity_);
+      int pid = static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load()));
       table_[pid] = node;
-      size_++;
+      size_.NoBarrier_Store(reinterpret_cast<void*>(pid + 1));
       return pid;
     }
 
     void updateNode(int pid, Node* node) {
-      assert(pid < size_);
+      assert(pid < static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load())));
       // TODO Do I need memory barrier here?
       table_[pid] = node;
     }
@@ -133,7 +132,7 @@ class BTree {
     Arena* const arena_;
     Node** table_;
     int capacity_;
-    int size_;
+    port::AtomicPointer size_;
   };
 
  private:
