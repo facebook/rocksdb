@@ -1131,6 +1131,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number,
     const MutableCFOptions& mutable_cf_options) {
+#ifndef ROCKSDB_LITE
   if (cfd->ioptions()->listeners.size() == 0U) {
     return;
   }
@@ -1157,6 +1158,7 @@ void DBImpl::NotifyOnFlushCompleted(
   assert(notifying_events_ >= 0);
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
+#endif  // ROCKSDB_LITE
 }
 
 Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
