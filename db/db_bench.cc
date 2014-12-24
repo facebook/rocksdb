@@ -154,7 +154,7 @@ DEFINE_int64(merge_keys, -1,
 DEFINE_int32(num_column_families, 1, "Number of Column Families to use.");
 
 DEFINE_int32(
-    num_hot_column_families, 8,
+    num_hot_column_families, 0,
     "Number of Hot Column Families. If more than 0, only write to this "
     "number of column families. After finishing all the writes to them, "
     "create new set of column families and insert to them. Only used "
