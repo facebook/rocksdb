@@ -1181,6 +1181,15 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Gets the handle for the default column family
+   *
+   * @return The handle of the default column family
+   */
+  public ColumnFamilyHandle getDefaultColumnFamily() {
+    return new ColumnFamilyHandle(this, getDefaultColumnFamily(nativeHandle_));
+  }
+
+  /**
    * Creates a new column family with the name columnFamilyName and
    * allocates a ColumnFamilyHandle within an internal structure.
    * The ColumnFamilyHandle is automatically disposed with DB disposal.
@@ -1620,6 +1629,7 @@ public class RocksDB extends RocksObject {
   protected native void releaseSnapshot(
       long nativeHandle, long snapshotHandle);
   private native void disposeInternal(long handle);
+  private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(long handle,
       ColumnFamilyDescriptor columnFamilyDescriptor) throws RocksDBException;
   private native void dropColumnFamily(long handle, long cfHandle) throws RocksDBException;

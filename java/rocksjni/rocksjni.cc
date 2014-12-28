@@ -1176,6 +1176,18 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
 
 /*
  * Class:     org_rocksdb_RocksDB
+ * Method:    getDefaultColumnFamily
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_RocksDB_getDefaultColumnFamily(
+    JNIEnv* env, jobject jobj, jlong jdb_handle) {
+  auto* db_handle = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* cf_handle = db_handle->DefaultColumnFamily();
+  return reinterpret_cast<jlong>(cf_handle);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
  * Method:    createColumnFamily
  * Signature: (JLorg/rocksdb/ColumnFamilyDescriptor;)J;
  */
