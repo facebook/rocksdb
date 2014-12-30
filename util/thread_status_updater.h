@@ -22,7 +22,7 @@
 //    should be ignored.
 //
 // The high to low level information would be:
-// thread_id > thread_type > db > cf > event > event_count > event_details
+// thread_id > thread_type > db > cf > operation > state
 //
 // This means user might not always get full information, but whenever
 // returned by the GetThreadList() is guaranteed to be consistent.
@@ -37,6 +37,7 @@
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 #include "port/port_posix.h"
+#include "util/thread_operation.h"
 
 namespace rocksdb {
 
@@ -57,27 +58,21 @@ struct ConstantColumnFamilyInfo {
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
-// The structure that describes an event.
-struct ThreadEventInfo {
-#if ROCKSDB_USING_THREAD_STATUS
- public:
-  const std::string event_name;
-#endif  // ROCKSDB_USING_THREAD_STATUS
-};
-
 // the internal data-structure that is used to reflect the current
 // status of a thread using a set of atomic pointers.
 struct ThreadStatusData {
 #if ROCKSDB_USING_THREAD_STATUS
   explicit ThreadStatusData() : thread_id(0) {
-    thread_type.store(ThreadStatus::ThreadType::USER_THREAD);
+    thread_type.store(ThreadStatus::USER);
     cf_key.store(0);
-    event_info.store(nullptr);
+    operation_type.store(ThreadStatus::OP_UNKNOWN);
+    state_type.store(ThreadStatus::STATE_UNKNOWN);
   }
   uint64_t thread_id;
   std::atomic<ThreadStatus::ThreadType> thread_type;
   std::atomic<const void*> cf_key;
-  std::atomic<const ThreadEventInfo*> event_info;
+  std::atomic<ThreadStatus::OperationType> operation_type;
+  std::atomic<ThreadStatus::StateType> state_type;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
 
@@ -103,12 +98,20 @@ class ThreadStatusUpdater {
   void SetThreadType(ThreadStatus::ThreadType ttype);
 
   // Update the column-family info of the current thread by setting
-  // its thread-local pointer of ThreadEventInfo to the correct entry.
+  // its thread-local pointer of ThreadStateInfo to the correct entry.
   void SetColumnFamilyInfoKey(const void* cf_key);
 
-  // Update the event info of the current thread by setting
-  // its thread-local pointer of ThreadEventInfo to the correct entry.
-  void SetEventInfoPtr(const ThreadEventInfo* event_info);
+  // Update the thread operation of the current thread.
+  void SetThreadOperation(const ThreadStatus::OperationType type);
+
+  // Clear thread operation of the current thread.
+  void ClearThreadOperation();
+
+  // Update the thread state of the current thread.
+  void SetThreadState(const ThreadStatus::StateType type);
+
+  // Clear the thread state of the current thread.
+  void ClearThreadState();
 
   // Obtain the status of all active registered threads.
   Status GetThreadList(

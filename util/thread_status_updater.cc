@@ -34,10 +34,28 @@ void ThreadStatusUpdater::SetColumnFamilyInfoKey(
   data->cf_key.store(cf_key, std::memory_order_relaxed);
 }
 
-void ThreadStatusUpdater::SetEventInfoPtr(
-    const ThreadEventInfo* event_info) {
+void ThreadStatusUpdater::SetThreadOperation(
+    const ThreadStatus::OperationType type) {
   auto* data = InitAndGet();
-  data->event_info.store(event_info, std::memory_order_relaxed);
+  data->operation_type.store(type, std::memory_order_relaxed);
+}
+
+void ThreadStatusUpdater::ClearThreadOperation() {
+  auto* data = InitAndGet();
+  data->operation_type.store(
+      ThreadStatus::OP_UNKNOWN, std::memory_order_relaxed);
+}
+
+void ThreadStatusUpdater::SetThreadState(
+    const ThreadStatus::StateType type) {
+  auto* data = InitAndGet();
+  data->state_type.store(type, std::memory_order_relaxed);
+}
+
+void ThreadStatusUpdater::ClearThreadState() {
+  auto* data = InitAndGet();
+  data->state_type.store(
+      ThreadStatus::STATE_UNKNOWN, std::memory_order_relaxed);
 }
 
 Status ThreadStatusUpdater::GetThreadList(
@@ -50,30 +68,35 @@ Status ThreadStatusUpdater::GetThreadList(
     assert(thread_data);
     auto thread_type = thread_data->thread_type.load(
         std::memory_order_relaxed);
+    // Since any change to cf_info_map requires thread_list_mutex,
+    // which is currently held by GetThreadList(), here we can safely
+    // use "memory_order_relaxed" to load the cf_key.
     auto cf_key = thread_data->cf_key.load(
         std::memory_order_relaxed);
     auto iter = cf_info_map_.find(cf_key);
     assert(cf_key == 0 || iter != cf_info_map_.end());
     auto* cf_info = iter != cf_info_map_.end() ?
         iter->second.get() : nullptr;
-    auto* event_info = thread_data->event_info.load(
-        std::memory_order_relaxed);
     const std::string* db_name = nullptr;
     const std::string* cf_name = nullptr;
-    const std::string* event_name = nullptr;
+    ThreadStatus::OperationType op_type = ThreadStatus::OP_UNKNOWN;
+    ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
     if (cf_info != nullptr) {
       db_name = &cf_info->db_name;
       cf_name = &cf_info->cf_name;
+      op_type = thread_data->operation_type.load(
+          std::memory_order_relaxed);
       // display lower-level info only when higher-level info is available.
-      if (event_info != nullptr) {
-        event_name = &event_info->event_name;
+      if (op_type != ThreadStatus::OP_UNKNOWN) {
+        state_type = thread_data->state_type.load(
+            std::memory_order_relaxed);
       }
     }
     thread_list->emplace_back(
         thread_data->thread_id, thread_type,
         db_name ? *db_name : "",
         cf_name ? *cf_name : "",
-        event_name ? *event_name : "");
+        op_type, state_type);
   }
 
   return Status::OK();
@@ -93,6 +116,8 @@ ThreadStatusData* ThreadStatusUpdater::InitAndGet() {
 void ThreadStatusUpdater::NewColumnFamilyInfo(
     const void* db_key, const std::string& db_name,
     const void* cf_key, const std::string& cf_name) {
+  // Acquiring same lock as GetThreadList() to guarantee
+  // a consistent view of global column family table (cf_info_map).
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
 
   cf_info_map_[cf_key].reset(
@@ -101,6 +126,8 @@ void ThreadStatusUpdater::NewColumnFamilyInfo(
 }
 
 void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
+  // Acquiring same lock as GetThreadList() to guarantee
+  // a consistent view of global column family table (cf_info_map).
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   auto cf_pair = cf_info_map_.find(cf_key);
   assert(cf_pair != cf_info_map_.end());
@@ -122,6 +149,8 @@ void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
 }
 
 void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
+  // Acquiring same lock as GetThreadList() to guarantee
+  // a consistent view of global column family table (cf_info_map).
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   auto db_pair = db_key_map_.find(db_key);
   if (UNLIKELY(db_pair == db_key_map_.end())) {
@@ -154,8 +183,18 @@ void ThreadStatusUpdater::SetColumnFamilyInfoKey(
     const void* cf_key) {
 }
 
-void ThreadStatusUpdater::SetEventInfoPtr(
-    const ThreadEventInfo* event_info) {
+void ThreadStatusUpdater::SetThreadOperation(
+    const ThreadStatus::OperationType type) {
+}
+
+void ThreadStatusUpdater::ClearThreadOperation() {
+}
+
+void ThreadStatusUpdater::SetThreadState(
+    const ThreadStatus::StateType type) {
+}
+
+void ThreadStatusUpdater::ClearThreadState() {
 }
 
 Status ThreadStatusUpdater::GetThreadList(

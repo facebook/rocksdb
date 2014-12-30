@@ -1694,8 +1694,8 @@ class PosixEnv : public Env {
       // for thread-status
       ThreadStatusUtil::SetThreadType(tp->env_,
           (tp->GetThreadPriority() == Env::Priority::HIGH ?
-              ThreadStatus::ThreadType::ROCKSDB_HIGH_PRIORITY :
-              ThreadStatus::ThreadType::ROCKSDB_LOW_PRIORITY));
+              ThreadStatus::HIGH_PRIORITY :
+              ThreadStatus::LOW_PRIORITY));
 #endif
       delete meta;
       tp->BGThread(thread_id);

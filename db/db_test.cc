@@ -9435,10 +9435,10 @@ TEST(DBTest, GetThreadList) {
       env_->SleepForMicroseconds(100000);
       s = env_->GetThreadList(&thread_list);
       ASSERT_OK(s);
-      unsigned int thread_type_counts[ThreadStatus::ThreadType::TOTAL];
+      unsigned int thread_type_counts[ThreadStatus::NUM_THREAD_TYPES];
       memset(thread_type_counts, 0, sizeof(thread_type_counts));
       for (auto thread : thread_list) {
-        ASSERT_LT(thread.thread_type, ThreadStatus::ThreadType::TOTAL);
+        ASSERT_LT(thread.thread_type, ThreadStatus::NUM_THREAD_TYPES);
         thread_type_counts[thread.thread_type]++;
       }
       // Verify the total number of threades
@@ -9447,11 +9447,11 @@ TEST(DBTest, GetThreadList) {
           kHighPriCounts[test] + kLowPriCounts[test]);
       // Verify the number of high-priority threads
       ASSERT_EQ(
-          thread_type_counts[ThreadStatus::ThreadType::ROCKSDB_HIGH_PRIORITY],
+          thread_type_counts[ThreadStatus::HIGH_PRIORITY],
           kHighPriCounts[test]);
       // Verify the number of low-priority threads
       ASSERT_EQ(
-          thread_type_counts[ThreadStatus::ThreadType::ROCKSDB_LOW_PRIORITY],
+          thread_type_counts[ThreadStatus::LOW_PRIORITY],
           kLowPriCounts[test]);
     }
     if (i == 0) {
