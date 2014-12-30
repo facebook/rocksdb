@@ -207,7 +207,7 @@ class SkipListFactory : public MemTableRepFactory {
 
 class BTreeFactory : public MemTableRepFactory {
  public:
-  explicit BTreeFactory() {}
+  explicit BTreeFactory(int32_t maxNodeSize = 64) : maxNodeSize_(maxNodeSize) {}
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
                                          Arena*, const SliceTransform*,
@@ -215,6 +215,7 @@ class BTreeFactory : public MemTableRepFactory {
   virtual const char* Name() const override { return "BTreeFactory"; }
 
  private:
+  int32_t maxNodeSize_;
 };
 
 #ifndef ROCKSDB_LITE

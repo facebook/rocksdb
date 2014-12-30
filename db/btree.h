@@ -102,7 +102,7 @@ class BTree {
   // Maps from logical node id to physical pointer to a Node. Adopted from Bw-Tree.
   class MappingTable {
   public:
-    MappingTable(Arena* arena, int capacity = 50000) 
+    MappingTable(Arena* arena, int capacity = 400000) 
     : arena_(arena), capacity_(capacity), size_(reinterpret_cast<void*>(0)) {
       char* mem = arena_->AllocateAligned(sizeof(Node*) * capacity);
       table_ = (Node**) mem; 
