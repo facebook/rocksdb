@@ -289,6 +289,8 @@ DEFINE_bool(use_existing_db, false, "If true, do not destroy the existing"
 
 DEFINE_string(db, "", "Use the db with the following name.");
 
+DEFINE_int64(btree_fanout, 64, "Fanout factor of BTree memtable representation");
+
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
   if (value >= 20) {
     fprintf(stderr, "Invalid value for --%s: %d, must be < 20\n",
@@ -1971,7 +1973,7 @@ class Benchmark {
             options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));
         break;
       case kBTree:
-        options.memtable_factory.reset(new BTreeFactory());
+        options.memtable_factory.reset(new BTreeFactory(FLAGS_btree_fanout));
         break;
 #else
       default:

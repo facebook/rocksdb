@@ -15,8 +15,8 @@ class BTreeRep : public MemTableRep {
   BTree<const char*, const MemTableRep::KeyComparator&> tree_;
 
 public:
-  explicit BTreeRep(const MemTableRep::KeyComparator& compare, Arena* arena)
-    : MemTableRep(arena), cmp_(compare), tree_(cmp_, arena) {
+  explicit BTreeRep(const MemTableRep::KeyComparator& compare, Arena* arena, int32_t maxNodeSize = 64)
+    : MemTableRep(arena), cmp_(compare), tree_(cmp_, arena, maxNodeSize) {
   }
 
   // Insert key into the list.
@@ -121,7 +121,7 @@ public:
 MemTableRep* BTreeFactory::CreateMemTableRep(
     const MemTableRep::KeyComparator& compare, Arena* arena,
     const SliceTransform* transform, Logger* logger) {
-  return new BTreeRep(compare, arena);
+  return new BTreeRep(compare, arena, maxNodeSize_);
 }
 
 } // namespace rocksdb
