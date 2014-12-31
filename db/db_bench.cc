@@ -398,12 +398,12 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   return rocksdb::kSnappyCompression; //default value
 }
 
-std::string ColumnFamilyName(int i) {
+std::string ColumnFamilyName(size_t i) {
   if (i == 0) {
     return rocksdb::kDefaultColumnFamilyName;
   } else {
     char name[100];
-    snprintf(name, sizeof(name), "column_family_name_%06d", i);
+    snprintf(name, sizeof(name), "column_family_name_%06zu", i);
     return std::string(name);
   }
 }
