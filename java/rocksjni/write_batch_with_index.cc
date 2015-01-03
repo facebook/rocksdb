@@ -6,10 +6,11 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::WriteBatchWithIndex methods from Java side.
 
+#include "include/org_rocksdb_WBWIRocksIterator.h"
 #include "include/org_rocksdb_WriteBatchWithIndex.h"
-#include "rocksjni/portal.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "rocksjni/portal.h"
 
 /*
  * Class:     org_rocksdb_WriteBatchWithIndex
@@ -296,4 +297,122 @@ void Java_org_rocksdb_WriteBatchWithIndex_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
   auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(handle);
   delete wbwi;
+}
+
+/* WBWIRocksIterator below */
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    disposeInternal
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_disposeInternal(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  delete it;
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    isValid0
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_WBWIRocksIterator_isValid0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  return reinterpret_cast<rocksdb::WBWIIterator*>(handle)->Valid();
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekToFirst0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekToFirst0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  reinterpret_cast<rocksdb::WBWIIterator*>(handle)->SeekToFirst();
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seekToLast0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seekToLast0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  reinterpret_cast<rocksdb::WBWIIterator*>(handle)->SeekToLast();
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    next0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_next0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  reinterpret_cast<rocksdb::WBWIIterator*>(handle)->Next();
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    prev0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_prev0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  reinterpret_cast<rocksdb::WBWIIterator*>(handle)->Prev();
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    seek0
+ * Signature: (J[BI)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_seek0(
+    JNIEnv* env, jobject jobj, jlong handle, jbyteArray jtarget,
+    jint jtarget_len) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  jbyte* target = env->GetByteArrayElements(jtarget, 0);
+  rocksdb::Slice target_slice(
+      reinterpret_cast<char*>(target), jtarget_len);
+
+  it->Seek(target_slice);
+
+  env->ReleaseByteArrayElements(jtarget, target, JNI_ABORT);
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    status0
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_status0(
+    JNIEnv* env, jobject jobj, jlong handle) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  rocksdb::Status s = it->status();
+
+  if (s.ok()) {
+    return;
+  }
+
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+}
+
+/*
+ * Class:     org_rocksdb_WBWIRocksIterator
+ * Method:    entry1
+ * Signature: (JLorg/rocksdb/WBWIRocksIterator/WriteEntry;)V
+ */
+void Java_org_rocksdb_WBWIRocksIterator_entry1(
+    JNIEnv* env, jobject jobj, jlong handle, jobject jwrite_entry) {
+  auto* it = reinterpret_cast<rocksdb::WBWIIterator*>(handle);
+  const rocksdb::WriteEntry& we = it->Entry();
+  jobject jwe = rocksdb::WBWIRocksIteratorJni::getWriteEntry(env, jobj);
+  rocksdb::WriteEntryJni::setWriteType(env, jwe, we.type);
+  rocksdb::WriteEntryJni::setKey(env, jwe, &we.key);
+  if (we.type == rocksdb::kDeleteRecord || we.type == rocksdb::kLogDataRecord) {
+    // set native handle of value slice to null if no value available
+    rocksdb::WriteEntryJni::setValue(env, jwe, NULL);
+  } else {
+    rocksdb::WriteEntryJni::setValue(env, jwe, &we.value);
+  }
 }

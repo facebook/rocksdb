@@ -863,6 +863,150 @@ class BackupInfoListJni {
   }
 };
 
+class WBWIRocksIteratorJni {
+ public:
+    // Get the java class id of org.rocksdb.WBWIRocksIterator.
+    static jclass getJClass(JNIEnv* env) {
+      static jclass jclazz = env->FindClass("org/rocksdb/WBWIRocksIterator");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    static jfieldID getWriteEntryField(JNIEnv* env) {
+      static jfieldID fid =
+          env->GetFieldID(getJClass(env), "entry",
+          "Lorg/rocksdb/WBWIRocksIterator$WriteEntry;");
+      assert(fid != nullptr);
+      return fid;
+    }
+
+    static jobject getWriteEntry(JNIEnv* env, jobject jwbwi_rocks_iterator) {
+      jobject jwe =
+          env->GetObjectField(jwbwi_rocks_iterator, getWriteEntryField(env));
+      assert(jwe != nullptr);
+      return jwe;
+    }
+};
+
+class WriteTypeJni {
+ public:
+    // Get the PUT enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject PUT(JNIEnv* env) {
+      return getEnum(env, "PUT");
+    }
+
+    // Get the MERGE enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject MERGE(JNIEnv* env) {
+      return getEnum(env, "MERGE");
+    }
+
+    // Get the DELETE enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject DELETE(JNIEnv* env) {
+      return getEnum(env, "DELETE");
+    }
+
+    // Get the LOG enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject LOG(JNIEnv* env) {
+      return getEnum(env, "LOG");
+    }
+
+ private:
+    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteType.
+    static jclass getJClass(JNIEnv* env) {
+      // TODO(AR) setting the jclazz var to static causes getEnum to fail
+      // occasionally (e.g. in WriteBatchWithIndex#iterator() test) with
+      // SIGSEGV but I have no idea why...
+      jclass jclazz = env->FindClass("org/rocksdb/WBWIRocksIterator$WriteType");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject getEnum(JNIEnv* env, const char name[]) {
+      // TODO(AR) setting the jclazz var to static causes getEnum to fail
+      // occasionally (e.g. in WriteBatchWithIndex#iterator() test) with
+      // SIGSEGV but I have no idea why...
+      jclass jclazz = getJClass(env);
+      jfieldID jfid =
+          env->GetStaticFieldID(jclazz, name,
+          "Lorg/rocksdb/WBWIRocksIterator$WriteType;");
+      assert(jfid != nullptr);
+      return env->GetStaticObjectField(jclazz, jfid);
+    }
+};
+
+class WriteEntryJni {
+ public:
+    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteEntry.
+    static jclass getJClass(JNIEnv* env) {
+      static jclass jclazz =
+          env->FindClass("org/rocksdb/WBWIRocksIterator$WriteEntry");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    static void setWriteType(JNIEnv* env, jobject jwrite_entry,
+        WriteType write_type) {
+      jobject jwrite_type;
+      switch (write_type) {
+        case kPutRecord:
+          jwrite_type = WriteTypeJni::PUT(env);
+          break;
+
+        case kMergeRecord:
+          jwrite_type = WriteTypeJni::MERGE(env);
+          break;
+
+        case kDeleteRecord:
+          jwrite_type = WriteTypeJni::DELETE(env);
+          break;
+
+        case kLogDataRecord:
+          jwrite_type = WriteTypeJni::LOG(env);
+          break;
+
+        default:
+          jwrite_type = nullptr;
+      }
+      assert(jwrite_type != nullptr);
+      env->SetObjectField(jwrite_entry, getWriteTypeField(env), jwrite_type);
+    }
+
+    static void setKey(JNIEnv* env, jobject jwrite_entry,
+        const rocksdb::Slice* slice) {
+      jobject jkey = env->GetObjectField(jwrite_entry, getKeyField(env));
+      AbstractSliceJni::setHandle(env, jkey, slice);
+    }
+
+    static void setValue(JNIEnv* env, jobject jwrite_entry,
+        const rocksdb::Slice* slice) {
+      jobject jvalue = env->GetObjectField(jwrite_entry, getValueField(env));
+      AbstractSliceJni::setHandle(env, jvalue, slice);
+    }
+
+ private:
+    static jfieldID getWriteTypeField(JNIEnv* env) {
+      static jfieldID fid = env->GetFieldID(
+          getJClass(env), "type", "Lorg/rocksdb/WBWIRocksIterator$WriteType;");
+        assert(fid != nullptr);
+        return fid;
+    }
+
+    static jfieldID getKeyField(JNIEnv* env) {
+      static jfieldID fid = env->GetFieldID(
+          getJClass(env), "key", "Lorg/rocksdb/DirectSlice;");
+      assert(fid != nullptr);
+      return fid;
+    }
+
+    static jfieldID getValueField(JNIEnv* env) {
+      static jfieldID fid = env->GetFieldID(
+          getJClass(env), "value", "Lorg/rocksdb/DirectSlice;");
+      assert(fid != nullptr);
+      return fid;
+    }
+};
+
 class JniUtil {
  public:
     /**

@@ -37,8 +37,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * assignment is determined by the constructor argument
    *
    * @param overwriteKey if true, overwrite the key in the index when
-   *                     inserting a duplicate key, in this way an iterator will never
-   *                     show two entries with the same key.
+   *   inserting a duplicate key, in this way an iterator will never
+   *   show two entries with the same key.
    */
   public WriteBatchWithIndex(boolean overwriteKey) {
     super();
@@ -49,12 +49,14 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * Creates a WriteBatchWithIndex
    *
    * @param fallbackIndexComparator We fallback to this comparator
-   *                                to compare keys within a column family if we cannot determine
-   *                                the column family and so look up it's comparator.
-   * @param reservedBytes           reserved bytes in underlying WriteBatch
-   * @param overwriteKey            if true, overwrite the key in the index when
-   *                                inserting a duplicate key, in this way an iterator will never
-   *                                show two entries with the same key.
+   *  to compare keys within a column family if we cannot determine
+   *  the column family and so look up it's comparator.
+   *
+   * @param reservedBytes reserved bytes in underlying WriteBatch
+   *
+   * @param overwriteKey if true, overwrite the key in the index when
+   *   inserting a duplicate key, in this way an iterator will never
+   *   show two entries with the same key.
    */
   public WriteBatchWithIndex(AbstractComparator fallbackIndexComparator, int reservedBytes,
       boolean overwriteKey) {
@@ -97,16 +99,15 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * as a delta and baseIterator as a base
    *
    * @param columnFamilyHandle The column family to iterate over
-   * @param baseIterator       The base iterator, e.g. {@link org.rocksdb.RocksDB#newIterator()}
+   * @param baseIterator The base iterator, e.g. {@link org.rocksdb.RocksDB#newIterator()}
    * @return An iterator which shows a view comprised of both the database point-in-time
    * from baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(ColumnFamilyHandle columnFamilyHandle,
       RocksIterator baseIterator) {
     RocksIterator iterator = new RocksIterator(
-        baseIterator.rocksDB_,
+        baseIterator.parent_,
         iteratorWithBase(columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
-
     //when the iterator is deleted it will also delete the baseIterator
     baseIterator.disOwnNativeHandle();
     return iterator;
@@ -122,7 +123,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * from baseIterator and modifications made in this write batch.
    */
   public RocksIterator newIteratorWithBase(RocksIterator baseIterator) {
-    return newIteratorWithBase(baseIterator.rocksDB_.getDefaultColumnFamily(), baseIterator);
+    return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
   }
 
   @Override final native void disposeInternal(long handle);
