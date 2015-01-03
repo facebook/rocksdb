@@ -18,11 +18,6 @@ package org.rocksdb;
  * get an iterator for the database with Read-Your-Own-Writes like capability
  */
 public class WriteBatchWithIndex extends AbstractWriteBatch {
-
-  //TODO(AR) need to cover directly passing WriteBatchWithIndex to {@see org.rocksdb.RocksDB#write(WriteBatch)
-  //this simplifies the Java API beyond the C++ API as you don't need to call
-  //GetWriteBatch on the WriteBatchWithIndex
-
   /**
    * Creates a WriteBatchWithIndex where no bytes
    * are reserved up-front, bytewise comparison is

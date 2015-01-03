@@ -390,18 +390,39 @@ void Java_org_rocksdb_RocksDB_put__JJ_3BI_3BIJ(
 // rocksdb::DB::Write
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    write
+ * Method:    write0
  * Signature: (JJ)V
  */
-void Java_org_rocksdb_RocksDB_write(
+void Java_org_rocksdb_RocksDB_write0(
     JNIEnv* env, jobject jdb,
-    jlong jwrite_options_handle, jlong jbatch_handle) {
+    jlong jwrite_options_handle, jlong jwb_handle) {
   rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
-  auto write_options = reinterpret_cast<rocksdb::WriteOptions*>(
+  auto* write_options = reinterpret_cast<rocksdb::WriteOptions*>(
       jwrite_options_handle);
-  auto batch = reinterpret_cast<rocksdb::WriteBatch*>(jbatch_handle);
+  auto* wb = reinterpret_cast<rocksdb::WriteBatch*>(jwb_handle);
 
-  rocksdb::Status s = db->Write(*write_options, batch);
+  rocksdb::Status s = db->Write(*write_options, wb);
+
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    write1
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_RocksDB_write1(
+    JNIEnv* env, jobject jdb,
+    jlong jwrite_options_handle, jlong jwbwi_handle) {
+  rocksdb::DB* db = rocksdb::RocksDBJni::getHandle(env, jdb);
+  auto* write_options = reinterpret_cast<rocksdb::WriteOptions*>(
+      jwrite_options_handle);
+  auto* wbwi = reinterpret_cast<rocksdb::WriteBatchWithIndex*>(jwbwi_handle);
+  auto* wb = wbwi->GetWriteBatch();
+
+  rocksdb::Status s = db->Write(*write_options, wb);
 
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
