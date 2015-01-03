@@ -18,58 +18,9 @@ package org.rocksdb;
  *
  * @see org.rocksdb.RocksObject
  */
-public class RocksIterator extends RocksObject implements RocksIteratorInterface {
-  public RocksIterator(RocksDB rocksDB, long nativeHandle) {
-    super();
-    nativeHandle_ = nativeHandle;
-    // rocksDB must point to a valid RocksDB instance.
-    assert(rocksDB != null);
-    // RocksIterator must hold a reference to the related RocksDB instance
-    // to guarantee that while a GC cycle starts RocksDBIterator instances
-    // are freed prior to RocksDB instances.
-    rocksDB_ = rocksDB;
-  }
-
-  @Override
-  public boolean isValid() {
-    assert(isInitialized());
-    return isValid0(nativeHandle_);
-  }
-
-  @Override
-  public void seekToFirst() {
-    assert(isInitialized());
-    seekToFirst0(nativeHandle_);
-  }
-
-  @Override
-  public void seekToLast() {
-    assert(isInitialized());
-    seekToLast0(nativeHandle_);
-  }
-
-  @Override
-  public void seek(byte[] target) {
-    assert(isInitialized());
-    seek0(nativeHandle_, target, target.length);
-  }
-
-  @Override
-  public void next() {
-    assert(isInitialized());
-    next0(nativeHandle_);
-  }
-
-  @Override
-  public void prev() {
-    assert(isInitialized());
-    prev0(nativeHandle_);
-  }
-
-  @Override
-  public void status() throws RocksDBException {
-    assert(isInitialized());
-    status0(nativeHandle_);
+public class RocksIterator extends AbstractRocksIterator<RocksDB> {
+  protected RocksIterator(RocksDB rocksDB, long nativeHandle) {
+    super(rocksDB, nativeHandle);
   }
 
   /**
@@ -99,33 +50,15 @@ public class RocksIterator extends RocksObject implements RocksIteratorInterface
     return value0(nativeHandle_);
   }
 
-  /**
-   * <p>Deletes underlying C++ iterator pointer.</p>
-   *
-   * <p>Note: the underlying handle can only be safely deleted if the RocksDB
-   * instance related to a certain RocksIterator is still valid and initialized.
-   * Therefore {@code disposeInternal()} checks if the RocksDB is initialized
-   * before freeing the native handle.</p>
-   */
-  @Override protected void disposeInternal() {
-    synchronized (rocksDB_) {
-      assert (isInitialized());
-      if (rocksDB_.isInitialized()) {
-        disposeInternal(nativeHandle_);
-      }
-    }
-  }
+  @Override final native void disposeInternal(long handle);
+  @Override final native boolean isValid0(long handle);
+  @Override final native void seekToFirst0(long handle);
+  @Override final native void seekToLast0(long handle);
+  @Override final native void next0(long handle);
+  @Override final native void prev0(long handle);
+  @Override final native void seek0(long handle, byte[] target, int targetLen);
+  @Override final native void status0(long handle) throws RocksDBException;
 
-  private native boolean isValid0(long handle);
-  private native void disposeInternal(long handle);
-  private native void seekToFirst0(long handle);
-  private native void seekToLast0(long handle);
-  private native void next0(long handle);
-  private native void prev0(long handle);
   private native byte[] key0(long handle);
   private native byte[] value0(long handle);
-  private native void seek0(long handle, byte[] target, int targetLen);
-  private native void status0(long handle);
-
-  final RocksDB rocksDB_;
 }
