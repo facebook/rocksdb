@@ -1009,7 +1009,7 @@ class WriteEntryJni {
 
 class JniUtil {
  public:
-    /**
+    /*
      * Copies a jstring to a std::string
      * and releases the original jstring
      */
@@ -1018,6 +1018,49 @@ class JniUtil {
       std::string name(utf);
       env->ReleaseStringUTFChars(js, utf);
       return name;
+    }
+
+    /*
+     * Helper for operations on a key and value
+     * for example WriteBatch->Put
+     *
+     * TODO(AR) could be extended to cover returning rocksdb::Status
+     * from `op` and used for RocksDB->Put etc.
+     */
+    static void kv_op(
+        std::function<void(rocksdb::Slice, rocksdb::Slice)> op,
+        JNIEnv* env, jobject jobj,
+        jbyteArray jkey, jint jkey_len,
+        jbyteArray jentry_value, jint jentry_value_len) {
+      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      jbyte* value = env->GetByteArrayElements(jentry_value, nullptr);
+      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+      rocksdb::Slice value_slice(reinterpret_cast<char*>(value),
+          jentry_value_len);
+
+      op(key_slice, value_slice);
+
+      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
+      env->ReleaseByteArrayElements(jentry_value, value, JNI_ABORT);
+    }
+
+    /*
+     * Helper for operations on a key
+     * for example WriteBatch->Delete
+     *
+     * TODO(AR) could be extended to cover returning rocksdb::Status
+     * from `op` and used for RocksDB->Delete etc.
+     */
+    static void k_op(
+        std::function<void(rocksdb::Slice)> op,
+        JNIEnv* env, jobject jobj,
+        jbyteArray jkey, jint jkey_len) {
+      jbyte* key = env->GetByteArrayElements(jkey, nullptr);
+      rocksdb::Slice key_slice(reinterpret_cast<char*>(key), jkey_len);
+
+      op(key_slice);
+
+      env->ReleaseByteArrayElements(jkey, key, JNI_ABORT);
     }
 };
 
