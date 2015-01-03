@@ -19,6 +19,7 @@
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/comparatorjnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
@@ -387,6 +388,37 @@ class WriteBatchHandlerJni {
     env->SetLongField(
         jobj, getHandleFieldID(env),
         reinterpret_cast<jlong>(op));
+  }
+};
+
+class WriteBatchWithIndexJni {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("org/rocksdb/WriteBatchWithIndex");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  static jfieldID getHandleFieldID(JNIEnv* env) {
+    static jfieldID fid = env->GetFieldID(
+        getJClass(env), "nativeHandle_", "J");
+    assert(fid != nullptr);
+    return fid;
+  }
+
+  // Get the pointer to rocksdb::WriteBatchWithIndex of the specified
+  // org.rocksdb.WriteBatchWithIndex.
+  static rocksdb::WriteBatchWithIndex* getHandle(JNIEnv* env, jobject jwbwi) {
+    return reinterpret_cast<rocksdb::WriteBatchWithIndex*>(
+        env->GetLongField(jwbwi, getHandleFieldID(env)));
+  }
+
+  // Pass the rocksdb::WriteBatchWithIndex pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jwbwi,
+      rocksdb::WriteBatchWithIndex* wbwi) {
+    env->SetLongField(
+        jwbwi, getHandleFieldID(env),
+        reinterpret_cast<jlong>(wbwi));
   }
 };
 

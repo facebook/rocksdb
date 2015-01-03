@@ -36,6 +36,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.test.WriteBatchInternal\
 	org.rocksdb.test.WriteBatchTest\
         org.rocksdb.WriteOptions\
+	org.rocksdb.WriteBatchWithIndex\
+	org.rocksdb.WBWIRocksIterator
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
