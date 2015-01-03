@@ -16,6 +16,9 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
+  //TODO(AR) only needed by WriteBatchWithIndexTest until JDK8
+  public final static DirectSlice NONE = new DirectSlice();
+
   /**
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set

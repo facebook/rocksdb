@@ -165,5 +165,83 @@ public class WriteBatchWithIndexTest {
       }
     }
   }
-}
 
+  @Test
+  public void iterator() throws RocksDBException {
+    final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+
+    final String k1 = "key1";
+    final String v1 = "value1";
+    final String k2 = "key2";
+    final String v2 = "value2";
+    final String k3 = "key3";
+    final String v3 = "value3";
+    final byte[] k1b = k1.getBytes();
+    final byte[] v1b = v1.getBytes();
+    final byte[] k2b = k2.getBytes();
+    final byte[] v2b = v2.getBytes();
+    final byte[] k3b = k3.getBytes();
+    final byte[] v3b = v3.getBytes();
+
+    //add put records
+    wbwi.put(k1b, v1b);
+    wbwi.put(k2b, v2b);
+    wbwi.put(k3b, v3b);
+
+    //add a deletion record
+    final String k4 = "key4";
+    final byte[] k4b = k4.getBytes();
+    wbwi.remove(k4b);
+
+    WBWIRocksIterator.WriteEntry[] expected = {
+        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+            new DirectSlice(k1), new DirectSlice(v1)),
+        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+            new DirectSlice(k2), new DirectSlice(v2)),
+        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+            new DirectSlice(k3), new DirectSlice(v3)),
+        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.DELETE,
+            new DirectSlice(k4), DirectSlice.NONE)
+    };
+
+    WBWIRocksIterator it = null;
+    try {
+      it = wbwi.newIterator();
+
+      //direct access - seek to key offsets
+      final int[] testOffsets = {2, 0, 1, 3};
+
+      for(int i = 0; i < testOffsets.length; i++) {
+        final int testOffset = testOffsets[i];
+        final byte[] key = toArray(expected[testOffset].getKey().data());
+
+        it.seek(key);
+        assertThat(it.isValid()).isTrue();
+        assertThat(it.entry()).isEqualTo(expected[testOffset]);
+      }
+
+      //forward iterative access
+      int i = 0;
+      for(it.seekToFirst(); it.isValid(); it.next()) {
+        assertThat(it.entry()).isEqualTo(expected[i++]);
+      }
+
+      //reverse iterative access
+      i = expected.length - 1;
+      for(it.seekToLast(); it.isValid(); it.prev()) {
+        assertThat(it.entry()).isEqualTo(expected[i--]);
+      }
+
+    } finally {
+      if(it != null) {
+        it.dispose();
+      }
+    }
+  }
+
+  private byte[] toArray(final ByteBuffer buf) {
+    final byte[] ary = new byte[buf.remaining()];
+    buf.get(ary);
+    return ary;
+  }
+}
