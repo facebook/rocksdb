@@ -22,7 +22,7 @@ package org.rocksdb;
  * non-const method, all threads accessing the same WriteBatch must use
  * external synchronization.
  */
-public class WriteBatch extends RocksObject implements WriteBatchInterface {
+public class WriteBatch extends AbstractWriteBatch {
   /**
    * Constructs a WriteBatch instance.
    */
@@ -41,48 +41,6 @@ public class WriteBatch extends RocksObject implements WriteBatchInterface {
     newWriteBatch(reserved_bytes);
   }
 
-  @Override
-  public native int count();
-
-  @Override
-  public void put(byte[] key, byte[] value) {
-    put(key, key.length, value, value.length);
-  }
-
-  @Override
-  public void put(ColumnFamilyHandle columnFamilyHandle,
-      byte[] key, byte[] value) {
-    put(key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
-  }
-
-  @Override
-  public void merge(byte[] key, byte[] value) {
-    merge(key, key.length, value, value.length);
-  }
-
-  @Override
-  public void merge(ColumnFamilyHandle columnFamilyHandle,
-      byte[] key, byte[] value) {
-    merge(key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
-  }
-
-  @Override
-  public void remove(byte[] key) {
-    remove(key, key.length);
-  }
-
-  @Override
-  public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
-    remove(key, key.length, columnFamilyHandle.nativeHandle_);
-  }
-
-  @Override
-  public void putLogData(byte[] blob) {
-    putLogData(blob, blob.length);
-  }
-
   /**
    * Support for iterating over the contents of a batch.
    *
@@ -95,34 +53,22 @@ public class WriteBatch extends RocksObject implements WriteBatchInterface {
     iterate(handler.nativeHandle_);
   }
 
-  @Override
-  public native void clear();
-
-  /**
-   * Delete the c++ side pointer.
-   */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
+  @Override final native void disposeInternal(long handle);
+  @Override final native int count0();
+  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
+  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
+      long cfHandle);
+  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen);
+  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen,
+      long cfHandle);
+  @Override final native void remove(byte[] key, int keyLen);
+  @Override final native void remove(byte[] key, int keyLen, long cfHandle);
+  @Override final native void putLogData(byte[] blob, int blobLen);
+  @Override final native void clear0();
 
   private native void newWriteBatch(int reserved_bytes);
-  private native void put(byte[] key, int keyLen,
-                          byte[] value, int valueLen);
-  private native void put(byte[] key, int keyLen,
-                          byte[] value, int valueLen,
-                          long cfHandle);
-  private native void merge(byte[] key, int keyLen,
-                            byte[] value, int valueLen);
-  private native void merge(byte[] key, int keyLen,
-                            byte[] value, int valueLen,
-                            long cfHandle);
-  private native void remove(byte[] key, int keyLen);
-  private native void remove(byte[] key, int keyLen,
-                            long cfHandle);
-  private native void putLogData(byte[] blob, int blobLen);
   private native void iterate(long handlerHandle) throws RocksDBException;
-  private native void disposeInternal(long handle);
+
 
   /**
    * Handler callback for iterating over the contents of a batch.

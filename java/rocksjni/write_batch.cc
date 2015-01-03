@@ -41,10 +41,10 @@ void Java_org_rocksdb_WriteBatch_newWriteBatch(
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    count
+ * Method:    count0
  * Signature: ()I
  */
-jint Java_org_rocksdb_WriteBatch_count(JNIEnv* env, jobject jobj) {
+jint Java_org_rocksdb_WriteBatch_count0(JNIEnv* env, jobject jobj) {
   rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(wb != nullptr);
 
@@ -53,10 +53,10 @@ jint Java_org_rocksdb_WriteBatch_count(JNIEnv* env, jobject jobj) {
 
 /*
  * Class:     org_rocksdb_WriteBatch
- * Method:    clear
+ * Method:    clear0
  * Signature: ()V
  */
-void Java_org_rocksdb_WriteBatch_clear(JNIEnv* env, jobject jobj) {
+void Java_org_rocksdb_WriteBatch_clear0(JNIEnv* env, jobject jobj) {
   rocksdb::WriteBatch* wb = rocksdb::WriteBatchJni::getHandle(env, jobj);
   assert(wb != nullptr);
 
