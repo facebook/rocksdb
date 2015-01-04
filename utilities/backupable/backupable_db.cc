@@ -185,6 +185,13 @@ class BackupEngineImpl : public BackupEngine {
       return files_.empty();
     }
 
+    const FileInfo* GetFile(const std::string& filename) const {
+      auto it = file_infos_->find(filename);
+      if (it == file_infos_->end())
+        return nullptr;
+      return &it->second;
+    }
+
     const std::vector<std::string>& GetFiles() {
       return files_;
     }
@@ -1181,9 +1188,14 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     std::string filename = GetSliceUntil(&line, ' ').ToString();
 
     uint64_t size;
-    s = env_->GetFileSize(backup_dir + "/" + filename, &size);
-    if (!s.ok()) {
-      return s;
+    const FileInfo* file_info = GetFile(filename);
+    if (file_info != nullptr) {
+      size = file_info->size;
+    } else {
+      s = env_->GetFileSize(backup_dir + "/" + filename, &size);
+      if (!s.ok()) {
+        return s;
+      }
     }
 
     if (line.empty()) {
