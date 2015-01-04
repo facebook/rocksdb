@@ -13,7 +13,18 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.rocksdb.*;
+import org.rocksdb.WriteBatchWithIndex;
+import org.rocksdb.DirectSlice;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.RocksIterator;
+import org.rocksdb.WriteOptions;
+import org.rocksdb.WBWIRocksIterator;
+
+import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -110,4 +121,49 @@ public class WriteBatchWithIndexTest {
       }
     }
   }
+
+  @Test
+  public void write_writeBatchWithIndex() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options();
+      // Setup options
+      options.setCreateIfMissing(true);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+
+      final byte[] k1 = "key1".getBytes();
+      final byte[] v1 = "value1".getBytes();
+      final byte[] k2 = "key2".getBytes();
+      final byte[] v2 = "value2".getBytes();
+
+      WriteBatchWithIndex wbwi = null;
+
+      try {
+        wbwi = new WriteBatchWithIndex();
+
+
+        wbwi.put(k1, v1);
+        wbwi.put(k2, v2);
+
+        db.write(new WriteOptions(), wbwi);
+      } finally {
+        if(wbwi != null) {
+          wbwi.dispose();
+        }
+      }
+
+      assertThat(db.get(k1)).isEqualTo(v1);
+      assertThat(db.get(k2)).isEqualTo(v2);
+
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
 }
+
