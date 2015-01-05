@@ -842,8 +842,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Env* env;
     Logger* info_log;
     const char* fname;
-    Status* status;  // nullptr if db_options_.paranoid_checks==false or
-                     //            db_options_.skip_log_error_on_recovery==true
+    Status* status;  // nullptr if db_options_.paranoid_checks==false
     virtual void Corruption(size_t bytes, const Status& s) {
       Log(InfoLogLevel::WARN_LEVEL,
           info_log, "%s%s: dropping %d bytes; %s",
@@ -888,10 +887,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     reporter.env = env_;
     reporter.info_log = db_options_.info_log.get();
     reporter.fname = fname.c_str();
-    reporter.status =
-        (db_options_.paranoid_checks && !db_options_.skip_log_error_on_recovery
-             ? &status
-             : nullptr);
+    reporter.status = (db_options_.paranoid_checks) ? &status : nullptr;
     // We intentially make log::Reader do checksumming even if
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly

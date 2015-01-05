@@ -9,6 +9,9 @@
   numbered levels will be placed later in the db_paths vector.
 * Potentially big performance improvements if you're using RocksDB with lots of column families (100-1000)
 
+### Public API changes
+* Deprecated skip_log_error_on_recovery option
+
 ### 3.9.0 (12/8/2014)
 
 ### New Features

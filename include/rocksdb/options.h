@@ -850,9 +850,7 @@ struct DBOptions {
   // Disable child process inherit open files. Default: true
   bool is_fd_close_on_exec;
 
-  // Skip log corruption error on recovery (If client is ok with
-  // losing most recent changes)
-  // Default: false
+  // DEPRECATED -- this options is no longer used
   bool skip_log_error_on_recovery;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
