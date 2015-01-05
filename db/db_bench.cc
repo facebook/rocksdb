@@ -1353,7 +1353,11 @@ class Benchmark {
       }
     }
     if (!FLAGS_use_existing_db) {
-      DestroyDB(FLAGS_db, Options());
+      Options options;
+      if (!FLAGS_wal_dir.empty()) {
+        options.wal_dir = FLAGS_wal_dir;
+      }
+      DestroyDB(FLAGS_db, options);
     }
   }
 

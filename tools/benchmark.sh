@@ -93,7 +93,7 @@ function run_bulkload {
        --num=$num_keys \
        --disable_auto_compactions=1 \
        --sync=0 \
-       --disable_data_sync=1 \
+       --disable_data_sync=0 \
        --threads=1 2>&1 | tee $output_dir/benchmark_bulkload_fillrandom.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
   eval $cmd
@@ -103,7 +103,7 @@ function run_bulkload {
        --num=$num_keys \
        --disable_auto_compactions=1 \
        --sync=0 \
-       --disable_data_sync=1 \
+       --disable_data_sync=0 \
        --threads=1 2>&1 | tee $output_dir/benchmark_bulkload_compact.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_compact.log
   eval $cmd
@@ -197,7 +197,11 @@ echo "===== Benchmark ====="
 # Run!!!
 IFS=',' read -a jobs <<< $1
 for job in ${jobs[@]}; do
-  echo "Start $job at `date`" | tee -a $report
+
+  if [ $job != debug ]; then
+    echo "Start $job at `date`" | tee -a $report
+  fi
+
   start=$(now)
   if [ $job = bulkload ]; then
     run_bulkload
@@ -213,13 +217,19 @@ for job in ${jobs[@]}; do
     run_readwhilewriting
   elif [ $job = rangescanwhilewriting ]; then
     run_rangescanwhilewriting
+  elif [ $job = debug ]; then
+    num_keys=10000; # debug
+    echo "Setting num_keys to $num_keys"
   else
     echo "unknown job $job"
     exit
   fi
   end=$(now)
 
-  echo "Complete $job in $((end-start)) seconds" | tee -a $report
+  if [ $job != debug ]; then
+    echo "Complete $job in $((end-start)) seconds" | tee -a $report
+  fi
+
   if [[ $job = readrandom || $job = readwhilewriting || $job == rangescanwhilewriting ]]; then
     lat=$(grep "micros\/op" "$output_dir/benchmark_$job.log" | grep "ops\/sec" | awk '{print $3}')
     qps=$(grep "micros\/op" "$output_dir/benchmark_$job.log" | grep "ops\/sec" | awk '{print $5}')
