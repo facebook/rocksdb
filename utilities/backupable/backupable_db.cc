@@ -20,6 +20,7 @@
 #endif
 
 #include <inttypes.h>
+#include <stdlib.h>
 #include <algorithm>
 #include <vector>
 #include <map>
@@ -182,6 +183,13 @@ class BackupEngineImpl : public BackupEngine {
 
     bool Empty() {
       return files_.empty();
+    }
+
+    const FileInfo* GetFile(const std::string& filename) const {
+      auto it = file_infos_->find(filename);
+      if (it == file_infos_->end())
+        return nullptr;
+      return &it->second;
     }
 
     const std::vector<std::string>& GetFiles() {
@@ -1163,24 +1171,31 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   buf[data.size()] = 0;
 
   uint32_t num_files = 0;
-  int bytes_read = 0;
-  sscanf(data.data(), "%" PRId64 "%n", &timestamp_, &bytes_read);
-  data.remove_prefix(bytes_read + 1);  // +1 for '\n'
-  sscanf(data.data(), "%" PRIu64 "%n", &sequence_number_, &bytes_read);
-  data.remove_prefix(bytes_read + 1);  // +1 for '\n'
-  sscanf(data.data(), "%u%n", &num_files, &bytes_read);
-  data.remove_prefix(bytes_read + 1);  // +1 for '\n'
+  char *next;
+  timestamp_ = strtoull(data.data(), &next, 10);
+  data.remove_prefix(next - data.data() + 1); // +1 for '\n'
+  sequence_number_ = strtoull(data.data(), &next, 10);
+  data.remove_prefix(next - data.data() + 1); // +1 for '\n'
+  num_files = static_cast<uint32_t>(strtoul(data.data(), &next, 10));
+  data.remove_prefix(next - data.data() + 1); // +1 for '\n'
 
   std::vector<FileInfo> files;
+
+  Slice checksum_prefix("crc32 ");
 
   for (uint32_t i = 0; s.ok() && i < num_files; ++i) {
     auto line = GetSliceUntil(&data, '\n');
     std::string filename = GetSliceUntil(&line, ' ').ToString();
 
     uint64_t size;
-    s = env_->GetFileSize(backup_dir + "/" + filename, &size);
-    if (!s.ok()) {
-      return s;
+    const FileInfo* file_info = GetFile(filename);
+    if (file_info != nullptr) {
+      size = file_info->size;
+    } else {
+      s = env_->GetFileSize(backup_dir + "/" + filename, &size);
+      if (!s.ok()) {
+        return s;
+      }
     }
 
     if (line.empty()) {
@@ -1188,9 +1203,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     }
 
     uint32_t checksum_value = 0;
-    if (line.starts_with("crc32 ")) {
-      line.remove_prefix(6);
-      sscanf(line.data(), "%u", &checksum_value);
+    if (line.starts_with(checksum_prefix)) {
+      line.remove_prefix(checksum_prefix.size());
+      checksum_value = static_cast<uint32_t>(
+          strtoul(line.data(), nullptr, 10));
       if (memcmp(line.data(), std::to_string(checksum_value).c_str(),
                  line.size() - 1) != 0) {
         return Status::Corruption("Invalid checksum value");
