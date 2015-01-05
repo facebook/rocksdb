@@ -1176,7 +1176,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
   data.remove_prefix(next - data.data() + 1); // +1 for '\n'
   sequence_number_ = strtoull(data.data(), &next, 10);
   data.remove_prefix(next - data.data() + 1); // +1 for '\n'
-  num_files = strtoul(data.data(), &next, 10);
+  num_files = static_cast<uint32_t>(strtoul(data.data(), &next, 10));
   data.remove_prefix(next - data.data() + 1); // +1 for '\n'
 
   std::vector<FileInfo> files;
@@ -1205,7 +1205,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     uint32_t checksum_value = 0;
     if (line.starts_with(checksum_prefix)) {
       line.remove_prefix(checksum_prefix.size());
-      checksum_value = strtoul(line.data(), nullptr, 10);
+      checksum_value = static_cast<uint32_t>(
+          strtoul(line.data(), nullptr, 10));
       if (memcmp(line.data(), std::to_string(checksum_value).c_str(),
                  line.size() - 1) != 0) {
         return Status::Corruption("Invalid checksum value");
