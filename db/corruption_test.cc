@@ -231,7 +231,9 @@ TEST(CorruptionTest, Recovery) {
   Check(100, 100);
   Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
   Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
-  Reopen();
+  ASSERT_TRUE(!TryReopen().ok());
+  options_.paranoid_checks = false;
+  Reopen(&options_);
 
   // The 64 records in the first two log blocks are completely lost.
   Check(36, 36);

@@ -905,7 +905,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     std::string scratch;
     Slice record;
     WriteBatch batch;
-    while (reader.ReadRecord(&record, &scratch)) {
+    while (reader.ReadRecord(&record, &scratch) && status.ok()) {
       if (record.size() < 12) {
         reporter.Corruption(record.size(),
                             Status::Corruption("log record too small"));
