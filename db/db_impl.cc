@@ -955,6 +955,10 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
     }
 
+    if (!status.ok()) {
+      return status;
+    }
+
     flush_scheduler_.Clear();
     if (versions_->LastSequence() < *max_sequence) {
       versions_->SetLastSequence(*max_sequence);
