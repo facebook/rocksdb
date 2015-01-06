@@ -2579,9 +2579,17 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     // LogAndApply will both write the creation in MANIFEST and create
     // ColumnFamilyData object
     Options opt(db_options_, cf_options);
-    s = versions_->LogAndApply(nullptr,
-        MutableCFOptions(opt, ImmutableCFOptions(opt)),
-        &edit, &mutex_, db_directory_.get(), false, &cf_options);
+    {  // write thread
+      WriteThread::Writer w(&mutex_);
+      s = write_thread_.EnterWriteThread(&w, 0);
+      assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+      // LogAndApply will both write the creation in MANIFEST and create
+      // ColumnFamilyData object
+      s = versions_->LogAndApply(
+          nullptr, MutableCFOptions(opt, ImmutableCFOptions(opt)), &edit,
+          &mutex_, db_directory_.get(), false, &cf_options);
+      write_thread_.ExitWriteThread(&w, &w, s);
+    }
     if (s.ok()) {
       single_column_family_mode_ = false;
       auto* cfd =

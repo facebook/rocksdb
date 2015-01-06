@@ -306,9 +306,10 @@ ColumnFamilyData::~ColumnFamilyData() {
   prev->next_ = next;
   next->prev_ = prev;
 
-  // it's nullptr for dummy CFD
-  if (column_family_set_ != nullptr) {
-    // remove from column_family_set
+  if (!dropped_ && column_family_set_ != nullptr) {
+    // If it's dropped, it's already removed from column family set
+    // If column_family_set_ == nullptr, this is dummy CFD and not in
+    // ColumnFamilySet
     column_family_set_->RemoveColumnFamily(this);
   }
 
@@ -351,6 +352,16 @@ ColumnFamilyData::~ColumnFamilyData() {
   for (MemTable* m : to_delete) {
     delete m;
   }
+}
+
+void ColumnFamilyData::SetDropped() {
+  // can't drop default CF
+  assert(id_ != 0);
+  dropped_ = true;
+  write_controller_token_.reset();
+
+  // remove from column_family_set
+  column_family_set_->RemoveColumnFamily(this);
 }
 
 void ColumnFamilyData::RecalculateWriteStallConditions(
@@ -635,8 +646,7 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       env_options_(env_options),
       table_cache_(table_cache),
       write_buffer_(write_buffer),
-      write_controller_(write_controller),
-      spin_lock_(ATOMIC_FLAG_INIT) {
+      write_controller_(write_controller) {
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;
@@ -693,7 +703,7 @@ size_t ColumnFamilySet::NumberOfColumnFamilies() const {
   return column_families_.size();
 }
 
-// under a DB mutex
+// under a DB mutex AND write thread
 ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
     const std::string& name, uint32_t id, Version* dummy_versions,
     const ColumnFamilyOptions& options) {
@@ -702,10 +712,8 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
       new ColumnFamilyData(id, name, dummy_versions, table_cache_,
                            write_buffer_, options, db_options_,
                            env_options_, this);
-  Lock();
   column_families_.insert({name, id});
   column_family_data_.insert({id, new_cfd});
-  Unlock();
   max_column_family_ = std::max(max_column_family_, id);
   // add to linked list
   new_cfd->next_ = dummy_cfd_;
@@ -718,14 +726,6 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
   }
   return new_cfd;
 }
-
-void ColumnFamilySet::Lock() {
-  // spin lock
-  while (spin_lock_.test_and_set(std::memory_order_acquire)) {
-  }
-}
-
-void ColumnFamilySet::Unlock() { spin_lock_.clear(std::memory_order_release); }
 
 // REQUIRES: DB mutex held
 void ColumnFamilySet::FreeDeadColumnFamilies() {
@@ -741,30 +741,21 @@ void ColumnFamilySet::FreeDeadColumnFamilies() {
   }
 }
 
-// under a DB mutex
+// under a DB mutex AND from a write thread
 void ColumnFamilySet::RemoveColumnFamily(ColumnFamilyData* cfd) {
   auto cfd_iter = column_family_data_.find(cfd->GetID());
   assert(cfd_iter != column_family_data_.end());
-  Lock();
   column_family_data_.erase(cfd_iter);
   column_families_.erase(cfd->GetName());
-  Unlock();
 }
 
+// under a DB mutex OR from a write thread
 bool ColumnFamilyMemTablesImpl::Seek(uint32_t column_family_id) {
   if (column_family_id == 0) {
     // optimization for common case
     current_ = column_family_set_->GetDefault();
   } else {
-    // maybe outside of db mutex, should lock
-    column_family_set_->Lock();
     current_ = column_family_set_->GetColumnFamily(column_family_id);
-    column_family_set_->Unlock();
-    // TODO(icanadi) Maybe remove column family from the hash table when it's
-    // dropped?
-    if (current_ != nullptr && current_->IsDropped()) {
-      current_ = nullptr;
-    }
   }
   handle_.SetCFD(current_);
   return current_ != nullptr;

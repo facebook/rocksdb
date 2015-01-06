@@ -280,6 +280,8 @@ void WriteBatch::PutLogData(const Slice& blob) {
 }
 
 namespace {
+// This class can *only* be used from a single-threaded write thread, because it
+// calls ColumnFamilyMemTablesImpl::Seek()
 class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
@@ -305,6 +307,8 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
+    // We are only allowed to call this from a single-threaded write thread
+    // (or while holding DB mutex)
     bool found = cf_mems_->Seek(column_family_id);
     if (!found) {
       if (ignore_missing_column_families_) {
@@ -485,6 +489,11 @@ class MemTableInserter : public WriteBatch::Handler {
 };
 }  // namespace
 
+// This function can only be called in these conditions:
+// 1) During Recovery()
+// 2) during Write(), in a single-threaded write thread
+// The reason is that it calles ColumnFamilyMemTablesImpl::Seek(), which needs
+// to be called from a single-threaded write thread (or while holding DB mutex)
 Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       ColumnFamilyMemTables* memtables,
                                       bool ignore_missing_column_families,
