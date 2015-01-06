@@ -2163,11 +2163,12 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(
         c->level() + 1, f->fd.GetFileSize());
-    LogToBuffer(log_buffer, "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64
-                            " bytes %s: %s\n",
-                c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-                c->level() + 1, f->fd.GetFileSize(), status.ToString().c_str(),
-                c->input_version()->storage_info()->LevelSummary(&tmp));
+    LogToBuffer(
+        log_buffer,
+        "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes %s: %s\n",
+        c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
+        c->level() + 1, f->fd.GetFileSize(), status.ToString().c_str(),
+        c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else {
