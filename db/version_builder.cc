@@ -101,20 +101,23 @@ class VersionBuilder::Rep {
     for (int level = 0; level < base_vstorage_->num_levels(); level++) {
       const auto& added = levels_[level].added_files;
       for (auto& pair : added) {
-        FileMetaData* f = pair.second;
-        f->refs--;
-        if (f->refs <= 0) {
-          if (f->table_reader_handle) {
-            assert(table_cache_ != nullptr);
-            table_cache_->ReleaseHandle(f->table_reader_handle);
-            f->table_reader_handle = nullptr;
-          }
-          delete f;
-        }
+        UnrefFile(pair.second);
       }
     }
 
     delete[] levels_;
+  }
+
+  void UnrefFile(FileMetaData* f) {
+    f->refs--;
+    if (f->refs <= 0) {
+      if (f->table_reader_handle) {
+        assert(table_cache_ != nullptr);
+        table_cache_->ReleaseHandle(f->table_reader_handle);
+        f->table_reader_handle = nullptr;
+      }
+      delete f;
+    }
   }
 
   void CheckConsistency(VersionStorageInfo* vstorage) {
@@ -199,6 +202,12 @@ class VersionBuilder::Rep {
       const auto number = del_file.second;
       levels_[level].deleted_files.insert(number);
       CheckConsistencyForDeletes(edit, number, level);
+
+      auto exising = levels_[level].added_files.find(number);
+      if (exising != levels_[level].added_files.end()) {
+        UnrefFile(exising->second);
+        levels_[level].added_files.erase(number);
+      }
     }
 
     // Add new files

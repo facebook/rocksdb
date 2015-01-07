@@ -126,6 +126,84 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
   }
 }
 
+TEST(VersionBuilderTest, ApplyMultipleAndSaveTo) {
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
+                       GetInternalKey("350"), 200, 200);
+  version_edit.AddFile(2, 676, 0, 100U, GetInternalKey("401"),
+                       GetInternalKey("450"), 200, 200);
+  version_edit.AddFile(2, 636, 0, 100U, GetInternalKey("601"),
+                       GetInternalKey("650"), 200, 200);
+  version_edit.AddFile(2, 616, 0, 100U, GetInternalKey("501"),
+                       GetInternalKey("550"), 200, 200);
+  version_edit.AddFile(2, 606, 0, 100U, GetInternalKey("701"),
+                       GetInternalKey("750"), 200, 200);
+
+  EnvOptions env_options;
+
+  VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr);
+  version_builder.Apply(&version_edit);
+  version_builder.SaveTo(&new_vstorage);
+
+  ASSERT_EQ(500U, new_vstorage.NumLevelBytes(2));
+
+  for (int i = 0; i < new_vstorage.num_levels(); i++) {
+    for (auto* f : new_vstorage.LevelFiles(i)) {
+      if (--f->refs == 0) {
+        delete f;
+      }
+    }
+  }
+}
+
+TEST(VersionBuilderTest, ApplyDeleteAndSaveTo) {
+  UpdateVersionStorageInfo();
+
+  EnvOptions env_options;
+  VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr);
+
+  VersionEdit version_edit;
+  version_edit.AddFile(2, 666, 0, 100U, GetInternalKey("301"),
+                       GetInternalKey("350"), 200, 200);
+  version_edit.AddFile(2, 676, 0, 100U, GetInternalKey("401"),
+                       GetInternalKey("450"), 200, 200);
+  version_edit.AddFile(2, 636, 0, 100U, GetInternalKey("601"),
+                       GetInternalKey("650"), 200, 200);
+  version_edit.AddFile(2, 616, 0, 100U, GetInternalKey("501"),
+                       GetInternalKey("550"), 200, 200);
+  version_edit.AddFile(2, 606, 0, 100U, GetInternalKey("701"),
+                       GetInternalKey("750"), 200, 200);
+  version_builder.Apply(&version_edit);
+
+  VersionEdit version_edit2;
+  version_edit.AddFile(2, 808, 0, 100U, GetInternalKey("901"),
+                       GetInternalKey("950"), 200, 200);
+  version_edit2.DeleteFile(2, 616);
+  version_edit2.DeleteFile(2, 636);
+  version_edit.AddFile(2, 806, 0, 100U, GetInternalKey("801"),
+                       GetInternalKey("850"), 200, 200);
+  version_builder.Apply(&version_edit2);
+
+  version_builder.SaveTo(&new_vstorage);
+
+  ASSERT_EQ(300U, new_vstorage.NumLevelBytes(2));
+
+  for (int i = 0; i < new_vstorage.num_levels(); i++) {
+    for (auto* f : new_vstorage.LevelFiles(i)) {
+      if (--f->refs == 0) {
+        delete f;
+      }
+    }
+  }
+}
+
 TEST(VersionBuilderTest, EstimatedActiveKeys) {
   const uint32_t kTotalSamples = 20;
   const uint32_t kNumLevels = 5;
