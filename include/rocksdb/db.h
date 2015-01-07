@@ -304,6 +304,22 @@ class DB {
   //     about the internal operation of the DB.
   //  "rocksdb.sstables" - returns a multi-line string that describes all
   //     of the sstables that make up the db contents.
+  //  "rocksdb.cfstats"
+  //  "rocksdb.dbstats"
+  //  "rocksdb.num-immutable-mem-table"
+  //  "rocksdb.mem-table-flush-pending"
+  //  "rocksdb.compaction-pending" - 1 if at least one compaction is pending
+  //  "rocksdb.background-errors" - accumulated number of background errors
+  //  "rocksdb.cur-size-active-mem-table"
+  //  "rocksdb.cur-size-all-mem-tables"
+  //  "rocksdb.num-entries-active-mem-table"
+  //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.estimate-num-keys" - estimated keys in the column family
+  //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
+  //      SST tables, that is not counted as a part of block cache.
+  //  "rocksdb.is-file-deletions-enabled"
+  //  "rocksdb.num-snapshots"
+  //  "rocksdb.oldest-snapshot-time"
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
@@ -311,7 +327,21 @@ class DB {
   }
 
   // Similar to GetProperty(), but only works for a subset of properties whose
-  // return value is an integer. Return the value by integer.
+  // return value is an integer. Return the value by integer. Supported
+  // properties:
+  //  "rocksdb.num-immutable-mem-table"
+  //  "rocksdb.mem-table-flush-pending"
+  //  "rocksdb.compaction-pending"
+  //  "rocksdb.background-errors"
+  //  "rocksdb.cur-size-active-mem-table"
+  //  "rocksdb.cur-size-all-mem-tables"
+  //  "rocksdb.num-entries-active-mem-table"
+  //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.estimate-num-keys"
+  //  "rocksdb.estimate-table-readers-mem"
+  //  "rocksdb.is-file-deletions-enabled"
+  //  "rocksdb.num-snapshots"
+  //  "rocksdb.oldest-snapshot-time"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {

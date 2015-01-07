@@ -21,6 +21,8 @@ namespace rocksdb {
 class MemTableList;
 class DBImpl;
 
+// IMPORTANT: If you add a new property here, also add it to the list in
+//            include/rocksdb/db.h
 enum DBPropertyType : uint32_t {
   kUnknown,
   kNumFilesAtLevel,  // Number of files at a specific level
