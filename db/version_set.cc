@@ -2636,15 +2636,20 @@ void VersionSet::AddLiveFiles(std::vector<FileDescriptor>* live_list) {
   live_list->reserve(live_list->size() + static_cast<size_t>(total_files));
 
   for (auto cfd : *column_family_set_) {
+    auto* current = cfd->current();
+    bool found_current = false;
     Version* dummy_versions = cfd->dummy_versions();
     for (Version* v = dummy_versions->next_; v != dummy_versions;
          v = v->next_) {
-      const auto* vstorage = v->storage_info();
-      for (int level = 0; level < vstorage->num_levels(); level++) {
-        for (const auto& f : vstorage->LevelFiles(level)) {
-          live_list->push_back(f->fd);
-        }
+      v->AddLiveFiles(live_list);
+      if (v == current) {
+        found_current = true;
       }
+    }
+    if (!found_current && current != nullptr) {
+      // Should never happen unless it is a bug.
+      assert(false);
+      current->AddLiveFiles(live_list);
     }
   }
 }
