@@ -312,8 +312,11 @@ bool EncodeJSONPrimitive(const JSONDocument& json, std::string* dst) {
       break;
     case JSONDocument::kInt64:
       dst->push_back(kInt64);
-      // TODO(icanadi) oops, this will not work correctly for negative numbers
-      PutFixed64(dst, static_cast<uint64_t>(json.GetInt64()));
+      {
+        auto val = json.GetInt64();
+        dst->push_back((val < 0) ? '0' : '1');
+        PutFixed64(dst, static_cast<uint64_t>(val));
+      }
       break;
     case JSONDocument::kString:
       dst->push_back(kString);
