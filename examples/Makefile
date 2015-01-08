@@ -1,4 +1,4 @@
-include ../build_config.mk
+include ../make_config.mk
 
 .PHONY: clean
 

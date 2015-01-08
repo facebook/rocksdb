@@ -1,5 +1,5 @@
 TARGETS
-build_config.mk
+make_config.mk
 
 *.a
 *.arc
