@@ -42,6 +42,7 @@
 #include "util/hash_linklist_rep.h"
 #include "utilities/merge_operators.h"
 #include "util/logging.h"
+#include "util/compression.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
@@ -58,31 +59,31 @@ namespace rocksdb {
 static bool SnappyCompressionSupported(const CompressionOptions& options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Snappy_Compress(options, in.data(), in.size(), &out);
+  return Snappy_Compress(options, in.data(), in.size(), &out);
 }
 
 static bool ZlibCompressionSupported(const CompressionOptions& options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Zlib_Compress(options, in.data(), in.size(), &out);
+  return Zlib_Compress(options, in.data(), in.size(), &out);
 }
 
 static bool BZip2CompressionSupported(const CompressionOptions& options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::BZip2_Compress(options, in.data(), in.size(), &out);
+  return BZip2_Compress(options, in.data(), in.size(), &out);
 }
 
 static bool LZ4CompressionSupported(const CompressionOptions &options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::LZ4_Compress(options, in.data(), in.size(), &out);
+  return LZ4_Compress(options, in.data(), in.size(), &out);
 }
 
 static bool LZ4HCCompressionSupported(const CompressionOptions &options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::LZ4HC_Compress(options, in.data(), in.size(), &out);
+  return LZ4HC_Compress(options, in.data(), in.size(), &out);
 }
 
 static std::string RandomString(Random* rnd, int len) {

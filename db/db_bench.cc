@@ -45,6 +45,7 @@ int main() {
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/crc32c.h"
+#include "util/compression.h"
 #include "util/histogram.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
@@ -1213,27 +1214,27 @@ class Benchmark {
       text[len] = '\0';
       switch (FLAGS_compression_type_e) {
         case kSnappyCompression:
-          result = port::Snappy_Compress(Options().compression_opts, text,
-                                         strlen(text), &compressed);
+          result = Snappy_Compress(Options().compression_opts, text,
+                                   strlen(text), &compressed);
           name = "Snappy";
           break;
         case kZlibCompression:
-          result = port::Zlib_Compress(Options().compression_opts, text,
-                                       strlen(text), &compressed);
+          result = Zlib_Compress(Options().compression_opts, text, strlen(text),
+                                 &compressed);
           name = "Zlib";
           break;
         case kBZip2Compression:
-          result = port::BZip2_Compress(Options().compression_opts, text,
-                                        strlen(text), &compressed);
+          result = BZip2_Compress(Options().compression_opts, text,
+                                  strlen(text), &compressed);
           name = "BZip2";
           break;
         case kLZ4Compression:
-          result = port::LZ4_Compress(Options().compression_opts, text,
-                                      strlen(text), &compressed);
+          result = LZ4_Compress(Options().compression_opts, text, strlen(text),
+                                &compressed);
           name = "LZ4";
           break;
         case kLZ4HCCompression:
-          result = port::LZ4HC_Compress(Options().compression_opts, text,
+          result = LZ4HC_Compress(Options().compression_opts, text,
                                         strlen(text), &compressed);
           name = "LZ4HC";
           break;
@@ -1774,24 +1775,24 @@ class Benchmark {
     while (ok && bytes < int64_t(1) << 30) {
       switch (FLAGS_compression_type_e) {
       case rocksdb::kSnappyCompression:
-        ok = port::Snappy_Compress(Options().compression_opts, input.data(),
-                                   input.size(), &compressed);
+        ok = Snappy_Compress(Options().compression_opts, input.data(),
+                             input.size(), &compressed);
         break;
       case rocksdb::kZlibCompression:
-        ok = port::Zlib_Compress(Options().compression_opts, input.data(),
-                                 input.size(), &compressed);
+        ok = Zlib_Compress(Options().compression_opts, input.data(),
+                           input.size(), &compressed);
         break;
       case rocksdb::kBZip2Compression:
-        ok = port::BZip2_Compress(Options().compression_opts, input.data(),
-                                  input.size(), &compressed);
+        ok = BZip2_Compress(Options().compression_opts, input.data(),
+                            input.size(), &compressed);
         break;
       case rocksdb::kLZ4Compression:
-        ok = port::LZ4_Compress(Options().compression_opts, input.data(),
-                                input.size(), &compressed);
+        ok = LZ4_Compress(Options().compression_opts, input.data(),
+                          input.size(), &compressed);
         break;
       case rocksdb::kLZ4HCCompression:
-        ok = port::LZ4HC_Compress(Options().compression_opts, input.data(),
-                                  input.size(), &compressed);
+        ok = LZ4HC_Compress(Options().compression_opts, input.data(),
+                            input.size(), &compressed);
         break;
       default:
         ok = false;
@@ -1820,24 +1821,24 @@ class Benchmark {
     bool ok;
     switch (FLAGS_compression_type_e) {
     case rocksdb::kSnappyCompression:
-      ok = port::Snappy_Compress(Options().compression_opts, input.data(),
-                                 input.size(), &compressed);
+      ok = Snappy_Compress(Options().compression_opts, input.data(),
+                           input.size(), &compressed);
       break;
     case rocksdb::kZlibCompression:
-      ok = port::Zlib_Compress(Options().compression_opts, input.data(),
-                               input.size(), &compressed);
+      ok = Zlib_Compress(Options().compression_opts, input.data(), input.size(),
+                         &compressed);
       break;
     case rocksdb::kBZip2Compression:
-      ok = port::BZip2_Compress(Options().compression_opts, input.data(),
-                                input.size(), &compressed);
+      ok = BZip2_Compress(Options().compression_opts, input.data(),
+                          input.size(), &compressed);
       break;
     case rocksdb::kLZ4Compression:
-      ok = port::LZ4_Compress(Options().compression_opts, input.data(),
-                              input.size(), &compressed);
+      ok = LZ4_Compress(Options().compression_opts, input.data(), input.size(),
+                        &compressed);
       break;
     case rocksdb::kLZ4HCCompression:
-      ok = port::LZ4HC_Compress(Options().compression_opts, input.data(),
-                                input.size(), &compressed);
+      ok = LZ4HC_Compress(Options().compression_opts, input.data(),
+                          input.size(), &compressed);
       break;
     default:
       ok = false;
@@ -1851,27 +1852,27 @@ class Benchmark {
       case rocksdb::kSnappyCompression:
         // allocate here to make comparison fair
         uncompressed = new char[input.size()];
-        ok = port::Snappy_Uncompress(compressed.data(), compressed.size(),
-                                     uncompressed);
+        ok = Snappy_Uncompress(compressed.data(), compressed.size(),
+                               uncompressed);
         break;
       case rocksdb::kZlibCompression:
-        uncompressed = port::Zlib_Uncompress(
-            compressed.data(), compressed.size(), &decompress_size);
+        uncompressed = Zlib_Uncompress(compressed.data(), compressed.size(),
+                                       &decompress_size);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kBZip2Compression:
-        uncompressed = port::BZip2_Uncompress(
-            compressed.data(), compressed.size(), &decompress_size);
+        uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
+                                        &decompress_size);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4Compression:
-        uncompressed = port::LZ4_Uncompress(
-            compressed.data(), compressed.size(), &decompress_size);
+        uncompressed = LZ4_Uncompress(compressed.data(), compressed.size(),
+                                      &decompress_size);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4HCCompression:
-        uncompressed = port::LZ4_Uncompress(
-            compressed.data(), compressed.size(), &decompress_size);
+        uncompressed = LZ4_Uncompress(compressed.data(), compressed.size(),
+                                      &decompress_size);
         ok = uncompressed != nullptr;
         break;
       default:

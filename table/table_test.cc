@@ -40,6 +40,7 @@
 #include "table/plain_table_factory.h"
 #include "table/get_context.h"
 
+#include "util/compression.h"
 #include "util/random.h"
 #include "util/statistics.h"
 #include "util/testharness.h"
@@ -533,9 +534,8 @@ static bool SnappyCompressionSupported() {
 #ifdef SNAPPY
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Snappy_Compress(Options().compression_opts,
-                               in.data(), in.size(),
-                               &out);
+  return Snappy_Compress(Options().compression_opts, in.data(), in.size(),
+                         &out);
 #else
   return false;
 #endif
@@ -545,9 +545,7 @@ static bool ZlibCompressionSupported() {
 #ifdef ZLIB
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::Zlib_Compress(Options().compression_opts,
-                             in.data(), in.size(),
-                             &out);
+  return Zlib_Compress(Options().compression_opts, in.data(), in.size(), &out);
 #else
   return false;
 #endif
@@ -557,9 +555,7 @@ static bool BZip2CompressionSupported() {
 #ifdef BZIP2
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::BZip2_Compress(Options().compression_opts,
-                              in.data(), in.size(),
-                              &out);
+  return BZip2_Compress(Options().compression_opts, in.data(), in.size(), &out);
 #else
   return false;
 #endif
@@ -569,8 +565,7 @@ static bool LZ4CompressionSupported() {
 #ifdef LZ4
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::LZ4_Compress(Options().compression_opts, in.data(), in.size(),
-                            &out);
+  return LZ4_Compress(Options().compression_opts, in.data(), in.size(), &out);
 #else
   return false;
 #endif
@@ -580,8 +575,7 @@ static bool LZ4HCCompressionSupported() {
 #ifdef LZ4
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return port::LZ4HC_Compress(Options().compression_opts, in.data(), in.size(),
-                              &out);
+  return LZ4HC_Compress(Options().compression_opts, in.data(), in.size(), &out);
 #else
   return false;
 #endif
