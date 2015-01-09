@@ -39,6 +39,7 @@
 #include "table/table_builder.h"
 
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/stop_watch.h"
 #include "util/xxhash.h"
@@ -312,36 +313,36 @@ Slice CompressBlock(const Slice& raw,
   // supported in this platform and (2) the compression rate is "good enough".
   switch (*type) {
     case kSnappyCompression:
-      if (port::Snappy_Compress(compression_options, raw.data(), raw.size(),
-                                compressed_output) &&
+      if (Snappy_Compress(compression_options, raw.data(), raw.size(),
+                          compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kZlibCompression:
-      if (port::Zlib_Compress(compression_options, raw.data(), raw.size(),
-                              compressed_output) &&
+      if (Zlib_Compress(compression_options, raw.data(), raw.size(),
+                        compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kBZip2Compression:
-      if (port::BZip2_Compress(compression_options, raw.data(), raw.size(),
-                               compressed_output) &&
+      if (BZip2_Compress(compression_options, raw.data(), raw.size(),
+                         compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kLZ4Compression:
-      if (port::LZ4_Compress(compression_options, raw.data(), raw.size(),
-                             compressed_output) &&
+      if (LZ4_Compress(compression_options, raw.data(), raw.size(),
+                       compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kLZ4HCCompression:
-      if (port::LZ4HC_Compress(compression_options, raw.data(), raw.size(),
-                               compressed_output) &&
+      if (LZ4HC_Compress(compression_options, raw.data(), raw.size(),
+                         compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }

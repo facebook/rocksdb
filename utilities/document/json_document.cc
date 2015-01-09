@@ -11,9 +11,11 @@
 #endif
 
 #include <inttypes.h>
+
 #include <cassert>
-#include <string>
 #include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "third-party/rapidjson/reader.h"

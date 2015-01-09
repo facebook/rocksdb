@@ -14,10 +14,12 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
+
+#include "port/port.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
-#include "port/port.h"
 
 namespace rocksdb {
 

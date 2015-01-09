@@ -3,6 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+#include <memory>
 #include "port/likely.h"
 #include "util/mutexlock.h"
 #include "util/thread_status_updater.h"
