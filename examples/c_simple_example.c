@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
 	const char key[] = "key";
 	const char *value = "value";
 	rocksdb_put(db, writeoptions, key, strlen (key), value,	\
-			strlen (value), &err);
+			strlen (value) + 1, &err);
 	assert(!err);
 	// Get value
 	rocksdb_readoptions_t *readoptions = rocksdb_readoptions_create();
