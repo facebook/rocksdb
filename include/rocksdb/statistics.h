@@ -73,12 +73,14 @@ enum Tickers : uint32_t {
   NO_FILE_CLOSES,
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
-  // Time system had to wait to do LO-L1 compactions
+  // DEPRECATED Time system had to wait to do LO-L1 compactions
   STALL_L0_SLOWDOWN_MICROS,
-  // Time system had to wait to move memtable to L1.
+  // DEPRECATED Time system had to wait to move memtable to L1.
   STALL_MEMTABLE_COMPACTION_MICROS,
-  // write throttle because of too many files in L0
+  // DEPRECATED write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS,
+  // Writer has to wait for compaction or flush to finish.
+  STALL_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
   NO_ITERATORS,  // number of iterators currently open
 
@@ -160,6 +162,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
     {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
     {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
+    {STALL_MICROS, "rocksdb.stall.micros"},
     {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
     {NO_ITERATORS, "rocksdb.num.iterators"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
@@ -188,8 +191,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
     {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
     {NUMBER_SUPERVERSION_CLEANUPS, "rocksdb.number.superversion_cleanups"},
-    {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
-};
+    {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"}, };
 
 /**
  * Keep adding histogram's here.

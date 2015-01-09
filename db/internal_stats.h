@@ -77,6 +77,7 @@ class InternalStats {
     WRITE_DONE_BY_OTHER,
     WRITE_DONE_BY_SELF,
     WRITE_WITH_WAL,
+    WRITE_STALL_MICROS,
     INTERNAL_DB_STATS_ENUM_MAX,
   };
 
@@ -287,6 +288,8 @@ class InternalStats {
     // to multiple keys. num_keys_written is total number of keys updated by all
     // those writes.
     uint64_t num_keys_written;
+    // Total time writes delayed by stalls.
+    uint64_t write_stall_micros;
     double seconds_up;
 
     DBStatsSnapshot()
@@ -297,6 +300,7 @@ class InternalStats {
           write_other(0),
           write_self(0),
           num_keys_written(0),
+          write_stall_micros(0),
           seconds_up(0) {}
   } db_stats_snapshot_;
 
@@ -334,6 +338,7 @@ class InternalStats {
     WRITE_DONE_BY_OTHER,
     WRITE_DONE_BY_SELF,
     WRITE_WITH_WAL,
+    WRITE_STALL_MICROS,
     INTERNAL_DB_STATS_ENUM_MAX,
   };
 

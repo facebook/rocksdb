@@ -3103,25 +3103,36 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::DelayWrite(uint64_t expiration_time) {
-  StopWatch sw(env_, stats_, WRITE_STALL);
-  bool has_timeout = (expiration_time > 0);
-  auto delay = write_controller_.GetDelay();
-  if (write_controller_.IsStopped() == false && delay > 0) {
-    mutex_.Unlock();
-    // hopefully we don't have to sleep more than 2 billion microseconds
-    env_->SleepForMicroseconds(static_cast<int>(delay));
-    mutex_.Lock();
-  }
-
-  while (bg_error_.ok() && write_controller_.IsStopped()) {
-    if (has_timeout) {
-      bg_cv_.TimedWait(expiration_time);
-      if (env_->NowMicros() > expiration_time) {
-        return Status::TimedOut();
-      }
-    } else {
-      bg_cv_.Wait();
+  uint64_t time_delayed = 0;
+  bool delayed = false;
+  {
+    StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
+    bool has_timeout = (expiration_time > 0);
+    auto delay = write_controller_.GetDelay();
+    if (write_controller_.IsStopped() == false && delay > 0) {
+      mutex_.Unlock();
+      delayed = true;
+      // hopefully we don't have to sleep more than 2 billion microseconds
+      env_->SleepForMicroseconds(static_cast<int>(delay));
+      mutex_.Lock();
     }
+
+    while (bg_error_.ok() && write_controller_.IsStopped()) {
+      delayed = true;
+      if (has_timeout) {
+        bg_cv_.TimedWait(expiration_time);
+        if (env_->NowMicros() > expiration_time) {
+          return Status::TimedOut();
+        }
+      } else {
+        bg_cv_.Wait();
+      }
+    }
+  }
+  if (delayed) {
+    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
+                                           time_delayed);
+    RecordTick(stats_, STALL_MICROS, time_delayed);
   }
 
   return bg_error_;
