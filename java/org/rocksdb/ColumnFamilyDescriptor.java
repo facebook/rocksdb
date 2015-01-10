@@ -16,7 +16,8 @@ public class ColumnFamilyDescriptor {
    * options,</p>
    *
    * @param columnFamilyName name of column family.
-   * @deprecated will be removed in RocksDB 3.10.0. Use {}
+   * @deprecated will be removed in RocksDB 3.10.0. Use
+   * {@link #ColumnFamilyDescriptor(byte[])} instead.
    */
   @Deprecated
   public ColumnFamilyDescriptor(final String columnFamilyName){
@@ -41,7 +42,8 @@ public class ColumnFamilyDescriptor {
    * @param columnFamilyName name of column family.
    * @param columnFamilyOptions options to be used with
    *     column family.
-   * @deprecated will be removed in RocksDB 3.10.0. Use {}
+   * @deprecated will be removed in RocksDB 3.10.0. Use
+   * {@link #ColumnFamilyDescriptor(byte[], ColumnFamilyOptions)} instead.
    */
   @Deprecated
   public ColumnFamilyDescriptor(final String columnFamilyName,

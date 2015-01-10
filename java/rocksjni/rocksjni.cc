@@ -93,11 +93,11 @@ jobject
       jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
           jcf_descriptor,
           rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
-          env)));
+              env)));
       // get CF Options
       jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
           rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
-          env));
+              env));
       rocksdb::ColumnFamilyOptions* cfOptions =
           rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
 
@@ -178,11 +178,11 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
       jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
           jcf_descriptor,
           rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
-          env)));
+              env)));
       // get CF Options
       jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
           rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
-          env));
+              env));
       rocksdb::ColumnFamilyOptions* cfOptions =
           rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
 
@@ -1189,11 +1189,11 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
   jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
       jcf_descriptor,
       rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
-      env)));
+          env)));
   // get CF Options
   jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
       rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
-      env));
+          env));
   rocksdb::ColumnFamilyOptions* cfOptions =
       rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
 
