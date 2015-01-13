@@ -50,6 +50,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
+#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -270,6 +271,11 @@ void CompactionJob::Prepare() {
 Status CompactionJob::Run() {
   log_buffer_->FlushBufferToLog();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  ThreadStatusUtil::SetColumnFamily(cfd);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+#ifndef NDEBUG
+  ThreadStatusUtil::TEST_OperationDelay(ThreadStatus::OP_COMPACTION);
+#endif
 
   const uint64_t start_micros = env_->NowMicros();
   std::unique_ptr<Iterator> input(
@@ -459,6 +465,7 @@ Status CompactionJob::Run() {
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
+  ThreadStatusUtil::ResetThreadStatus();
   return status;
 }
 

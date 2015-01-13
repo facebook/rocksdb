@@ -2145,6 +2145,14 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else if (!is_manual && c->IsTrivialMove()) {
+    // Instrument for event update
+    // TODO(yhchiang): add op details for showing trivial-move.
+    ThreadStatusUtil::SetColumnFamily(c->column_family_data());
+    ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+#ifndef NDEBUG
+    ThreadStatusUtil::TEST_OperationDelay(ThreadStatus::OP_COMPACTION);
+#endif
+
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
@@ -2171,6 +2179,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
+
+    // Clear Instrument
+    ThreadStatusUtil::ResetThreadStatus();
   } else {
     auto yield_callback = [&]() {
       return CallFlushDuringCompaction(c->column_family_data(),

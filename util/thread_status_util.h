@@ -12,6 +12,7 @@
 
 namespace rocksdb {
 
+
 // The static utility class for updating thread-local status.
 //
 // The thread-local status is updated via the thread-local cached
@@ -51,6 +52,22 @@ class ThreadStatusUtil {
   // Update the thread status to indicate the current thread is doing
   // something related to the specified column family.
   static void SetColumnFamily(const ColumnFamilyData* cfd);
+
+  static void SetThreadOperation(ThreadStatus::OperationType type);
+
+  static void SetThreadState(ThreadStatus::StateType type);
+
+  static void ResetThreadStatus();
+
+#ifndef NDEBUG
+  static void TEST_SetOperationDelay(
+      const ThreadStatus::OperationType operation, int micro);
+  static void TEST_OperationDelay(
+      const ThreadStatus::OperationType operation);
+  static void TEST_SetStateDelay(
+      const ThreadStatus::StateType state, int micro);
+  static void TEST_StateDelay(const ThreadStatus::StateType state);
+#endif
 
  protected:
   // Initialize the thread-local ThreadStatusUpdater when it finds

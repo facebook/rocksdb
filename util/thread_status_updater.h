@@ -64,13 +64,24 @@ struct ConstantColumnFamilyInfo {
 // status of a thread using a set of atomic pointers.
 struct ThreadStatusData {
 #if ROCKSDB_USING_THREAD_STATUS
-  explicit ThreadStatusData() : thread_id(0) {
+  explicit ThreadStatusData() : thread_id(0), enable_tracking(false) {
     thread_type.store(ThreadStatus::USER);
-    cf_key.store(0);
+    cf_key.store(nullptr);
     operation_type.store(ThreadStatus::OP_UNKNOWN);
     state_type.store(ThreadStatus::STATE_UNKNOWN);
   }
+
   uint64_t thread_id;
+
+  // A flag to indicate whether the thread tracking is enabled
+  // in the current thread.  This value will be updated based on whether
+  // the associated Options::enable_thread_tracking is set to true
+  // in ThreadStatusUtil::SetColumnFamily().
+  //
+  // If set to false, then SetThreadOperation and SetThreadState
+  // will be no-op.
+  bool enable_tracking;
+
   std::atomic<ThreadStatus::ThreadType> thread_type;
   std::atomic<const void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
@@ -96,12 +107,19 @@ class ThreadStatusUpdater {
   // Unregister the current thread.
   void UnregisterThread();
 
+  // Reset the status of the current thread.  This includes resetting
+  // ColumnFamilyInfoKey, ThreadOperation, and ThreadState.
+  void ResetThreadStatus();
+
   // Set the thread type of the current thread.
   void SetThreadType(ThreadStatus::ThreadType ttype);
 
   // Update the column-family info of the current thread by setting
   // its thread-local pointer of ThreadStateInfo to the correct entry.
   void SetColumnFamilyInfoKey(const void* cf_key);
+
+  // returns the column family info key.
+  const void* GetColumnFamilyInfoKey();
 
   // Update the thread operation of the current thread.
   void SetThreadOperation(const ThreadStatus::OperationType type);
@@ -143,7 +161,6 @@ class ThreadStatusUpdater {
       bool check_exist);
 
  protected:
-
 #if ROCKSDB_USING_THREAD_STATUS
   // The thread-local variable for storing thread status.
   static __thread ThreadStatusData* thread_status_data_;
@@ -169,6 +186,7 @@ class ThreadStatusUpdater {
   // associated to the same db_key faster.
   std::unordered_map<
       const void*, std::unordered_set<const void*>> db_key_map_;
+
 #else
   static ThreadStatusData* thread_status_data_;
 #endif  // ROCKSDB_USING_THREAD_STATUS

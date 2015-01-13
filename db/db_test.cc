@@ -52,7 +52,7 @@
 #include "util/testutil.h"
 #include "util/mock_env.h"
 #include "util/string_util.h"
-#include "util/thread_status_updater.h"
+#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -9414,7 +9414,7 @@ TEST(DBTest, DynamicMemtableOptions) {
 }
 
 #if ROCKSDB_USING_THREAD_STATUS
-TEST(DBTest, GetThreadList) {
+TEST(DBTest, GetThreadStatus) {
   Options options;
   options.env = env_;
   options.enable_thread_tracking = true;
@@ -9472,7 +9472,7 @@ TEST(DBTest, GetThreadList) {
       handles_, true);
 }
 
-TEST(DBTest, DisableThreadList) {
+TEST(DBTest, DisableThreadStatus) {
   Options options;
   options.env = env_;
   options.enable_thread_tracking = false;
@@ -9482,6 +9482,146 @@ TEST(DBTest, DisableThreadList) {
   env_->GetThreadStatusUpdater()->TEST_VerifyColumnFamilyInfoMap(
       handles_, false);
 }
+
+TEST(DBTest, ThreadStatusSingleCompaction) {
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
+  const int kEntriesPerBuffer = 100;
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base = options.target_file_size_base * 2;
+  options.max_bytes_for_level_multiplier = 2;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  options.env = env_;
+  options.enable_thread_tracking = true;
+  const int kNumL0Files = 4;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  for (int tests = 0; tests < 2; ++tests) {
+    TryReopen(options);
+    // Each compaction will run at least 2 seconds, which allows
+    // the test to capture the status of compaction with fewer
+    // false alarm.
+    const int kCompactionDelayMicro = 2000000;
+    ThreadStatusUtil::TEST_SetOperationDelay(
+        ThreadStatus::OP_COMPACTION, kCompactionDelayMicro);
+
+    Random rnd(301);
+    for (int key = kEntriesPerBuffer * kNumL0Files; key >= 0; --key) {
+      ASSERT_OK(Put(ToString(key), RandomString(&rnd, kTestValueSize)));
+    }
+
+    // wait for compaction to be scheduled
+    env_->SleepForMicroseconds(500000);
+
+    // check how many threads are doing compaction using GetThreadList
+    std::vector<ThreadStatus> thread_list;
+    Status s = env_->GetThreadList(&thread_list);
+    ASSERT_OK(s);
+    int compaction_count = 0;
+    for (auto thread : thread_list) {
+      if (thread.operation_type == ThreadStatus::OP_COMPACTION) {
+        compaction_count++;
+      }
+    }
+
+    if (options.enable_thread_tracking) {
+      // expecting one single L0 to L1 compaction
+      ASSERT_EQ(compaction_count, 1);
+    } else {
+      // If thread tracking is not enabled, compaction count should be 0.
+      ASSERT_EQ(compaction_count, 0);
+    }
+
+    ThreadStatusUtil::TEST_SetOperationDelay(
+        ThreadStatus::OP_COMPACTION, 0);
+
+    // repeat the test with disabling thread tracking.
+    options.enable_thread_tracking = false;
+  }
+}
+
+TEST(DBTest, ThreadStatusMultipleCompaction) {
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
+  const int kEntriesPerBuffer = 10;
+  const int kNumL0Files = 4;
+
+  const int kHighPriCount = 3;
+  const int kLowPriCount = 5;
+  env_->SetBackgroundThreads(kHighPriCount, Env::HIGH);
+  env_->SetBackgroundThreads(kLowPriCount, Env::LOW);
+
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base =
+      options.target_file_size_base * kNumL0Files;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  options.env = env_;
+  options.enable_thread_tracking = true;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.max_bytes_for_level_multiplier = 2;
+  options.max_background_compactions = kLowPriCount;
+
+  for (int tests = 0; tests < 2; ++tests) {
+    TryReopen(options);
+    Random rnd(301);
+
+    int max_compaction_count = 0;
+    std::vector<ThreadStatus> thread_list;
+    const int kCompactionDelayMicro = 10000;
+    ThreadStatusUtil::TEST_SetOperationDelay(
+        ThreadStatus::OP_COMPACTION, kCompactionDelayMicro);
+
+    // Make rocksdb busy
+    int key = 0;
+    for (int file = 0; file < 64 * kNumL0Files; ++file) {
+      for (int k = 0; k < kEntriesPerBuffer; ++k) {
+        ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
+      }
+
+      // check how many threads are doing compaction using GetThreadList
+      int compaction_count = 0;
+      Status s = env_->GetThreadList(&thread_list);
+      for (auto thread : thread_list) {
+        if (thread.operation_type == ThreadStatus::OP_COMPACTION) {
+          compaction_count++;
+        }
+      }
+
+      // Record the max number of compactions at a time.
+      if (max_compaction_count < compaction_count) {
+        max_compaction_count = compaction_count;
+      }
+    }
+
+    if (options.enable_thread_tracking) {
+      // Expect rocksdb max-out the concurrent compaction jobs.
+      ASSERT_EQ(max_compaction_count, options.max_background_compactions);
+    } else {
+      // If thread tracking is not enabled, compaction count should be 0.
+      ASSERT_EQ(max_compaction_count, 0);
+    }
+
+    // repeat the test with disabling thread tracking.
+    options.enable_thread_tracking = false;
+  }
+
+  ThreadStatusUtil::TEST_SetOperationDelay(
+      ThreadStatus::OP_COMPACTION, 0);
+}
+
+
+
 #endif  // ROCKSDB_USING_THREAD_STATUS
 
 TEST(DBTest, DynamicCompactionOptions) {

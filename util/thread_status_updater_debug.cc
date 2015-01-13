@@ -7,9 +7,11 @@
 
 #include "util/thread_status_updater.h"
 #include "db/column_family.h"
-#if ROCKSDB_USING_THREAD_STATUS
 
 namespace rocksdb {
+
+#ifndef NDEBUG
+#if ROCKSDB_USING_THREAD_STATUS
 void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     const std::vector<ColumnFamilyHandle*>& handles,
     bool check_exist) {
@@ -29,5 +31,16 @@ void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
     }
   }
 }
-}  // namespace rocksdb
+
+#else
+
+void ThreadStatusUpdater::TEST_VerifyColumnFamilyInfoMap(
+    const std::vector<ColumnFamilyHandle*>& handles,
+    bool check_exist) {
+}
+
 #endif  // ROCKSDB_USING_THREAD_STATUS
+#endif  // !NDEBUG
+
+
+}  // namespace rocksdb

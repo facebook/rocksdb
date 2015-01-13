@@ -9,6 +9,7 @@
 
 namespace rocksdb {
 
+
 #if ROCKSDB_USING_THREAD_STATUS
 __thread ThreadStatusUpdater*
     ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
@@ -36,7 +37,41 @@ void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {
     return;
   }
   assert(thread_updater_local_cache_);
-  thread_updater_local_cache_->SetColumnFamilyInfoKey(cfd);
+  if (cfd != nullptr && cfd->options()->enable_thread_tracking) {
+    thread_updater_local_cache_->SetColumnFamilyInfoKey(cfd);
+  } else {
+    // When cfd == nullptr or enable_thread_tracking == false, we set
+    // ColumnFamilyInfoKey to nullptr, which makes SetThreadOperation
+    // and SetThreadState become no-op.
+    thread_updater_local_cache_->SetColumnFamilyInfoKey(nullptr);
+  }
+}
+
+void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return;
+  }
+
+  thread_updater_local_cache_->SetThreadOperation(op);
+}
+
+void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return;
+  }
+
+  thread_updater_local_cache_->SetThreadState(state);
+}
+
+void ThreadStatusUtil::ResetThreadStatus() {
+  if (thread_updater_local_cache_ == nullptr) {
+    return;
+  }
+  thread_updater_local_cache_->ResetThreadStatus();
 }
 
 void ThreadStatusUtil::NewColumnFamilyInfo(
@@ -86,6 +121,12 @@ bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* env) {
 void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {
 }
 
+void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
+}
+
+void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
+}
+
 void ThreadStatusUtil::NewColumnFamilyInfo(
     const DB* db, const ColumnFamilyData* cfd) {
 }
@@ -95,6 +136,9 @@ void ThreadStatusUtil::EraseColumnFamilyInfo(
 }
 
 void ThreadStatusUtil::EraseDatabaseInfo(const DB* db) {
+}
+
+void ThreadStatusUtil::ResetThreadStatus() {
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS

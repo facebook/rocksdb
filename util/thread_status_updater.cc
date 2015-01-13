@@ -29,20 +29,46 @@ void ThreadStatusUpdater::SetThreadType(
   data->thread_type.store(ttype, std::memory_order_relaxed);
 }
 
+void ThreadStatusUpdater::ResetThreadStatus() {
+  ClearThreadState();
+  ClearThreadOperation();
+  SetColumnFamilyInfoKey(nullptr);
+}
+
 void ThreadStatusUpdater::SetColumnFamilyInfoKey(
     const void* cf_key) {
   auto* data = InitAndGet();
+  // set the tracking flag based on whether cf_key is non-null or not.
+  // If enable_thread_tracking is set to false, the input cf_key
+  // would be nullptr.
+  data->enable_tracking = (cf_key != nullptr);
   data->cf_key.store(cf_key, std::memory_order_relaxed);
+}
+
+const void* ThreadStatusUpdater::GetColumnFamilyInfoKey() {
+  auto* data = InitAndGet();
+  if (data->enable_tracking == false) {
+    return nullptr;
+  }
+  return data->cf_key.load(std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetThreadOperation(
     const ThreadStatus::OperationType type) {
   auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
   data->operation_type.store(type, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::ClearThreadOperation() {
   auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
   data->operation_type.store(
       ThreadStatus::OP_UNKNOWN, std::memory_order_relaxed);
 }
@@ -50,11 +76,19 @@ void ThreadStatusUpdater::ClearThreadOperation() {
 void ThreadStatusUpdater::SetThreadState(
     const ThreadStatus::StateType type) {
   auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
   data->state_type.store(type, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::ClearThreadState() {
   auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
   data->state_type.store(
       ThreadStatus::STATE_UNKNOWN, std::memory_order_relaxed);
 }
@@ -174,6 +208,9 @@ void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
 #else
 
 void ThreadStatusUpdater::UnregisterThread() {
+}
+
+void ThreadStatusUpdater::ResetThreadStatus() {
 }
 
 void ThreadStatusUpdater::SetThreadType(

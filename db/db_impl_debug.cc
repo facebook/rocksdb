@@ -10,6 +10,7 @@
 #ifndef ROCKSDB_LITE
 
 #include "db/db_impl.h"
+#include "util/thread_status_updater.h"
 
 namespace rocksdb {
 

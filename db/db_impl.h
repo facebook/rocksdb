@@ -234,6 +234,7 @@ class DBImpl : public DB {
   uint64_t TEST_max_total_in_memory_state() {
     return max_total_in_memory_state_;
   }
+
 #endif  // ROCKSDB_LITE
 
   // Returns the list of live files in 'live' and the list
