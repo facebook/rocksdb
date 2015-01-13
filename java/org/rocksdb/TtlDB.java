@@ -89,18 +89,40 @@ public class TtlDB extends RocksDB {
     return ttldb;
   }
 
-  //static Status Open(const DBOptions& db_options, const std::string& dbname,
-  //                   const std::vector<ColumnFamilyDescriptor>& column_families,
-  //                   std::vector<ColumnFamilyHandle*>* handles,
-  //                   DBWithTTL** dbptr, std::vector<int32_t> ttls,
-  //                   bool read_only = false);
+  /**
+   * <p>Opens a TtlDB.</p>
+   *
+   * @param options {@link org.rocksdb.Options} instance.
+   * @param db_path path to database.
+   * @param columnFamilyDescriptors list of column family descriptors
+   * @param columnFamilyHandles will be filled with ColumnFamilyHandle instances
+   *     on open.
+   * @param ttlValues time to live values per column family handle
+   * @param readOnly boolean value indicating if database if db is
+   *     opened read-only.
+   *
+   * @return TtlDB instance.
+   *
+   * @throws RocksDBException thrown if an error occurs within the native
+   *     part of the library.
+   * @throws java.lang.IllegalArgumentException when there is not a ttl value
+   *     per given column family handle.
+   */
   public static TtlDB open(DBOptions options, String db_path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       List<ColumnFamilyHandle> columnFamilyHandles,
-      List<Integer> ttlValues, boolean readOnly){
-
-
-    return null;
+      List<Integer> ttlValues, boolean readOnly) throws RocksDBException {
+    if (columnFamilyDescriptors.size() != ttlValues.size()) {
+      throw new IllegalArgumentException("There must be a ttl value per column" +
+          "family handle.");
+    }
+    TtlDB ttlDB = new TtlDB();
+    List<Long> cfReferences = ttlDB.open(options.nativeHandle_, db_path, columnFamilyDescriptors,
+        columnFamilyDescriptors.size(),  ttlValues, readOnly);
+    for (int i=0; i<columnFamilyDescriptors.size(); i++) {
+      columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, cfReferences.get(i)));
+    }
+    return ttlDB;
   }
 
   /**
@@ -146,10 +168,10 @@ public class TtlDB extends RocksDB {
   /**
    * <p>A protected constructor that will be used in the static
    * factory method
-   * {@link #open(DBOptions, String, java.util.List, java.util.List)}
+   * {@link #open(Options, String, int, boolean)}
    * and
-   * {@link #open(DBOptions, String, java.util.List,
-   * java.util.List, java.util.List, boolean)}.
+   * {@link #open(DBOptions, String, java.util.List, java.util.List,
+   * java.util.List, boolean)}.
    * </p>
    */
   protected TtlDB() {
@@ -162,6 +184,10 @@ public class TtlDB extends RocksDB {
   }
 
   private native void open(long optionsHandle, String db_path, int ttl,
+      boolean readOnly) throws RocksDBException;
+  private native List<Long> open(long optionsHandle, String db_path,
+      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      int columnFamilyDescriptorsLength, List<Integer> ttlValues,
       boolean readOnly) throws RocksDBException;
   private native long createColumnFamilyWithTtl(long handle,
       ColumnFamilyDescriptor columnFamilyDescriptor, int ttl)
