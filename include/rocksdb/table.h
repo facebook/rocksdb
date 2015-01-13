@@ -125,6 +125,19 @@ struct BlockBasedTableOptions {
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
+
+  // For more details on BlockBasedTable's formats, see FORMAT-CHANGES.md
+  // We currently have two versions:
+  // 0 -- This version is currently written out by all RocksDB's versions by
+  // default.  Can be read by really old RocksDB's. Doesn't support changing
+  // checksum (default is CRC32).
+  // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
+  // checksum, like xxHash. It is written by RocksDB when
+  // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
+  // 0 is silently upconverted)
+  // This only affects newly written tables. When reading exising tables, the
+  // information about version is read from the footer.
+  uint32_t format_version = 0;
 };
 
 // Table Properties that are specific to block-based table properties.

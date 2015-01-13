@@ -377,7 +377,7 @@ Status CuckooTableBuilder::Finish() {
     return s;
   }
 
-  Footer footer(kCuckooTableMagicNumber);
+  Footer footer(kCuckooTableMagicNumber, 1);
   footer.set_metaindex_handle(meta_index_block_handle);
   footer.set_index_handle(BlockHandle::NullBlockHandle());
   std::string footer_encoding;

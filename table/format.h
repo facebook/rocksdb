@@ -72,12 +72,13 @@ class Footer {
   // Constructs a footer without specifying its table magic number.
   // In such case, the table magic number of such footer should be
   // initialized via @ReadFooterFromFile().
-  Footer() : Footer(kInvalidTableMagicNumber) {}
+  // Use this when you plan to load Footer with DecodeFrom(). Never use this
+  // when you plan to EncodeTo.
+  Footer() : Footer(kInvalidTableMagicNumber, 0) {}
 
-  // @table_magic_number serves two purposes:
-  //  1. Identify different types of the tables.
-  //  2. Help us to identify if a given file is a valid sst.
-  explicit Footer(uint64_t table_magic_number);
+  // Use this constructor when you plan to write out the footer using
+  // EncodeTo(). Never use this constructor with DecodeFrom().
+  Footer(uint64_t table_magic_number, uint32_t version);
 
   // The version of the footer in this file
   uint32_t version() const { return version_; }
@@ -97,20 +98,13 @@ class Footer {
 
   uint64_t table_magic_number() const { return table_magic_number_; }
 
-  // The version of Footer we encode
-  enum {
-    kLegacyFooter = 0,
-    kFooterVersion = 1,
-  };
-
   void EncodeTo(std::string* dst) const;
 
-  // Set the current footer based on the input slice.  If table_magic_number_
-  // is not set (i.e., HasInitializedTableMagicNumber() is true), then this
-  // function will also initialize table_magic_number_.  Otherwise, this
-  // function will verify whether the magic number specified in the input
-  // slice matches table_magic_number_ and update the current footer only
-  // when the test passes.
+  // Set the current footer based on the input slice.
+  //
+  // REQUIRES: table_magic_number_ is not set (i.e.,
+  // HasInitializedTableMagicNumber() is true). The function will initialize the
+  // magic number
   Status DecodeFrom(Slice* input);
 
   // Encoded length of a Footer.  Note that the serialization of a Footer will
@@ -121,13 +115,12 @@ class Footer {
     // Footer version 0 (legacy) will always occupy exactly this many bytes.
     // It consists of two block handles, padding, and a magic number.
     kVersion0EncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8,
-    // Footer version 1 will always occupy exactly this many bytes.
-    // It consists of the checksum type, two block handles, padding,
-    // a version number, and a magic number
-    kVersion1EncodedLength = 1 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
-
+    // Footer of versions 1 and higher will always occupy exactly this many
+    // bytes. It consists of the checksum type, two block handles, padding,
+    // a version number (bigger than 1), and a magic number
+    kNewVersionsEncodedLength = 1 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
     kMinEncodedLength = kVersion0EncodedLength,
-    kMaxEncodedLength = kVersion1EncodedLength
+    kMaxEncodedLength = kNewVersionsEncodedLength,
   };
 
   static const uint64_t kInvalidTableMagicNumber = 0;
@@ -156,9 +149,11 @@ class Footer {
 };
 
 // Read the footer from file
-Status ReadFooterFromFile(RandomAccessFile* file,
-                          uint64_t file_size,
-                          Footer* footer);
+// If enforce_table_magic_number != 0, ReadFooterFromFile() will return
+// corruption if table_magic number is not equal to enforce_table_magic_number
+Status ReadFooterFromFile(RandomAccessFile* file, uint64_t file_size,
+                          Footer* footer,
+                          uint64_t enforce_table_magic_number = 0);
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;

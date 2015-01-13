@@ -472,9 +472,20 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator, WritableFile* file,
     const CompressionType compression_type,
-    const CompressionOptions& compression_opts)
-    : rep_(new Rep(ioptions, table_options, internal_comparator,
-                   file, compression_type, compression_opts)) {
+    const CompressionOptions& compression_opts) {
+  BlockBasedTableOptions sanitized_table_options(table_options);
+  if (sanitized_table_options.format_version == 0 &&
+      sanitized_table_options.checksum != kCRC32c) {
+    Log(InfoLogLevel::WARN_LEVEL, ioptions.info_log,
+        "Silently converting format_version to 1 because checksum is "
+        "non-default");
+    // silently convert format_version to 1 to keep consistent with current
+    // behavior
+    sanitized_table_options.format_version = 1;
+  }
+
+  rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator, file,
+                 compression_type, compression_opts);
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }
@@ -771,9 +782,13 @@ Status BlockBasedTableBuilder::Finish() {
     // TODO(icanadi) at some point in the future, when we're absolutely sure
     // nobody will roll back to RocksDB 2.x versions, retire the legacy magic
     // number and always write new table files with new magic number
-    bool legacy = (r->table_options.checksum == kCRC32c);
+    bool legacy = (r->table_options.format_version == 0);
+    // this is guaranteed by BlockBasedTableBuilder's constructor
+    assert(r->table_options.checksum == kCRC32c ||
+           r->table_options.format_version != 0);
     Footer footer(legacy ? kLegacyBlockBasedTableMagicNumber
-                         : kBlockBasedTableMagicNumber);
+                         : kBlockBasedTableMagicNumber,
+                  r->table_options.format_version);
     footer.set_metaindex_handle(metaindex_block_handle);
     footer.set_index_handle(index_block_handle);
     footer.set_checksum(r->table_options.checksum);

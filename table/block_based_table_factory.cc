@@ -76,6 +76,10 @@ Status BlockBasedTableFactory::SanitizeOptions(
     return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
         ", but block cache is disabled");
   }
+  if (table_options_.format_version > 1) {
+    return Status::InvalidArgument(
+        "We currently only support versions 0 and 1");
+  }
   return Status::OK();
 }
 
@@ -135,6 +139,8 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
+  snprintf(buffer, kBufferSize, "  format_version: %d\n",
+           table_options_.format_version);
   ret.append(buffer);
   return ret;
 }

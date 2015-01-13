@@ -436,10 +436,16 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              unique_ptr<TableReader>* table_reader) {
   table_reader->reset();
 
-  Footer footer(kBlockBasedTableMagicNumber);
-  auto s = ReadFooterFromFile(file.get(), file_size, &footer);
+  Footer footer;
+  auto s = ReadFooterFromFile(file.get(), file_size, &footer,
+                              kBlockBasedTableMagicNumber);
   if (!s.ok()) {
     return s;
+  }
+  if (footer.version() > 1) {
+    return Status::Corruption(
+        "Unknown Footer version. Maybe this file was created with too new "
+        "version of RocksDB?");
   }
 
   // We've successfully read the footer and the index block: we're

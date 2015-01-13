@@ -1943,7 +1943,7 @@ TEST(Harness, FooterTests) {
   {
     // upconvert legacy block based
     std::string encoded;
-    Footer footer(kLegacyBlockBasedTableMagicNumber);
+    Footer footer(kLegacyBlockBasedTableMagicNumber, 0);
     BlockHandle meta_index(10, 5), index(20, 15);
     footer.set_metaindex_handle(meta_index);
     footer.set_index_handle(index);
@@ -1957,11 +1957,12 @@ TEST(Harness, FooterTests) {
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.version(), 0U);
   }
   {
     // xxhash block based
     std::string encoded;
-    Footer footer(kBlockBasedTableMagicNumber);
+    Footer footer(kBlockBasedTableMagicNumber, 1);
     BlockHandle meta_index(10, 5), index(20, 15);
     footer.set_metaindex_handle(meta_index);
     footer.set_index_handle(index);
@@ -1976,11 +1977,12 @@ TEST(Harness, FooterTests) {
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.version(), 1U);
   }
   {
     // upconvert legacy plain table
     std::string encoded;
-    Footer footer(kLegacyPlainTableMagicNumber);
+    Footer footer(kLegacyPlainTableMagicNumber, 0);
     BlockHandle meta_index(10, 5), index(20, 15);
     footer.set_metaindex_handle(meta_index);
     footer.set_index_handle(index);
@@ -1994,11 +1996,12 @@ TEST(Harness, FooterTests) {
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.version(), 0U);
   }
   {
     // xxhash block based
     std::string encoded;
-    Footer footer(kPlainTableMagicNumber);
+    Footer footer(kPlainTableMagicNumber, 1);
     BlockHandle meta_index(10, 5), index(20, 15);
     footer.set_metaindex_handle(meta_index);
     footer.set_index_handle(index);
@@ -2013,6 +2016,26 @@ TEST(Harness, FooterTests) {
     ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
     ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.version(), 1U);
+  }
+  {
+    // version == 2
+    std::string encoded;
+    Footer footer(kBlockBasedTableMagicNumber, 2);
+    BlockHandle meta_index(10, 5), index(20, 15);
+    footer.set_metaindex_handle(meta_index);
+    footer.set_index_handle(index);
+    footer.EncodeTo(&encoded);
+    Footer decoded_footer;
+    Slice encoded_slice(encoded);
+    decoded_footer.DecodeFrom(&encoded_slice);
+    ASSERT_EQ(decoded_footer.table_magic_number(), kBlockBasedTableMagicNumber);
+    ASSERT_EQ(decoded_footer.checksum(), kCRC32c);
+    ASSERT_EQ(decoded_footer.metaindex_handle().offset(), meta_index.offset());
+    ASSERT_EQ(decoded_footer.metaindex_handle().size(), meta_index.size());
+    ASSERT_EQ(decoded_footer.index_handle().offset(), index.offset());
+    ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
+    ASSERT_EQ(decoded_footer.version(), 2U);
   }
 }
 

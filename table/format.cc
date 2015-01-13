@@ -72,6 +72,23 @@ std::string BlockHandle::ToString(bool hex) const {
 
 const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 
+namespace {
+inline bool IsLegacyFooterFormat(uint64_t magic_number) {
+  return magic_number == kLegacyBlockBasedTableMagicNumber ||
+         magic_number == kLegacyPlainTableMagicNumber;
+}
+inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
+  if (magic_number == kLegacyBlockBasedTableMagicNumber) {
+    return kBlockBasedTableMagicNumber;
+  }
+  if (magic_number == kLegacyPlainTableMagicNumber) {
+    return kPlainTableMagicNumber;
+  }
+  assert(false);
+  return 0;
+}
+}  // namespace
+
 // legacy footer format:
 //    metaindex handle (varint64 offset, varint64 size)
 //    index handle     (varint64 offset, varint64 size)
@@ -85,7 +102,8 @@ const BlockHandle BlockHandle::kNullBlockHandle(0, 0);
 //    footer version (4 bytes)
 //    table_magic_number (8 bytes)
 void Footer::EncodeTo(std::string* dst) const {
-  if (version() == kLegacyFooter) {
+  assert(HasInitializedTableMagicNumber());
+  if (IsLegacyFooterFormat(table_magic_number())) {
     // has to be default checksum with legacy footer
     assert(checksum_ == kCRC32c);
     const size_t original_size = dst->size();
@@ -100,39 +118,24 @@ void Footer::EncodeTo(std::string* dst) const {
     dst->push_back(static_cast<char>(checksum_));
     metaindex_handle_.EncodeTo(dst);
     index_handle_.EncodeTo(dst);
-    dst->resize(original_size + kVersion1EncodedLength - 12);  // Padding
-    PutFixed32(dst, kFooterVersion);
+    dst->resize(original_size + kNewVersionsEncodedLength - 12);  // Padding
+    PutFixed32(dst, version());
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() & 0xffffffffu));
     PutFixed32(dst, static_cast<uint32_t>(table_magic_number() >> 32));
-    assert(dst->size() == original_size + kVersion1EncodedLength);
+    assert(dst->size() == original_size + kNewVersionsEncodedLength);
   }
 }
 
-namespace {
-inline bool IsLegacyFooterFormat(uint64_t magic_number) {
-  return magic_number == kLegacyBlockBasedTableMagicNumber ||
-         magic_number == kLegacyPlainTableMagicNumber;
-}
-
-inline uint64_t UpconvertLegacyFooterFormat(uint64_t magic_number) {
-  if (magic_number == kLegacyBlockBasedTableMagicNumber) {
-    return kBlockBasedTableMagicNumber;
-  }
-  if (magic_number == kLegacyPlainTableMagicNumber) {
-    return kPlainTableMagicNumber;
-  }
-  assert(false);
-  return 0;
-}
-}  // namespace
-
-Footer::Footer(uint64_t _table_magic_number)
-    : version_(IsLegacyFooterFormat(_table_magic_number) ? kLegacyFooter
-                                                         : kFooterVersion),
+Footer::Footer(uint64_t _table_magic_number, uint32_t _version)
+    : version_(_version),
       checksum_(kCRC32c),
-      table_magic_number_(_table_magic_number) {}
+      table_magic_number_(_table_magic_number) {
+  // This should be guaranteed by constructor callers
+  assert(!IsLegacyFooterFormat(_table_magic_number) || version_ == 0);
+}
 
 Status Footer::DecodeFrom(Slice* input) {
+  assert(!HasInitializedTableMagicNumber());
   assert(input != nullptr);
   assert(input->size() >= kMinEncodedLength);
 
@@ -148,36 +151,23 @@ Status Footer::DecodeFrom(Slice* input) {
   if (legacy) {
     magic = UpconvertLegacyFooterFormat(magic);
   }
-  if (HasInitializedTableMagicNumber()) {
-    if (magic != table_magic_number()) {
-      char buffer[80];
-      snprintf(buffer, sizeof(buffer) - 1,
-               "not an sstable (bad magic number --- %lx)",
-               (long)magic);
-      return Status::Corruption(buffer);
-    }
-  } else {
-    set_table_magic_number(magic);
-  }
+  set_table_magic_number(magic);
 
   if (legacy) {
     // The size is already asserted to be at least kMinEncodedLength
     // at the beginning of the function
     input->remove_prefix(input->size() - kVersion0EncodedLength);
-    version_ = kLegacyFooter;
+    version_ = 0 /* legacy */;
     checksum_ = kCRC32c;
   } else {
     version_ = DecodeFixed32(magic_ptr - 4);
-    if (version_ != kFooterVersion) {
-      return Status::Corruption("bad footer version");
-    }
-    // Footer version 1 will always occupy exactly this many bytes.
+    // Footer version 1 and higher will always occupy exactly this many bytes.
     // It consists of the checksum type, two block handles, padding,
     // a version number, and a magic number
-    if (input->size() < kVersion1EncodedLength) {
+    if (input->size() < kNewVersionsEncodedLength) {
       return Status::Corruption("input is too short to be an sstable");
     } else {
-      input->remove_prefix(input->size() - kVersion1EncodedLength);
+      input->remove_prefix(input->size() - kNewVersionsEncodedLength);
     }
     uint32_t chksum;
     if (!GetVarint32(input, &chksum)) {
@@ -219,9 +209,8 @@ std::string Footer::ToString() const {
   return result;
 }
 
-Status ReadFooterFromFile(RandomAccessFile* file,
-                          uint64_t file_size,
-                          Footer* footer) {
+Status ReadFooterFromFile(RandomAccessFile* file, uint64_t file_size,
+                          Footer* footer, uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
     return Status::Corruption("file is too short to be an sstable");
   }
@@ -242,7 +231,15 @@ Status ReadFooterFromFile(RandomAccessFile* file,
     return Status::Corruption("file is too short to be an sstable");
   }
 
-  return footer->DecodeFrom(&footer_input);
+  s = footer->DecodeFrom(&footer_input);
+  if (!s.ok()) {
+    return s;
+  }
+  if (enforce_table_magic_number != 0 &&
+      enforce_table_magic_number != footer->table_magic_number()) {
+    return Status::Corruption("Bad table magic number");
+  }
+  return Status::OK();
 }
 
 // Without anonymous namespace here, we fail the warning -Wmissing-prototypes

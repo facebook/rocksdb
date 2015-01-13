@@ -220,8 +220,8 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
                            uint64_t table_magic_number, Env* env,
                            Logger* info_log, TableProperties** properties) {
   // -- Read metaindex block
-  Footer footer(table_magic_number);
-  auto s = ReadFooterFromFile(file, file_size, &footer);
+  Footer footer;
+  auto s = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -274,8 +274,8 @@ Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
                      uint64_t table_magic_number, Env* env,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle) {
-  Footer footer(table_magic_number);
-  auto s = ReadFooterFromFile(file, file_size, &footer);
+  Footer footer;
+  auto s = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -302,8 +302,8 @@ Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
                      const std::string& meta_block_name,
                      BlockContents* contents) {
   Status status;
-  Footer footer(table_magic_number);
-  status = ReadFooterFromFile(file, file_size, &footer);
+  Footer footer;
+  status = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
   if (!status.ok()) {
     return status;
   }

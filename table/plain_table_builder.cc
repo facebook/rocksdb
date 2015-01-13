@@ -258,7 +258,7 @@ Status PlainTableBuilder::Finish() {
 
   // Write Footer
   // no need to write out new footer if we're using default checksum
-  Footer footer(kLegacyPlainTableMagicNumber);
+  Footer footer(kLegacyPlainTableMagicNumber, 0);
   footer.set_metaindex_handle(metaindex_block_handle);
   footer.set_index_handle(BlockHandle::NullBlockHandle());
   std::string footer_encoding;
