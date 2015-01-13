@@ -10,7 +10,7 @@
 #include "util/thread_local.h"
 #include "util/mutexlock.h"
 #include "port/likely.h"
-
+#include <stdlib.h>
 
 namespace rocksdb {
 
