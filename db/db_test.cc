@@ -9444,7 +9444,8 @@ TEST(DBTest, GetThreadStatus) {
       }
       // Verify the total number of threades
       ASSERT_EQ(
-          thread_list.size(),
+          thread_type_counts[ThreadStatus::HIGH_PRIORITY] +
+              thread_type_counts[ThreadStatus::LOW_PRIORITY],
           kHighPriCounts[test] + kLowPriCounts[test]);
       // Verify the number of high-priority threads
       ASSERT_EQ(
