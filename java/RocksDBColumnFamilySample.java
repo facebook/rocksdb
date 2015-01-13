@@ -33,7 +33,8 @@ public class RocksDBColumnFamilySample {
 
       // create column family
       columnFamilyHandle = db.createColumnFamily(
-          new ColumnFamilyDescriptor("new_cf", new ColumnFamilyOptions()));
+          new ColumnFamilyDescriptor("new_cf".getBytes(),
+          new ColumnFamilyOptions()));
       assert(columnFamilyHandle != null);
 
     } finally {
@@ -56,7 +57,7 @@ public class RocksDBColumnFamilySample {
         RocksDB.DEFAULT_COLUMN_FAMILY, new ColumnFamilyOptions()));
     // open the new one, too
     columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
-        "new_cf", new ColumnFamilyOptions()));
+        "new_cf".getBytes(), new ColumnFamilyOptions()));
     List<ColumnFamilyHandle> columnFamilyHandles = new ArrayList<>();
     try {
       db = RocksDB.open(new DBOptions(), db_path,

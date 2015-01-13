@@ -370,7 +370,7 @@ public class RocksDBTest {
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
           RocksDB.DEFAULT_COLUMN_FAMILY));
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
-          "new_cf",
+          "new_cf".getBytes(),
           new ColumnFamilyOptions().
               setDisableAutoCompactions(true).
               setCompactionStyle(CompactionStyle.LEVEL).
@@ -501,7 +501,7 @@ public class RocksDBTest {
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
           RocksDB.DEFAULT_COLUMN_FAMILY));
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
-          "new_cf",
+          "new_cf".getBytes(),
           new ColumnFamilyOptions().
               setDisableAutoCompactions(true).
               setCompactionStyle(CompactionStyle.LEVEL).
@@ -556,7 +556,7 @@ public class RocksDBTest {
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
           RocksDB.DEFAULT_COLUMN_FAMILY));
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
-          "new_cf",
+          "new_cf".getBytes(),
           new ColumnFamilyOptions().
               setDisableAutoCompactions(true).
               setCompactionStyle(CompactionStyle.LEVEL).
@@ -670,7 +670,7 @@ public class RocksDBTest {
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
           RocksDB.DEFAULT_COLUMN_FAMILY));
       columnFamilyDescriptors.add(new ColumnFamilyDescriptor(
-          "new_cf",
+          "new_cf".getBytes(),
           new ColumnFamilyOptions().
               setDisableAutoCompactions(true).
               setCompactionStyle(CompactionStyle.LEVEL).

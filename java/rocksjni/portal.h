@@ -172,7 +172,7 @@ class ColumnFamilyDescriptorJni {
   static jmethodID getColumnFamilyNameMethod(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
         getColumnFamilyDescriptorClass(env),
-        "columnFamilyName", "()Ljava/lang/String;");
+        "columnFamilyName", "()[B");
     assert(mid != nullptr);
     return mid;
   }
