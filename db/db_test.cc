@@ -9579,7 +9579,7 @@ TEST(DBTest, ThreadStatusMultipleCompaction) {
 
     int max_compaction_count = 0;
     std::vector<ThreadStatus> thread_list;
-    const int kCompactionDelayMicro = 10000;
+    const int kCompactionDelayMicro = 20000;
     ThreadStatusUtil::TEST_SetOperationDelay(
         ThreadStatus::OP_COMPACTION, kCompactionDelayMicro);
 
@@ -9606,8 +9606,9 @@ TEST(DBTest, ThreadStatusMultipleCompaction) {
     }
 
     if (options.enable_thread_tracking) {
-      // Expect rocksdb max-out the concurrent compaction jobs.
-      ASSERT_EQ(max_compaction_count, options.max_background_compactions);
+      // Expect rocksdb to at least utilize 80% of the compaction threads.
+      ASSERT_GE(1.0 * max_compaction_count,
+                0.8 * options.max_background_compactions);
     } else {
       // If thread tracking is not enabled, compaction count should be 0.
       ASSERT_EQ(max_compaction_count, 0);
