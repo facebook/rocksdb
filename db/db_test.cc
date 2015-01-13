@@ -9622,8 +9622,6 @@ TEST(DBTest, ThreadStatusMultipleCompaction) {
       ThreadStatus::OP_COMPACTION, 0);
 }
 
-
-
 #endif  // ROCKSDB_USING_THREAD_STATUS
 
 TEST(DBTest, DynamicCompactionOptions) {
