@@ -70,79 +70,9 @@ jobject
     Java_org_rocksdb_RocksDB_openROnly__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count) {
-  auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
-  rocksdb::DB* db = nullptr;
-  const char* db_path = env->GetStringUTFChars(jdb_path, 0);
-
-  std::vector<const char*> cfnames_to_free;
-  std::vector<jstring> jcfnames_for_free;
-
-  std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
-  std::vector<rocksdb::ColumnFamilyHandle* > handles;
-  // get iterator for ColumnFamilyDescriptors
-  jobject iteratorObj = env->CallObjectMethod(
-      jcfdesc_list, rocksdb::ListJni::getIteratorMethod(env));
-
-  // iterate over ColumnFamilyDescriptors
-  while (env->CallBooleanMethod(
-      iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
-      // get ColumnFamilyDescriptor
-      jobject jcf_descriptor = env->CallObjectMethod(iteratorObj,
-          rocksdb::ListJni::getNextMethod(env));
-      // get ColumnFamilyName
-      jstring jstr = (jstring) env->CallObjectMethod(jcf_descriptor,
-          rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
-          env));
-      // get CF Options
-      jobject jcf_opt_obj = env->CallObjectMethod(jcf_descriptor,
-          rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyOptionsMethod(
-          env));
-      rocksdb::ColumnFamilyOptions* cfOptions =
-          rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
-
-      const char* cfname = env->GetStringUTFChars(jstr, 0);
-
-      // free allocated cfnames after call to open
-      cfnames_to_free.push_back(cfname);
-      jcfnames_for_free.push_back(jstr);
-      column_families.push_back(rocksdb::ColumnFamilyDescriptor(cfname,
-          *cfOptions));
-  }
-
-  rocksdb::Status s = rocksdb::DB::OpenForReadOnly(*opt,
-      db_path, column_families, &handles, &db);
-  env->ReleaseStringUTFChars(jdb_path, db_path);
-  // free jbyte allocations
-  for (std::vector<jbyte*>::size_type i = 0;
-      i != cfnames_to_free.size(); i++) {
-    // free  cfnames
-    env->ReleaseStringUTFChars(jcfnames_for_free[i], cfnames_to_free[i]);
-  }
-
-  // check if open operation was successful
-  if (s.ok()) {
-    rocksdb::RocksDBJni::setHandle(env, jdb, db);
-    jclass jListClazz = env->FindClass("java/util/ArrayList");
-    jmethodID midList = rocksdb::ListJni::getArrayListConstructorMethodId(
-        env, jListClazz);
-    jobject jcfhandle_list = env->NewObject(jListClazz,
-        midList, handles.size());
-    // insert in java list
-    for (std::vector<rocksdb::ColumnFamilyHandle*>::size_type i = 0;
-        i != handles.size(); i++) {
-      // jlong must be converted to Long due to collections restrictions
-      jclass jLongClazz = env->FindClass("java/lang/Long");
-      jmethodID midLong = env->GetMethodID(jLongClazz, "<init>", "(J)V");
-      jobject obj = env->NewObject(jLongClazz, midLong,
-          reinterpret_cast<jlong>(handles[i]));
-      env->CallBooleanMethod(jcfhandle_list,
-          rocksdb::ListJni::getListAddMethodId(env), obj);
-    }
-
-    return jcfhandle_list;
-  }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
-  return nullptr;
+  return
+  Java_org_rocksdb_RocksDB_open_ROnly__JLjava_lang_String_2Ljava_util_List_2I(
+    env, jdb, jopt_handle, jdb_path, jcfdesc_list, jcfdesc_count, true);
 }
 
 /*
@@ -150,11 +80,28 @@ jobject
  * Method:    open
  * Signature: (JLjava/lang/String;Ljava/util/List;I)Ljava/util/List;
  */
-jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
+jobject
+    Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count) {
+    return
+    Java_org_rocksdb_RocksDB_open_ROnly__JLjava_lang_String_2Ljava_util_List_2I(
+      env, jdb, jopt_handle, jdb_path, jcfdesc_list, jcfdesc_count, false);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    openWithROnlySwitch
+ * Signature: (JLjava/lang/String;Ljava/util/List;I)Ljava/util/List;
+ * Helper function for opening with or without ReadOnly switch
+ */
+jobject
+    Java_org_rocksdb_RocksDB_open_ROnly__JLjava_lang_String_2Ljava_util_List_2I(
+    JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
+    jobject jcfdesc_list, jint jcfdesc_count, bool openROnly) {
   auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   rocksdb::DB* db = nullptr;
+  rocksdb::Status s;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
 
   std::vector<const char*> cfnames_to_free;
@@ -191,9 +138,12 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(cfname,
           *cfOptions));
   }
-
-  rocksdb::Status s = rocksdb::DB::Open(*opt, db_path, column_families,
-      &handles, &db);
+  if (openROnly) {
+    s = rocksdb::DB::OpenForReadOnly(*opt, db_path, column_families, &handles,
+      &db);
+  } else {
+    s = rocksdb::DB::Open(*opt, db_path, column_families, &handles, &db);
+  }
   env->ReleaseStringUTFChars(jdb_path, db_path);
   // free jbyte allocations
   for (std::vector<jbyte*>::size_type i = 0;
