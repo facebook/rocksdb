@@ -2705,8 +2705,9 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
   Version* version = c->column_family_data()->current();
   const VersionStorageInfo* vstorage = version->storage_info();
   if (c->input_version() != version) {
-    Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,
-        "[%s] VerifyCompactionFileConsistency version mismatch",
+    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+        "[%s] compaction output being applied to a different base version from"
+        " input version",
         c->column_family_data()->GetName().c_str());
   }
 
