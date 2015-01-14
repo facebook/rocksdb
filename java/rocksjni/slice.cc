@@ -28,9 +28,11 @@ void Java_org_rocksdb_AbstractSlice_createNewSliceFromString(
     JNIEnv* env, jobject jobj, jstring jstr) {
 
   const auto* str = env->GetStringUTFChars(jstr, 0);
-  const size_t len = strlen(str);
+  const size_t len = strlen(str) + 1;
   char* buf = new char[len];
-  memcpy(buf, str, len);
+  memcpy(buf, str, len - 1);
+  buf[len-1]='\0';
+
   env->ReleaseStringUTFChars(jstr, str);
 
   const auto* slice = new rocksdb::Slice(buf);
