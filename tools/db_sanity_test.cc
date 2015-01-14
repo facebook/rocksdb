@@ -133,6 +133,32 @@ class SanityTestZlibCompression : public SanityTest {
   Options options_;
 };
 
+class SanityTestLZ4Compression : public SanityTest {
+ public:
+  explicit SanityTestLZ4Compression(const std::string& path)
+      : SanityTest(path) {
+    options_.compression = kLZ4Compression;
+  }
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "LZ4Compression"; }
+
+ private:
+  Options options_;
+};
+
+class SanityTestLZ4HCCompression : public SanityTest {
+ public:
+  explicit SanityTestLZ4HCCompression(const std::string& path)
+      : SanityTest(path) {
+    options_.compression = kLZ4HCCompression;
+  }
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "LZ4HCCompression"; }
+
+ private:
+  Options options_;
+};
+
 #ifndef ROCKSDB_LITE
 class SanityTestPlainTableFactory : public SanityTest {
  public:
@@ -171,6 +197,8 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
   std::vector<SanityTest*> sanity_tests = {
       new SanityTestBasic(path), new SanityTestSpecialComparator(path),
       new SanityTestZlibCompression(path),
+      new SanityTestLZ4Compression(path),
+      new SanityTestLZ4HCCompression(path),
 #ifndef ROCKSDB_LITE
       new SanityTestPlainTableFactory(path),
 #endif  // ROCKSDB_LITE
