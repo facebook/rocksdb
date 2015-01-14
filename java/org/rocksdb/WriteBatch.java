@@ -22,7 +22,7 @@ package org.rocksdb;
  * non-const method, all threads accessing the same WriteBatch must use
  * external synchronization.
  */
-public class WriteBatch extends RocksObject {
+public class WriteBatch extends AbstractWriteBatch {
   /**
    * Constructs a WriteBatch instance.
    */
@@ -42,102 +42,6 @@ public class WriteBatch extends RocksObject {
   }
 
   /**
-   * Returns the number of updates in the batch.
-   *
-   * @return number of items in WriteBatch
-   */
-  public native int count();
-
-  /**
-   * <p>Store the mapping "key-&gt;value" in the database.</p>
-   *
-   * @param key the specified key to be inserted.
-   * @param value the value associated with the specified key.
-   */
-  public void put(byte[] key, byte[] value) {
-    put(key, key.length, value, value.length);
-  }
-
-  /**
-   * <p>Store the mapping "key-&gt;value" within given column
-   * family.</p>
-   *
-   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
-   *     instance
-   * @param key the specified key to be inserted.
-   * @param value the value associated with the specified key.
-   */
-  public void put(ColumnFamilyHandle columnFamilyHandle,
-      byte[] key, byte[] value) {
-    put(key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>Merge "value" with the existing value of "key" in the database.
-   * "key-&gt;merge(existing, value)"</p>
-   *
-   * @param key the specified key to be merged.
-   * @param value the value to be merged with the current value for
-   * the specified key.
-   */
-  public void merge(byte[] key, byte[] value) {
-    merge(key, key.length, value, value.length);
-  }
-
-  /**
-   * <p>Merge "value" with the existing value of "key" in given column family.
-   * "key-&gt;merge(existing, value)"</p>
-   *
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-   * @param key the specified key to be merged.
-   * @param value the value to be merged with the current value for
-   * the specified key.
-   */
-  public void merge(ColumnFamilyHandle columnFamilyHandle,
-      byte[] key, byte[] value) {
-    merge(key, key.length, value, value.length,
-        columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * <p>If the database contains a mapping for "key", erase it.  Else do nothing.</p>
-   *
-   * @param key Key to delete within database
-   */
-  public void remove(byte[] key) {
-    remove(key, key.length);
-  }
-
-  /**
-   * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
-   *
-   * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
-   * @param key Key to delete within database
-   */
-  public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key) {
-    remove(key, key.length, columnFamilyHandle.nativeHandle_);
-  }
-
-  /**
-   * Append a blob of arbitrary size to the records in this batch. The blob will
-   * be stored in the transaction log but not in any other file. In particular,
-   * it will not be persisted to the SST files. When iterating over this
-   * WriteBatch, WriteBatch::Handler::LogData will be called with the contents
-   * of the blob as it is encountered. Blobs, puts, deletes, and merges will be
-   * encountered in the same order in thich they were inserted. The blob will
-   * NOT consume sequence number(s) and will NOT increase the count of the batch
-   *
-   * Example application: add timestamps to the transaction log for use in
-   * replication.
-   *
-   * @param blob binary object to be inserted
-   */
-  public void putLogData(byte[] blob) {
-    putLogData(blob, blob.length);
-  }
-
-  /**
    * Support for iterating over the contents of a batch.
    *
    * @param handler A handler that is called back for each
@@ -149,36 +53,22 @@ public class WriteBatch extends RocksObject {
     iterate(handler.nativeHandle_);
   }
 
-  /**
-   * Clear all updates buffered in this batch
-   */
-  public native void clear();
-
-  /**
-   * Delete the c++ side pointer.
-   */
-  @Override protected void disposeInternal() {
-    assert(isInitialized());
-    disposeInternal(nativeHandle_);
-  }
+  @Override final native void disposeInternal(long handle);
+  @Override final native int count0();
+  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
+  @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen,
+      long cfHandle);
+  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen);
+  @Override final native void merge(byte[] key, int keyLen, byte[] value, int valueLen,
+      long cfHandle);
+  @Override final native void remove(byte[] key, int keyLen);
+  @Override final native void remove(byte[] key, int keyLen, long cfHandle);
+  @Override final native void putLogData(byte[] blob, int blobLen);
+  @Override final native void clear0();
 
   private native void newWriteBatch(int reserved_bytes);
-  private native void put(byte[] key, int keyLen,
-                          byte[] value, int valueLen);
-  private native void put(byte[] key, int keyLen,
-                          byte[] value, int valueLen,
-                          long cfHandle);
-  private native void merge(byte[] key, int keyLen,
-                            byte[] value, int valueLen);
-  private native void merge(byte[] key, int keyLen,
-                            byte[] value, int valueLen,
-                            long cfHandle);
-  private native void remove(byte[] key, int keyLen);
-  private native void remove(byte[] key, int keyLen,
-                            long cfHandle);
-  private native void putLogData(byte[] blob, int blobLen);
   private native void iterate(long handlerHandle) throws RocksDBException;
-  private native void disposeInternal(long handle);
+
 
   /**
    * Handler callback for iterating over the contents of a batch.

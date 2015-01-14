@@ -57,6 +57,40 @@ public class ColumnFamilyTest {
   }
 
   @Test
+  public void defaultColumnFamily() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options();
+      options.setCreateIfMissing(true);
+
+      DBOptions dbOptions = new DBOptions();
+      dbOptions.setCreateIfMissing(true);
+
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+      ColumnFamilyHandle cfh = db.getDefaultColumnFamily();
+      assertThat(cfh).isNotNull();
+
+      final byte[] key = "key".getBytes();
+      final byte[] value = "value".getBytes();
+
+      db.put(cfh, key, value);
+
+      final byte[] actualValue = db.get(cfh, key);
+
+      assertThat(cfh).isNotNull();
+      assertThat(actualValue).isEqualTo(value);
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+  @Test
   public void createColumnFamily() throws RocksDBException {
     RocksDB db = null;
     Options options = null;

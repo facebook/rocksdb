@@ -16,6 +16,9 @@ import java.nio.ByteBuffer;
  * values consider using @see org.rocksdb.Slice
  */
 public class DirectSlice extends AbstractSlice<ByteBuffer> {
+  //TODO(AR) only needed by WriteBatchWithIndexTest until JDK8
+  public final static DirectSlice NONE = new DirectSlice();
+
   /**
    * Called from JNI to construct a new Java DirectSlice
    * without an underlying C++ object set
@@ -24,12 +27,12 @@ public class DirectSlice extends AbstractSlice<ByteBuffer> {
    * Note: You should be aware that
    * {@see org.rocksdb.RocksObject#disOwnNativeHandle()} is intentionally
    * called from the default DirectSlice constructor, and that it is marked as
-   * private. This is so that developers cannot construct their own default
+   * package-private. This is so that developers cannot construct their own default
    * DirectSlice objects (at present). As developers cannot construct their own
    * DirectSlice objects through this, they are not creating underlying C++
    * DirectSlice objects, and so there is nothing to free (dispose) from Java.
    */
-  private DirectSlice() {
+  DirectSlice() {
     super();
     disOwnNativeHandle();
   }

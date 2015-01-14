@@ -36,6 +36,8 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.test.WriteBatchInternal\
 	org.rocksdb.test.WriteBatchTest\
         org.rocksdb.WriteOptions\
+	org.rocksdb.WriteBatchWithIndex\
+	org.rocksdb.WBWIRocksIterator
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -81,6 +83,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.WriteBatchHandlerTest\
 		org.rocksdb.test.WriteBatchTest\
 		org.rocksdb.test.WriteOptionsTest\
+		org.rocksdb.test.WriteBatchWithIndexTest
 
 JAVA_TEST_LIBDIR = ./test-libs/
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)junit-4.12-beta-2.jar

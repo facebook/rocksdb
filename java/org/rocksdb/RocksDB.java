@@ -539,7 +539,21 @@ public class RocksDB extends RocksObject {
    */
   public void write(WriteOptions writeOpts, WriteBatch updates)
       throws RocksDBException {
-    write(writeOpts.nativeHandle_, updates.nativeHandle_);
+    write0(writeOpts.nativeHandle_, updates.nativeHandle_);
+  }
+
+  /**
+   * Apply the specified updates to the database.
+   *
+   * @param writeOpts WriteOptions instance
+   * @param updates WriteBatchWithIndex instance
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public void write(WriteOptions writeOpts, WriteBatchWithIndex updates)
+      throws RocksDBException {
+    write1(writeOpts.nativeHandle_, updates.nativeHandle_);
   }
 
   /**
@@ -1181,6 +1195,15 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * Gets the handle for the default column family
+   *
+   * @return The handle of the default column family
+   */
+  public ColumnFamilyHandle getDefaultColumnFamily() {
+    return new ColumnFamilyHandle(this, getDefaultColumnFamily(nativeHandle_));
+  }
+
+  /**
    * Creates a new column family with the name columnFamilyName and
    * allocates a ColumnFamilyHandle within an internal structure.
    * The ColumnFamilyHandle is automatically disposed with DB disposal.
@@ -1538,8 +1561,10 @@ public class RocksDB extends RocksObject {
       long handle, long writeOptHandle,
       byte[] key, int keyLen,
       byte[] value, int valueLen, long cfHandle) throws RocksDBException;
-  protected native void write(
-      long writeOptHandle, long batchHandle) throws RocksDBException;
+  protected native void write0(
+      long writeOptHandle, long wbHandle) throws RocksDBException;
+  protected native void write1(
+      long writeOptHandle, long wbwiHandle) throws RocksDBException;
   protected native boolean keyMayExist(byte[] key, int keyLen,
       StringBuffer stringBuffer);
   protected native boolean keyMayExist(byte[] key, int keyLen,
@@ -1620,6 +1645,7 @@ public class RocksDB extends RocksObject {
   protected native void releaseSnapshot(
       long nativeHandle, long snapshotHandle);
   private native void disposeInternal(long handle);
+  private native long getDefaultColumnFamily(long handle);
   private native long createColumnFamily(long handle,
       ColumnFamilyDescriptor columnFamilyDescriptor) throws RocksDBException;
   private native void dropColumnFamily(long handle, long cfHandle) throws RocksDBException;
