@@ -84,7 +84,7 @@ Status GeoDBImpl::GetByPosition(const GeoPosition& pos,
 
 Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   Status status;
-  Slice quadkey;
+  std::string quadkey;
 
   // create an iterator so that we can get a consistent picture
   // of the database.
@@ -97,7 +97,7 @@ Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   iter->Seek(key2);
   if (iter->Valid() && iter->status().ok()) {
     if (iter->key().compare(key2) == 0) {
-      quadkey = iter->value();
+      quadkey = iter->value().ToString();
     }
   }
   if (quadkey.size() == 0) {
@@ -108,7 +108,7 @@ Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   //
   // Seek to the quadkey + id prefix
   //
-  std::string prefix = MakeKey1Prefix(quadkey.ToString(), id);
+  std::string prefix = MakeKey1Prefix(quadkey, id);
   iter->Seek(Slice(prefix));
   assert(iter->Valid());
   if (!iter->Valid() || !iter->status().ok()) {
