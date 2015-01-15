@@ -135,10 +135,6 @@ class Compaction {
   // before processing "internal_key".
   bool ShouldStopBefore(const Slice& internal_key);
 
-  // Release the input version for the compaction, once the compaction
-  // is successful.
-  void ReleaseInputs();
-
   // Clear all files to indicate that they are not being compacted
   // Delete this compaction from the list of running compactions.
   void ReleaseCompactionFiles(Status status);

@@ -1344,7 +1344,6 @@ Status DBImpl::CompactFilesImpl(
                                   *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
-  c->ReleaseInputs();
   c.reset();
 
   if (status.ok()) {
@@ -2203,9 +2202,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                     *c->mutable_cf_options());
     }
     c->ReleaseCompactionFiles(status);
-    c->ReleaseInputs();
     *madeProgress = true;
   }
+  // this will unref its input_version and column_family_data
   c.reset();
 
   if (status.ok()) {

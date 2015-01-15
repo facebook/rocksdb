@@ -242,19 +242,6 @@ void Compaction::SetupBottomMostLevel(VersionStorageInfo* vstorage,
   }
 }
 
-void Compaction::ReleaseInputs() {
-  if (input_version_ != nullptr) {
-    input_version_->Unref();
-    input_version_ = nullptr;
-  }
-  if (cfd_ != nullptr) {
-    if (cfd_->Unref()) {
-      delete cfd_;
-    }
-    cfd_ = nullptr;
-  }
-}
-
 void Compaction::ReleaseCompactionFiles(Status status) {
   cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);
 }
