@@ -129,7 +129,8 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
     {"memtable_prefix_bloom_huge_page_tlb_size", "28"},
     {"bloom_locality", "29"},
     {"max_successive_merges", "30"},
-    {"min_partial_merge_operands", "31"}
+    {"min_partial_merge_operands", "31"},
+    {"prefix_extractor", "fixed:31"}
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -220,6 +221,9 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.bloom_locality, 29U);
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_EQ(new_cf_opt.min_partial_merge_operands, 31U);
+  ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
+  ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
+            "rocksdb.FixedPrefix.31");
 
   cf_options_map["write_buffer_size"] = "hello";
   ASSERT_NOK(GetColumnFamilyOptionsFromMap(

@@ -9,6 +9,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "util/options_helper.h"
@@ -508,6 +509,15 @@ Status GetColumnFamilyOptionsFromMap(
         new_options->min_partial_merge_operands = ParseUint32(o.second);
       } else if (o.first == "inplace_update_support") {
         new_options->inplace_update_support = ParseBoolean(o.first, o.second);
+      } else if (o.first == "prefix_extractor") {
+        const std::string kName = "fixed:";
+        if (o.second.compare(0, kName.size(), kName) != 0) {
+          return Status::InvalidArgument("Invalid Prefix Extractor type: "
+                                         + o.second);
+        }
+        int prefix_length = ParseInt(trim(o.second.substr(kName.size())));
+        new_options->prefix_extractor.reset(
+            NewFixedPrefixTransform(prefix_length));
       } else {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       }
