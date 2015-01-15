@@ -43,7 +43,7 @@ else
 OPT += -DNDEBUG
 endif
 
-ifneq ($(filter -DROCKSDB_LITE,$(OPT)),) 
+ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
 	# found
 	CFLAGS += -fno-exceptions
 	CXXFLAGS += -fno-exceptions
@@ -121,6 +121,7 @@ TESTS = \
 	crc32c_test \
 	dbformat_test \
 	env_test \
+	fault_injection_test \
 	blob_store_test \
 	filelock_test \
 	filename_test \
@@ -461,6 +462,9 @@ dbformat_test: db/dbformat_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 env_test: util/env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/env_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
