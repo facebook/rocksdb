@@ -331,7 +331,7 @@ Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
   compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
 
   if (decompression_requested && compression_type != kNoCompression) {
-    return UncompressBlockContents(slice.data(), n, contents);
+    return UncompressBlockContents(slice.data(), n, contents, footer.version());
   }
 
   if (slice.data() != used_buf) {
@@ -354,8 +354,10 @@ Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
 // contents are uncompresed into this buffer. This
 // buffer is returned via 'result' and it is upto the caller to
 // free this buffer.
+// format_version is the block format as defined in include/rocksdb/table.h
 Status UncompressBlockContents(const char* data, size_t n,
-                               BlockContents* contents) {
+                               BlockContents* contents,
+                               uint32_t format_version) {
   std::unique_ptr<char[]> ubuf;
   int decompress_size = 0;
   assert(data[n] != kNoCompression);
@@ -375,8 +377,9 @@ Status UncompressBlockContents(const char* data, size_t n,
       break;
     }
     case kZlibCompression:
-      ubuf =
-          std::unique_ptr<char[]>(Zlib_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(Zlib_Uncompress(
+          data, n, &decompress_size,
+          GetCompressFormatForVersion(kZlibCompression, format_version)));
       if (!ubuf) {
         static char zlib_corrupt_msg[] =
           "Zlib not supported or corrupted Zlib compressed block contents";
@@ -386,8 +389,9 @@ Status UncompressBlockContents(const char* data, size_t n,
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     case kBZip2Compression:
-      ubuf =
-          std::unique_ptr<char[]>(BZip2_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(BZip2_Uncompress(
+          data, n, &decompress_size,
+          GetCompressFormatForVersion(kBZip2Compression, format_version)));
       if (!ubuf) {
         static char bzip2_corrupt_msg[] =
           "Bzip2 not supported or corrupted Bzip2 compressed block contents";
@@ -397,7 +401,9 @@ Status UncompressBlockContents(const char* data, size_t n,
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     case kLZ4Compression:
-      ubuf = std::unique_ptr<char[]>(LZ4_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(LZ4_Uncompress(
+          data, n, &decompress_size,
+          GetCompressFormatForVersion(kLZ4Compression, format_version)));
       if (!ubuf) {
         static char lz4_corrupt_msg[] =
           "LZ4 not supported or corrupted LZ4 compressed block contents";
@@ -407,7 +413,9 @@ Status UncompressBlockContents(const char* data, size_t n,
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
     case kLZ4HCCompression:
-      ubuf = std::unique_ptr<char[]>(LZ4_Uncompress(data, n, &decompress_size));
+      ubuf = std::unique_ptr<char[]>(LZ4_Uncompress(
+          data, n, &decompress_size,
+          GetCompressFormatForVersion(kLZ4HCCompression, format_version)));
       if (!ubuf) {
         static char lz4hc_corrupt_msg[] =
           "LZ4HC not supported or corrupted LZ4HC compressed block contents";

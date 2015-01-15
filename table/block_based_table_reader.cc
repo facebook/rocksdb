@@ -442,9 +442,9 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   if (!s.ok()) {
     return s;
   }
-  if (footer.version() > 1) {
+  if (!BlockBasedTableSupportedVersion(footer.version())) {
     return Status::Corruption(
-        "Unknown Footer version. Maybe this file was created with too new "
+        "Unknown Footer version. Maybe this file was created with newer "
         "version of RocksDB?");
   }
 
@@ -605,7 +605,7 @@ Status BlockBasedTable::GetDataBlockFromCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
     Cache* block_cache, Cache* block_cache_compressed, Statistics* statistics,
     const ReadOptions& read_options,
-    BlockBasedTable::CachableEntry<Block>* block) {
+    BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version) {
   Status s;
   Block* compressed_block = nullptr;
   Cache::Handle* block_cache_compressed_handle = nullptr;
@@ -648,7 +648,8 @@ Status BlockBasedTable::GetDataBlockFromCache(
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
   s = UncompressBlockContents(compressed_block->data(),
-                              compressed_block->size(), &contents);
+                              compressed_block->size(), &contents,
+                              format_version);
 
   // Insert uncompressed block into block cache
   if (s.ok()) {
@@ -673,7 +674,7 @@ Status BlockBasedTable::PutDataBlockToCache(
     const Slice& block_cache_key, const Slice& compressed_block_cache_key,
     Cache* block_cache, Cache* block_cache_compressed,
     const ReadOptions& read_options, Statistics* statistics,
-    CachableEntry<Block>* block, Block* raw_block) {
+    CachableEntry<Block>* block, Block* raw_block, uint32_t format_version) {
   assert(raw_block->compression_type() == kNoCompression ||
          block_cache_compressed != nullptr);
 
@@ -681,8 +682,8 @@ Status BlockBasedTable::PutDataBlockToCache(
   // Retrieve the uncompressed contents into a new buffer
   BlockContents contents;
   if (raw_block->compression_type() != kNoCompression) {
-    s = UncompressBlockContents(raw_block->data(), raw_block->size(),
-                                &contents);
+    s = UncompressBlockContents(raw_block->data(), raw_block->size(), &contents,
+                                format_version);
   }
   if (!s.ok()) {
     delete raw_block;
@@ -929,7 +930,8 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
     }
 
     s = GetDataBlockFromCache(key, ckey, block_cache, block_cache_compressed,
-                              statistics, ro, &block);
+                              statistics, ro, &block,
+                              rep->table_options.format_version);
 
     if (block.value == nullptr && !no_io && ro.fill_cache) {
       Block* raw_block = nullptr;
@@ -942,7 +944,8 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
 
       if (s.ok()) {
         s = PutDataBlockToCache(key, ckey, block_cache, block_cache_compressed,
-                                ro, statistics, &block, raw_block);
+                                ro, statistics, &block, raw_block,
+                                rep->table_options.format_version);
       }
     }
   }
@@ -1194,7 +1197,8 @@ bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
   Slice ckey;
 
   s = GetDataBlockFromCache(cache_key, ckey, block_cache, nullptr, nullptr,
-                            options, &block);
+                            options, &block,
+                            rep_->table_options.format_version);
   assert(s.ok());
   bool in_cache = block.value != nullptr;
   if (in_cache) {

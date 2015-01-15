@@ -65,25 +65,25 @@ static bool SnappyCompressionSupported(const CompressionOptions& options) {
 static bool ZlibCompressionSupported(const CompressionOptions& options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return Zlib_Compress(options, in.data(), in.size(), &out);
+  return Zlib_Compress(options, 2, in.data(), in.size(), &out);
 }
 
 static bool BZip2CompressionSupported(const CompressionOptions& options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return BZip2_Compress(options, in.data(), in.size(), &out);
+  return BZip2_Compress(options, 2, in.data(), in.size(), &out);
 }
 
 static bool LZ4CompressionSupported(const CompressionOptions &options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return LZ4_Compress(options, in.data(), in.size(), &out);
+  return LZ4_Compress(options, 2, in.data(), in.size(), &out);
 }
 
 static bool LZ4HCCompressionSupported(const CompressionOptions &options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return LZ4HC_Compress(options, in.data(), in.size(), &out);
+  return LZ4HC_Compress(options, 2, in.data(), in.size(), &out);
 }
 
 static std::string RandomString(Random* rnd, int len) {
@@ -10168,6 +10168,48 @@ TEST(DBTest, DontDeleteMovedFile) {
   // ~Version::Version() is not there), we get this failure:
   // Corruption: Can't access /000009.sst
   Reopen(options);
+}
+
+TEST(DBTest, EncodeDecompressedBlockSizeTest) {
+  // iter 0 -- zlib
+  // iter 1 -- bzip2
+  // iter 2 -- lz4
+  // iter 3 -- lz4HC
+  CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
+                                    kLZ4Compression,  kLZ4HCCompression};
+  for (int iter = 0; iter < 4; ++iter) {
+    // first_table_version 1 -- generate with table_version == 1, read with
+    // table_version == 2
+    // first_table_version 2 -- generate with table_version == 2, read with
+    // table_version == 1
+    for (int first_table_version = 1; first_table_version <= 2;
+         ++first_table_version) {
+      BlockBasedTableOptions table_options;
+      table_options.format_version = first_table_version;
+      table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+      Options options = CurrentOptions();
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      options.create_if_missing = true;
+      options.compression = compressions[iter];
+      DestroyAndReopen(options);
+
+      int kNumKeysWritten = 100000;
+
+      Random rnd(301);
+      for (int i = 0; i < kNumKeysWritten; ++i) {
+        // compressible string
+        ASSERT_OK(Put(Key(i), RandomString(&rnd, 128) + std::string(128, 'a')));
+      }
+
+      table_options.format_version = first_table_version == 1 ? 2 : 1;
+      options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+      Reopen(options);
+      for (int i = 0; i < kNumKeysWritten; ++i) {
+        auto r = Get(Key(i));
+        ASSERT_EQ(r.substr(128), std::string(128, 'a'));
+      }
+    }
+  }
 }
 
 }  // namespace rocksdb

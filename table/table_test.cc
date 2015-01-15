@@ -545,7 +545,8 @@ static bool ZlibCompressionSupported() {
 #ifdef ZLIB
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return Zlib_Compress(Options().compression_opts, in.data(), in.size(), &out);
+  return Zlib_Compress(Options().compression_opts, 2, in.data(), in.size(),
+                       &out);
 #else
   return false;
 #endif
@@ -555,7 +556,8 @@ static bool BZip2CompressionSupported() {
 #ifdef BZIP2
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return BZip2_Compress(Options().compression_opts, in.data(), in.size(), &out);
+  return BZip2_Compress(Options().compression_opts, 2, in.data(), in.size(),
+                        &out);
 #else
   return false;
 #endif
@@ -565,7 +567,8 @@ static bool LZ4CompressionSupported() {
 #ifdef LZ4
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return LZ4_Compress(Options().compression_opts, in.data(), in.size(), &out);
+  return LZ4_Compress(Options().compression_opts, 2, in.data(), in.size(),
+                      &out);
 #else
   return false;
 #endif
@@ -575,7 +578,8 @@ static bool LZ4HCCompressionSupported() {
 #ifdef LZ4
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return LZ4HC_Compress(Options().compression_opts, in.data(), in.size(), &out);
+  return LZ4HC_Compress(Options().compression_opts, 2, in.data(), in.size(),
+                        &out);
 #else
   return false;
 #endif
@@ -596,6 +600,7 @@ struct TestArgs {
   bool reverse_compare;
   int restart_interval;
   CompressionType compression;
+  uint32_t format_version;
 };
 
 static std::vector<TestArgs> GenerateArgList() {
@@ -609,22 +614,26 @@ static std::vector<TestArgs> GenerateArgList() {
   std::vector<int> restart_intervals = {16, 1, 1024};
 
   // Only add compression if it is supported
-  std::vector<CompressionType> compression_types;
-  compression_types.push_back(kNoCompression);
+  std::vector<std::pair<CompressionType, bool>> compression_types;
+  compression_types.emplace_back(kNoCompression, false);
   if (SnappyCompressionSupported()) {
-    compression_types.push_back(kSnappyCompression);
+    compression_types.emplace_back(kSnappyCompression, false);
   }
   if (ZlibCompressionSupported()) {
-    compression_types.push_back(kZlibCompression);
+    compression_types.emplace_back(kZlibCompression, false);
+    compression_types.emplace_back(kZlibCompression, true);
   }
   if (BZip2CompressionSupported()) {
-    compression_types.push_back(kBZip2Compression);
+    compression_types.emplace_back(kBZip2Compression, false);
+    compression_types.emplace_back(kBZip2Compression, true);
   }
   if (LZ4CompressionSupported()) {
-    compression_types.push_back(kLZ4Compression);
+    compression_types.emplace_back(kLZ4Compression, false);
+    compression_types.emplace_back(kLZ4Compression, true);
   }
   if (LZ4HCCompressionSupported()) {
-    compression_types.push_back(kLZ4HCCompression);
+    compression_types.emplace_back(kLZ4HCCompression, false);
+    compression_types.emplace_back(kLZ4HCCompression, true);
   }
 
   for (auto test_type : test_types) {
@@ -636,7 +645,7 @@ static std::vector<TestArgs> GenerateArgList() {
         one_arg.type = test_type;
         one_arg.reverse_compare = reverse_compare;
         one_arg.restart_interval = restart_intervals[0];
-        one_arg.compression = compression_types[0];
+        one_arg.compression = compression_types[0].first;
         test_args.push_back(one_arg);
         continue;
       }
@@ -647,7 +656,8 @@ static std::vector<TestArgs> GenerateArgList() {
           one_arg.type = test_type;
           one_arg.reverse_compare = reverse_compare;
           one_arg.restart_interval = restart_interval;
-          one_arg.compression = compression_type;
+          one_arg.compression = compression_type.first;
+          one_arg.format_version = compression_type.second ? 2 : 1;
           test_args.push_back(one_arg);
         }
       }
@@ -718,6 +728,7 @@ class Harness {
             new FlushBlockBySizePolicyFactory());
         table_options_.block_size = 256;
         table_options_.block_restart_interval = args.restart_interval;
+        table_options_.format_version = args.format_version;
         options_.table_factory.reset(
             new BlockBasedTableFactory(table_options_));
         constructor_ = new TableConstructor(options_.comparator);

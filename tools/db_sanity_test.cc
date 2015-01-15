@@ -133,6 +133,22 @@ class SanityTestZlibCompression : public SanityTest {
   Options options_;
 };
 
+class SanityTestZlibCompressionVersion2 : public SanityTest {
+ public:
+  explicit SanityTestZlibCompressionVersion2(const std::string& path)
+      : SanityTest(path) {
+    options_.compression = kZlibCompression;
+    BlockBasedTableOptions table_options;
+    table_options.format_version = 2;
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "ZlibCompressionVersion2"; }
+
+ private:
+  Options options_;
+};
+
 class SanityTestLZ4Compression : public SanityTest {
  public:
   explicit SanityTestLZ4Compression(const std::string& path)
@@ -197,6 +213,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
   std::vector<SanityTest*> sanity_tests = {
       new SanityTestBasic(path), new SanityTestSpecialComparator(path),
       new SanityTestZlibCompression(path),
+      new SanityTestZlibCompressionVersion2(path),
       new SanityTestLZ4Compression(path),
       new SanityTestLZ4HCCompression(path),
 #ifndef ROCKSDB_LITE
@@ -209,6 +226,7 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
   } else {
     fprintf(stderr, "Verifying...\n");
   }
+  bool result = true;
   for (auto sanity_test : sanity_tests) {
     Status s;
     fprintf(stderr, "%s -- ", sanity_test->Name().c_str());
@@ -221,12 +239,12 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
     fprintf(stderr, "%s\n", s.ToString().c_str());
     if (!s.ok()) {
       fprintf(stderr, "FAIL\n");
-      return false;
+      result = false;
     }
 
     delete sanity_test;
   }
-  return true;
+  return result;
 }
 }  // namespace
 

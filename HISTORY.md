@@ -8,6 +8,8 @@
   Lower numbered levels will be placed earlier in the db_paths and higher
   numbered levels will be placed later in the db_paths vector.
 * Potentially big performance improvements if you're using RocksDB with lots of column families (100-1000)
+* Added BlockBasedTableOptions.format_version option, which allows user to specify which version of block based table he wants. As a general guidline, newer versions have more features, but might not be readable by older versions of RocksDB.
+* Added new block based table format (version 2), which you can enable by setting BlockBasedTableOptions.format_version = 2. This format changes how we encode size information in compressed blocks and should help with memory allocations if you're using Zlib or BZip2 compressions.
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option

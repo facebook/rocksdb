@@ -65,6 +65,21 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
+inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
+                                            uint32_t version) {
+  // snappy is not versioned
+  assert(compression_type != kSnappyCompression &&
+         compression_type != kNoCompression);
+  // As of version 2, we encode compressed block with
+  // compress_format_version == 2. Before that, the version is 1.
+  // DO NOT CHANGE THIS FUNCTION, it affects disk format
+  return version >= 2 ? 2 : 1;
+}
+
+inline bool BlockBasedTableSupportedVersion(uint32_t version) {
+  return version <= 2;
+}
+
 // Footer encapsulates the fixed information stored at the tail
 // end of every table file.
 class Footer {
@@ -191,8 +206,11 @@ extern Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
 // contents are uncompresed into this buffer. This buffer is
 // returned via 'result' and it is upto the caller to
 // free this buffer.
+// For description of compress_format_version and possible values, see
+// util/compression.h
 extern Status UncompressBlockContents(const char* data, size_t n,
-                                      BlockContents* contents);
+                                      BlockContents* contents,
+                                      uint32_t compress_format_version);
 
 // Implementation details follow.  Clients should ignore,
 

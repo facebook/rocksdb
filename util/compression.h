@@ -9,7 +9,11 @@
 //
 #pragma once
 
+#include <algorithm>
+#include <limits>
+
 #include "rocksdb/options.h"
+#include "util/coding.h"
 
 #ifdef SNAPPY
 #include <snappy.h>
@@ -29,6 +33,13 @@
 #endif
 
 namespace rocksdb {
+
+// compress_format_version can have two values:
+// 1 -- decompressed sizes for BZip2 and Zlib are not included in the compressed
+// block. Also, decompressed sizes for LZ4 are encoded in platform-dependent
+// way.
+// 2 -- Zlib, BZip2 and LZ4 encode decompressed size as Varint32 just before the
+// start of compressed block. Snappy format is the same as version 1.
 
 inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
                             size_t length, ::std::string* output) {
@@ -61,9 +72,50 @@ inline bool Snappy_Uncompress(const char* input, size_t length,
 #endif
 }
 
-inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
-                          size_t length, ::std::string* output) {
+namespace compression {
+// returns size
+inline size_t PutDecompressedSizeInfo(std::string* output, uint32_t length) {
+  PutVarint32(output, length);
+  return output->size();
+}
+
+inline bool GetDecompressedSizeInfo(const char** input_data,
+                                    size_t* input_length,
+                                    uint32_t* output_len) {
+  auto new_input_data =
+      GetVarint32Ptr(*input_data, *input_data + *input_length, output_len);
+  if (new_input_data == nullptr) {
+    return false;
+  }
+  *input_length -= (new_input_data - *input_data);
+  *input_data = new_input_data;
+  return true;
+}
+}  // namespace compression
+
+// compress_format_version == 1 -- decompressed size is not included in the
+// block header
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
+inline bool Zlib_Compress(const CompressionOptions& opts,
+                          uint32_t compress_format_version,
+                          const char* input, size_t length,
+                          ::std::string* output) {
 #ifdef ZLIB
+  if (length > std::numeric_limits<uint32_t>::max()) {
+    // Can't compress more than 4GB
+    return false;
+  }
+
+  size_t output_header_len = 0;
+  if (compress_format_version == 2) {
+    output_header_len = compression::PutDecompressedSizeInfo(
+        output, static_cast<uint32_t>(length));
+  }
+  // Resize output to be the plain data length.
+  // This may not be big enough if the compression actually expands data.
+  output->resize(output_header_len + length);
+
   // The memLevel parameter specifies how much memory should be allocated for
   // the internal compression state.
   // memLevel=1 uses minimum memory but is slow and reduces compression ratio.
@@ -78,19 +130,14 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
     return false;
   }
 
-  // Resize output to be the plain data length.
-  // This may not be big enough if the compression actually expands data.
-  output->resize(length);
-
   // Compress the input, and put compressed data in output.
   _stream.next_in = (Bytef *)input;
   _stream.avail_in = static_cast<unsigned int>(length);
 
   // Initialize the output size.
   _stream.avail_out = static_cast<unsigned int>(length);
-  _stream.next_out = (Bytef*)&(*output)[0];
+  _stream.next_out = reinterpret_cast<Bytef*>(&(*output)[output_header_len]);
 
-  size_t old_sz = 0, new_sz = 0, new_sz_delta = 0;
   bool done = false;
   while (!done) {
     st = deflate(&_stream, Z_FINISH);
@@ -99,16 +146,9 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
         done = true;
         break;
       case Z_OK:
-        // No output space. Increase the output space by 20%.
-        // (Should we fail the compression since it expands the size?)
-        old_sz = output->size();
-        new_sz_delta = static_cast<size_t>(output->size() * 0.2);
-        new_sz = output->size() + (new_sz_delta < 10 ? 10 : new_sz_delta);
-        output->resize(new_sz);
-        // Set more output.
-        _stream.next_out = (Bytef *)&(*output)[old_sz];
-        _stream.avail_out = static_cast<unsigned int>(new_sz - old_sz);
-        break;
+        // No output space. This means the compression is bigger than
+        // decompressed size. Just fail the compression in that case.
+        // Intentional fallback (to failure case)
       case Z_BUF_ERROR:
       default:
         deflateEnd(&_stream);
@@ -116,16 +156,37 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
     }
   }
 
-  output->resize(output->size() - _stream.avail_out);
+  output->resize(output->size() - _stream.avail_out + output_header_len);
   deflateEnd(&_stream);
   return true;
 #endif
   return false;
 }
 
+// compress_format_version == 1 -- decompressed size is not included in the
+// block header
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
 inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
-    int* decompress_size, int windowBits = -14) {
+                             int* decompress_size,
+                             uint32_t compress_format_version,
+                             int windowBits = -14) {
 #ifdef ZLIB
+  uint32_t output_len = 0;
+  if (compress_format_version == 2) {
+    if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
+                                              &output_len)) {
+      return nullptr;
+    }
+  } else {
+    // Assume the decompressed data size will 5x of compressed size, but round
+    // to the page size
+    size_t proposed_output_len = ((input_length * 5) & (~(4096 - 1))) + 4096;
+    output_len = static_cast<uint32_t>(
+        std::min(proposed_output_len,
+                 static_cast<size_t>(std::numeric_limits<uint32_t>::max())));
+  }
+
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
 
@@ -141,31 +202,27 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   _stream.next_in = (Bytef *)input_data;
   _stream.avail_in = static_cast<unsigned int>(input_length);
 
-  // Assume the decompressed data size will 5x of compressed size.
-  size_t output_len = input_length * 5;
   char* output = new char[output_len];
-  size_t old_sz = output_len;
 
   _stream.next_out = (Bytef *)output;
   _stream.avail_out = static_cast<unsigned int>(output_len);
 
-  char* tmp = nullptr;
-  size_t output_len_delta;
   bool done = false;
-
-  //while(_stream.next_in != nullptr && _stream.avail_in != 0) {
   while (!done) {
     st = inflate(&_stream, Z_SYNC_FLUSH);
     switch (st) {
       case Z_STREAM_END:
         done = true;
         break;
-      case Z_OK:
+      case Z_OK: {
         // No output space. Increase the output space by 20%.
-        old_sz = output_len;
-        output_len_delta = static_cast<size_t>(output_len * 0.2);
+        // We should never run out of output space if
+        // compress_format_version == 2
+        assert(compress_format_version != 2);
+        size_t old_sz = output_len;
+        size_t output_len_delta = static_cast<size_t>(output_len * 0.2);
         output_len += output_len_delta < 10 ? 10 : output_len_delta;
-        tmp = new char[output_len];
+        char* tmp = new char[output_len];
         memcpy(tmp, output, old_sz);
         delete[] output;
         output = tmp;
@@ -174,6 +231,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
         _stream.next_out = (Bytef *)(output + old_sz);
         _stream.avail_out = static_cast<unsigned int>(output_len - old_sz);
         break;
+      }
       case Z_BUF_ERROR:
       default:
         delete[] output;
@@ -182,6 +240,8 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
     }
   }
 
+  // If we encoded decompressed block size, we should have no bytes left
+  assert(compress_format_version != 2 || _stream.avail_out == 0);
   *decompress_size = static_cast<int>(output_len - _stream.avail_out);
   inflateEnd(&_stream);
   return output;
@@ -190,9 +250,29 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   return nullptr;
 }
 
-inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
-                           size_t length, ::std::string* output) {
+// compress_format_version == 1 -- decompressed size is not included in the
+// block header
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
+inline bool BZip2_Compress(const CompressionOptions& opts,
+                           uint32_t compress_format_version,
+                           const char* input, size_t length,
+                           ::std::string* output) {
 #ifdef BZIP2
+  if (length > std::numeric_limits<uint32_t>::max()) {
+    // Can't compress more than 4GB
+    return false;
+  }
+  size_t output_header_len = 0;
+  if (compress_format_version == 2) {
+    output_header_len = compression::PutDecompressedSizeInfo(
+        output, static_cast<uint32_t>(length));
+  }
+  // Resize output to be the plain data length.
+  // This may not be big enough if the compression actually expands data.
+  output->resize(output_header_len + length);
+
+
   bz_stream _stream;
   memset(&_stream, 0, sizeof(bz_stream));
 
@@ -204,34 +284,23 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
     return false;
   }
 
-  // Resize output to be the plain data length.
-  // This may not be big enough if the compression actually expands data.
-  output->resize(length);
-
   // Compress the input, and put compressed data in output.
   _stream.next_in = (char *)input;
   _stream.avail_in = static_cast<unsigned int>(length);
 
   // Initialize the output size.
-  _stream.next_out = (char *)&(*output)[0];
   _stream.avail_out = static_cast<unsigned int>(length);
+  _stream.next_out = reinterpret_cast<char*>(&(*output)[output_header_len]);
 
-  size_t old_sz = 0, new_sz = 0;
   while (_stream.next_in != nullptr && _stream.avail_in != 0) {
     st = BZ2_bzCompress(&_stream, BZ_FINISH);
     switch (st) {
       case BZ_STREAM_END:
         break;
       case BZ_FINISH_OK:
-        // No output space. Increase the output space by 20%.
-        // (Should we fail the compression since it expands the size?)
-        old_sz = output->size();
-        new_sz = static_cast<size_t>(output->size() * 1.2);
-        output->resize(new_sz);
-        // Set more output.
-        _stream.next_out = (char *)&(*output)[old_sz];
-        _stream.avail_out = static_cast<unsigned int>(new_sz - old_sz);
-        break;
+        // No output space. This means the compression is bigger than
+        // decompressed size. Just fail the compression in that case
+        // Intentional fallback (to failure case)
       case BZ_SEQUENCE_ERROR:
       default:
         BZ2_bzCompressEnd(&_stream);
@@ -239,16 +308,36 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
     }
   }
 
-  output->resize(output->size() - _stream.avail_out);
+  output->resize(output->size() - _stream.avail_out + output_header_len);
   BZ2_bzCompressEnd(&_stream);
   return true;
 #endif
   return false;
 }
 
+// compress_format_version == 1 -- decompressed size is not included in the
+// block header
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
 inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
-                              int* decompress_size) {
+                              int* decompress_size,
+                              uint32_t compress_format_version) {
 #ifdef BZIP2
+  uint32_t output_len = 0;
+  if (compress_format_version == 2) {
+    if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
+                                              &output_len)) {
+      return nullptr;
+    }
+  } else {
+    // Assume the decompressed data size will 5x of compressed size, but round
+    // to the next page size
+    size_t proposed_output_len = ((input_length * 5) & (~(4096 - 1))) + 4096;
+    output_len = static_cast<uint32_t>(
+        std::min(proposed_output_len,
+                 static_cast<size_t>(std::numeric_limits<uint32_t>::max())));
+  }
+
   bz_stream _stream;
   memset(&_stream, 0, sizeof(bz_stream));
 
@@ -260,26 +349,26 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   _stream.next_in = (char *)input_data;
   _stream.avail_in = static_cast<unsigned int>(input_length);
 
-  // Assume the decompressed data size will be 5x of compressed size.
-  size_t output_len = input_length * 5;
   char* output = new char[output_len];
-  size_t old_sz = output_len;
 
   _stream.next_out = (char *)output;
   _stream.avail_out = static_cast<unsigned int>(output_len);
 
-  char* tmp = nullptr;
-
-  while(_stream.next_in != nullptr && _stream.avail_in != 0) {
+  bool done = false;
+  while (!done) {
     st = BZ2_bzDecompress(&_stream);
     switch (st) {
       case BZ_STREAM_END:
+        done = true;
         break;
-      case BZ_OK:
+      case BZ_OK: {
         // No output space. Increase the output space by 20%.
-        old_sz = output_len;
-        output_len = static_cast<size_t>(output_len * 1.2);
-        tmp = new char[output_len];
+        // We should never run out of output space if
+        // compress_format_version == 2
+        assert(compress_format_version != 2);
+        uint32_t old_sz = output_len;
+        output_len = output_len * 1.2;
+        char* tmp = new char[output_len];
         memcpy(tmp, output, old_sz);
         delete[] output;
         output = tmp;
@@ -288,6 +377,7 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
         _stream.next_out = (char *)(output + old_sz);
         _stream.avail_out = static_cast<unsigned int>(output_len - old_sz);
         break;
+      }
       default:
         delete[] output;
         BZ2_bzDecompressEnd(&_stream);
@@ -295,6 +385,8 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
     }
   }
 
+  // If we encoded decompressed block size, we should have no bytes left
+  assert(compress_format_version != 2 || _stream.avail_out == 0);
   *decompress_size = static_cast<int>(output_len - _stream.avail_out);
   BZ2_bzDecompressEnd(&_stream);
   return output;
@@ -302,66 +394,132 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   return nullptr;
 }
 
-inline bool LZ4_Compress(const CompressionOptions &opts, const char *input,
+// compress_format_version == 1 -- decompressed size is included in the
+// block header using memcpy, which makes database non-portable)
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
+inline bool LZ4_Compress(const CompressionOptions& opts,
+                         uint32_t compress_format_version, const char* input,
                          size_t length, ::std::string* output) {
 #ifdef LZ4
+  if (length > std::numeric_limits<uint32_t>::max()) {
+    // Can't compress more than 4GB
+    return false;
+  }
+
+  size_t output_header_len = 0;
+  if (compress_format_version == 2) {
+    // new encoding, using varint32 to store size information
+    output_header_len = compression::PutDecompressedSizeInfo(
+        output, static_cast<uint32_t>(length));
+  } else {
+    // legacy encoding, which is not really portable (depends on big/little
+    // endianness)
+    output_header_len = 8;
+    output->resize(output_header_len);
+    char* p = const_cast<char*>(output->c_str());
+    memcpy(p, &length, sizeof(length));
+  }
+
   int compressBound = LZ4_compressBound(static_cast<int>(length));
-  output->resize(static_cast<size_t>(8 + compressBound));
-  char* p = const_cast<char*>(output->c_str());
-  memcpy(p, &length, sizeof(length));
-  int outlen = LZ4_compress_limitedOutput(
-      input, p + 8, static_cast<int>(length), compressBound);
+  output->resize(static_cast<size_t>(output_header_len + compressBound));
+  int outlen =
+      LZ4_compress_limitedOutput(input, &(*output)[output_header_len],
+                                 static_cast<int>(length), compressBound);
   if (outlen == 0) {
     return false;
   }
-  output->resize(static_cast<size_t>(8 + outlen));
+  output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
 #endif
   return false;
 }
 
+// compress_format_version == 1 -- decompressed size is included in the
+// block header using memcpy, which makes database non-portable)
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
 inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
-                            int* decompress_size) {
+                            int* decompress_size,
+                            uint32_t compress_format_version) {
 #ifdef LZ4
-  if (input_length < 8) {
-    return nullptr;
+  uint32_t output_len = 0;
+  if (compress_format_version == 2) {
+    // new encoding, using varint32 to store size information
+    if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
+                                              &output_len)) {
+      return nullptr;
+    }
+  } else {
+    // legacy encoding, which is not really portable (depends on big/little
+    // endianness)
+    if (input_length < 8) {
+      return nullptr;
+    }
+    memcpy(&output_len, input_data, sizeof(output_len));
+    input_length -= 8;
+    input_data += 8;
   }
-  int output_len;
-  memcpy(&output_len, input_data, sizeof(output_len));
-  char *output = new char[output_len];
-  *decompress_size = LZ4_decompress_safe_partial(
-      input_data + 8, output, static_cast<int>(input_length - 8), output_len,
-      output_len);
+  char* output = new char[output_len];
+  *decompress_size =
+      LZ4_decompress_safe(input_data, output, static_cast<int>(input_length),
+                          static_cast<int>(output_len));
   if (*decompress_size < 0) {
     delete[] output;
     return nullptr;
   }
+  assert(*decompress_size == static_cast<int>(output_len));
   return output;
 #endif
   return nullptr;
 }
 
-inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
+// compress_format_version == 1 -- decompressed size is included in the
+// block header using memcpy, which makes database non-portable)
+// compress_format_version == 2 -- decompressed size is included in the block
+// header in varint32 format
+inline bool LZ4HC_Compress(const CompressionOptions& opts,
+                           uint32_t compress_format_version, const char* input,
                            size_t length, ::std::string* output) {
 #ifdef LZ4
+  if (length > std::numeric_limits<uint32_t>::max()) {
+    // Can't compress more than 4GB
+    return false;
+  }
+
+  size_t output_header_len = 0;
+  if (compress_format_version == 2) {
+    // new encoding, using varint32 to store size information
+    output_header_len = compression::PutDecompressedSizeInfo(
+        output, static_cast<uint32_t>(length));
+  } else {
+    // legacy encoding, which is not really portable (depends on big/little
+    // endianness)
+    output_header_len = 8;
+    output->resize(output_header_len);
+    char* p = const_cast<char*>(output->c_str());
+    memcpy(p, &length, sizeof(length));
+  }
+
   int compressBound = LZ4_compressBound(static_cast<int>(length));
-  output->resize(static_cast<size_t>(8 + compressBound));
-  char* p = const_cast<char*>(output->c_str());
-  memcpy(p, &length, sizeof(length));
+  output->resize(static_cast<size_t>(output_header_len + compressBound));
   int outlen;
 #ifdef LZ4_VERSION_MAJOR  // they only started defining this since r113
-  outlen = LZ4_compressHC2_limitedOutput(input, p + 8, static_cast<int>(length),
+  outlen = LZ4_compressHC2_limitedOutput(input, &(*output)[output_header_len],
+                                         static_cast<int>(length),
                                          compressBound, opts.level);
 #else
-  outlen = LZ4_compressHC_limitedOutput(input, p + 8, static_cast<int>(length),
-                                        compressBound);
+  outlen =
+      LZ4_compressHC_limitedOutput(input, &(*output)[output_header_len],
+                                   static_cast<int>(length), compressBound);
 #endif
   if (outlen == 0) {
     return false;
   }
-  output->resize(static_cast<size_t>(8 + outlen));
+  output->resize(static_cast<size_t>(output_header_len + outlen));
   return true;
 #endif
   return false;
 }
-} // namespace rocksdb
+
+}  // namespace rocksdb

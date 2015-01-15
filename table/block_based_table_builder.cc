@@ -302,9 +302,11 @@ bool GoodCompressionRatio(size_t compressed_size, size_t raw_size) {
   return compressed_size < raw_size - (raw_size / 8u);
 }
 
+// format_version is the block format as defined in include/rocksdb/table.h
 Slice CompressBlock(const Slice& raw,
                     const CompressionOptions& compression_options,
-                    CompressionType* type, std::string* compressed_output) {
+                    CompressionType* type, uint32_t format_version,
+                    std::string* compressed_output) {
   if (*type == kNoCompression) {
     return raw;
   }
@@ -320,29 +322,37 @@ Slice CompressBlock(const Slice& raw,
       }
       break;  // fall back to no compression.
     case kZlibCompression:
-      if (Zlib_Compress(compression_options, raw.data(), raw.size(),
-                        compressed_output) &&
+      if (Zlib_Compress(
+              compression_options,
+              GetCompressFormatForVersion(kZlibCompression, format_version),
+              raw.data(), raw.size(), compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kBZip2Compression:
-      if (BZip2_Compress(compression_options, raw.data(), raw.size(),
-                         compressed_output) &&
+      if (BZip2_Compress(
+              compression_options,
+              GetCompressFormatForVersion(kBZip2Compression, format_version),
+              raw.data(), raw.size(), compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kLZ4Compression:
-      if (LZ4_Compress(compression_options, raw.data(), raw.size(),
-                       compressed_output) &&
+      if (LZ4_Compress(
+              compression_options,
+              GetCompressFormatForVersion(kLZ4Compression, format_version),
+              raw.data(), raw.size(), compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
       break;  // fall back to no compression.
     case kLZ4HCCompression:
-      if (LZ4HC_Compress(compression_options, raw.data(), raw.size(),
-                         compressed_output) &&
+      if (LZ4HC_Compress(
+              compression_options,
+              GetCompressFormatForVersion(kLZ4HCCompression, format_version),
+              raw.data(), raw.size(), compressed_output) &&
           GoodCompressionRatio(compressed_output->size(), raw.size())) {
         return *compressed_output;
       }
@@ -579,7 +589,7 @@ void BlockBasedTableBuilder::WriteBlock(const Slice& raw_block_contents,
   if (raw_block_contents.size() < kCompressionSizeLimit) {
     block_contents =
         CompressBlock(raw_block_contents, r->compression_opts, &type,
-                      &r->compressed_output);
+                      r->table_options.format_version, &r->compressed_output);
   } else {
     RecordTick(r->ioptions.statistics, NUMBER_BLOCK_NOT_COMPRESSED);
     type = kNoCompression;

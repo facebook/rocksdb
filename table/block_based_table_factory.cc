@@ -14,11 +14,12 @@
 #include <string>
 #include <stdint.h>
 
+#include "port/port.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/cache.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
-#include "port/port.h"
+#include "table/format.h"
 
 namespace rocksdb {
 
@@ -76,9 +77,10 @@ Status BlockBasedTableFactory::SanitizeOptions(
     return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
         ", but block cache is disabled");
   }
-  if (table_options_.format_version > 1) {
+  if (!BlockBasedTableSupportedVersion(table_options_.format_version)) {
     return Status::InvalidArgument(
-        "We currently only support versions 0 and 1");
+        "Unsupported BlockBasedTable format_version. Please check "
+        "include/rocksdb/table.h for more info");
   }
   return Status::OK();
 }

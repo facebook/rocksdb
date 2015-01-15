@@ -1219,23 +1219,23 @@ class Benchmark {
           name = "Snappy";
           break;
         case kZlibCompression:
-          result = Zlib_Compress(Options().compression_opts, text, strlen(text),
-                                 &compressed);
+          result = Zlib_Compress(Options().compression_opts, 2, text,
+                                 strlen(text), &compressed);
           name = "Zlib";
           break;
         case kBZip2Compression:
-          result = BZip2_Compress(Options().compression_opts, text,
+          result = BZip2_Compress(Options().compression_opts, 2, text,
                                   strlen(text), &compressed);
           name = "BZip2";
           break;
         case kLZ4Compression:
-          result = LZ4_Compress(Options().compression_opts, text, strlen(text),
-                                &compressed);
+          result = LZ4_Compress(Options().compression_opts, 2, text,
+                                strlen(text), &compressed);
           name = "LZ4";
           break;
         case kLZ4HCCompression:
-          result = LZ4HC_Compress(Options().compression_opts, text,
-                                        strlen(text), &compressed);
+          result = LZ4HC_Compress(Options().compression_opts, 2, text,
+                                  strlen(text), &compressed);
           name = "LZ4HC";
           break;
         case kNoCompression:
@@ -1779,19 +1779,19 @@ class Benchmark {
                              input.size(), &compressed);
         break;
       case rocksdb::kZlibCompression:
-        ok = Zlib_Compress(Options().compression_opts, input.data(),
+        ok = Zlib_Compress(Options().compression_opts, 2, input.data(),
                            input.size(), &compressed);
         break;
       case rocksdb::kBZip2Compression:
-        ok = BZip2_Compress(Options().compression_opts, input.data(),
+        ok = BZip2_Compress(Options().compression_opts, 2, input.data(),
                             input.size(), &compressed);
         break;
       case rocksdb::kLZ4Compression:
-        ok = LZ4_Compress(Options().compression_opts, input.data(),
+        ok = LZ4_Compress(Options().compression_opts, 2, input.data(),
                           input.size(), &compressed);
         break;
       case rocksdb::kLZ4HCCompression:
-        ok = LZ4HC_Compress(Options().compression_opts, input.data(),
+        ok = LZ4HC_Compress(Options().compression_opts, 2, input.data(),
                             input.size(), &compressed);
         break;
       default:
@@ -1825,19 +1825,19 @@ class Benchmark {
                            input.size(), &compressed);
       break;
     case rocksdb::kZlibCompression:
-      ok = Zlib_Compress(Options().compression_opts, input.data(), input.size(),
-                         &compressed);
+      ok = Zlib_Compress(Options().compression_opts, 2, input.data(),
+                         input.size(), &compressed);
       break;
     case rocksdb::kBZip2Compression:
-      ok = BZip2_Compress(Options().compression_opts, input.data(),
+      ok = BZip2_Compress(Options().compression_opts, 2, input.data(),
                           input.size(), &compressed);
       break;
     case rocksdb::kLZ4Compression:
-      ok = LZ4_Compress(Options().compression_opts, input.data(), input.size(),
-                        &compressed);
+      ok = LZ4_Compress(Options().compression_opts, 2, input.data(),
+                        input.size(), &compressed);
       break;
     case rocksdb::kLZ4HCCompression:
-      ok = LZ4HC_Compress(Options().compression_opts, input.data(),
+      ok = LZ4HC_Compress(Options().compression_opts, 2, input.data(),
                           input.size(), &compressed);
       break;
     default:
@@ -1857,22 +1857,22 @@ class Benchmark {
         break;
       case rocksdb::kZlibCompression:
         uncompressed = Zlib_Uncompress(compressed.data(), compressed.size(),
-                                       &decompress_size);
+                                       &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kBZip2Compression:
         uncompressed = BZip2_Uncompress(compressed.data(), compressed.size(),
-                                        &decompress_size);
+                                        &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4Compression:
         uncompressed = LZ4_Uncompress(compressed.data(), compressed.size(),
-                                      &decompress_size);
+                                      &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       case rocksdb::kLZ4HCCompression:
         uncompressed = LZ4_Uncompress(compressed.data(), compressed.size(),
-                                      &decompress_size);
+                                      &decompress_size, 2);
         ok = uncompressed != nullptr;
         break;
       default:
@@ -2031,6 +2031,7 @@ class Benchmark {
       block_based_options.block_size = FLAGS_block_size;
       block_based_options.block_restart_interval = FLAGS_block_restart_interval;
       block_based_options.filter_policy = filter_policy_;
+      block_based_options.format_version = 2;
       options.table_factory.reset(
           NewBlockBasedTableFactory(block_based_options));
     }
