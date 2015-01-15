@@ -10,7 +10,7 @@ package org.rocksdb;
  * access to data one entry at a time. Multiple implementations
  * are provided by this library.  In particular, iterators are provided
  * to access the contents of a DB and Write Batch.</p>
- * <p/>
+ *
  * <p>Multiple threads can invoke const methods on an RocksIterator without
  * external synchronization, but if any of the threads may call a
  * non-const method, all threads accessing the same RocksIterator must use
@@ -43,7 +43,7 @@ public interface RocksIteratorInterface {
   /**
    * <p>Position at the first entry in the source whose key is that or
    * past target.</p>
-   * <p/>
+   *
    * <p>The iterator is valid after this call if the source contains
    * a key that comes at or past target.</p>
    *
@@ -55,7 +55,7 @@ public interface RocksIteratorInterface {
   /**
    * <p>Moves to the next entry in the source.  After this call, Valid() is
    * true if the iterator was not positioned at the last entry in the source.</p>
-   * <p/>
+   *
    * <p>REQUIRES: {@link #isValid()}</p>
    */
   public void next();
@@ -63,13 +63,13 @@ public interface RocksIteratorInterface {
   /**
    * <p>Moves to the previous entry in the source.  After this call, Valid() is
    * true if the iterator was not positioned at the first entry in source.</p>
-   * <p/>
+   *
    * <p>REQUIRES: {@link #isValid()}</p>
    */
   public void prev();
 
   /**
-   * <pIf an error has occurred, return it.  Else return an ok status.
+   * <p>If an error has occurred, return it.  Else return an ok status.
    * If non-blocking IO is requested and this operation cannot be
    * satisfied without doing some IO, then this returns Status::Incomplete().</p>
    *
