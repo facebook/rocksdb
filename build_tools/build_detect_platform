@@ -184,7 +184,7 @@ else
       #include <fcntl.h>
       int main() {
 	int fd = open("/dev/null", 0);
-	fallocate(fd, 0, 0, 1024);
+  fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
       }
 EOF
     if [ "$?" = 0 ]; then
