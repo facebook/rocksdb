@@ -127,7 +127,7 @@ struct BlockBasedTableOptions {
   bool whole_key_filtering = true;
 
   // For more details on BlockBasedTable's formats, see FORMAT-CHANGES.md
-  // We currently have two versions:
+  // We currently have three versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing
   // checksum (default is CRC32).
@@ -135,8 +135,12 @@ struct BlockBasedTableOptions {
   // checksum, like xxHash. It is written by RocksDB when
   // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
   // 0 is silently upconverted)
-  // This only affects newly written tables. When reading exising tables, the
-  // information about version is read from the footer.
+  // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
+  // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
+  // don't plan to run RocksDB before version 3.10, you should probably use
+  // this.
+  // This option only affects newly written tables. When reading exising tables,
+  // the information about version is read from the footer.
   uint32_t format_version = 0;
 };
 
