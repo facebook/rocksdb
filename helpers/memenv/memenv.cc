@@ -15,6 +15,26 @@ namespace rocksdb {
 
 namespace {
 
+std::string NormalizeFileName(const std::string fname) {
+  if (fname.find("//") == std::string::npos) {
+    return fname;
+  }
+  std::string out_name = "";
+  bool is_slash = false;
+  for (char c : fname) {
+    if (c == '/' && is_slash) {
+      continue;
+    }
+    out_name.append(1, c);
+    if (c == '/') {
+      is_slash = true;
+    } else {
+      is_slash = false;
+    }
+  }
+  return out_name;
+}
+
 class FileState {
  public:
   // FileStates are reference counted. The initial reference count is zero
@@ -238,40 +258,43 @@ class InMemoryEnv : public EnvWrapper {
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
                                    const EnvOptions& soptions) {
+    std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
       *result = NULL;
       return Status::IOError(fname, "File not found");
     }
 
-    result->reset(new SequentialFileImpl(file_map_[fname]));
+    result->reset(new SequentialFileImpl(file_map_[nfname]));
     return Status::OK();
   }
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      unique_ptr<RandomAccessFile>* result,
                                      const EnvOptions& soptions) {
+    std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
-    if (file_map_.find(fname) == file_map_.end()) {
+    if (file_map_.find(nfname) == file_map_.end()) {
       *result = NULL;
       return Status::IOError(fname, "File not found");
     }
 
-    result->reset(new RandomAccessFileImpl(file_map_[fname]));
+    result->reset(new RandomAccessFileImpl(file_map_[nfname]));
     return Status::OK();
   }
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
                                  const EnvOptions& soptions) {
+    std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
-    if (file_map_.find(fname) != file_map_.end()) {
-      DeleteFileInternal(fname);
+    if (file_map_.find(nfname) != file_map_.end()) {
+      DeleteFileInternal(nfname);
     }
 
     FileState* file = new FileState();
     file->Ref();
-    file_map_[fname] = file;
+    file_map_[nfname] = file;
 
     result->reset(new WritableFileImpl(file));
     return Status::OK();
@@ -284,8 +307,9 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual bool FileExists(const std::string& fname) {
+    std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
-    return file_map_.find(fname) != file_map_.end();
+    return file_map_.find(nfname) != file_map_.end();
   }
 
   virtual Status GetChildren(const std::string& dir,
@@ -315,12 +339,13 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status DeleteFile(const std::string& fname) {
+    std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
-    if (file_map_.find(fname) == file_map_.end()) {
+    if (file_map_.find(nfname) == file_map_.end()) {
       return Status::IOError(fname, "File not found");
     }
 
-    DeleteFileInternal(fname);
+    DeleteFileInternal(nfname);
     return Status::OK();
   }
 
@@ -337,12 +362,14 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status GetFileSize(const std::string& fname, uint64_t* file_size) {
+    std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
-    if (file_map_.find(fname) == file_map_.end()) {
+
+    if (file_map_.find(nfname) == file_map_.end()) {
       return Status::IOError(fname, "File not found");
     }
 
-    *file_size = file_map_[fname]->Size();
+    *file_size = file_map_[nfname]->Size();
     return Status::OK();
   }
 
@@ -352,14 +379,16 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status RenameFile(const std::string& src, const std::string& dest) {
+    std::string nsrc = NormalizeFileName(src);
+    std::string ndest = NormalizeFileName(dest);
     MutexLock lock(&mutex_);
-    if (file_map_.find(src) == file_map_.end()) {
+    if (file_map_.find(nsrc) == file_map_.end()) {
       return Status::IOError(src, "File not found");
     }
 
     DeleteFileInternal(dest);
-    file_map_[dest] = file_map_[src];
-    file_map_.erase(src);
+    file_map_[ndest] = file_map_[nsrc];
+    file_map_.erase(nsrc);
     return Status::OK();
   }
 

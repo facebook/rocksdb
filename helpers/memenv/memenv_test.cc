@@ -222,6 +222,15 @@ TEST(MemEnvTest, DBTest) {
   }
 
   delete db;
+
+  options.create_if_missing = false;
+  ASSERT_OK(DB::Open(options, "/dir/db", &db));
+  for (size_t i = 0; i < 3; ++i) {
+    std::string res;
+    ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
+    ASSERT_TRUE(res == vals[i]);
+  }
+  delete db;
 }
 
 }  // namespace rocksdb
