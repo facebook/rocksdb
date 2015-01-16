@@ -217,19 +217,19 @@ public class WriteBatchWithIndexTest {
 
         it.seek(key);
         assertThat(it.isValid()).isTrue();
-        assertThat(it.entry()).isEqualTo(expected[testOffset]);
+        assertThat(it.entry().equals(expected[testOffset])).isTrue();
       }
 
       //forward iterative access
       int i = 0;
       for(it.seekToFirst(); it.isValid(); it.next()) {
-        assertThat(it.entry()).isEqualTo(expected[i++]);
+        assertThat(it.entry().equals(expected[i++])).isTrue();
       }
 
       //reverse iterative access
       i = expected.length - 1;
       for(it.seekToLast(); it.isValid(); it.prev()) {
-        assertThat(it.entry()).isEqualTo(expected[i--]);
+        assertThat(it.entry().equals(expected[i--])).isTrue();
       }
 
     } finally {
