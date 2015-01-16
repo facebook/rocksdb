@@ -3530,7 +3530,8 @@ Status DBImpl::CheckConsistency() {
 
   std::string corruption_messages;
   for (const auto& md : metadata) {
-    std::string file_path = md.db_path + "/" + md.name;
+    // md.name has a leading "/".
+    std::string file_path = md.db_path + md.name;
 
     uint64_t fsize = 0;
     Status s = env_->GetFileSize(file_path, &fsize);
