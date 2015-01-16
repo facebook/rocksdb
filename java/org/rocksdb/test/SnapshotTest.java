@@ -8,11 +8,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.rocksdb.Options;
-import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
-import org.rocksdb.Snapshot;
+import org.rocksdb.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -83,6 +79,129 @@ public class SnapshotTest {
       // release Snapshot
       db.releaseSnapshot(snapshot);
     } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+      if (readOptions != null) {
+        readOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void iteratorWithSnapshot() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    ReadOptions readOptions = null;
+    RocksIterator iterator = null;
+    RocksIterator snapshotIterator = null;
+    try {
+
+      options = new Options();
+      options.setCreateIfMissing(true);
+
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+      db.put("key".getBytes(), "value".getBytes());
+      // Get new Snapshot of database
+      Snapshot snapshot = db.getSnapshot();
+      readOptions = new ReadOptions();
+      // set snapshot in ReadOptions
+      readOptions.setSnapshot(snapshot);
+      db.put("key2".getBytes(), "value2".getBytes());
+
+      // iterate over current state of db
+      iterator = db.newIterator();
+      iterator.seekToFirst();
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key".getBytes());
+      iterator.next();
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key2".getBytes());
+      iterator.next();
+      assertThat(iterator.isValid()).isFalse();
+
+      // iterate using a snapshot
+      snapshotIterator = db.newIterator(readOptions);
+      snapshotIterator.seekToFirst();
+      assertThat(snapshotIterator.isValid()).isTrue();
+      assertThat(snapshotIterator.key()).isEqualTo("key".getBytes());
+      snapshotIterator.next();
+      assertThat(snapshotIterator.isValid()).isFalse();
+
+      // release Snapshot
+      db.releaseSnapshot(snapshot);
+    } finally {
+      if (iterator != null) {
+        iterator.dispose();
+      }
+      if (snapshotIterator != null) {
+        snapshotIterator.dispose();
+      }
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+      if (readOptions != null) {
+        readOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void iteratorWithSnapshotOnColumnFamily() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    ReadOptions readOptions = null;
+    RocksIterator iterator = null;
+    RocksIterator snapshotIterator = null;
+    try {
+
+      options = new Options();
+      options.setCreateIfMissing(true);
+
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+      db.put("key".getBytes(), "value".getBytes());
+      // Get new Snapshot of database
+      Snapshot snapshot = db.getSnapshot();
+      readOptions = new ReadOptions();
+      // set snapshot in ReadOptions
+      readOptions.setSnapshot(snapshot);
+      db.put("key2".getBytes(), "value2".getBytes());
+
+      // iterate over current state of column family
+      iterator = db.newIterator(db.getDefaultColumnFamily());
+      iterator.seekToFirst();
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key".getBytes());
+      iterator.next();
+      assertThat(iterator.isValid()).isTrue();
+      assertThat(iterator.key()).isEqualTo("key2".getBytes());
+      iterator.next();
+      assertThat(iterator.isValid()).isFalse();
+
+      // iterate using a snapshot on default column family
+      snapshotIterator = db.newIterator(db.getDefaultColumnFamily(),
+          readOptions);
+      snapshotIterator.seekToFirst();
+      assertThat(snapshotIterator.isValid()).isTrue();
+      assertThat(snapshotIterator.key()).isEqualTo("key".getBytes());
+      snapshotIterator.next();
+      assertThat(snapshotIterator.isValid()).isFalse();
+
+      // release Snapshot
+      db.releaseSnapshot(snapshot);
+    } finally {
+      if (iterator != null) {
+        iterator.dispose();
+      }
+      if (snapshotIterator != null) {
+        snapshotIterator.dispose();
+      }
       if (db != null) {
         db.close();
       }

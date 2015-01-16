@@ -1142,40 +1142,85 @@ void Java_org_rocksdb_RocksDB_disposeInternal(
   delete reinterpret_cast<rocksdb::DB*>(jhandle);
 }
 
-/*
- * Class:     org_rocksdb_RocksDB
- * Method:    iterator0
- * Signature: (J)J
- */
-jlong Java_org_rocksdb_RocksDB_iterator0__J(
-    JNIEnv* env, jobject jdb, jlong db_handle) {
-  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
-  rocksdb::Iterator* iterator = db->NewIterator(rocksdb::ReadOptions());
+jlong rocksdb_iterator_helper(
+    rocksdb::DB* db, rocksdb::ReadOptions read_options,
+    rocksdb::ColumnFamilyHandle* cf_handle) {
+  rocksdb::Iterator* iterator = nullptr;
+  if (cf_handle != nullptr) {
+    iterator = db->NewIterator(read_options, cf_handle);
+  } else {
+    iterator = db->NewIterator(read_options);
+  }
   return reinterpret_cast<jlong>(iterator);
 }
 
 /*
  * Class:     org_rocksdb_RocksDB
- * Method:    iterator0
+ * Method:    iterator
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_RocksDB_iterator__J(
+    JNIEnv* env, jobject jdb, jlong db_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  return rocksdb_iterator_helper(db, rocksdb::ReadOptions(),
+      nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    iterator
  * Signature: (JJ)J
  */
-jlong Java_org_rocksdb_RocksDB_iterator0__JJ(
+jlong Java_org_rocksdb_RocksDB_iterator__JJ(
+    JNIEnv* env, jobject jdb, jlong db_handle,
+    jlong jread_options_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  auto& read_options = *reinterpret_cast<rocksdb::ReadOptions*>(
+      jread_options_handle);
+  return rocksdb_iterator_helper(db, read_options,
+      nullptr);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    iteratorCF
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_RocksDB_iteratorCF__JJ(
     JNIEnv* env, jobject jdb, jlong db_handle, jlong jcf_handle) {
   auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
   auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
-  rocksdb::Iterator* iterator = db->NewIterator(rocksdb::ReadOptions(),
-      cf_handle);
-  return reinterpret_cast<jlong>(iterator);
+  return rocksdb_iterator_helper(db, rocksdb::ReadOptions(),
+        cf_handle);
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    iteratorCF
+ * Signature: (JJJ)J
+ */
+jlong Java_org_rocksdb_RocksDB_iteratorCF__JJJ(
+    JNIEnv* env, jobject jdb, jlong db_handle, jlong jcf_handle,
+    jlong jread_options_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
+  auto& read_options = *reinterpret_cast<rocksdb::ReadOptions*>(
+      jread_options_handle);
+  return rocksdb_iterator_helper(db, read_options,
+        cf_handle);
 }
 
 /*
  * Class:     org_rocksdb_RocksDB
  * Method:    iterators
- * Signature: (JLjava/util/List;)[J
+ * Signature: (JLjava/util/List;J)[J
  */
 jlongArray Java_org_rocksdb_RocksDB_iterators(
-    JNIEnv* env, jobject jdb, jlong db_handle, jobject jcfhandle_list) {
+    JNIEnv* env, jobject jdb, jlong db_handle, jobject jcfhandle_list,
+    jlong jread_options_handle) {
   auto db = reinterpret_cast<rocksdb::DB*>(db_handle);
+  auto& read_options = *reinterpret_cast<rocksdb::ReadOptions*>(
+        jread_options_handle);
   std::vector<rocksdb::ColumnFamilyHandle*> cf_handles;
   std::vector<rocksdb::Iterator*> iterators;
 
@@ -1195,7 +1240,7 @@ jlongArray Java_org_rocksdb_RocksDB_iterators(
     }
   }
 
-  rocksdb::Status s = db->NewIterators(rocksdb::ReadOptions(),
+  rocksdb::Status s = db->NewIterators(read_options,
       cf_handles, &iterators);
   if (s.ok()) {
     jlongArray jLongArray =
