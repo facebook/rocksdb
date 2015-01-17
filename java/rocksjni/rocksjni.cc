@@ -75,6 +75,7 @@ jobject
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
 
   std::vector<jbyte*> cfnames_to_free;
+  // the zero-terminated version of cfnames_to_free.
   std::vector<char*> c_cfnames_to_free;
   std::vector<jbyteArray> jcfnames_for_free;
 
@@ -106,7 +107,7 @@ jobject
       const int len = env->GetArrayLength(byteArray) + 1;
       char* c_cfname = new char[len];
       memcpy(c_cfname, cfname, len - 1);
-      c_cfname[len-1]='\0';
+      c_cfname[len - 1] = 0;
 
       // free allocated cfnames after call to open
       cfnames_to_free.push_back(cfname);
@@ -167,6 +168,7 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
 
   std::vector<jbyte*> cfnames_to_free;
+  // the zero-terminated version of cfnames_to_free.
   std::vector<char*> c_cfnames_to_free;
   std::vector<jbyteArray> jcfnames_for_free;
 
@@ -198,7 +200,7 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
       const int len = env->GetArrayLength(byteArray) + 1;
       char* c_cfname = new char[len];
       memcpy(c_cfname, cfname, len - 1);
-      c_cfname[len-1]='\0';
+      c_cfname[len - 1] = 0;
 
       // free allocated cfnames after call to open
       cfnames_to_free.push_back(cfname);
@@ -1248,7 +1250,7 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
   const int len = env->GetArrayLength(byteArray) + 1;
   char* c_cfname = new char[len];
   memcpy(c_cfname, cfname, len - 1);
-  c_cfname[len-1]='\0';
+  c_cfname[len - 1] = 0;
 
   rocksdb::Status s = db_handle->CreateColumnFamily(
       *cfOptions, c_cfname, &handle);
