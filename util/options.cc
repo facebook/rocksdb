@@ -16,6 +16,7 @@
 
 #include <inttypes.h>
 #include <limits>
+#include <sstream>
 
 #include "db/writebuffer.h"
 #include "rocksdb/cache.h"
@@ -363,8 +364,13 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
       compaction_filter_factory_v2->Name());
   Log(log, "        Options.memtable_factory: %s", memtable_factory->Name());
   Log(log, "           Options.table_factory: %s", table_factory->Name());
-  Log(log, "           table_factory options: %s",
-      table_factory->GetPrintableTableOptions().c_str());
+
+  std::stringstream option_stream(table_factory->GetPrintableTableOptions());
+  std::string option;
+  while (std::getline(option_stream, option, '\n'))
+    Log(log, "           Options.table_factory.%s",
+        option.substr(option.find_first_not_of(' ')).c_str());
+
   Log(log, "       Options.write_buffer_size: %zd", write_buffer_size);
   Log(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     if (!compression_per_level.empty()) {
