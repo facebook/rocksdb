@@ -22,9 +22,9 @@
  * Method:    open
  * Signature: (JLjava/lang/String;IZ)V
  */
-void Java_org_rocksdb_TtlDB_open__JLjava_lang_String_2IZ(JNIEnv* env, jobject jttldb,
-    jlong joptions_handle, jstring jdb_path, jint jttl,
-    jboolean jread_only) {
+void Java_org_rocksdb_TtlDB_open(JNIEnv* env,
+    jobject jttldb, jlong joptions_handle, jstring jdb_path,
+    jint jttl, jboolean jread_only) {
   auto opt = reinterpret_cast<rocksdb::Options*>(joptions_handle);
   rocksdb::DBWithTTL* db = nullptr;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
@@ -43,11 +43,12 @@ void Java_org_rocksdb_TtlDB_open__JLjava_lang_String_2IZ(JNIEnv* env, jobject jt
 
 /*
  * Class:     org_rocksdb_TtlDB
- * Method:    open
- * Signature: (JLjava/lang/String;Ljava/util/List;ILjava/util/List;Z)Ljava/util/List;
+ * Method:    openCF
+ * Signature: (JLjava/lang/String;Ljava/util/List;
+ *    ILjava/util/List;Z)Ljava/util/List;
  */
 jobject
-    Java_org_rocksdb_TtlDB_open__JLjava_lang_String_2Ljava_util_List_2ILjava_util_List_2Z(
+    Java_org_rocksdb_TtlDB_openCF(
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count, jobject jttl_list,
     jboolean jread_only) {

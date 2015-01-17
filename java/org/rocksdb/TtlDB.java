@@ -117,8 +117,9 @@ public class TtlDB extends RocksDB {
           "family handle.");
     }
     TtlDB ttlDB = new TtlDB();
-    List<Long> cfReferences = ttlDB.open(options.nativeHandle_, db_path, columnFamilyDescriptors,
-        columnFamilyDescriptors.size(),  ttlValues, readOnly);
+    List<Long> cfReferences = ttlDB.openCF(options.nativeHandle_, db_path,
+        columnFamilyDescriptors, columnFamilyDescriptors.size(),
+        ttlValues, readOnly);
     for (int i=0; i<columnFamilyDescriptors.size(); i++) {
       columnFamilyHandles.add(new ColumnFamilyHandle(ttlDB, cfReferences.get(i)));
     }
@@ -185,7 +186,7 @@ public class TtlDB extends RocksDB {
 
   private native void open(long optionsHandle, String db_path, int ttl,
       boolean readOnly) throws RocksDBException;
-  private native List<Long> open(long optionsHandle, String db_path,
+  private native List<Long> openCF(long optionsHandle, String db_path,
       List<ColumnFamilyDescriptor> columnFamilyDescriptors,
       int columnFamilyDescriptorsLength, List<Integer> ttlValues,
       boolean readOnly) throws RocksDBException;
