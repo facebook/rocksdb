@@ -25,7 +25,7 @@
 void Java_org_rocksdb_TtlDB_open(JNIEnv* env,
     jobject jttldb, jlong joptions_handle, jstring jdb_path,
     jint jttl, jboolean jread_only) {
-  auto opt = reinterpret_cast<rocksdb::Options*>(joptions_handle);
+  auto* opt = reinterpret_cast<rocksdb::Options*>(joptions_handle);
   rocksdb::DBWithTTL* db = nullptr;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
   rocksdb::Status s = rocksdb::DBWithTTL::Open(*opt, db_path, &db,
@@ -52,7 +52,7 @@ jobject
     JNIEnv* env, jobject jdb, jlong jopt_handle, jstring jdb_path,
     jobject jcfdesc_list, jint jcfdesc_count, jobject jttl_list,
     jboolean jread_only) {
-  auto opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
+  auto* opt = reinterpret_cast<rocksdb::Options*>(jopt_handle);
   rocksdb::DBWithTTL* db = nullptr;
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
 
@@ -152,7 +152,7 @@ jlong Java_org_rocksdb_TtlDB_createColumnFamilyWithTtl(
     JNIEnv* env, jobject jobj, jlong jdb_handle,
     jobject jcf_descriptor, jint jttl) {
   rocksdb::ColumnFamilyHandle* handle;
-  auto db_handle = reinterpret_cast<rocksdb::DBWithTTL*>(jdb_handle);
+  auto* db_handle = reinterpret_cast<rocksdb::DBWithTTL*>(jdb_handle);
 
   // get ColumnFamilyName
   jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
