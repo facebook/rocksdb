@@ -389,28 +389,29 @@ class DBTest {
     kBlockBasedTableWithPrefixHashIndex = 1,
     kBlockBasedTableWithWholeKeyHashIndex = 2,
     kPlainTableFirstBytePrefix = 3,
-    kPlainTableAllBytesPrefix = 4,
-    kVectorRep = 5,
-    kHashLinkList = 6,
-    kHashCuckoo = 7,
-    kMergePut = 8,
-    kFilter = 9,
-    kFullFilter = 10,
-    kUncompressed = 11,
-    kNumLevel_3 = 12,
-    kDBLogDir = 13,
-    kWalDirAndMmapReads = 14,
-    kManifestFileSize = 15,
-    kCompactOnFlush = 16,
-    kPerfOptions = 17,
-    kDeletesFilterFirst = 18,
-    kHashSkipList = 19,
-    kUniversalCompaction = 20,
-    kCompressedBlockCache = 21,
-    kInfiniteMaxOpenFiles = 22,
-    kxxHashChecksum = 23,
-    kFIFOCompaction = 24,
-    kEnd = 25
+    kPlainTableCappedPrefix = 4,
+    kPlainTableAllBytesPrefix = 5,
+    kVectorRep = 6,
+    kHashLinkList = 7,
+    kHashCuckoo = 8,
+    kMergePut = 9,
+    kFilter = 10,
+    kFullFilter = 11,
+    kUncompressed = 12,
+    kNumLevel_3 = 13,
+    kDBLogDir = 14,
+    kWalDirAndMmapReads = 15,
+    kManifestFileSize = 16,
+    kCompactOnFlush = 17,
+    kPerfOptions = 18,
+    kDeletesFilterFirst = 19,
+    kHashSkipList = 20,
+    kUniversalCompaction = 21,
+    kCompressedBlockCache = 22,
+    kInfiniteMaxOpenFiles = 23,
+    kxxHashChecksum = 24,
+    kFIFOCompaction = 25,
+    kEnd = 26
   };
   int option_config_;
 
@@ -483,9 +484,10 @@ class DBTest {
            option_config_ == kHashSkipList)) {;
         continue;
       }
-      if ((skip_mask & kSkipPlainTable)
-          && (option_config_ == kPlainTableAllBytesPrefix
-              || option_config_ == kPlainTableFirstBytePrefix)) {
+      if ((skip_mask & kSkipPlainTable) &&
+          (option_config_ == kPlainTableAllBytesPrefix ||
+           option_config_ == kPlainTableFirstBytePrefix ||
+           option_config_ == kPlainTableCappedPrefix)) {
         continue;
       }
       if ((skip_mask & kSkipHashIndex) &&
@@ -573,6 +575,13 @@ class DBTest {
       case kPlainTableFirstBytePrefix:
         options.table_factory.reset(new PlainTableFactory());
         options.prefix_extractor.reset(NewFixedPrefixTransform(1));
+        options.allow_mmap_reads = true;
+        options.max_sequential_skip_in_iterations = 999999;
+        set_block_based_table_factory = false;
+        break;
+      case kPlainTableCappedPrefix:
+        options.table_factory.reset(new PlainTableFactory());
+        options.prefix_extractor.reset(NewCappedPrefixTransform(8));
         options.allow_mmap_reads = true;
         options.max_sequential_skip_in_iterations = 999999;
         set_block_based_table_factory = false;

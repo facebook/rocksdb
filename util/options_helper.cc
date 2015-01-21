@@ -510,14 +510,27 @@ Status GetColumnFamilyOptionsFromMap(
       } else if (o.first == "inplace_update_support") {
         new_options->inplace_update_support = ParseBoolean(o.first, o.second);
       } else if (o.first == "prefix_extractor") {
-        const std::string kName = "fixed:";
-        if (o.second.compare(0, kName.size(), kName) != 0) {
-          return Status::InvalidArgument("Invalid Prefix Extractor type: "
-                                         + o.second);
+        const std::string kFixedPrefixName = "fixed:";
+        const std::string kCappedPrefixName = "capped:";
+        auto& pe_value = o.second;
+        if (pe_value.size() > kFixedPrefixName.size() &&
+            pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) ==
+                0) {
+          int prefix_length =
+              ParseInt(trim(o.second.substr(kFixedPrefixName.size())));
+          new_options->prefix_extractor.reset(
+              NewFixedPrefixTransform(prefix_length));
+        } else if (pe_value.size() > kCappedPrefixName.size() &&
+                   pe_value.compare(0, kCappedPrefixName.size(),
+                                    kCappedPrefixName) == 0) {
+          int prefix_length =
+              ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
+          new_options->prefix_extractor.reset(
+              NewCappedPrefixTransform(prefix_length));
+        } else {
+          return Status::InvalidArgument("Invalid Prefix Extractor type: " +
+                                         pe_value);
         }
-        int prefix_length = ParseInt(trim(o.second.substr(kName.size())));
-        new_options->prefix_extractor.reset(
-            NewFixedPrefixTransform(prefix_length));
       } else {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       }

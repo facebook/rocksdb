@@ -12,6 +12,7 @@
 * Added new block based table format (version 2), which you can enable by setting BlockBasedTableOptions.format_version = 2. This format changes how we encode size information in compressed blocks and should help with memory allocations if you're using Zlib or BZip2 compressions.
 * GetThreadStatus() is now able to report compaction activity.
 * MemEnv (env that stores data in memory) is now available in default library build. You can create it by calling NewMemEnv().
+* Add SliceTransform.SameResultWhenAppended() to help users determine it is safe to apply prefix bloom/hash.
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option

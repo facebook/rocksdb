@@ -330,10 +330,17 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16*1024*1024);
   ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17*1024UL*1024UL);
   // Units (g)
-  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
-            "write_buffer_size=18g;arena_block_size=19G", &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "write_buffer_size=18g;prefix_extractor=capped:8;"
+      "arena_block_size=19G",
+      &new_cf_opt));
   ASSERT_EQ(new_cf_opt.write_buffer_size, 18*1024UL*1024UL*1024UL);
   ASSERT_EQ(new_cf_opt.arena_block_size, 19*1024UL*1024UL*1024UL);
+  ASSERT_TRUE(new_cf_opt.prefix_extractor.get() != nullptr);
+  std::string prefix_name(new_cf_opt.prefix_extractor->Name());
+  ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
+
   // Units (t)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));

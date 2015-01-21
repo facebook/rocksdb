@@ -128,6 +128,7 @@ TESTS = \
 	coding_test \
 	corruption_test \
 	crc32c_test \
+	slice_transform_test \
 	dbformat_test \
 	env_test \
 	fault_injection_test \
@@ -402,6 +403,10 @@ corruption_test: db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
+slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+
 
 db_test: db/db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) db/db_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
