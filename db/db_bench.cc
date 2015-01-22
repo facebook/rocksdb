@@ -2392,8 +2392,13 @@ class Benchmark {
         int64_t key_rand = thread->rand.Next() & (pot - 1);
         GenerateKeyFromInt(key_rand, FLAGS_num, &key);
         ++read;
-        if (db->Get(options, key, &value).ok()) {
+        auto status = db->Get(options, key, &value);
+        if (status.ok()) {
           ++found;
+        } else if (!status.IsNotFound()) {
+          fprintf(stderr,
+                  "Get returned an error: %s\n" status.ToString().c_str());
+          abort();
         }
         if (key_rand >= FLAGS_num) {
           ++nonexist;
@@ -2440,6 +2445,9 @@ class Benchmark {
       }
       if (s.ok()) {
         found++;
+      } else if (!s.IsNotFound()) {
+        fprintf(stderr, "Get returned an error: %s\n" s.ToString().c_str());
+        abort();
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1);
     }
@@ -2481,6 +2489,10 @@ class Benchmark {
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
         if (statuses[i].ok()) {
           ++found;
+        } else if (!statuses[i].IsNotFound()) {
+          fprintf(stderr, "MultiGet returned an error: %s\n",
+                  statuses[i].ToString().c_str());
+          abort();
         }
       }
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_);
@@ -2920,8 +2932,13 @@ class Benchmark {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
 
-      if (db->Get(options, key, &value).ok()) {
-        found++;
+      auto status = db->Get(options, key, &value);
+      if (status.ok()) {
+        ++found;
+      } else if (!status.IsNotFound()) {
+        fprintf(stderr,
+                "Get returned an error: %s\n" status.ToString().c_str());
+        abort();
       }
 
       Status s = db->Put(write_options_, key, gen.Generate(value_size_));
@@ -2954,9 +2971,13 @@ class Benchmark {
       DB* db = SelectDB(thread);
       GenerateKeyFromInt(thread->rand.Next() % FLAGS_num, FLAGS_num, &key);
 
-      // Get the existing value
-      if (db->Get(options, key, &value).ok()) {
-        found++;
+      auto status = db->Get(options, key, &value);
+      if (status.ok()) {
+        ++found;
+      } else if (!status.IsNotFound()) {
+        fprintf(stderr,
+                "Get returned an error: %s\n" status.ToString().c_str());
+        abort();
       } else {
         // If not existing, then just assume an empty string of data
         value.clear();
