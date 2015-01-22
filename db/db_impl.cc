@@ -348,6 +348,9 @@ Status DBImpl::NewDB() {
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
+    if (s.ok()) {
+      s = SyncManifest(env_, &db_options_, log.file());
+    }
   }
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.

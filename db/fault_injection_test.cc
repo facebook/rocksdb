@@ -511,8 +511,6 @@ TEST(FaultInjectionTest, FaultTest) {
     int num_pre_sync = rnd.Uniform(kMaxNumValues);
     int num_post_sync = rnd.Uniform(kMaxNumValues);
 
-    // TODO(t6007549) Figure out why this fails and then re-enable the test.
-#if 0
     PartialCompactTestPreFault(num_pre_sync, num_post_sync);
     PartialCompactTestReopenWithFault(RESET_DROP_UNSYNCED_DATA,
                                       num_pre_sync,
@@ -520,7 +518,6 @@ TEST(FaultInjectionTest, FaultTest) {
 
     NoWriteTestPreFault();
     NoWriteTestReopenWithFault(RESET_DROP_UNSYNCED_DATA);
-#endif
 
     PartialCompactTestPreFault(num_pre_sync, num_post_sync);
     // No new files created so we expect all values since no files will be

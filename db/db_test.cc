@@ -9274,6 +9274,7 @@ TEST(DBTest, WriteSingleThreadEntry) {
 }
 
 TEST(DBTest, DisableDataSyncTest) {
+  env_->sync_counter_.store(0);
   // iter 0 -- no sync
   // iter 1 -- sync
   for (int iter = 0; iter < 2; ++iter) {

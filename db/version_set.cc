@@ -1691,16 +1691,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
           break;
         }
       }
-      if (s.ok() && db_options_->disableDataSync == false) {
-        if (db_options_->use_fsync) {
-          StopWatch sw(env_, db_options_->statistics.get(),
-                       MANIFEST_FILE_SYNC_MICROS);
-          s = descriptor_log_->file()->Fsync();
-        } else {
-          StopWatch sw(env_, db_options_->statistics.get(),
-                       MANIFEST_FILE_SYNC_MICROS);
-          s = descriptor_log_->file()->Sync();
-        }
+      if (s.ok()) {
+        s = SyncManifest(env_, db_options_, descriptor_log_->file());
       }
       if (!s.ok()) {
         Log(InfoLogLevel::ERROR_LEVEL, db_options_->info_log,

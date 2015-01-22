@@ -19,6 +19,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "util/logging.h"
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -327,6 +328,18 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
     env->DeleteFile(tmp);
   }
   return s;
+}
+
+Status SyncManifest(Env* env, const DBOptions* db_options, WritableFile* file) {
+  if (db_options->disableDataSync) {
+    return Status::OK();
+  } else if (db_options->use_fsync) {
+    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+    return file->Fsync();
+  } else {
+    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+    return file->Sync();
+  }
 }
 
 }  // namespace rocksdb
