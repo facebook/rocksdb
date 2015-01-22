@@ -126,7 +126,7 @@ jobject
     // free  cfnames
     env->ReleaseByteArrayElements(jcfnames_for_free[i], cfnames_to_free[i], 0);
     // free c_cfnames
-    delete c_cfnames_to_free[i];
+    delete[] c_cfnames_to_free[i];
   }
 
   // check if open operation was successful
@@ -219,7 +219,7 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
     // free  cfnames
     env->ReleaseByteArrayElements(jcfnames_for_free[i], cfnames_to_free[i], 0);
     // free c_cfnames
-    delete c_cfnames_to_free[i];
+    delete[] c_cfnames_to_free[i];
   }
 
   // check if open operation was successful
@@ -1255,7 +1255,7 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
   rocksdb::Status s = db_handle->CreateColumnFamily(
       *cfOptions, c_cfname, &handle);
   env->ReleaseByteArrayElements(byteArray, cfname, 0);
-  delete c_cfname;
+  delete[] c_cfname;
 
   if (s.ok()) {
     return reinterpret_cast<jlong>(handle);
