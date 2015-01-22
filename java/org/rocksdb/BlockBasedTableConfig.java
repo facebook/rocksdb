@@ -337,8 +337,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   }
 
   /**
-   * <p>For more details on BlockBasedTable's formats, see FORMAT-CHANGES.md
-   * We currently have three versions:</p>
+   * <p>We currently have three versions:</p>
    *
    * <ul>
    * <li><strong>0</strong> - This version is currently written
@@ -360,7 +359,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current option.
    */
   public BlockBasedTableConfig setFormatVersion(int formatVersion) {
-    assert(formatVersion>=0 && formatVersion <=2);
+    assert(formatVersion >= 0 && formatVersion <= 2);
     formatVersion_ = formatVersion;
     return this;
   }
