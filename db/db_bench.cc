@@ -2396,8 +2396,8 @@ class Benchmark {
         if (status.ok()) {
           ++found;
         } else if (!status.IsNotFound()) {
-          fprintf(stderr,
-                  "Get returned an error: %s\n" status.ToString().c_str());
+          fprintf(stderr, "Get returned an error: %s\n",
+                  status.ToString().c_str());
           abort();
         }
         if (key_rand >= FLAGS_num) {
@@ -2446,7 +2446,7 @@ class Benchmark {
       if (s.ok()) {
         found++;
       } else if (!s.IsNotFound()) {
-        fprintf(stderr, "Get returned an error: %s\n" s.ToString().c_str());
+        fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();
       }
       thread->stats.FinishedOps(db_with_cfh, db_with_cfh->db, 1);
@@ -2936,8 +2936,8 @@ class Benchmark {
       if (status.ok()) {
         ++found;
       } else if (!status.IsNotFound()) {
-        fprintf(stderr,
-                "Get returned an error: %s\n" status.ToString().c_str());
+        fprintf(stderr, "Get returned an error: %s\n",
+                status.ToString().c_str());
         abort();
       }
 
@@ -2975,8 +2975,8 @@ class Benchmark {
       if (status.ok()) {
         ++found;
       } else if (!status.IsNotFound()) {
-        fprintf(stderr,
-                "Get returned an error: %s\n" status.ToString().c_str());
+        fprintf(stderr, "Get returned an error: %s\n",
+                status.ToString().c_str());
         abort();
       } else {
         // If not existing, then just assume an empty string of data
