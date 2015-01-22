@@ -9607,9 +9607,9 @@ TEST(DBTest, ThreadStatusMultipleCompaction) {
     }
 
     if (options.enable_thread_tracking) {
-      // Expect rocksdb to at least utilize 80% of the compaction threads.
+      // Expect rocksdb to at least utilize 60% of the compaction threads.
       ASSERT_GE(1.0 * max_compaction_count,
-                0.8 * options.max_background_compactions);
+                0.6 * options.max_background_compactions);
     } else {
       // If thread tracking is not enabled, compaction count should be 0.
       ASSERT_EQ(max_compaction_count, 0);
