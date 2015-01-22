@@ -126,7 +126,6 @@ struct BlockBasedTableOptions {
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
 
-  // For more details on BlockBasedTable's formats, see FORMAT-CHANGES.md
   // We currently have three versions:
   // 0 -- This version is currently written out by all RocksDB's versions by
   // default.  Can be read by really old RocksDB's. Doesn't support changing
