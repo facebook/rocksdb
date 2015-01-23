@@ -1,11 +1,15 @@
 #!/bin/sh
 #
 # Set environment variables so that we can compile rocksdb using
-# fbcode settings.  It uses the latest g++ compiler and also
+# fbcode settings.  It uses the latest g++ and clang compilers and also
 # uses jemalloc
+# Environment variables that change the behavior of this script:
+# PIC_BUILD -- if true, it will only take pic versions of libraries from fbcode. libraries that don't have pic variant will not be included
+
+CFLAGS=""
 
 # location of libgcc
-LIBGCC_BASE="/mnt/gvfs/third-party2/libgcc/0473c80518a10d6efcbe24c5eeca3fb4ec9b519c/4.9.x/gcc-4.9-glibc-2.20/e1a7e4e/"
+LIBGCC_BASE="/mnt/gvfs/third-party2/libgcc/0473c80518a10d6efcbe24c5eeca3fb4ec9b519c/4.9.x/gcc-4.9-glibc-2.20/e1a7e4e"
 LIBGCC_INCLUDE="$LIBGCC_BASE/include"
 LIBGCC_LIBS=" -L $LIBGCC_BASE/libs"
 
@@ -16,33 +20,51 @@ GLIBC_LIBS=" -L /mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.20/gcc-4.9-glibc-2.20/
 
 # location of snappy headers and libraries
 SNAPPY_INCLUDE=" -I /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/include/"
-SNAPPY_LIBS=" /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/lib/libsnappy.a"
+if test -z $PIC_BUILD; then
+  SNAPPY_LIBS=" /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/lib/libsnappy.a"
+else
+  SNAPPY_LIBS=" /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/lib/libsnappy_pic.a"
+fi
+CFLAGS+=" -DSNAPPY"
 
-# location of zlib headers and libraries
-ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/include/"
-ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/lib/libz.a"
+if test -z $PIC_BUILD; then
+  # location of zlib headers and libraries
+  ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/include/"
+  ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/lib/libz.a"
+  CFLAGS+=" -DZLIB"
 
-# location of bzip headers and libraries
-BZIP_INCLUDE=" -I /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/include/"
-BZIP_LIBS=" /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/lib/libbz2.a"
+  # location of bzip headers and libraries
+  BZIP_INCLUDE=" -I /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/include/"
+  BZIP_LIBS=" /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/lib/libbz2.a"
+  CFLAGS+=" -DBZIP2"
 
-LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/include/"
-LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
+  LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/include/"
+  LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
+  CFLAGS+=" -DLZ4"
+fi
 
 # location of gflags headers and libraries
 GFLAGS_INCLUDE=" -I /mnt/gvfs/third-party2/gflags/0fa60e2b88de3e469db6c482d6e6dac72f5d65f9/1.6/gcc-4.9-glibc-2.20/4230243/include/"
-GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/0fa60e2b88de3e469db6c482d6e6dac72f5d65f9/1.6/gcc-4.9-glibc-2.20/4230243/lib/libgflags.a"
+if test -z $PIC_BUILD; then
+  GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/0fa60e2b88de3e469db6c482d6e6dac72f5d65f9/1.6/gcc-4.9-glibc-2.20/4230243/lib/libgflags.a"
+else
+  GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/0fa60e2b88de3e469db6c482d6e6dac72f5d65f9/1.6/gcc-4.9-glibc-2.20/4230243/lib/libgflags_pic.a"
+fi
+CFLAGS+=" -DGFLAGS=google"
 
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/include/"
 JEMALLOC_LIB=" -Wl,--whole-archive /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/lib/libjemalloc.a"
 
-# location of numa
-NUMA_INCLUDE=" -I /mnt/gvfs/third-party2/numa/bbefc39ecbf31d0ca184168eb613ef8d397790ee/2.0.8/gcc-4.9-glibc-2.20/4230243/include/"
-NUMA_LIB=" /mnt/gvfs/third-party2/numa/bbefc39ecbf31d0ca184168eb613ef8d397790ee/2.0.8/gcc-4.9-glibc-2.20/4230243/lib/libnuma.a"
+if test -z $PIC_BUILD; then
+  # location of numa
+  NUMA_INCLUDE=" -I /mnt/gvfs/third-party2/numa/bbefc39ecbf31d0ca184168eb613ef8d397790ee/2.0.8/gcc-4.9-glibc-2.20/4230243/include/"
+  NUMA_LIB=" /mnt/gvfs/third-party2/numa/bbefc39ecbf31d0ca184168eb613ef8d397790ee/2.0.8/gcc-4.9-glibc-2.20/4230243/lib/libnuma.a"
+  CFLAGS+=" -DNUMA"
 
-# location of libunwind
-LIBUNWIND="/mnt/gvfs/third-party2/libunwind/1de3b75e0afedfe5585b231bbb340ec7a1542335/1.1/gcc-4.9-glibc-2.20/34235e8/lib/libunwind.a"
+  # location of libunwind
+  LIBUNWIND="/mnt/gvfs/third-party2/libunwind/1de3b75e0afedfe5585b231bbb340ec7a1542335/1.1/gcc-4.9-glibc-2.20/34235e8/lib/libunwind.a"
+fi
 
 # use Intel SSE support for checksum calculations
 export USE_SSE=1
@@ -60,7 +82,7 @@ if [ -z "$USE_CLANG" ]; then
   CC="$GCC_BASE/bin/gcc"
   CXX="$GCC_BASE/bin/g++"
   
-  CFLAGS="-B$BINUTILS/gold -m64 -mtune=generic"
+  CFLAGS+=" -B$BINUTILS/gold"
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
@@ -72,7 +94,7 @@ else
 
   KERNEL_HEADERS_INCLUDE="/mnt/gvfs/third-party2/kernel-headers/ffd14f660a43c4b92717986b1bba66722ef089d0/3.2.18_70_fbk11_00129_gc8882d0/gcc-4.9-glibc-2.20/da39a3e/include"
 
-  CFLAGS="-B$BINUTILS/gold -nostdinc -nostdlib"
+  CFLAGS+=" -B$BINUTILS/gold -nostdinc -nostdlib"
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x "
   CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
@@ -85,7 +107,6 @@ fi
 
 CFLAGS+=" $DEPS_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
-CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"

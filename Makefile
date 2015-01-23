@@ -51,12 +51,21 @@ endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
-	# ASAN compile flags
+	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=address
 	PLATFORM_CCFLAGS += -fsanitize=address
 	PLATFORM_CXXFLAGS += -fsanitize=address
-else
-	# if we're not compiling with ASAN, use jemalloc
+endif
+
+# TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
+ifdef COMPILE_WITH_TSAN
+	DISABLE_JEMALLOC=1
+	EXEC_LDFLAGS += -fsanitize=thread -pie
+	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC
+	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC
+endif
+
+ifndef DISABLE_JEMALLOC
 	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
 	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
