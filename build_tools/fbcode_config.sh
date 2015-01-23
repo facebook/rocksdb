@@ -5,57 +5,54 @@
 # uses jemalloc
 
 # location of libgcc
-LIBGCC_BASE="/mnt/gvfs/third-party2/libgcc/7712e757d7355cb51292454ee0b7b46a467fdfed/4.8.1/gcc-4.8.1-glibc-2.17/8aac7fc"
+LIBGCC_BASE="/mnt/gvfs/third-party2/libgcc/0473c80518a10d6efcbe24c5eeca3fb4ec9b519c/4.9.x/gcc-4.9-glibc-2.20/e1a7e4e/"
 LIBGCC_INCLUDE="$LIBGCC_BASE/include"
 LIBGCC_LIBS=" -L $LIBGCC_BASE/libs"
 
 # location of glibc
-GLIBC_REV=6e40560b4e0b6d690fd1cf8c7a43ad7452b04cfa
-GLIBC_INCLUDE="/mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.17/gcc-4.8.1-glibc-2.17/99df8fc/include"
-GLIBC_LIBS=" -L /mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.17/gcc-4.8.1-glibc-2.17/99df8fc/lib"
+GLIBC_REV=7397bed99280af5d9543439cdb7d018af7542720
+GLIBC_INCLUDE="/mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.20/gcc-4.9-glibc-2.20/99df8fc/include"
+GLIBC_LIBS=" -L /mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.20/gcc-4.9-glibc-2.20/99df8fc/lib"
 
 # location of snappy headers and libraries
-SNAPPY_INCLUDE=" -I /mnt/gvfs/third-party2/snappy/aef17f6c0b44b4fe408bd06f67c93701ab0a6ceb/1.0.3/gcc-4.8.1-glibc-2.17/43d84e2/include"
-SNAPPY_LIBS=" /mnt/gvfs/third-party2/snappy/aef17f6c0b44b4fe408bd06f67c93701ab0a6ceb/1.0.3/gcc-4.8.1-glibc-2.17/43d84e2/lib/libsnappy.a"
+SNAPPY_INCLUDE=" -I /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/include/"
+SNAPPY_LIBS=" /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/lib/libsnappy.a"
 
 # location of zlib headers and libraries
-ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/25c6216928b4d77b59ddeca0990ff6fe9ac16b81/1.2.5/gcc-4.8.1-glibc-2.17/c3f970a/include"
-ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/25c6216928b4d77b59ddeca0990ff6fe9ac16b81/1.2.5/gcc-4.8.1-glibc-2.17/c3f970a/lib/libz.a"
+ZLIB_INCLUDE=" -I /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/include/"
+ZLIB_LIBS=" /mnt/gvfs/third-party2/zlib/feb983d9667f4cf5e9da07ce75abc824764b67a1/1.2.8/gcc-4.9-glibc-2.20/4230243/lib/libz.a"
 
 # location of bzip headers and libraries
-BZIP_INCLUDE=" -I /mnt/gvfs/third-party2/bzip2/c9ef7629c2aa0024f7a416e87602f06eb88f5eac/1.0.6/gcc-4.8.1-glibc-2.17/c3f970a/include/"
-BZIP_LIBS=" /mnt/gvfs/third-party2/bzip2/c9ef7629c2aa0024f7a416e87602f06eb88f5eac/1.0.6/gcc-4.8.1-glibc-2.17/c3f970a/lib/libbz2.a"
+BZIP_INCLUDE=" -I /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/include/"
+BZIP_LIBS=" /mnt/gvfs/third-party2/bzip2/af004cceebb2dfd173ca29933ea5915e727aad2f/1.0.6/gcc-4.9-glibc-2.20/4230243/lib/libbz2.a"
 
-LZ4_REV=065ec7e38fe83329031f6668c43bef83eff5808b
-LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/$LZ4_REV/r108/gcc-4.8.1-glibc-2.17/c3f970a/include"
-LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/$LZ4_REV/r108/gcc-4.8.1-glibc-2.17/c3f970a/lib/liblz4.a"
+LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/include/"
+LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
 
 # location of gflags headers and libraries
-GFLAGS_INCLUDE=" -I /mnt/gvfs/third-party2/gflags/1ad047a6e6f6673991918ecadc670868205a243a/1.6/gcc-4.8.1-glibc-2.17/c3f970a/include/"
-GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/1ad047a6e6f6673991918ecadc670868205a243a/1.6/gcc-4.8.1-glibc-2.17/c3f970a/lib/libgflags.a"
+GFLAGS_INCLUDE=" -I /mnt/gvfs/third-party2/gflags/0fa60e2b88de3e469db6c482d6e6dac72f5d65f9/1.6/gcc-4.9-glibc-2.20/4230243/include/"
+GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/0fa60e2b88de3e469db6c482d6e6dac72f5d65f9/1.6/gcc-4.9-glibc-2.20/4230243/lib/libgflags.a"
 
 # location of jemalloc
-JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/c60d854f7824f334195fe7fd34b2bc9057e3c1f9/3.6.0/gcc-4.8.1-glibc-2.17/4d53c6f/include"
-JEMALLOC_LIB=" -Wl,--whole-archive /mnt/gvfs/third-party2/jemalloc/c60d854f7824f334195fe7fd34b2bc9057e3c1f9/3.6.0/gcc-4.8.1-glibc-2.17/4d53c6f/lib/libjemalloc.a"
+JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/include/"
+JEMALLOC_LIB=" -Wl,--whole-archive /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/lib/libjemalloc.a"
 
 # location of numa
-NUMA_REV=829d10dac0230f99cd7e1778869d2adf3da24b65
-NUMA_INCLUDE=" -I /mnt/gvfs/third-party2/numa/$NUMA_REV/2.0.8/gcc-4.8.1-glibc-2.17/c3f970a/include/"
-NUMA_LIB=" /mnt/gvfs/third-party2/numa/$NUMA_REV/2.0.8/gcc-4.8.1-glibc-2.17/c3f970a/lib/libnuma.a"
+NUMA_INCLUDE=" -I /mnt/gvfs/third-party2/numa/bbefc39ecbf31d0ca184168eb613ef8d397790ee/2.0.8/gcc-4.9-glibc-2.20/4230243/include/"
+NUMA_LIB=" /mnt/gvfs/third-party2/numa/bbefc39ecbf31d0ca184168eb613ef8d397790ee/2.0.8/gcc-4.9-glibc-2.20/4230243/lib/libnuma.a"
 
 # location of libunwind
-LIBUNWIND_REV=2c060e64064559905d46fd194000d61592087bdc
-LIBUNWIND="/mnt/gvfs/third-party2/libunwind/$LIBUNWIND_REV/1.1/gcc-4.8.1-glibc-2.17/675d945/lib/libunwind.a"
+LIBUNWIND="/mnt/gvfs/third-party2/libunwind/1de3b75e0afedfe5585b231bbb340ec7a1542335/1.1/gcc-4.9-glibc-2.20/34235e8/lib/libunwind.a"
 
 # use Intel SSE support for checksum calculations
 export USE_SSE=1
 
-BINUTILS="/mnt/gvfs/third-party2/binutils/2aff2e7b474cd3e6ab23495ad1224b7d214b9f8e/2.21.1/centos6-native/da39a3e/bin"
+BINUTILS="/mnt/gvfs/third-party2/binutils/0b6ad0c88ddd903333a48ae8bff134efac468e4a/2.25/centos6-native/da39a3e/bin"
 AR="$BINUTILS/ar"
 
 DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE"
 
-GCC_BASE="/mnt/gvfs/third-party2/gcc/1ec615e23800f0815d474478ba476a0adc3fe788/4.8.1/centos6-native/cc6c9dc"
+GCC_BASE="/mnt/gvfs/third-party2/gcc/1c67a0b88f64d4d9ced0382d141c76aaa7d62fba/4.9.x/centos6-native/1317bc4"
 STDLIBS="-L $GCC_BASE/lib64"
 
 if [ -z "$USE_CLANG" ]; then
@@ -68,16 +65,16 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang 
-  CLANG_BASE="/mnt/gvfs/third-party2/clang/9ab68376f938992c4eb5946ca68f90c3185cffc8/3.4"
-  CLANG_INCLUDE="$CLANG_BASE/gcc-4.8.1-glibc-2.17/fb0f730/lib/clang/3.4/include"
-  CC="$CLANG_BASE/centos6-native/9cefd8a/bin/clang"
-  CXX="$CLANG_BASE/centos6-native/9cefd8a/bin/clang++"
+  CLANG_BASE="/mnt/gvfs/third-party2/clang/290704c112bf894bf4a30d7bbd1be81e34998473/dev"
+  CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/74c386f/lib/clang/dev/include/"
+  CC="$CLANG_BASE/centos6-native/af4b1a0/bin/clang"
+  CXX="$CLANG_BASE/centos6-native/af4b1a0/bin/clang++"
 
-  KERNEL_HEADERS_INCLUDE="/mnt/gvfs/third-party2/kernel-headers/a683ed7135276731065a9d76d3016c9731f4e2f9/3.2.18_70_fbk11_00129_gc8882d0/gcc-4.8.1-glibc-2.17/da39a3e/include/"
+  KERNEL_HEADERS_INCLUDE="/mnt/gvfs/third-party2/kernel-headers/ffd14f660a43c4b92717986b1bba66722ef089d0/3.2.18_70_fbk11_00129_gc8882d0/gcc-4.9-glibc-2.20/da39a3e/include"
 
   CFLAGS="-B$BINUTILS/gold -nostdinc -nostdlib"
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.8.1 "
-  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.8.1/x86_64-facebook-linux "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x "
+  CFLAGS+=" -isystem $LIBGCC_BASE/include/c++/4.9.x/x86_64-facebook-linux "
   CFLAGS+=" -isystem $GLIBC_INCLUDE"
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
   CFLAGS+=" -isystem $CLANG_INCLUDE"
@@ -92,14 +89,13 @@ CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
-EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"
+EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.9-glibc-2.20/lib/ld.so"
 EXEC_LDFLAGS+=" -Wl,--no-whole-archive $LIBUNWIND"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS $STDLIBS -lgcc -lstdc++"
 
 EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS"
 
-VALGRIND_REV=b2a9f85e4b70cd03abc85a7f3027fbc4cef35bd0
-VALGRIND_VER="/mnt/gvfs/third-party2/valgrind/$VALGRIND_REV/3.8.1/gcc-4.8.1-glibc-2.17/c3f970a/bin/"
+VALGRIND_VER="/mnt/gvfs/third-party2/valgrind/6c45ef049cbf11c2df593addb712cd891049e737/3.10.0/gcc-4.9-glibc-2.20/4230243/bin"
 
 export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE
