@@ -162,4 +162,25 @@ public class BlockBasedTableConfigTest {
       }
     }
   }
+
+  @Test
+  public void blockBasedTableFormatVersion() {
+    BlockBasedTableConfig config = new BlockBasedTableConfig();
+    for (int version=0; version<=2; version++) {
+      config.setFormatVersion(version);
+      assertThat(config.formatVersion()).isEqualTo(version);
+    }
+  }
+
+  @Test(expected = AssertionError.class)
+  public void blockBasedTableFormatVersionFailNegative() {
+    BlockBasedTableConfig config = new BlockBasedTableConfig();
+    config.setFormatVersion(-1);
+  }
+
+  @Test(expected = AssertionError.class)
+  public void blockBasedTableFormatVersionFailIllegalVersion() {
+    BlockBasedTableConfig config = new BlockBasedTableConfig();
+    config.setFormatVersion(3);
+  }
 }

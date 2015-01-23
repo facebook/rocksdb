@@ -38,7 +38,7 @@ jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJIIZIZZJIBB)J
+ * Signature: (ZJIJIIZIZZJIBBI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jboolean no_block_cache, jlong block_cache_size,
@@ -47,7 +47,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     jlong jfilterPolicy, jboolean cache_index_and_filter_blocks,
     jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
     jint block_cache_compressd_num_shard_bits, jbyte jchecksum_type,
-    jbyte jindex_type) {
+    jbyte jindex_type, jint jformat_version) {
   rocksdb::BlockBasedTableOptions options;
   options.no_block_cache = no_block_cache;
 
@@ -83,6 +83,7 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.checksum = static_cast<rocksdb::ChecksumType>(jchecksum_type);
   options.index_type = static_cast<
       rocksdb::BlockBasedTableOptions::IndexType>(jindex_type);
+  options.format_version = jformat_version;
 
   return reinterpret_cast<jlong>(rocksdb::NewBlockBasedTableFactory(options));
 }

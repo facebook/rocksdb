@@ -26,6 +26,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     blockCacheCompressedNumShardBits_ = 0;
     checksumType_ = ChecksumType.kCRC32c;
     indexType_ = IndexType.kBinarySearch;
+    formatVersion_ = 0;
   }
 
   /**
@@ -335,6 +336,45 @@ public class BlockBasedTableConfig extends TableFormatConfig {
     return indexType_;
   }
 
+  /**
+   * <p>We currently have three versions:</p>
+   *
+   * <ul>
+   * <li><strong>0</strong> - This version is currently written
+   * out by all RocksDB's versions by default. Can be read by really old
+   * RocksDB's. Doesn't support changing checksum (default is CRC32).</li>
+   * <li><strong>1</strong> - Can be read by RocksDB's versions since 3.0.
+   * Supports non-default checksum, like xxHash. It is written by RocksDB when
+   * BlockBasedTableOptions::checksum is something other than kCRC32c. (version
+   * 0 is silently upconverted)</li>
+   * <li><strong>2</strong> - Can be read by RocksDB's versions since 3.10.
+   * Changes the way we encode compressed blocks with LZ4, BZip2 and Zlib
+   * compression. If you don't plan to run RocksDB before version 3.10,
+   * you should probably use this.</li>
+   * </ul>
+   * <p> This option only affects newly written tables. When reading existing
+   * tables, the information about version is read from the footer.</p>
+   *
+   * @param formatVersion integer representing the version to be used.
+   * @return the reference to the current option.
+   */
+  public BlockBasedTableConfig setFormatVersion(int formatVersion) {
+    assert(formatVersion >= 0 && formatVersion <= 2);
+    formatVersion_ = formatVersion;
+    return this;
+  }
+
+  /**
+   *
+   * @return the currently configured format version.
+   * See also: {@link #setFormatVersion(int)}.
+   */
+  public int formatVersion() {
+    return formatVersion_;
+  }
+
+
+
   @Override protected long newTableFactoryHandle() {
     long filterHandle = 0;
     if (filter_ != null) {
@@ -347,7 +387,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
         filterHandle, cacheIndexAndFilterBlocks_,
         hashIndexAllowCollision_, blockCacheCompressedSize_,
         blockCacheCompressedNumShardBits_,
-        checksumType_.getValue(), indexType_.getValue());
+        checksumType_.getValue(), indexType_.getValue(),
+        formatVersion_);
   }
 
   private native long newTableFactoryHandle(
@@ -356,7 +397,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
       boolean wholeKeyFiltering, long filterPolicyHandle,
       boolean cacheIndexAndFilterBlocks, boolean hashIndexAllowCollision,
       long blockCacheCompressedSize, int blockCacheCompressedNumShardBits,
-      byte checkSumType, byte indexType);
+      byte checkSumType, byte indexType, int formatVersion);
 
   private boolean cacheIndexAndFilterBlocks_;
   private IndexType indexType_;
@@ -372,4 +413,5 @@ public class BlockBasedTableConfig extends TableFormatConfig {
   private int blockRestartInterval_;
   private Filter filter_;
   private boolean wholeKeyFiltering_;
+  private int formatVersion_;
 }
