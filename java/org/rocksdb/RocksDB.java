@@ -1107,21 +1107,40 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Return a heap-allocated iterator over the contents of the database.
-   * The result of newIterator() is initially invalid (caller must
-   * call one of the Seek methods on the iterator before using it).
+   * <p>Return a heap-allocated iterator over the contents of the
+   * database. The result of newIterator() is initially invalid
+   * (caller must call one of the Seek methods on the iterator
+   * before using it).</p>
    *
-   * Caller should close the iterator when it is no longer needed.
+   * <p>Caller should close the iterator when it is no longer needed.
    * The returned iterator should be closed before this db is closed.
+   * </p>
    *
    * @return instance of iterator object.
    */
   public RocksIterator newIterator() {
-    return new RocksIterator(this, iterator0(nativeHandle_));
+    return new RocksIterator(this, iterator(nativeHandle_));
   }
 
-
   /**
+   * <p>Return a heap-allocated iterator over the contents of the
+   * database. The result of newIterator() is initially invalid
+   * (caller must call one of the Seek methods on the iterator
+   * before using it).</p>
+   *
+   * <p>Caller should close the iterator when it is no longer needed.
+   * The returned iterator should be closed before this db is closed.
+   * </p>
+   *
+   * @param readOptions {@link ReadOptions} instance.
+   * @return instance of iterator object.
+   */
+  public RocksIterator newIterator(ReadOptions readOptions) {
+    return new RocksIterator(this, iterator(nativeHandle_,
+        readOptions.nativeHandle_));
+  }
+
+   /**
    * <p>Return a handle to the current DB state. Iterators created with
    * this handle will all observe a stable snapshot of the current DB
    * state. The caller must call ReleaseSnapshot(result) when the
@@ -1153,20 +1172,43 @@ public class RocksDB extends RocksObject {
   }
 
   /**
-   * Return a heap-allocated iterator over the contents of the database.
-   * The result of newIterator() is initially invalid (caller must
-   * call one of the Seek methods on the iterator before using it).
+   * <p>Return a heap-allocated iterator over the contents of the
+   * database. The result of newIterator() is initially invalid
+   * (caller must call one of the Seek methods on the iterator
+   * before using it).</p>
    *
-   * Caller should close the iterator when it is no longer needed.
+   * <p>Caller should close the iterator when it is no longer needed.
    * The returned iterator should be closed before this db is closed.
+   * </p>
    *
    * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
    *     instance
    * @return instance of iterator object.
    */
   public RocksIterator newIterator(ColumnFamilyHandle columnFamilyHandle) {
-    return new RocksIterator(this, iterator0(nativeHandle_,
+    return new RocksIterator(this, iteratorCF(nativeHandle_,
         columnFamilyHandle.nativeHandle_));
+  }
+
+  /**
+   * <p>Return a heap-allocated iterator over the contents of the
+   * database. The result of newIterator() is initially invalid
+   * (caller must call one of the Seek methods on the iterator
+   * before using it).</p>
+   *
+   * <p>Caller should close the iterator when it is no longer needed.
+   * The returned iterator should be closed before this db is closed.
+   * </p>
+   *
+   * @param columnFamilyHandle {@link org.rocksdb.ColumnFamilyHandle}
+   *     instance
+   * @param readOptions {@link ReadOptions} instance.
+   * @return instance of iterator object.
+   */
+  public RocksIterator newIterator(ColumnFamilyHandle columnFamilyHandle,
+      ReadOptions readOptions) {
+    return new RocksIterator(this, iteratorCF(nativeHandle_,
+        columnFamilyHandle.nativeHandle_, readOptions.nativeHandle_));
   }
 
   /**
@@ -1184,10 +1226,31 @@ public class RocksDB extends RocksObject {
    */
   public List<RocksIterator> newIterators(
       List<ColumnFamilyHandle> columnFamilyHandleList) throws RocksDBException {
+    return newIterators(columnFamilyHandleList, new ReadOptions());
+  }
+
+  /**
+   * Returns iterators from a consistent database state across multiple
+   * column families. Iterators are heap allocated and need to be deleted
+   * before the db is deleted
+   *
+   * @param columnFamilyHandleList {@link java.util.List} containing
+   *     {@link org.rocksdb.ColumnFamilyHandle} instances.
+   * @param readOptions {@link ReadOptions} instance.
+   * @return {@link java.util.List} containing {@link org.rocksdb.RocksIterator}
+   *     instances
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
+   */
+  public List<RocksIterator> newIterators(
+      List<ColumnFamilyHandle> columnFamilyHandleList,
+      ReadOptions readOptions) throws RocksDBException {
     List<RocksIterator> iterators =
         new ArrayList<>(columnFamilyHandleList.size());
 
-    long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandleList);
+    long[] iteratorRefs = iterators(nativeHandle_, columnFamilyHandleList,
+        readOptions.nativeHandle_);
     for (int i=0; i<columnFamilyHandleList.size(); i++){
       iterators.add(new RocksIterator(this, iteratorRefs[i]));
     }
@@ -1637,10 +1700,14 @@ public class RocksDB extends RocksObject {
       String property, int propertyLength) throws RocksDBException;
   protected native long getLongProperty(long nativeHandle, long cfHandle,
       String property, int propertyLength) throws RocksDBException;
-  protected native long iterator0(long handle);
-  protected native long iterator0(long handle, long cfHandle);
+  protected native long iterator(long handle);
+  protected native long iterator(long handle, long readOptHandle);
+  protected native long iteratorCF(long handle, long cfHandle);
+  protected native long iteratorCF(long handle, long cfHandle,
+      long readOptHandle);
   protected native long[] iterators(long handle,
-      List<ColumnFamilyHandle> columnFamilyNames) throws RocksDBException;
+      List<ColumnFamilyHandle> columnFamilyNames, long readOptHandle)
+      throws RocksDBException;
   protected native long getSnapshot(long nativeHandle);
   protected native void releaseSnapshot(
       long nativeHandle, long snapshotHandle);
