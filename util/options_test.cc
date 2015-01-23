@@ -78,14 +78,17 @@ TEST(OptionsTest, LooseCondition) {
   options = PrintAndGetOptions(128 * 1024 * 1024, 8, 100);
   ASSERT_EQ(options.compaction_style, kCompactionStyleLevel);
 
+#ifndef ROCKSDB_LITE  // Universal compaction is not supported in ROCKSDB_LITE
   // Tight write amplification
   options = PrintAndGetOptions(128 * 1024 * 1024, 64, 10);
   ASSERT_EQ(options.compaction_style, kCompactionStyleUniversal);
+#endif  // !ROCKSDB_LITE
 
   // Both tight amplifications
   PrintAndGetOptions(128 * 1024 * 1024, 4, 8);
 }
 
+#ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
     {"write_buffer_size", "1"},
@@ -271,7 +274,9 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
 }
+#endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in ROCKSDB_LITE
 TEST(OptionsTest, GetOptionsFromStringTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
@@ -382,7 +387,9 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
              "block_based_table_factory={xx_block_size=4;}",
              &new_cf_opt));
 }
+#endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  // GetBlockBasedTableOptionsFromString is not supported
 TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
@@ -435,11 +442,13 @@ TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "filter_policy=bloomfilter:4",
              &new_opt));
 }
+#endif  // !ROCKSDB_LITE
 
 Status StringToMap(
     const std::string& opts_str,
     std::unordered_map<std::string, std::string>* opts_map);
 
+#ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
 TEST(OptionsTest, StringToMapTest) {
   std::unordered_map<std::string, std::string> opts_map;
   // Regular options
@@ -556,7 +565,9 @@ TEST(OptionsTest, StringToMapTest) {
   ASSERT_NOK(StringToMap("k1=v1;k2={{}}{}", &opts_map));
   ASSERT_NOK(StringToMap("k1=v1;k2={{dfdl}adfa}{}", &opts_map));
 }
+#endif  // ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
 TEST(OptionsTest, StringToMapRandomTest) {
   std::unordered_map<std::string, std::string> opts_map;
   // Make sure segfault is not hit by semi-random strings
@@ -601,6 +612,7 @@ TEST(OptionsTest, StringToMapRandomTest) {
     opts_map.clear();
   }
 }
+#endif  // !ROCKSDB_LITE
 
 TEST(OptionsTest, ConvertOptionsTest) {
   LevelDBOptions leveldb_opt;
