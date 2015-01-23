@@ -1207,8 +1207,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       line.remove_prefix(checksum_prefix.size());
       checksum_value = static_cast<uint32_t>(
           strtoul(line.data(), nullptr, 10));
-      if (memcmp(line.data(), std::to_string(checksum_value).c_str(),
-                 line.size() - 1) != 0) {
+      if (line != std::to_string(checksum_value)) {
         return Status::Corruption("Invalid checksum value");
       }
     } else {
