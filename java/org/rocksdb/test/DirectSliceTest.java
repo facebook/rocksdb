@@ -48,8 +48,10 @@ public class DirectSliceTest {
     DirectSlice directSlice = null;
     try {
       byte[] data = "Some text".getBytes();
-      ByteBuffer buffer = ByteBuffer.allocateDirect(data.length);
+      ByteBuffer buffer = ByteBuffer.allocateDirect(data.length + 1);
       buffer.put(data);
+      buffer.put(data.length, (byte)0);
+
       directSlice = new DirectSlice(buffer);
       assertThat(directSlice.toString()).isEqualTo("Some text");
     } finally {
