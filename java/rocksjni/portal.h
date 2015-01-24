@@ -34,36 +34,45 @@ inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
   return s;
 }
 
-// The portal class for org.rocksdb.RocksDB
-class RocksDBJni {
+// Native class template
+template<class PTR, class DERIVED> class RocksDBNativeClass {
  public:
-  // Get the java class id of org.rocksdb.RocksDB.
-  static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/RocksDB");
+  // Get the java class id
+  static jclass getJClass(JNIEnv* env, const char* jclazz_name) {
+    jclass jclazz = env->FindClass(jclazz_name);
     assert(jclazz != nullptr);
     return jclazz;
   }
 
-  // Get the field id of the member variable of org.rocksdb.RocksDB
-  // that stores the pointer to rocksdb::DB.
+  // Get the field id of the member variable to store
+  // the ptr
   static jfieldID getHandleFieldID(JNIEnv* env) {
     static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
+        DERIVED::getJClass(env), "nativeHandle_", "J");
     assert(fid != nullptr);
     return fid;
   }
 
-  // Get the pointer to rocksdb::DB of the specified org.rocksdb.RocksDB.
-  static rocksdb::DB* getHandle(JNIEnv* env, jobject jdb) {
-    return reinterpret_cast<rocksdb::DB*>(
-        env->GetLongField(jdb, getHandleFieldID(env)));
+  // Get the pointer from Java
+  static PTR getHandle(JNIEnv* env, jobject jobj) {
+    return reinterpret_cast<PTR>(
+        env->GetLongField(jobj, getHandleFieldID(env)));
   }
 
-  // Pass the rocksdb::DB pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jdb, rocksdb::DB* db) {
+  // Pass the pointer to the java side.
+  static void setHandle(JNIEnv* env, jobject jdb, PTR ptr) {
     env->SetLongField(
         jdb, getHandleFieldID(env),
-        reinterpret_cast<jlong>(db));
+        reinterpret_cast<jlong>(ptr));
+  }
+};
+
+// The portal class for org.rocksdb.RocksDB
+class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+ public:
+  // Get the java class id of org.rocksdb.RocksDB.
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
   }
 };
 
@@ -96,67 +105,21 @@ class RocksDBExceptionJni {
   }
 };
 
-class OptionsJni {
+// The portal class for org.rocksdb.Options
+class OptionsJni : public RocksDBNativeClass<rocksdb::Options*,
+    OptionsJni> {
  public:
-  // Get the java class id of org.rocksdb.Options.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/Options");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.Options
-  // that stores the pointer to rocksdb::Options
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::Options
-  static rocksdb::Options* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::Options*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::Options pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj, rocksdb::Options* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/Options");
   }
 };
 
-class DBOptionsJni {
+// The portal class for org.rocksdb.DBOptions
+class DBOptionsJni : public RocksDBNativeClass<rocksdb::DBOptions*,
+    DBOptionsJni> {
  public:
-  // Get the java class id of org.rocksdb.DBOptions.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/DBOptions");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.DBOptions
-  // that stores the pointer to rocksdb::DBOptions
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::DBOptions
-  static rocksdb::DBOptions* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::DBOptions*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::DBOptions pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj, rocksdb::DBOptions* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/DBOptions");
   }
 };
 
@@ -188,149 +151,54 @@ class ColumnFamilyDescriptorJni {
   }
 };
 
-class ColumnFamilyOptionsJni {
+// The portal class for org.rocksdb.ColumnFamilyOptions
+class ColumnFamilyOptionsJni : public RocksDBNativeClass<
+    rocksdb::ColumnFamilyOptions*, ColumnFamilyOptionsJni> {
  public:
-  // Get the java class id of org.rocksdb.ColumnFamilyOptions.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/ColumnFamilyOptions");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.DBOptions
-  // that stores the pointer to rocksdb::ColumnFamilyOptions
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::ColumnFamilyOptions
-  static rocksdb::ColumnFamilyOptions* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::ColumnFamilyOptions pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj,
-      rocksdb::ColumnFamilyOptions* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/ColumnFamilyOptions");
   }
 };
 
-class WriteOptionsJni {
+// The portal class for org.rocksdb.WriteOptions
+class WriteOptionsJni : public RocksDBNativeClass<
+    rocksdb::WriteOptions*, WriteOptionsJni> {
  public:
-  // Get the java class id of org.rocksdb.WriteOptions.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/WriteOptions");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.WriteOptions
-  // that stores the pointer to rocksdb::WriteOptions
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::WriteOptions
-  static rocksdb::WriteOptions* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::WriteOptions*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::WriteOptions pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj, rocksdb::WriteOptions* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/WriteOptions");
   }
 };
 
-
-class ReadOptionsJni {
+// The portal class for org.rocksdb.ReadOptions
+class ReadOptionsJni : public RocksDBNativeClass<
+    rocksdb::ReadOptions*, ReadOptionsJni> {
  public:
-  // Get the java class id of org.rocksdb.ReadOptions.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/ReadOptions");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.ReadOptions
-  // that stores the pointer to rocksdb::ReadOptions
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::ReadOptions
-  static rocksdb::ReadOptions* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::ReadOptions*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::ReadOptions pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jobj,
-                        rocksdb::ReadOptions* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/ReadOptions");
   }
 };
 
-
-class WriteBatchJni {
+// The portal class for org.rocksdb.ReadOptions
+class WriteBatchJni : public RocksDBNativeClass<
+    rocksdb::WriteBatch*, WriteBatchJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/WriteBatch");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::WriteBatch of the specified
-  // org.rocksdb.WriteBatch.
-  static rocksdb::WriteBatch* getHandle(JNIEnv* env, jobject jwb) {
-    return reinterpret_cast<rocksdb::WriteBatch*>(
-        env->GetLongField(jwb, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::WriteBatch pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jwb, rocksdb::WriteBatch* wb) {
-    env->SetLongField(
-        jwb, getHandleFieldID(env),
-        reinterpret_cast<jlong>(wb));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/WriteBatch");
   }
 };
 
-class WriteBatchHandlerJni {
+// The portal class for org.rocksdb.WriteBatch.Handler
+class WriteBatchHandlerJni : public RocksDBNativeClass<
+    const rocksdb::WriteBatchHandlerJniCallback*,
+    WriteBatchHandlerJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/WriteBatch$Handler");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/WriteBatch$Handler");
   }
 
   // Get the java method `put` of org.rocksdb.WriteBatch.Handler.
@@ -372,53 +240,15 @@ class WriteBatchHandlerJni {
     assert(mid != nullptr);
     return mid;
   }
-
-  // Get the pointer to rocksdb::WriteBatchHandlerJniCallback of the specified
-  // org.rocksdb.WriteBatchHandler.
-  static rocksdb::WriteBatchHandlerJniCallback* getHandle(
-      JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::WriteBatchHandlerJniCallback*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::WriteBatchHandlerJniCallback pointer to the java side.
-  static void setHandle(
-      JNIEnv* env, jobject jobj,
-      const rocksdb::WriteBatchHandlerJniCallback* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
-  }
 };
 
-class WriteBatchWithIndexJni {
+// The portal class for org.rocksdb.WriteBatchWithIndex
+class WriteBatchWithIndexJni : public RocksDBNativeClass<
+    rocksdb::WriteBatchWithIndex*, WriteBatchWithIndexJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/WriteBatchWithIndex");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::WriteBatchWithIndex of the specified
-  // org.rocksdb.WriteBatchWithIndex.
-  static rocksdb::WriteBatchWithIndex* getHandle(JNIEnv* env, jobject jwbwi) {
-    return reinterpret_cast<rocksdb::WriteBatchWithIndex*>(
-        env->GetLongField(jwbwi, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::WriteBatchWithIndex pointer to the java side.
-  static void setHandle(JNIEnv* env, jobject jwbwi,
-      rocksdb::WriteBatchWithIndex* wbwi) {
-    env->SetLongField(
-        jwbwi, getHandleFieldID(env),
-        reinterpret_cast<jlong>(wbwi));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/WriteBatch");
   }
 };
 
@@ -431,212 +261,74 @@ class HistogramDataJni {
   }
 };
 
-class BackupableDBOptionsJni {
+// The portal class for org.rocksdb.WriteBatchWithIndex
+class BackupableDBOptionsJni : public RocksDBNativeClass<
+    rocksdb::BackupableDBOptions*, BackupableDBOptionsJni> {
  public:
-  // Get the java class id of org.rocksdb.BackupableDBOptions.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/BackupableDBOptions");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.BackupableDBOptions
-  // that stores the pointer to rocksdb::BackupableDBOptions
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::BackupableDBOptions
-  static rocksdb::BackupableDBOptions* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::BackupableDBOptions*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::BackupableDBOptions pointer to the java side.
-  static void setHandle(
-      JNIEnv* env, jobject jobj, rocksdb::BackupableDBOptions* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/BackupableDBOptions");
   }
 };
 
-class IteratorJni {
+// The portal class for org.rocksdb.RocksIterator
+class IteratorJni : public RocksDBNativeClass<
+    rocksdb::Iterator*, IteratorJni> {
  public:
-  // Get the java class id of org.rocksdb.Iteartor.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/RocksIterator");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.Iterator
-  // that stores the pointer to rocksdb::Iterator.
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::Iterator.
-  static rocksdb::Iterator* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::Iterator*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::Iterator pointer to the java side.
-  static void setHandle(
-      JNIEnv* env, jobject jobj, rocksdb::Iterator* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/RocksIterator");
   }
 };
 
-class FilterJni {
+// The portal class for org.rocksdb.Filter
+class FilterJni : public RocksDBNativeClass<
+    std::shared_ptr<rocksdb::FilterPolicy>*, FilterJni> {
  public:
-  // Get the java class id of org.rocksdb.FilterPolicy.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/Filter");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.Filter
-  // that stores the pointer to rocksdb::FilterPolicy.
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::FilterPolicy.
-  static std::shared_ptr<rocksdb::FilterPolicy>* getHandle(
-      JNIEnv* env, jobject jobj) {
-    return reinterpret_cast
-        <std::shared_ptr<rocksdb::FilterPolicy> *>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::FilterPolicy pointer to the java side.
-  static void setHandle(
-      JNIEnv* env, jobject jobj, std::shared_ptr<rocksdb::FilterPolicy>* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/Filter");
   }
 };
 
-class ColumnFamilyHandleJni {
+// The portal class for org.rocksdb.ColumnFamilyHandle
+class ColumnFamilyHandleJni : public RocksDBNativeClass<
+    rocksdb::ColumnFamilyHandle*, ColumnFamilyHandleJni> {
  public:
-  // Get the java class id of org.rocksdb.ColumnFamilyHandle.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/ColumnFamilyHandle");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.ColumnFamilyHandle.
-  // that stores the pointer to rocksdb::ColumnFamilyHandle.
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to rocksdb::ColumnFamilyHandle.
-  static rocksdb::ColumnFamilyHandle* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::ColumnFamilyHandle*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the rocksdb::ColumnFamilyHandle pointer to the java side.
-  static void setHandle(
-      JNIEnv* env, jobject jobj, const rocksdb::ColumnFamilyHandle* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/ColumnFamilyHandle");
   }
 };
 
-class FlushOptionsJni {
+// The portal class for org.rocksdb.FlushOptions
+class FlushOptionsJni : public RocksDBNativeClass<
+    rocksdb::FlushOptions*, FlushOptionsJni> {
  public:
-    // Get the java class id of org.rocksdb.FlushOptions.
-    static jclass getJClass(JNIEnv* env) {
-      jclass jclazz = env->FindClass("org/rocksdb/FlushOptions");
-      assert(jclazz != nullptr);
-      return jclazz;
-    }
-
-    // Get the field id of the member variable of org.rocksdb.FlushOptions
-    // that stores the pointer to rocksdb::FlushOptions.
-    static jfieldID getHandleFieldID(JNIEnv* env) {
-      static jfieldID fid = env->GetFieldID(
-          getJClass(env), "nativeHandle_", "J");
-      assert(fid != nullptr);
-      return fid;
-    }
-
-    // Pass the FlushOptions pointer to the java side.
-    static void setHandle(
-      JNIEnv* env, jobject jobj,
-      const rocksdb::FlushOptions* op) {
-      env->SetLongField(
-          jobj, getHandleFieldID(env),
-          reinterpret_cast<jlong>(op));
-    }
-};
-
-class ComparatorOptionsJni {
- public:
-    // Get the java class id of org.rocksdb.ComparatorOptions.
-    static jclass getJClass(JNIEnv* env) {
-      jclass jclazz = env->FindClass("org/rocksdb/ComparatorOptions");
-      assert(jclazz != nullptr);
-      return jclazz;
-    }
-
-    // Get the field id of the member variable of org.rocksdb.ComparatorOptions
-    // that stores the pointer to rocksdb::ComparatorJniCallbackOptions.
-    static jfieldID getHandleFieldID(JNIEnv* env) {
-      static jfieldID fid = env->GetFieldID(
-          getJClass(env), "nativeHandle_", "J");
-      assert(fid != nullptr);
-      return fid;
-    }
-
-    // Pass the ComparatorJniCallbackOptions pointer to the java side.
-    static void setHandle(
-      JNIEnv* env, jobject jobj,
-      const rocksdb::ComparatorJniCallbackOptions* op) {
-      env->SetLongField(
-          jobj, getHandleFieldID(env),
-          reinterpret_cast<jlong>(op));
-    }
-};
-
-class AbstractComparatorJni {
- public:
-  // Get the java class id of org.rocksdb.Comparator.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/AbstractComparator");
-    assert(jclazz != nullptr);
-    return jclazz;
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/FlushOptions");
   }
+};
 
-  // Get the field id of the member variable of org.rocksdb.Comparator
-  // that stores the pointer to rocksdb::Comparator.
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
+// The portal class for org.rocksdb.ComparatorOptions
+class ComparatorOptionsJni : public RocksDBNativeClass<
+    rocksdb::ComparatorJniCallbackOptions*, ComparatorOptionsJni> {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/ComparatorOptions");
+  }
+};
+
+// The portal class for org.rocksdb.AbstractComparator
+class AbstractComparatorJni : public RocksDBNativeClass<
+    const rocksdb::BaseComparatorJniCallback*,
+    AbstractComparatorJni> {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractComparator");
   }
 
   // Get the java method `name` of org.rocksdb.Comparator.
@@ -673,53 +365,15 @@ class AbstractComparatorJni {
     assert(mid != nullptr);
     return mid;
   }
-
-  // Get the pointer to ComparatorJniCallback.
-  static rocksdb::BaseComparatorJniCallback* getHandle(
-    JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::BaseComparatorJniCallback*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the ComparatorJniCallback pointer to the java side.
-  static void setHandle(
-    JNIEnv* env, jobject jobj, const rocksdb::BaseComparatorJniCallback* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
-  }
 };
 
-class AbstractSliceJni {
+// The portal class for org.rocksdb.AbstractSlice
+class AbstractSliceJni : public RocksDBNativeClass<
+    const rocksdb::Slice*, AbstractSliceJni> {
  public:
-  // Get the java class id of org.rocksdb.Slice.
   static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/AbstractSlice");
-    assert(jclazz != nullptr);
-    return jclazz;
-  }
-
-  // Get the field id of the member variable of org.rocksdb.Slice
-  // that stores the pointer to rocksdb::Slice.
-  static jfieldID getHandleFieldID(JNIEnv* env) {
-    static jfieldID fid = env->GetFieldID(
-        getJClass(env), "nativeHandle_", "J");
-    assert(fid != nullptr);
-    return fid;
-  }
-
-  // Get the pointer to Slice.
-  static rocksdb::Slice* getHandle(JNIEnv* env, jobject jobj) {
-    return reinterpret_cast<rocksdb::Slice*>(
-        env->GetLongField(jobj, getHandleFieldID(env)));
-  }
-
-  // Pass the Slice pointer to the java side.
-  static void setHandle(
-      JNIEnv* env, jobject jobj, const rocksdb::Slice* op) {
-    env->SetLongField(
-        jobj, getHandleFieldID(env),
-        reinterpret_cast<jlong>(op));
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractSlice");
   }
 };
 
