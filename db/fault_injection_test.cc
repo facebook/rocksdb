@@ -363,9 +363,9 @@ class FaultInjectionTest {
   };
   int option_config_;
   // When need to make sure data is persistent, sync WAL
-  bool sync_use_wal;
+  bool sync_use_wal_;
   // When need to make sure data is persistent, call DB::CompactRange()
-  bool sync_use_compact;
+  bool sync_use_compact_;
 
  protected:
  public:
@@ -384,8 +384,8 @@ class FaultInjectionTest {
 
   FaultInjectionTest()
       : option_config_(kDefault),
-        sync_use_wal(false),
-        sync_use_compact(true),
+        sync_use_wal_(false),
+        sync_use_compact_(true),
         env_(NULL),
         db_(NULL) {
     NewDB();
@@ -404,8 +404,8 @@ class FaultInjectionTest {
 
   // Return the current option configuration.
   Options CurrentOptions() {
-    sync_use_wal = false;
-    sync_use_compact = true;
+    sync_use_wal_ = false;
+    sync_use_compact_ = true;
     Options options;
     switch (option_config_) {
       case kWalDir:
@@ -416,13 +416,13 @@ class FaultInjectionTest {
                                       1000000U);
         break;
       case kSyncWal:
-        sync_use_wal = true;
-        sync_use_compact = false;
+        sync_use_wal_ = true;
+        sync_use_compact_ = false;
         break;
       case kWalDirSyncWal:
         options.wal_dir = test::TmpDir(env_) + "/fault_test_wal";
-        sync_use_wal = true;
-        sync_use_compact = false;
+        sync_use_wal_ = true;
+        sync_use_compact_ = false;
         break;
       default:
         break;
@@ -583,10 +583,10 @@ class FaultInjectionTest {
     DeleteAllData();
 
     WriteOptions write_options;
-    write_options.sync = sync_use_wal;
+    write_options.sync = sync_use_wal_;
 
     Build(write_options, 0, num_pre_sync);
-    if (sync_use_compact) {
+    if (sync_use_compact_) {
       db_->CompactRange(nullptr, nullptr);
     }
     write_options.sync = false;
