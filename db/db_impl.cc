@@ -2908,11 +2908,15 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
-    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
   }
 
   WriteContext context;
   mutex_.Lock();
+
+  if (!write_options.disableWAL) {
+    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
+  }
+
   Status status = write_thread_.EnterWriteThread(&w, expiration_time);
   assert(status.ok() || status.IsTimedOut());
   if (status.IsTimedOut()) {
