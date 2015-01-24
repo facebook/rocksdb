@@ -59,6 +59,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.ColumnFamilyTest\
 		org.rocksdb.test.ComparatorOptionsTest\
 		org.rocksdb.test.ComparatorTest\
+		org.rocksdb.test.CompressionOptionsTest\
 		org.rocksdb.test.DBOptionsTest\
 		org.rocksdb.test.DirectComparatorTest\
 		org.rocksdb.test.DirectSliceTest\
