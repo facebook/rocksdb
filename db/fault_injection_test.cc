@@ -620,39 +620,41 @@ TEST(FaultInjectionTest, FaultTest) {
     Random rnd(301);
     ASSERT_OK(SetUp());
 
-    int num_pre_sync = rnd.Uniform(kMaxNumValues);
-    int num_post_sync = rnd.Uniform(kMaxNumValues);
-
-    PartialCompactTestPreFault(num_pre_sync, num_post_sync);
-    PartialCompactTestReopenWithFault(kResetDropUnsyncedData, num_pre_sync,
-                                      num_post_sync);
-    NoWriteTestPreFault();
-    NoWriteTestReopenWithFault(kResetDropUnsyncedData);
-
-    // TODO(t6070540) Need to sync WAL Dir and other DB paths too.
-
-    // Setting a separate data path won't pass the test as we don't sync
-    // it after creating new files,
-    if (option_config_ != kDifferentDataDir) {
-      PartialCompactTestPreFault(num_pre_sync, num_post_sync);
-      // Since we don't sync WAL Dir, this test dosn't pass.
-      if (option_config_ != kWalDirSyncWal) {
-        PartialCompactTestReopenWithFault(kResetDropAndDeleteUnsynced,
-                                          num_pre_sync, num_post_sync);
-      }
-      NoWriteTestPreFault();
-      NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+    for (size_t idx = 0; idx < kNumIterations; idx++) {
+      int num_pre_sync = rnd.Uniform(kMaxNumValues);
+      int num_post_sync = rnd.Uniform(kMaxNumValues);
 
       PartialCompactTestPreFault(num_pre_sync, num_post_sync);
-      // No new files created so we expect all values since no files will be
-      // dropped.
-      // WAL Dir is not synced for now.
-      if (option_config_ != kWalDir && option_config_ != kWalDirSyncWal) {
-        PartialCompactTestReopenWithFault(kResetDeleteUnsyncedFiles,
-                                          num_pre_sync + num_post_sync, 0);
-      }
+      PartialCompactTestReopenWithFault(kResetDropUnsyncedData, num_pre_sync,
+                                        num_post_sync);
       NoWriteTestPreFault();
-      NoWriteTestReopenWithFault(kResetDeleteUnsyncedFiles);
+      NoWriteTestReopenWithFault(kResetDropUnsyncedData);
+
+      // TODO(t6070540) Need to sync WAL Dir and other DB paths too.
+
+      // Setting a separate data path won't pass the test as we don't sync
+      // it after creating new files,
+      if (option_config_ != kDifferentDataDir) {
+        PartialCompactTestPreFault(num_pre_sync, num_post_sync);
+        // Since we don't sync WAL Dir, this test dosn't pass.
+        if (option_config_ != kWalDirSyncWal) {
+          PartialCompactTestReopenWithFault(kResetDropAndDeleteUnsynced,
+                                            num_pre_sync, num_post_sync);
+        }
+        NoWriteTestPreFault();
+        NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+
+        PartialCompactTestPreFault(num_pre_sync, num_post_sync);
+        // No new files created so we expect all values since no files will be
+        // dropped.
+        // WAL Dir is not synced for now.
+        if (option_config_ != kWalDir && option_config_ != kWalDirSyncWal) {
+          PartialCompactTestReopenWithFault(kResetDeleteUnsyncedFiles,
+                                            num_pre_sync + num_post_sync, 0);
+        }
+        NoWriteTestPreFault();
+        NoWriteTestReopenWithFault(kResetDeleteUnsyncedFiles);
+      }
     }
   } while (ChangeOptions());
 }
