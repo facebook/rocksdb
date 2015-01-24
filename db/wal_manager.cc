@@ -310,9 +310,15 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       uint64_t size_bytes;
       s = env_->GetFileSize(LogFileName(path, number), &size_bytes);
       // re-try in case the alive log file has been moved to archive.
+      std::string archived_file = ArchivedLogFileName(path, number);
       if (!s.ok() && log_type == kAliveLogFile &&
-          env_->FileExists(ArchivedLogFileName(path, number))) {
-        s = env_->GetFileSize(ArchivedLogFileName(path, number), &size_bytes);
+          env_->FileExists(archived_file)) {
+        s = env_->GetFileSize(archived_file, &size_bytes);
+        if (!s.ok() && !env_->FileExists(archived_file)) {
+          // oops, the file just got deleted from archived dir! move on
+          s = Status::OK();
+          continue;
+        }
       }
       if (!s.ok()) {
         return s;
@@ -354,6 +360,7 @@ Status WalManager::RetainProbableWalFiles(VectorLogPtr& all_logs,
 Status WalManager::ReadFirstRecord(const WalFileType type,
                                    const uint64_t number,
                                    SequenceNumber* sequence) {
+  *sequence = 0;
   if (type != kAliveLogFile && type != kArchivedLogFile) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "[WalManger] Unknown file type %s", ToString(type).c_str());
@@ -383,6 +390,12 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
     std::string archived_file =
         ArchivedLogFileName(db_options_.wal_dir, number);
     s = ReadFirstLine(archived_file, sequence);
+    // maybe the file was deleted from archive dir. If that's the case, return
+    // Status::OK(). The caller with identify this as empty file because
+    // *sequence == 0
+    if (!s.ok() && !env_->FileExists(archived_file)) {
+      return Status::OK();
+    }
   }
 
   if (s.ok() && *sequence != 0) {
