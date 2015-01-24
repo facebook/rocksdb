@@ -567,9 +567,6 @@ class WriteTypeJni {
  private:
     // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteType.
     static jclass getJClass(JNIEnv* env) {
-      // TODO(AR) setting the jclazz var to static causes getEnum to fail
-      // occasionally (e.g. in WriteBatchWithIndex#iterator() test) with
-      // SIGSEGV but I have no idea why...
       jclass jclazz = env->FindClass("org/rocksdb/WBWIRocksIterator$WriteType");
       assert(jclazz != nullptr);
       return jclazz;
@@ -577,9 +574,6 @@ class WriteTypeJni {
 
     // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
     static jobject getEnum(JNIEnv* env, const char name[]) {
-      // TODO(AR) setting the jclazz var to static causes getEnum to fail
-      // occasionally (e.g. in WriteBatchWithIndex#iterator() test) with
-      // SIGSEGV but I have no idea why...
       jclass jclazz = getJClass(env);
       jfieldID jfid =
           env->GetStaticFieldID(jclazz, name,
