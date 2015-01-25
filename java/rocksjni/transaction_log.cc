@@ -6,9 +6,9 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::Iterator methods from Java side.
 
+#include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <jni.h>
 
 #include "include/org_rocksdb_TransactionLogIterator.h"
 #include "rocksdb/transaction_log.h"
