@@ -1589,6 +1589,29 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * <p>Returns an iterator that is positioned at a write-batch containing
+   * seq_number. If the sequence number is non existent, it returns an iterator
+   * at the first available seq_no after the requested seq_no.</p>
+   *
+   * <p>Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
+   * use this api, else the WAL files will get
+   * cleared aggressively and the iterator might keep getting invalid before
+   * an update is read.</p>
+   *
+   * @param sequenceNumber sequence number offset
+   *
+   * @return {@link org.rocksdb.TransactionLogIterator} instance.
+   *
+   * @throws org.rocksdb.RocksDBException if iterator cannot be retrieved
+   *     from native-side.
+   */
+  public TransactionLogIterator getUpdatesSince(long sequenceNumber)
+      throws RocksDBException {
+    return new TransactionLogIterator(
+        getUpdatesSince(nativeHandle_, sequenceNumber));
+  }
+
+  /**
    * Private constructor.
    */
   protected RocksDB() {
@@ -1730,6 +1753,8 @@ public class RocksDB extends RocksObject {
   private native void compactRange(long handle, byte[] begin, int beginLen, byte[] end,
       int endLen, boolean reduce_level, int target_level, int target_path_id,
       long cfHandle) throws RocksDBException;
+  private native long getUpdatesSince(long handle, long sequenceNumber)
+      throws RocksDBException;
 
   protected DBOptionsInterface options_;
 }

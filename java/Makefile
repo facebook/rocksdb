@@ -29,6 +29,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.SkipListMemTableConfig\
 	org.rocksdb.Slice\
 	org.rocksdb.Statistics\
+	org.rocksdb.TransactionLogIterator\
 	org.rocksdb.TtlDB\
 	org.rocksdb.VectorMemTableConfig\
 	org.rocksdb.StringAppendOperator\
@@ -81,6 +82,7 @@ JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
 		org.rocksdb.test.SizeUnitTest\
 		org.rocksdb.test.SliceTest\
 		org.rocksdb.test.SnapshotTest\
+		org.rocksdb.test.TransactionLogIteratorTest\
 		org.rocksdb.test.TtlDBTest\
 		org.rocksdb.test.StatisticsCollectorTest\
 		org.rocksdb.test.WriteBatchHandlerTest\

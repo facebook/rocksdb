@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <jni.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/cache.h"
+#include "rocksdb/types.h"
 
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Open
@@ -1597,4 +1599,26 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
   auto cf_handle = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(jcf_handle);
   rocksdb_compactrange_helper(env, db, cf_handle, jbegin, jbegin_len,
       jend, jend_len, jreduce_level, jtarget_level, jtarget_path_id);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::GetUpdatesSince
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getUpdatesSince
+ * Signature: (JJ)J
+ */
+jlong Java_org_rocksdb_RocksDB_getUpdatesSince(JNIEnv* env,
+    jobject jdb, jlong jdb_handle, jlong jsequence_number) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  rocksdb::SequenceNumber sequence_number =
+      static_cast<rocksdb::SequenceNumber>(jsequence_number);
+  std::unique_ptr<rocksdb::TransactionLogIterator> iter;
+  rocksdb::Status s = db->GetUpdatesSince(sequence_number, &iter);
+  if (s.ok()) {
+    return reinterpret_cast<jlong>(iter.release());
+  }
+  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  return 0;
 }

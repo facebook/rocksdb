@@ -53,6 +53,12 @@ public class WriteBatch extends AbstractWriteBatch {
     iterate(handler.nativeHandle_);
   }
 
+  WriteBatch(long nativeHandle) {
+    super();
+    disOwnNativeHandle();
+    nativeHandle_ = nativeHandle;
+  }
+
   @Override final native void disposeInternal(long handle);
   @Override final native int count0();
   @Override final native void put(byte[] key, int keyLen, byte[] value, int valueLen);
