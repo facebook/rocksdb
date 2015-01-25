@@ -1611,7 +1611,7 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
  */
 jlong Java_org_rocksdb_RocksDB_getLatestSequenceNumber(JNIEnv* env,
     jobject jdb, jlong jdb_handle) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   return db->GetLatestSequenceNumber();
 }
 
@@ -1625,7 +1625,7 @@ jlong Java_org_rocksdb_RocksDB_getLatestSequenceNumber(JNIEnv* env,
  */
 void Java_org_rocksdb_RocksDB_disableFileDeletions(JNIEnv* env,
     jobject jdb, jlong jdb_handle) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   rocksdb::Status s = db->DisableFileDeletions();
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
@@ -1639,7 +1639,7 @@ void Java_org_rocksdb_RocksDB_disableFileDeletions(JNIEnv* env,
  */
 void Java_org_rocksdb_RocksDB_enableFileDeletions(JNIEnv* env,
     jobject jdb, jlong jdb_handle, jboolean jforce) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   rocksdb::Status s = db->EnableFileDeletions(jforce);
   if (!s.ok()) {
     rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
@@ -1656,7 +1656,7 @@ void Java_org_rocksdb_RocksDB_enableFileDeletions(JNIEnv* env,
  */
 jlong Java_org_rocksdb_RocksDB_getUpdatesSince(JNIEnv* env,
     jobject jdb, jlong jdb_handle, jlong jsequence_number) {
-  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  auto* db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
   rocksdb::SequenceNumber sequence_number =
       static_cast<rocksdb::SequenceNumber>(jsequence_number);
   std::unique_ptr<rocksdb::TransactionLogIterator> iter;
