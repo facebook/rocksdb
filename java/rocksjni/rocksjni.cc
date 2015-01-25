@@ -1602,6 +1602,51 @@ void Java_org_rocksdb_RocksDB_compactRange__J_3BI_3BIZIIJ(
 }
 
 //////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB::GetLatestSequenceNumber
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    getLatestSequenceNumber
+ * Signature: (J)V
+ */
+jlong Java_org_rocksdb_RocksDB_getLatestSequenceNumber(JNIEnv* env,
+    jobject jdb, jlong jdb_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  return db->GetLatestSequenceNumber();
+}
+
+//////////////////////////////////////////////////////////////////////////////
+// rocksdb::DB enable/disable file deletions
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    enableFileDeletions
+ * Signature: (J)V
+ */
+void Java_org_rocksdb_RocksDB_disableFileDeletions(JNIEnv* env,
+    jobject jdb, jlong jdb_handle) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  rocksdb::Status s = db->DisableFileDeletions();
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+/*
+ * Class:     org_rocksdb_RocksDB
+ * Method:    enableFileDeletions
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_RocksDB_enableFileDeletions(JNIEnv* env,
+    jobject jdb, jlong jdb_handle, jboolean jforce) {
+  auto db = reinterpret_cast<rocksdb::DB*>(jdb_handle);
+  rocksdb::Status s = db->EnableFileDeletions(jforce);
+  if (!s.ok()) {
+    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  }
+}
+
+//////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::GetUpdatesSince
 
 /*

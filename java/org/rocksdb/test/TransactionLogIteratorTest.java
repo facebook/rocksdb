@@ -57,6 +57,9 @@ public class TransactionLogIteratorTest {
             String.valueOf(i).getBytes());
       }
       db.flush(new FlushOptions().setWaitForFlush(true));
+
+      assertThat(db.getLatestSequenceNumber()).isEqualTo(250);
+
       transactionLogIterator = db.getUpdatesSince(0);
       assertThat(transactionLogIterator.isValid()).isTrue();
       transactionLogIterator.status();
