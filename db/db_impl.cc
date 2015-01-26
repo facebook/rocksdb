@@ -201,7 +201,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       shutting_down_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
-      log_dir_unsynced_(true),
+      log_dir_synced_(false),
       log_empty_(true),
       default_cf_handle_(nullptr),
       total_log_size_(0),
@@ -3101,13 +3101,13 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
           } else {
             status = log_->file()->Sync();
           }
-          if (status.ok() && log_dir_unsynced_) {
+          if (status.ok() && !log_dir_synced_) {
             // We only sync WAL directory the first time WAL syncing is
             // requested, so that in case users never turn on WAL sync,
             // we can avoid the disk I/O in the write code path.
             status = directories_.GetWalDir()->Fsync();
           }
-          log_dir_unsynced_ = false;
+          log_dir_synced_ = true;
         }
       }
       if (status.ok()) {
@@ -3250,7 +3250,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
         lfile->SetPreallocationBlockSize(
             1.1 * mutable_cf_options.write_buffer_size);
         new_log = new log::Writer(std::move(lfile));
-        log_dir_unsynced_ = true;
+        log_dir_synced_ = false;
       }
     }
 

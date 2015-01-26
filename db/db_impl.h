@@ -422,7 +422,7 @@ class DBImpl : public DB {
   port::CondVar bg_cv_;
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
-  bool log_dir_unsynced_;
+  bool log_dir_synced_;
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
