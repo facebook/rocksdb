@@ -299,7 +299,7 @@ ColumnFamilyData::ColumnFamilyData(
 
 // DB mutex held
 ColumnFamilyData::~ColumnFamilyData() {
-  assert(refs_ == 0);
+  assert(refs_.load(std::memory_order_relaxed) == 0);
   // remove from linked list
   auto prev = prev_;
   auto next = next_;
@@ -731,7 +731,7 @@ ColumnFamilyData* ColumnFamilySet::CreateColumnFamily(
 void ColumnFamilySet::FreeDeadColumnFamilies() {
   autovector<ColumnFamilyData*> to_delete;
   for (auto cfd = dummy_cfd_->next_; cfd != dummy_cfd_; cfd = cfd->next_) {
-    if (cfd->refs_ == 0) {
+    if (cfd->refs_.load(std::memory_order_relaxed) == 0) {
       to_delete.push_back(cfd);
     }
   }

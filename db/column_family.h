@@ -134,14 +134,18 @@ class ColumnFamilyData {
   // thread-safe
   const std::string& GetName() const { return name_; }
 
-  void Ref() { ++refs_; }
+  // Ref() can only be called whily holding a DB mutex or during a
+  // single-threaded write.
+  void Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
   // will just decrease reference count to 0, but will not delete it. returns
   // true if the ref count was decreased to zero. in that case, it can be
   // deleted by the caller immediately, or later, by calling
   // FreeDeadColumnFamilies()
+  // Unref() can only be called while holding a DB mutex
   bool Unref() {
-    assert(refs_ > 0);
-    return --refs_ == 0;
+    int old_refs = refs_.fetch_sub(1, std::memory_order_relaxed);
+    assert(old_refs > 0);
+    return old_refs == 1;
   }
 
   // SetDropped() can only be called under following conditions:
@@ -290,7 +294,7 @@ class ColumnFamilyData {
   Version* dummy_versions_;  // Head of circular doubly-linked list of versions.
   Version* current_;         // == dummy_versions->prev_
 
-  int refs_;                   // outstanding references to ColumnFamilyData
+  std::atomic<int> refs_;      // outstanding references to ColumnFamilyData
   bool dropped_;               // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
@@ -373,7 +377,8 @@ class ColumnFamilySet {
       // dummy is never dead or dropped, so this will never be infinite
       do {
         current_ = current_->next_;
-      } while (current_->refs_ == 0 || current_->IsDropped());
+      } while (current_->refs_.load(std::memory_order_relaxed) == 0 ||
+               current_->IsDropped());
       return *this;
     }
     bool operator!=(const iterator& other) {

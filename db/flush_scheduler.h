@@ -23,6 +23,7 @@ class FlushScheduler {
 
   void ScheduleFlush(ColumnFamilyData* cfd);
   // Returns Ref()-ed column family. Client needs to Unref()
+  // REQUIRES: db mutex is held (exception is single-threaded recovery)
   ColumnFamilyData* GetNextColumnFamily();
 
   bool Empty();
