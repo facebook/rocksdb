@@ -57,7 +57,8 @@ class FlushJob {
            port::Mutex* db_mutex, std::atomic<bool>* shutting_down,
            SequenceNumber newest_snapshot, JobContext* job_context,
            LogBuffer* log_buffer, Directory* db_directory,
-           CompressionType output_compression, Statistics* stats);
+           Directory* output_file_directory, CompressionType output_compression,
+           Statistics* stats);
   ~FlushJob() {}
 
   Status Run(uint64_t* file_number = nullptr);
@@ -77,6 +78,7 @@ class FlushJob {
   JobContext* job_context_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;
+  Directory* output_file_directory_;
   CompressionType output_compression_;
   Statistics* stats_;
 };

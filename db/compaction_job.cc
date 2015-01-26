@@ -205,8 +205,8 @@ CompactionJob::CompactionJob(
     Compaction* compaction, const DBOptions& db_options,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     VersionSet* versions, std::atomic<bool>* shutting_down,
-    LogBuffer* log_buffer, Directory* db_directory, Statistics* stats,
-    SnapshotList* snapshots, bool is_snapshot_supported,
+    LogBuffer* log_buffer, Directory* db_directory, Directory* output_directory,
+    Statistics* stats, SnapshotList* snapshots, bool is_snapshot_supported,
     std::shared_ptr<Cache> table_cache,
     std::function<uint64_t()> yield_callback)
     : compact_(new CompactionState(compaction)),
@@ -219,6 +219,7 @@ CompactionJob::CompactionJob(
       shutting_down_(shutting_down),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
+      output_directory_(output_directory),
       stats_(stats),
       snapshots_(snapshots),
       is_snapshot_supported_(is_snapshot_supported),
@@ -422,8 +423,8 @@ Status CompactionJob::Run() {
   }
   input.reset();
 
-  if (db_directory_ && !db_options_.disableDataSync) {
-    db_directory_->Fsync();
+  if (output_directory_ && !db_options_.disableDataSync) {
+    output_directory_->Fsync();
   }
 
   compaction_stats_.micros = env_->NowMicros() - start_micros - imm_micros;

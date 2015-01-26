@@ -272,6 +272,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
   }
 
   void SyncDir(const std::string& dirname) {
+    MutexLock l(&mutex_);
     dir_to_new_files_since_last_sync_.erase(dirname);
   }
 
@@ -630,31 +631,21 @@ TEST(FaultInjectionTest, FaultTest) {
       NoWriteTestPreFault();
       NoWriteTestReopenWithFault(kResetDropUnsyncedData);
 
-      // TODO(t6070540) Need to sync WAL Dir and other DB paths too.
-
       // Setting a separate data path won't pass the test as we don't sync
       // it after creating new files,
-      if (option_config_ != kDifferentDataDir) {
-        PartialCompactTestPreFault(num_pre_sync, num_post_sync);
-        // Since we don't sync WAL Dir, this test dosn't pass.
-        if (option_config_ != kWalDirSyncWal) {
-          PartialCompactTestReopenWithFault(kResetDropAndDeleteUnsynced,
-                                            num_pre_sync, num_post_sync);
-        }
-        NoWriteTestPreFault();
-        NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+      PartialCompactTestPreFault(num_pre_sync, num_post_sync);
+      PartialCompactTestReopenWithFault(kResetDropAndDeleteUnsynced,
+                                        num_pre_sync, num_post_sync);
+      NoWriteTestPreFault();
+      NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
 
-        PartialCompactTestPreFault(num_pre_sync, num_post_sync);
-        // No new files created so we expect all values since no files will be
-        // dropped.
-        // WAL Dir is not synced for now.
-        if (option_config_ != kWalDir && option_config_ != kWalDirSyncWal) {
-          PartialCompactTestReopenWithFault(kResetDeleteUnsyncedFiles,
-                                            num_pre_sync + num_post_sync, 0);
-        }
-        NoWriteTestPreFault();
-        NoWriteTestReopenWithFault(kResetDeleteUnsyncedFiles);
-      }
+      PartialCompactTestPreFault(num_pre_sync, num_post_sync);
+      // No new files created so we expect all values since no files will be
+      // dropped.
+      PartialCompactTestReopenWithFault(kResetDeleteUnsyncedFiles, num_pre_sync,
+                                        num_post_sync);
+      NoWriteTestPreFault();
+      NoWriteTestReopenWithFault(kResetDeleteUnsyncedFiles);
     }
   } while (ChangeOptions());
 }

@@ -160,10 +160,11 @@ TEST(CompactionJobTest, Simple) {
   };
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   mutex_.Lock();
-  CompactionJob compaction_job(
-      compaction.get(), db_options_, *cfd->GetLatestMutableCFOptions(),
-      env_options_, versions_.get(), &shutting_down_, &log_buffer, nullptr,
-      nullptr, &snapshots, true, table_cache_, std::move(yield_callback));
+  CompactionJob compaction_job(compaction.get(), db_options_,
+                               *cfd->GetLatestMutableCFOptions(), env_options_,
+                               versions_.get(), &shutting_down_, &log_buffer,
+                               nullptr, nullptr, nullptr, &snapshots, true,
+                               table_cache_, std::move(yield_callback));
   compaction_job.Prepare();
   mutex_.Unlock();
   ASSERT_OK(compaction_job.Run());

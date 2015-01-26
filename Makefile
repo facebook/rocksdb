@@ -108,6 +108,7 @@ BENCHHARNESS = ./util/benchharness.o
 VALGRIND_ERROR = 2
 VALGRIND_DIR = build_tools/VALGRIND_LOGS
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
+
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \

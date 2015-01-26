@@ -58,6 +58,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    port::Mutex* db_mutex, std::atomic<bool>* shutting_down,
                    SequenceNumber newest_snapshot, JobContext* job_context,
                    LogBuffer* log_buffer, Directory* db_directory,
+                   Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats)
     : dbname_(dbname),
       cfd_(cfd),
@@ -71,6 +72,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       job_context_(job_context),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
+      output_file_directory_(output_file_directory),
       output_compression_(output_compression),
       stats_(stats) {}
 
@@ -125,10 +127,9 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
   FileMetaData meta;
-
+  // path 0 for level 0 file.
   meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
   *filenumber = meta.fd.GetNumber();
-  // path 0 for level 0 file.
 
   const SequenceNumber earliest_seqno_in_memtable =
       mems[0]->GetFirstSequenceNumber();
@@ -169,9 +170,8 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         "[%s] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd_->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
-
-    if (!db_options_.disableDataSync && db_directory_ != nullptr) {
-      db_directory_->Fsync();
+    if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
+      output_file_directory_->Fsync();
     }
     db_mutex_->Lock();
   }

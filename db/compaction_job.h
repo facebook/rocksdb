@@ -57,9 +57,9 @@ class CompactionJob {
                 const MutableCFOptions& mutable_cf_options,
                 const EnvOptions& env_options, VersionSet* versions,
                 std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
-                Directory* db_directory, Statistics* stats,
-                SnapshotList* snapshot_list, bool is_snapshot_supported,
-                std::shared_ptr<Cache> table_cache,
+                Directory* db_directory, Directory* output_directory,
+                Statistics* stats, SnapshotList* snapshot_list,
+                bool is_snapshot_supported, std::shared_ptr<Cache> table_cache,
                 std::function<uint64_t()> yield_callback);
 
   ~CompactionJob() { assert(compact_ == nullptr); }
@@ -114,6 +114,7 @@ class CompactionJob {
   std::atomic<bool>* shutting_down_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;
+  Directory* output_directory_;
   Statistics* stats_;
   SnapshotList* snapshots_;
   bool is_snapshot_supported_;

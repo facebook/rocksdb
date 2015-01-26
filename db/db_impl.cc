@@ -201,6 +201,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       shutting_down_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
+      log_dir_unsynced_(true),
       log_empty_(true),
       default_cf_handle_(nullptr),
       total_log_size_(0),
@@ -354,7 +355,7 @@ Status DBImpl::NewDB() {
   }
   if (s.ok()) {
     // Make "CURRENT" file that points to the new manifest file.
-    s = SetCurrentFile(env_, dbname_, 1, db_directory_.get());
+    s = SetCurrentFile(env_, dbname_, 1, directories_.GetDbDir());
   } else {
     env_->DeleteFile(manifest);
   }
@@ -701,6 +702,65 @@ void DBImpl::DeleteObsoleteFiles() {
   job_context.Clean();
 }
 
+Status DBImpl::Directories::CreateAndNewDirectory(
+    Env* env, const std::string& dirname,
+    std::unique_ptr<Directory>* directory) const {
+  // We call CreateDirIfMissing() as the directory may already exist (if we
+  // are reopening a DB), when this happens we don't want creating the
+  // directory to cause an error. However, we need to check if creating the
+  // directory fails or else we may get an obscure message about the lock
+  // file not existing. One real-world example of this occurring is if
+  // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
+  // when dbname_ is "dir/db" but when "dir" doesn't exist.
+  Status s = env->CreateDirIfMissing(dirname);
+  if (!s.ok()) {
+    return s;
+  }
+  return env->NewDirectory(dirname, directory);
+}
+
+Status DBImpl::Directories::SetDirectories(
+    Env* env, const std::string& dbname, const std::string& wal_dir,
+    const std::vector<DbPath>& data_paths) {
+  Status s = CreateAndNewDirectory(env, dbname, &db_dir_);
+  if (!s.ok()) {
+    return s;
+  }
+  if (!wal_dir.empty() && dbname != wal_dir) {
+    s = CreateAndNewDirectory(env, wal_dir, &wal_dir_);
+    if (!s.ok()) {
+      return s;
+    }
+  }
+
+  data_dirs_.clear();
+  for (auto& p : data_paths) {
+    const std::string db_path = p.path;
+    if (db_path == dbname) {
+      data_dirs_.emplace_back(nullptr);
+    } else {
+      std::unique_ptr<Directory> path_directory;
+      s = CreateAndNewDirectory(env, db_path, &path_directory);
+      if (!s.ok()) {
+        return s;
+      }
+      data_dirs_.emplace_back(path_directory.release());
+    }
+  }
+  assert(data_dirs_.size() == data_paths.size());
+  return Status::OK();
+}
+
+Directory* DBImpl::Directories::GetDataDir(size_t path_id) {
+  assert(path_id < data_dirs_.size());
+  Directory* ret_dir = data_dirs_[path_id].get();
+  if (ret_dir == nullptr) {
+    // Should use db_dir_
+    return db_dir_.get();
+  }
+  return ret_dir;
+}
+
 Status DBImpl::Recover(
     const std::vector<ColumnFamilyDescriptor>& column_families, bool read_only,
     bool error_if_log_file_exist) {
@@ -709,26 +769,8 @@ Status DBImpl::Recover(
   bool is_new_db = false;
   assert(db_lock_ == nullptr);
   if (!read_only) {
-    // We call CreateDirIfMissing() as the directory may already exist (if we
-    // are reopening a DB), when this happens we don't want creating the
-    // directory to cause an error. However, we need to check if creating the
-    // directory fails or else we may get an obscure message about the lock
-    // file not existing. One real-world example of this occurring is if
-    // env->CreateDirIfMissing() doesn't create intermediate directories, e.g.
-    // when dbname_ is "dir/db" but when "dir" doesn't exist.
-    Status s = env_->CreateDirIfMissing(dbname_);
-    if (!s.ok()) {
-      return s;
-    }
-
-    for (auto& db_path : db_options_.db_paths) {
-      s = env_->CreateDirIfMissing(db_path.path);
-      if (!s.ok()) {
-        return s;
-      }
-    }
-
-    s = env_->NewDirectory(dbname_, &db_directory_);
+    Status s = directories_.SetDirectories(env_, dbname_, db_options_.wal_dir,
+                                           db_options_.db_paths);
     if (!s.ok()) {
       return s;
     }
@@ -1088,8 +1130,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      snapshots_.GetNewest(), job_context, log_buffer,
-                     db_directory_.get(), GetCompressionFlush(*cfd->ioptions()),
-                     stats_);
+                     directories_.GetDbDir(), directories_.GetDataDir(0U),
+                     GetCompressionFlush(*cfd->ioptions()), stats_);
 
   uint64_t file_number;
   Status s = flush_job.Run(&file_number);
@@ -1331,11 +1373,11 @@ Status DBImpl::CompactFilesImpl(
                                      *c->mutable_cf_options(), &job_context,
                                      &log_buffer);
   };
-  CompactionJob compaction_job(c.get(), db_options_, *c->mutable_cf_options(),
-                               env_options_, versions_.get(), &shutting_down_,
-                               &log_buffer, db_directory_.get(), stats_,
-                               &snapshots_, is_snapshot_supported_,
-                               table_cache_, std::move(yield_callback));
+  CompactionJob compaction_job(
+      c.get(), db_options_, *c->mutable_cf_options(), env_options_,
+      versions_.get(), &shutting_down_, &log_buffer, directories_.GetDbDir(),
+      directories_.GetDataDir(c->GetOutputPathId()), stats_, &snapshots_,
+      is_snapshot_supported_, table_cache_, std::move(yield_callback));
   compaction_job.Prepare();
 
   mutex_.Unlock();
@@ -1510,8 +1552,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
         "[%s] Apply version edit:\n%s",
         cfd->GetName().c_str(), edit.DebugString().data());
 
-    status = versions_->LogAndApply(cfd,
-        mutable_cf_options, &edit, &mutex_, db_directory_.get());
+    status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
+                                    directories_.GetDbDir());
     superversion_to_free = InstallSuperVersion(
         cfd, new_superversion, mutable_cf_options);
     new_superversion = nullptr;
@@ -2136,9 +2178,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
-    status = versions_->LogAndApply(
-        c->column_family_data(), *c->mutable_cf_options(), c->edit(),
-        &mutex_, db_directory_.get());
+    status = versions_->LogAndApply(c->column_family_data(),
+                                    *c->mutable_cf_options(), c->edit(),
+                                    &mutex_, directories_.GetDbDir());
     InstallSuperVersionBackground(c->column_family_data(), job_context,
                                   *c->mutable_cf_options());
     LogToBuffer(log_buffer, "[%s] Deleted %d files\n",
@@ -2164,8 +2206,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(),
-                                    *c->mutable_cf_options(),
-                                    c->edit(), &mutex_, db_directory_.get());
+                                    *c->mutable_cf_options(), c->edit(),
+                                    &mutex_, directories_.GetDbDir());
     // Use latest MutableCFOptions
     InstallSuperVersionBackground(c->column_family_data(), job_context,
                                   *c->mutable_cf_options());
@@ -2190,11 +2232,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                        *c->mutable_cf_options(), job_context,
                                        log_buffer);
     };
-    CompactionJob compaction_job(c.get(), db_options_, *c->mutable_cf_options(),
-                                 env_options_, versions_.get(), &shutting_down_,
-                                 log_buffer, db_directory_.get(), stats_,
-                                 &snapshots_, is_snapshot_supported_,
-                                 table_cache_, std::move(yield_callback));
+    CompactionJob compaction_job(
+        c.get(), db_options_, *c->mutable_cf_options(), env_options_,
+        versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
+        directories_.GetDataDir(c->GetOutputPathId()), stats_, &snapshots_,
+        is_snapshot_supported_, table_cache_, std::move(yield_callback));
     compaction_job.Prepare();
     mutex_.Unlock();
     status = compaction_job.Run();
@@ -2600,7 +2642,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
       // ColumnFamilyData object
       s = versions_->LogAndApply(
           nullptr, MutableCFOptions(opt, ImmutableCFOptions(opt)), &edit,
-          &mutex_, db_directory_.get(), false, &cf_options);
+          &mutex_, directories_.GetDbDir(), false, &cf_options);
       write_thread_.ExitWriteThread(&w, &w, s);
     }
     if (s.ok()) {
@@ -3059,6 +3101,13 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
           } else {
             status = log_->file()->Sync();
           }
+          if (status.ok() && log_dir_unsynced_) {
+            // We only sync WAL directory the first time WAL syncing is
+            // requested, so that in case users never turn on WAL sync,
+            // we can avoid the disk I/O in the write code path.
+            status = directories_.GetWalDir()->Fsync();
+          }
+          log_dir_unsynced_ = false;
         }
       }
       if (status.ok()) {
@@ -3193,14 +3242,15 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   {
     if (creating_new_log) {
       s = env_->NewWritableFile(
-          LogFileName(db_options_.wal_dir, new_log_number),
-          &lfile, env_->OptimizeForLogWrite(env_options_));
+          LogFileName(db_options_.wal_dir, new_log_number), &lfile,
+          env_->OptimizeForLogWrite(env_options_));
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
         lfile->SetPreallocationBlockSize(
             1.1 * mutable_cf_options.write_buffer_size);
         new_log = new log::Writer(std::move(lfile));
+        log_dir_unsynced_ = true;
       }
     }
 
@@ -3497,7 +3547,7 @@ Status DBImpl::DeleteFile(std::string name) {
     edit.SetColumnFamily(cfd->GetID());
     edit.DeleteFile(level, number);
     status = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
-                                    &edit, &mutex_, db_directory_.get());
+                                    &edit, &mutex_, directories_.GetDbDir());
     if (status.ok()) {
       InstallSuperVersionBackground(cfd, &job_context,
                                     *cfd->GetLatestMutableCFOptions());
@@ -3745,7 +3795,7 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       impl->alive_log_files_.push_back(
           DBImpl::LogFileNumberSize(impl->logfile_number_));
       impl->DeleteObsoleteFiles();
-      s = impl->db_directory_->Fsync();
+      s = impl->directories_.GetDbDir()->Fsync();
     }
   }
 

@@ -422,6 +422,7 @@ class DBImpl : public DB {
   port::CondVar bg_cv_;
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
+  bool log_dir_unsynced_;
   bool log_empty_;
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;
@@ -445,7 +446,34 @@ class DBImpl : public DB {
 
   bool is_snapshot_supported_;
 
-  std::unique_ptr<Directory> db_directory_;
+  // Class to maintain directories for all database paths other than main one.
+  class Directories {
+   public:
+    Status SetDirectories(Env* env, const std::string& dbname,
+                          const std::string& wal_dir,
+                          const std::vector<DbPath>& data_paths);
+
+    Directory* GetDataDir(size_t path_id);
+
+    Directory* GetWalDir() {
+      if (wal_dir_) {
+        return wal_dir_.get();
+      }
+      return db_dir_.get();
+    }
+
+    Directory* GetDbDir() { return db_dir_.get(); }
+
+   private:
+    std::unique_ptr<Directory> db_dir_;
+    std::vector<std::unique_ptr<Directory>> data_dirs_;
+    std::unique_ptr<Directory> wal_dir_;
+
+    Status CreateAndNewDirectory(Env* env, const std::string& dirname,
+                                 std::unique_ptr<Directory>* directory) const;
+  };
+
+  Directories directories_;
 
   WriteBuffer write_buffer_;
 
