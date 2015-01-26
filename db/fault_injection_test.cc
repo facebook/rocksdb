@@ -114,6 +114,8 @@ struct FileState {
   bool IsFullySynced() const { return pos_ <= 0 || pos_ == pos_at_last_sync_; }
 
   Status DropUnsyncedData() const;
+
+  Status DropRandomUnsyncedData(Random* rand) const;
 };
 
 }  // anonymous namespace
@@ -226,7 +228,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
     db_file_state_[state.filename_] = state;
   }
 
-  Status DropUnsyncedFileData() {
+  // For every file that is not fully synced, make a call to `func` with
+  // FileState of the file as the parameter.
+  Status DropFileData(std::function<Status(FileState)> func) {
     Status s;
     MutexLock l(&mutex_);
     for (std::map<std::string, FileState>::const_iterator it =
@@ -234,10 +238,21 @@ class FaultInjectionTestEnv : public EnvWrapper {
          s.ok() && it != db_file_state_.end(); ++it) {
       const FileState& state = it->second;
       if (!state.IsFullySynced()) {
-        s = state.DropUnsyncedData();
+        s = func(state);
       }
     }
     return s;
+  }
+
+  Status DropUnsyncedFileData() {
+    return DropFileData(
+        [&](const FileState& state) { return state.DropUnsyncedData(); });
+  }
+
+  Status DropRandomUnsyncedFileData(Random* rnd) {
+    return DropFileData([&](const FileState& state) {
+      return state.DropRandomUnsyncedData(rnd);
+    });
   }
 
   Status DeleteFilesCreatedAfterLastDirSync() {
@@ -294,6 +309,15 @@ class FaultInjectionTestEnv : public EnvWrapper {
 Status FileState::DropUnsyncedData() const {
   ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
   return Truncate(filename_, sync_pos);
+}
+
+Status FileState::DropRandomUnsyncedData(Random* rand) const {
+  ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
+  assert(pos_ >= sync_pos);
+  int range = static_cast<int>(pos_ - sync_pos);
+  uint64_t truncated_size =
+      static_cast<uint64_t>(sync_pos) + rand->Uniform(range);
+  return Truncate(filename_, truncated_size);
 }
 
 Status TestDirectory::Fsync() {
@@ -373,6 +397,7 @@ class FaultInjectionTest {
   enum ExpectedVerifResult { kValExpectFound, kValExpectNoError };
   enum ResetMethod {
     kResetDropUnsyncedData,
+    kResetDropRandomUnsyncedData,
     kResetDeleteUnsyncedFiles,
     kResetDropAndDeleteUnsynced
   };
@@ -563,10 +588,14 @@ class FaultInjectionTest {
     db_->Flush(flush_options);
   }
 
-  void ResetDBState(ResetMethod reset_method) {
+  // rnd cannot be null for kResetDropRandomUnsyncedData
+  void ResetDBState(ResetMethod reset_method, Random* rnd = nullptr) {
     switch (reset_method) {
       case kResetDropUnsyncedData:
         ASSERT_OK(env_->DropUnsyncedFileData());
+        break;
+      case kResetDropRandomUnsyncedData:
+        ASSERT_OK(env_->DropRandomUnsyncedFileData(rnd));
         break;
       case kResetDeleteUnsyncedFiles:
         ASSERT_OK(env_->DeleteFilesCreatedAfterLastDirSync());
@@ -595,11 +624,11 @@ class FaultInjectionTest {
   }
 
   void PartialCompactTestReopenWithFault(ResetMethod reset_method,
-                                         int num_pre_sync,
-                                         int num_post_sync) {
+                                         int num_pre_sync, int num_post_sync,
+                                         Random* rnd = nullptr) {
     env_->SetFilesystemActive(false);
     CloseDB();
-    ResetDBState(reset_method);
+    ResetDBState(reset_method, rnd);
     ASSERT_OK(OpenDB());
     ASSERT_OK(Verify(0, num_pre_sync, FaultInjectionTest::kValExpectFound));
     ASSERT_OK(Verify(num_pre_sync, num_post_sync,
@@ -628,6 +657,12 @@ TEST(FaultInjectionTest, FaultTest) {
       PartialCompactTestPreFault(num_pre_sync, num_post_sync);
       PartialCompactTestReopenWithFault(kResetDropUnsyncedData, num_pre_sync,
                                         num_post_sync);
+      NoWriteTestPreFault();
+      NoWriteTestReopenWithFault(kResetDropUnsyncedData);
+
+      PartialCompactTestPreFault(num_pre_sync, num_post_sync);
+      PartialCompactTestReopenWithFault(kResetDropRandomUnsyncedData,
+                                        num_pre_sync, num_post_sync, &rnd);
       NoWriteTestPreFault();
       NoWriteTestReopenWithFault(kResetDropUnsyncedData);
 
