@@ -72,8 +72,11 @@ Status Truncate(const std::string& filename, uint64_t length) {
   unique_ptr<SequentialFile> orig_file;
   const EnvOptions options;
   Status s = env->NewSequentialFile(filename, &orig_file, options);
-  if (!s.ok())
+  if (!s.ok()) {
+    fprintf(stderr, "Cannot truncate file %s: %s\n", filename.c_str(),
+            s.ToString().c_str());
     return s;
+  }
 
   char* scratch = new char[length];
   rocksdb::Slice result;
@@ -87,9 +90,15 @@ Status Truncate(const std::string& filename, uint64_t length) {
       if (s.ok()) {
         s = env->RenameFile(tmp_name, filename);
       } else {
+        fprintf(stderr, "Cannot renmae file %s to %s: %s\n", tmp_name.c_str(),
+                filename.c_str(), s.ToString().c_str());
         env->DeleteFile(tmp_name);
       }
     }
+  }
+  if (!s.ok()) {
+    fprintf(stderr, "Cannot truncate file %s: %s\n", filename.c_str(),
+            s.ToString().c_str());
   }
 
   delete[] scratch;
@@ -194,6 +203,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& f) {
     Status s = EnvWrapper::DeleteFile(f);
+    if (!s.ok()) {
+      fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
+              s.ToString().c_str());
+    }
     ASSERT_OK(s);
     if (s.ok()) {
       UntrackFile(f);
@@ -275,7 +288,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     db_file_state_.clear();
     dir_to_new_files_since_last_sync_.clear();
-    SetFilesystemActive(true);
+    SetFilesystemActiveNoLock(true);
   }
 
   void UntrackFile(const std::string& f) {
@@ -295,8 +308,15 @@ class FaultInjectionTestEnv : public EnvWrapper {
   // system reset. Setting to inactive will freeze our saved filesystem state so
   // that it will stop being recorded. It can then be reset back to the state at
   // the time of the reset.
-  bool IsFilesystemActive() const { return filesystem_active_; }
-  void SetFilesystemActive(bool active) { filesystem_active_ = active; }
+  bool IsFilesystemActive() {
+    MutexLock l(&mutex_);
+    return filesystem_active_;
+  }
+  void SetFilesystemActiveNoLock(bool active) { filesystem_active_ = active; }
+  void SetFilesystemActive(bool active) {
+    MutexLock l(&mutex_);
+    SetFilesystemActiveNoLock(active);
+  }
 
  private:
   port::Mutex mutex_;
