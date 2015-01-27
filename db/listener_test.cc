@@ -150,10 +150,7 @@ class EventListenerTest {
 
 class TestCompactionListener : public EventListener {
  public:
-  void OnCompactionCompleted(DB *db,
-                             int input_level,
-                             int output_level,
-                             const std::vector<int64_t>& input_files) {
+  void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
     compacted_dbs_.push_back(db);
   }
 
