@@ -19,9 +19,11 @@ namespace rocksdb {
 
 class MemFile {
  public:
-  explicit MemFile(const std::string& fn)
+  explicit MemFile(const std::string& fn, bool _is_lock_file = false)
       : fn_(fn),
         refs_(0),
+        is_lock_file_(_is_lock_file),
+        locked_(false),
         size_(0),
         modified_time_(Now()),
         rnd_(static_cast<uint32_t>(
@@ -31,6 +33,25 @@ class MemFile {
   void Ref() {
     MutexLock lock(&mutex_);
     ++refs_;
+  }
+
+  bool is_lock_file() const { return is_lock_file_; }
+
+  bool Lock() {
+    assert(is_lock_file_);
+    MutexLock lock(&mutex_);
+    if (locked_) {
+      return false;
+    } else {
+      refs_ = true;
+      return true;
+    }
+  }
+
+  void Unlock() {
+    assert(is_lock_file_);
+    MutexLock lock(&mutex_);
+    locked_ = false;
   }
 
   void Unref() {
@@ -132,6 +153,8 @@ class MemFile {
   const std::string fn_;
   mutable port::Mutex mutex_;
   int refs_;
+  bool is_lock_file_;
+  bool locked_;
 
   // Data written into this file, all bytes before fsynced_bytes are
   // persistent.
@@ -398,6 +421,9 @@ Status MockEnv::NewSequentialFile(const std::string& fname,
     return Status::IOError(fn, "File not found");
   }
   auto* f = file_map_[fn];
+  if (f->is_lock_file()) {
+    return Status::InvalidArgument(fn, "Cannot open a lock file.");
+  }
   result->reset(new SequentialFileImpl(f));
   return Status::OK();
 }
@@ -412,6 +438,9 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
     return Status::IOError(fn, "File not found");
   }
   auto* f = file_map_[fn];
+  if (f->is_lock_file()) {
+    return Status::InvalidArgument(fn, "Cannot open a lock file.");
+  }
   result->reset(new RandomAccessFileImpl(f));
   return Status::OK();
 }
@@ -424,7 +453,7 @@ Status MockEnv::NewWritableFile(const std::string& fname,
   if (file_map_.find(fn) != file_map_.end()) {
     DeleteFileInternal(fn);
   }
-  MemFile* file = new MemFile(fn);
+  MemFile* file = new MemFile(fn, false);
   file->Ref();
   file_map_[fn] = file;
 
@@ -490,12 +519,11 @@ Status MockEnv::GetChildren(const std::string& dir,
 
 void MockEnv::DeleteFileInternal(const std::string& fname) {
   assert(fname == NormalizePath(fname));
-  if (file_map_.find(fname) == file_map_.end()) {
-    return;
+  const auto& pair = file_map_.find(fname);
+  if (pair != file_map_.end()) {
+    pair->second->Unref();
+    file_map_.erase(fname);
   }
-
-  file_map_[fname]->Unref();
-  file_map_.erase(fname);
 }
 
 Status MockEnv::DeleteFile(const std::string& fname) {
@@ -579,7 +607,7 @@ Status MockEnv::NewLogger(const std::string& fname,
   auto iter = file_map_.find(fn);
   MemFile* file = nullptr;
   if (iter == file_map_.end()) {
-    file = new MemFile(fn);
+    file = new MemFile(fn, false);
     file->Ref();
     file_map_[fn] = file;
   } else {
@@ -595,9 +623,18 @@ Status MockEnv::LockFile(const std::string& fname, FileLock** flock) {
   {
     MutexLock lock(&mutex_);
     if (file_map_.find(fn) != file_map_.end()) {
-      return Status::IOError(fn, "Lock file exists");
+      if (!file_map_[fn]->is_lock_file()) {
+        return Status::InvalidArgument(fname, "Not a lock file.");
+      }
+      if (!file_map_[fn]->Lock()) {
+        return Status::IOError(fn, "Lock is already held.");
+      }
+    } else {
+      auto* file = new MemFile(fname, true);
+      file->Ref();
+      file->Lock();
+      file_map_[fname] = file;
     }
-    file_map_[fn] = nullptr;
   }
   *flock = new MockEnvFileLock(fn);
   return Status::OK();
@@ -607,9 +644,11 @@ Status MockEnv::UnlockFile(FileLock* flock) {
   std::string fn = dynamic_cast<MockEnvFileLock*>(flock)->FileName();
   {
     MutexLock lock(&mutex_);
-    auto iter = file_map_.find(fn);
-    if (iter != file_map_.end()) {
-      file_map_.erase(fn);
+    if (file_map_.find(fn) != file_map_.end()) {
+      if (!file_map_[fn]->is_lock_file()) {
+        return Status::InvalidArgument(fn, "Not a lock file.");
+      }
+      file_map_[fn]->Unlock();
     }
   }
   delete flock;

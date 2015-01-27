@@ -23,6 +23,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/write_batch.h"
 #include "util/logging.h"
+#include "util/mock_env.h"
 #include "util/mutexlock.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -66,9 +67,7 @@ static std::pair<std::string, std::string> GetDirAndName(
 }
 
 // A basic file truncation function suitable for this test.
-Status Truncate(const std::string& filename, uint64_t length) {
-  rocksdb::Env* env = rocksdb::Env::Default();
-
+Status Truncate(Env* env, const std::string& filename, uint64_t length) {
   unique_ptr<SequentialFile> orig_file;
   const EnvOptions options;
   Status s = env->NewSequentialFile(filename, &orig_file, options);
@@ -122,9 +121,9 @@ struct FileState {
 
   bool IsFullySynced() const { return pos_ <= 0 || pos_ == pos_at_last_sync_; }
 
-  Status DropUnsyncedData() const;
+  Status DropUnsyncedData(Env* env) const;
 
-  Status DropRandomUnsyncedData(Random* rand) const;
+  Status DropRandomUnsyncedData(Env* env, Random* rand) const;
 };
 
 }  // anonymous namespace
@@ -246,7 +245,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   // For every file that is not fully synced, make a call to `func` with
   // FileState of the file as the parameter.
-  Status DropFileData(std::function<Status(FileState)> func) {
+  Status DropFileData(std::function<Status(Env*, FileState)> func) {
     Status s;
     MutexLock l(&mutex_);
     for (std::map<std::string, FileState>::const_iterator it =
@@ -254,20 +253,21 @@ class FaultInjectionTestEnv : public EnvWrapper {
          s.ok() && it != db_file_state_.end(); ++it) {
       const FileState& state = it->second;
       if (!state.IsFullySynced()) {
-        s = func(state);
+        s = func(target(), state);
       }
     }
     return s;
   }
 
   Status DropUnsyncedFileData() {
-    return DropFileData(
-        [&](const FileState& state) { return state.DropUnsyncedData(); });
+    return DropFileData([&](Env* env, const FileState& state) {
+      return state.DropUnsyncedData(env);
+    });
   }
 
   Status DropRandomUnsyncedFileData(Random* rnd) {
-    return DropFileData([&](const FileState& state) {
-      return state.DropRandomUnsyncedData(rnd);
+    return DropFileData([&](Env* env, const FileState& state) {
+      return state.DropRandomUnsyncedData(env, rnd);
     });
   }
 
@@ -335,18 +335,18 @@ class FaultInjectionTestEnv : public EnvWrapper {
   bool filesystem_active_;  // Record flushes, syncs, writes
 };
 
-Status FileState::DropUnsyncedData() const {
+Status FileState::DropUnsyncedData(Env* env) const {
   ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
-  return Truncate(filename_, sync_pos);
+  return Truncate(env, filename_, sync_pos);
 }
 
-Status FileState::DropRandomUnsyncedData(Random* rand) const {
+Status FileState::DropRandomUnsyncedData(Env* env, Random* rand) const {
   ssize_t sync_pos = pos_at_last_sync_ == -1 ? 0 : pos_at_last_sync_;
   assert(pos_ >= sync_pos);
   int range = static_cast<int>(pos_ - sync_pos);
   uint64_t truncated_size =
       static_cast<uint64_t>(sync_pos) + rand->Uniform(range);
-  return Truncate(filename_, truncated_size);
+  return Truncate(env, filename_, truncated_size);
 }
 
 Status TestDirectory::Fsync() {
@@ -413,6 +413,7 @@ class FaultInjectionTest {
     kWalDir,
     kSyncWal,
     kWalDirSyncWal,
+    kMultiLevels,
     kEnd,
   };
   int option_config_;
@@ -431,6 +432,7 @@ class FaultInjectionTest {
     kResetDropAndDeleteUnsynced
   };
 
+  std::unique_ptr<Env> base_env_;
   FaultInjectionTestEnv* env_;
   std::string dbname_;
   shared_ptr<Cache> tiny_cache_;
@@ -441,6 +443,7 @@ class FaultInjectionTest {
       : option_config_(kDefault),
         sync_use_wal_(false),
         sync_use_compact_(true),
+        base_env_(nullptr),
         env_(NULL),
         db_(NULL) {
     NewDB();
@@ -453,6 +456,9 @@ class FaultInjectionTest {
     if (option_config_ >= kEnd) {
       return false;
     } else {
+      if (option_config_ == kMultiLevels) {
+        base_env_.reset(new MockEnv(Env::Default()));
+      }
       return true;
     }
   }
@@ -479,6 +485,19 @@ class FaultInjectionTest {
         sync_use_wal_ = true;
         sync_use_compact_ = false;
         break;
+      case kMultiLevels:
+        options.write_buffer_size = 64 * 1024;
+        options.target_file_size_base = 64 * 1024;
+        options.level0_file_num_compaction_trigger = 2;
+        options.level0_slowdown_writes_trigger = 2;
+        options.level0_stop_writes_trigger = 4;
+        options.max_bytes_for_level_base = 128 * 1024;
+        options.max_write_buffer_number = 2;
+        options.max_background_compactions = 8;
+        options.max_background_flushes = 8;
+        sync_use_wal_ = true;
+        sync_use_compact_ = false;
+        break;
       default:
         break;
     }
@@ -490,7 +509,8 @@ class FaultInjectionTest {
     assert(tiny_cache_ == nullptr);
     assert(env_ == NULL);
 
-    env_ = new FaultInjectionTestEnv(Env::Default());
+    env_ =
+        new FaultInjectionTestEnv(base_env_ ? base_env_.get() : Env::Default());
 
     options_ = CurrentOptions();
     options_.env = env_;
