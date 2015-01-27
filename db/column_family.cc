@@ -556,6 +556,32 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   return false;
 }
 
+void ColumnFamilyData::NotifyOnCompactionCompleted(
+    DB* db, Compaction* c, const Status& status) {
+#ifndef ROCKSDB_LITE
+  auto listeners = ioptions()->listeners;
+  CompactionJobInfo info;
+  info.cf_name = c->column_family_data()->GetName();
+  info.status = status;
+  info.output_level = c->output_level();
+  for (const auto fmd : *c->inputs(c->level())) {
+    info.input_files.push_back(
+        TableFileName(options_.db_paths,
+                      fmd->fd.GetNumber(),
+                      fmd->fd.GetPathId()));
+  }
+  for (const auto newf : c->edit()->GetNewFiles()) {
+    info.input_files.push_back(
+        TableFileName(options_.db_paths,
+                      newf.second.fd.GetNumber(),
+                      newf.second.fd.GetPathId()));
+  }
+  for (auto listener : listeners) {
+    listener->OnCompactionCompleted(db, info);
+  }
+#endif  // ROCKSDB_LITE
+}
+
 void ColumnFamilyData::NotifyOnFlushCompleted(
     DB* db, const std::string& file_path,
     bool triggered_flush_slowdown,

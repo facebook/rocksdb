@@ -261,6 +261,8 @@ class ColumnFamilyData {
 
   void ResetThreadLocalSuperVersions();
 
+  void NotifyOnCompactionCompleted(DB* db, Compaction* c, const Status& status);
+
   void NotifyOnFlushCompleted(
       DB* db, const std::string& file_path,
       bool triggered_flush_slowdown,

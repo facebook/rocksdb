@@ -2,7 +2,6 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
@@ -144,11 +143,68 @@ class EventListenerTest {
     }
   }
 
-
   DB* db_;
   std::string dbname_;
   std::vector<ColumnFamilyHandle*> handles_;
 };
+
+class TestCompactionListener : public EventListener {
+ public:
+  void OnCompactionCompleted(DB *db,
+                             int input_level,
+                             int output_level,
+                             const std::vector<int64_t>& input_files) {
+    compacted_dbs_.push_back(db);
+  }
+
+  std::vector<DB*> compacted_dbs_;
+};
+
+TEST(EventListenerTest, OnSingleDBCompactionTest) {
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
+  const int kEntriesPerBuffer = 100;
+  const int kNumL0Files = 4;
+
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base = options.target_file_size_base * 2;
+  options.max_bytes_for_level_multiplier = 2;
+  options.compression = kNoCompression;
+  options.enable_thread_tracking = true;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+
+  TestCompactionListener* listener = new TestCompactionListener();
+  options.listeners.emplace_back(listener);
+  std::vector<std::string> cf_names = {
+      "pikachu", "ilya", "muromec", "dobrynia",
+      "nikitich", "alyosha", "popovich"};
+  CreateAndReopenWithCF(cf_names, &options);
+  ASSERT_OK(Put(1, "pikachu", std::string(90000, 'p')));
+  ASSERT_OK(Put(2, "ilya", std::string(90000, 'i')));
+  ASSERT_OK(Put(3, "muromec", std::string(90000, 'm')));
+  ASSERT_OK(Put(4, "dobrynia", std::string(90000, 'd')));
+  ASSERT_OK(Put(5, "nikitich", std::string(90000, 'n')));
+  ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
+  ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
+  for (size_t i = 1; i < 8; ++i) {
+    ASSERT_OK(Flush(static_cast<int>(i)));
+    const Slice kStart = "a";
+    const Slice kEnd = "z";
+    ASSERT_OK(dbfull()->CompactRange(handles_[i], &kStart, &kEnd));
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+
+  ASSERT_EQ(listener->compacted_dbs_.size(), cf_names.size());
+  for (size_t i = 0; i < cf_names.size(); ++i) {
+    ASSERT_EQ(listener->compacted_dbs_[i], db_);
+  }
+}
 
 class TestFlushListener : public EventListener {
  public:

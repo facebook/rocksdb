@@ -1433,6 +1433,28 @@ Status DBImpl::CompactFilesImpl(
 }
 #endif  // ROCKSDB_LITE
 
+void DBImpl::NotifyOnCompactionCompleted(
+    ColumnFamilyData* cfd, Compaction *c, const Status &st) {
+#ifndef ROCKSDB_LITE
+  if (cfd->ioptions()->listeners.size() == 0U) {
+    return;
+  }
+  mutex_.AssertHeld();
+  if (shutting_down_.load(std::memory_order_acquire)) {
+    return;
+  }
+  notifying_events_++;
+  // release lock while notifying events
+  mutex_.Unlock();
+  cfd->NotifyOnCompactionCompleted(this, c, st);
+  mutex_.Lock();
+  notifying_events_--;
+  assert(notifying_events_ >= 0);
+  // no need to signal bg_cv_ as it will be signaled at the end of the
+  // flush process.
+#endif  // ROCKSDB_LITE
+}
+
 Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     const std::unordered_map<std::string, std::string>& options_map) {
 #ifdef ROCKSDB_LITE
@@ -2186,7 +2208,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     LogToBuffer(log_buffer, "[%s] Deleted %d files\n",
                 c->column_family_data()->GetName().c_str(),
                 c->num_input_files(0));
-    c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   } else if (!is_manual && c->IsTrivialMove()) {
     // Instrument for event update
@@ -2221,7 +2242,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
         c->level() + 1, f->fd.GetFileSize(), status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
-    c->ReleaseCompactionFiles(status);
     *madeProgress = true;
 
     // Clear Instrument
@@ -2246,6 +2266,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
       InstallSuperVersionBackground(c->column_family_data(), job_context,
                                     *c->mutable_cf_options());
     }
+    *madeProgress = true;
+  }
+  // FIXME(orib): should I check if column family data is null?
+  if (c != nullptr) {
+    NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status);
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   }
