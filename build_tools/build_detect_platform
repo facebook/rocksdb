@@ -32,7 +32,7 @@
 #   2. Once install, add the include path/lib path for gflags to CPATH and
 #      LIBRARY_PATH respectively. If installed with default mode, the
 #      lib and include path will be /usr/local/lib and /usr/local/include
-# Mac user can do this by running build_tools/mac-install-gflags.sh
+# Mac user can do this by having brew installed and running brew install gflags
 
 OUTPUT=$1
 if test -z "$OUTPUT"; then
