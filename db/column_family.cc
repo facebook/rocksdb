@@ -181,7 +181,7 @@ SuperVersion* SuperVersion::Ref() {
 
 bool SuperVersion::Unref() {
   // fetch_sub returns the previous value of ref
-  uint32_t previous_refs = refs.fetch_sub(1, std::memory_order_relaxed);
+  uint32_t previous_refs = refs.fetch_sub(1);
   assert(previous_refs > 0);
   return previous_refs == 1;
 }
