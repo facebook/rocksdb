@@ -43,7 +43,7 @@ class MemFile {
     if (locked_) {
       return false;
     } else {
-      refs_ = true;
+      locked_ = true;
       return true;
     }
   }
