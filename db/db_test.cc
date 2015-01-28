@@ -8139,7 +8139,7 @@ TEST(DBTest, Randomized) {
       }
 
       if ((step % 2000) == 0) {
-        fprintf(stdout,
+        fprintf(stderr,
                 "DBTest.Randomized, option ID: %d, step: %d out of %d\n",
                 option_config_, step, N);
       }
