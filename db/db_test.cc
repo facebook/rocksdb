@@ -3995,7 +3995,7 @@ TEST(DBTest, UniversalCompactionCompressRatio2) {
 }
 
 TEST(DBTest, FailMoreDbPaths) {
-  Options options;
+  Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 10000000);
   options.db_paths.emplace_back(dbname_ + "_2", 1000000);
   options.db_paths.emplace_back(dbname_ + "_3", 1000000);
@@ -4099,7 +4099,7 @@ TEST(DBTest, UniversalCompactionSecondPathRatio) {
 }
 
 TEST(DBTest, LevelCompactionThirdPath) {
-  Options options;
+  Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
   options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
@@ -4212,7 +4212,7 @@ TEST(DBTest, LevelCompactionThirdPath) {
 }
 
 TEST(DBTest, LevelCompactionPathUse) {
-  Options options;
+  Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
   options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
@@ -7154,7 +7154,7 @@ TEST(DBTest, RecoverCheckFileAmount) {
 }
 
 TEST(DBTest, SharedWriteBuffer) {
-  Options options;
+  Options options = CurrentOptions();
   options.db_write_buffer_size = 100000;  // this is the real limit
   options.write_buffer_size    = 500000;  // this is never hit
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
