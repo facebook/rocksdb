@@ -259,7 +259,8 @@ public class ColumnFamilyTest {
           new ArrayList<>();
       List<ColumnFamilyHandle> columnFamilyHandleList =
           new ArrayList<>();
-      cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
+      cfNames.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
+          new ColumnFamilyOptions().setMergeOperator(new StringAppendOperator())));
       cfNames.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
 
       db = RocksDB.open(opt, dbFolder.getRoot().getAbsolutePath(),
@@ -268,6 +269,10 @@ public class ColumnFamilyTest {
       WriteBatch writeBatch = new WriteBatch();
       WriteOptions writeOpt = new WriteOptions();
       writeBatch.put("key".getBytes(), "value".getBytes());
+      writeBatch.put(db.getDefaultColumnFamily(),
+          "mergeKey".getBytes(), "merge".getBytes());
+      writeBatch.merge(db.getDefaultColumnFamily(), "mergeKey".getBytes(),
+          "merge".getBytes());
       writeBatch.put(columnFamilyHandleList.get(1), "newcfkey".getBytes(),
           "value".getBytes());
       writeBatch.put(columnFamilyHandleList.get(1), "newcfkey2".getBytes(),
@@ -283,6 +288,9 @@ public class ColumnFamilyTest {
       assertThat(new String(db.get(columnFamilyHandleList.get(1),
           "newcfkey2".getBytes()))).isEqualTo("value2");
       assertThat(new String(db.get("key".getBytes()))).isEqualTo("value");
+      // check if key is merged
+      assertThat(new String(db.get(db.getDefaultColumnFamily(),
+          "mergeKey".getBytes()))).isEqualTo("merge,merge");
     } finally {
       if (db != null) {
         db.close();

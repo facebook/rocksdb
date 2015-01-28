@@ -36,6 +36,7 @@ public class FlushTest {
       wOpt = new WriteOptions();
       flushOptions = new FlushOptions();
       flushOptions.setWaitForFlush(true);
+      assertThat(flushOptions.waitForFlush()).isTrue();
       wOpt.setDisableWAL(true);
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
       db.put(wOpt, "key1".getBytes(), "value1".getBytes());
