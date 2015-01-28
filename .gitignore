@@ -20,6 +20,7 @@ make_config.mk
 *.d-e
 *.o-*
 *.swp
+*~
 
 ldb
 manifest_dump
