@@ -90,7 +90,7 @@ Status Truncate(const std::string& filename, uint64_t length) {
       if (s.ok()) {
         s = env->RenameFile(tmp_name, filename);
       } else {
-        fprintf(stderr, "Cannot renmae file %s to %s: %s\n", tmp_name.c_str(),
+        fprintf(stderr, "Cannot rename file %s to %s: %s\n", tmp_name.c_str(),
                 filename.c_str(), s.ToString().c_str());
         env->DeleteFile(tmp_name);
       }
@@ -193,7 +193,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
       // again then it will be truncated - so forget our saved state.
       UntrackFile(fname);
       MutexLock l(&mutex_);
-
+      open_files_.insert(fname);
       auto dir_and_name = GetDirAndName(fname);
       auto& list = dir_to_new_files_since_last_sync_[dir_and_name.first];
       list.insert(dir_and_name.second);
@@ -238,7 +238,10 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   void WritableFileClosed(const FileState& state) {
     MutexLock l(&mutex_);
-    db_file_state_[state.filename_] = state;
+    if (open_files_.find(state.filename_) != open_files_.end()) {
+      db_file_state_[state.filename_] = state;
+      open_files_.erase(state.filename_);
+    }
   }
 
   // For every file that is not fully synced, make a call to `func` with
@@ -280,6 +283,9 @@ class FaultInjectionTestEnv : public EnvWrapper {
     for (auto& pair : map_copy) {
       for (std::string name : pair.second) {
         Status s = DeleteFile(pair.first + "/" + name);
+        if (!s.ok()) {
+          return s;
+        }
       }
     }
     return Status::OK();
@@ -297,6 +303,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
     dir_to_new_files_since_last_sync_[dir_and_name.first].erase(
         dir_and_name.second);
     db_file_state_.erase(f);
+    open_files_.erase(f);
   }
 
   void SyncDir(const std::string& dirname) {
@@ -317,10 +324,12 @@ class FaultInjectionTestEnv : public EnvWrapper {
     MutexLock l(&mutex_);
     SetFilesystemActiveNoLock(active);
   }
+  void AssertNoOpenFile() { ASSERT_TRUE(open_files_.empty()); }
 
  private:
   port::Mutex mutex_;
   std::map<std::string, FileState> db_file_state_;
+  std::set<std::string> open_files_;
   std::unordered_map<std::string, std::set<std::string>>
       dir_to_new_files_since_last_sync_;
   bool filesystem_active_;  // Record flushes, syncs, writes
@@ -610,6 +619,7 @@ class FaultInjectionTest {
 
   // rnd cannot be null for kResetDropRandomUnsyncedData
   void ResetDBState(ResetMethod reset_method, Random* rnd = nullptr) {
+    env_->AssertNoOpenFile();
     switch (reset_method) {
       case kResetDropUnsyncedData:
         ASSERT_OK(env_->DropUnsyncedFileData());
