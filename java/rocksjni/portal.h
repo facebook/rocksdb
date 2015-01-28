@@ -106,8 +106,8 @@ class RocksDBExceptionJni {
 };
 
 // The portal class for org.rocksdb.Options
-class OptionsJni : public RocksDBNativeClass<rocksdb::Options*,
-    OptionsJni> {
+class OptionsJni : public RocksDBNativeClass<
+    rocksdb::Options*, OptionsJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/Options");
@@ -115,8 +115,8 @@ class OptionsJni : public RocksDBNativeClass<rocksdb::Options*,
 };
 
 // The portal class for org.rocksdb.DBOptions
-class DBOptionsJni : public RocksDBNativeClass<rocksdb::DBOptions*,
-    DBOptionsJni> {
+class DBOptionsJni : public RocksDBNativeClass<
+    rocksdb::DBOptions*, DBOptionsJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env, "org/rocksdb/DBOptions");
