@@ -3036,6 +3036,9 @@ TEST(DBTest, RecoverDuringMemtableCompaction) {
   } while (ChangeOptions());
 }
 
+// false positive TSAN report on shared_ptr --
+// https://groups.google.com/forum/#!topic/thread-sanitizer/vz_s-t226Vg
+#ifndef ROCKSDB_TSAN_RUN
 TEST(DBTest, FlushSchedule) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -3073,6 +3076,7 @@ TEST(DBTest, FlushSchedule) {
   ASSERT_LE(pikachu_tables, static_cast<uint64_t>(10));
   ASSERT_GT(pikachu_tables, static_cast<uint64_t>(0));
 }
+#endif  // enabled only if not TSAN run
 
 TEST(DBTest, MinorCompactionsHappen) {
   do {

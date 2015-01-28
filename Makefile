@@ -61,8 +61,8 @@ endif
 ifdef COMPILE_WITH_TSAN
 	DISABLE_JEMALLOC=1
 	EXEC_LDFLAGS += -fsanitize=thread -pie
-	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC
-	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC
+	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
+	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
 endif
 
 ifndef DISABLE_JEMALLOC
