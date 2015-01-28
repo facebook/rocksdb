@@ -132,7 +132,6 @@ TESTS = \
 	dbformat_test \
 	env_test \
 	fault_injection_test \
-	blob_store_test \
 	filelock_test \
 	filename_test \
 	block_based_filter_block_test \
@@ -188,7 +187,6 @@ TOOLS = \
         ldb \
 	db_repl_stress \
 	options_test \
-	blob_store_bench
 
 PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench cache_bench perf_context_test memtablerep_bench $(TOOLS)
 
@@ -356,9 +354,6 @@ db_sanity_test: tools/db_sanity_test.o $(LIBOBJECTS) $(TESTUTIL)
 db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
 	$(CXX) tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
-blob_store_bench: tools/blob_store_bench.o $(LIBOBJECTS) $(TESTUTIL)
-	$(CXX) tools/blob_store_bench.o $(LIBOBJECTS) $(TESTUTIL) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
-
 signal_test: util/signal_test.o $(LIBOBJECTS)
 	$(CXX) util/signal_test.o $(LIBOBJECTS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
@@ -388,9 +383,6 @@ cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
-
-blob_store_test: util/blob_store_test.o $(LIBOBJECTS) $(TESTHARNESS) $(TESTUTIL)
-	$(CXX) util/blob_store_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o$@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
