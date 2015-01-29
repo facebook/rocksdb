@@ -391,10 +391,10 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
       continue;
     }
     assert(backups_.find(backup_id) == backups_.end());
-    backups_.emplace(backup_id,
-        unique_ptr<BackupMeta>(new BackupMeta(
-            GetBackupMetaFile(backup_id),
-            &backuped_file_infos_, backup_env_)));
+    backups_.insert(std::move(
+        std::make_pair(backup_id, unique_ptr<BackupMeta>(new BackupMeta(
+                                      GetBackupMetaFile(backup_id),
+                                      &backuped_file_infos_, backup_env_)))));
   }
 
   if (options_.destroy_old_data) {  // Destory old data
@@ -475,10 +475,10 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
 
   BackupID new_backup_id = latest_backup_id_ + 1;
   assert(backups_.find(new_backup_id) == backups_.end());
-  auto ret = backups_.emplace(new_backup_id,
-      unique_ptr<BackupMeta>(new BackupMeta(
-          GetBackupMetaFile(new_backup_id),
-          &backuped_file_infos_, backup_env_)));
+  auto ret = backups_.insert(std::move(
+      std::make_pair(new_backup_id, unique_ptr<BackupMeta>(new BackupMeta(
+                                        GetBackupMetaFile(new_backup_id),
+                                        &backuped_file_infos_, backup_env_)))));
   assert(ret.second == true);
   auto& new_backup = ret.first->second;
   new_backup->RecordTimestamp();
@@ -1123,7 +1123,7 @@ Status BackupEngineImpl::BackupMeta::AddFile(
     std::shared_ptr<FileInfo> file_info) {
   auto itr = file_infos_->find(file_info->filename);
   if (itr == file_infos_->end()) {
-    auto ret = file_infos_->emplace(file_info->filename, file_info);
+    auto ret = file_infos_->insert({file_info->filename, file_info});
     if (ret.second) {
       itr = ret.first;
       itr->second->refs = 1;
