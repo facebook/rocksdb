@@ -64,6 +64,10 @@ static const int kMinorVersion = __ROCKSDB_MINOR__;
 // A Snapshot is an immutable object and can therefore be safely
 // accessed from multiple threads without any external synchronization.
 class Snapshot {
+ public:
+  // returns Snapshot's sequence number
+  virtual SequenceNumber GetSequenceNumber() const = 0;
+
  protected:
   virtual ~Snapshot();
 };

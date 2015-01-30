@@ -7751,6 +7751,12 @@ class ModelDB: public DB {
   class ModelSnapshot : public Snapshot {
    public:
     KVMap map_;
+
+    virtual SequenceNumber GetSequenceNumber() const {
+      // no need to call this
+      assert(false);
+      return 0;
+    }
   };
 
   explicit ModelDB(const Options& options) : options_(options) {}
