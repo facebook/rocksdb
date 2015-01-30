@@ -35,6 +35,8 @@ public class SnapshotTest {
       db.put("key".getBytes(), "value".getBytes());
       // Get new Snapshot of database
       Snapshot snapshot = db.getSnapshot();
+      assertThat(snapshot.getSequenceNumber()).isGreaterThan(0);
+      assertThat(snapshot.getSequenceNumber()).isEqualTo(1);
       readOptions = new ReadOptions();
       // set snapshot in ReadOptions
       readOptions.setSnapshot(snapshot);

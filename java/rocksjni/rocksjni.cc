@@ -6,18 +6,18 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::DB methods from Java side.
 
+#include <jni.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <jni.h>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "include/org_rocksdb_RocksDB.h"
-#include "rocksjni/portal.h"
 #include "rocksdb/db.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/types.h"
+#include "rocksjni/portal.h"
 
 //////////////////////////////////////////////////////////////////////////////
 // rocksdb::DB::Open
