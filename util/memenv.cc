@@ -13,6 +13,8 @@
 
 namespace rocksdb {
 
+#ifndef ROCKSDB_LITE
+
 namespace {
 
 std::string NormalizeFileName(const std::string fname) {
@@ -419,5 +421,11 @@ class InMemoryEnv : public EnvWrapper {
 Env* NewMemEnv(Env* base_env) {
   return new InMemoryEnv(base_env);
 }
+
+#else  // ROCKSDB_LITE
+
+Env* NewMemEnv(Env* base_env) { return nullptr; }
+
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb

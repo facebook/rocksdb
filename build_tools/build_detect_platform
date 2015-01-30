@@ -161,7 +161,7 @@ if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
   "$PWD/build_tools/build_detect_version"
 fi
 
-# We want to make a list of all cc files within util, db, table, and helpers
+# We want to make a list of all cc files within util, db and table
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
@@ -179,7 +179,6 @@ set +f # re-enable globbing
 # file.
 echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> "$OUTPUT"
 echo "MOCK_SOURCES=$MOCK_SOURCES" >> "$OUTPUT"
-echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> "$OUTPUT"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.

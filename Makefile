@@ -99,7 +99,6 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
 LIBOBJECTS = $(SOURCES:.cc=.o)
-MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o
@@ -196,7 +195,6 @@ ifeq ($(LIBNAME),)
         LIBNAME=librocksdb
 endif
 LIBRARY = ${LIBNAME}.a
-MEMENVLIBRARY = libmemenv.a
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -311,7 +309,7 @@ unity: unity.cc unity.o
 	$(CXX) unity.o $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 clean:
-	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) $(MEMENVLIBRARY) make_config.mk unity.cc
+	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) make_config.mk unity.cc
 	-rm -rf ios-x86/* ios-arm/*
 	-find . -name "*.[oda]" -exec rm {} \;
 	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
@@ -552,12 +550,8 @@ options_test: util/options_test.o util/options_helper.o $(LIBOBJECTS) $(TESTHARN
 sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@  $(LDFLAGS) $(COVERAGEFLAGS)
 
-$(MEMENVLIBRARY) : $(MEMENVOBJECTS)
-	rm -f $@
-	$(AR) -rs $@ $(MEMENVOBJECTS)
-
-memenv_test : helpers/memenv/memenv_test.o $(MEMENVOBJECTS) $(LIBOBJECTS) $(TESTHARNESS)
-	$(CXX) helpers/memenv/memenv_test.o $(MEMENVOBJECTS) $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
+memenv_test : util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(CXX) util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
 
 mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(CXX) util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS) $(EXEC_LDFLAGS) -o $@ $(LDFLAGS) $(COVERAGEFLAGS)
