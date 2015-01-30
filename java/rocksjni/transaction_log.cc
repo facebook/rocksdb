@@ -21,8 +21,7 @@
  */
 void Java_org_rocksdb_TransactionLogIterator_disposeInternal(
     JNIEnv* env, jobject jobj, jlong handle) {
-  auto* it = reinterpret_cast<rocksdb::TransactionLogIterator*>(handle);
-  delete it;
+  delete reinterpret_cast<rocksdb::TransactionLogIterator*>(handle);
 }
 
 /*

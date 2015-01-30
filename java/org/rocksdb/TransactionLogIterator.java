@@ -23,7 +23,6 @@ public class TransactionLogIterator extends RocksObject {
    * <strong>REQUIRES</strong>: Valid() to be true.</p>
    */
   public void next() {
-    assert(isValid());
     next(nativeHandle_);
   }
 
