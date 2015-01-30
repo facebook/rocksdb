@@ -464,6 +464,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
+  @Deprecated
   public DBOptions setSkipLogErrorOnRecovery(boolean skip) {
     assert(isInitialized());
     setSkipLogErrorOnRecovery(nativeHandle_, skip);
@@ -471,6 +472,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
+  @Deprecated
   public boolean skipLogErrorOnRecovery() {
     assert(isInitialized());
     return skipLogErrorOnRecovery(nativeHandle_);

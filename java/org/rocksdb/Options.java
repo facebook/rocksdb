@@ -551,12 +551,14 @@ public class Options extends RocksObject
   }
 
   @Override
+  @Deprecated
   public boolean skipLogErrorOnRecovery() {
     assert(isInitialized());
     return skipLogErrorOnRecovery(nativeHandle_);
   }
 
   @Override
+  @Deprecated
   public Options setSkipLogErrorOnRecovery(boolean skip) {
     assert(isInitialized());
     setSkipLogErrorOnRecovery(nativeHandle_, skip);

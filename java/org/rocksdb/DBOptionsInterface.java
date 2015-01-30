@@ -707,7 +707,10 @@ public interface DBOptionsInterface {
    *
    * @param skip true if log corruption errors are skipped during recovery.
    * @return the instance of the current Object.
+   *
+   * @deprecated will be removed in RocksDB 3.11.0. Not used anymore.
    */
+  @Deprecated
   Object setSkipLogErrorOnRecovery(boolean skip);
 
   /**
@@ -716,7 +719,10 @@ public interface DBOptionsInterface {
    * Default: false
    *
    * @return true if log corruption errors are skipped during recovery.
+   *
+   * @deprecated will be removed in RocksDB 3.11.0. Not used anymore.
    */
+  @Deprecated
   boolean skipLogErrorOnRecovery();
 
   /**
