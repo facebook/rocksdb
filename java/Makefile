@@ -92,11 +92,12 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.WriteOptionsTest\
 	org.rocksdb.WriteBatchWithIndexTest
 
+MAIN_SRC = src/main/java
 TEST_SRC = src/test/java
 OUTPUT = target
-# TODO update after moving main classes
-MAIN_CLASSES = .
+MAIN_CLASSES = $(OUTPUT)/classes
 TEST_CLASSES = $(OUTPUT)/test-classes
+JAVADOC = $(OUTPUT)/apidocs
 
 JAVA_TEST_LIBDIR = ./test-libs/
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)junit-4.12-beta-2.jar
@@ -107,25 +108,25 @@ JAVA_ASSERTJ_JAR = $(JAVA_TEST_LIBDIR)assertj-core-1.7.0.jar
 JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(JAVA_CGLIB_JAR):$(JAVA_ASSERTJ_JAR):.:./*
 
 clean:
-	-find . -name "*.class" -exec rm {} \;
 	rm -rf include/*
-	rm -rf javadoc/*
 	rm -rf test-libs/
 	rm -rf $(OUTPUT)
-	rm -rf librocksdbjni*
-	rm -f rocksdbjni*
 
 
 javadocs:
-	mkdir -p javadoc; javadoc -d javadoc -sourcepath . -subpackages org -exclude org.rocksdb.test
+	mkdir -p $(JAVADOC)
+	javadoc -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
 
 javalib: java java_test javadocs
 
 java:
-	javac org/rocksdb/util/*.java org/rocksdb/*.java
+	mkdir -p $(MAIN_CLASSES)
+	javac -d $(MAIN_CLASSES)\
+		$(MAIN_SRC)/org/rocksdb/util/*.java\
+		$(MAIN_SRC)/org/rocksdb/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md
 	@rm -f ./HISTORY-CPP.md
-	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
+	javah -cp $(MAIN_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 
 sample: java
 	javac -cp $(ROCKSDB_JAR) RocksDBSample.java
@@ -151,13 +152,14 @@ resolve_test_deps:
 
 java_test: resolve_test_deps
 	mkdir -p $(TEST_CLASSES)
-	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES) $(TEST_SRC)/org/rocksdb/*.java
-	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES) $(TEST_SRC)/org/rocksdb/test/*.java
-	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES) $(TEST_SRC)/org/rocksdb/util/*.java
+	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
+		$(TEST_SRC)/org/rocksdb/test/*.java\
+		$(TEST_SRC)/org/rocksdb/util/*.java\
+		$(TEST_SRC)/org/rocksdb/*.java
 	javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
 
 test: java resolve_test_deps java_test
-	java -ea -Xcheck:jni -Djava.library.path=.:../ -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+	java -ea -Xcheck:jni -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
 	javac org/rocksdb/benchmark/*.java
