@@ -44,7 +44,9 @@ class SliceTransform {
   // they are using. This function is to help users can determine:
   //   if they want to iterate all keys prefixing `prefix`, whetherit is
   //   safe to use prefix bloom filter and seek to key `prefix`.
-  // Only returning false indicates it is correct to do that.
+  // If this function returns true, this means a user can Seek() to a prefix
+  // using the bloom filter. Otherwise, user needs to skip the bloom filter
+  // by setting ReadOptions.total_order_seek = true.
   //
   // Here is an example: Suppose we implement a slice transform that returns
   // the first part of the string after spliting it using deimiter ",":
