@@ -8,9 +8,11 @@
 #include <unistd.h>  // sysconf() - get CPU count
 
 const char DBPath[] = "/tmp/rocksdb_simple_example";
+const char DBBackupPath[] = "/tmp/rocksdb_simple_example_backup";
 
 int main(int argc, char **argv) {
   rocksdb_t *db;
+  rocksdb_backup_engine_t *be;
   rocksdb_options_t *options = rocksdb_options_create();
   // Optimize RocksDB. This is the easiest way to
   // get RocksDB to perform well
@@ -23,6 +25,9 @@ int main(int argc, char **argv) {
   // open DB
   char *err = NULL;
   db = rocksdb_open(options, DBPath, &err);
+  assert(!err);
+
+  be = rocksdb_backup_engine_open(DBBackupPath, &err);
   assert(!err);
 
   // Put key-value
@@ -41,10 +46,14 @@ int main(int argc, char **argv) {
   assert(strcmp(returned_value, "value") == 0);
   free(returned_value);
 
+  rocksdb_backup_engine_create_new_backup(be, db, &err);
+  assert(!err);
+
   // cleanup
   rocksdb_writeoptions_destroy(writeoptions);
   rocksdb_readoptions_destroy(readoptions);
   rocksdb_options_destroy(options);
+  rocksdb_backup_engine_close(be);
   rocksdb_close(db);
 
   return 0;

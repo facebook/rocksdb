@@ -29,6 +29,7 @@
 #include "rocksdb/statistics.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
+#include "rocksdb/utilities/backupable_db.h"
 
 using rocksdb::Cache;
 using rocksdb::ColumnFamilyDescriptor;
@@ -69,12 +70,15 @@ using rocksdb::WritableFile;
 using rocksdb::WriteBatch;
 using rocksdb::WriteOptions;
 using rocksdb::LiveFileMetaData;
+using rocksdb::BackupEngine;
+using rocksdb::BackupableDBOptions;
 
 using std::shared_ptr;
 
 extern "C" {
 
 struct rocksdb_t                 { DB*               rep; };
+struct rocksdb_backup_engine_t   { BackupEngine*     rep; };
 struct rocksdb_iterator_t        { Iterator*         rep; };
 struct rocksdb_writebatch_t      { WriteBatch        rep; };
 struct rocksdb_snapshot_t        { const Snapshot*   rep; };
@@ -526,6 +530,32 @@ rocksdb_t* rocksdb_open_for_read_only(
   result->rep = db;
   return result;
 }
+
+rocksdb_backup_engine_t* rocksdb_backup_engine_open(
+    const char* path,
+    char** errptr) {
+  BackupEngine* be;
+  if (SaveError(errptr, BackupEngine::Open(Env::Default(), BackupableDBOptions(path), &be))) {
+    return nullptr;
+  }
+  rocksdb_backup_engine_t* result = new rocksdb_backup_engine_t;
+  result->rep = be;
+  return result;
+}
+
+void rocksdb_backup_engine_create_new_backup(
+    rocksdb_backup_engine_t *be,
+    rocksdb_t *db,
+    char** errptr) {
+  SaveError(errptr, be->rep->CreateNewBackup(db->rep));
+}
+
+void rocksdb_backup_engine_close(
+    rocksdb_backup_engine_t *be) {
+  delete be->rep;
+  delete be;
+}
+
 
 void rocksdb_close(rocksdb_t* db) {
   delete db->rep;

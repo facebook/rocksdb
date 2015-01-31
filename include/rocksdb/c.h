@@ -55,6 +55,7 @@ extern "C" {
 /* Exported types */
 
 typedef struct rocksdb_t                 rocksdb_t;
+typedef struct rocksdb_backup_engine_t   rocksdb_backup_engine_t;
 typedef struct rocksdb_cache_t           rocksdb_cache_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
@@ -103,6 +104,18 @@ extern rocksdb_t* rocksdb_open_for_read_only(
     const char* name,
     unsigned char error_if_log_file_exist,
     char** errptr);
+
+extern rocksdb_backup_engine_t* rocksdb_backup_engine_open(
+    const char* path,
+    char** errptr);
+
+extern void rocksdb_backup_engine_create_new_backup(
+    rocksdb_backup_engine_t *be,
+    rocksdb_t* db,
+    char** errptr);
+
+extern void rocksdb_backup_engine_close(
+    rocksdb_backup_engine_t *be);
 
 extern rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* options,
