@@ -738,4 +738,25 @@ public class RocksDBTest {
       }
     }
   }
+
+  @Test
+  public void enableDisableFileDeletions() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options().setCreateIfMissing(true);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+      db.disableFileDeletions();
+      db.enableFileDeletions(false);
+      db.disableFileDeletions();
+      db.enableFileDeletions(true);
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
 }

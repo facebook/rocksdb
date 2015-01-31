@@ -1589,6 +1589,76 @@ public class RocksDB extends RocksObject {
   }
 
   /**
+   * <p>The sequence number of the most recent transaction.</p>
+   *
+   * @return sequence number of the most
+   *     recent transaction.
+   */
+  public long getLatestSequenceNumber() {
+    return getLatestSequenceNumber(nativeHandle_);
+  }
+
+  /**
+   * <p>Prevent file deletions. Compactions will continue to occur,
+   * but no obsolete files will be deleted. Calling this multiple
+   * times have the same effect as calling it once.</p>
+   *
+   * @throws RocksDBException thrown if operation was not performed
+   *     successfully.
+   */
+  public void disableFileDeletions() throws RocksDBException {
+    disableFileDeletions(nativeHandle_);
+  }
+
+  /**
+   * <p>Allow compactions to delete obsolete files.
+   * If force == true, the call to EnableFileDeletions()
+   * will guarantee that file deletions are enabled after
+   * the call, even if DisableFileDeletions() was called
+   * multiple times before.</p>
+   *
+   * <p>If force == false, EnableFileDeletions will only
+   * enable file deletion after it's been called at least
+   * as many times as DisableFileDeletions(), enabling
+   * the two methods to be called by two threads
+   * concurrently without synchronization
+   * -- i.e., file deletions will be enabled only after both
+   * threads call EnableFileDeletions()</p>
+   *
+   * @param force boolean value described above.
+   *
+   * @throws RocksDBException thrown if operation was not performed
+   *     successfully.
+   */
+  public void enableFileDeletions(boolean force)
+      throws RocksDBException {
+    enableFileDeletions(nativeHandle_, force);
+  }
+
+  /**
+   * <p>Returns an iterator that is positioned at a write-batch containing
+   * seq_number. If the sequence number is non existent, it returns an iterator
+   * at the first available seq_no after the requested seq_no.</p>
+   *
+   * <p>Must set WAL_ttl_seconds or WAL_size_limit_MB to large values to
+   * use this api, else the WAL files will get
+   * cleared aggressively and the iterator might keep getting invalid before
+   * an update is read.</p>
+   *
+   * @param sequenceNumber sequence number offset
+   *
+   * @return {@link org.rocksdb.TransactionLogIterator} instance.
+   *
+   * @throws org.rocksdb.RocksDBException if iterator cannot be retrieved
+   *     from native-side.
+   */
+  public TransactionLogIterator getUpdatesSince(long sequenceNumber)
+      throws RocksDBException {
+    return new TransactionLogIterator(
+        getUpdatesSince(nativeHandle_, sequenceNumber));
+  }
+
+  /**
    * Private constructor.
    */
   protected RocksDB() {
@@ -1730,6 +1800,13 @@ public class RocksDB extends RocksObject {
   private native void compactRange(long handle, byte[] begin, int beginLen, byte[] end,
       int endLen, boolean reduce_level, int target_level, int target_path_id,
       long cfHandle) throws RocksDBException;
+  private native long getLatestSequenceNumber(long handle);
+  private native void disableFileDeletions(long handle)
+      throws RocksDBException;
+  private native void enableFileDeletions(long handle,
+      boolean force) throws RocksDBException;
+  private native long getUpdatesSince(long handle, long sequenceNumber)
+      throws RocksDBException;
 
   protected DBOptionsInterface options_;
 }
