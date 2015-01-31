@@ -23,20 +23,32 @@ public class Environment {
   }
 
   public static String getSharedLibraryName(String name) {
+    return name + "jni";
+  }
+
+  public static String getSharedLibraryFileName(String name) {
+    return appendLibOsSuffix("lib" + getSharedLibraryName(name), true);
+  }
+
+  public static String getJniLibraryName(final String name) {
     if (isUnix()) {
-      return String.format("lib%sjni.so", name);
+      final String arch = (is64Bit()) ? "64" : "32";
+      return String.format("%sjni-linux%s", name, arch);
     } else if (isMac()) {
-      return String.format("lib%sjni.dylib", name);
+      return String.format("%sjni-osx", name);
     }
     throw new UnsupportedOperationException();
   }
 
-  public static String getJniLibraryName(String name) {
+  public static String getJniLibraryFileName(final String name) {
+    return appendLibOsSuffix("lib" + getJniLibraryName(name), false);
+  }
+
+  private static String appendLibOsSuffix(final String libraryFileName, final boolean shared) {
     if (isUnix()) {
-      String arch = (is64Bit()) ? "64" : "32";
-      return String.format("lib%sjni-linux%s.so", name, arch);
+      return libraryFileName + ".so";
     } else if (isMac()) {
-      return String.format("lib%sjni-osx.jnilib", name);
+      return libraryFileName + (shared ? ".dylib" : ".jnilib");
     }
     throw new UnsupportedOperationException();
   }

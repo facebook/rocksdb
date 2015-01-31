@@ -15,7 +15,9 @@ public class NativeLibraryLoader {
   private static final NativeLibraryLoader instance = new NativeLibraryLoader();
   private static boolean initialized = false;
 
-  private static final String sharedLibraryName = Environment.getJniLibraryName("rocksdb");
+  private static final String sharedLibraryName = Environment.getSharedLibraryName("rocksdb");
+  private static final String jniLibraryName = Environment.getJniLibraryName("rocksdb");
+  private static final String jniLibraryFileName = Environment.getJniLibraryFileName("rocksdb");
   private static final String tempFilePrefix = "librocksdbjni";
   private static final String tempFileSuffix = "." + Environment.getJniLibraryExtension();
 
@@ -26,6 +28,34 @@ public class NativeLibraryLoader {
    */
   public static NativeLibraryLoader getInstance() {
     return instance;
+  }
+
+  /**
+   * Firstly attempts to load the library from <i>java.library.path</i>,
+   * if that fails then it falls back to extracting
+   * the library from the classpath
+   * {@link org.rocksdb.NativeLibraryLoader#loadLibraryFromJar(java.lang.String)}
+   *
+   * @param tmpDir A temporary directory to use
+   *   to copy the native library to when loading from the classpath.
+   *   If null, or the empty string, we rely on Java's
+   *   {@link java.io.File#createTempFile(String, String)}
+   *   function to provide a temporary location.
+   *   The temporary file will be registered for deletion
+   *   on exit.
+   *
+   * @throws java.io.IOException if a filesystem operation fails.
+   */
+  public synchronized void loadLibrary(final String tmpDir) throws IOException {
+    try {
+        System.loadLibrary(sharedLibraryName);
+    } catch(final UnsatisfiedLinkError ule1) {
+      try {
+        System.loadLibrary(jniLibraryName);
+      } catch(final UnsatisfiedLinkError ule2) {
+        loadLibraryFromJar(tmpDir);
+      }
+    }
   }
 
   /**
@@ -42,14 +72,14 @@ public class NativeLibraryLoader {
    *
    * @throws java.io.IOException if a filesystem operation fails.
    */
-  public synchronized void loadLibraryFromJar(final String tmpDir)
+  private void loadLibraryFromJar(final String tmpDir)
       throws IOException {
     if (!initialized) {
       final File temp;
       if (tmpDir == null || tmpDir.equals("")) {
         temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
       } else {
-        temp = new File(tmpDir, sharedLibraryName);
+        temp = new File(tmpDir, jniLibraryFileName);
       }
 
       if (!temp.exists()) {
@@ -60,9 +90,9 @@ public class NativeLibraryLoader {
 
       // attempt to copy the library from the Jar file to the temp destination
       try (final InputStream is = getClass().getClassLoader().
-          getResourceAsStream(sharedLibraryName)) {
+          getResourceAsStream(jniLibraryFileName)) {
         if (is == null) {
-          throw new RuntimeException(sharedLibraryName + " was not found inside JAR.");
+          throw new RuntimeException(jniLibraryFileName + " was not found inside JAR.");
         } else {
           Files.copy(is, temp.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }

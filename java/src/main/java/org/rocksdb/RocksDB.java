@@ -44,7 +44,7 @@ public class RocksDB extends RocksObject {
     }
     try
     {
-      NativeLibraryLoader.getInstance().loadLibraryFromJar(tmpDir);
+      NativeLibraryLoader.getInstance().loadLibrary(tmpDir);
     }
     catch (IOException e)
     {
@@ -66,7 +66,7 @@ public class RocksDB extends RocksObject {
       }
       for (String path : paths) {
         try {
-          System.load(path + "/" + Environment.getSharedLibraryName(
+          System.load(path + "/" + Environment.getSharedLibraryFileName(
               compressionType.getLibraryName()));
           break;
         } catch (UnsatisfiedLinkError e) {
@@ -78,7 +78,7 @@ public class RocksDB extends RocksObject {
     UnsatisfiedLinkError err = null;
     for (String path : paths) {
       try {
-        System.load(path + "/" + Environment.getJniLibraryName("rocksdbjni"));
+        System.load(path + "/" + Environment.getJniLibraryFileName("rocksdbjni"));
         success = true;
         break;
       } catch (UnsatisfiedLinkError e) {
