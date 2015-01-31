@@ -36,11 +36,12 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.StringAppendOperator\
 	org.rocksdb.WriteBatch\
 	org.rocksdb.WriteBatch.Handler\
-	org.rocksdb.test.WriteBatchInternal\
-	org.rocksdb.test.WriteBatchTest\
-    org.rocksdb.WriteOptions\
+	org.rocksdb.WriteOptions\
 	org.rocksdb.WriteBatchWithIndex\
 	org.rocksdb.WBWIRocksIterator
+
+NATIVE_JAVA_TEST_CLASSES = org.rocksdb.WriteBatchTest\
+    org.rocksdb.WriteBatchTestInternalHelper
 
 ROCKSDB_MAJOR = $(shell egrep "ROCKSDB_MAJOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
 ROCKSDB_MINOR = $(shell egrep "ROCKSDB_MINOR.[0-9]" ../include/rocksdb/version.h | cut -d ' ' -f 3)
@@ -53,43 +54,49 @@ ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 endif
 
-JAVA_TESTS = org.rocksdb.test.BackupableDBOptionsTest\
-        org.rocksdb.test.BackupableDBTest\
-		org.rocksdb.test.BlockBasedTableConfigTest\
-		org.rocksdb.test.CheckPointTest\
-		org.rocksdb.test.ColumnFamilyOptionsTest\
-		org.rocksdb.test.ColumnFamilyTest\
-		org.rocksdb.test.ComparatorOptionsTest\
-		org.rocksdb.test.ComparatorTest\
-		org.rocksdb.test.CompressionOptionsTest\
-		org.rocksdb.test.DBOptionsTest\
-		org.rocksdb.test.DirectComparatorTest\
-		org.rocksdb.test.DirectSliceTest\
-		org.rocksdb.test.EnvironmentTest\
-		org.rocksdb.test.FilterTest\
-		org.rocksdb.test.FlushTest\
-		org.rocksdb.test.InfoLogLevelTest\
-		org.rocksdb.test.KeyMayExistTest\
-		org.rocksdb.test.MemTableTest\
-		org.rocksdb.test.MergeTest\
-		org.rocksdb.test.MixedOptionsTest\
-		org.rocksdb.test.OptionsTest\
-		org.rocksdb.test.PlainTableConfigTest\
-		org.rocksdb.test.ReadOnlyTest\
-		org.rocksdb.test.ReadOptionsTest\
-		org.rocksdb.test.RocksDBTest\
-		org.rocksdb.test.RocksEnvTest\
-		org.rocksdb.test.RocksIteratorTest\
-		org.rocksdb.test.SizeUnitTest\
-		org.rocksdb.test.SliceTest\
-		org.rocksdb.test.SnapshotTest\
-		org.rocksdb.test.TransactionLogIteratorTest\
-		org.rocksdb.test.TtlDBTest\
-		org.rocksdb.test.StatisticsCollectorTest\
-		org.rocksdb.test.WriteBatchHandlerTest\
-		org.rocksdb.test.WriteBatchTest\
-		org.rocksdb.test.WriteOptionsTest\
-		org.rocksdb.test.WriteBatchWithIndexTest
+JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
+	org.rocksdb.BackupableDBTest\
+	org.rocksdb.BlockBasedTableConfigTest\
+	org.rocksdb.CheckPointTest\
+	org.rocksdb.ColumnFamilyOptionsTest\
+	org.rocksdb.ColumnFamilyTest\
+	org.rocksdb.ComparatorOptionsTest\
+	org.rocksdb.ComparatorTest\
+	org.rocksdb.CompressionOptionsTest\
+	org.rocksdb.DBOptionsTest\
+	org.rocksdb.DirectComparatorTest\
+	org.rocksdb.DirectSliceTest\
+	org.rocksdb.util.EnvironmentTest\
+	org.rocksdb.FilterTest\
+	org.rocksdb.FlushTest\
+	org.rocksdb.InfoLogLevelTest\
+	org.rocksdb.KeyMayExistTest\
+	org.rocksdb.MemTableTest\
+	org.rocksdb.MergeTest\
+	org.rocksdb.MixedOptionsTest\
+	org.rocksdb.OptionsTest\
+	org.rocksdb.PlainTableConfigTest\
+	org.rocksdb.ReadOnlyTest\
+	org.rocksdb.ReadOptionsTest\
+	org.rocksdb.RocksDBTest\
+	org.rocksdb.RocksEnvTest\
+	org.rocksdb.RocksIteratorTest\
+	org.rocksdb.util.SizeUnitTest\
+	org.rocksdb.SliceTest\
+	org.rocksdb.SnapshotTest\
+	org.rocksdb.TransactionLogIteratorTest\
+	org.rocksdb.TtlDBTest\
+	org.rocksdb.StatisticsCollectorTest\
+	org.rocksdb.WriteBatchHandlerTest\
+	org.rocksdb.WriteBatchTest\
+	org.rocksdb.WriteOptionsTest\
+	org.rocksdb.WriteBatchWithIndexTest
+
+TEST_SRC = src/test/java
+OUTPUT = target
+# TODO update after moving main classes
+MAIN_CLASSES = .
+TEST_CLASSES = $(OUTPUT)/test-classes
 
 JAVA_TEST_LIBDIR = ./test-libs/
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)junit-4.12-beta-2.jar
@@ -97,14 +104,14 @@ JAVA_HAMCR_JAR = $(JAVA_TEST_LIBDIR)hamcrest-core-1.3.jar
 JAVA_MOCKITO_JAR = $(JAVA_TEST_LIBDIR)mockito-all-1.9.5.jar
 JAVA_CGLIB_JAR = $(JAVA_TEST_LIBDIR)cglib-2.2.2.jar
 JAVA_ASSERTJ_JAR = $(JAVA_TEST_LIBDIR)assertj-core-1.7.0.jar
-JAVA_TESTCLASSPATH = $(ROCKSDB_JAR):$(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(JAVA_CGLIB_JAR):$(JAVA_ASSERTJ_JAR):.:./*
+JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(JAVA_CGLIB_JAR):$(JAVA_ASSERTJ_JAR):.:./*
 
 clean:
 	-find . -name "*.class" -exec rm {} \;
 	rm -rf include/*
 	rm -rf javadoc/*
 	rm -rf test-libs/
-	rm -rf target
+	rm -rf $(OUTPUT)
 	rm -rf librocksdbjni*
 	rm -f rocksdbjni*
 
@@ -112,11 +119,10 @@ clean:
 javadocs:
 	mkdir -p javadoc; javadoc -d javadoc -sourcepath . -subpackages org -exclude org.rocksdb.test
 
-javalib: java javadocs
+javalib: java java_test javadocs
 
-java: resolve_test_deps
+java:
 	javac org/rocksdb/util/*.java org/rocksdb/*.java
-	javac -cp $(JAVA_TESTCLASSPATH) org/rocksdb/test/*.java
 	@cp ../HISTORY.md ./HISTORY-CPP.md
 	@rm -f ./HISTORY-CPP.md
 	javah -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
@@ -143,8 +149,15 @@ resolve_test_deps:
 	test -s "$(JAVA_CGLIB_JAR)" || curl -k -L -o "$(JAVA_CGLIB_JAR)" http://search.maven.org/remotecontent?filepath=cglib/cglib/2.2.2/cglib-2.2.2.jar
 	test -s "$(JAVA_ASSERTJ_JAR)" || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" http://central.maven.org/maven2/org/assertj/assertj-core/1.7.0/assertj-core-1.7.0.jar
 
-test: java resolve_test_deps
-	java -ea -Xcheck:jni -Djava.library.path=.:../ -cp "$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
+java_test: resolve_test_deps
+	mkdir -p $(TEST_CLASSES)
+	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES) $(TEST_SRC)/org/rocksdb/*.java
+	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES) $(TEST_SRC)/org/rocksdb/test/*.java
+	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES) $(TEST_SRC)/org/rocksdb/util/*.java
+	javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
+
+test: java resolve_test_deps java_test
+	java -ea -Xcheck:jni -Djava.library.path=.:../ -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
 	javac org/rocksdb/benchmark/*.java
