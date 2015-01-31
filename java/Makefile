@@ -99,6 +99,10 @@ MAIN_CLASSES = $(OUTPUT)/classes
 TEST_CLASSES = $(OUTPUT)/test-classes
 JAVADOC = $(OUTPUT)/apidocs
 
+BENCHMARK_MAIN_SRC = benchmark/src/main/java
+BENCHMARK_OUTPUT = benchmark/target
+BENCHMARK_MAIN_CLASSES = $(BENCHMARK_OUTPUT)/classes
+
 JAVA_TEST_LIBDIR = ./test-libs/
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)junit-4.12-beta-2.jar
 JAVA_HAMCR_JAR = $(JAVA_TEST_LIBDIR)hamcrest-core-1.3.jar
@@ -111,6 +115,7 @@ clean:
 	rm -rf include/*
 	rm -rf test-libs/
 	rm -rf $(OUTPUT)
+	rm -rf $(BENCHMARK_OUTPUT)
 
 
 javadocs:
@@ -162,4 +167,5 @@ test: java resolve_test_deps java_test
 	java -ea -Xcheck:jni -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH)" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
-	javac org/rocksdb/benchmark/*.java
+	mkdir -p $(BENCHMARK_MAIN_CLASSES)
+	javac -cp $(MAIN_CLASSES) -d $(BENCHMARK_MAIN_CLASSES) $(BENCHMARK_MAIN_SRC)/org/rocksdb/benchmark/*.java
