@@ -103,6 +103,10 @@ BENCHMARK_MAIN_SRC = benchmark/src/main/java
 BENCHMARK_OUTPUT = benchmark/target
 BENCHMARK_MAIN_CLASSES = $(BENCHMARK_OUTPUT)/classes
 
+SAMPLES_MAIN_SRC = samples/src/main/java
+SAMPLES_OUTPUT = samples/target
+SAMPLES_MAIN_CLASSES = $(SAMPLES_OUTPUT)/classes
+
 JAVA_TEST_LIBDIR = test-libs
 JAVA_JUNIT_JAR = $(JAVA_TEST_LIBDIR)/junit-4.12.jar
 JAVA_HAMCR_JAR = $(JAVA_TEST_LIBDIR)/hamcrest-core-1.3.jar
@@ -116,6 +120,7 @@ clean:
 	rm -rf test-libs/
 	rm -rf $(OUTPUT)
 	rm -rf $(BENCHMARK_OUTPUT)
+	rm -rf $(SAMPLES_OUTPUT)
 
 
 javadocs:
@@ -134,17 +139,19 @@ java:
 	javah -cp $(MAIN_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 
 sample: java
-	javac -cp $(ROCKSDB_JAR) RocksDBSample.java
+	mkdir -p $(SAMPLES_MAIN_CLASSES)
+	javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBSample.java
 	@rm -rf /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni_not_found
-	java -ea -Djava.library.path=.:../ -cp ".:./*" -Xcheck:jni RocksDBSample /tmp/rocksdbjni
+	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBSample /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni_not_found
 
 column_family_sample: java
-	javac -cp $(ROCKSDB_JAR) RocksDBColumnFamilySample.java
+	mkdir -p $(SAMPLES_MAIN_CLASSES)
+	javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBColumnFamilySample.java
 	@rm -rf /tmp/rocksdbjni
-	java -ea -Djava.library.path=.:../ -cp ".:./*" -Xcheck:jni RocksDBColumnFamilySample /tmp/rocksdbjni
+	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBColumnFamilySample /tmp/rocksdbjni
 	@rm -rf /tmp/rocksdbjni
 
 resolve_test_deps:
