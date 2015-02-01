@@ -1973,7 +1973,7 @@ class Benchmark {
             options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));
         break;
       case kBTree:
-        options.memtable_factory.reset(new BTreeFactory(FLAGS_btree_fanout));
+        options.memtable_factory.reset(new BTreeFactory((int32_t) FLAGS_btree_fanout));
         break;
 #else
       default:

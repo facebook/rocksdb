@@ -21,10 +21,10 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stack>
-#include "util/arena.h"
-#include "port/port.h"
-#include "util/arena.h"
+#include "util/allocator.h"
 #include <iostream>
+#include <atomic>
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -36,12 +36,11 @@ class BTree {
 
  public:
   // Create a new BTree object that will use "cmp" for comparing keys,
-  // and will allocate memory using "*arena".  Objects allocated in the arena
-  // must remain allocated for the lifetime of the skiplist object.
+  // and will allocate memory using "*allocator".  Objects allocated in the
+  // allocator must remain allocated for the lifetime of the bw-tree object.
   //
-  // TODO Actually I'll create node from existing node when inserting, and after relink other references,
-  // I'll remove the original node from memory. Is it possible to do that with arena?
-  explicit BTree(Comparator cmp, Arena* arena, int32_t maxNodeSize = 64);
+  // TODO Figure out how to deallocate allocated memory when using allocator(Epoch mechanism from original paper)
+  explicit BTree(Comparator cmp, Allocator* allocator, int32_t maxNodeSize = 64);
 
   // Insert key into the tree.
   // REQUIRES: nothing that compares equal to key is currently in the tree.
@@ -101,37 +100,34 @@ class BTree {
   // Maps from logical node id to physical pointer to a Node. Adopted from Bw-Tree.
   class MappingTable {
   public:
-    MappingTable(Arena* arena, int capacity = 400000) 
-    : arena_(arena), capacity_(capacity), size_(reinterpret_cast<void*>(0)) {
-      char* mem = arena_->AllocateAligned(sizeof(Node*) * capacity);
+    MappingTable(Allocator* allocator, int capacity = 400000) 
+    : allocator_(allocator), capacity_(capacity), size_(0) {
+      char* mem = allocator_->AllocateAligned(sizeof(Node*) * capacity);
       table_ = (Node**) mem; 
     }
 
     Node* getNode(int pid) const {
-      assert(pid < static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load())));
       return table_[pid];
     }
 
     // No need to synchronize since externally synchronized, and newly being added
     int addNode(Node* node) {
-      assert(static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load())) < capacity_);
-      int pid = static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load()));
+      assert(size_.load(std::memory_order_acquire) < capacity_);
+      int pid = size_.load(std::memory_order_acquire);
       table_[pid] = node;
-      size_.NoBarrier_Store(reinterpret_cast<void*>(pid + 1));
+      size_.store(pid + 1, std::memory_order_relaxed);
       return pid;
     }
 
     void updateNode(int pid, Node* node) {
-      assert(pid < static_cast<int>(reinterpret_cast<intptr_t>(size_.Acquire_Load())));
-      // TODO Do I need memory barrier here?
       table_[pid] = node;
     }
     
   private:
-    Arena* const arena_;
+    Allocator* const allocator_;
     Node** table_;
     int capacity_;
-    port::AtomicPointer size_;
+    std::atomic<int> size_;
   };
 
  private:
@@ -139,7 +135,7 @@ class BTree {
 
   // Immutable after construction
   Comparator const compare_;
-  Arena* const arena_;    // Arena used for allocations of nodes
+  Allocator* const allocator_;    // Allocator used for allocations of nodes
   MappingTable mappingTable_;
   int rootPid_;
 
@@ -207,7 +203,7 @@ struct BTree<Key, Comparator>::Node {
 template<typename Key, class Comparator>
 typename BTree<Key, Comparator>::Node*
 BTree<Key, Comparator>::NewNode(int numEntries, int8_t type) {
-  char* mem = arena_->AllocateAligned(sizeof(Node) + sizeof(IndexEntry) * std::max(0, numEntries - 1));
+  char* mem = allocator_->AllocateAligned(sizeof(Node) + sizeof(IndexEntry) * std::max(0, numEntries - 1));
   return new (mem) Node(numEntries, type);
 }
 
@@ -451,11 +447,11 @@ BTree<Key, Comparator>::FindLast() const {
 }
 
 template<typename Key, class Comparator>
-BTree<Key, Comparator>::BTree(const Comparator cmp, Arena* arena, int32_t maxNodeSize)
+BTree<Key, Comparator>::BTree(const Comparator cmp, Allocator* allocator, int32_t maxNodeSize)
     : kMaxNodeSize_(maxNodeSize),
       compare_(cmp),
-      arena_(arena),
-      mappingTable_(arena) {
+      allocator_(allocator),
+      mappingTable_(allocator) {
   assert(kMaxNodeSize_ > 0);
   Node* root = NewNode(0, Node::NODE_TYPE_LEAF);
   rootPid_ = mappingTable_.addNode(root);

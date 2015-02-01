@@ -213,7 +213,8 @@ class BTreeFactory : public MemTableRepFactory {
   explicit BTreeFactory(int32_t maxNodeSize = 64) : maxNodeSize_(maxNodeSize) {}
 
   virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
-                                         Arena*, const SliceTransform*,
+                                         MemTableAllocator*, 
+                                         const SliceTransform*,
                                          Logger* logger) override;
   virtual const char* Name() const override { return "BTreeFactory"; }
 

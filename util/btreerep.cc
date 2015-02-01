@@ -15,8 +15,8 @@ class BTreeRep : public MemTableRep {
   BTree<const char*, const MemTableRep::KeyComparator&> tree_;
 
 public:
-  explicit BTreeRep(const MemTableRep::KeyComparator& compare, Arena* arena, int32_t maxNodeSize = 64)
-    : MemTableRep(arena), cmp_(compare), tree_(cmp_, arena, maxNodeSize) {
+  explicit BTreeRep(const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator, int32_t maxNodeSize = 64)
+      : MemTableRep(allocator), cmp_(compare), tree_(cmp_, allocator, maxNodeSize) {
   }
 
   // Insert key into the list.
@@ -31,8 +31,7 @@ public:
   }
 
   virtual size_t ApproximateMemoryUsage() override {
-    // All memory is allocated through arena; nothing to report here
-    // TODO is this true for BTree? Yup
+    // All memory is allocated through allocator; nothing to report here
     return 0;
   }
 
@@ -119,9 +118,9 @@ public:
 }
 
 MemTableRep* BTreeFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
     const SliceTransform* transform, Logger* logger) {
-  return new BTreeRep(compare, arena, maxNodeSize_);
+  return new BTreeRep(compare, allocator, maxNodeSize_);
 }
 
 } // namespace rocksdb
