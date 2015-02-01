@@ -40,6 +40,7 @@ class AutoRollLogger : public Logger {
     ResetLogger();
   }
 
+  using Logger::Logv;
   void Logv(const char* format, va_list ap);
 
   // Write a header entry to the log. All header information will be written

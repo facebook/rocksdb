@@ -322,6 +322,8 @@ class TestMemLogger : public Logger {
     }
     last_flush_micros_ = env_->NowMicros();
   }
+
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) {
     // We try twice: the first time with a fixed-size stack allocated buffer,
     // and the second time with a much larger dynamically allocated buffer.

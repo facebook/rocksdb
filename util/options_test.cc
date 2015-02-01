@@ -36,6 +36,7 @@ class OptionsTest {};
 
 class StderrLogger : public Logger {
  public:
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
     vprintf(format, ap);
     printf("\n");
