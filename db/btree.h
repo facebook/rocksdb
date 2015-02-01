@@ -102,30 +102,30 @@ class BTree {
   public:
     MappingTable(Allocator* allocator, int capacity = 400000) 
     : allocator_(allocator), capacity_(capacity), size_(0) {
-      char* mem = allocator_->AllocateAligned(sizeof(Node*) * capacity);
-      table_ = (Node**) mem; 
+      char* mem = allocator_->AllocateAligned(sizeof(std::atomic<Node*>) * capacity);
+      table_ = (std::atomic<Node*>*) mem; 
     }
 
     Node* getNode(int pid) const {
-      return table_[pid];
+      return table_[pid].load(std::memory_order_consume);
     }
 
     // No need to synchronize since externally synchronized, and newly being added
     int addNode(Node* node) {
-      assert(size_.load(std::memory_order_acquire) < capacity_);
-      int pid = size_.load(std::memory_order_acquire);
-      table_[pid] = node;
-      size_.store(pid + 1, std::memory_order_relaxed);
+      assert(size_.load(std::memory_order_consume) < capacity_);
+      int pid = size_.load(std::memory_order_consume);
+      table_[pid].store(node, std::memory_order_release);
+      size_.store(pid + 1, std::memory_order_release);
       return pid;
     }
 
     void updateNode(int pid, Node* node) {
-      table_[pid] = node;
+      table_[pid].store(node, std::memory_order_release);
     }
     
   private:
     Allocator* const allocator_;
-    Node** table_;
+    std::atomic<Node*>* table_;
     int capacity_;
     std::atomic<int> size_;
   };
@@ -366,7 +366,6 @@ BTree<Key, Comparator>::FindLessThan(const Key& key) const {
       return std::make_tuple(node, entryIndex);
   }
 
-  int32_t curr_pid = node->pid;
   Key lastEntry;
   
   assert(entryIndex >= 0);
@@ -404,7 +403,7 @@ BTree<Key, Comparator>::FindLessThan(const Key& key) const {
   // Find the entry that matches exactly with this given key; It may be inefficient but correct
   std::tie(foundNode, foundEntryIndex, std::ignore) = FindGreaterOrEqual(greatestLesserKey);
   assert(compare_(greatestLesserKey, foundNode->entries[foundEntryIndex].key) == 0);
-  assert(foundNode->pid != curr_pid);
+  assert(foundNode->pid != node->pid);
   assert(foundNode->numEntries - 1 == foundEntryIndex);
   return std::make_tuple(foundNode, foundEntryIndex);
 }
