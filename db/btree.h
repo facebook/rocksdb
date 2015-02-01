@@ -35,7 +35,6 @@ class BTree {
   struct IndexEntry;
 
  public:
-  std::tuple<Node*, int> FindLessThan(const Key& key) const;
   // Create a new BTree object that will use "cmp" for comparing keys,
   // and will allocate memory using "*arena".  Objects allocated in the arena
   // must remain allocated for the lifetime of the skiplist object.
@@ -153,7 +152,7 @@ class BTree {
 
   // Return the latest node with a key < key.
   // Return nullptr if there is no such node.
-  // std::tuple<Node*, int> FindLessThan(const Key& key) const;
+  std::tuple<Node*, int> FindLessThan(const Key& key) const;
 
   // Return nullptr if tree is empty
   // Else, return the left-most leaf node
@@ -360,29 +359,22 @@ BTree<Key, Comparator>::FindGreaterOrEqual(const Key& key) const {
 template<typename Key, class Comparator>
 typename std::tuple<typename BTree<Key, Comparator>::Node*, int>
 BTree<Key, Comparator>::FindLessThan(const Key& key) const {
-  // assert(false);
-  // return std::make_tuple(nullptr,-1);
-  // std::cout << std::endl;
-
-  // std::cout << "Looking for : " << key << std::endl;
-
-  // This function will only be called if the given key is the first in its node
-
   // Find the node where this key would be inserted
   Node* node;
-  // int temp;
   int entryIndex;
   std::unique_ptr<std::stack<Node*> > stack;
   std::tie(node, entryIndex, stack) = FindGreaterOrEqual(key);
+  
+  if (node == nullptr) {// If every key in B-Tree is less than key? node == nullptr
+      std::tie(node, entryIndex, std::ignore) = FindLast();
+      return std::make_tuple(node, entryIndex);
+  }
+
   int32_t curr_pid = node->pid;
   Key lastEntry;
   
-  // std::cout << "Current pid : " << curr_pid << std::endl;
-  // std::cout << "Entry index : " << entryIndex << std::endl;
-  // std::cout << "Greatest entry : " << node->entries[node->numEntries-1].key << std::endl;
-  // std::cout << "Root pid : " << rootPid_ << std::endl;
-  
-  if (entryIndex != 0) {
+  assert(entryIndex >= 0);
+  if (entryIndex != 0) { // Regular case where maximum entry less than key is in the same node
     return std::make_tuple(node, entryIndex - 1);
   }
 
@@ -397,10 +389,6 @@ BTree<Key, Comparator>::FindLessThan(const Key& key) const {
         entryIndex = i;
       }
     }
-
-    // std::cout << "EOL entryIndex : " << entryIndex << std::endl;
-    // std::cout << "Greatest entry : " << node->entries[node->numEntries-1].key << std::endl;
-
   }
 
   if (entryIndex == 0 && node->pid == rootPid_) {
@@ -411,27 +399,18 @@ BTree<Key, Comparator>::FindLessThan(const Key& key) const {
     entryIndex = node->numEntries;
   }
 
-  Key greatestKey = node->entries[entryIndex-1].key;
-  node = mappingTable_.getNode(node->entries[entryIndex-1].pid);
-
-  while (node->type != Node::NODE_TYPE_LEAF) {
-    // std::cout << "Greatest entry : " << node->entries[node->numEntries-1].key << std::endl;
-    if (node->entries[node->numEntries-1].key != greatestKey) {
-      node = mappingTable_.getNode(node->linkPtrPid);
-    }
-    if (node->highPtrPid != -1) {
-      node = mappingTable_.getNode(node->highPtrPid);
-    } else {
-      node = mappingTable_.getNode(node->entries[node->numEntries - 1].pid);
-    }
-  }
-
-  if (node->linkPtrPid != -1 && node->linkPtrPid != curr_pid) {
-    node = mappingTable_.getNode(node->linkPtrPid);
-  }
-
-  return std::make_tuple(node, node->numEntries-1);
-
+  assert(entryIndex > 0);
+  Key greatestLesserKey = node->entries[entryIndex-1].key;
+  assert(compare_(greatestLesserKey, key) < 0);
+  // We assert that an entry with above key exists in B-Tree
+  Node* foundNode;
+  int foundEntryIndex;
+  // Find the entry that matches exactly with this given key; It may be inefficient but correct
+  std::tie(foundNode, foundEntryIndex, std::ignore) = FindGreaterOrEqual(greatestLesserKey);
+  assert(compare_(greatestLesserKey, foundNode->entries[foundEntryIndex].key) == 0);
+  assert(foundNode->pid != curr_pid);
+  assert(foundNode->numEntries - 1 == foundEntryIndex);
+  return std::make_tuple(foundNode, foundEntryIndex);
 }
 
 template<typename Key, class Comparator>
