@@ -501,7 +501,8 @@ struct ColumnFamilyOptions {
 
   // Allows thread-safe inplace updates. If this is true, there is no way to
   // achieve point-in-time consistency using snapshot or iterator (assuming
-  // concurrent updates).
+  // concurrent updates). Hence iterator and multi-get will return results
+  // which are not consistent as of any point-in-time.
   // If inplace_callback function is not set,
   //   Put(key, new_value) will update inplace the existing_value iff
   //   * key exists in current memtable

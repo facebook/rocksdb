@@ -53,6 +53,7 @@
 #include "util/mock_env.h"
 #include "util/string_util.h"
 #include "util/thread_status_util.h"
+#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -115,6 +116,9 @@ class AtomicCounter {
 
 struct OptionsOverride {
   std::shared_ptr<const FilterPolicy> filter_policy = nullptr;
+
+  // Used as a bit mask of individual enums in which to skip an XF test point
+  int skip_policy = 0;
 };
 
 }  // namespace anon
@@ -564,6 +568,9 @@ class DBTest {
       const anon::OptionsOverride& options_override = anon::OptionsOverride()) {
     // this redudant copy is to minimize code change w/o having lint error.
     Options options = defaultOptions;
+    XFUNC_TEST("", "dbtest_options", inplace_options1, GetXFTestOptions,
+               reinterpret_cast<Options*>(&options),
+               options_override.skip_policy);
     BlockBasedTableOptions table_options;
     bool set_block_based_table_factory = true;
     switch (option_config_) {
@@ -1631,8 +1638,10 @@ TEST(DBTest, GetFromVersions) {
 }
 
 TEST(DBTest, GetSnapshot) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions(options_override));
     // Try with both a short key and a long key
     for (int i = 0; i < 2; i++) {
       std::string key = (i == 0) ? std::string("foo") : std::string(200, 'x');
@@ -2242,7 +2251,9 @@ TEST(DBTest, IterMulti) {
 // Check that we can skip over a run of user keys
 // by using reseek rather than sequential scan
 TEST(DBTest, IterReseek) {
-  Options options = CurrentOptions();
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
+  Options options = CurrentOptions(options_override);
   options.max_sequential_skip_in_iterations = 3;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
@@ -5699,8 +5710,10 @@ TEST(DBTest, IteratorPinsRef) {
 }
 
 TEST(DBTest, Snapshot) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions(options_override));
     Put(0, "foo", "0v1");
     Put(1, "foo", "1v1");
 
@@ -5760,8 +5773,10 @@ TEST(DBTest, Snapshot) {
 }
 
 TEST(DBTest, HiddenValuesAreRemoved) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
-    Options options = CurrentOptions();
+    Options options = CurrentOptions(options_override);
     options.max_background_flushes = 0;
     CreateAndReopenWithCF({"pikachu"}, options);
     Random rnd(301);
@@ -5798,8 +5813,10 @@ TEST(DBTest, HiddenValuesAreRemoved) {
 }
 
 TEST(DBTest, CompactBetweenSnapshots) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
-    Options options = CurrentOptions();
+    Options options = CurrentOptions(options_override);
     options.disable_auto_compactions = true;
     CreateAndReopenWithCF({"pikachu"}, options);
     Random rnd(301);
@@ -6908,8 +6925,10 @@ TEST(DBTest, SnapshotFiles) {
 }
 
 TEST(DBTest, CompactOnFlush) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
-    Options options = CurrentOptions();
+    Options options = CurrentOptions(options_override);
     options.purge_redundant_kvs_while_flush = true;
     options.disable_auto_compactions = true;
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -7641,12 +7660,14 @@ static void MTThreadBody(void* arg) {
 }  // namespace
 
 TEST(DBTest, MultiThreaded) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
     std::vector<std::string> cfs;
     for (int i = 1; i < kColumnFamilies; ++i) {
       cfs.push_back(ToString(i));
     }
-    CreateAndReopenWithCF(cfs, CurrentOptions());
+    CreateAndReopenWithCF(cfs, CurrentOptions(options_override));
     // Initialize state
     MTState mt;
     mt.test = this;
