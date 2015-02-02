@@ -28,7 +28,7 @@ namespace rocksdb {
 #define XFUNC_TEST(condition, location, lfname, fname, ...)
 #else
 
-class Options;
+struct Options;
 void GetXFTestOptions(Options* options, int skip_policy);
 
 // This class provides the facility to run custom code to test a specific
