@@ -617,6 +617,15 @@ class Logger {
       : log_level_(log_level) {}
   virtual ~Logger();
 
+  // Write a header to the log file with the specified format
+  // It is recommended that you log all header information at the start of the
+  // application. But it is not enforced.
+  virtual void LogHeader(const char* format, va_list ap) {
+    // Default implementation does a simple INFO level log write.
+    // Please override as per the logger class requirement.
+    Logv(format, ap);
+  }
+
   // Write an entry to the log file with the specified format.
   virtual void Logv(const char* format, va_list ap) = 0;
 
@@ -678,6 +687,7 @@ extern void Log(const InfoLogLevel log_level,
                 const shared_ptr<Logger>& info_log, const char* format, ...);
 
 // a set of log functions with different log levels.
+extern void Header(const shared_ptr<Logger>& info_log, const char* format, ...);
 extern void Debug(const shared_ptr<Logger>& info_log, const char* format, ...);
 extern void Info(const shared_ptr<Logger>& info_log, const char* format, ...);
 extern void Warn(const shared_ptr<Logger>& info_log, const char* format, ...);
@@ -705,6 +715,7 @@ extern void Log(Logger* info_log, const char* format, ...)
     ;
 
 // a set of log functions with different log levels.
+extern void Header(Logger* info_log, const char* format, ...);
 extern void Debug(Logger* info_log, const char* format, ...);
 extern void Info(Logger* info_log, const char* format, ...);
 extern void Warn(Logger* info_log, const char* format, ...);

@@ -37,6 +37,27 @@ void AutoRollLogger::RollLogFile() {
   env_->RenameFile(log_fname_, old_fname);
 }
 
+string AutoRollLogger::ValistToString(const char* format, va_list args) const {
+  // Any log messages longer than 1024 will get truncated.
+  // The user is responsible for chopping longer messages into multi line log
+  static const int MAXBUFFERSIZE = 1024;
+  char buffer[MAXBUFFERSIZE];
+
+  int count = vsnprintf(buffer, MAXBUFFERSIZE, format, args);
+  (void) count;
+  assert(count >= 0);
+
+  return buffer;
+}
+
+void AutoRollLogger::LogInternal(const char* format, ...) {
+  mutex_.AssertHeld();
+  va_list args;
+  va_start(args, format);
+  logger_->Logv(format, args);
+  va_end(args);
+}
+
 void AutoRollLogger::Logv(const char* format, va_list ap) {
   assert(GetStatus().ok());
 
@@ -51,6 +72,8 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
         // can't really log the error if creating a new LOG file failed
         return;
       }
+
+      WriteHeaderInfo();
     }
 
     // pin down the current logger_ instance before releasing the mutex.
@@ -64,6 +87,29 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
   // Note that logv itself is not mutex protected to allow maximum concurrency,
   // as thread safety should have been handled by the underlying logger.
   logger->Logv(format, ap);
+}
+
+void AutoRollLogger::WriteHeaderInfo() {
+  mutex_.AssertHeld();
+  for (auto header : headers_) {
+    LogInternal("%s", header.c_str());
+  }
+}
+
+void AutoRollLogger::LogHeader(const char* format, va_list args) {
+  // header message are to be retained in memory. Since we cannot make any
+  // assumptions about the data contained in va_list, we will retain them as
+  // strings
+  va_list tmp;
+  va_copy(tmp, args);
+  string data = ValistToString(format, tmp);
+  va_end(tmp);
+
+  MutexLock l(&mutex_);
+  headers_.push_back(data);
+
+  // Log the original message to the current log
+  logger_->Logv(format, args);
 }
 
 bool AutoRollLogger::LogExpired() {

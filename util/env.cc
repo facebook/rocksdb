@@ -59,6 +59,15 @@ void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
   }
 }
 
+void Header(Logger* info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->LogHeader(format, ap);
+    va_end(ap);
+  }
+}
+
 void Debug(Logger* info_log, const char* format, ...) {
   if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
     va_list ap;
@@ -114,6 +123,15 @@ void Log(const InfoLogLevel log_level, const shared_ptr<Logger>& info_log,
     va_list ap;
     va_start(ap, format);
     info_log->Logv(log_level, format, ap);
+    va_end(ap);
+  }
+}
+
+void Header(const shared_ptr<Logger>& info_log, const char* format, ...) {
+  if (info_log) {
+    va_list ap;
+    va_start(ap, format);
+    info_log->LogHeader(format, ap);
     va_end(ap);
   }
 }
