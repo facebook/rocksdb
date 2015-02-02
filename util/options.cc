@@ -505,6 +505,15 @@ Options::PrepareForBulkLoad()
   // increasing the total time needed for compactions.
   num_levels = 2;
 
+  // Need to allow more write buffers to allow more parallism
+  // of flushes.
+  max_write_buffer_number = 6;
+  min_write_buffer_number_to_merge = 1;
+
+  // When compaction is disabled, more parallel flush threads can
+  // help with write throughput.
+  max_background_flushes = 4;
+
   // Prevent a memtable flush to automatically promote files
   // to L1. This is helpful so that all files that are
   // input to the manual compaction are all at L0.
