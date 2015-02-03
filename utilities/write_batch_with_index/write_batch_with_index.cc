@@ -317,9 +317,9 @@ struct WriteBatchIndexEntry {
 
 class WriteBatchEntryComparator {
  public:
-  WriteBatchEntryComparator(const Comparator* default_comparator,
+  WriteBatchEntryComparator(const Comparator* _default_comparator,
                             const ReadableWriteBatch* write_batch)
-      : default_comparator_(default_comparator), write_batch_(write_batch) {}
+      : default_comparator_(_default_comparator), write_batch_(write_batch) {}
   // Compare a and b. Return a negative value if a is less than b, 0 if they
   // are equal, and a positive value if a is greater than b
   int operator()(const WriteBatchIndexEntry* entry1,
@@ -332,6 +332,8 @@ class WriteBatchEntryComparator {
                           const Comparator* comparator) {
     cf_comparator_map_[column_family_id] = comparator;
   }
+
+  const Comparator* default_comparator() { return default_comparator_; }
 
  private:
   const Comparator* default_comparator_;
@@ -588,6 +590,16 @@ Iterator* WriteBatchWithIndex::NewIteratorWithBase(
   }
   return new BaseDeltaIterator(base_iterator, NewIterator(column_family),
                                GetColumnFamilyUserComparator(column_family));
+}
+
+Iterator* WriteBatchWithIndex::NewIteratorWithBase(Iterator* base_iterator) {
+  if (rep->overwrite_key == false) {
+    assert(false);
+    return nullptr;
+  }
+  // default column family's comparator
+  return new BaseDeltaIterator(base_iterator, NewIterator(),
+                               rep->comparator.default_comparator());
 }
 
 void WriteBatchWithIndex::Put(ColumnFamilyHandle* column_family,

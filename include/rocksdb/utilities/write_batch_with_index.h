@@ -106,6 +106,8 @@ class WriteBatchWithIndex {
   // base_iterator as base
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator);
+  // default column family
+  Iterator* NewIteratorWithBase(Iterator* base_iterator);
 
  private:
   struct Rep;

@@ -842,6 +842,39 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
     iter->Seek("a");
     AssertIter(iter.get(), "a", "aa");
   }
+
+  // default column family
+  batch.Put("a", "b");
+  {
+    KVMap map;
+    map["b"] = "";
+    std::unique_ptr<Iterator> iter(batch.NewIteratorWithBase(new KVIter(&map)));
+
+    iter->SeekToFirst();
+    AssertIter(iter.get(), "a", "b");
+    iter->Next();
+    AssertIter(iter.get(), "b", "");
+    iter->Next();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->SeekToLast();
+    AssertIter(iter.get(), "b", "");
+    iter->Prev();
+    AssertIter(iter.get(), "a", "b");
+    iter->Prev();
+    ASSERT_OK(iter->status());
+    ASSERT_TRUE(!iter->Valid());
+
+    iter->Seek("b");
+    AssertIter(iter.get(), "b", "");
+
+    iter->Prev();
+    AssertIter(iter.get(), "a", "b");
+
+    iter->Seek("0");
+    AssertIter(iter.get(), "a", "b");
+  }
 }
 
 }  // namespace
