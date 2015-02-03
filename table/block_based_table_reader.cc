@@ -1104,6 +1104,23 @@ Iterator* BlockBasedTable::NewIterator(const ReadOptions& read_options,
                              NewIndexIterator(read_options), arena);
 }
 
+bool BlockBasedTable::FullFilterKeyMayMatch(FilterBlockReader* filter,
+                                            const Slice& internal_key) const {
+  if (filter == nullptr || filter->IsBlockBased()) {
+    return true;
+  }
+  Slice user_key = ExtractUserKey(internal_key);
+  if (!filter->KeyMayMatch(user_key)) {
+    return false;
+  }
+  if (rep_->ioptions.prefix_extractor &&
+      !filter->PrefixMayMatch(
+          rep_->ioptions.prefix_extractor->Transform(user_key))) {
+    return false;
+  }
+  return true;
+}
+
 Status BlockBasedTable::Get(
     const ReadOptions& read_options, const Slice& key,
     GetContext* get_context) {
@@ -1113,8 +1130,7 @@ Status BlockBasedTable::Get(
 
   // First check the full filter
   // If full filter not useful, Then go into each block
-  if (filter != nullptr && !filter->IsBlockBased()
-                        && !filter->KeyMayMatch(ExtractUserKey(key))) {
+  if (!FullFilterKeyMayMatch(filter, key)) {
     RecordTick(rep_->ioptions.statistics, BLOOM_FILTER_USEFUL);
   } else {
     BlockIter iiter;

@@ -1976,6 +1976,41 @@ TEST(DBTest, FilterDeletes) {
   } while (ChangeCompactOptions());
 }
 
+TEST(DBTest, GetFilterByPrefixBloom) {
+  Options options = last_options_;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(8));
+  options.statistics = rocksdb::CreateDBStatistics();
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  FlushOptions fo;
+  fo.wait = true;
+  std::string value;
+
+  ASSERT_OK(dbfull()->Put(wo, "barbarbar", "foo"));
+  ASSERT_OK(dbfull()->Put(wo, "barbarbar2", "foo2"));
+  ASSERT_OK(dbfull()->Put(wo, "foofoofoo", "bar"));
+
+  dbfull()->Flush(fo);
+
+  ASSERT_EQ("foo", Get("barbarbar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("foo2", Get("barbarbar2"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("barbarbar3"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+
+  ASSERT_EQ("NOT_FOUND", Get("barfoofoo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+
+  ASSERT_EQ("NOT_FOUND", Get("foobarbar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+}
 
 TEST(DBTest, IterSeekBeforePrev) {
   ASSERT_OK(Put("a", "b"));

@@ -13,6 +13,7 @@
 * GetThreadStatus() is now able to report compaction activity.
 * MemEnv (env that stores data in memory) is now available in default library build. You can create it by calling NewMemEnv().
 * Add SliceTransform.SameResultWhenAppended() to help users determine it is safe to apply prefix bloom/hash.
+* Block based table now makes use of prefix bloom filter if it is a full fulter.
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option

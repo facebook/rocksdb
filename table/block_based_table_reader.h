@@ -180,6 +180,9 @@ class BlockBasedTable : public TableReader {
   Status CreateIndexReader(IndexReader** index_reader,
                            Iterator* preloaded_meta_index_iter = nullptr);
 
+  bool FullFilterKeyMayMatch(FilterBlockReader* filter,
+                             const Slice& user_key) const;
+
   // Read the meta block from sst.
   static Status ReadMetaBlock(
       Rep* rep,
