@@ -168,13 +168,13 @@ class MemFile {
 
 namespace {
 
-class SequentialFileImpl : public SequentialFile {
+class MockSequentialFile : public SequentialFile {
  public:
-  explicit SequentialFileImpl(MemFile* file) : file_(file), pos_(0) {
+  explicit MockSequentialFile(MemFile* file) : file_(file), pos_(0) {
     file_->Ref();
   }
 
-  ~SequentialFileImpl() {
+  ~MockSequentialFile() {
     file_->Unref();
   }
 
@@ -203,13 +203,13 @@ class SequentialFileImpl : public SequentialFile {
   size_t pos_;
 };
 
-class RandomAccessFileImpl : public RandomAccessFile {
+class MockRandomAccessFile : public RandomAccessFile {
  public:
-  explicit RandomAccessFileImpl(MemFile* file) : file_(file) {
+  explicit MockRandomAccessFile(MemFile* file) : file_(file) {
     file_->Ref();
   }
 
-  ~RandomAccessFileImpl() {
+  ~MockRandomAccessFile() {
     file_->Unref();
   }
 
@@ -222,15 +222,15 @@ class RandomAccessFileImpl : public RandomAccessFile {
   MemFile* file_;
 };
 
-class WritableFileImpl : public WritableFile {
+class MockWritableFile : public WritableFile {
  public:
-  WritableFileImpl(MemFile* file, RateLimiter* rate_limiter)
+  MockWritableFile(MemFile* file, RateLimiter* rate_limiter)
     : file_(file),
       rate_limiter_(rate_limiter) {
     file_->Ref();
   }
 
-  ~WritableFileImpl() {
+  ~MockWritableFile() {
     file_->Unref();
   }
 
@@ -424,7 +424,7 @@ Status MockEnv::NewSequentialFile(const std::string& fname,
   if (f->is_lock_file()) {
     return Status::InvalidArgument(fn, "Cannot open a lock file.");
   }
-  result->reset(new SequentialFileImpl(f));
+  result->reset(new MockSequentialFile(f));
   return Status::OK();
 }
 
@@ -441,7 +441,7 @@ Status MockEnv::NewRandomAccessFile(const std::string& fname,
   if (f->is_lock_file()) {
     return Status::InvalidArgument(fn, "Cannot open a lock file.");
   }
-  result->reset(new RandomAccessFileImpl(f));
+  result->reset(new MockRandomAccessFile(f));
   return Status::OK();
 }
 
@@ -457,7 +457,7 @@ Status MockEnv::NewWritableFile(const std::string& fname,
   file->Ref();
   file_map_[fn] = file;
 
-  result->reset(new WritableFileImpl(file, env_options.rate_limiter));
+  result->reset(new MockWritableFile(file, env_options.rate_limiter));
   return Status::OK();
 }
 
@@ -613,7 +613,7 @@ Status MockEnv::NewLogger(const std::string& fname,
   } else {
     file = iter->second;
   }
-  std::unique_ptr<WritableFile> f(new WritableFileImpl(file, nullptr));
+  std::unique_ptr<WritableFile> f(new MockWritableFile(file, nullptr));
   result->reset(new TestMemLogger(std::move(f), this));
   return Status::OK();
 }

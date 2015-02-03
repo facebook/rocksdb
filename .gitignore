@@ -31,6 +31,7 @@ coverage/COVERAGE_REPORT
 .gdbhistory
 package/
 .phutil_module_cache
+unity
 tags
 
 java/out
