@@ -2432,8 +2432,10 @@ TEST(DBTest, IterPrevMaxSkip) {
 }
 
 TEST(DBTest, IterWithSnapshot) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions(options_override));
     ASSERT_OK(Put(1, "key1", "val1"));
     ASSERT_OK(Put(1, "key2", "val2"));
     ASSERT_OK(Put(1, "key3", "val3"));
@@ -8098,9 +8100,11 @@ static bool CompareIterators(int step,
 }
 
 TEST(DBTest, Randomized) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
   Random rnd(test::RandomSeed());
   do {
-    ModelDB model(CurrentOptions());
+    ModelDB model(CurrentOptions(options_override));
     const int N = 10000;
     const Snapshot* model_snap = nullptr;
     const Snapshot* db_snap = nullptr;
@@ -8170,7 +8174,7 @@ TEST(DBTest, Randomized) {
         if (db_snap != nullptr) db_->ReleaseSnapshot(db_snap);
 
 
-        auto options = CurrentOptions();
+        auto options = CurrentOptions(options_override);
         Reopen(options);
         ASSERT_TRUE(CompareIterators(step, &model, db_, nullptr, nullptr));
 

@@ -196,7 +196,10 @@ class MemTable {
   }
 
   // return true if the current MemTableRep supports snapshots.
-  bool IsSnapshotSupported() const { return table_->IsSnapshotSupported(); }
+  // inplace update prevents snapshots,
+  bool IsSnapshotSupported() const {
+    return table_->IsSnapshotSupported() && !moptions_.inplace_update_support;
+  }
 
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
