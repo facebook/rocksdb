@@ -630,10 +630,10 @@ Status MockEnv::LockFile(const std::string& fname, FileLock** flock) {
         return Status::IOError(fn, "Lock is already held.");
       }
     } else {
-      auto* file = new MemFile(fname, true);
+      auto* file = new MemFile(fn, true);
       file->Ref();
       file->Lock();
-      file_map_[fname] = file;
+      file_map_[fn] = file;
     }
   }
   *flock = new MockEnvFileLock(fn);
