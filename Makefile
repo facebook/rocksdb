@@ -238,7 +238,7 @@ endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava install uninstall
+	dbg rocksdbjavastatic rocksdbjava install uninstall analyze
 
 all: $(LIBRARY) $(PROGRAMS) $(TESTS)
 
@@ -302,6 +302,10 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 		etime=`date '+%s'`; \
 		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
 	done
+
+analyze:
+	$(MAKE) clean
+	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) -o $(CURDIR)/scan_build_report $(MAKE) all -j32
 
 unity.cc:
 	$(shell (export ROCKSDB_ROOT="$(CURDIR)"; "$(CURDIR)/build_tools/unity" "$(CURDIR)/unity.cc"))
@@ -733,7 +737,9 @@ ifneq ($(MAKECMDGOALS),format)
 ifneq ($(MAKECMDGOALS),jclean)
 ifneq ($(MAKECMDGOALS),jtest)
 ifneq ($(MAKECMDGOALS),package)
+ifneq ($(MAKECMDGOALS),analyze)
 -include $(DEPFILES)
+endif
 endif
 endif
 endif

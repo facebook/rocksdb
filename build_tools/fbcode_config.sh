@@ -77,6 +77,10 @@ DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_I
 GCC_BASE="/mnt/gvfs/third-party2/gcc/1c67a0b88f64d4d9ced0382d141c76aaa7d62fba/4.9.x/centos6-native/1317bc4"
 STDLIBS="-L $GCC_BASE/lib64"
 
+CLANG_BASE="/mnt/gvfs/third-party2/clang/290704c112bf894bf4a30d7bbd1be81e34998473/dev"
+CLANG_ANALYZER="$CLANG_BASE/centos6-native/af4b1a0/bin/clang++"
+CLANG_SCAN_BUILD="$CLANG_BASE/src/clang/tools/scan-build/scan-build"
+
 if [ -z "$USE_CLANG" ]; then
   # gcc
   CC="$GCC_BASE/bin/gcc"
@@ -87,7 +91,6 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang 
-  CLANG_BASE="/mnt/gvfs/third-party2/clang/290704c112bf894bf4a30d7bbd1be81e34998473/dev"
   CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/74c386f/lib/clang/dev/include/"
   CC="$CLANG_BASE/centos6-native/af4b1a0/bin/clang"
   CXX="$CLANG_BASE/centos6-native/af4b1a0/bin/clang++"
@@ -119,4 +122,4 @@ EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS"
 
 VALGRIND_VER="/mnt/gvfs/third-party2/valgrind/6c45ef049cbf11c2df593addb712cd891049e737/3.10.0/gcc-4.9-glibc-2.20/4230243/bin/"
 
-export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE
+export CC CXX AR CFLAGS CXXFLAGS EXEC_LDFLAGS EXEC_LDFLAGS_SHARED VALGRIND_VER JEMALLOC_LIB JEMALLOC_INCLUDE CLANG_ANALYZER CLANG_SCAN_BUILD
