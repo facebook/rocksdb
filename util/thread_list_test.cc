@@ -98,10 +98,16 @@ TEST(ThreadListTest, EventTables) {
   // verify the global tables for operations and states are properly indexed.
   for (int type = 0; type != ThreadStatus::NUM_OP_TYPES; ++type) {
     ASSERT_EQ(global_operation_table[type].type, type);
+    ASSERT_EQ(global_operation_table[type].name,
+              ThreadStatus::GetOperationName(
+                  ThreadStatus::OperationType(type)));
   }
 
   for (int type = 0; type != ThreadStatus::NUM_STATE_TYPES; ++type) {
     ASSERT_EQ(global_state_table[type].type, type);
+    ASSERT_EQ(global_state_table[type].name,
+              ThreadStatus::GetStateName(
+                  ThreadStatus::StateType(type)));
   }
 }
 

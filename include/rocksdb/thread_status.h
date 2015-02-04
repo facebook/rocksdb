@@ -89,6 +89,16 @@ struct ThreadStatus {
 
   // The state (lower-level action) that the current thread is involved.
   const StateType state_type;
+
+  // The followings are a set of utility functions for interpreting
+  // the information of ThreadStatus
+
+  // Obtain the name of an operation given its type.
+  static const std::string& GetOperationName(OperationType op_type);
+
+  // Obtain the name of a state given its type.
+  static const std::string& GetStateName(StateType state_type);
 };
+
 
 }  // namespace rocksdb
