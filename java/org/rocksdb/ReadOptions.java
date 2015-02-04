@@ -64,7 +64,7 @@ public class ReadOptions extends RocksObject {
   private native boolean fillCache(long handle);
 
   /**
-   * Fill the cache when loading the block-based sst formated db.
+   * Fill the cache when loading the block-based sst formatted db.
    * Callers may wish to set this field to false for bulk scans.
    * Default: true
    *
@@ -81,12 +81,50 @@ public class ReadOptions extends RocksObject {
       long handle, boolean fillCache);
 
   /**
+   * <p>If "snapshot" is non-nullptr, read as of the supplied snapshot
+   * (which must belong to the DB that is being read and which must
+   * not have been released).  If "snapshot" is nullptr, use an implicit
+   * snapshot of the state at the beginning of this read operation.</p>
+   * <p>Default: null</p>
+   *
+   * @param snapshot {@link Snapshot} instance
+   * @return the reference to the current ReadOptions.
+   */
+  public ReadOptions setSnapshot(Snapshot snapshot) {
+    assert(isInitialized());
+    if (snapshot != null) {
+      setSnapshot(nativeHandle_, snapshot.nativeHandle_);
+    } else {
+      setSnapshot(nativeHandle_, 0l);
+    }
+    return this;
+  }
+  private native void setSnapshot(long handle, long snapshotHandle);
+
+  /**
+   * Returns the currently assigned Snapshot instance.
+   *
+   * @return the Snapshot assigned to this instance. If no Snapshot
+   *     is assigned null.
+   */
+  public Snapshot snapshot() {
+    assert(isInitialized());
+    long snapshotHandle = snapshot(nativeHandle_);
+    if (snapshotHandle != 0) {
+      return new Snapshot(snapshotHandle);
+    }
+    return null;
+  }
+  private native long snapshot(long handle);
+
+  /**
    * Specify to create a tailing iterator -- a special iterator that has a
    * view of the complete database (i.e. it can also be used to read newly
    * added data) and is optimized for sequential reads. It will return records
    * that were inserted into the database after the creation of the iterator.
    * Default: false
-   * Not supported in ROCKSDB_LITE mode!
+   *
+   * Not supported in {@code ROCKSDB_LITE} mode!
    *
    * @return true if tailing iterator is enabled.
    */
@@ -117,7 +155,6 @@ public class ReadOptions extends RocksObject {
 
 
   @Override protected void disposeInternal() {
-    assert(isInitialized());
     disposeInternal(nativeHandle_);
   }
   private native void disposeInternal(long handle);

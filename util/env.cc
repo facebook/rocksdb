@@ -41,7 +41,7 @@ void LogFlush(Logger *info_log) {
 }
 
 void Log(Logger* info_log, const char* format, ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
@@ -51,7 +51,7 @@ void Log(Logger* info_log, const char* format, ...) {
 
 void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
          ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= log_level) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(log_level, format, ap);
@@ -60,7 +60,7 @@ void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
 }
 
 void Debug(Logger* info_log, const char* format, ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::DEBUG_LEVEL) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(InfoLogLevel::DEBUG_LEVEL, format, ap);
@@ -69,7 +69,7 @@ void Debug(Logger* info_log, const char* format, ...) {
 }
 
 void Info(Logger* info_log, const char* format, ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::INFO_LEVEL) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(InfoLogLevel::INFO_LEVEL, format, ap);
@@ -78,7 +78,7 @@ void Info(Logger* info_log, const char* format, ...) {
 }
 
 void Warn(Logger* info_log, const char* format, ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::WARN_LEVEL) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(InfoLogLevel::WARN_LEVEL, format, ap);
@@ -86,7 +86,7 @@ void Warn(Logger* info_log, const char* format, ...) {
   }
 }
 void Error(Logger* info_log, const char* format, ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::ERROR_LEVEL) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(InfoLogLevel::ERROR_LEVEL, format, ap);
@@ -94,7 +94,7 @@ void Error(Logger* info_log, const char* format, ...) {
   }
 }
 void Fatal(Logger* info_log, const char* format, ...) {
-  if (info_log) {
+  if (info_log && info_log->GetInfoLogLevel() <= InfoLogLevel::FATAL_LEVEL) {
     va_list ap;
     va_start(ap, format);
     info_log->Logv(InfoLogLevel::FATAL_LEVEL, format, ap);

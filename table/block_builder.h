@@ -15,13 +15,12 @@
 
 namespace rocksdb {
 
-struct Options;
-class Comparator;
-
 class BlockBuilder {
  public:
-  BlockBuilder(int block_builder, const Comparator* comparator);
-  explicit BlockBuilder(const Options& options, const Comparator* comparator);
+  BlockBuilder(const BlockBuilder&) = delete;
+  void operator=(const BlockBuilder&) = delete;
+
+  explicit BlockBuilder(int block_restart_interval);
 
   // Reset the contents as if the BlockBuilder was just constructed.
   void Reset();
@@ -49,17 +48,12 @@ class BlockBuilder {
 
  private:
   const int          block_restart_interval_;
-  const Comparator*  comparator_;
 
   std::string           buffer_;    // Destination buffer
   std::vector<uint32_t> restarts_;  // Restart points
   int                   counter_;   // Number of entries emitted since restart
   bool                  finished_;  // Has Finish() been called?
   std::string           last_key_;
-
-  // No copying allowed
-  BlockBuilder(const BlockBuilder&);
-  void operator=(const BlockBuilder&);
 };
 
 }  // namespace rocksdb

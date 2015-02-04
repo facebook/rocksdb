@@ -21,7 +21,13 @@ public abstract class MemTableConfig {
    * which will create a c++ shared-pointer to the c++ MemTableRepFactory
    * that associated with the Java MemTableConfig.
    *
-   * @see Options.setMemTableFactory()
+   * @see Options#setMemTableConfig(MemTableConfig)
+   *
+   * @return native handle address to native memory table instance.
+   *
+   * @throws RocksDBException thrown if error happens in underlying
+   *    native library.
    */
-  abstract protected long newMemTableFactoryHandle();
+  abstract protected long newMemTableFactoryHandle()
+      throws RocksDBException;
 }

@@ -53,14 +53,14 @@ HistogramBucketMapper::HistogramBucketMapper()
   }
 }
 
-const size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
+size_t HistogramBucketMapper::IndexForValue(const uint64_t value) const {
   if (value >= maxBucketValue_) {
     return bucketValues_.size() - 1;
   } else if ( value >= minBucketValue_ ) {
     std::map<uint64_t, uint64_t>::const_iterator lowerBound =
       valueIndexMap_.lower_bound(value);
     if (lowerBound != valueIndexMap_.end()) {
-      return lowerBound->second;
+      return static_cast<size_t>(lowerBound->second);
     } else {
       return 0;
     }

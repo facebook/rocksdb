@@ -6,20 +6,18 @@
 package org.rocksdb;
 
 import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Helper class to collect DB statistics periodically at a period specified in
+ * <p>Helper class to collect DB statistics periodically at a period specified in
  * constructor. Callback function (provided in constructor) is called with
- * every statistics collection.
+ * every statistics collection.</p>
  *
- * Caller should call start() to start statistics collection. Shutdown() should
+ * <p>Caller should call start() to start statistics collection. Shutdown() should
  * be called to stop stats collection and should be called before statistics (
- * provided in constructor) reference has been disposed.
+ * provided in constructor) reference has been disposed.</p>
  */
 public class StatisticsCollector {
   private final List<StatsCollectorInput> _statsCollectorInputList;
@@ -29,9 +27,9 @@ public class StatisticsCollector {
 
   /**
    * Constructor for statistics collector.
-   * 
+   *
    * @param statsCollectorInputList List of statistics collector input.
-   * @param statsCollectionIntervalInMilliSeconds Statistics collection time 
+   * @param statsCollectionIntervalInMilliSeconds Statistics collection time
    *        period (specified in milliseconds).
    */
   public StatisticsCollector(List<StatsCollectorInput> statsCollectorInputList,
@@ -48,9 +46,10 @@ public class StatisticsCollector {
 
   /**
    * Shuts down statistics collector.
-   * 
+   *
    * @param shutdownTimeout Time in milli-seconds to wait for shutdown before
    *        killing the collection process.
+   * @throws java.lang.InterruptedException thrown if Threads are interrupted.
    */
   public void shutDown(int shutdownTimeout) throws InterruptedException {
     _isRunning = false;
@@ -70,13 +69,13 @@ public class StatisticsCollector {
           try {
             if(Thread.currentThread().isInterrupted()) {
               break;
-            }  
+            }
             for(StatsCollectorInput statsCollectorInput :
                 _statsCollectorInputList) {
               Statistics statistics = statsCollectorInput.getStatistics();
               StatisticsCollectorCallback statsCallback =
                   statsCollectorInput.getCallback();
-              
+
                 // Collect ticker data
               for(TickerType ticker : TickerType.values()) {
                 long tickerValue = statistics.getTickerCount(ticker);

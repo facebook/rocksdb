@@ -127,28 +127,8 @@ void InternalKeyComparator::FindShortSuccessor(std::string* key) const {
   }
 }
 
-const char* InternalFilterPolicy::Name() const {
-  return user_policy_->Name();
-}
-
-void InternalFilterPolicy::CreateFilter(const Slice* keys, int n,
-                                        std::string* dst) const {
-  // We rely on the fact that the code in table.cc does not mind us
-  // adjusting keys[].
-  Slice* mkey = const_cast<Slice*>(keys);
-  for (int i = 0; i < n; i++) {
-    mkey[i] = ExtractUserKey(keys[i]);
-    // TODO(sanjay): Suppress dups?
-  }
-  user_policy_->CreateFilter(keys, n, dst);
-}
-
-bool InternalFilterPolicy::KeyMayMatch(const Slice& key, const Slice& f) const {
-  return user_policy_->KeyMayMatch(ExtractUserKey(key), f);
-}
-
-LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
-  size_t usize = user_key.size();
+LookupKey::LookupKey(const Slice& _user_key, SequenceNumber s) {
+  size_t usize = _user_key.size();
   size_t needed = usize + 13;  // A conservative estimate
   char* dst;
   if (needed <= sizeof(space_)) {
@@ -157,9 +137,10 @@ LookupKey::LookupKey(const Slice& user_key, SequenceNumber s) {
     dst = new char[needed];
   }
   start_ = dst;
-  dst = EncodeVarint32(dst, usize + 8);
+  // NOTE: We don't support users keys of more than 2GB :)
+  dst = EncodeVarint32(dst, static_cast<uint32_t>(usize + 8));
   kstart_ = dst;
-  memcpy(dst, user_key.data(), usize);
+  memcpy(dst, _user_key.data(), usize);
   dst += usize;
   EncodeFixed64(dst, PackSequenceAndType(s, kValueTypeForSeek));
   dst += 8;

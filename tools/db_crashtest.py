@@ -98,6 +98,7 @@ def main(argv):
             --filter_deletes=%s
             --memtablerep=prefix_hash
             --prefix_size=7
+            --set_options_one_in=10000
             """ % (ops_per_thread,
                    threads,
                    write_buf_size,

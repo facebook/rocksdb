@@ -7,7 +7,9 @@
 
 #include "utilities/geodb/geodb_impl.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
 
 #include <vector>
 #include <map>
@@ -15,6 +17,7 @@
 #include <limits>
 #include "db/filename.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
 //
 // There are two types of keys. The first type of key-values
@@ -81,7 +84,7 @@ Status GeoDBImpl::GetByPosition(const GeoPosition& pos,
 
 Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   Status status;
-  Slice quadkey;
+  std::string quadkey;
 
   // create an iterator so that we can get a consistent picture
   // of the database.
@@ -94,7 +97,7 @@ Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   iter->Seek(key2);
   if (iter->Valid() && iter->status().ok()) {
     if (iter->key().compare(key2) == 0) {
-      quadkey = iter->value();
+      quadkey = iter->value().ToString();
     }
   }
   if (quadkey.size() == 0) {
@@ -105,7 +108,7 @@ Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   //
   // Seek to the quadkey + id prefix
   //
-  std::string prefix = MakeKey1Prefix(quadkey.ToString(), id);
+  std::string prefix = MakeKey1Prefix(quadkey, id);
   iter->Seek(Slice(prefix));
   assert(iter->Valid());
   if (!iter->Valid() || !iter->status().ok()) {
@@ -114,9 +117,8 @@ Status GeoDBImpl::GetById(const Slice& id, GeoObject* object) {
   }
 
   // split the key into p + quadkey + id + lat + lon
-  std::vector<std::string> parts;
   Slice key = iter->key();
-  StringSplit(&parts, key.ToString(), ':');
+  std::vector<std::string> parts = StringSplit(key.ToString(), ':');
   assert(parts.size() == 5);
   assert(parts[0] == "p");
   assert(parts[1] == quadkey);
@@ -178,9 +180,8 @@ Status GeoDBImpl::SearchRadial(const GeoPosition& pos,
          number_of_values > 0 && iter->Valid() && iter->status().ok();
          iter->Next()) {
       // split the key into p + quadkey + id + lat + lon
-      std::vector<std::string> parts;
       Slice key = iter->key();
-      StringSplit(&parts, key.ToString(), ':');
+      std::vector<std::string> parts = StringSplit(key.ToString(), ':');
       assert(parts.size() == 5);
       assert(parts[0] == "p");
       std::string* quadkey = &parts[1];
@@ -190,8 +191,8 @@ Status GeoDBImpl::SearchRadial(const GeoPosition& pos,
       // we are looking for.
       auto res = std::mismatch(qid.begin(), qid.end(), quadkey->begin());
       if (res.first == qid.end()) {
-        GeoPosition pos(atof(parts[3].c_str()), atof(parts[4].c_str()));
-        GeoObject obj(pos, parts[4], iter->value().ToString());
+        GeoPosition obj_pos(atof(parts[3].c_str()), atof(parts[4].c_str()));
+        GeoObject obj(obj_pos, parts[4], iter->value().ToString());
         values->push_back(obj);
         number_of_values--;
       } else {
@@ -239,16 +240,6 @@ std::string GeoDBImpl::MakeQuadKeyPrefix(std::string quadkey) {
   std::string key = "p:";
   key.append(quadkey);
   return key;
-}
-
-void GeoDBImpl::StringSplit(std::vector<std::string>* tokens,
-                            const std::string &text, char sep) {
-  std::size_t start = 0, end = 0;
-  while ((end = text.find(sep, start)) != std::string::npos) {
-    tokens->push_back(text.substr(start, end - start));
-    start = end + 1;
-  }
-  tokens->push_back(text.substr(start));
 }
 
 // convert degrees to radians
@@ -307,7 +298,7 @@ Status GeoDBImpl::searchQuadIds(const GeoPosition& position,
 
   // how many level of details to look for
   int numberOfTilesAtMaxDepth = floor((bottomRight.x - topLeft.x) / 256);
-  int zoomLevelsToRise = floor(log(numberOfTilesAtMaxDepth) / log(2));
+  int zoomLevelsToRise = floor(::log(numberOfTilesAtMaxDepth) / ::log(2));
   zoomLevelsToRise++;
   int levels = std::max(0, Detail - zoomLevelsToRise);
 
@@ -344,7 +335,7 @@ GeoDBImpl::Pixel GeoDBImpl::PositionToPixel(const GeoPosition& pos,
   double latitude = clip(pos.latitude, MinLatitude, MaxLatitude);
   double x = (pos.longitude + 180) / 360;
   double sinLatitude = sin(latitude * PI / 180);
-  double y = 0.5 - log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * PI);
+  double y = 0.5 - ::log((1 + sinLatitude) / (1 - sinLatitude)) / (4 * PI);
   double mapSize = MapSize(levelOfDetail);
   double X = floor(clip(x * mapSize + 0.5, 0, mapSize - 1));
   double Y = floor(clip(y * mapSize + 0.5, 0, mapSize - 1));
@@ -395,10 +386,10 @@ std::string GeoDBImpl::TileToQuadKey(const Tile& tile, int levelOfDetail) {
 // Convert a quadkey to a tile and its level of detail
 //
 void GeoDBImpl::QuadKeyToTile(std::string quadkey, Tile* tile,
-                                     int *levelOfDetail) {
+                              int* levelOfDetail) {
   tile->x = tile->y = 0;
-  *levelOfDetail = quadkey.size();
-  const char* key = reinterpret_cast<const char *>(quadkey.c_str());
+  *levelOfDetail = static_cast<int>(quadkey.size());
+  const char* key = reinterpret_cast<const char*>(quadkey.c_str());
   for (int i = *levelOfDetail; i > 0; i--) {
     int mask = 1 << (i - 1);
     switch (key[*levelOfDetail - i]) {

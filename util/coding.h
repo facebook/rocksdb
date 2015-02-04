@@ -115,32 +115,6 @@ inline const char* GetVarint32Ptr(const char* p,
   return GetVarint32PtrFallback(p, limit, value);
 }
 
-// Writes an unsigned integer with bits number of bits with its least
-// significant bit at offset.
-// Bits are numbered from 0 to 7 in the first byte, 8 to 15 in the second and
-// so on.
-// value is truncated to the bits number of least significant bits.
-// REQUIRES: (offset+bits+7)/8 <= dstlen
-// REQUIRES: bits <= 64
-extern void BitStreamPutInt(char* dst, size_t dstlen, size_t offset,
-                            uint32_t bits, uint64_t value);
-
-// Reads an unsigned integer with bits number of bits with its least
-// significant bit at offset.
-// Bits are numbered in the same way as ByteStreamPutInt().
-// REQUIRES: (offset+bits+7)/8 <= srclen
-// REQUIRES: bits <= 64
-extern uint64_t BitStreamGetInt(const char* src, size_t srclen, size_t offset,
-                                uint32_t bits);
-
-// Convenience functions
-extern void BitStreamPutInt(std::string* dst, size_t offset, uint32_t bits,
-                            uint64_t value);
-extern uint64_t BitStreamGetInt(const std::string* src, size_t offset,
-                                uint32_t bits);
-extern uint64_t BitStreamGetInt(const Slice* src, size_t offset,
-                                uint32_t bits);
-
 // -- Implementation of the functions declared above
 inline void EncodeFixed32(char* buf, uint32_t value) {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -183,7 +157,7 @@ inline void PutFixed64(std::string* dst, uint64_t value) {
 inline void PutVarint32(std::string* dst, uint32_t v) {
   char buf[5];
   char* ptr = EncodeVarint32(buf, v);
-  dst->append(buf, ptr - buf);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
 inline char* EncodeVarint64(char* dst, uint64_t v) {
@@ -200,11 +174,11 @@ inline char* EncodeVarint64(char* dst, uint64_t v) {
 inline void PutVarint64(std::string* dst, uint64_t v) {
   char buf[10];
   char* ptr = EncodeVarint64(buf, v);
-  dst->append(buf, ptr - buf);
+  dst->append(buf, static_cast<size_t>(ptr - buf));
 }
 
 inline void PutLengthPrefixedSlice(std::string* dst, const Slice& value) {
-  PutVarint32(dst, value.size());
+  PutVarint32(dst, static_cast<uint32_t>(value.size()));
   dst->append(value.data(), value.size());
 }
 
@@ -245,7 +219,7 @@ inline bool GetVarint32(Slice* input, uint32_t* value) {
   if (q == nullptr) {
     return false;
   } else {
-    *input = Slice(q, limit - q);
+    *input = Slice(q, static_cast<size_t>(limit - q));
     return true;
   }
 }
@@ -257,7 +231,7 @@ inline bool GetVarint64(Slice* input, uint64_t* value) {
   if (q == nullptr) {
     return false;
   } else {
-    *input = Slice(q, limit - q);
+    *input = Slice(q, static_cast<size_t>(limit - q));
     return true;
   }
 }
@@ -289,16 +263,6 @@ inline Slice GetSliceUntil(Slice* slice, char delimiter) {
   Slice ret(slice->data(), len);
   slice->remove_prefix(len + ((len < slice->size()) ? 1 : 0));
   return ret;
-}
-
-inline uint64_t BitStreamGetInt(const std::string* src, size_t offset,
-                                uint32_t bits) {
-  return BitStreamGetInt(src->data(), src->size(), offset, bits);
-}
-
-inline uint64_t BitStreamGetInt(const Slice* src, size_t offset,
-                                uint32_t bits) {
-  return BitStreamGetInt(src->data(), src->size(), offset, bits);
 }
 
 }  // namespace rocksdb

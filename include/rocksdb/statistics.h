@@ -73,12 +73,14 @@ enum Tickers : uint32_t {
   NO_FILE_CLOSES,
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
-  // Time system had to wait to do LO-L1 compactions
+  // DEPRECATED Time system had to wait to do LO-L1 compactions
   STALL_L0_SLOWDOWN_MICROS,
-  // Time system had to wait to move memtable to L1.
+  // DEPRECATED Time system had to wait to move memtable to L1.
   STALL_MEMTABLE_COMPACTION_MICROS,
-  // write throttle because of too many files in L0
+  // DEPRECATED write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS,
+  // Writer has to wait for compaction or flush to finish.
+  STALL_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
   NO_ITERATORS,  // number of iterators currently open
 
@@ -115,7 +117,7 @@ enum Tickers : uint32_t {
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,
-  WRITE_TIMEDOUT,        // Number of writes ending up with timed-out.
+  WRITE_TIMEDOUT,       // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
@@ -160,6 +162,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
     {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
     {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
+    {STALL_MICROS, "rocksdb.stall.micros"},
     {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
     {NO_ITERATORS, "rocksdb.num.iterators"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
@@ -188,8 +191,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
     {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
     {NUMBER_SUPERVERSION_CLEANUPS, "rocksdb.number.superversion_cleanups"},
-    {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
-};
+    {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"}, };
 
 /**
  * Keep adding histogram's here.
@@ -212,13 +214,14 @@ enum Histograms : uint32_t {
   READ_BLOCK_COMPACTION_MICROS,
   READ_BLOCK_GET_MICROS,
   WRITE_RAW_BLOCK_MICROS,
-
   STALL_L0_SLOWDOWN_COUNT,
   STALL_MEMTABLE_COMPACTION_COUNT,
   STALL_L0_NUM_FILES_COUNT,
   HARD_RATE_LIMIT_DELAY_COUNT,
   SOFT_RATE_LIMIT_DELAY_COUNT,
   NUM_FILES_IN_SINGLE_COMPACTION,
+  DB_SEEK,
+  WRITE_STALL,
   HISTOGRAM_ENUM_MAX,
 };
 
@@ -241,6 +244,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   { HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
   { SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
   { NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction" },
+  { DB_SEEK, "rocksdb.db.seek.micros" },
 };
 
 struct HistogramData {
@@ -265,7 +269,10 @@ class Statistics {
   virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;
 
   // String representation of the statistic object.
-  virtual std::string ToString() const = 0;
+  virtual std::string ToString() const {
+    // Do nothing by default
+    return std::string("ToString(): not implemented");
+  }
 
   // Override this function to disable particular histogram collection
   virtual bool HistEnabledForType(uint32_t type) const {

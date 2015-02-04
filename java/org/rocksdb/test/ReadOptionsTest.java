@@ -6,35 +6,147 @@
 package org.rocksdb.test;
 
 import java.util.Random;
-import org.rocksdb.RocksDB;
+
+import org.junit.ClassRule;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.rocksdb.ReadOptions;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 public class ReadOptionsTest {
-  static {
-    RocksDB.loadLibrary();
-  }
-  public static void main(String[] args) {
-    ReadOptions opt = new ReadOptions();
-    Random rand = new Random();
-    { // VerifyChecksums test
+
+  @ClassRule
+  public static final RocksMemoryResource rocksMemoryResource =
+      new RocksMemoryResource();
+
+  @Rule
+  public ExpectedException exception = ExpectedException.none();
+
+  @Test
+  public void verifyChecksum(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       boolean boolValue = rand.nextBoolean();
       opt.setVerifyChecksums(boolValue);
-      assert(opt.verifyChecksums() == boolValue);
+      assertThat(opt.verifyChecksums()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
+  }
 
-    { // FillCache test
+  @Test
+  public void fillCache(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       boolean boolValue = rand.nextBoolean();
       opt.setFillCache(boolValue);
-      assert(opt.fillCache() == boolValue);
+      assertThat(opt.fillCache()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
+  }
 
-    { // Tailing test
+  @Test
+  public void tailing(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      Random rand = new Random();
       boolean boolValue = rand.nextBoolean();
       opt.setTailing(boolValue);
-      assert(opt.tailing() == boolValue);
+      assertThat(opt.tailing()).isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
     }
+  }
 
-    opt.dispose();
-    System.out.println("Passed ReadOptionsTest");
+  @Test
+  public void snapshot(){
+    ReadOptions opt = null;
+    try {
+      opt = new ReadOptions();
+      opt.setSnapshot(null);
+      assertThat(opt.snapshot()).isNull();
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void failSetVerifyChecksumUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.setVerifyChecksums(true);
+  }
+
+  @Test
+  public void failVerifyChecksumUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.verifyChecksums();
+  }
+
+  @Test
+  public void failSetFillCacheUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.setFillCache(true);
+  }
+
+  @Test
+  public void failFillCacheUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.fillCache();
+  }
+
+  @Test
+  public void failSetTailingUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.setTailing(true);
+  }
+
+  @Test
+  public void failTailingUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.tailing();
+  }
+
+  @Test
+  public void failSetSnapshotUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.setSnapshot(null);
+  }
+
+  @Test
+  public void failSnapshotUninitialized(){
+    ReadOptions readOptions = setupUninitializedReadOptions(
+        exception);
+    readOptions.snapshot();
+  }
+
+  private ReadOptions setupUninitializedReadOptions(
+      ExpectedException exception) {
+    ReadOptions readOptions = new ReadOptions();
+    readOptions.dispose();
+    exception.expect(AssertionError.class);
+    return readOptions;
   }
 }

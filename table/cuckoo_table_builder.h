@@ -21,8 +21,10 @@ namespace rocksdb {
 class CuckooTableBuilder: public TableBuilder {
  public:
   CuckooTableBuilder(
-      WritableFile* file, double hash_table_ratio, uint32_t max_num_hash_table,
-      uint32_t max_search_depth,
+      WritableFile* file, double max_hash_table_ratio,
+      uint32_t max_num_hash_func, uint32_t max_search_depth,
+      const Comparator* user_comparator, uint32_t cuckoo_block_size,
+      bool use_module_hash, bool identity_as_first_hash,
       uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
@@ -60,32 +62,52 @@ class CuckooTableBuilder: public TableBuilder {
     CuckooBucket()
       : vector_idx(kMaxVectorIdx), make_space_for_key_call_id(0) {}
     uint32_t vector_idx;
-    // This number will not exceed kvs_.size() + max_num_hash_table_.
+    // This number will not exceed kvs_.size() + max_num_hash_func_.
     // We assume number of items is <= 2^32.
     uint32_t make_space_for_key_call_id;
   };
   static const uint32_t kMaxVectorIdx = std::numeric_limits<int32_t>::max();
 
-  bool MakeSpaceForKey(
-      const autovector<uint64_t>& hash_vals,
-      const uint64_t call_id,
-      std::vector<CuckooBucket>* buckets,
-      uint64_t* bucket_id);
+  bool MakeSpaceForKey(const autovector<uint64_t>& hash_vals,
+                       const uint32_t call_id,
+                       std::vector<CuckooBucket>* buckets, uint64_t* bucket_id);
   Status MakeHashTable(std::vector<CuckooBucket>* buckets);
 
-  uint32_t num_hash_table_;
+  inline bool IsDeletedKey(uint64_t idx) const;
+  inline Slice GetKey(uint64_t idx) const;
+  inline Slice GetUserKey(uint64_t idx) const;
+  inline Slice GetValue(uint64_t idx) const;
+
+  uint32_t num_hash_func_;
   WritableFile* file_;
-  const double hash_table_ratio_;
-  const uint32_t max_num_hash_table_;
+  const double max_hash_table_ratio_;
+  const uint32_t max_num_hash_func_;
   const uint32_t max_search_depth_;
+  const uint32_t cuckoo_block_size_;
+  uint64_t hash_table_size_;
   bool is_last_level_file_;
-  Status status_;
-  std::vector<std::pair<std::string, std::string>> kvs_;
-  TableProperties properties_;
   bool has_seen_first_key_;
+  bool has_seen_first_value_;
+  uint64_t key_size_;
+  uint64_t value_size_;
+  // A list of fixed-size key-value pairs concatenating into a string.
+  // Use GetKey(), GetUserKey(), and GetValue() to retrieve a specific
+  // key / value given an index
+  std::string kvs_;
+  std::string deleted_keys_;
+  // Number of key-value pairs stored in kvs_ + number of deleted keys
+  uint64_t num_entries_;
+  // Number of keys that contain value (non-deletion op)
+  uint64_t num_values_;
+  Status status_;
+  TableProperties properties_;
+  const Comparator* ucomp_;
+  bool use_module_hash_;
+  bool identity_as_first_hash_;
   uint64_t (*get_slice_hash_)(const Slice& s, uint32_t index,
     uint64_t max_num_buckets);
-  std::string unused_user_key_ = "";
+  std::string largest_user_key_ = "";
+  std::string smallest_user_key_ = "";
 
   bool closed_;  // Either Finish() or Abandon() has been called.
 

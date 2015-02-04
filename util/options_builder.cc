@@ -20,12 +20,13 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
                                     int read_amp_threshold,
                                     int write_amp_threshold,
                                     uint64_t target_db_size) {
+#ifndef ROCKSDB_LITE
   // Estimate read amplification and write amplification of two compaction
   // styles. If there is hard limit to force a choice, make the choice.
   // Otherwise, calculate a score based on threshold and expected value of
   // two styles, weighing reads 4X important than writes.
   int expected_levels = static_cast<int>(ceil(
-      log(target_db_size / write_buffer_size) / log(kBytesForLevelMultiplier)));
+      ::log(target_db_size / write_buffer_size) / ::log(kBytesForLevelMultiplier)));
 
   int expected_max_files_universal =
       static_cast<int>(ceil(log2(target_db_size / write_buffer_size)));
@@ -70,6 +71,9 @@ CompactionStyle PickCompactionStyle(size_t write_buffer_size,
   } else {
     return kCompactionStyleUniversal;
   }
+#else
+  return kCompactionStyleLevel;
+#endif  // !ROCKSDB_LITE
 }
 
 // Pick mem table size
@@ -95,24 +99,26 @@ void PickWriteBufferSize(size_t total_write_buffer_limit, Options* options) {
 
   options->write_buffer_size = write_buffer_size;
   options->max_write_buffer_number =
-      total_write_buffer_limit / write_buffer_size;
+      static_cast<int>(total_write_buffer_limit / write_buffer_size);
   options->min_write_buffer_number_to_merge = 1;
 }
 
+#ifndef ROCKSDB_LITE
 void OptimizeForUniversal(Options* options) {
   options->level0_file_num_compaction_trigger = 2;
   options->level0_slowdown_writes_trigger = 30;
   options->level0_stop_writes_trigger = 40;
   options->max_open_files = -1;
 }
+#endif
 
 // Optimize parameters for level-based compaction
 void OptimizeForLevel(int read_amplification_threshold,
                       int write_amplification_threshold,
                       uint64_t target_db_size, Options* options) {
   int expected_levels_one_level0_file =
-      static_cast<int>(ceil(log(target_db_size / options->write_buffer_size) /
-                            log(kBytesForLevelMultiplier)));
+      static_cast<int>(ceil(::log(target_db_size / options->write_buffer_size) /
+                            ::log(kBytesForLevelMultiplier)));
 
   int level0_stop_writes_trigger =
       read_amplification_threshold - expected_levels_one_level0_file;
@@ -147,10 +153,10 @@ void OptimizeForLevel(int read_amplification_threshold,
 
   // This doesn't consider compaction and overheads of mem tables. But usually
   // it is in the same order of magnitude.
-  int expected_level0_compaction_size =
+  size_t expected_level0_compaction_size =
       options->level0_file_num_compaction_trigger * options->write_buffer_size;
   // Enlarge level1 target file size if level0 compaction size is larger.
-  int max_bytes_for_level_base = 10 * kBytesForOneMb;
+  uint64_t max_bytes_for_level_base = 10 * kBytesForOneMb;
   if (expected_level0_compaction_size > max_bytes_for_level_base) {
     max_bytes_for_level_base = expected_level0_compaction_size;
   }
@@ -158,9 +164,9 @@ void OptimizeForLevel(int read_amplification_threshold,
   // Now always set level multiplier to be 10
   options->max_bytes_for_level_multiplier = kBytesForLevelMultiplier;
 
-  const int kMinFileSize = 2 * kBytesForOneMb;
+  const uint64_t kMinFileSize = 2 * kBytesForOneMb;
   // Allow at least 3-way parallelism for compaction between level 1 and 2.
-  int max_file_size = max_bytes_for_level_base / 3;
+  uint64_t max_file_size = max_bytes_for_level_base / 3;
   if (max_file_size < kMinFileSize) {
     options->target_file_size_base = kMinFileSize;
   } else {
@@ -184,9 +190,13 @@ Options GetOptions(size_t total_write_buffer_limit,
   options.compaction_style =
       PickCompactionStyle(write_buffer_size, read_amplification_threshold,
                           write_amplification_threshold, target_db_size);
+#ifndef ROCKSDB_LITE
   if (options.compaction_style == kCompactionStyleUniversal) {
     OptimizeForUniversal(&options);
   } else {
+#else
+  {
+#endif  // !ROCKSDB_LITE
     OptimizeForLevel(read_amplification_threshold,
                      write_amplification_threshold, target_db_size, &options);
   }

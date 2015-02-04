@@ -23,10 +23,10 @@ class HistogramBucketMapper {
   HistogramBucketMapper();
 
   // converts a value to the bucket index.
-  const size_t IndexForValue(const uint64_t value) const;
+  size_t IndexForValue(const uint64_t value) const;
   // number of buckets required.
 
-  const size_t BucketCount() const {
+  size_t BucketCount() const {
     return bucketValues_.size();
   }
 
@@ -38,7 +38,7 @@ class HistogramBucketMapper {
     return minBucketValue_;
   }
 
-  uint64_t BucketLimit(const uint64_t bucketNumber) const {
+  uint64_t BucketLimit(const size_t bucketNumber) const {
     assert(bucketNumber < BucketCount());
     return bucketValues_[bucketNumber];
   }
@@ -64,6 +64,8 @@ class HistogramImpl {
   virtual double Average() const;
   virtual double StandardDeviation() const;
   virtual void Data(HistogramData * const data) const;
+
+  virtual ~HistogramImpl() {}
 
  private:
   // To be able to use HistogramImpl as thread local variable, its constructor

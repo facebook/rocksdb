@@ -25,7 +25,8 @@ using namespace stl_wrappers;
 
 class VectorRep : public MemTableRep {
  public:
-  VectorRep(const KeyComparator& compare, Arena* arena, size_t count);
+  VectorRep(const KeyComparator& compare, MemTableAllocator* allocator,
+            size_t count);
 
   // Insert key into the collection. (The caller will pack key and value into a
   // single buffer and pass that in as the parameter to Insert)
@@ -106,7 +107,6 @@ class VectorRep : public MemTableRep {
 
 void VectorRep::Insert(KeyHandle handle) {
   auto* key = static_cast<char*>(handle);
-  assert(!Contains(key));
   WriteLock l(&rwlock_);
   assert(!immutable_);
   bucket_->push_back(key);
@@ -132,8 +132,9 @@ size_t VectorRep::ApproximateMemoryUsage() {
     );
 }
 
-VectorRep::VectorRep(const KeyComparator& compare, Arena* arena, size_t count)
-  : MemTableRep(arena),
+VectorRep::VectorRep(const KeyComparator& compare, MemTableAllocator* allocator,
+                     size_t count)
+  : MemTableRep(allocator),
     bucket_(new Bucket()),
     immutable_(false),
     sorted_(false),
@@ -283,9 +284,9 @@ MemTableRep::Iterator* VectorRep::GetIterator(Arena* arena) {
 } // anon namespace
 
 MemTableRep* VectorRepFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
     const SliceTransform*, Logger* logger) {
-  return new VectorRep(compare, arena, count_);
+  return new VectorRep(compare, allocator, count_);
 }
 } // namespace rocksdb
 #endif  // ROCKSDB_LITE

@@ -33,14 +33,17 @@ class BlockHandle {
 
   // The offset of the block in the file.
   uint64_t offset() const { return offset_; }
-  void set_offset(uint64_t offset) { offset_ = offset; }
+  void set_offset(uint64_t _offset) { offset_ = _offset; }
 
   // The size of the stored block
   uint64_t size() const { return size_; }
-  void set_size(uint64_t size) { size_ = size; }
+  void set_size(uint64_t _size) { size_ = _size; }
 
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* input);
+
+  // Return a string that contains the copy of handle.
+  std::string ToString(bool hex = true) const;
 
   // if the block handle's offset and size are both "0", we will view it
   // as a null block handle that points to no where.
@@ -62,6 +65,21 @@ class BlockHandle {
   static const BlockHandle kNullBlockHandle;
 };
 
+inline uint32_t GetCompressFormatForVersion(CompressionType compression_type,
+                                            uint32_t version) {
+  // snappy is not versioned
+  assert(compression_type != kSnappyCompression &&
+         compression_type != kNoCompression);
+  // As of version 2, we encode compressed block with
+  // compress_format_version == 2. Before that, the version is 1.
+  // DO NOT CHANGE THIS FUNCTION, it affects disk format
+  return version >= 2 ? 2 : 1;
+}
+
+inline bool BlockBasedTableSupportedVersion(uint32_t version) {
+  return version <= 2;
+}
+
 // Footer encapsulates the fixed information stored at the tail
 // end of every table file.
 class Footer {
@@ -69,12 +87,13 @@ class Footer {
   // Constructs a footer without specifying its table magic number.
   // In such case, the table magic number of such footer should be
   // initialized via @ReadFooterFromFile().
-  Footer() : Footer(kInvalidTableMagicNumber) {}
+  // Use this when you plan to load Footer with DecodeFrom(). Never use this
+  // when you plan to EncodeTo.
+  Footer() : Footer(kInvalidTableMagicNumber, 0) {}
 
-  // @table_magic_number serves two purposes:
-  //  1. Identify different types of the tables.
-  //  2. Help us to identify if a given file is a valid sst.
-  explicit Footer(uint64_t table_magic_number);
+  // Use this constructor when you plan to write out the footer using
+  // EncodeTo(). Never use this constructor with DecodeFrom().
+  Footer(uint64_t table_magic_number, uint32_t version);
 
   // The version of the footer in this file
   uint32_t version() const { return version_; }
@@ -94,20 +113,13 @@ class Footer {
 
   uint64_t table_magic_number() const { return table_magic_number_; }
 
-  // The version of Footer we encode
-  enum {
-    kLegacyFooter = 0,
-    kFooterVersion = 1,
-  };
-
   void EncodeTo(std::string* dst) const;
 
-  // Set the current footer based on the input slice.  If table_magic_number_
-  // is not set (i.e., HasInitializedTableMagicNumber() is true), then this
-  // function will also initialize table_magic_number_.  Otherwise, this
-  // function will verify whether the magic number specified in the input
-  // slice matches table_magic_number_ and update the current footer only
-  // when the test passes.
+  // Set the current footer based on the input slice.
+  //
+  // REQUIRES: table_magic_number_ is not set (i.e.,
+  // HasInitializedTableMagicNumber() is true). The function will initialize the
+  // magic number
   Status DecodeFrom(Slice* input);
 
   // Encoded length of a Footer.  Note that the serialization of a Footer will
@@ -118,16 +130,18 @@ class Footer {
     // Footer version 0 (legacy) will always occupy exactly this many bytes.
     // It consists of two block handles, padding, and a magic number.
     kVersion0EncodedLength = 2 * BlockHandle::kMaxEncodedLength + 8,
-    // Footer version 1 will always occupy exactly this many bytes.
-    // It consists of the checksum type, two block handles, padding,
-    // a version number, and a magic number
-    kVersion1EncodedLength = 1 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
-
+    // Footer of versions 1 and higher will always occupy exactly this many
+    // bytes. It consists of the checksum type, two block handles, padding,
+    // a version number (bigger than 1), and a magic number
+    kNewVersionsEncodedLength = 1 + 2 * BlockHandle::kMaxEncodedLength + 4 + 8,
     kMinEncodedLength = kVersion0EncodedLength,
-    kMaxEncodedLength = kVersion1EncodedLength
+    kMaxEncodedLength = kNewVersionsEncodedLength,
   };
 
   static const uint64_t kInvalidTableMagicNumber = 0;
+
+  // convert this object to a human readable form
+  std::string ToString() const;
 
  private:
   // REQUIRES: magic number wasn't initialized.
@@ -150,9 +164,11 @@ class Footer {
 };
 
 // Read the footer from file
-Status ReadFooterFromFile(RandomAccessFile* file,
-                          uint64_t file_size,
-                          Footer* footer);
+// If enforce_table_magic_number != 0, ReadFooterFromFile() will return
+// corruption if table_magic number is not equal to enforce_table_magic_number
+Status ReadFooterFromFile(RandomAccessFile* file, uint64_t file_size,
+                          Footer* footer,
+                          uint64_t enforce_table_magic_number = 0);
 
 // 1-byte type + 32-bit crc
 static const size_t kBlockTrailerSize = 5;
@@ -160,18 +176,29 @@ static const size_t kBlockTrailerSize = 5;
 struct BlockContents {
   Slice data;           // Actual contents of data
   bool cachable;        // True iff data can be cached
-  bool heap_allocated;  // True iff caller should delete[] data.data()
   CompressionType compression_type;
+  std::unique_ptr<char[]> allocation;
+
+  BlockContents() : cachable(false), compression_type(kNoCompression) {}
+
+  BlockContents(const Slice& _data, bool _cachable,
+                CompressionType _compression_type)
+      : data(_data), cachable(_cachable), compression_type(_compression_type) {}
+
+  BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
+                CompressionType _compression_type)
+      : data(_data.get(), _size),
+        cachable(_cachable),
+        compression_type(_compression_type),
+        allocation(std::move(_data)) {}
 };
 
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
-extern Status ReadBlockContents(RandomAccessFile* file,
-                                const Footer& footer,
+extern Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
-                                BlockContents* result,
-                                Env* env,
+                                BlockContents* contents, Env* env,
                                 bool do_uncompress);
 
 // The 'data' points to the raw block contents read in from file.
@@ -179,9 +206,11 @@ extern Status ReadBlockContents(RandomAccessFile* file,
 // contents are uncompresed into this buffer. This buffer is
 // returned via 'result' and it is upto the caller to
 // free this buffer.
-extern Status UncompressBlockContents(const char* data,
-                                      size_t n,
-                                      BlockContents* result);
+// For description of compress_format_version and possible values, see
+// util/compression.h
+extern Status UncompressBlockContents(const char* data, size_t n,
+                                      BlockContents* contents,
+                                      uint32_t compress_format_version);
 
 // Implementation details follow.  Clients should ignore,
 
@@ -190,9 +219,7 @@ inline BlockHandle::BlockHandle()
                   ~static_cast<uint64_t>(0)) {
 }
 
-inline BlockHandle::BlockHandle(uint64_t offset, uint64_t size)
-    : offset_(offset),
-      size_(size) {
-}
+inline BlockHandle::BlockHandle(uint64_t _offset, uint64_t _size)
+    : offset_(_offset), size_(_size) {}
 
 }  // namespace rocksdb

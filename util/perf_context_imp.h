@@ -11,11 +11,10 @@ namespace rocksdb {
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 
-#define PERF_TIMER_DECLARE()
-#define PERF_TIMER_START(metric)
-#define PERF_TIMER_AUTO(metric)
+#define PERF_TIMER_GUARD(metric)
 #define PERF_TIMER_MEASURE(metric)
 #define PERF_TIMER_STOP(metric)
+#define PERF_TIMER_START(metric)
 #define PERF_COUNTER_ADD(metric, value)
 
 #else
@@ -24,10 +23,15 @@ extern __thread PerfLevel perf_level;
 
 class PerfStepTimer {
  public:
-  PerfStepTimer()
+  PerfStepTimer(uint64_t* metric)
     : enabled_(perf_level >= PerfLevel::kEnableTime),
       env_(enabled_ ? Env::Default() : nullptr),
-      start_(0) {
+      start_(0),
+      metric_(metric) {
+  }
+
+  ~PerfStepTimer() {
+    Stop();
   }
 
   void Start() {
@@ -36,17 +40,17 @@ class PerfStepTimer {
     }
   }
 
-  void Measure(uint64_t* metric) {
+  void Measure() {
     if (start_) {
       uint64_t now = env_->NowNanos();
-      *metric += now - start_;
+      *metric_ += now - start_;
       start_ = now;
     }
   }
 
-  void Stop(uint64_t* metric) {
+  void Stop() {
     if (start_) {
-      *metric += env_->NowNanos() - start_;
+      *metric_ += env_->NowNanos() - start_;
       start_ = 0;
     }
   }
@@ -55,29 +59,25 @@ class PerfStepTimer {
   const bool enabled_;
   Env* const env_;
   uint64_t start_;
+  uint64_t* metric_;
 };
 
-// Declare the local timer object to be used later on
-#define PERF_TIMER_DECLARE()           \
-  PerfStepTimer perf_step_timer;
+// Stop the timer and update the metric
+#define PERF_TIMER_STOP(metric)          \
+  perf_step_timer_ ## metric.Stop();
 
-// Set start time of the timer
 #define PERF_TIMER_START(metric)          \
-  perf_step_timer.Start();
+  perf_step_timer_ ## metric.Start();
 
 // Declare and set start time of the timer
-#define PERF_TIMER_AUTO(metric)           \
-  PerfStepTimer perf_step_timer;          \
-  perf_step_timer.Start();
+#define PERF_TIMER_GUARD(metric)           \
+  PerfStepTimer perf_step_timer_ ## metric(&(perf_context.metric));          \
+  perf_step_timer_ ## metric.Start();
 
 // Update metric with time elapsed since last START. start time is reset
 // to current timestamp.
 #define PERF_TIMER_MEASURE(metric)        \
-  perf_step_timer.Measure(&(perf_context.metric));
-
-// Update metric with time elapsed since last START. But start time is not set.
-#define PERF_TIMER_STOP(metric)        \
-  perf_step_timer.Stop(&(perf_context.metric));
+  perf_step_timer_ ## metric.Measure();
 
 // Increase metric value
 #define PERF_COUNTER_ADD(metric, value)     \

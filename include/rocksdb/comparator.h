@@ -62,6 +62,10 @@ class Comparator {
 // must not be deleted.
 extern const Comparator* BytewiseComparator();
 
+// Return a builtin comparator that uses reverse lexicographic byte-wise
+// ordering.
+extern const Comparator* ReverseBytewiseComparator();
+
 }  // namespace rocksdb
 
 #endif  // STORAGE_ROCKSDB_INCLUDE_COMPARATOR_H_

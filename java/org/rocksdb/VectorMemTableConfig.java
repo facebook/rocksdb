@@ -5,6 +5,10 @@ package org.rocksdb;
  */
 public class VectorMemTableConfig extends MemTableConfig {
   public static final int DEFAULT_RESERVED_SIZE = 0;
+
+  /**
+   * VectorMemTableConfig constructor
+   */
   public VectorMemTableConfig() {
     reservedSize_ = DEFAULT_RESERVED_SIZE;
   }

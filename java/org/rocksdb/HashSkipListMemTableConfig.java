@@ -18,6 +18,9 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
   public static final int DEFAULT_HEIGHT = 4;
 
+  /**
+   * HashSkipListMemTableConfig constructor
+   */
   public HashSkipListMemTableConfig() {
     bucketCount_ = DEFAULT_BUCKET_COUNT;
     branchingFactor_ = DEFAULT_BRANCHING_FACTOR;
@@ -46,6 +49,8 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
 
   /**
    * Set the height of the skip list.  Default = 4.
+   *
+   * @param height height to set.
    *
    * @return the reference to the current HashSkipListMemTableConfig.
    */
@@ -83,13 +88,15 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
     return branchingFactor_;
   }
 
-  @Override protected long newMemTableFactoryHandle() {
+  @Override protected long newMemTableFactoryHandle()
+      throws RocksDBException {
     return newMemTableFactoryHandle(
         bucketCount_, height_, branchingFactor_);
   }
 
   private native long newMemTableFactoryHandle(
-      long bucketCount, int height, int branchingFactor);
+      long bucketCount, int height, int branchingFactor)
+      throws RocksDBException;
 
   private long bucketCount_;
   private int branchingFactor_;

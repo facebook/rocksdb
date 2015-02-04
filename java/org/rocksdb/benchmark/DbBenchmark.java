@@ -163,15 +163,6 @@ public class DbBenchmark {
     EXISTING
   }
 
-  enum CompressionType {
-    NONE,
-    SNAPPY,
-    ZLIB,
-    BZIP2,
-    LZ4,
-    LZ4HC
-  }
-
   static {
     RocksDB.loadLibrary();
   }
@@ -255,7 +246,7 @@ public class DbBenchmark {
             for (long j = 0; j < entriesPerBatch_; j++) {
               getKey(key, i + j, keyRange_);
               DbBenchmark.this.gen_.generate(value);
-              db_.put(writeOpt_, key, value);
+              batch.put(key, value);
               stats_.finishedSingleOp(keySize_ + valueSize_);
             }
             db_.write(writeOpt_, batch);
@@ -446,7 +437,6 @@ public class DbBenchmark {
     randSeed_ = (Long) flags.get(Flag.seed);
     databaseDir_ = (String) flags.get(Flag.db);
     writesPerSeconds_ = (Integer) flags.get(Flag.writes_per_second);
-    cacheSize_ = (Long) flags.get(Flag.cache_size);
     memtable_ = (String) flags.get(Flag.memtablerep);
     maxWriteBufferNumber_ = (Integer) flags.get(Flag.max_write_buffer_number);
     prefixSize_ = (Integer) flags.get(Flag.prefix_size);
@@ -458,18 +448,16 @@ public class DbBenchmark {
     // options.setPrefixSize((Integer)flags_.get(Flag.prefix_size));
     // options.setKeysPerPrefix((Long)flags_.get(Flag.keys_per_prefix));
     compressionType_ = (String) flags.get(Flag.compression_type);
-    compression_ = CompressionType.NONE;
+    compression_ = CompressionType.NO_COMPRESSION;
     try {
-      if (compressionType_.equals("snappy")) {
-        System.loadLibrary("snappy");
-      } else if (compressionType_.equals("zlib")) {
-        System.loadLibrary("z");
-      } else if (compressionType_.equals("bzip2")) {
-        System.loadLibrary("bzip2");
-      } else if (compressionType_.equals("lz4")) {
-        System.loadLibrary("lz4");
-      } else if (compressionType_.equals("lz4hc")) {
-        System.loadLibrary("lz4hc");
+      if (compressionType_!=null) {
+          final CompressionType compressionType =
+              CompressionType.getCompressionType(compressionType_);
+          if (compressionType != null &&
+              compressionType != CompressionType.NO_COMPRESSION) {
+            System.loadLibrary(compressionType.getLibraryName());
+          }
+
       }
     } catch (UnsatisfiedLinkError e) {
       System.err.format("Unable to load %s library:%s%n" +
@@ -490,37 +478,49 @@ public class DbBenchmark {
     options.setDisableWAL((Boolean)flags_.get(Flag.disable_wal));
   }
 
-  private void prepareOptions(Options options) {
-    options.setCacheSize(cacheSize_);
+  private void prepareOptions(Options options) throws RocksDBException {
     if (!useExisting_) {
       options.setCreateIfMissing(true);
     } else {
       options.setCreateIfMissing(false);
     }
-    if (memtable_.equals("skip_list")) {
-      options.setMemTableConfig(new SkipListMemTableConfig());
-    } else if (memtable_.equals("vector")) {
-      options.setMemTableConfig(new VectorMemTableConfig());
-    } else if (memtable_.equals("hash_linkedlist")) {
-      options.setMemTableConfig(
-          new HashLinkedListMemTableConfig()
-              .setBucketCount(hashBucketCount_));
-      options.useFixedLengthPrefixExtractor(prefixSize_);
-    } else if (memtable_.equals("hash_skiplist") ||
-               memtable_.equals("prefix_hash")) {
-      options.setMemTableConfig(
-          new HashSkipListMemTableConfig()
-              .setBucketCount(hashBucketCount_));
-      options.useFixedLengthPrefixExtractor(prefixSize_);
-    } else {
-      System.err.format(
-          "unable to detect the specified memtable, " +
-          "use the default memtable factory %s%n",
-          options.memTableFactoryName());
+    switch (memtable_) {
+      case "skip_list":
+        options.setMemTableConfig(new SkipListMemTableConfig());
+        break;
+      case "vector":
+        options.setMemTableConfig(new VectorMemTableConfig());
+        break;
+      case "hash_linkedlist":
+        options.setMemTableConfig(
+            new HashLinkedListMemTableConfig()
+                .setBucketCount(hashBucketCount_));
+        options.useFixedLengthPrefixExtractor(prefixSize_);
+        break;
+      case "hash_skiplist":
+      case "prefix_hash":
+        options.setMemTableConfig(
+            new HashSkipListMemTableConfig()
+                .setBucketCount(hashBucketCount_));
+        options.useFixedLengthPrefixExtractor(prefixSize_);
+        break;
+      default:
+        System.err.format(
+            "unable to detect the specified memtable, " +
+                "use the default memtable factory %s%n",
+            options.memTableFactoryName());
+        break;
     }
     if (usePlainTable_) {
       options.setTableFormatConfig(
           new PlainTableConfig().setKeySize(keySize_));
+    } else {
+      BlockBasedTableConfig table_options = new BlockBasedTableConfig();
+      table_options.setBlockSize((Long)flags_.get(Flag.block_size))
+                   .setBlockCacheSize((Long)flags_.get(Flag.cache_size))
+                   .setCacheNumShardBits(
+                      (Integer)flags_.get(Flag.cache_numshardbits));
+      options.setTableFormatConfig(table_options);
     }
     options.setWriteBufferSize(
         (Long)flags_.get(Flag.write_buffer_size));
@@ -532,12 +532,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_compactions));
     options.setMaxBackgroundFlushes(
         (Integer)flags_.get(Flag.max_background_flushes));
-    options.setCacheSize(
-        (Long)flags_.get(Flag.cache_size));
-    options.setCacheNumShardBits(
-        (Integer)flags_.get(Flag.cache_numshardbits));
-    options.setBlockSize(
-        (Long)flags_.get(Flag.block_size));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
     options.setTableCacheRemoveScanCountLimit(
@@ -548,8 +542,6 @@ public class DbBenchmark {
         (Boolean)flags_.get(Flag.use_fsync));
     options.setWalDir(
         (String)flags_.get(Flag.wal_dir));
-    options.setDisableSeekCompaction(
-        (Boolean)flags_.get(Flag.disable_seek_compaction));
     options.setDeleteObsoleteFilesPeriodMicros(
         (Integer)flags_.get(Flag.delete_obsolete_files_period_micros));
     options.setTableCacheNumshardbits(
@@ -604,15 +596,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_successive_merges));
     options.setWalTtlSeconds((Long)flags_.get(Flag.wal_ttl_seconds));
     options.setWalSizeLimitMB((Long)flags_.get(Flag.wal_size_limit_MB));
-    int bloomBits = (Integer)flags_.get(Flag.bloom_bits);
-    if (bloomBits > 0) {
-      // Internally, options will keep a reference to this BloomFilter.
-      // This will disallow Java to GC this BloomFilter.  In addition,
-      // options.dispose() will release the c++ object of this BloomFilter.
-      // As a result, the caller should not directly call
-      // BloomFilter.dispose().
-      options.setFilter(new BloomFilter(bloomBits));
-    }
     /* TODO(yhchiang): enable the following parameters
     options.setCompressionType((String)flags_.get(Flag.compression_type));
     options.setCompressionLevel((Integer)flags_.get(Flag.compression_level));
@@ -657,53 +640,65 @@ public class DbBenchmark {
       int currentTaskId = 0;
       boolean known = true;
 
-      if (benchmark.equals("fillseq")) {
-        tasks.add(new WriteSequentialTask(
-            currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
-      } else if (benchmark.equals("fillbatch")) {
-        tasks.add(new WriteRandomTask(
-            currentTaskId++, randSeed_, num_ / 1000, num_, writeOpt, 1000));
-      } else if (benchmark.equals("fillrandom")) {
-        tasks.add(new WriteRandomTask(
-            currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
-      } else if (benchmark.equals("filluniquerandom")) {
-        tasks.add(new WriteUniqueRandomTask(
-            currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
-      } else if (benchmark.equals("fillsync")) {
-        writeOpt.setSync(true);
-        tasks.add(new WriteRandomTask(
-            currentTaskId++, randSeed_, num_ / 1000, num_ / 1000,
-            writeOpt, 1));
-      } else if (benchmark.equals("readseq")) {
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadSequentialTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
-        }
-      } else if (benchmark.equals("readrandom")) {
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
-        }
-      } else if (benchmark.equals("readwhilewriting")) {
-        WriteTask writeTask = new WriteRandomTask(
-            -1, randSeed_, Long.MAX_VALUE, num_, writeOpt, 1, writesPerSeconds_);
-        writeTask.stats_.setExcludeFromMerge();
-        bgTasks.add(writeTask);
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_));
-        }
-      } else if (benchmark.equals("readhot")) {
-        for (int t = 0; t < threadNum_; ++t) {
-          tasks.add(new ReadRandomTask(
-              currentTaskId++, randSeed_, reads_ / threadNum_, num_ / 100));
-        }
-      } else if (benchmark.equals("delete")) {
-        destroyDb();
-        open(options);
-      } else {
-        known = false;
-        System.err.println("Unknown benchmark: " + benchmark);
+      switch (benchmark) {
+        case "fillseq":
+          tasks.add(new WriteSequentialTask(
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
+          break;
+        case "fillbatch":
+          tasks.add(new WriteRandomTask(
+              currentTaskId++, randSeed_, num_ / 1000, num_, writeOpt, 1000));
+          break;
+        case "fillrandom":
+          tasks.add(new WriteRandomTask(
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
+          break;
+        case "filluniquerandom":
+          tasks.add(new WriteUniqueRandomTask(
+              currentTaskId++, randSeed_, num_, num_, writeOpt, 1));
+          break;
+        case "fillsync":
+          writeOpt.setSync(true);
+          tasks.add(new WriteRandomTask(
+              currentTaskId++, randSeed_, num_ / 1000, num_ / 1000,
+              writeOpt, 1));
+          break;
+        case "readseq":
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadSequentialTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_));
+          }
+          break;
+        case "readrandom":
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadRandomTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_));
+          }
+          break;
+        case "readwhilewriting":
+          WriteTask writeTask = new WriteRandomTask(
+              -1, randSeed_, Long.MAX_VALUE, num_, writeOpt, 1, writesPerSeconds_);
+          writeTask.stats_.setExcludeFromMerge();
+          bgTasks.add(writeTask);
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadRandomTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_));
+          }
+          break;
+        case "readhot":
+          for (int t = 0; t < threadNum_; ++t) {
+            tasks.add(new ReadRandomTask(
+                currentTaskId++, randSeed_, reads_ / threadNum_, num_ / 100));
+          }
+          break;
+        case "delete":
+          destroyDb();
+          open(options);
+          break;
+        default:
+          known = false;
+          System.err.println("Unknown benchmark: " + benchmark);
+          break;
       }
       if (known) {
         ExecutorService executor = Executors.newCachedThreadPool();
@@ -812,7 +807,7 @@ public class DbBenchmark {
 
     System.out.printf(
         "%-16s : %11.5f micros/op; %6.1f MB/s;%s %d / %d task(s) finished.\n",
-        benchmark, (double) elapsedSeconds / stats.done_ * 1e6,
+        benchmark, elapsedSeconds / stats.done_ * 1e6,
         (stats.bytes_ / 1048576.0) / elapsedSeconds, extra,
         taskFinishedCount, concurrentThreads);
   }
@@ -1160,7 +1155,7 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    block_size(defaultOptions_.blockSize(),
+    block_size(defaultBlockBasedTableOptions_.blockSize(),
         "Number of bytes in a block.") {
       @Override public Object parseValue(String value) {
         return Long.parseLong(value);
@@ -1310,12 +1305,6 @@ public class DbBenchmark {
         "\tFLAGS_readwritepercent)") {
       @Override public Object parseValue(String value) {
         return Integer.parseInt(value);
-      }
-    },
-    disable_seek_compaction(false,"Option to disable compaction\n" +
-        "\ttriggered by read.") {
-      @Override public Object parseValue(String value) {
-        return parseBoolean(value);
       }
     },
     delete_obsolete_files_period_micros(0,"Option to delete\n" +
@@ -1597,7 +1586,6 @@ public class DbBenchmark {
   final int threadNum_;
   final int writesPerSeconds_;
   final long randSeed_;
-  final long cacheSize_;
   final boolean useExisting_;
   final String databaseDir_;
   double compressionRatio_;
@@ -1620,6 +1608,8 @@ public class DbBenchmark {
   // as the scope of a static member equals to the scope of the problem,
   // we let its c++ pointer to be disposed in its finalizer.
   static Options defaultOptions_ = new Options();
+  static BlockBasedTableConfig defaultBlockBasedTableOptions_ =
+    new BlockBasedTableConfig();
   String compressionType_;
   CompressionType compression_;
 }

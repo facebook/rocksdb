@@ -12,10 +12,10 @@ package org.rocksdb;
 public class StatsCollectorInput {
   private final Statistics _statistics;
   private final StatisticsCollectorCallback _statsCallback;
-      
+
   /**
    * Constructor for StatsCollectorInput.
-   * 
+   *
    * @param statistics Reference of DB statistics.
    * @param statsCallback Reference of statistics callback interface.
    */
@@ -24,11 +24,11 @@ public class StatsCollectorInput {
     _statistics = statistics;
     _statsCallback = statsCallback;
   }
-  
+
   public Statistics getStatistics() {
     return _statistics;
   }
-  
+
   public StatisticsCollectorCallback getCallback() {
     return _statsCallback;
   }

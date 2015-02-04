@@ -45,7 +45,9 @@ class CorruptionTest {
 
     db_ = nullptr;
     options_.create_if_missing = true;
-    options_.block_size_deviation = 0; // make unit test pass for now
+    BlockBasedTableOptions table_options;
+    table_options.block_size_deviation = 0;  // make unit test pass for now
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
     Reopen();
     options_.create_if_missing = false;
   }
@@ -60,9 +62,11 @@ class CorruptionTest {
     db_ = nullptr;
     Options opt = (options ? *options : options_);
     opt.env = &env_;
-    opt.block_cache = tiny_cache_;
-    opt.block_size_deviation = 0;
     opt.arena_block_size = 4096;
+    BlockBasedTableOptions table_options;
+    table_options.block_cache = tiny_cache_;
+    table_options.block_size_deviation = 0;
+    opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
     return DB::Open(opt, dbname_, &db_);
   }
 
@@ -111,8 +115,8 @@ class CorruptionTest {
         continue;
       }
       missed += (key - next_expected);
-      next_expected = key + 1;
-      if (iter->value() != Value(key, &value_space)) {
+      next_expected = static_cast<unsigned int>(key + 1);
+      if (iter->value() != Value(static_cast<int>(key), &value_space)) {
         bad_values++;
       } else {
         correct++;
@@ -127,7 +131,7 @@ class CorruptionTest {
     ASSERT_GE(max_expected, correct);
   }
 
-  void CorruptFile(const std::string fname, int offset, int bytes_to_corrupt) {
+  void CorruptFile(const std::string& fname, int offset, int bytes_to_corrupt) {
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
       const char* msg = strerror(errno);
@@ -139,14 +143,14 @@ class CorruptionTest {
       if (-offset > sbuf.st_size) {
         offset = 0;
       } else {
-        offset = sbuf.st_size + offset;
+        offset = static_cast<int>(sbuf.st_size + offset);
       }
     }
     if (offset > sbuf.st_size) {
-      offset = sbuf.st_size;
+      offset = static_cast<int>(sbuf.st_size);
     }
     if (offset + bytes_to_corrupt > sbuf.st_size) {
-      bytes_to_corrupt = sbuf.st_size - offset;
+      bytes_to_corrupt = static_cast<int>(sbuf.st_size - offset);
     }
 
     // Do it
@@ -173,7 +177,7 @@ class CorruptionTest {
           type == filetype &&
           static_cast<int>(number) > picked_number) {  // Pick latest file
         fname = dbname_ + "/" + filenames[i];
-        picked_number = number;
+        picked_number = static_cast<int>(number);
       }
     }
     ASSERT_TRUE(!fname.empty()) << filetype;
@@ -227,7 +231,9 @@ TEST(CorruptionTest, Recovery) {
   Check(100, 100);
   Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
   Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
-  Reopen();
+  ASSERT_TRUE(!TryReopen().ok());
+  options_.paranoid_checks = false;
+  Reopen(&options_);
 
   // The 64 records in the first two log blocks are completely lost.
   Check(36, 36);
@@ -242,7 +248,8 @@ TEST(CorruptionTest, RecoverWriteError) {
 TEST(CorruptionTest, NewFileErrorDuringWrite) {
   // Do enough writing to force minor compaction
   env_.writable_file_error_ = true;
-  const int num = 3 + (Options().write_buffer_size / kValueSize);
+  const int num =
+      static_cast<int>(3 + (Options().write_buffer_size / kValueSize));
   std::string value_storage;
   Status s;
   bool failed = false;
@@ -328,6 +335,9 @@ TEST(CorruptionTest, CorruptedDescriptor) {
 }
 
 TEST(CorruptionTest, CompactionInputError) {
+  Options options;
+  options.max_background_flushes = 0;
+  Reopen(&options);
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
@@ -347,6 +357,7 @@ TEST(CorruptionTest, CompactionInputErrorParanoid) {
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
+  options.max_background_flushes = 0;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 

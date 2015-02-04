@@ -23,30 +23,50 @@ TEST(FileNameTest, Parse) {
   FileType type;
   uint64_t number;
 
+  char kDefautInfoLogDir = 1;
+  char kDifferentInfoLogDir = 2;
+  char kNoCheckLogDir = 4;
+  char kAllMode = kDefautInfoLogDir | kDifferentInfoLogDir | kNoCheckLogDir;
+
   // Successful parses
   static struct {
     const char* fname;
     uint64_t number;
     FileType type;
+    char mode;
   } cases[] = {
-    { "100.log",            100,   kLogFile },
-    { "0.log",              0,     kLogFile },
-    { "0.sst",              0,     kTableFile },
-    { "CURRENT",            0,     kCurrentFile },
-    { "LOCK",               0,     kDBLockFile },
-    { "MANIFEST-2",         2,     kDescriptorFile },
-    { "MANIFEST-7",         7,     kDescriptorFile },
-    { "METADB-2",           2,     kMetaDatabase },
-    { "METADB-7",           7,     kMetaDatabase },
-    { "LOG",                0,     kInfoLogFile },
-    { "LOG.old",            0,     kInfoLogFile },
-    { "18446744073709551615.log", 18446744073709551615ull, kLogFile },
-  };
-  for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-    std::string f = cases[i].fname;
-    ASSERT_TRUE(ParseFileName(f, &number, &type)) << f;
-    ASSERT_EQ(cases[i].type, type) << f;
-    ASSERT_EQ(cases[i].number, number) << f;
+        {"100.log", 100, kLogFile, kAllMode},
+        {"0.log", 0, kLogFile, kAllMode},
+        {"0.sst", 0, kTableFile, kAllMode},
+        {"CURRENT", 0, kCurrentFile, kAllMode},
+        {"LOCK", 0, kDBLockFile, kAllMode},
+        {"MANIFEST-2", 2, kDescriptorFile, kAllMode},
+        {"MANIFEST-7", 7, kDescriptorFile, kAllMode},
+        {"METADB-2", 2, kMetaDatabase, kAllMode},
+        {"METADB-7", 7, kMetaDatabase, kAllMode},
+        {"LOG", 0, kInfoLogFile, kDefautInfoLogDir},
+        {"LOG.old", 0, kInfoLogFile, kDefautInfoLogDir},
+        {"LOG.old.6688", 6688, kInfoLogFile, kDefautInfoLogDir},
+        {"rocksdb_dir_LOG", 0, kInfoLogFile, kDifferentInfoLogDir},
+        {"rocksdb_dir_LOG.old", 0, kInfoLogFile, kDifferentInfoLogDir},
+        {"rocksdb_dir_LOG.old.6688", 6688, kInfoLogFile, kDifferentInfoLogDir},
+        {"18446744073709551615.log", 18446744073709551615ull, kLogFile,
+         kAllMode}, };
+  for (char mode : {kDifferentInfoLogDir, kDefautInfoLogDir, kNoCheckLogDir}) {
+    for (unsigned int i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+      InfoLogPrefix info_log_prefix(mode != kDefautInfoLogDir, "/rocksdb/dir");
+      if (cases[i].mode & mode) {
+        std::string f = cases[i].fname;
+        if (mode == kNoCheckLogDir) {
+          ASSERT_TRUE(ParseFileName(f, &number, &type)) << f;
+        } else {
+          ASSERT_TRUE(ParseFileName(f, &number, info_log_prefix.prefix, &type))
+              << f;
+        }
+        ASSERT_EQ(cases[i].type, type) << f;
+        ASSERT_EQ(cases[i].number, number) << f;
+      }
+    }
   }
 
   // Errors
@@ -83,6 +103,22 @@ TEST(FileNameTest, Parse) {
     std::string f = errors[i];
     ASSERT_TRUE(!ParseFileName(f, &number, &type)) << f;
   };
+}
+
+TEST(FileNameTest, InfoLogFileName) {
+  std::string dbname = ("/data/rocksdb");
+  std::string db_absolute_path;
+  Env::Default()->GetAbsolutePath(dbname, &db_absolute_path);
+
+  ASSERT_EQ("/data/rocksdb/LOG", InfoLogFileName(dbname, db_absolute_path, ""));
+  ASSERT_EQ("/data/rocksdb/LOG.old.666",
+            OldInfoLogFileName(dbname, 666u, db_absolute_path, ""));
+
+  ASSERT_EQ("/data/rocksdb_log/data_rocksdb_LOG",
+            InfoLogFileName(dbname, db_absolute_path, "/data/rocksdb_log"));
+  ASSERT_EQ(
+      "/data/rocksdb_log/data_rocksdb_LOG.old.666",
+      OldInfoLogFileName(dbname, 666u, db_absolute_path, "/data/rocksdb_log"));
 }
 
 TEST(FileNameTest, Construction) {

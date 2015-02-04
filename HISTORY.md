@@ -1,10 +1,92 @@
 # Rocksdb Change Log
 
-### Unreleased
+### Unreleased Features
+* Changed the LRU caching algorithm so that referenced blocks (by iterators) are never evicted
+* By default we now optimize the compilation for the compilation platform (using -march=native). If you want to build portable binary, use 'PORTABLE=1' before the make command.
+* We now allow level-compaction to place files in different paths by
+  specifying them in db_paths along with the target_size.
+  Lower numbered levels will be placed earlier in the db_paths and higher
+  numbered levels will be placed later in the db_paths vector.
+* Potentially big performance improvements if you're using RocksDB with lots of column families (100-1000)
+* Added BlockBasedTableOptions.format_version option, which allows user to specify which version of block based table he wants. As a general guidline, newer versions have more features, but might not be readable by older versions of RocksDB.
+* Added new block based table format (version 2), which you can enable by setting BlockBasedTableOptions.format_version = 2. This format changes how we encode size information in compressed blocks and should help with memory allocations if you're using Zlib or BZip2 compressions.
+* GetThreadStatus() is now able to report compaction activity.
+* MemEnv (env that stores data in memory) is now available in default library build. You can create it by calling NewMemEnv().
+* Add SliceTransform.SameResultWhenAppended() to help users determine it is safe to apply prefix bloom/hash.
+
+### Public API changes
+* Deprecated skip_log_error_on_recovery option
+
+### 3.9.0 (12/8/2014)
+
+### New Features
+* Add rocksdb::GetThreadList(), which in the future will return the current status of all
+  rocksdb-related threads.  We will have more code instruments in the following RocksDB
+  releases.
+* Change convert function in rocksdb/utilities/convenience.h to return Status instead of boolean.
+  Also add support for nested options in convert function
+
+### Public API changes
+* New API to create a checkpoint added. Given a directory name, creates a new
+  database which is an image of the existing database.
+* New API LinkFile added to Env. If you implement your own Env class, an
+  implementation of the API LinkFile will have to be provided.
+* MemTableRep takes MemTableAllocator instead of Arena
+
+### Improvements
+* RocksDBLite library now becomes smaller and will be compiled with -fno-exceptions flag.
+
+## 3.8.0 (11/14/2014)
+
+### Public API changes
+* BackupEngine::NewBackupEngine() was deprecated; please use BackupEngine::Open() from now on.
+* BackupableDB/RestoreBackupableDB have new GarbageCollect() methods, which will clean up files from corrupt and obsolete backups.
+* BackupableDB/RestoreBackupableDB have new GetCorruptedBackups() methods which list corrupt backups.
+
+### Cleanup
+* Bunch of code cleanup, some extra warnings turned on (-Wshadow, -Wshorten-64-to-32, -Wnon-virtual-dtor)
+
+### New features
+* CompactFiles and EventListener, although they are still in experimental state
+* Full ColumnFamily support in RocksJava.
+
+## 3.7.0 (11/6/2014)
+### Public API changes
+* Introduce SetOptions() API to allow adjusting a subset of options dynamically online
+* Introduce 4 new convenient functions for converting Options from string: GetColumnFamilyOptionsFromMap(), GetColumnFamilyOptionsFromString(), GetDBOptionsFromMap(), GetDBOptionsFromString()
+* Remove WriteBatchWithIndex.Delete() overloads using SliceParts
+* When opening a DB, if options.max_background_compactions is larger than the existing low pri pool of options.env, it will enlarge it. Similarly, options.max_background_flushes is larger than the existing high pri pool of options.env, it will enlarge it.
+
+## 3.6.0 (10/7/2014)
+### Disk format changes
+* If you're using RocksDB on ARM platforms and you're using default bloom filter, there is a disk format change you need to be aware of. There are three steps you need to do when you convert to new release: 1. turn off filter policy, 2. compact the whole database, 3. turn on filter policy
+
+### Behavior changes
+* We have refactored our system of stalling writes.  Any stall-related statistics' meanings are changed. Instead of per-write stall counts, we now count stalls per-epoch, where epochs are periods between flushes and compactions. You'll find more information in our Tuning Perf Guide once we release RocksDB 3.6.
+* When disableDataSync=true, we no longer sync the MANIFEST file.
+* Add identity_as_first_hash property to CuckooTable. SST file needs to be rebuilt to be opened by reader properly.
+
+### Public API changes
+* Change target_file_size_base type to uint64_t from int.
+* Remove allow_thread_local. This feature was proved to be stable, so we are turning it always-on.
+
+## 3.5.0 (9/3/2014)
+### New Features
+* Add include/utilities/write_batch_with_index.h, providing a utilitiy class to query data out of WriteBatch when building it.
+* Move BlockBasedTable related options to BlockBasedTableOptions from Options. Change corresponding JNI interface. Options affected include:
+  no_block_cache, block_cache, block_cache_compressed, block_size, block_size_deviation, block_restart_interval, filter_policy, whole_key_filtering. filter_policy is changed to shared_ptr from a raw pointer.
+* Remove deprecated options: disable_seek_compaction and db_stats_log_interval
+* OptimizeForPointLookup() takes one parameter for block cache size. It now builds hash index, bloom filter, and block cache.
+
+### Public API changes
+* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
+
+## 3.4.0 (8/18/2014)
 ### New Features
 * Support Multiple DB paths in universal style compactions
 * Add feature of storing plain table index and bloom filter in SST file.
 * CompactRange() will never output compacted files to level 0. This used to be the case when all the compaction input files were at level 0.
+* Added iterate_upper_bound to define the extent upto which the forward iterator will return entries. This will prevent iterating over delete markers and overwritten entries for edge cases where you want to break out the iterator anyways. This may improve perfomance in case there are a large number of delete markers or overwritten entries.
 
 ### Public API changes
 * DBOptions.db_paths now is a vector of a DBPath structure which indicates both of path and target size
@@ -13,6 +95,7 @@
 * Statistics APIs now take uint32_t as type instead of Tickers. Also make two access functions getTickerCount and histogramData const
 * Add DB property rocksdb.estimate-num-keys, estimated number of live keys in DB.
 * Add DB::GetIntProperty(), which returns DB properties that are integer as uint64_t.
+* The Prefix Extractor used with V2 compaction filters is now passed user key to SliceTransform::Transform instead of unparsed RocksDB key.
 
 ## 3.3.0 (7/10/2014)
 ### New Features

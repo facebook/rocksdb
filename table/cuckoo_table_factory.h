@@ -6,27 +6,74 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#include <string>
+#include "rocksdb/table.h"
 #include "util/murmurhash.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
-static const uint32_t kMaxNumHashTable  = 64;
-
-uint64_t GetSliceMurmurHash(const Slice& s, uint32_t index,
-    uint64_t max_num_buckets) {
-  static constexpr uint32_t seeds[kMaxNumHashTable] = {
-    816922183, 506425713, 949485004, 22513986, 421427259, 500437285,
-    888981693, 847587269, 511007211, 722295391, 934013645, 566947683,
-    193618736, 428277388, 770956674, 819994962, 755946528, 40807421,
-    263144466, 241420041, 444294464, 731606396, 304158902, 563235655,
-    968740453, 336996831, 462831574, 407970157, 985877240, 637708754,
-    736932700, 205026023, 755371467, 729648411, 807744117, 46482135,
-    847092855, 620960699, 102476362, 314094354, 625838942, 550889395,
-    639071379, 834567510, 397667304, 151945969, 443634243, 196618243,
-    421986347, 407218337, 964502417, 327741231, 493359459, 452453139,
-    692216398, 108161624, 816246924, 234779764, 618949448, 496133787,
-    156374056, 316589799, 982915425, 553105889 };
-  return MurmurHash(s.data(), s.size(), seeds[index]) % max_num_buckets;
+const uint32_t kCuckooMurmurSeedMultiplier = 816922183;
+static inline uint64_t CuckooHash(
+    const Slice& user_key, uint32_t hash_cnt, bool use_module_hash,
+    uint64_t table_size_, bool identity_as_first_hash,
+    uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t)) {
+#ifndef NDEBUG
+  // This part is used only in unit tests.
+  if (get_slice_hash != nullptr) {
+    return get_slice_hash(user_key, hash_cnt, table_size_);
+  }
+#endif
+  uint64_t value = 0;
+  if (hash_cnt == 0 && identity_as_first_hash) {
+    value = (*reinterpret_cast<const int64_t*>(user_key.data()));
+  } else {
+    value = MurmurHash(user_key.data(), static_cast<int>(user_key.size()),
+                       kCuckooMurmurSeedMultiplier * hash_cnt);
+  }
+  if (use_module_hash) {
+    return value % table_size_;
+  } else {
+    return value & (table_size_ - 1);
+  }
 }
+
+// Cuckoo Table is designed for applications that require fast point lookups
+// but not fast range scans.
+//
+// Some assumptions:
+// - Key length and Value length are fixed.
+// - Does not support Snapshot.
+// - Does not support Merge operations.
+class CuckooTableFactory : public TableFactory {
+ public:
+  explicit CuckooTableFactory(const CuckooTableOptions& table_options)
+    : table_options_(table_options) {}
+  ~CuckooTableFactory() {}
+
+  const char* Name() const override { return "CuckooTable"; }
+
+  Status NewTableReader(
+      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
+      const InternalKeyComparator& internal_comparator,
+      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+      unique_ptr<TableReader>* table) const override;
+
+  TableBuilder* NewTableBuilder(const ImmutableCFOptions& options,
+      const InternalKeyComparator& icomparator, WritableFile* file,
+      const CompressionType, const CompressionOptions&) const override;
+
+  // Sanitizes the specified DB Options.
+  Status SanitizeOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override {
+    return Status::OK();
+  }
+
+  std::string GetPrintableTableOptions() const override;
+
+ private:
+  const CuckooTableOptions table_options_;
+};
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

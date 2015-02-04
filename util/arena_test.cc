@@ -13,17 +13,21 @@
 
 namespace rocksdb {
 
+namespace {
+const size_t kHugePageSize = 2 * 1024 * 1024;
+}  // namespace
 class ArenaTest {};
 
 TEST(ArenaTest, Empty) { Arena arena0; }
 
-TEST(ArenaTest, MemoryAllocatedBytes) {
+namespace {
+void MemoryAllocatedBytesTest(size_t huge_page_size) {
   const int N = 17;
   size_t req_sz;  // requested size
   size_t bsz = 8192;  // block size
   size_t expected_memory_allocated;
 
-  Arena arena(bsz);
+  Arena arena(bsz, huge_page_size);
 
   // requested size > quarter of a block:
   //   allocate requested size separately
@@ -44,8 +48,15 @@ TEST(ArenaTest, MemoryAllocatedBytes) {
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }
-  expected_memory_allocated += bsz;
-  ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+  if (huge_page_size) {
+    ASSERT_TRUE(arena.MemoryAllocatedBytes() ==
+                    expected_memory_allocated + bsz ||
+                arena.MemoryAllocatedBytes() ==
+                    expected_memory_allocated + huge_page_size);
+  } else {
+    expected_memory_allocated += bsz;
+    ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+  }
 
   // requested size > quarter of a block:
   //   allocate requested size separately
@@ -54,16 +65,23 @@ TEST(ArenaTest, MemoryAllocatedBytes) {
     arena.Allocate(req_sz);
   }
   expected_memory_allocated += req_sz * N;
-  ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+  if (huge_page_size) {
+    ASSERT_TRUE(arena.MemoryAllocatedBytes() ==
+                    expected_memory_allocated + bsz ||
+                arena.MemoryAllocatedBytes() ==
+                    expected_memory_allocated + huge_page_size);
+  } else {
+    ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+  }
 }
 
 // Make sure we didn't count the allocate but not used memory space in
 // Arena::ApproximateMemoryUsage()
-TEST(ArenaTest, ApproximateMemoryUsageTest) {
+static void ApproximateMemoryUsageTest(size_t huge_page_size) {
   const size_t kBlockSize = 4096;
   const size_t kEntrySize = kBlockSize / 8;
   const size_t kZero = 0;
-  Arena arena(kBlockSize);
+  Arena arena(kBlockSize, huge_page_size);
   ASSERT_EQ(kZero, arena.ApproximateMemoryUsage());
 
   // allocate inline bytes
@@ -78,7 +96,12 @@ TEST(ArenaTest, ApproximateMemoryUsageTest) {
   // first allocation
   arena.AllocateAligned(kEntrySize);
   auto mem_usage = arena.MemoryAllocatedBytes();
-  ASSERT_EQ(mem_usage, kBlockSize + Arena::kInlineSize);
+  if (huge_page_size) {
+    ASSERT_TRUE(mem_usage == kBlockSize + Arena::kInlineSize ||
+                mem_usage == huge_page_size + Arena::kInlineSize);
+  } else {
+    ASSERT_EQ(mem_usage, kBlockSize + Arena::kInlineSize);
+  }
   auto usage = arena.ApproximateMemoryUsage();
   ASSERT_LT(usage, mem_usage);
   for (size_t i = 1; i < num_blocks; ++i) {
@@ -87,12 +110,17 @@ TEST(ArenaTest, ApproximateMemoryUsageTest) {
     ASSERT_EQ(arena.ApproximateMemoryUsage(), usage + kEntrySize);
     usage = arena.ApproximateMemoryUsage();
   }
-  ASSERT_GT(usage, mem_usage);
+  if (huge_page_size) {
+    ASSERT_TRUE(usage > mem_usage ||
+                usage + huge_page_size - kBlockSize == mem_usage);
+  } else {
+    ASSERT_GT(usage, mem_usage);
+  }
 }
 
-TEST(ArenaTest, Simple) {
+static void SimpleTest(size_t huge_page_size) {
   std::vector<std::pair<size_t, char*>> allocated;
-  Arena arena;
+  Arena arena(Arena::kMinBlockSize, huge_page_size);
   const int N = 100000;
   size_t bytes = 0;
   Random rnd(301);
@@ -136,7 +164,22 @@ TEST(ArenaTest, Simple) {
     }
   }
 }
+}  // namespace
 
+TEST(ArenaTest, MemoryAllocatedBytes) {
+  MemoryAllocatedBytesTest(0);
+  MemoryAllocatedBytesTest(kHugePageSize);
+}
+
+TEST(ArenaTest, ApproximateMemoryUsage) {
+  ApproximateMemoryUsageTest(0);
+  ApproximateMemoryUsageTest(kHugePageSize);
+}
+
+TEST(ArenaTest, Simple) {
+  SimpleTest(0);
+  SimpleTest(kHugePageSize);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }

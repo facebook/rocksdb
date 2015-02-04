@@ -27,12 +27,26 @@ int main() {
   assert(s.ok());
 
   // Put key-value
-  s = db->Put(WriteOptions(), "key", "value");
+  s = db->Put(WriteOptions(), "key1", "value");
   assert(s.ok());
   std::string value;
   // get value
-  s = db->Get(ReadOptions(), "key", &value);
+  s = db->Get(ReadOptions(), "key1", &value);
   assert(s.ok());
+  assert(value == "value");
+
+  // atomically apply a set of updates
+  {
+    WriteBatch batch;
+    batch.Delete("key1");
+    batch.Put("key2", value);
+    s = db->Write(WriteOptions(), &batch);
+  }
+
+  s = db->Get(ReadOptions(), "key1", &value);
+  assert(s.IsNotFound());
+
+  db->Get(ReadOptions(), "key2", &value);
   assert(value == "value");
 
   delete db;

@@ -2,24 +2,14 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
-// Copyright (c) 2012 Facebook. All rights reserved.
-// Use of this source code is governed by a BSD-style license that can be
-// found in the LICENSE file.
 
 #pragma once
-#include "db/db_impl.h"
 
-#include <deque>
-#include <set>
+#ifndef ROCKSDB_LITE
+
+#include "db/db_impl.h"
 #include <vector>
 #include <string>
-#include "db/dbformat.h"
-#include "db/log_writer.h"
-#include "db/snapshot.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
@@ -74,9 +64,21 @@ class DBImplReadOnly : public DBImpl {
                               uint32_t target_path_id = 0) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
+  using DBImpl::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) override {
+    return Status::NotSupported("Not supported operation in read only mode.");
+  }
+
+#ifndef ROCKSDB_LITE
   virtual Status DisableFileDeletions() override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+
   virtual Status EnableFileDeletions(bool force) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
@@ -85,6 +87,8 @@ class DBImplReadOnly : public DBImpl {
                               bool flush_memtable = true) override {
     return Status::NotSupported("Not supported operation in read only mode.");
   }
+#endif  // ROCKSDB_LITE
+
   using DBImpl::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override {
@@ -99,3 +103,5 @@ class DBImplReadOnly : public DBImpl {
   void operator=(const DBImplReadOnly&);
 };
 }
+
+#endif  // !ROCKSDB_LITE

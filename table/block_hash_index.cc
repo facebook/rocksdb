@@ -59,7 +59,7 @@ BlockHashIndex* CreateBlockHashIndexOnTheFly(
   auto hash_index = new BlockHashIndex(
       hash_key_extractor,
       true /* hash_index will copy prefix when Add() is called */);
-  uint64_t current_restart_index = 0;
+  uint32_t current_restart_index = 0;
 
   std::string pending_entry_prefix;
   // pending_block_num == 0 also implies there is no entry inserted at all.

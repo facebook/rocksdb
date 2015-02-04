@@ -169,11 +169,6 @@ class GeoDBImpl : public GeoDB {
                        double radius,
                        std::vector<std::string>* quadKeys);
 
-  // splits a string into its components
-  static void StringSplit(std::vector<std::string>* tokens,
-                          const std::string &text,
-                          char sep);
-
   //
   // Create keys for accessing rocksdb table(s)
   //

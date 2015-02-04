@@ -18,8 +18,7 @@ Status AutoRollLogger::ResetLogger() {
     return status_;
   }
 
-  if (logger_->GetLogFileSize() ==
-      (size_t)Logger::DO_NOT_SUPPORT_GET_LOG_FILE_SIZE) {
+  if (logger_->GetLogFileSize() == Logger::kDoNotSupportGetLogFileSize) {
     status_ = Status::NotSupported(
         "The underlying logger doesn't support GetLogFileSize()");
   }

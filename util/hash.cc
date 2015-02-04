@@ -18,7 +18,7 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
   const uint32_t m = 0xc6a4a793;
   const uint32_t r = 24;
   const char* limit = data + n;
-  uint32_t h = seed ^ (n * m);
+  uint32_t h = static_cast<uint32_t>(seed ^ (n * m));
 
   // Pick up four bytes at a time
   while (data + 4 <= limit) {
@@ -31,14 +31,26 @@ uint32_t Hash(const char* data, size_t n, uint32_t seed) {
 
   // Pick up remaining bytes
   switch (limit - data) {
+    // Note: It would be better if this was cast to unsigned char, but that
+    // would be a disk format change since we previously didn't have any cast
+    // at all (so gcc used signed char).
+    // To understand the difference between shifting unsigned and signed chars,
+    // let's use 250 as an example. unsigned char will be 250, while signed char
+    // will be -6. Bit-wise, they are equivalent: 11111010. However, when
+    // converting negative number (signed char) to int, it will be converted
+    // into negative int (of equivalent value, which is -6), while converting
+    // positive number (unsigned char) will be converted to 250. Bitwise,
+    // this looks like this:
+    // signed char 11111010 -> int 11111111111111111111111111111010
+    // unsigned char 11111010 -> int 00000000000000000000000011111010
     case 3:
-      h += data[2] << 16;
-      // fall through
+      h += static_cast<uint32_t>(static_cast<signed char>(data[2]) << 16);
+    // fall through
     case 2:
-      h += data[1] << 8;
-      // fall through
+      h += static_cast<uint32_t>(static_cast<signed char>(data[1]) << 8);
+    // fall through
     case 1:
-      h += data[0];
+      h += static_cast<uint32_t>(static_cast<signed char>(data[0]));
       h *= m;
       h ^= (h >> r);
       break;

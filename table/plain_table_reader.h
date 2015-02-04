@@ -36,6 +36,7 @@ class TableCache;
 class TableReader;
 class InternalKeyComparator;
 class PlainTableKeyDecoder;
+class GetContext;
 
 using std::unique_ptr;
 using std::unordered_map;
@@ -52,7 +53,8 @@ extern const uint32_t kPlainTableVariableLength;
 // The implementation of IndexedTableReader requires output file is mmaped
 class PlainTableReader: public TableReader {
  public:
-  static Status Open(const Options& options, const EnvOptions& soptions,
+  static Status Open(const ImmutableCFOptions& ioptions,
+                     const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                      unique_ptr<TableReader>* table,
@@ -64,10 +66,8 @@ class PlainTableReader: public TableReader {
 
   void Prepare(const Slice& target);
 
-  Status Get(const ReadOptions&, const Slice& key, void* arg,
-             bool (*result_handler)(void* arg, const ParsedInternalKey& k,
-                                    const Slice& v),
-             void (*mark_key_may_exist)(void*) = nullptr);
+  Status Get(const ReadOptions&, const Slice& key,
+             GetContext* get_context) override;
 
   uint64_t ApproximateOffsetOf(const Slice& key);
 
@@ -82,8 +82,9 @@ class PlainTableReader: public TableReader {
     return arena_.MemoryAllocatedBytes();
   }
 
-  PlainTableReader(const Options& options, unique_ptr<RandomAccessFile>&& file,
-                   const EnvOptions& storage_options,
+  PlainTableReader(const ImmutableCFOptions& ioptions,
+                   unique_ptr<RandomAccessFile>&& file,
+                   const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,
                    const TableProperties* table_properties);
@@ -122,7 +123,7 @@ class PlainTableReader: public TableReader {
   // sst file that stores data.
   const uint32_t data_start_offset_ = 0;
   const uint32_t data_end_offset_;
-  const size_t user_key_len_;
+  const uint32_t user_key_len_;
   const SliceTransform* prefix_extractor_;
 
   static const size_t kNumInternalBytes = 8;
@@ -132,9 +133,9 @@ class PlainTableReader: public TableReader {
   DynamicBloom bloom_;
   Arena arena_;
 
-  const Options& options_;
+  const ImmutableCFOptions& ioptions_;
   unique_ptr<RandomAccessFile> file_;
-  uint32_t file_size_;
+  uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 
   bool IsFixedLength() const {

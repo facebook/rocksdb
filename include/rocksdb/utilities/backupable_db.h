@@ -10,7 +10,10 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <string>
 #include <map>
@@ -127,9 +130,41 @@ struct BackupInfo {
   int64_t timestamp;
   uint64_t size;
 
+  uint32_t number_files;
+
   BackupInfo() {}
-  BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size)
-      : backup_id(_backup_id), timestamp(_timestamp), size(_size) {}
+
+  BackupInfo(BackupID _backup_id, int64_t _timestamp, uint64_t _size,
+             uint32_t _number_files)
+      : backup_id(_backup_id), timestamp(_timestamp), size(_size),
+        number_files(_number_files) {}
+};
+
+class BackupStatistics {
+ public:
+  BackupStatistics() {
+    number_success_backup = 0;
+    number_fail_backup = 0;
+  }
+
+  BackupStatistics(uint32_t _number_success_backup,
+                   uint32_t _number_fail_backup)
+      : number_success_backup(_number_success_backup),
+        number_fail_backup(_number_fail_backup) {}
+
+  ~BackupStatistics() {}
+
+  void IncrementNumberSuccessBackup();
+  void IncrementNumberFailBackup();
+
+  uint32_t GetNumberSuccessBackup() const;
+  uint32_t GetNumberFailBackup() const;
+
+  std::string ToString() const;
+
+ private:
+  uint32_t number_success_backup;
+  uint32_t number_fail_backup;
 };
 
 class BackupEngineReadOnly {
@@ -142,6 +177,8 @@ class BackupEngineReadOnly {
   // You can GetBackupInfo safely, even with other BackupEngine performing
   // backups on the same directory
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  virtual void GetCorruptedBackups(
+      std::vector<BackupID>* corrupt_backup_ids) = 0;
 
   // Restoring DB from backup is NOT safe when there is another BackupEngine
   // running that might call DeleteBackup() or PurgeOldBackups(). It is caller's
@@ -161,7 +198,12 @@ class BackupEngine {
   virtual ~BackupEngine() {}
 
   static BackupEngine* NewBackupEngine(Env* db_env,
-                                       const BackupableDBOptions& options);
+                                       const BackupableDBOptions& options)
+    __attribute__((deprecated("Please use Open() instead")));
+
+  static Status Open(Env* db_env,
+                     const BackupableDBOptions& options,
+                     BackupEngine** backup_engine_ptr);
 
   virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false) = 0;
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
@@ -169,12 +211,16 @@ class BackupEngine {
   virtual void StopBackup() = 0;
 
   virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) = 0;
+  virtual void GetCorruptedBackups(
+      std::vector<BackupID>* corrupt_backup_ids) = 0;
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) = 0;
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) = 0;
+
+  virtual Status GarbageCollect() = 0;
 };
 
 // Stack your DB with BackupableDB to be able to backup the DB
@@ -193,6 +239,8 @@ class BackupableDB : public StackableDB {
   Status CreateNewBackup(bool flush_before_backup = false);
   // Returns info about backups in backup_info
   void GetBackupInfo(std::vector<BackupInfo>* backup_info);
+  // Returns info about corrupt backups in corrupt_backups
+  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids);
   // deletes old backups, keeping latest num_backups_to_keep alive
   Status PurgeOldBackups(uint32_t num_backups_to_keep);
   // deletes a specific backup
@@ -206,6 +254,11 @@ class BackupableDB : public StackableDB {
   // next time you create BackupableDB or RestoreBackupableDB.
   void StopBackup();
 
+  // Will delete all the files we don't need anymore
+  // It will do the full scan of the files/ directory and delete all the
+  // files that are not referenced.
+  Status GarbageCollect();
+
  private:
   BackupEngine* backup_engine_;
 };
@@ -218,6 +271,8 @@ class RestoreBackupableDB {
 
   // Returns info about backups in backup_info
   void GetBackupInfo(std::vector<BackupInfo>* backup_info);
+  // Returns info about corrupt backups in corrupt_backups
+  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids);
 
   // restore from backup with backup_id
   // IMPORTANT -- if options_.share_table_files == true and you restore DB
@@ -243,6 +298,11 @@ class RestoreBackupableDB {
   Status PurgeOldBackups(uint32_t num_backups_to_keep);
   // deletes a specific backup
   Status DeleteBackup(BackupID backup_id);
+
+  // Will delete all the files we don't need anymore
+  // It will do the full scan of the files/ directory and delete all the
+  // files that are not referenced.
+  Status GarbageCollect();
 
  private:
   BackupEngine* backup_engine_;

@@ -1,5 +1,5 @@
 TARGETS
-build_config.mk
+make_config.mk
 
 *.a
 *.arc
@@ -20,6 +20,7 @@ build_config.mk
 *.d-e
 *.o-*
 *.swp
+*~
 
 ldb
 manifest_dump
@@ -28,7 +29,20 @@ util/build_version.cc
 build_tools/VALGRIND_LOGS/
 coverage/COVERAGE_REPORT
 .gdbhistory
+package/
 .phutil_module_cache
+unity
 tags
+
+java/out
 java/*.log
 java/include/org_rocksdb_*.h
+
+.idea/
+*.iml
+
+unity.cc
+java/crossbuild/.vagrant
+.vagrant/
+java/**.asc
+java/javadoc

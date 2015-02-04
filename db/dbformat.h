@@ -124,17 +124,6 @@ class InternalKeyComparator : public Comparator {
   int Compare(const ParsedInternalKey& a, const ParsedInternalKey& b) const;
 };
 
-// Filter policy wrapper that converts from internal keys to user keys
-class InternalFilterPolicy : public FilterPolicy {
- private:
-  const FilterPolicy* const user_policy_;
- public:
-  explicit InternalFilterPolicy(const FilterPolicy* p) : user_policy_(p) { }
-  virtual const char* Name() const;
-  virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const;
-  virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const;
-};
-
 // Modules in this directory should keep internal keys wrapped inside
 // the following class instead of plain strings so that we do not
 // incorrectly use string comparisons instead of an InternalKeyComparator.
@@ -143,8 +132,8 @@ class InternalKey {
   std::string rep_;
  public:
   InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
-  InternalKey(const Slice& user_key, SequenceNumber s, ValueType t) {
-    AppendInternalKey(&rep_, ParsedInternalKey(user_key, s, t));
+  InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
   }
 
   bool Valid() const {
@@ -212,18 +201,24 @@ class LookupKey {
  public:
   // Initialize *this for looking up user_key at a snapshot with
   // the specified sequence number.
-  LookupKey(const Slice& user_key, SequenceNumber sequence);
+  LookupKey(const Slice& _user_key, SequenceNumber sequence);
 
   ~LookupKey();
 
   // Return a key suitable for lookup in a MemTable.
-  Slice memtable_key() const { return Slice(start_, end_ - start_); }
+  Slice memtable_key() const {
+    return Slice(start_, static_cast<size_t>(end_ - start_));
+  }
 
   // Return an internal key (suitable for passing to an internal iterator)
-  Slice internal_key() const { return Slice(kstart_, end_ - kstart_); }
+  Slice internal_key() const {
+    return Slice(kstart_, static_cast<size_t>(end_ - kstart_));
+  }
 
   // Return the user key
-  Slice user_key() const { return Slice(kstart_, end_ - kstart_ - 8); }
+  Slice user_key() const {
+    return Slice(kstart_, static_cast<size_t>(end_ - kstart_ - 8));
+  }
 
  private:
   // We construct a char array of the form:
@@ -255,7 +250,7 @@ class IterKey {
 
   Slice GetKey() const { return Slice(key_, key_size_); }
 
-  const size_t Size() { return key_size_; }
+  size_t Size() { return key_size_; }
 
   void Clear() { key_size_ = 0; }
 
@@ -330,8 +325,8 @@ class IterKey {
 
   void EncodeLengthPrefixedKey(const Slice& key) {
     auto size = key.size();
-    EnlargeBufferIfNeeded(size + VarintLength(size));
-    char* ptr = EncodeVarint32(key_, size);
+    EnlargeBufferIfNeeded(size + static_cast<size_t>(VarintLength(size)));
+    char* ptr = EncodeVarint32(key_, static_cast<uint32_t>(size));
     memcpy(ptr, key.data(), size);
   }
 
@@ -401,4 +396,12 @@ class InternalKeySliceTransform : public SliceTransform {
   const SliceTransform* const transform_;
 };
 
+// Read record from a write batch piece from input.
+// tag, column_family, key, value and blob are return values. Callers own the
+// Slice they point to.
+// Tag is defined as ValueType.
+// input will be advanced to after the record.
+extern Status ReadRecordFromWriteBatch(Slice* input, char* tag,
+                                       uint32_t* column_family, Slice* key,
+                                       Slice* value, Slice* blob);
 }  // namespace rocksdb

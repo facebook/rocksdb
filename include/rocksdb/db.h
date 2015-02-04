@@ -15,19 +15,35 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include "rocksdb/metadata.h"
 #include "rocksdb/version.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
+#include "rocksdb/listener.h"
+#include "rocksdb/thread_status.h"
 
 namespace rocksdb {
+
+struct Options;
+struct DBOptions;
+struct ColumnFamilyOptions;
+struct ReadOptions;
+struct WriteOptions;
+struct FlushOptions;
+struct CompactionOptions;
+struct TableProperties;
+class WriteBatch;
+class Env;
+class EventListener;
 
 using std::unique_ptr;
 
 class ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
+  virtual const std::string& GetName() const = 0;
 };
 extern const std::string kDefaultColumnFamilyName;
 
@@ -44,31 +60,14 @@ struct ColumnFamilyDescriptor {
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
 
-struct Options;
-struct ReadOptions;
-struct WriteOptions;
-struct FlushOptions;
-struct TableProperties;
-class WriteBatch;
-class Env;
-
-// Metadata associated with each SST file.
-struct LiveFileMetaData {
-  std::string column_family_name;  // Name of the column family
-  std::string db_path;
-  std::string name;                // Name of the file
-  int level;               // Level at which this file resides.
-  size_t size;             // File size in bytes.
-  std::string smallestkey; // Smallest user defined key in the file.
-  std::string largestkey;  // Largest user defined key in the file.
-  SequenceNumber smallest_seqno; // smallest seqno in file
-  SequenceNumber largest_seqno;  // largest seqno in file
-};
-
 // Abstract handle to particular state of a DB.
 // A Snapshot is an immutable object and can therefore be safely
 // accessed from multiple threads without any external synchronization.
 class Snapshot {
+ public:
+  // returns Snapshot's sequence number
+  virtual SequenceNumber GetSequenceNumber() const = 0;
+
  protected:
   virtual ~Snapshot();
 };
@@ -106,6 +105,9 @@ class DB {
   // that modify data, like put/delete, will return error.
   // If the db is opened in read only mode, then no compactions
   // will happen.
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
   static Status OpenForReadOnly(const Options& options,
       const std::string& name, DB** dbptr,
       bool error_if_log_file_exist = false);
@@ -115,6 +117,9 @@ class DB {
   // database that should be opened. However, you always need to specify default
   // column family. The default column family name is 'default' and it's stored
   // in rocksdb::kDefaultColumnFamilyName
+  //
+  // Not supported in ROCKSDB_LITE, in which case the function will
+  // return Status::NotSupported.
   static Status OpenForReadOnly(
       const DBOptions& db_options, const std::string& name,
       const std::vector<ColumnFamilyDescriptor>& column_families,
@@ -123,7 +128,7 @@ class DB {
 
   // Open DB with column families.
   // db_options specify database specific options
-  // column_families is the vector of all column families in the databse,
+  // column_families is the vector of all column families in the database,
   // containing column family name and options. You need to open ALL column
   // families in the database. To get the list of column families, you can use
   // ListColumnFamilies(). Also, you can open only a subset of column families
@@ -195,6 +200,8 @@ class DB {
   }
 
   // Apply the specified updates to the database.
+  // If `updates` contains no update, WAL will still be synced if
+  // options.sync=true.
   // Returns OK on success, non-OK on failure.
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
@@ -301,6 +308,22 @@ class DB {
   //     about the internal operation of the DB.
   //  "rocksdb.sstables" - returns a multi-line string that describes all
   //     of the sstables that make up the db contents.
+  //  "rocksdb.cfstats"
+  //  "rocksdb.dbstats"
+  //  "rocksdb.num-immutable-mem-table"
+  //  "rocksdb.mem-table-flush-pending"
+  //  "rocksdb.compaction-pending" - 1 if at least one compaction is pending
+  //  "rocksdb.background-errors" - accumulated number of background errors
+  //  "rocksdb.cur-size-active-mem-table"
+  //  "rocksdb.cur-size-all-mem-tables"
+  //  "rocksdb.num-entries-active-mem-table"
+  //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.estimate-num-keys" - estimated keys in the column family
+  //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
+  //      SST tables, that is not counted as a part of block cache.
+  //  "rocksdb.is-file-deletions-enabled"
+  //  "rocksdb.num-snapshots"
+  //  "rocksdb.oldest-snapshot-time"
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
@@ -308,7 +331,21 @@ class DB {
   }
 
   // Similar to GetProperty(), but only works for a subset of properties whose
-  // return value is an integer. Return the value by integer.
+  // return value is an integer. Return the value by integer. Supported
+  // properties:
+  //  "rocksdb.num-immutable-mem-table"
+  //  "rocksdb.mem-table-flush-pending"
+  //  "rocksdb.compaction-pending"
+  //  "rocksdb.background-errors"
+  //  "rocksdb.cur-size-active-mem-table"
+  //  "rocksdb.cur-size-all-mem-tables"
+  //  "rocksdb.num-entries-active-mem-table"
+  //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.estimate-num-keys"
+  //  "rocksdb.estimate-table-readers-mem"
+  //  "rocksdb.is-file-deletions-enabled"
+  //  "rocksdb.num-snapshots"
+  //  "rocksdb.oldest-snapshot-time"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
@@ -359,7 +396,35 @@ class DB {
     return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
                         target_level, target_path_id);
   }
+  virtual Status SetOptions(ColumnFamilyHandle* column_family,
+      const std::unordered_map<std::string, std::string>& new_options) {
+    return Status::NotSupported("Not implemented");
+  }
+  virtual Status SetOptions(
+      const std::unordered_map<std::string, std::string>& new_options) {
+    return SetOptions(DefaultColumnFamily(), new_options);
+  }
 
+  // CompactFiles() inputs a list of files specified by file numbers
+  // and compacts them to the specified level.  Note that the behavior
+  // is different from CompactRange in that CompactFiles() will
+  // perform the compaction job using the CURRENT thread.
+  //
+  // @see GetDataBaseMetaData
+  // @see GetColumnFamilyMetaData
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) = 0;
+
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) {
+    return CompactFiles(compact_options, DefaultColumnFamily(),
+                        input_file_names, output_level, output_path_id);
+  }
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }
@@ -466,6 +531,21 @@ class DB {
   // and end key
   virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {}
 
+  // Obtains the meta data of the specified column family of the DB.
+  // Status::NotFound() will be returned if the current DB does not have
+  // any column family match the specified name.
+  //
+  // If cf_name is not specified, then the metadata of the default
+  // column family will be returned.
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle* column_family,
+      ColumnFamilyMetaData* metadata) {}
+
+  // Get the metadata of the default column family.
+  void GetColumnFamilyMetaData(
+      ColumnFamilyMetaData* metadata) {
+    GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
+  }
 #endif  // ROCKSDB_LITE
 
   // Sets the globally unique ID created at database creation time by invoking

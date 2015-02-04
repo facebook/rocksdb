@@ -85,9 +85,10 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (success_) {
-        std::string& key = keys_.back();  // The original key encountered
+        std::string& original_key =
+            keys_.back();  // The original key encountered
         orig_ikey.type = kTypeValue;
-        UpdateInternalKey(&key[0], key.size(),
+        UpdateInternalKey(&original_key[0], original_key.size(),
                           orig_ikey.sequence, orig_ikey.type);
         swap(operands_.back(), merge_result);
       } else {
@@ -108,17 +109,17 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => store result in operands_.back() (and update keys_.back())
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Success!
-      const Slice value = iter->value();
-      success_ = user_merge_operator_->FullMerge(ikey.user_key, &value,
-                                                 operands_, &merge_result,
-                                                 logger_);
+      const Slice val = iter->value();
+      success_ = user_merge_operator_->FullMerge(ikey.user_key, &val, operands_,
+                                                 &merge_result, logger_);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (success_) {
-        std::string& key = keys_.back();  // The original key encountered
+        std::string& original_key =
+            keys_.back();  // The original key encountered
         orig_ikey.type = kTypeValue;
-        UpdateInternalKey(&key[0], key.size(),
+        UpdateInternalKey(&original_key[0], original_key.size(),
                           orig_ikey.sequence, orig_ikey.type);
         swap(operands_.back(), merge_result);
       } else {
@@ -177,9 +178,9 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
                                                logger_);
 
     if (success_) {
-      std::string& key = keys_.back();  // The original key encountered
+      std::string& original_key = keys_.back();  // The original key encountered
       orig_ikey.type = kTypeValue;
-      UpdateInternalKey(&key[0], key.size(),
+      UpdateInternalKey(&original_key[0], original_key.size(),
                         orig_ikey.sequence, orig_ikey.type);
 
       // The final value() is always stored in operands_.back()

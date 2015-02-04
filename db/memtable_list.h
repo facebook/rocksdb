@@ -46,10 +46,10 @@ class MemTableListVersion {
   // Search all the memtables starting from the most recent one.
   // Return the most recent value found, if any.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext& merge_context, const Options& options);
+           MergeContext* merge_context);
 
   void AddIterators(const ReadOptions& options,
-                    std::vector<Iterator*>* iterator_list);
+                    std::vector<Iterator*>* iterator_list, Arena* arena);
 
   void AddIterators(const ReadOptions& options,
                     MergeIteratorBuilder* merge_iter_builder);
@@ -78,12 +78,12 @@ class MemTableList {
  public:
   // A list of memtables.
   explicit MemTableList(int min_write_buffer_number_to_merge)
-      : min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
+      : imm_flush_needed(false),
+        min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
         current_(new MemTableListVersion()),
         num_flush_not_started_(0),
         commit_in_progress_(false),
         flush_requested_(false) {
-    imm_flush_needed.Release_Store(nullptr);
     current_->Ref();
   }
   ~MemTableList() {}
@@ -92,7 +92,7 @@ class MemTableList {
 
   // so that background threads can detect non-nullptr pointer to
   // determine whether there is anything more to start flushing.
-  port::AtomicPointer imm_flush_needed;
+  std::atomic<bool> imm_flush_needed;
 
   // Returns the total number of memtables in the list
   int size() const;
@@ -108,14 +108,13 @@ class MemTableList {
   // Reset status of the given memtable list back to pending state so that
   // they can get picked up again on the next round of flush.
   void RollbackMemtableFlush(const autovector<MemTable*>& mems,
-                             uint64_t file_number,
-                             FileNumToPathIdMap* pending_outputs);
+                             uint64_t file_number);
 
   // Commit a successful flush in the manifest file
   Status InstallMemtableFlushResults(
-      ColumnFamilyData* cfd, const autovector<MemTable*>& m, VersionSet* vset,
-      port::Mutex* mu, Logger* info_log, uint64_t file_number,
-      FileNumToPathIdMap* pending_outputs, autovector<MemTable*>* to_delete,
+      ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
+      const autovector<MemTable*>& m, VersionSet* vset, port::Mutex* mu,
+      uint64_t file_number, autovector<MemTable*>* to_delete,
       Directory* db_directory, LogBuffer* log_buffer);
 
   // New memtables are inserted at the front of the list.

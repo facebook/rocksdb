@@ -298,14 +298,14 @@ static inline uint64_t LE_LOAD64(const uint8_t *p) {
 #endif
 
 static inline void Slow_CRC32(uint64_t* l, uint8_t const **p) {
-  uint32_t c = *l ^ LE_LOAD32(*p);
+  uint32_t c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
   *l = table3_[c & 0xff] ^
   table2_[(c >> 8) & 0xff] ^
   table1_[(c >> 16) & 0xff] ^
   table0_[c >> 24];
   // DO it twice.
-  c = *l ^ LE_LOAD32(*p);
+  c = static_cast<uint32_t>(*l ^ LE_LOAD32(*p));
   *p += 4;
   *l = table3_[c & 0xff] ^
   table2_[(c >> 8) & 0xff] ^
@@ -362,7 +362,7 @@ uint32_t ExtendImpl(uint32_t crc, const char* buf, size_t size) {
   }
 #undef STEP1
 #undef ALIGN
-  return l ^ 0xffffffffu;
+  return static_cast<uint32_t>(l ^ 0xffffffffu);
 }
 
 // Detect if SS42 or not.

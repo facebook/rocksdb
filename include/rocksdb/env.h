@@ -20,9 +20,11 @@
 #include <cstdarg>
 #include <string>
 #include <memory>
+#include <limits>
 #include <vector>
 #include <stdint.h>
 #include "rocksdb/status.h"
+#include "rocksdb/thread_status.h"
 
 namespace rocksdb {
 
@@ -36,6 +38,7 @@ class RandomRWFile;
 class Directory;
 struct DBOptions;
 class RateLimiter;
+class ThreadStatusUpdater;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -82,7 +85,8 @@ struct EnvOptions {
 
 class Env {
  public:
-  Env() { }
+  Env() : thread_status_updater_(nullptr) {}
+
   virtual ~Env();
 
   // Return a default environment suitable for the current operating
@@ -177,6 +181,11 @@ class Env {
   virtual Status RenameFile(const std::string& src,
                             const std::string& target) = 0;
 
+  // Hard Link file src to target.
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    return Status::NotSupported("LinkFile is not supported for this Env");
+  }
+
   // Lock the specified file.  Used to prevent concurrent access to
   // the same db by multiple processes.  On failure, stores nullptr in
   // *lock and returns non-OK.
@@ -201,7 +210,7 @@ class Env {
   // Priority for scheduling job in thread pool
   enum Priority { LOW, HIGH, TOTAL };
 
-  // Priority for scheduling job in thread pool
+  // Priority for requesting bytes in rate limiter scheduler
   enum IOPriority {
     IO_LOW = 0,
     IO_HIGH = 1,
@@ -272,6 +281,14 @@ class Env {
   // default number: 1
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) = 0;
 
+  // Enlarge number of background worker threads of a specific thread pool
+  // for this environment if it is smaller than specified. 'LOW' is the default
+  // pool.
+  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) = 0;
+
+  // Lower IO priority for threads from the specified pool.
+  virtual void LowerThreadPoolIOPriority(Priority pool = LOW) {}
+
   // Converts seconds-since-Jan-01-1970 to a printable string
   virtual std::string TimeToString(uint64_t time) = 0;
 
@@ -288,11 +305,33 @@ class Env {
   virtual EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options)
       const;
 
+  // Returns the status of all threads that belong to the current Env.
+  virtual Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+    return Status::NotSupported("Not supported.");
+  }
+
+  // Returns the pointer to ThreadStatusUpdater.  This function will be
+  // used in RocksDB internally to update thread status and supports
+  // GetThreadList().
+  virtual ThreadStatusUpdater* GetThreadStatusUpdater() const {
+    return thread_status_updater_;
+  }
+
+ protected:
+  // The pointer to an internal structure that will update the
+  // status of each thread.
+  ThreadStatusUpdater* thread_status_updater_;
+
  private:
   // No copying allowed
   Env(const Env&);
   void operator=(const Env&);
 };
+
+// The factory function to construct a ThreadStatusUpdater.  Any Env
+// that supports GetThreadList() feature should call this function in its
+// constructor to initialize thread_status_updater_.
+ThreadStatusUpdater* CreateThreadStatusUpdater();
 
 // A file abstraction for reading sequentially through a file
 class SequentialFile {
@@ -468,8 +507,8 @@ class WritableFile {
     if (new_last_preallocated_block > last_preallocated_block_) {
       size_t num_spanned_blocks =
         new_last_preallocated_block - last_preallocated_block_;
-      Allocate(block_size * last_preallocated_block_,
-               block_size * num_spanned_blocks);
+      Allocate(static_cast<off_t>(block_size * last_preallocated_block_),
+               static_cast<off_t>(block_size * num_spanned_blocks));
       last_preallocated_block_ = new_last_preallocated_block;
     }
   }
@@ -572,7 +611,8 @@ enum InfoLogLevel : unsigned char {
 // An interface for writing log messages.
 class Logger {
  public:
-  enum { DO_NOT_SUPPORT_GET_LOG_FILE_SIZE = -1 };
+  size_t kDoNotSupportGetLogFileSize = std::numeric_limits<size_t>::max();
+
   explicit Logger(const InfoLogLevel log_level = InfoLogLevel::INFO_LEVEL)
       : log_level_(log_level) {}
   virtual ~Logger();
@@ -605,9 +645,7 @@ class Logger {
       Logv(new_format, ap);
     }
   }
-  virtual size_t GetLogFileSize() const {
-    return DO_NOT_SUPPORT_GET_LOG_FILE_SIZE;
-  }
+  virtual size_t GetLogFileSize() const { return kDoNotSupportGetLogFileSize; }
   // Flush to the OS buffers
   virtual void Flush() {}
   virtual InfoLogLevel GetInfoLogLevel() const { return log_level_; }
@@ -739,6 +777,11 @@ class EnvWrapper : public Env {
   Status RenameFile(const std::string& s, const std::string& t) {
     return target_->RenameFile(s, t);
   }
+
+  Status LinkFile(const std::string& s, const std::string& t) {
+    return target_->LinkFile(s, t);
+  }
+
   Status LockFile(const std::string& f, FileLock** l) {
     return target_->LockFile(f, l);
   }
@@ -779,8 +822,25 @@ class EnvWrapper : public Env {
   void SetBackgroundThreads(int num, Priority pri) {
     return target_->SetBackgroundThreads(num, pri);
   }
+
+  void IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+    return target_->IncBackgroundThreadsIfNeeded(num, pri);
+  }
+
+  void LowerThreadPoolIOPriority(Priority pool = LOW) override {
+    target_->LowerThreadPoolIOPriority(pool);
+  }
+
   std::string TimeToString(uint64_t time) {
     return target_->TimeToString(time);
+  }
+
+  Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+    return target_->GetThreadList(thread_list);
+  }
+
+  ThreadStatusUpdater* GetThreadStatusUpdater() const override {
+    return target_->GetThreadStatusUpdater();
   }
 
  private:

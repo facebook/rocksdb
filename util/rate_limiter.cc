@@ -15,8 +15,8 @@ namespace rocksdb {
 
 // Pending request
 struct GenericRateLimiter::Req {
-  explicit Req(int64_t bytes, port::Mutex* mu) :
-    bytes(bytes), cv(mu), granted(false) {}
+  explicit Req(int64_t _bytes, port::Mutex* _mu)
+      : bytes(_bytes), cv(_mu), granted(false) {}
   int64_t bytes;
   port::CondVar cv;
   bool granted;
@@ -47,7 +47,8 @@ GenericRateLimiter::GenericRateLimiter(
 GenericRateLimiter::~GenericRateLimiter() {
   MutexLock g(&request_mutex_);
   stop_ = true;
-  requests_to_wait_ = queue_[Env::IO_LOW].size() + queue_[Env::IO_HIGH].size();
+  requests_to_wait_ = static_cast<int32_t>(queue_[Env::IO_LOW].size() +
+                                           queue_[Env::IO_HIGH].size());
   for (auto& r : queue_[Env::IO_HIGH]) {
     r->cv.Signal();
   }
@@ -60,7 +61,7 @@ GenericRateLimiter::~GenericRateLimiter() {
 }
 
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
-  assert(bytes < refill_bytes_per_period_);
+  assert(bytes <= refill_bytes_per_period_);
 
   MutexLock g(&request_mutex_);
   if (stop_) {
