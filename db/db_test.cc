@@ -2018,6 +2018,155 @@ TEST(DBTest, GetFilterByPrefixBloom) {
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
 }
 
+TEST(DBTest, WholeKeyFilterProp) {
+  Options options = last_options_;
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  options.statistics = rocksdb::CreateDBStatistics();
+
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, false));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  DestroyAndReopen(options);
+
+  WriteOptions wo;
+  ReadOptions ro;
+  FlushOptions fo;
+  fo.wait = true;
+  std::string value;
+
+  ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
+  // Needs insert some keys to make sure files are not filtered out by key
+  // ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  dbfull()->Flush(fo);
+
+  Reopen(options);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+
+  // Reopen with whole key filtering enabled and prefix extractor
+  // NULL. Bloom filter should be off for both of whole key and
+  // prefix bloom.
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.prefix_extractor.reset();
+  Reopen(options);
+
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  // Write DB with only full key filtering.
+  ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
+  // Needs insert some keys to make sure files are not filtered out by key
+  // ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  db_->CompactRange(nullptr, nullptr);
+
+  // Reopen with both of whole key off and prefix extractor enabled.
+  // Still no bloom filter should be used.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+
+  // Try to create a DB with mixed files:
+  ASSERT_OK(dbfull()->Put(wo, "foobar", "foo"));
+  // Needs insert some keys to make sure files are not filtered out by key
+  // ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  db_->CompactRange(nullptr, nullptr);
+
+  options.prefix_extractor.reset();
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+
+  // Try to create a DB with mixed files.
+  ASSERT_OK(dbfull()->Put(wo, "barfoo", "bar"));
+  // In this case needs insert some keys to make sure files are
+  // not filtered out by key ranges.
+  ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
+  ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
+  Flush();
+
+  // Now we have two files:
+  // File 1: An older file with prefix bloom.
+  // File 2: A newer file with whole bloom filter.
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 1);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 2);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 3);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 4);
+  ASSERT_EQ("bar", Get("barfoo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 4);
+
+  // Reopen with the same setting: only whole key is used
+  Reopen(options);
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 4);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 5);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 6);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 7);
+  ASSERT_EQ("bar", Get("barfoo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 7);
+
+  // Restart with both filters are allowed
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 7);
+  // File 1 will has it filtered out.
+  // File 2 will not, as prefix `foo` exists in the file.
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 8);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 10);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 11);
+  ASSERT_EQ("bar", Get("barfoo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 11);
+
+  // Restart with only prefix bloom is allowed.
+  options.prefix_extractor.reset(NewFixedPrefixTransform(3));
+  bbto.whole_key_filtering = false;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  Reopen(options);
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 11);
+  ASSERT_EQ("NOT_FOUND", Get("foo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 11);
+  ASSERT_EQ("NOT_FOUND", Get("bar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
+  ASSERT_EQ("foo", Get("foobar"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
+  ASSERT_EQ("bar", Get("barfoo"));
+  ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 12);
+}
+
 TEST(DBTest, IterSeekBeforePrev) {
   ASSERT_OK(Put("a", "b"));
   ASSERT_OK(Put("c", "d"));

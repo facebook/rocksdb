@@ -171,10 +171,11 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, BlockContents&& contents)
+    const BlockBasedTableOptions& table_opt, bool whole_key_filtering,
+    BlockContents&& contents)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
-      whole_key_filtering_(table_opt.whole_key_filtering),
+      whole_key_filtering_(whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),
       num_(0),

@@ -33,6 +33,7 @@
 #include "table/block_builder.h"
 #include "table/filter_block.h"
 #include "table/block_based_filter_block.h"
+#include "table/block_based_table_factory.h"
 #include "table/full_filter_block.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
@@ -292,7 +293,8 @@ FilterBlockBuilder* CreateFilterBlockBuilder(const ImmutableCFOptions& opt,
   if (filter_bits_builder == nullptr) {
     return new BlockBasedFilterBlockBuilder(opt.prefix_extractor, table_opt);
   } else {
-    return new FullFilterBlockBuilder(opt.prefix_extractor, table_opt,
+    return new FullFilterBlockBuilder(opt.prefix_extractor,
+                                      table_opt.whole_key_filtering,
                                       filter_bits_builder);
   }
 }
@@ -387,8 +389,11 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     : public TablePropertiesCollector {
  public:
   explicit BlockBasedTablePropertiesCollector(
-      BlockBasedTableOptions::IndexType index_type)
-      : index_type_(index_type) {}
+      BlockBasedTableOptions::IndexType index_type, bool whole_key_filtering,
+      bool prefix_filtering)
+      : index_type_(index_type),
+        whole_key_filtering_(whole_key_filtering),
+        prefix_filtering_(prefix_filtering) {}
 
   virtual Status Add(const Slice& key, const Slice& value) {
     // Intentionally left blank. Have no interest in collecting stats for
@@ -400,6 +405,10 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     std::string val;
     PutFixed32(&val, static_cast<uint32_t>(index_type_));
     properties->insert({BlockBasedTablePropertyNames::kIndexType, val});
+    properties->insert({BlockBasedTablePropertyNames::kWholeKeyFiltering,
+                        whole_key_filtering_ ? kPropTrue : kPropFalse});
+    properties->insert({BlockBasedTablePropertyNames::kPrefixFiltering,
+                        prefix_filtering_ ? kPropTrue : kPropFalse});
     return Status::OK();
   }
 
@@ -415,6 +424,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
 
  private:
   BlockBasedTableOptions::IndexType index_type_;
+  bool whole_key_filtering_;
+  bool prefix_filtering_;
 };
 
 struct BlockBasedTableBuilder::Rep {
@@ -473,7 +484,9 @@ struct BlockBasedTableBuilder::Rep {
           collector_factories->CreateTablePropertiesCollector());
     }
     table_properties_collectors.emplace_back(
-        new BlockBasedTablePropertiesCollector(table_options.index_type));
+        new BlockBasedTablePropertiesCollector(
+            table_options.index_type, table_options.whole_key_filtering,
+            _ioptions.prefix_extractor != nullptr));
   }
 };
 
@@ -851,5 +864,4 @@ uint64_t BlockBasedTableBuilder::FileSize() const {
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";
 const std::string BlockBasedTable::kFullFilterBlockPrefix = "fullfilter.";
-
 }  // namespace rocksdb

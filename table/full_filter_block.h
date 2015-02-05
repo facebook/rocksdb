@@ -36,7 +36,7 @@ class FilterBitsReader;
 class FullFilterBlockBuilder : public FilterBlockBuilder {
  public:
   explicit FullFilterBlockBuilder(const SliceTransform* prefix_extractor,
-                                  const BlockBasedTableOptions& table_opt,
+                                  bool whole_key_filtering,
                                   FilterBitsBuilder* filter_bits_builder);
   // bits_builder is created in filter_policy, it should be passed in here
   // directly. and be deleted here
@@ -73,11 +73,11 @@ class FullFilterBlockReader : public FilterBlockReader {
   // REQUIRES: "contents" and filter_bits_reader must stay live
   // while *this is live.
   explicit FullFilterBlockReader(const SliceTransform* prefix_extractor,
-                                 const BlockBasedTableOptions& table_opt,
+                                 bool whole_key_filtering,
                                  const Slice& contents,
                                  FilterBitsReader* filter_bits_reader);
   explicit FullFilterBlockReader(const SliceTransform* prefix_extractor,
-                                 const BlockBasedTableOptions& table_opt,
+                                 bool whole_key_filtering,
                                  BlockContents&& contents,
                                  FilterBitsReader* filter_bits_reader);
 

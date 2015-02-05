@@ -74,6 +74,7 @@ class BlockBasedFilterBlockReader : public FilterBlockReader {
   // REQUIRES: "contents" and *policy must stay live while *this is live.
   BlockBasedFilterBlockReader(const SliceTransform* prefix_extractor,
                               const BlockBasedTableOptions& table_opt,
+                              bool whole_key_filtering,
                               BlockContents&& contents);
   virtual bool IsBlockBased() override { return true; }
   virtual bool KeyMayMatch(const Slice& key,

@@ -158,8 +158,14 @@ TableFactory* NewBlockBasedTableFactory(
 
 const std::string BlockBasedTablePropertyNames::kIndexType =
     "rocksdb.block.based.table.index.type";
+const std::string BlockBasedTablePropertyNames::kWholeKeyFiltering =
+    "rocksdb.block.based.table.whole.key.filtering";
+const std::string BlockBasedTablePropertyNames::kPrefixFiltering =
+    "rocksdb.block.based.table.prefix.filtering";
 const std::string kHashIndexPrefixesBlock = "rocksdb.hashindex.prefixes";
 const std::string kHashIndexPrefixesMetadataBlock =
     "rocksdb.hashindex.metadata";
+const std::string kPropTrue = "1";
+const std::string kPropFalse = "0";
 
 }  // namespace rocksdb

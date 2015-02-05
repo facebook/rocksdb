@@ -27,6 +27,7 @@
 #include "table/block.h"
 #include "table/filter_block.h"
 #include "table/block_based_filter_block.h"
+#include "table/block_based_table_factory.h"
 #include "table/full_filter_block.h"
 #include "table/block_hash_index.h"
 #include "table/block_prefix_index.h"
@@ -324,7 +325,9 @@ struct BlockBasedTable::Rep {
         env_options(_env_options),
         table_options(_table_opt),
         filter_policy(_table_opt.filter_policy.get()),
-        internal_comparator(_internal_comparator) {}
+        internal_comparator(_internal_comparator),
+        whole_key_filtering(_table_opt.whole_key_filtering),
+        prefix_filtering(true) {}
 
   const ImmutableCFOptions& ioptions;
   const EnvOptions& env_options;
@@ -349,6 +352,8 @@ struct BlockBasedTable::Rep {
   std::shared_ptr<const TableProperties> table_properties;
   BlockBasedTableOptions::IndexType index_type;
   bool hash_index_allow_collision;
+  bool whole_key_filtering;
+  bool prefix_filtering;
   // TODO(kailiu) It is very ugly to use internal key in table, since table
   // module should not be relying on db module. However to make things easier
   // and compatible with existing code, we introduce a wrapper that allows
@@ -427,6 +432,27 @@ void BlockBasedTable::GenerateCachePrefix(Cache* cc,
   }
 }
 
+namespace {
+// Return True if table_properties has `user_prop_name` has a `true` value
+// or it doesn't contain this property (for backward compatible).
+bool IsFeatureSupported(const TableProperties& table_properties,
+                        const std::string& user_prop_name, Logger* info_log) {
+  auto& props = table_properties.user_collected_properties;
+  auto pos = props.find(user_prop_name);
+  // Older version doesn't have this value set. Skip this check.
+  if (pos != props.end()) {
+    if (pos->second == kPropFalse) {
+      return false;
+    } else if (pos->second != kPropTrue) {
+      Log(InfoLogLevel::WARN_LEVEL, info_log,
+          "Property %s has invalidate value %s", user_prop_name.c_str(),
+          pos->second.c_str());
+    }
+  }
+  return true;
+}
+}  // namespace
+
 Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const EnvOptions& env_options,
                              const BlockBasedTableOptions& table_options,
@@ -494,6 +520,17 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
   } else {
     Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
         "Cannot find Properties block from file.");
+  }
+
+  // Determine whether whole key filtering is supported.
+  if (rep->table_properties) {
+    rep->whole_key_filtering &=
+        IsFeatureSupported(*(rep->table_properties),
+                           BlockBasedTablePropertyNames::kWholeKeyFiltering,
+                           rep->ioptions.info_log);
+    rep->prefix_filtering &= IsFeatureSupported(
+        *(rep->table_properties),
+        BlockBasedTablePropertyNames::kPrefixFiltering, rep->ioptions.info_log);
   }
 
   // Will use block cache for index/filter blocks access?
@@ -748,16 +785,15 @@ FilterBlockReader* BlockBasedTable::ReadFilter(
       assert(rep->filter_policy);
       if (kFilterBlockPrefix == prefix) {
         return new BlockBasedFilterBlockReader(
-            rep->ioptions.prefix_extractor, rep->table_options,
-            std::move(block));
+            rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+            rep->table_options, rep->whole_key_filtering, std::move(block));
       } else if (kFullFilterBlockPrefix == prefix) {
         auto filter_bits_reader = rep->filter_policy->
             GetFilterBitsReader(block.data);
         if (filter_bits_reader != nullptr) {
-          return new FullFilterBlockReader(rep->ioptions.prefix_extractor,
-                                           rep->table_options,
-                                           std::move(block),
-                                           filter_bits_reader);
+          return new FullFilterBlockReader(
+              rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+              rep->whole_key_filtering, std::move(block), filter_bits_reader);
         }
       } else {
         assert(false);
@@ -1403,9 +1439,9 @@ Status BlockBasedTable::DumpTable(WritableFile* out_file) {
         BlockContents block;
         if (ReadBlockContents(rep_->file.get(), rep_->footer, ReadOptions(),
                               handle, &block, rep_->ioptions.env, false).ok()) {
-          rep_->filter.reset(
-              new BlockBasedFilterBlockReader(rep_->ioptions.prefix_extractor,
-                                              table_options, std::move(block)));
+          rep_->filter.reset(new BlockBasedFilterBlockReader(
+              rep_->ioptions.prefix_extractor, table_options,
+              table_options.whole_key_filtering, std::move(block)));
         }
       }
     }

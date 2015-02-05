@@ -14,6 +14,7 @@
 * MemEnv (env that stores data in memory) is now available in default library build. You can create it by calling NewMemEnv().
 * Add SliceTransform.SameResultWhenAppended() to help users determine it is safe to apply prefix bloom/hash.
 * Block based table now makes use of prefix bloom filter if it is a full fulter.
+* Block based table remembers whether a whole key or prefix based bloom filter is supported in SST files. Do a sanity check when reading the file with users' configuration.
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option
