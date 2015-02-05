@@ -111,7 +111,6 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
-	db_test \
 	db_iter_test \
 	block_hash_index_test \
 	autovector_test \
