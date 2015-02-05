@@ -2596,7 +2596,8 @@ TEST(DBTest, IgnoreRecoveredLog) {
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
     options.wal_dir = dbname_ + "/logs";
-    DestroyAndReopen(options);
+    Destroy(options);
+    Reopen(options);
 
     // fill up the DB
     std::string one, two;
