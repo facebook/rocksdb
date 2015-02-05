@@ -113,13 +113,11 @@ class VersionStorageInfo {
 
   // Updates internal structures that keep track of compaction scores
   // We use compaction scores to figure out which compaction to do next
-  // REQUIRES: If Version is not yet saved to current_, it can be called without
-  // a lock. Once a version is saved to current_, call only with mutex held
+  // REQUIRES: db_mutex held!!
   // TODO find a better way to pass compaction_options_fifo.
   void ComputeCompactionScore(
       const MutableCFOptions& mutable_cf_options,
-      const CompactionOptionsFIFO& compaction_options_fifo,
-      std::vector<uint64_t>& size_being_compacted);
+      const CompactionOptionsFIFO& compaction_options_fifo);
 
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
@@ -365,10 +363,9 @@ class Version {
            Status* status, MergeContext* merge_context,
            bool* value_found = nullptr);
 
-  // Update scores, pre-calculated variables. It needs to be called before
-  // applying the version to the version set.
-  void PrepareApply(const MutableCFOptions& mutable_cf_options,
-                    std::vector<uint64_t>& size_being_compacted);
+  // Loads some stats information from files. Call without mutex held. It needs
+  // to be called before applying the version to the version set.
+  void PrepareApply();
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)

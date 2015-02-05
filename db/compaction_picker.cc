@@ -23,6 +23,7 @@
 
 namespace rocksdb {
 
+namespace {
 uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   uint64_t sum = 0;
   for (size_t i = 0; i < files.size() && files[i]; i++) {
@@ -31,7 +32,6 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-namespace {
 // Determine compression type, based on user options, level of the output
 // file and whether compression is disabled.
 // If enable_compression is false, then compression is always disabled no
@@ -70,19 +70,6 @@ CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
 }
 
 CompactionPicker::~CompactionPicker() {}
-
-void CompactionPicker::SizeBeingCompacted(std::vector<uint64_t>& sizes) {
-  for (int level = 0; level < NumberLevels() - 1; level++) {
-    uint64_t total = 0;
-    for (auto c : compactions_in_progress_[level]) {
-      assert(c->level() == level);
-      for (size_t i = 0; i < c->num_input_files(0); i++) {
-        total += c->input(0, i)->compensated_file_size;
-      }
-    }
-    sizes[level] = total;
-  }
-}
 
 // Clear all files to indicate that they are not being compacted
 // Delete this compaction from the list of running compactions.
@@ -763,13 +750,9 @@ Compaction* LevelCompactionPicker::PickCompaction(
   // being compacted). Since we just changed compaction score, we recalculate it
   // here
   {  // this piece of code recomputes compaction score
-    std::vector<uint64_t> size_being_compacted(NumberLevels() - 1);
-    SizeBeingCompacted(size_being_compacted);
-
     CompactionOptionsFIFO dummy_compaction_options_fifo;
     vstorage->ComputeCompactionScore(mutable_cf_options,
-                                     dummy_compaction_options_fifo,
-                                     size_being_compacted);
+                                     dummy_compaction_options_fifo);
   }
 
   return c;

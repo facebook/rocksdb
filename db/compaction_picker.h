@@ -91,10 +91,6 @@ class CompactionPicker {
   // Free up the files that participated in a compaction
   void ReleaseCompactionFiles(Compaction* c, Status status);
 
-  // Return the total amount of data that is undergoing
-  // compactions per level
-  void SizeBeingCompacted(std::vector<uint64_t>& sizes);
-
   // Returns true if any one of the specified files are being compacted
   bool FilesInCompaction(const std::vector<FileMetaData*>& files);
 
@@ -313,8 +309,5 @@ class NullCompactionPicker : public CompactionPicker {
   }
 };
 #endif  // !ROCKSDB_LITE
-
-// Utility function
-extern uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files);
 
 }  // namespace rocksdb

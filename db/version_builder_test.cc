@@ -74,8 +74,6 @@ class VersionBuilderTest {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.ComputeCompactionScore(mutable_cf_options_, fifo_options_,
-                                    size_being_compacted_);
     vstorage_.UpdateFilesBySize();
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.GenerateFileIndexer();

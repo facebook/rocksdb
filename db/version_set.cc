@@ -850,12 +850,8 @@ void VersionStorageInfo::GenerateLevelFilesBrief() {
   }
 }
 
-void Version::PrepareApply(const MutableCFOptions& mutable_cf_options,
-                           std::vector<uint64_t>& size_being_compacted) {
+void Version::PrepareApply() {
   UpdateAccumulatedStats();
-  storage_info_.ComputeCompactionScore(
-      mutable_cf_options, cfd_->ioptions()->compaction_options_fifo,
-      size_being_compacted);
   storage_info_.UpdateFilesBySize();
   storage_info_.UpdateNumNonEmptyLevels();
   storage_info_.GenerateFileIndexer();
@@ -947,7 +943,9 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
   for (int level = 0; level < num_levels_; level++) {
     for (auto* file_meta : files_[level]) {
       // Here we only compute compensated_file_size for those file_meta
-      // which compensated_file_size is uninitialized (== 0).
+      // which compensated_file_size is uninitialized (== 0). This is true only
+      // for files that have been created right now and no other thread has
+      // access to them. That's why we can safely mutate compensated_file_size.
       if (file_meta->compensated_file_size == 0) {
         file_meta->compensated_file_size = file_meta->fd.GetFileSize() +
             file_meta->num_deletions * average_value_size *
@@ -966,8 +964,7 @@ int VersionStorageInfo::MaxInputLevel() const {
 
 void VersionStorageInfo::ComputeCompactionScore(
     const MutableCFOptions& mutable_cf_options,
-    const CompactionOptionsFIFO& compaction_options_fifo,
-    std::vector<uint64_t>& size_being_compacted) {
+    const CompactionOptionsFIFO& compaction_options_fifo) {
   double max_score = 0;
   int max_score_level = 0;
 
@@ -1008,9 +1005,13 @@ void VersionStorageInfo::ComputeCompactionScore(
       }
     } else {
       // Compute the ratio of current size to size limit.
-      const uint64_t level_bytes =
-          TotalCompensatedFileSize(files_[level]) - size_being_compacted[level];
-      score = static_cast<double>(level_bytes) /
+      uint64_t level_bytes_no_compacting = 0;
+      for (auto f : files_[level]) {
+        if (f && f->being_compacted == false) {
+          level_bytes_no_compacting += f->compensated_file_size;
+        }
+      }
+      score = static_cast<double>(level_bytes_no_compacting) /
               mutable_cf_options.MaxBytesForLevel(level);
       if (max_score < score) {
         max_score = score;
@@ -1527,6 +1528,11 @@ VersionSet::~VersionSet() {
 
 void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
                                Version* v) {
+  // compute new compaction score
+  v->storage_info()->ComputeCompactionScore(
+      *column_family_data->GetLatestMutableCFOptions(),
+      column_family_data->ioptions()->compaction_options_fifo);
+
   // Mark v finalized
   v->storage_info_.SetFinalized();
 
@@ -1637,13 +1643,6 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
   // Unlock during expensive operations. New writes cannot get here
   // because &w is ensuring that all new writes get queued.
   {
-    std::vector<uint64_t> size_being_compacted;
-    if (!edit->IsColumnFamilyManipulation()) {
-      size_being_compacted.resize(v->storage_info()->num_levels() - 1);
-      // calculate the amount of data being compacted at every level
-      column_family_data->compaction_picker()->SizeBeingCompacted(
-          size_being_compacted);
-    }
 
     mu->Unlock();
 
@@ -1674,7 +1673,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply(mutable_cf_options, size_being_compacted);
+      v->PrepareApply();
     }
 
     // Write new record to MANIFEST log
@@ -2097,10 +2096,7 @@ Status VersionSet::Recover(
       builder->SaveTo(v->storage_info());
 
       // Install recovered version
-      std::vector<uint64_t> size_being_compacted(
-          v->storage_info()->num_levels() - 1);
-      cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions(), size_being_compacted);
+      v->PrepareApply();
       AppendVersion(cfd, v);
     }
 
@@ -2434,10 +2430,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
       Version* v = new Version(cfd, this, current_version_number_++);
       builder->SaveTo(v->storage_info());
-      std::vector<uint64_t> size_being_compacted(
-          v->storage_info()->num_levels() - 1);
-      cfd->compaction_picker()->SizeBeingCompacted(size_being_compacted);
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions(), size_being_compacted);
+      v->PrepareApply();
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
              cfd->GetName().c_str(), (unsigned int)cfd->GetID());
