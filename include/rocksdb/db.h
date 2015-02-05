@@ -44,6 +44,7 @@ class ColumnFamilyHandle {
  public:
   virtual ~ColumnFamilyHandle() {}
   virtual const std::string& GetName() const = 0;
+  virtual uint32_t GetID() const = 0;
 };
 extern const std::string kDefaultColumnFamilyName;
 
