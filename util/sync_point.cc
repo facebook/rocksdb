@@ -34,6 +34,20 @@ bool SyncPoint::PredecessorsAllCleared(const std::string& point) {
   return true;
 }
 
+void SyncPoint::SetCallBack(const std::string point,
+                            std::function<void()> callback) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  callbacks_[point] = callback;
+}
+
+void SyncPoint::ClearAllCallBacks() {
+  std::unique_lock<std::mutex> lock(mutex_);
+  while (num_callbacks_running_ > 0) {
+    cv_.wait(lock);
+  }
+  callbacks_.clear();
+}
+
 void SyncPoint::EnableProcessing() {
   std::unique_lock<std::mutex> lock(mutex_);
   enabled_ = true;
@@ -53,6 +67,16 @@ void SyncPoint::Process(const std::string& point) {
   std::unique_lock<std::mutex> lock(mutex_);
 
   if (!enabled_) return;
+
+  auto callback_pair = callbacks_.find(point);
+  if (callback_pair != callbacks_.end()) {
+    num_callbacks_running_++;
+    mutex_.unlock();
+    callback_pair->second();
+    mutex_.lock();
+    num_callbacks_running_--;
+    cv_.notify_all();
+  }
 
   while (!PredecessorsAllCleared(point)) {
     cv_.wait(lock);

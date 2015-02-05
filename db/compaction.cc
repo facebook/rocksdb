@@ -39,13 +39,13 @@ void Compaction::SetInputVersion(Version* _input_version) {
   edit_->SetColumnFamily(cfd_->GetID());
 }
 
-Compaction::Compaction(int number_levels, int start_level, int out_level,
+Compaction::Compaction(int number_levels, int _start_level, int out_level,
                        uint64_t target_file_size,
                        uint64_t max_grandparent_overlap_bytes,
                        uint32_t output_path_id,
                        CompressionType output_compression, bool seek_compaction,
                        bool deletion_compaction)
-    : start_level_(start_level),
+    : start_level_(_start_level),
       output_level_(out_level),
       max_output_file_size_(target_file_size),
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
@@ -240,6 +240,32 @@ void Compaction::SetupBottomMostLevel(VersionStorageInfo* vstorage,
       break;
     }
   }
+}
+
+// Sample output:
+// If compacting 3 L0 files, 2 L3 files and 1 L4 file, and outputting to L5,
+// print: "3@0 + 2@3 + 1@4 files to L5"
+const char* Compaction::InputLevelSummary(
+    InputLevelSummaryBuffer* scratch) const {
+  int len = 0;
+  bool is_first = true;
+  for (auto& input_level : inputs_) {
+    if (input_level.empty()) {
+      continue;
+    }
+    if (!is_first) {
+      len +=
+          snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, " + ");
+    } else {
+      is_first = false;
+    }
+    len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+                    "%zu@%d", input_level.size(), input_level.level);
+  }
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+           " files to L%d", output_level());
+
+  return scratch->buffer;
 }
 
 void Compaction::ReleaseCompactionFiles(Status status) {

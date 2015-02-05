@@ -92,50 +92,52 @@ TEST(OptionsTest, LooseCondition) {
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
 TEST(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
-    {"write_buffer_size", "1"},
-    {"max_write_buffer_number", "2"},
-    {"min_write_buffer_number_to_merge", "3"},
-    {"compression", "kSnappyCompression"},
-    {"compression_per_level", "kNoCompression:"
-                              "kSnappyCompression:"
-                              "kZlibCompression:"
-                              "kBZip2Compression:"
-                              "kLZ4Compression:"
-                              "kLZ4HCCompression"},
-    {"compression_opts", "4:5:6"},
-    {"num_levels", "7"},
-    {"level0_file_num_compaction_trigger", "8"},
-    {"level0_slowdown_writes_trigger", "9"},
-    {"level0_stop_writes_trigger", "10"},
-    {"max_mem_compaction_level", "11"},
-    {"target_file_size_base", "12"},
-    {"target_file_size_multiplier", "13"},
-    {"max_bytes_for_level_base", "14"},
-    {"max_bytes_for_level_multiplier", "15"},
-    {"max_bytes_for_level_multiplier_additional", "16:17:18"},
-    {"expanded_compaction_factor", "19"},
-    {"source_compaction_factor", "20"},
-    {"max_grandparent_overlap_factor", "21"},
-    {"soft_rate_limit", "1.1"},
-    {"hard_rate_limit", "2.1"},
-    {"arena_block_size", "22"},
-    {"disable_auto_compactions", "true"},
-    {"purge_redundant_kvs_while_flush", "1"},
-    {"compaction_style", "kCompactionStyleLevel"},
-    {"verify_checksums_in_compaction", "false"},
-    {"compaction_options_fifo", "23"},
-    {"filter_deletes", "0"},
-    {"max_sequential_skip_in_iterations", "24"},
-    {"inplace_update_support", "true"},
-    {"inplace_update_num_locks", "25"},
-    {"memtable_prefix_bloom_bits", "26"},
-    {"memtable_prefix_bloom_probes", "27"},
-    {"memtable_prefix_bloom_huge_page_tlb_size", "28"},
-    {"bloom_locality", "29"},
-    {"max_successive_merges", "30"},
-    {"min_partial_merge_operands", "31"},
-    {"prefix_extractor", "fixed:31"},
-    {"optimize_filters_for_hits", "true"},
+      {"write_buffer_size", "1"},
+      {"max_write_buffer_number", "2"},
+      {"min_write_buffer_number_to_merge", "3"},
+      {"compression", "kSnappyCompression"},
+      {"compression_per_level",
+       "kNoCompression:"
+       "kSnappyCompression:"
+       "kZlibCompression:"
+       "kBZip2Compression:"
+       "kLZ4Compression:"
+       "kLZ4HCCompression"},
+      {"compression_opts", "4:5:6"},
+      {"num_levels", "7"},
+      {"level0_file_num_compaction_trigger", "8"},
+      {"level0_slowdown_writes_trigger", "9"},
+      {"level0_stop_writes_trigger", "10"},
+      {"max_mem_compaction_level", "11"},
+      {"target_file_size_base", "12"},
+      {"target_file_size_multiplier", "13"},
+      {"max_bytes_for_level_base", "14"},
+      {"level_compaction_dynamic_level_bytes", "true"},
+      {"max_bytes_for_level_multiplier", "15"},
+      {"max_bytes_for_level_multiplier_additional", "16:17:18"},
+      {"expanded_compaction_factor", "19"},
+      {"source_compaction_factor", "20"},
+      {"max_grandparent_overlap_factor", "21"},
+      {"soft_rate_limit", "1.1"},
+      {"hard_rate_limit", "2.1"},
+      {"arena_block_size", "22"},
+      {"disable_auto_compactions", "true"},
+      {"purge_redundant_kvs_while_flush", "1"},
+      {"compaction_style", "kCompactionStyleLevel"},
+      {"verify_checksums_in_compaction", "false"},
+      {"compaction_options_fifo", "23"},
+      {"filter_deletes", "0"},
+      {"max_sequential_skip_in_iterations", "24"},
+      {"inplace_update_support", "true"},
+      {"inplace_update_num_locks", "25"},
+      {"memtable_prefix_bloom_bits", "26"},
+      {"memtable_prefix_bloom_probes", "27"},
+      {"memtable_prefix_bloom_huge_page_tlb_size", "28"},
+      {"bloom_locality", "29"},
+      {"max_successive_merges", "30"},
+      {"min_partial_merge_operands", "31"},
+      {"prefix_extractor", "fixed:31"},
+      {"optimize_filters_for_hits", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -198,6 +200,7 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.target_file_size_base, static_cast<uint64_t>(12));
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
+  ASSERT_EQ(new_cf_opt.level_compaction_dynamic_level_bytes, true);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier, 15);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional.size(), 3U);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_multiplier_additional[0], 16);

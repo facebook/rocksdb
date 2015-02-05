@@ -108,8 +108,7 @@ Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
                         const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
-  auto cf_options = SanitizeOptions(icmp, ColumnFamilyOptions(src),
-                                    db_options.info_log.get());
+  auto cf_options = SanitizeOptions(db_options, icmp, ColumnFamilyOptions(src));
   return Options(db_options, cf_options);
 }
 
@@ -1514,8 +1513,7 @@ int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
     // stop if level i is not empty
     if (vstorage->NumLevelFiles(i) > 0) break;
     // stop if level i is too small (cannot fit the level files)
-    if (mutable_cf_options.MaxBytesForLevel(i) <
-        vstorage->NumLevelBytes(level)) {
+    if (vstorage->MaxBytesForLevel(i) < vstorage->NumLevelBytes(level)) {
       break;
     }
 

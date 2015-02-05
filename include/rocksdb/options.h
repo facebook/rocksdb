@@ -343,6 +343,65 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   uint64_t max_bytes_for_level_base;
 
+  // If true, RocksDB will pick target size of each level dynamically.
+  // We will pick a base level b >= 1. L0 will be directly merged into level b,
+  // instead of always into level 1. Level 1 to b-1 need to be empty.
+  // We try to pick b and its target size so that
+  // 1. target size is in the range of
+  //   (max_bytes_for_level_base / max_bytes_for_level_multiplier,
+  //    max_bytes_for_level_base]
+  // 2. target size of the last level (level num_levels-1) equals to extra size
+  //    of the level.
+  // At the same time max_bytes_for_level_multiplier and
+  // max_bytes_for_level_multiplier_additional are still satisfied.
+  //
+  // With this option on, from an empty DB, we make last level the base level,
+  // which means merging L0 data into the last level, until it exceeds
+  // max_bytes_for_level_base. And then we make the second last level to be
+  // base level, to start to merge L0 data to second last level, with its
+  // target size to be 1/max_bytes_for_level_multiplier of the last level's
+  // extra size. After the data accumulates more so that we need to move the
+  // base level to the third last one, and so on.
+  //
+  // For example, assume max_bytes_for_level_multiplier=10, num_levels=6,
+  // and max_bytes_for_level_base=10MB.
+  // Target sizes of level 1 to 5 starts with:
+  // [- - - - 10MB]
+  // with base level is level. Target sizes of level 1 to 4 are not applicable
+  // because they will not be used.
+  // Until the size of Level 5 grows to more than 10MB, say 11MB, we make
+  // base target to level 4 and now the targets looks like:
+  // [- - - 1.1MB 11MB]
+  // While data are accumulated, size targets are tuned based on actual data
+  // of level 5. When level 5 has 50MB of data, the target is like:
+  // [- - - 5MB 50MB]
+  // Until level 5's actual size is more than 100MB, say 101MB. Now if we keep
+  // level 4 to be the base level, its target size needs to be 10.1MB, which
+  // doesn't satisfy the target size range. So now we make level 3 the target
+  // size and the target sizes of the levels look like:
+  // [- - 1.01MB 10.1MB 101MB]
+  // In the same way, while level 5 further grows, all levels' targets grow,
+  // like
+  // [- - 5MB 50MB 500MB]
+  // Until level 5 exceeds 1000MB and becomes 1001MB, we make level 2 the
+  // base level and make levels' target sizes like this:
+  // [- 1.001MB 10.01MB 100.1MB 1001MB]
+  // and go on...
+  //
+  // By doing it, we give max_bytes_for_level_multiplier a priority against
+  // max_bytes_for_level_base, for a more predictable LSM tree shape. It is
+  // useful to limit worse case space amplification.
+  //
+  // max_bytes_for_level_multiplier_additional is ignored with this flag on.
+  //
+  // Turning this feature on or off for an existing DB can cause unexpected
+  // LSM tree structure so it's not recommended.
+  //
+  // NOTE: this option is experimental
+  //
+  // Default: false
+  bool level_compaction_dynamic_level_bytes;
+
   // Default: 10.
   //
   // Dynamically changeable through SetOptions() API

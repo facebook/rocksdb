@@ -139,10 +139,9 @@ class CompactionPicker {
                               VersionStorageInfo* vstorage, Compaction* c);
 
   // Returns true if any one of the parent files are being compacted
-  bool ParentRangeInCompaction(VersionStorageInfo* vstorage,
-                               const InternalKey* smallest,
-                               const InternalKey* largest, int level,
-                               int* index);
+  bool RangeInCompaction(VersionStorageInfo* vstorage,
+                         const InternalKey* smallest,
+                         const InternalKey* largest, int level, int* index);
 
   void SetupOtherInputs(const std::string& cf_name,
                         const MutableCFOptions& mutable_cf_options,

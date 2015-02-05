@@ -51,6 +51,7 @@ enum DBPropertyType : uint32_t {
   kNumSnapshots,                  // Number of snapshots in the system
   kOldestSnapshotTime,            // Unix timestamp of the first snapshot
   kNumLiveVersions,
+  kBaseLevel,  // The level that L0 data is compacted to
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,

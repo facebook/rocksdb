@@ -231,15 +231,19 @@ void CompactionJob::Prepare() {
   compact_->CleanupBatchBuffer();
   compact_->CleanupMergedBuffer();
 
+  auto* compaction = compact_->compaction;
+
   // Generate file_levels_ for compaction berfore making Iterator
-  compact_->compaction->GenerateFileLevels();
+  compaction->GenerateFileLevels();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   assert(cfd != nullptr);
-  LogToBuffer(
-      log_buffer_, "[%s] [JOB %d] Compacting %d@%d + %d@%d files, score %.2f",
-      cfd->GetName().c_str(), job_id_, compact_->compaction->num_input_files(0),
-      compact_->compaction->level(), compact_->compaction->num_input_files(1),
-      compact_->compaction->output_level(), compact_->compaction->score());
+  {
+    Compaction::InputLevelSummaryBuffer inputs_summary;
+    LogToBuffer(log_buffer_, "[%s] [JOB %d] Compacting %s, score %.2f",
+                cfd->GetName().c_str(), job_id_,
+                compaction->InputLevelSummary(&inputs_summary),
+                compaction->score());
+  }
   char scratch[2345];
   compact_->compaction->Summary(scratch, sizeof(scratch));
   LogToBuffer(log_buffer_, "[%s] Compaction start summary: %s\n",
@@ -959,39 +963,40 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
 Status CompactionJob::InstallCompactionResults(InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
 
+  auto* compaction = compact_->compaction;
   // paranoia: verify that the files that we started with
   // still exist in the current version and in the same original level.
   // This ensures that a concurrent compaction did not erroneously
   // pick the same files to compact_.
-  if (!versions_->VerifyCompactionFileConsistency(compact_->compaction)) {
+  if (!versions_->VerifyCompactionFileConsistency(compaction)) {
+    Compaction::InputLevelSummaryBuffer inputs_summary;
+
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "[%s] [JOB %d] Compaction %d@%d + %d@%d files aborted",
-        compact_->compaction->column_family_data()->GetName().c_str(), job_id_,
-        compact_->compaction->num_input_files(0), compact_->compaction->level(),
-        compact_->compaction->num_input_files(1),
-        compact_->compaction->output_level());
+        "[%s] [JOB %d] Compaction %s aborted",
+        compaction->column_family_data()->GetName().c_str(), job_id_,
+        compaction->InputLevelSummary(&inputs_summary));
     return Status::Corruption("Compaction input files inconsistent");
   }
 
-  Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-      "[%s] [JOB %d] Compacted %d@%d + %d@%d files => %" PRIu64 " bytes",
-      compact_->compaction->column_family_data()->GetName().c_str(), job_id_,
-      compact_->compaction->num_input_files(0), compact_->compaction->level(),
-      compact_->compaction->num_input_files(1),
-      compact_->compaction->output_level(), compact_->total_bytes);
+  {
+    Compaction::InputLevelSummaryBuffer inputs_summary;
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "[%s] [JOB %d] Compacted %s => %" PRIu64 " bytes",
+        compaction->column_family_data()->GetName().c_str(), job_id_,
+        compaction->InputLevelSummary(&inputs_summary), compact_->total_bytes);
+  }
 
   // Add compaction outputs
-  compact_->compaction->AddInputDeletions(compact_->compaction->edit());
+  compaction->AddInputDeletions(compact_->compaction->edit());
   for (size_t i = 0; i < compact_->outputs.size(); i++) {
     const CompactionState::Output& out = compact_->outputs[i];
-    compact_->compaction->edit()->AddFile(
-        compact_->compaction->output_level(), out.number, out.path_id,
-        out.file_size, out.smallest, out.largest, out.smallest_seqno,
-        out.largest_seqno);
+    compaction->edit()->AddFile(
+        compaction->output_level(), out.number, out.path_id, out.file_size,
+        out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
   }
-  return versions_->LogAndApply(
-      compact_->compaction->column_family_data(), mutable_cf_options_,
-      compact_->compaction->edit(), db_mutex, db_directory_);
+  return versions_->LogAndApply(compaction->column_family_data(),
+                                mutable_cf_options_, compaction->edit(),
+                                db_mutex, db_directory_);
 }
 
 // Given a sequence number, return the sequence number of the

@@ -410,6 +410,9 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
           ParseInt(value.substr(start, value.size() - start));
     } else if (name == "num_levels") {
       new_options->num_levels = ParseInt(value);
+    } else if (name == "level_compaction_dynamic_level_bytes") {
+      new_options->level_compaction_dynamic_level_bytes =
+          ParseBoolean(name, value);
     } else if (name == "purge_redundant_kvs_while_flush") {
       new_options->purge_redundant_kvs_while_flush =
           ParseBoolean(name, value);

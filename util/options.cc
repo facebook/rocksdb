@@ -35,43 +35,48 @@
 namespace rocksdb {
 
 ImmutableCFOptions::ImmutableCFOptions(const Options& options)
-  : compaction_style(options.compaction_style),
-    compaction_options_universal(options.compaction_options_universal),
-    compaction_options_fifo(options.compaction_options_fifo),
-    prefix_extractor(options.prefix_extractor.get()),
-    comparator(options.comparator),
-    merge_operator(options.merge_operator.get()),
-    compaction_filter(options.compaction_filter),
-    compaction_filter_factory(options.compaction_filter_factory.get()),
-    compaction_filter_factory_v2(options.compaction_filter_factory_v2.get()),
-    inplace_update_support(options.inplace_update_support),
-    inplace_callback(options.inplace_callback),
-    info_log(options.info_log.get()),
-    statistics(options.statistics.get()),
-    env(options.env),
-    allow_mmap_reads(options.allow_mmap_reads),
-    allow_mmap_writes(options.allow_mmap_writes),
-    db_paths(options.db_paths),
-    memtable_factory(options.memtable_factory.get()),
-    table_factory(options.table_factory.get()),
-    table_properties_collector_factories(
-        options.table_properties_collector_factories),
-    advise_random_on_open(options.advise_random_on_open),
-    bloom_locality(options.bloom_locality),
-    purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
-    min_partial_merge_operands(options.min_partial_merge_operands),
-    disable_data_sync(options.disableDataSync),
-    use_fsync(options.use_fsync),
-    compression(options.compression),
-    compression_per_level(options.compression_per_level),
-    compression_opts(options.compression_opts),
-    access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-    num_levels(options.num_levels),
-    optimize_filters_for_hits(options.optimize_filters_for_hits)
+    : compaction_style(options.compaction_style),
+      compaction_options_universal(options.compaction_options_universal),
+      compaction_options_fifo(options.compaction_options_fifo),
+      prefix_extractor(options.prefix_extractor.get()),
+      comparator(options.comparator),
+      merge_operator(options.merge_operator.get()),
+      compaction_filter(options.compaction_filter),
+      compaction_filter_factory(options.compaction_filter_factory.get()),
+      compaction_filter_factory_v2(options.compaction_filter_factory_v2.get()),
+      inplace_update_support(options.inplace_update_support),
+      inplace_callback(options.inplace_callback),
+      info_log(options.info_log.get()),
+      statistics(options.statistics.get()),
+      env(options.env),
+      allow_mmap_reads(options.allow_mmap_reads),
+      allow_mmap_writes(options.allow_mmap_writes),
+      db_paths(options.db_paths),
+      memtable_factory(options.memtable_factory.get()),
+      table_factory(options.table_factory.get()),
+      table_properties_collector_factories(
+          options.table_properties_collector_factories),
+      advise_random_on_open(options.advise_random_on_open),
+      bloom_locality(options.bloom_locality),
+      purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
+      min_partial_merge_operands(options.min_partial_merge_operands),
+      disable_data_sync(options.disableDataSync),
+      use_fsync(options.use_fsync),
+      compression(options.compression),
+      compression_per_level(options.compression_per_level),
+      compression_opts(options.compression_opts),
+      level_compaction_dynamic_level_bytes(
+          options.level_compaction_dynamic_level_bytes),
+      access_hint_on_compaction_start(options.access_hint_on_compaction_start),
+      num_levels(options.num_levels),
+      optimize_filters_for_hits(options.optimize_filters_for_hits)
 #ifndef ROCKSDB_LITE
-    , listeners(options.listeners) {}
+      ,
+      listeners(options.listeners) {
+}
 #else  // ROCKSDB_LITE
-    {}
+{
+}
 #endif  // ROCKSDB_LITE
 
 ColumnFamilyOptions::ColumnFamilyOptions()
@@ -94,6 +99,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       target_file_size_base(2 * 1048576),
       target_file_size_multiplier(1),
       max_bytes_for_level_base(10 * 1048576),
+      level_compaction_dynamic_level_bytes(false),
       max_bytes_for_level_multiplier(10),
       max_bytes_for_level_multiplier_additional(num_levels, 1),
       expanded_compaction_factor(25),
@@ -123,9 +129,10 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false)
 #ifndef ROCKSDB_LITE
-      , listeners() {
+      ,
+      listeners() {
 #else  // ROCKSDB_LITE
-      {
+{
 #endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
 }
@@ -153,6 +160,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       target_file_size_base(options.target_file_size_base),
       target_file_size_multiplier(options.target_file_size_multiplier),
       max_bytes_for_level_base(options.max_bytes_for_level_base),
+      level_compaction_dynamic_level_bytes(
+          options.level_compaction_dynamic_level_bytes),
       max_bytes_for_level_multiplier(options.max_bytes_for_level_multiplier),
       max_bytes_for_level_multiplier_additional(
           options.max_bytes_for_level_multiplier_additional),
@@ -189,9 +198,10 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits)
 #ifndef ROCKSDB_LITE
-      , listeners(options.listeners) {
+      ,
+      listeners(options.listeners) {
 #else   // ROCKSDB_LITE
-      {
+{
 #endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
@@ -411,6 +421,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         target_file_size_multiplier);
     Log(log,"               Options.max_bytes_for_level_base: %" PRIu64,
         max_bytes_for_level_base);
+    Log(log, "Options.level_compaction_dynamic_level_bytes: %d",
+        level_compaction_dynamic_level_bytes);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
     for (int i = 0; i < num_levels; i++) {

@@ -142,6 +142,8 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kOldestSnapshotTime;
   } else if (in == "num-live-versions") {
     return kNumLiveVersions;
+  } else if (in == "base-level") {
+    return kBaseLevel;
   }
   return kUnknown;
 }
@@ -284,6 +286,9 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       *value = db->IsFileDeletionsEnabled();
       return true;
 #endif
+    case kBaseLevel:
+      *value = vstorage->base_level();
+      return true;
     default:
       return false;
   }

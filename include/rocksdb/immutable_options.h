@@ -87,6 +87,8 @@ struct ImmutableCFOptions {
 
   CompressionOptions compression_opts;
 
+  bool level_compaction_dynamic_level_bytes;
+
   Options::AccessHint access_hint_on_compaction_start;
 
   int num_levels;

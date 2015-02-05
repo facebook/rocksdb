@@ -52,6 +52,8 @@ class Compaction {
     return inputs_[compaction_input_level].level;
   }
 
+  int start_level() const { return start_level_; }
+
   // Outputs will go to this level
   int output_level() const { return output_level_; }
 
@@ -188,6 +190,12 @@ class Compaction {
   CompactionInputFiles* TEST_GetInputFiles(int l) {
     return &inputs_[l];
   }
+
+  struct InputLevelSummaryBuffer {
+    char buffer[128];
+  };
+
+  const char* InputLevelSummary(InputLevelSummaryBuffer* scratch) const;
 
  private:
   friend class CompactionPicker;

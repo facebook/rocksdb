@@ -2825,9 +2825,8 @@ TEST(DBTest, IgnoreRecoveredLog) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
-    options.wal_dir = dbname_ + "/wal";
-    Destroy(options);
-    Reopen(options);
+    options.wal_dir = dbname_ + "/logs";
+    DestroyAndReopen(options);
 
     // fill up the DB
     std::string one, two;
@@ -10183,6 +10182,239 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS
+
+TEST(DBTest, DynamicLevelMaxBytesBase) {
+  // Use InMemoryEnv, or it would be too slow.
+  unique_ptr<Env> env(new MockEnv(env_));
+
+  const int kNKeys = 1000;
+  int keys[kNKeys];
+
+  auto verify_func = [&]() {
+    for (int i = 0; i < kNKeys; i++) {
+      ASSERT_NE("NOT_FOUND", Get(Key(i)));
+      ASSERT_NE("NOT_FOUND", Get(Key(kNKeys * 2 + i)));
+      if (i < kNKeys / 10) {
+        ASSERT_EQ("NOT_FOUND", Get(Key(kNKeys + keys[i])));
+      } else {
+        ASSERT_NE("NOT_FOUND", Get(Key(kNKeys + keys[i])));
+      }
+    }
+  };
+
+  Random rnd(301);
+  for (int ordered_insert = 0; ordered_insert <= 1; ordered_insert++) {
+    for (int i = 0; i < kNKeys; i++) {
+      keys[i] = i;
+    }
+    if (ordered_insert == 0) {
+      std::random_shuffle(std::begin(keys), std::end(keys));
+    }
+    for (int max_background_compactions = 1; max_background_compactions < 4;
+         max_background_compactions += 2) {
+      Options options;
+      options.env = env.get();
+      options.create_if_missing = true;
+      options.db_write_buffer_size = 2048;
+      options.write_buffer_size = 2048;
+      options.max_write_buffer_number = 2;
+      options.level0_file_num_compaction_trigger = 2;
+      options.level0_slowdown_writes_trigger = 2;
+      options.level0_stop_writes_trigger = 2;
+      options.target_file_size_base = 2048;
+      options.level_compaction_dynamic_level_bytes = true;
+      options.max_bytes_for_level_base = 10240;
+      options.max_bytes_for_level_multiplier = 4;
+      options.hard_rate_limit = 1.1;
+      options.max_background_compactions = max_background_compactions;
+      options.num_levels = 5;
+
+      DestroyAndReopen(options);
+
+      for (int i = 0; i < kNKeys; i++) {
+        int key = keys[i];
+        ASSERT_OK(Put(Key(kNKeys + key), RandomString(&rnd, 102)));
+        ASSERT_OK(Put(Key(key), RandomString(&rnd, 102)));
+        ASSERT_OK(Put(Key(kNKeys * 2 + key), RandomString(&rnd, 102)));
+        ASSERT_OK(Delete(Key(kNKeys + keys[i / 10])));
+        env_->SleepForMicroseconds(5000);
+      }
+
+      uint64_t int_prop;
+      ASSERT_TRUE(db_->GetIntProperty("rocksdb.background-errors", &int_prop));
+      ASSERT_EQ(0U, int_prop);
+
+      // Verify DB
+      for (int j = 0; j < 2; j++) {
+        verify_func();
+        if (j == 0) {
+          Reopen(options);
+        }
+      }
+
+      // Test compact range works
+      dbfull()->CompactRange(nullptr, nullptr);
+      // All data should be in the last level.
+      ColumnFamilyMetaData cf_meta;
+      db_->GetColumnFamilyMetaData(&cf_meta);
+      ASSERT_EQ(5U, cf_meta.levels.size());
+      for (int i = 0; i < 4; i++) {
+        ASSERT_EQ(0U, cf_meta.levels[i].files.size());
+      }
+      ASSERT_GT(cf_meta.levels[4U].files.size(), 0U);
+      verify_func();
+
+      Close();
+    }
+  }
+
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->SetBackgroundThreads(1, Env::HIGH);
+}
+
+// Test specific cases in dynamic max bytes
+TEST(DBTest, DynamicLevelMaxBytesBase2) {
+  Random rnd(301);
+  int kMaxKey = 1000000;
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.db_write_buffer_size = 2048;
+  options.write_buffer_size = 2048;
+  options.max_write_buffer_number = 2;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 9999;
+  options.level0_stop_writes_trigger = 9999;
+  options.target_file_size_base = 2048;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = 10240;
+  options.max_bytes_for_level_multiplier = 4;
+  options.max_background_compactions = 2;
+  options.num_levels = 5;
+  options.expanded_compaction_factor = 0;  // Force not expanding in compactions
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "true"},
+  }));
+
+  uint64_t int_prop;
+  std::string str_prop;
+
+  // Initial base level is the last level
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+  ASSERT_EQ(4U, int_prop);
+
+  // Put about 7K to L0
+  for (int i = 0; i < 70; i++) {
+    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
+                  RandomString(&rnd, 80)));
+  }
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "false"},
+  }));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+  ASSERT_EQ(4U, int_prop);
+
+  // Insert extra about 3.5K to L0. After they are compacted to L4, base level
+  // should be changed to L3.
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "true"},
+  }));
+  for (int i = 0; i < 70; i++) {
+    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
+                  RandomString(&rnd, 80)));
+  }
+
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "false"},
+  }));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+  ASSERT_EQ(3U, int_prop);
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level3", &str_prop));
+  ASSERT_EQ("0", str_prop);
+
+  // Trigger parallel compaction, and the first one would change the base
+  // level.
+  // Hold compaction jobs to make sure
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "CompactionJob::Run:Start",
+      [&]() { env_->SleepForMicroseconds(100000); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "true"},
+  }));
+  // Write about 10K more
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
+                  RandomString(&rnd, 80)));
+  }
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "false"},
+  }));
+  Flush();
+  // Wait for 200 milliseconds before proceeding compactions to make sure two
+  // parallel ones are executed.
+  env_->SleepForMicroseconds(200000);
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+  ASSERT_EQ(3U, int_prop);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  // Trigger a condition that the compaction changes base level and L0->Lbase
+  // happens at the same time.
+  // We try to make last levels' targets to be 10K, 40K, 160K, add triggers
+  // another compaction from 40K->160K.
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "true"},
+  }));
+  // Write about 150K more
+  for (int i = 0; i < 1350; i++) {
+    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
+                  RandomString(&rnd, 80)));
+  }
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "false"},
+  }));
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+  ASSERT_EQ(2U, int_prop);
+
+  // Keep Writing data until base level changed 2->1. There will be L0->L2
+  // compaction going on at the same time.
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  for (int attempt = 0; attempt <= 20; attempt++) {
+    // Write about 5K more data with two flushes. It should be flush to level 2
+    // but when it is applied, base level is already 1.
+    for (int i = 0; i < 50; i++) {
+      ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
+                    RandomString(&rnd, 80)));
+    }
+    Flush();
+
+    ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+    if (int_prop == 2U) {
+      env_->SleepForMicroseconds(50000);
+    } else {
+      break;
+    }
+  }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+
+  env_->SleepForMicroseconds(200000);
+
+  ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
+  ASSERT_EQ(1U, int_prop);
+}
 
 TEST(DBTest, DynamicCompactionOptions) {
   // minimum write buffer size is enforced at 64KB

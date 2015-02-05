@@ -79,8 +79,6 @@ struct MutableCFOptions {
 
   // Get the max file size in a given level.
   uint64_t MaxFileSizeForLevel(int level) const;
-  // Returns maximum total bytes of data on a given level.
-  uint64_t MaxBytesForLevel(int level) const;
   // Returns maximum total overlap bytes with grandparent
   // level (i.e., level+2) before we stop building a single
   // file in level->level+1 compaction.
@@ -124,8 +122,8 @@ struct MutableCFOptions {
   // Derived options
   // Per-level target file size.
   std::vector<uint64_t> max_file_size;
-  // Per-level max bytes
-  std::vector<uint64_t> level_max_bytes;
 };
+
+uint64_t MultiplyCheckOverflow(uint64_t op1, int op2);
 
 }  // namespace rocksdb

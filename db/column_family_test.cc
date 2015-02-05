@@ -1020,7 +1020,7 @@ TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
 }
 
 TEST(ColumnFamilyTest, SanitizeOptions) {
-  DumbLogger logger;
+  DBOptions db_options;
   for (int i = 1; i <= 3; i++) {
     for (int j = 1; j <= 3; j++) {
       for (int k = 1; k <= 3; k++) {
@@ -1028,7 +1028,8 @@ TEST(ColumnFamilyTest, SanitizeOptions) {
         original.level0_stop_writes_trigger = i;
         original.level0_slowdown_writes_trigger = j;
         original.level0_file_num_compaction_trigger = k;
-        ColumnFamilyOptions result = SanitizeOptions(NULL, original, &logger);
+        ColumnFamilyOptions result =
+            SanitizeOptions(db_options, nullptr, original);
         ASSERT_TRUE(result.level0_stop_writes_trigger >=
                     result.level0_slowdown_writes_trigger);
         ASSERT_TRUE(result.level0_slowdown_writes_trigger >=

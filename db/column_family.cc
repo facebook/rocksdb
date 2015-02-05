@@ -100,9 +100,9 @@ const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
   return cfd()->user_comparator();
 }
 
-ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
-                                    const ColumnFamilyOptions& src,
-                                    Logger* info_log) {
+ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
+                                    const InternalKeyComparator* icmp,
+                                    const ColumnFamilyOptions& src) {
   ColumnFamilyOptions result = src;
   result.comparator = icmp;
 #ifdef OS_MACOSX
@@ -168,7 +168,7 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
           result.level0_slowdown_writes_trigger ||
       result.level0_slowdown_writes_trigger <
           result.level0_file_num_compaction_trigger) {
-    Warn(info_log,
+    Warn(db_options.info_log.get(),
          "This condition must be satisfied: "
          "level0_stop_writes_trigger(%d) >= "
          "level0_slowdown_writes_trigger(%d) >= "
@@ -185,7 +185,7 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
         result.level0_slowdown_writes_trigger) {
       result.level0_stop_writes_trigger = result.level0_slowdown_writes_trigger;
     }
-    Warn(info_log,
+    Warn(db_options.info_log.get(),
          "Adjust the value to "
          "level0_stop_writes_trigger(%d)"
          "level0_slowdown_writes_trigger(%d)"
@@ -193,6 +193,16 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
          result.level0_stop_writes_trigger,
          result.level0_slowdown_writes_trigger,
          result.level0_file_num_compaction_trigger);
+  }
+  if (result.level_compaction_dynamic_level_bytes) {
+    if (result.compaction_style != kCompactionStyleLevel ||
+        db_options.db_paths.size() > 1U) {
+      // 1. level_compaction_dynamic_level_bytes only makes sense for
+      //    level-based compaction.
+      // 2. we don't yet know how to make both of this feature and multiple
+      //    DB path work.
+      result.level_compaction_dynamic_level_bytes = false;
+    }
   }
 
   return result;
@@ -269,8 +279,8 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       dropped_(false),
       internal_comparator_(cf_options.comparator),
-      options_(*db_options, SanitizeOptions(&internal_comparator_, cf_options,
-                                            db_options->info_log.get())),
+      options_(*db_options,
+               SanitizeOptions(*db_options, &internal_comparator_, cf_options)),
       ioptions_(options_),
       mutable_cf_options_(options_, ioptions_),
       write_buffer_(write_buffer),

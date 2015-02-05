@@ -122,9 +122,9 @@ struct SuperVersion {
   static void* const kSVObsolete;
 };
 
-extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
-                                           const ColumnFamilyOptions& src,
-                                           Logger* info_log);
+extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
+                                           const InternalKeyComparator* icmp,
+                                           const ColumnFamilyOptions& src);
 
 class ColumnFamilySet;
 

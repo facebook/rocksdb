@@ -335,6 +335,9 @@ DEFINE_int32(target_file_size_multiplier, 1,
 
 DEFINE_uint64(max_bytes_for_level_base,  10 * 1048576, "Max bytes for level-1");
 
+DEFINE_bool(level_compaction_dynamic_level_bytes, false,
+            "Whether level size base is dynamic");
+
 DEFINE_int32(max_bytes_for_level_multiplier, 10,
              "A multiplier to compute max bytes for level-N (N >= 2)");
 
@@ -1933,6 +1936,8 @@ class Benchmark {
     options.target_file_size_base = FLAGS_target_file_size_base;
     options.target_file_size_multiplier = FLAGS_target_file_size_multiplier;
     options.max_bytes_for_level_base = FLAGS_max_bytes_for_level_base;
+    options.level_compaction_dynamic_level_bytes =
+        FLAGS_level_compaction_dynamic_level_bytes;
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;

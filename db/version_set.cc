@@ -726,6 +726,7 @@ VersionStorageInfo::VersionStorageInfo(
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
+      base_level_(1),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
@@ -856,10 +857,11 @@ void VersionStorageInfo::GenerateLevelFilesBrief() {
   }
 }
 
-void Version::PrepareApply() {
+void Version::PrepareApply(const MutableCFOptions& mutable_cf_options) {
   UpdateAccumulatedStats();
-  storage_info_.UpdateFilesBySize();
   storage_info_.UpdateNumNonEmptyLevels();
+  storage_info_.CalculateBaseBytes(*cfd_->ioptions(), mutable_cf_options);
+  storage_info_.UpdateFilesBySize();
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
 }
@@ -1018,7 +1020,7 @@ void VersionStorageInfo::ComputeCompactionScore(
         }
       }
       score = static_cast<double>(level_bytes_no_compacting) /
-              mutable_cf_options.MaxBytesForLevel(level);
+              MaxBytesForLevel(level);
       if (max_score < score) {
         max_score = score;
         max_score_level = level;
@@ -1075,6 +1077,45 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
              0);
   f->refs++;
   level_files->push_back(f);
+}
+
+// Version::PrepareApply() need to be called before calling the function, or
+// following functions called:
+// 1. UpdateNumNonEmptyLevels();
+// 2. CalculateBaseBytes();
+// 3. UpdateFilesBySize();
+// 4. GenerateFileIndexer();
+// 5. GenerateLevelFilesBrief();
+void VersionStorageInfo::SetFinalized() {
+  finalized_ = true;
+#ifndef NDEBUG
+  assert(base_level_ >= 1 && (num_levels() <= 1 || base_level_ < num_levels()));
+  // Verify all levels newer than base_level are empty except L0
+  for (int level = 1; level < base_level(); level++) {
+    assert(NumLevelBytes(level) == 0);
+  }
+  uint64_t max_bytes_prev_level = 0;
+  for (int level = base_level(); level < num_levels() - 1; level++) {
+    if (LevelFiles(level).size() == 0) {
+      continue;
+    }
+    assert(MaxBytesForLevel(level) >= max_bytes_prev_level);
+    max_bytes_prev_level = MaxBytesForLevel(level);
+  }
+  int num_empty_non_l0_level = 0;
+  for (int level = 0; level < num_levels(); level++) {
+    assert(LevelFiles(level).size() == 0 ||
+           LevelFiles(level).size() == LevelFilesBrief(level).num_files);
+    if (level > 0 && NumLevelBytes(level) > 0) {
+      num_empty_non_l0_level++;
+    }
+    if (LevelFiles(level).size() > 0) {
+      assert(level < num_non_empty_levels());
+    }
+  }
+  assert(compaction_level_.size() > 0);
+  assert(compaction_level_.size() == compaction_score_.size());
+#endif
 }
 
 void VersionStorageInfo::UpdateNumNonEmptyLevels() {
@@ -1399,7 +1440,15 @@ uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
 
 const char* VersionStorageInfo::LevelSummary(
     LevelSummaryStorage* scratch) const {
-  int len = snprintf(scratch->buffer, sizeof(scratch->buffer), "files[");
+  int len = 0;
+  if (num_levels() > 1) {
+    assert(base_level_ < static_cast<int>(level_max_bytes_.size()));
+    len = snprintf(scratch->buffer, sizeof(scratch->buffer),
+                   "base level %d max bytes base %" PRIu64, base_level_,
+                   level_max_bytes_[base_level_]);
+  }
+  len +=
+      snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, " files[");
   for (int i = 0; i < num_levels(); i++) {
     int sz = sizeof(scratch->buffer) - len;
     int ret = snprintf(scratch->buffer + len, sz, "%d ", int(files_[i].size()));
@@ -1450,6 +1499,113 @@ int64_t VersionStorageInfo::MaxNextLevelOverlappingBytes() {
     }
   }
   return result;
+}
+
+uint64_t VersionStorageInfo::MaxBytesForLevel(int level) const {
+  // Note: the result for level zero is not really used since we set
+  // the level-0 compaction threshold based on number of files.
+  assert(level >= 0);
+  assert(level < static_cast<int>(level_max_bytes_.size()));
+  return level_max_bytes_[level];
+}
+
+void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
+                                            const MutableCFOptions& options) {
+  level_max_bytes_.resize(ioptions.num_levels);
+  if (!ioptions.level_compaction_dynamic_level_bytes) {
+    base_level_ = 1;
+
+    // Calculate for static bytes base case
+    for (int i = 0; i < ioptions.num_levels; ++i) {
+      if (i == 0 && ioptions.compaction_style == kCompactionStyleUniversal) {
+        level_max_bytes_[i] = options.max_bytes_for_level_base;
+      } else if (i > 1) {
+        level_max_bytes_[i] = MultiplyCheckOverflow(
+            MultiplyCheckOverflow(level_max_bytes_[i - 1],
+                                  options.max_bytes_for_level_multiplier),
+            options.max_bytes_for_level_multiplier_additional[i - 1]);
+      } else {
+        level_max_bytes_[i] = options.max_bytes_for_level_base;
+      }
+    }
+  } else {
+    uint64_t max_level_size = 0;
+
+    int first_non_empty_level = -1;
+    // Find size of non-L0 level of most data.
+    // Cannot use the size of the last level because it can be empty or less
+    // than previous levels after compaction.
+    for (int i = 1; i < num_levels_; i++) {
+      uint64_t total_size = 0;
+      for (const auto& f : files_[i]) {
+        total_size += f->fd.GetFileSize();
+      }
+      if (total_size > 0 && first_non_empty_level == -1) {
+        first_non_empty_level = i;
+      }
+      if (total_size > max_level_size) {
+        max_level_size = total_size;
+      }
+    }
+
+    // Prefill every level's max bytes to disallow compaction from there.
+    for (int i = 0; i < num_levels_; i++) {
+      level_max_bytes_[i] = std::numeric_limits<uint64_t>::max();
+    }
+
+    if (max_level_size == 0) {
+      // No data for L1 and up. L0 compacts to last level directly.
+      // No compaction from L1+ needs to be scheduled.
+      base_level_ = num_levels_ - 1;
+    } else {
+      uint64_t base_bytes_max = options.max_bytes_for_level_base;
+      uint64_t base_bytes_min =
+          base_bytes_max / options.max_bytes_for_level_multiplier;
+
+      // Try whether we can make last level's target size to be max_level_size
+      uint64_t cur_level_size = max_level_size;
+      for (int i = num_levels_ - 2; i >= first_non_empty_level; i--) {
+        // Round up after dividing
+        cur_level_size /= options.max_bytes_for_level_multiplier;
+      }
+
+      // Calculate base level and its size.
+      int base_level_size;
+      if (cur_level_size <= base_bytes_min) {
+        // Case 1. If we make target size of last level to be max_level_size,
+        // target size of the first non-empty level would be smaller than
+        // base_bytes_min. We set it be base_bytes_min.
+        base_level_size = static_cast<int>(base_bytes_min + 1);
+        base_level_ = first_non_empty_level;
+        Warn(ioptions.info_log,
+             "More existing levels in DB than needed. "
+             "max_bytes_for_level_multiplier may not be guaranteed.");
+      } else {
+        // Find base level (where L0 data is compacted to).
+        base_level_ = first_non_empty_level;
+        while (base_level_ > 1 && cur_level_size > base_bytes_max) {
+          --base_level_;
+          cur_level_size =
+              cur_level_size / options.max_bytes_for_level_multiplier;
+        }
+        if (cur_level_size > base_bytes_max) {
+          // Even L1 will be too large
+          assert(base_level_ == 1);
+          base_level_size = static_cast<int>(base_bytes_max);
+        } else {
+          base_level_size = static_cast<int>(cur_level_size);
+        }
+      }
+
+      int level_size = base_level_size;
+      for (int i = base_level_; i < num_levels_; i++) {
+        if (i > base_level_) {
+          level_size = level_size * options.max_bytes_for_level_multiplier;
+        }
+        level_max_bytes_[i] = level_size;
+      }
+    }
+  }
 }
 
 void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
@@ -1679,7 +1835,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply();
+      v->PrepareApply(mutable_cf_options);
     }
 
     // Write new record to MANIFEST log
@@ -2102,7 +2258,7 @@ Status VersionSet::Recover(
       builder->SaveTo(v->storage_info());
 
       // Install recovered version
-      v->PrepareApply();
+      v->PrepareApply(*cfd->GetLatestMutableCFOptions());
       AppendVersion(cfd, v);
     }
 
@@ -2436,7 +2592,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
       Version* v = new Version(cfd, this, current_version_number_++);
       builder->SaveTo(v->storage_info());
-      v->PrepareApply();
+      v->PrepareApply(*cfd->GetLatestMutableCFOptions());
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
              cfd->GetName().c_str(), (unsigned int)cfd->GetID());
@@ -2700,6 +2856,18 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         "[%s] compaction output being applied to a different base version from"
         " input version",
         c->column_family_data()->GetName().c_str());
+    if (c->start_level() == 0 && c->num_input_levels() > 2U) {
+      // We are doing a L0->base_level compaction. The assumption is if
+      // base level is not L1, levels from L1 to base_level - 1 is empty.
+      // This is ensured by having one compaction from L0 going on at the
+      // same time in level-based compaction. So that during the time, no
+      // compaction/flush can put files to those levels.
+      for (int l = c->start_level() + 1; l < c->output_level(); l++) {
+        if (vstorage->NumLevelFiles(l) != 0) {
+          return false;
+        }
+      }
+    }
   }
 
   for (size_t input = 0; input < c->num_input_levels(); ++input) {
@@ -2797,6 +2965,9 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
 
   Version* v = new Version(new_cfd, this, current_version_number_++);
 
+  // Fill level target base information.
+  v->storage_info()->CalculateBaseBytes(*new_cfd->ioptions(),
+                                        *new_cfd->GetLatestMutableCFOptions());
   AppendVersion(new_cfd, v);
   // GetLatestMutableCFOptions() is safe here without mutex since the
   // cfd is not available to client

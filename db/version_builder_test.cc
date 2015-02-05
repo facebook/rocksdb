@@ -53,15 +53,17 @@ class VersionBuilderTest {
 
   void Add(int level, uint32_t file_number, const char* smallest,
            const char* largest, uint64_t file_size = 0, uint32_t path_id = 0,
-           SequenceNumber smallest_seq = 100,
-           SequenceNumber largest_seq = 100,
+           SequenceNumber smallest_seq = 100, SequenceNumber largest_seq = 100,
            uint64_t num_entries = 0, uint64_t num_deletions = 0,
-           bool sampled = false) {
+           bool sampled = false, SequenceNumber smallest_seqno = 0,
+           SequenceNumber largest_seqno = 0) {
     assert(level < vstorage_.num_levels());
     FileMetaData* f = new FileMetaData;
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = GetInternalKey(smallest, smallest_seq);
     f->largest = GetInternalKey(largest, largest_seq);
+    f->smallest_seqno = smallest_seqno;
+    f->largest_seqno = largest_seqno;
     f->compensated_file_size = file_size;
     f->refs = 0;
     f->num_entries = num_entries;
@@ -78,20 +80,31 @@ class VersionBuilderTest {
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.GenerateFileIndexer();
     vstorage_.GenerateLevelFilesBrief();
+    vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
     vstorage_.SetFinalized();
   }
 };
 
+void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
+  for (int i = 0; i < new_vstorage->num_levels(); i++) {
+    for (auto* f : new_vstorage->LevelFiles(i)) {
+      if (--f->refs == 0) {
+        delete f;
+      }
+    }
+  }
+}
+
 TEST(VersionBuilderTest, ApplyAndSaveTo) {
   Add(0, 1U, "150", "200", 100U);
-  // Level 1 score 1.2
+
   Add(1, 66U, "150", "200", 100U);
   Add(1, 88U, "201", "300", 100U);
-  // Level 2 score 1.8. File 7 is the largest. Should be picked
+
   Add(2, 6U, "150", "179", 100U);
   Add(2, 7U, "180", "220", 100U);
   Add(2, 8U, "221", "300", 100U);
-  // Level 3 score slightly larger than 1
+
   Add(3, 26U, "150", "170", 100U);
   Add(3, 27U, "171", "179", 100U);
   Add(3, 28U, "191", "220", 100U);
@@ -115,13 +128,83 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
   ASSERT_EQ(400U, new_vstorage.NumLevelBytes(2));
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(3));
 
-  for (int i = 0; i < new_vstorage.num_levels(); i++) {
-    for (auto* f : new_vstorage.LevelFiles(i)) {
-      if (--f->refs == 0) {
-        delete f;
-      }
-    }
-  }
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST(VersionBuilderTest, ApplyAndSaveToDynamic) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+
+  Add(0, 1U, "150", "200", 100U, 0, 200U, 200U, 0, 0, false, 200U, 200U);
+  Add(0, 88U, "201", "300", 100U, 0, 100U, 100U, 0, 0, false, 100U, 100U);
+
+  Add(4, 6U, "150", "179", 100U);
+  Add(4, 7U, "180", "220", 100U);
+  Add(4, 8U, "221", "300", 100U);
+
+  Add(5, 26U, "150", "170", 100U);
+  Add(5, 27U, "171", "179", 100U);
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.AddFile(3, 666, 0, 100U, GetInternalKey("301"),
+                       GetInternalKey("350"), 200, 200);
+  version_edit.DeleteFile(0, 1U);
+  version_edit.DeleteFile(0, 88U);
+
+  EnvOptions env_options;
+
+  VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr);
+  version_builder.Apply(&version_edit);
+  version_builder.SaveTo(&new_vstorage);
+
+  ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
+  ASSERT_EQ(100U, new_vstorage.NumLevelBytes(3));
+  ASSERT_EQ(300U, new_vstorage.NumLevelBytes(4));
+  ASSERT_EQ(200U, new_vstorage.NumLevelBytes(5));
+
+  UnrefFilesInVersion(&new_vstorage);
+}
+
+TEST(VersionBuilderTest, ApplyAndSaveToDynamic2) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+
+  Add(0, 1U, "150", "200", 100U, 0, 200U, 200U, 0, 0, false, 200U, 200U);
+  Add(0, 88U, "201", "300", 100U, 0, 100U, 100U, 0, 0, false, 100U, 100U);
+
+  Add(4, 6U, "150", "179", 100U);
+  Add(4, 7U, "180", "220", 100U);
+  Add(4, 8U, "221", "300", 100U);
+
+  Add(5, 26U, "150", "170", 100U);
+  Add(5, 27U, "171", "179", 100U);
+  UpdateVersionStorageInfo();
+
+  VersionEdit version_edit;
+  version_edit.AddFile(4, 666, 0, 100U, GetInternalKey("301"),
+                       GetInternalKey("350"), 200, 200);
+  version_edit.DeleteFile(0, 1U);
+  version_edit.DeleteFile(0, 88U);
+  version_edit.DeleteFile(4, 6U);
+  version_edit.DeleteFile(4, 7U);
+  version_edit.DeleteFile(4, 8U);
+
+  EnvOptions env_options;
+
+  VersionBuilder version_builder(env_options, nullptr, &vstorage_);
+
+  VersionStorageInfo new_vstorage(&icmp_, ucmp_, options_.num_levels,
+                                  kCompactionStyleLevel, nullptr);
+  version_builder.Apply(&version_edit);
+  version_builder.SaveTo(&new_vstorage);
+
+  ASSERT_EQ(0U, new_vstorage.NumLevelBytes(0));
+  ASSERT_EQ(100U, new_vstorage.NumLevelBytes(4));
+  ASSERT_EQ(200U, new_vstorage.NumLevelBytes(5));
+
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST(VersionBuilderTest, ApplyMultipleAndSaveTo) {
@@ -150,13 +233,7 @@ TEST(VersionBuilderTest, ApplyMultipleAndSaveTo) {
 
   ASSERT_EQ(500U, new_vstorage.NumLevelBytes(2));
 
-  for (int i = 0; i < new_vstorage.num_levels(); i++) {
-    for (auto* f : new_vstorage.LevelFiles(i)) {
-      if (--f->refs == 0) {
-        delete f;
-      }
-    }
-  }
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST(VersionBuilderTest, ApplyDeleteAndSaveTo) {
@@ -193,13 +270,7 @@ TEST(VersionBuilderTest, ApplyDeleteAndSaveTo) {
 
   ASSERT_EQ(300U, new_vstorage.NumLevelBytes(2));
 
-  for (int i = 0; i < new_vstorage.num_levels(); i++) {
-    for (auto* f : new_vstorage.LevelFiles(i)) {
-      if (--f->refs == 0) {
-        delete f;
-      }
-    }
-  }
+  UnrefFilesInVersion(&new_vstorage);
 }
 
 TEST(VersionBuilderTest, EstimatedActiveKeys) {
