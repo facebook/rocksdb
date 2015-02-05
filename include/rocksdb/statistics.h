@@ -81,6 +81,8 @@ enum Tickers : uint32_t {
   STALL_L0_NUM_FILES_MICROS,
   // Writer has to wait for compaction or flush to finish.
   STALL_MICROS,
+  // The wait time for db mutex.
+  DB_MUTEX_WAIT_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
   NO_ITERATORS,  // number of iterators currently open
 
@@ -163,6 +165,7 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
     {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
     {STALL_MICROS, "rocksdb.stall.micros"},
+    {DB_MUTEX_WAIT_MICROS, "rocksdb.db.mutex.wait.micros"},
     {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
     {NO_ITERATORS, "rocksdb.num.iterators"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},

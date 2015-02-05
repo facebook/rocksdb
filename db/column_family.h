@@ -21,9 +21,10 @@
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
 #include "db/table_cache.h"
-#include "util/thread_local.h"
 #include "db/flush_scheduler.h"
+#include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -38,6 +39,8 @@ class InternalStats;
 class ColumnFamilyData;
 class DBImpl;
 class LogBuffer;
+class InstrumentedMutex;
+class InstrumentedMutexLock;
 
 // ColumnFamilyHandleImpl is the class that clients use to access different
 // column families. It has non-trivial destructor, which gets called when client
@@ -45,7 +48,8 @@ class LogBuffer;
 class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  public:
   // create while holding the mutex
-  ColumnFamilyHandleImpl(ColumnFamilyData* cfd, DBImpl* db, port::Mutex* mutex);
+  ColumnFamilyHandleImpl(
+      ColumnFamilyData* cfd, DBImpl* db, InstrumentedMutex* mutex);
   // destroy without mutex
   virtual ~ColumnFamilyHandleImpl();
   virtual ColumnFamilyData* cfd() const { return cfd_; }
@@ -57,7 +61,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
  private:
   ColumnFamilyData* cfd_;
   DBImpl* db_;
-  port::Mutex* mutex_;
+  InstrumentedMutex* mutex_;
 };
 
 // Does not ref-count ColumnFamilyData
@@ -91,7 +95,7 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
   // Version number of the current SuperVersion
   uint64_t version_number;
-  port::Mutex* db_mutex;
+  InstrumentedMutex* db_mutex;
 
   // should be called outside the mutex
   SuperVersion() = default;
@@ -235,11 +239,11 @@ class ColumnFamilyData {
   SuperVersion* GetSuperVersion() { return super_version_; }
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
-  SuperVersion* GetReferencedSuperVersion(port::Mutex* db_mutex);
+  SuperVersion* GetReferencedSuperVersion(InstrumentedMutex* db_mutex);
   // thread-safe
   // Get SuperVersion stored in thread local storage. If it does not exist,
   // get a reference from a current SuperVersion.
-  SuperVersion* GetThreadLocalSuperVersion(port::Mutex* db_mutex);
+  SuperVersion* GetThreadLocalSuperVersion(InstrumentedMutex* db_mutex);
   // Try to return SuperVersion back to thread local storage. Retrun true on
   // success and false on failure. It fails when the thread local storage
   // contains anything other than SuperVersion::kSVInUse flag.
@@ -254,10 +258,10 @@ class ColumnFamilyData {
   // the clients to allocate SuperVersion outside of mutex.
   // IMPORTANT: Only call this from DBImpl::InstallSuperVersion()
   SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    port::Mutex* db_mutex,
+                                    InstrumentedMutex* db_mutex,
                                     const MutableCFOptions& mutable_cf_options);
   SuperVersion* InstallSuperVersion(SuperVersion* new_superversion,
-                                    port::Mutex* db_mutex);
+                                    InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
 

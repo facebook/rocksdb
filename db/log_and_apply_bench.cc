@@ -31,8 +31,8 @@ void BM_LogAndApply(int iters, int num_base_files) {
   WriteController wc;
   ColumnFamilyData* default_cfd;
   uint64_t fnum = 1;
-  port::Mutex mu;
-  MutexLock l(&mu);
+  InstrumentedMutex mu;
+  InstrumentedMutexLock l(&mu);
 
   BENCHMARK_SUSPEND {
     std::string dbname = test::TmpDir() + "/rocksdb_test_benchmark";

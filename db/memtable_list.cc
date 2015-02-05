@@ -164,7 +164,7 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
 // Record a successful flush in the manifest file
 Status MemTableList::InstallMemtableFlushResults(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    const autovector<MemTable*>& mems, VersionSet* vset, port::Mutex* mu,
+    const autovector<MemTable*>& mems, VersionSet* vset, InstrumentedMutex* mu,
     uint64_t file_number, autovector<MemTable*>* to_delete,
     Directory* db_directory, LogBuffer* log_buffer) {
   mu->AssertHeld();

@@ -470,7 +470,7 @@ Status CompactionJob::Run() {
   return status;
 }
 
-void CompactionJob::Install(Status* status, port::Mutex* db_mutex) {
+void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   cfd->internal_stats()->AddCompactionStats(
@@ -955,7 +955,7 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
   return s;
 }
 
-Status CompactionJob::InstallCompactionResults(port::Mutex* db_mutex) {
+Status CompactionJob::InstallCompactionResults(InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
 
   // paranoia: verify that the files that we started with

@@ -15,7 +15,7 @@
 namespace rocksdb {
 
 uint64_t DBImpl::TEST_GetLevel0TotalSize() {
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   return default_cf_handle_->cfd()->current()->storage_info()->NumLevelBytes(0);
 }
 
@@ -45,7 +45,7 @@ int64_t DBImpl::TEST_MaxNextLevelOverlappingBytes(
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
     cfd = cfh->cfd();
   }
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   return cfd->current()->storage_info()->MaxNextLevelOverlappingBytes();
 }
 
@@ -54,7 +54,7 @@ void DBImpl::TEST_GetFilesMetaData(
     std::vector<std::vector<FileMetaData>>* metadata) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   metadata->resize(NumberLevels());
   for (int level = 0; level < NumberLevels(); level++) {
     const std::vector<FileMetaData*>& files =
@@ -113,7 +113,7 @@ Status DBImpl::TEST_WaitForCompact() {
   // wait for compact. It actually waits for scheduled compaction
   // OR flush to finish.
 
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   while ((bg_compaction_scheduled_ || bg_flush_scheduled_) && bg_error_.ok()) {
     bg_cv_.Wait();
   }

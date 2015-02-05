@@ -31,7 +31,7 @@
 namespace rocksdb {
 
 Status DBImpl::DisableFileDeletions() {
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   ++disable_delete_obsolete_files_;
   if (disable_delete_obsolete_files_ == 1) {
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
@@ -48,7 +48,7 @@ Status DBImpl::EnableFileDeletions(bool force) {
   JobContext job_context;
   bool should_purge_files = false;
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     if (force) {
       // if force, we need to enable file deletions right away
       disable_delete_obsolete_files_ = 0;

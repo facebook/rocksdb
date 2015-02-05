@@ -11,6 +11,7 @@
 #include "util/thread_status_updater.h"
 
 namespace rocksdb {
+class ColumnFamilyData;
 
 
 // The static utility class for updating thread-local status.

@@ -197,7 +197,9 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       db_options_(SanitizeOptions(dbname, options)),
       stats_(db_options_.statistics.get()),
       db_lock_(nullptr),
-      mutex_(options.use_adaptive_mutex),
+      mutex_(stats_, env_,
+             DB_MUTEX_WAIT_MICROS,
+             options.use_adaptive_mutex),
       shutting_down_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
@@ -411,7 +413,7 @@ void DBImpl::MaybeDumpStats() {
         GetPropertyType("rocksdb.dbstats", &tmp1, &tmp2);
     std::string stats;
     {
-      MutexLock l(&mutex_);
+      InstrumentedMutexLock l(&mutex_);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         cfd->internal_stats()->GetStringProperty(cf_property_type,
                                                  "rocksdb.cfstats", &stats);
@@ -1225,7 +1227,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
 
   int max_level_with_files = 0;
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     Version* base = cfd->current();
     for (int level = 1; level < cfd->NumberLevels(); level++) {
       if (base->storage_info()->OverlapInLevel(level, begin, end)) {
@@ -1258,7 +1260,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   LogFlush(db_options_.info_log);
 
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     // an automatic compaction that has been scheduled might have been
     // preempted by the manual compactions. Need to schedule it back.
     MaybeScheduleFlushOrCompaction();
@@ -1276,7 +1278,7 @@ Status DBImpl::CompactFiles(
     // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
 #else
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   if (column_family == nullptr) {
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
   }
@@ -1471,7 +1473,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
   MutableCFOptions new_options;
   Status s;
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     s = cfd->SetOptions(options_map);
     if (s.ok()) {
       new_options = *cfd->GetLatestMutableCFOptions();
@@ -1607,14 +1609,14 @@ int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
 
 int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   return cfh->cfd()->GetSuperVersion()->
       mutable_cf_options.max_mem_compaction_level;
 }
 
 int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   return cfh->cfd()->GetSuperVersion()->
       mutable_cf_options.level0_stop_writes_trigger;
 }
@@ -1662,7 +1664,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     manual.end = &end_storage;
   }
 
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
 
   // When a manual compaction arrives, temporarily disable scheduling of
   // non-manual compactions and wait until the number of scheduled compaction
@@ -1717,7 +1719,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   Status s;
   {
     WriteContext context;
-    MutexLock guard_lock(&mutex_);
+    InstrumentedMutexLock guard_lock(&mutex_);
 
     if (cfd->imm()->size() == 0 && cfd->mem()->IsEmpty()) {
       // Nothing to flush
@@ -1750,7 +1752,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
 Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
   Status s;
   // Wait until the compaction completes
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   while (cfd->imm()->size() > 0 && bg_error_.ok()) {
     bg_cv_.Wait();
   }
@@ -1917,7 +1919,7 @@ void DBImpl::BackgroundCallFlush() {
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
@@ -1985,7 +1987,7 @@ void DBImpl::BackgroundCallCompaction() {
   MaybeDumpStats();
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
 
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
@@ -2352,11 +2354,11 @@ uint64_t DBImpl::CallFlushDuringCompaction(
 
 namespace {
 struct IterState {
-  IterState(DBImpl* _db, port::Mutex* _mu, SuperVersion* _super_version)
+  IterState(DBImpl* _db, InstrumentedMutex* _mu, SuperVersion* _super_version)
       : db(_db), mu(_mu), super_version(_super_version) {}
 
   DBImpl* db;
-  port::Mutex* mu;
+  InstrumentedMutex* mu;
   SuperVersion* super_version;
 };
 
@@ -2643,7 +2645,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
   Status s;
   *handle = nullptr;
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
 
     if (versions_->GetColumnFamilySet()->GetColumnFamily(column_family_name) !=
         nullptr) {
@@ -2691,7 +2693,7 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
           "Creating column family [%s] FAILED -- %s",
           column_family_name.c_str(), s.ToString().c_str());
     }
-  }  // MutexLock l(&mutex_)
+  }  // InstrumentedMutexLock l(&mutex_)
 
   // this is outside the mutex
   if (s.ok()) {
@@ -2716,7 +2718,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
 
   Status s;
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     if (cfd->IsDropped()) {
       s = Status::InvalidArgument("Column family already dropped!\n");
     }
@@ -2919,14 +2921,14 @@ const Snapshot* DBImpl::GetSnapshot() {
   int64_t unix_time = 0;
   env_->GetCurrentTime(&unix_time);  // Ignore error
 
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) return nullptr;
   return snapshots_.New(versions_->LastSequence(), unix_time);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   snapshots_.Delete(reinterpret_cast<const SnapshotImpl*>(s));
 }
 
@@ -3377,7 +3379,7 @@ bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
   } else {
     auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
     auto cfd = cfh->cfd();
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     return cfd->internal_stats()->GetStringProperty(property_type, property,
                                                     value);
   }
@@ -3403,7 +3405,7 @@ bool DBImpl::GetIntPropertyInternal(ColumnFamilyHandle* column_family,
   auto cfd = cfh->cfd();
 
   if (!need_out_of_mutex) {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     return cfd->internal_stats()->GetIntProperty(property_type, value, this);
   } else {
     SuperVersion* sv = GetAndRefSuperVersion(cfd);
@@ -3430,7 +3432,7 @@ void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
     // Release SuperVersion
     if (sv->Unref()) {
       {
-        MutexLock l(&mutex_);
+        InstrumentedMutexLock l(&mutex_);
         sv->Cleanup();
       }
       delete sv;
@@ -3447,7 +3449,7 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     v = cfd->current();
     v->Ref();
   }
@@ -3462,7 +3464,7 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
   }
 
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     v->Unref();
   }
 }
@@ -3530,7 +3532,7 @@ Status DBImpl::DeleteFile(std::string name) {
   VersionEdit edit;
   JobContext job_context(true);
   {
-    MutexLock l(&mutex_);
+    InstrumentedMutexLock l(&mutex_);
     status = versions_->GetMetadataForFile(number, &level, &metadata, &cfd);
     if (!status.ok()) {
       Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
@@ -3589,7 +3591,7 @@ Status DBImpl::DeleteFile(std::string name) {
 }
 
 void DBImpl::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
-  MutexLock l(&mutex_);
+  InstrumentedMutexLock l(&mutex_);
   versions_->GetLiveFilesMetaData(metadata);
 }
 

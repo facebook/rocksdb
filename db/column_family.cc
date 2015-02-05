@@ -66,7 +66,7 @@ uint64_t SlowdownAmount(int n, double bottom, double top) {
 }  // namespace
 
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
-    ColumnFamilyData* column_family_data, DBImpl* db, port::Mutex* mutex)
+    ColumnFamilyData* column_family_data, DBImpl* db, InstrumentedMutex* mutex)
     : cfd_(column_family_data), db_(db), mutex_(mutex) {
   if (cfd_ != nullptr) {
     cfd_->Ref();
@@ -482,7 +482,7 @@ Compaction* ColumnFamilyData::CompactRange(
 }
 
 SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
-    port::Mutex* db_mutex) {
+    InstrumentedMutex* db_mutex) {
   SuperVersion* sv = nullptr;
   sv = GetThreadLocalSuperVersion(db_mutex);
   sv->Ref();
@@ -493,7 +493,7 @@ SuperVersion* ColumnFamilyData::GetReferencedSuperVersion(
 }
 
 SuperVersion* ColumnFamilyData::GetThreadLocalSuperVersion(
-    port::Mutex* db_mutex) {
+    InstrumentedMutex* db_mutex) {
   SuperVersion* sv = nullptr;
   // The SuperVersion is cached in thread local storage to avoid acquiring
   // mutex when SuperVersion does not change since the last use. When a new
@@ -599,13 +599,13 @@ void ColumnFamilyData::NotifyOnFlushCompleted(
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
-    SuperVersion* new_superversion, port::Mutex* db_mutex) {
+    SuperVersion* new_superversion, InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();
   return InstallSuperVersion(new_superversion, db_mutex, mutable_cf_options_);
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
-    SuperVersion* new_superversion, port::Mutex* db_mutex,
+    SuperVersion* new_superversion, InstrumentedMutex* db_mutex,
     const MutableCFOptions& mutable_cf_options) {
   new_superversion->db_mutex = db_mutex;
   new_superversion->mutable_cf_options = mutable_cf_options;

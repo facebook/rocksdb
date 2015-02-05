@@ -36,6 +36,7 @@
 #include "db/log_reader.h"
 #include "db/file_indexer.h"
 #include "db/write_controller.h"
+#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -485,7 +486,7 @@ class VersionSet {
   Status LogAndApply(
       ColumnFamilyData* column_family_data,
       const MutableCFOptions& mutable_cf_options, VersionEdit* edit,
-      port::Mutex* mu, Directory* db_directory = nullptr,
+      InstrumentedMutex* mu, Directory* db_directory = nullptr,
       bool new_descriptor_log = false,
       const ColumnFamilyOptions* column_family_options = nullptr);
 
@@ -656,7 +657,7 @@ class VersionSet {
 
   void LogAndApplyCFHelper(VersionEdit* edit);
   void LogAndApplyHelper(ColumnFamilyData* cfd, VersionBuilder* b, Version* v,
-                         VersionEdit* edit, port::Mutex* mu);
+                         VersionEdit* edit, InstrumentedMutex* mu);
 };
 
 }  // namespace rocksdb

@@ -130,7 +130,7 @@ class CompactionJobTest {
   ColumnFamilyOptions cf_options_;
   WriteBuffer write_buffer_;
   std::unique_ptr<VersionSet> versions_;
-  port::Mutex mutex_;
+  InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 };

@@ -1487,11 +1487,11 @@ std::string Version::DebugString(bool hex) const {
 struct VersionSet::ManifestWriter {
   Status status;
   bool done;
-  port::CondVar cv;
+  InstrumentedCondVar cv;
   ColumnFamilyData* cfd;
   VersionEdit* edit;
 
-  explicit ManifestWriter(port::Mutex* mu, ColumnFamilyData* _cfd,
+  explicit ManifestWriter(InstrumentedMutex* mu, ColumnFamilyData* _cfd,
                           VersionEdit* e)
       : done(false), cv(mu), cfd(_cfd), edit(e) {}
 };
@@ -1556,7 +1556,7 @@ void VersionSet::AppendVersion(ColumnFamilyData* column_family_data,
 
 Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
                                const MutableCFOptions& mutable_cf_options,
-                               VersionEdit* edit, port::Mutex* mu,
+                               VersionEdit* edit, InstrumentedMutex* mu,
                                Directory* db_directory, bool new_descriptor_log,
                                const ColumnFamilyOptions* new_cf_options) {
   mu->AssertHeld();
@@ -1824,7 +1824,7 @@ void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
 
 void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
                                    VersionBuilder* builder, Version* v,
-                                   VersionEdit* edit, port::Mutex* mu) {
+                                   VersionEdit* edit, InstrumentedMutex* mu) {
   mu->AssertHeld();
   assert(!edit->IsColumnFamilyManipulation());
 
@@ -2275,8 +2275,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 
   MutableCFOptions mutable_cf_options(*options, ImmutableCFOptions(*options));
   VersionEdit ve;
-  port::Mutex dummy_mutex;
-  MutexLock l(&dummy_mutex);
+  InstrumentedMutex dummy_mutex;
+  InstrumentedMutexLock l(&dummy_mutex);
   return versions.LogAndApply(
       versions.GetColumnFamilySet()->GetDefault(),
       mutable_cf_options, &ve, &dummy_mutex, nullptr, true);

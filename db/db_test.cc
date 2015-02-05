@@ -10298,6 +10298,21 @@ TEST(DBTest, EncodeDecompressedBlockSizeTest) {
   }
 }
 
+TEST(DBTest, MutexWaitStats) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  CreateAndReopenWithCF({"pikachu"}, options);
+  const int64_t kMutexWaitDelay = 100;
+  ThreadStatusUtil::TEST_SetStateDelay(
+      ThreadStatus::STATE_MUTEX_WAIT, kMutexWaitDelay);
+  ASSERT_OK(Put("hello", "rocksdb"));
+  ASSERT_GE(TestGetTickerCount(
+            options, DB_MUTEX_WAIT_MICROS), kMutexWaitDelay);
+  ThreadStatusUtil::TEST_SetStateDelay(
+      ThreadStatus::STATE_MUTEX_WAIT, 0);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

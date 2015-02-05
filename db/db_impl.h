@@ -36,6 +36,7 @@
 #include "util/thread_local.h"
 #include "util/scoped_arena_iterator.h"
 #include "util/hash.h"
+#include "util/instrumented_mutex.h"
 #include "db/internal_stats.h"
 #include "db/write_controller.h"
 #include "db/flush_scheduler.h"
@@ -412,7 +413,7 @@ class DBImpl : public DB {
   FileLock* db_lock_;
 
   // State below is protected by mutex_
-  port::Mutex mutex_;
+  InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_compaction_scheduled_ goes down to 0
@@ -422,7 +423,7 @@ class DBImpl : public DB {
   // * whenever bg_flush_scheduled_ value decreases (i.e. whenever a flush is
   // done, even if it didn't make any progress)
   // * whenever there is an error in background flush or compaction
-  port::CondVar bg_cv_;
+  InstrumentedCondVar bg_cv_;
   uint64_t logfile_number_;
   unique_ptr<log::Writer> log_;
   bool log_dir_synced_;

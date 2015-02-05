@@ -53,6 +53,7 @@ struct ThreadStatus {
   // such as reading / writing a file or waiting for a mutex.
   enum StateType : int {
     STATE_UNKNOWN = 0,
+    STATE_MUTEX_WAIT = 1,
     NUM_STATE_TYPES
   };
 

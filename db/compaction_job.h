@@ -75,7 +75,7 @@ class CompactionJob {
   Status Run();
   // REQUIRED: mutex held
   // status is the return of Run()
-  void Install(Status* status, port::Mutex* db_mutex);
+  void Install(Status* status, InstrumentedMutex* db_mutex);
 
  private:
   void AllocateCompactionOutputFileNumbers();
@@ -86,7 +86,7 @@ class CompactionJob {
   // Call compaction_filter_v2->Filter() on kv-pairs in compact
   void CallCompactionFilterV2(CompactionFilterV2* compaction_filter_v2);
   Status FinishCompactionOutputFile(Iterator* input);
-  Status InstallCompactionResults(port::Mutex* db_mutex);
+  Status InstallCompactionResults(InstrumentedMutex* db_mutex);
   SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
       SequenceNumber* prev_snapshot);
