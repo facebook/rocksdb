@@ -133,6 +133,7 @@ static std::string Key(int i) {
 class SpecialEnv : public EnvWrapper {
  public:
   Random rnd_;
+  port::Mutex rnd_mutex_;  // Lock to pretect rnd_
 
   // sstable Sync() calls are blocked while this pointer is non-nullptr.
   std::atomic<bool> delay_sstable_sync_;
@@ -294,7 +295,11 @@ class SpecialEnv : public EnvWrapper {
     };
 
     if (non_writeable_rate_.load(std::memory_order_acquire) > 0) {
-      auto random_number = rnd_.Uniform(100);
+      uint32_t random_number;
+      {
+        MutexLock l(&rnd_mutex_);
+        random_number = rnd_.Uniform(100);
+      }
       if (random_number < non_writeable_rate_.load()) {
         return Status::IOError("simulated random write error");
       }
