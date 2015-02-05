@@ -31,7 +31,6 @@ class CompactionPickerTest {
   LogBuffer log_buffer_;
   uint32_t file_num_;
   CompactionOptionsFIFO fifo_options_;
-  std::vector<uint64_t> size_being_compacted_;
   std::unique_ptr<VersionStorageInfo> vstorage_;
   std::vector<std::unique_ptr<FileMetaData>> files_;
 
@@ -47,7 +46,6 @@ class CompactionPickerTest {
         vstorage_(nullptr) {
     fifo_options_.max_table_files_size = 1;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
-    size_being_compacted_.resize(options_.num_levels);
     ioptions_.db_paths.emplace_back("dummy",
                                     std::numeric_limits<uint64_t>::max());
   }
@@ -87,6 +85,7 @@ class CompactionPickerTest {
     vstorage_->UpdateNumNonEmptyLevels();
     vstorage_->GenerateFileIndexer();
     vstorage_->GenerateLevelFilesBrief();
+    vstorage_->ComputeCompactionScore(mutable_cf_options_, fifo_options_);
     vstorage_->SetFinalized();
   }
 };
