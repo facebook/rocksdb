@@ -10256,6 +10256,80 @@ TEST(DBTest, DontDeleteMovedFile) {
   Reopen(options);
 }
 
+TEST(DBTest, DeleteMovedFileAfterCompaction) {
+  // iter 1 -- delete_obsolete_files_period_micros == 0
+  for (int iter = 0; iter < 2; ++iter) {
+    // This test triggers move compaction and verifies that the file is not
+    // deleted when it's part of move compaction
+    Options options = CurrentOptions();
+    options.env = env_;
+    if (iter == 1) {
+      options.delete_obsolete_files_period_micros = 0;
+    }
+    options.create_if_missing = true;
+    options.level0_file_num_compaction_trigger =
+        2;  // trigger compaction when we have 2 files
+    DestroyAndReopen(options);
+
+    Random rnd(301);
+    // Create two 1MB sst files
+    for (int i = 0; i < 2; ++i) {
+      // Create 1MB sst file
+      for (int j = 0; j < 100; ++j) {
+        ASSERT_OK(Put(Key(i * 50 + j), RandomString(&rnd, 10 * 1024)));
+      }
+      ASSERT_OK(Flush());
+    }
+    // this should execute L0->L1
+    dbfull()->TEST_WaitForCompact();
+    ASSERT_EQ("0,1", FilesPerLevel(0));
+
+    // block compactions
+    SleepingBackgroundTask sleeping_task;
+    env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                   Env::Priority::LOW);
+
+    options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB
+    Reopen(options);
+    std::unique_ptr<Iterator> iterator(db_->NewIterator(ReadOptions()));
+    ASSERT_EQ("0,1", FilesPerLevel(0));
+    // let compactions go
+    sleeping_task.WakeUp();
+    sleeping_task.WaitUntilDone();
+
+    // this should execute L1->L2 (move)
+    dbfull()->TEST_WaitForCompact();
+
+    ASSERT_EQ("0,0,1", FilesPerLevel(0));
+
+    std::vector<LiveFileMetaData> metadata;
+    db_->GetLiveFilesMetaData(&metadata);
+    ASSERT_EQ(metadata.size(), 1U);
+    auto moved_file_name = metadata[0].name;
+
+    // Create two more 1MB sst files
+    for (int i = 0; i < 2; ++i) {
+      // Create 1MB sst file
+      for (int j = 0; j < 100; ++j) {
+        ASSERT_OK(Put(Key(i * 50 + j + 100), RandomString(&rnd, 10 * 1024)));
+      }
+      ASSERT_OK(Flush());
+    }
+    // this should execute both L0->L1 and L1->L2 (merge with previous file)
+    dbfull()->TEST_WaitForCompact();
+
+    ASSERT_EQ("0,0,2", FilesPerLevel(0));
+
+    // iterator is holding the file
+    ASSERT_TRUE(env_->FileExists(dbname_ + "/" + moved_file_name));
+
+    iterator.reset();
+
+    // this file should have been compacted away
+    ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + moved_file_name));
+  }
+}
+
 TEST(DBTest, EncodeDecompressedBlockSizeTest) {
   // iter 0 -- zlib
   // iter 1 -- bzip2

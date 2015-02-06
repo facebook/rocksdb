@@ -87,10 +87,6 @@ struct FileMetaData {
   bool init_stats_from_file;   // true if the data-entry stats of this file
                                // has initialized from file.
 
-  // Always false for new files. Set to true if the file was part of move
-  // compaction. Can only be mutated from the compaction process, under DB mutex
-  bool moved;
-
   FileMetaData()
       : refs(0),
         being_compacted(false),
@@ -100,8 +96,7 @@ struct FileMetaData {
         num_deletions(0),
         raw_key_size(0),
         raw_value_size(0),
-        init_stats_from_file(false),
-        moved(false) {}
+        init_stats_from_file(false) {}
 };
 
 // A compressed copy of file meta data that just contain

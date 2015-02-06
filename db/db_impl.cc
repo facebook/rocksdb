@@ -430,9 +430,10 @@ void DBImpl::MaybeDumpStats() {
   }
 }
 
+// * Returns the list of live files in 'sst_live'
 // If it's doing full scan:
-// * Returns the list of live files in 'full_scan_sst_live' and the list
-// of all files in the filesystem in 'full_scan_candidate_files'.
+// * Returns the list of all files in the filesystem in
+// 'full_scan_candidate_files'.
 // Otherwise, gets obsolete files from VersionSet.
 // no_full_scan = true -- never do the full scan using GetChildren()
 // force = false -- don't force the full scan, except every
@@ -440,7 +441,6 @@ void DBImpl::MaybeDumpStats() {
 // force = true -- force the full scan
 void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
                                bool no_full_scan) {
-  // TODO(icanadi) clean up FindObsoleteFiles, no need to do full scans anymore
   mutex_.AssertHeld();
 
   // if deletion is disabled, do nothing
@@ -482,13 +482,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     job_context->min_pending_output = std::numeric_limits<uint64_t>::max();
   }
 
+  versions_->AddLiveFiles(&job_context->sst_live);
   if (doing_the_full_scan) {
-    // Here we find all files in the DB directory and all the live files. In the
-    // DeleteObsoleteFiles(), we will calculate a set difference (all_files -
-    // live_files) and delete all files in that difference. If we're not doing
-    // the full scan we don't need to get live files, because all files returned
-    // by GetObsoleteFiles() will be dead (and need to be deleted)
-    versions_->AddLiveFiles(&job_context->full_scan_sst_live);
     for (uint32_t path_id = 0; path_id < db_options_.db_paths.size();
          path_id++) {
       // set of all files in the directory. We'll exclude files that are still
@@ -554,7 +549,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
   // Now, convert live list to an unordered map, WITHOUT mutex held;
   // set is slow.
   std::unordered_map<uint64_t, const FileDescriptor*> sst_live_map;
-  for (const FileDescriptor& fd : state.full_scan_sst_live) {
+  for (const FileDescriptor& fd : state.sst_live) {
     sst_live_map[fd.GetNumber()] = &fd;
   }
 
@@ -1566,7 +1561,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
     for (const auto& f : cfd->current()->storage_info()->LevelFiles(level)) {
-      f->moved = true;
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,
@@ -2223,7 +2217,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Move file to next level
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
-    f->moved = true;
     c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,

@@ -204,7 +204,11 @@ DBOptions::DBOptions()
       env(Env::Default()),
       rate_limiter(nullptr),
       info_log(nullptr),
+#ifdef NDEBUG
       info_log_level(INFO_LEVEL),
+#else
+      info_log_level(DEBUG_LEVEL),
+#endif  // NDEBUG
       max_open_files(5000),
       max_total_wal_size(0),
       statistics(nullptr),
