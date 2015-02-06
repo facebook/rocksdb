@@ -141,8 +141,6 @@ TEST(EnvPosixTest, TwoPools) {
       {
         MutexLock l(&mu_);
         num_running_++;
-        std::cout << "Pool " << pool_name_ << ": "
-                  << num_running_ << " running threads.\n";
         // make sure we don't have more than pool_size_ jobs running.
         ASSERT_LE(num_running_, pool_size_.load());
       }
