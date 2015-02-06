@@ -624,7 +624,7 @@ class DBTest {
         options.db_log_dir = test::TmpDir(env_);
         break;
       case kWalDirAndMmapReads:
-        options.wal_dir = test::TmpDir(env_) + "/wal";
+        options.wal_dir = dbname_ + "/wal";
         // mmap reads should be orthogonal to WalDir setting, so we piggyback to
         // this option config to test mmap reads as well
         options.allow_mmap_reads = true;
@@ -2595,8 +2595,9 @@ TEST(DBTest, IgnoreRecoveredLog) {
     Options options = CurrentOptions();
     options.create_if_missing = true;
     options.merge_operator = MergeOperators::CreateUInt64AddOperator();
-    options.wal_dir = dbname_ + "/logs";
-    DestroyAndReopen(options);
+    options.wal_dir = dbname_ + "/wal";
+    Destroy(options);
+    Reopen(options);
 
     // fill up the DB
     std::string one, two;

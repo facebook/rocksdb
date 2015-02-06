@@ -3885,22 +3885,9 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
   const Options& soptions(SanitizeOptions(dbname, &comparator, options));
   Env* env = soptions.env;
   std::vector<std::string> filenames;
-  std::vector<std::string> archiveFiles;
 
-  std::string archivedir = ArchivalDirectory(dbname);
   // Ignore error in case directory does not exist
   env->GetChildren(dbname, &filenames);
-
-  if (dbname != soptions.wal_dir) {
-    std::vector<std::string> logfilenames;
-    env->GetChildren(soptions.wal_dir, &logfilenames);
-    filenames.insert(filenames.end(), logfilenames.begin(), logfilenames.end());
-    archivedir = ArchivalDirectory(soptions.wal_dir);
-  }
-
-  if (filenames.empty()) {
-    return Status::OK();
-  }
 
   FileLock* lock;
   const std::string lockname = LockFileName(dbname);
@@ -3915,8 +3902,6 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
         Status del;
         if (type == kMetaDatabase) {
           del = DestroyDB(dbname + "/" + filenames[i], options);
-        } else if (type == kLogFile) {
-          del = env->DeleteFile(soptions.wal_dir + "/" + filenames[i]);
         } else {
           del = env->DeleteFile(dbname + "/" + filenames[i]);
         }
@@ -3939,6 +3924,24 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
+    std::vector<std::string> walDirFiles;
+    std::string archivedir = ArchivalDirectory(dbname);
+    if (dbname != soptions.wal_dir) {
+      env->GetChildren(soptions.wal_dir, &walDirFiles);
+      archivedir = ArchivalDirectory(soptions.wal_dir);
+    }
+
+    // Delete log files in the WAL dir
+    for (const auto& file : walDirFiles) {
+      if (ParseFileName(file, &number, &type) && type == kLogFile) {
+        Status del = env->DeleteFile(soptions.wal_dir + "/" + file);
+        if (result.ok() && !del.ok()) {
+          result = del;
+        }
+      }
+    }
+
+    std::vector<std::string> archiveFiles;
     env->GetChildren(archivedir, &archiveFiles);
     // Delete archival files.
     for (size_t i = 0; i < archiveFiles.size(); ++i) {
