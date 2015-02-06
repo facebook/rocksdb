@@ -54,6 +54,7 @@ struct StateInfo {
 // rows in this global table.
 static StateInfo global_state_table[] = {
   {ThreadStatus::STATE_UNKNOWN, ""},
+  {ThreadStatus::STATE_MUTEX_WAIT, "Mutex Wait"},
 };
 
 #else
