@@ -56,6 +56,8 @@ extern "C" {
 
 typedef struct rocksdb_t                 rocksdb_t;
 typedef struct rocksdb_backup_engine_t   rocksdb_backup_engine_t;
+typedef struct rocksdb_backup_engine_info_t   rocksdb_backup_engine_info_t;
+typedef struct rocksdb_restore_options_t rocksdb_restore_options_t;
 typedef struct rocksdb_cache_t           rocksdb_cache_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
@@ -106,16 +108,54 @@ extern rocksdb_t* rocksdb_open_for_read_only(
     char** errptr);
 
 extern rocksdb_backup_engine_t* rocksdb_backup_engine_open(
+    const rocksdb_options_t* options,
     const char* path,
     char** errptr);
 
 extern void rocksdb_backup_engine_create_new_backup(
-    rocksdb_backup_engine_t *be,
+    rocksdb_backup_engine_t* be,
     rocksdb_t* db,
     char** errptr);
 
+extern rocksdb_restore_options_t* rocksdb_restore_options_create();
+extern void rocksdb_restore_options_destroy(rocksdb_restore_options_t* opt);
+extern void rocksdb_restore_options_set_keep_log_files(
+    rocksdb_restore_options_t* opt, int v);
+
+extern void rocksdb_backup_engine_restore_db_from_latest_backup(
+    rocksdb_backup_engine_t *be,
+    const char* db_dir,
+    const char* wal_dir,
+    const rocksdb_restore_options_t *restore_options,
+    char** errptr);
+
+extern const rocksdb_backup_engine_info_t* rocksdb_backup_engine_get_backup_info(
+    rocksdb_backup_engine_t* be);
+
+extern int rocksdb_backup_engine_info_count(
+    const rocksdb_backup_engine_info_t* info);
+
+extern const int64_t rocksdb_backup_engine_info_timestamp(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern const uint32_t rocksdb_backup_engine_info_backup_id(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern const uint64_t rocksdb_backup_engine_info_size(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern const uint32_t rocksdb_backup_engine_info_number_files(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern void rocksdb_backup_engine_info_destroy(
+    const rocksdb_backup_engine_info_t *info);
+
 extern void rocksdb_backup_engine_close(
-    rocksdb_backup_engine_t *be);
+    rocksdb_backup_engine_t* be);
 
 extern rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* options,
