@@ -536,11 +536,10 @@ rocksdb_t* rocksdb_open_for_read_only(
 }
 
 rocksdb_backup_engine_t* rocksdb_backup_engine_open(
-    const rocksdb_options_t* options,
-    const char* path,
-    char** errptr) {
+    const rocksdb_options_t* options, const char* path, char** errptr) {
   BackupEngine* be;
-  if (SaveError(errptr, BackupEngine::Open(options->rep.env, BackupableDBOptions(path), &be))) {
+  if (SaveError(errptr, BackupEngine::Open(options->rep.env,
+                                           BackupableDBOptions(path), &be))) {
     return nullptr;
   }
   rocksdb_backup_engine_t* result = new rocksdb_backup_engine_t;
@@ -548,10 +547,8 @@ rocksdb_backup_engine_t* rocksdb_backup_engine_open(
   return result;
 }
 
-void rocksdb_backup_engine_create_new_backup(
-    rocksdb_backup_engine_t *be,
-    rocksdb_t *db,
-    char** errptr) {
+void rocksdb_backup_engine_create_new_backup(rocksdb_backup_engine_t* be,
+                                             rocksdb_t* db, char** errptr) {
   SaveError(errptr, be->rep->CreateNewBackup(db->rep));
 }
 
@@ -563,18 +560,17 @@ void rocksdb_restore_options_destroy(rocksdb_restore_options_t* opt) {
   delete opt;
 }
 
-void rocksdb_restore_options_set_keep_log_files(
-    rocksdb_restore_options_t* opt, int v) {
+void rocksdb_restore_options_set_keep_log_files(rocksdb_restore_options_t* opt,
+                                                int v) {
   opt->rep.keep_log_files = v;
 }
 
 void rocksdb_backup_engine_restore_db_from_latest_backup(
-    rocksdb_backup_engine_t *be,
-    const char* db_dir,
-    const char* wal_dir,
-    const rocksdb_restore_options_t *restore_options,
-    char** errptr) {
-  SaveError(errptr, be->rep->RestoreDBFromLatestBackup(std::string(db_dir), std::string(wal_dir), restore_options->rep));
+    rocksdb_backup_engine_t* be, const char* db_dir, const char* wal_dir,
+    const rocksdb_restore_options_t* restore_options, char** errptr) {
+  SaveError(errptr, be->rep->RestoreDBFromLatestBackup(std::string(db_dir),
+                                                       std::string(wal_dir),
+                                                       restore_options->rep));
 }
 
 const rocksdb_backup_engine_info_t* rocksdb_backup_engine_get_backup_info(
@@ -584,32 +580,27 @@ const rocksdb_backup_engine_info_t* rocksdb_backup_engine_get_backup_info(
   return result;
 }
 
-int rocksdb_backup_engine_info_count(
-    const rocksdb_backup_engine_info_t* info) {
+int rocksdb_backup_engine_info_count(const rocksdb_backup_engine_info_t* info) {
   return static_cast<int>(info->rep.size());
 }
 
 const int64_t rocksdb_backup_engine_info_timestamp(
-    const rocksdb_backup_engine_info_t* info,
-    int index) {
+    const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].timestamp;
 }
 
 const uint32_t rocksdb_backup_engine_info_backup_id(
-    const rocksdb_backup_engine_info_t* info,
-    int index) {
+    const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].backup_id;
 }
 
 const uint64_t rocksdb_backup_engine_info_size(
-    const rocksdb_backup_engine_info_t* info,
-    int index) {
+    const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].size;
 }
 
 const uint32_t rocksdb_backup_engine_info_number_files(
-    const rocksdb_backup_engine_info_t* info,
-    int index) {
+    const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].number_files;
 }
 
@@ -618,12 +609,10 @@ void rocksdb_backup_engine_info_destroy(
   delete info;
 }
 
-void rocksdb_backup_engine_close(
-    rocksdb_backup_engine_t *be) {
+void rocksdb_backup_engine_close(rocksdb_backup_engine_t* be) {
   delete be->rep;
   delete be;
 }
-
 
 void rocksdb_close(rocksdb_t* db) {
   delete db->rep;
