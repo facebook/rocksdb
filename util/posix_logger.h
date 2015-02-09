@@ -58,6 +58,8 @@ class PosixLogger : public Logger {
     }
     last_flush_micros_ = env_->NowMicros();
   }
+
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) {
     const uint64_t thread_id = (*gettid_)();
 

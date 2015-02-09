@@ -633,7 +633,7 @@ class Logger {
   // and format.  Any log with level under the internal log level
   // of *this (see @SetInfoLogLevel and @GetInfoLogLevel) will not be
   // printed.
-  void Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
+  virtual void Logv(const InfoLogLevel log_level, const char* format, va_list ap) {
     static const char* kInfoLogLevelNames[5] = {"DEBUG", "INFO", "WARN",
                                                 "ERROR", "FATAL"};
     if (log_level < log_level_) {

@@ -79,6 +79,7 @@ class FakeRandomeAccessFile : public RandomAccessFile {
 
 class DumbLogger : public Logger {
  public:
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) { }
   virtual size_t GetLogFileSize() const { return 0; }
 };

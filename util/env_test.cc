@@ -735,6 +735,7 @@ TEST(EnvPosixTest, PosixRandomRWFileTest) {
 
 class TestLogger : public Logger {
  public:
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
     log_count++;
 
@@ -808,6 +809,7 @@ TEST(EnvPosixTest, LogBufferTest) {
 class TestLogger2 : public Logger {
  public:
   explicit TestLogger2(size_t max_log_size) : max_log_size_(max_log_size) {}
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
     char new_format[2000];
     std::fill_n(new_format, sizeof(new_format), '2');

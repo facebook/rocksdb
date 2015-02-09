@@ -17,6 +17,7 @@
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option
+* Logger method logv with log level parameter is now virtual
 
 ### 3.9.0 (12/8/2014)
 
