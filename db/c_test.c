@@ -403,7 +403,7 @@ int main(int argc, char** argv) {
   CheckNoError(err);
   CheckGet(db, roptions, "foo", "hello");
 
-  StartPhase("backup");
+  StartPhase("backup_and_restore");
   {
     rocksdb_destroy_db(options, dbbackupname, &err);
     CheckNoError(err);
