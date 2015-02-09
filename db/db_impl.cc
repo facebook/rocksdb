@@ -3853,6 +3853,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     impl->opened_successfully_ = true;
+    Log(InfoLogLevel::INFO_LEVEL, impl->db_options_.info_log, "DB pointer %p",
+        impl);
     *dbptr = impl;
   } else {
     for (auto* h : *handles) {
