@@ -27,7 +27,8 @@ int main(int argc, char **argv) {
   db = rocksdb_open(options, DBPath, &err);
   assert(!err);
 
-  be = rocksdb_backup_engine_open(DBBackupPath, &err);
+  // open Backup Engine that we will use for backing up or database
+  be = rocksdb_backup_engine_open(options, DBBackupPath, &err);
   assert(!err);
 
   // Put key-value
@@ -46,6 +47,7 @@ int main(int argc, char **argv) {
   assert(strcmp(returned_value, "value") == 0);
   free(returned_value);
 
+  // create new backup in a directory specified by DBBackupPath
   rocksdb_backup_engine_create_new_backup(be, db, &err);
   assert(!err);
 
