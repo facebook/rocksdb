@@ -53,6 +53,13 @@ enum Tickers : uint32_t {
   // # of memtable misses.
   MEMTABLE_MISS,
 
+  // # of Get() queries served by L0
+  GET_HIT_L0,
+  // # of Get() queries served by L1
+  GET_HIT_L1,
+  // # of Get() queries served by L2 and up
+  GET_HIT_L2_AND_UP,
+
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 3 reasons currently.
@@ -150,6 +157,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
     {MEMTABLE_HIT, "rocksdb.memtable.hit"},
     {MEMTABLE_MISS, "rocksdb.memtable.miss"},
+    {GET_HIT_L0, "rocksdb.l0.hit"},
+    {GET_HIT_L1, "rocksdb.l1.hit"},
+    {GET_HIT_L2_AND_UP, "rocksdb.l2andup.hit"},
     {COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"},
     {COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"},
     {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
@@ -194,7 +204,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_SUPERVERSION_ACQUIRES, "rocksdb.number.superversion_acquires"},
     {NUMBER_SUPERVERSION_RELEASES, "rocksdb.number.superversion_releases"},
     {NUMBER_SUPERVERSION_CLEANUPS, "rocksdb.number.superversion_cleanups"},
-    {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"}, };
+    {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
+};
 
 /**
  * Keep adding histogram's here.

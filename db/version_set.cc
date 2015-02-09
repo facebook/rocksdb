@@ -91,6 +91,7 @@ class FilePicker {
       const InternalKeyComparator* internal_comparator)
       : num_levels_(num_levels),
         curr_level_(-1),
+        hit_file_level_(-1),
         search_left_bound_(0),
         search_right_bound_(FileIndexer::kLevelMaxIndex),
 #ifndef NDEBUG
@@ -120,6 +121,7 @@ class FilePicker {
       while (curr_index_in_curr_level_ < curr_file_level_->num_files) {
         // Loops over all files in current level.
         FdWithKeyRange* f = &curr_file_level_->files[curr_index_in_curr_level_];
+        hit_file_level_ = curr_level_;
         int cmp_largest = -1;
 
         // Do key range filtering of files or/and fractional cascading if:
@@ -199,9 +201,14 @@ class FilePicker {
     return nullptr;
   }
 
+  // getter for current file level
+  // for GET_HIT_L0, GET_HIT_L1 & GET_HIT_L2_AND_UP counts
+  unsigned int GetHitFileLevel() { return hit_file_level_; }
+
  private:
   unsigned int num_levels_;
   unsigned int curr_level_;
+  unsigned int hit_file_level_;
   int32_t search_left_bound_;
   int32_t search_right_bound_;
 #ifndef NDEBUG
@@ -800,6 +807,13 @@ void Version::Get(const ReadOptions& read_options,
         // Keep searching in other files
         break;
       case GetContext::kFound:
+        if (fp.GetHitFileLevel() == 0) {
+          RecordTick(db_statistics_, GET_HIT_L0);
+        } else if (fp.GetHitFileLevel() == 1) {
+          RecordTick(db_statistics_, GET_HIT_L1);
+        } else if (fp.GetHitFileLevel() >= 2) {
+          RecordTick(db_statistics_, GET_HIT_L2_AND_UP);
+        }
         return;
       case GetContext::kDeleted:
         // Use empty error message for speed
