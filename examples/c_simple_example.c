@@ -51,6 +51,17 @@ int main(int argc, char **argv) {
   rocksdb_backup_engine_create_new_backup(be, db, &err);
   assert(!err);
 
+  rocksdb_close(db);
+
+  // If something is wrong, you might want to restore data from last backup
+  rocksdb_restore_options_t *restore_options = rocksdb_restore_options_create();
+  rocksdb_backup_engine_restore_db_from_latest_backup(be, DBPath, DBPath, restore_options, &err);
+  assert(!err);
+  rocksdb_restore_options_destroy(restore_options);
+
+  db = rocksdb_open(options, DBPath, &err);
+  assert(!err);
+
   // cleanup
   rocksdb_writeoptions_destroy(writeoptions);
   rocksdb_readoptions_destroy(readoptions);
