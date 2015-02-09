@@ -8,9 +8,11 @@
 #include <unistd.h>  // sysconf() - get CPU count
 
 const char DBPath[] = "/tmp/rocksdb_simple_example";
+const char DBBackupPath[] = "/tmp/rocksdb_simple_example_backup";
 
 int main(int argc, char **argv) {
   rocksdb_t *db;
+  rocksdb_backup_engine_t *be;
   rocksdb_options_t *options = rocksdb_options_create();
   // Optimize RocksDB. This is the easiest way to
   // get RocksDB to perform well
@@ -23,6 +25,10 @@ int main(int argc, char **argv) {
   // open DB
   char *err = NULL;
   db = rocksdb_open(options, DBPath, &err);
+  assert(!err);
+
+  // open Backup Engine that we will use for backing up or database
+  be = rocksdb_backup_engine_open(options, DBBackupPath, &err);
   assert(!err);
 
   // Put key-value
@@ -41,10 +47,26 @@ int main(int argc, char **argv) {
   assert(strcmp(returned_value, "value") == 0);
   free(returned_value);
 
+  // create new backup in a directory specified by DBBackupPath
+  rocksdb_backup_engine_create_new_backup(be, db, &err);
+  assert(!err);
+
+  rocksdb_close(db);
+
+  // If something is wrong, you might want to restore data from last backup
+  rocksdb_restore_options_t *restore_options = rocksdb_restore_options_create();
+  rocksdb_backup_engine_restore_db_from_latest_backup(be, DBPath, DBPath, restore_options, &err);
+  assert(!err);
+  rocksdb_restore_options_destroy(restore_options);
+
+  db = rocksdb_open(options, DBPath, &err);
+  assert(!err);
+
   // cleanup
   rocksdb_writeoptions_destroy(writeoptions);
   rocksdb_readoptions_destroy(readoptions);
   rocksdb_options_destroy(options);
+  rocksdb_backup_engine_close(be);
   rocksdb_close(db);
 
   return 0;

@@ -10,9 +10,11 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 const char* phase = "";
 static char dbname[200];
+static char dbbackupname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
@@ -346,6 +348,11 @@ int main(int argc, char** argv) {
            GetTempDir(),
            ((int) geteuid()));
 
+  snprintf(dbbackupname, sizeof(dbbackupname),
+           "%s/rocksdb_c_test-%d-backup",
+           GetTempDir(),
+           ((int) geteuid()));
+
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
   env = rocksdb_create_default_env();
@@ -395,6 +402,41 @@ int main(int argc, char** argv) {
   rocksdb_put(db, woptions, "foo", 3, "hello", 5, &err);
   CheckNoError(err);
   CheckGet(db, roptions, "foo", "hello");
+
+  StartPhase("backup_and_restore");
+  {
+    rocksdb_destroy_db(options, dbbackupname, &err);
+    CheckNoError(err);
+
+    rocksdb_backup_engine_t *be = rocksdb_backup_engine_open(options, dbbackupname, &err);
+    CheckNoError(err);
+
+    rocksdb_backup_engine_create_new_backup(be, db, &err);
+    CheckNoError(err);
+
+    rocksdb_delete(db, woptions, "foo", 3, &err);
+    CheckNoError(err);
+
+    rocksdb_close(db);
+
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_restore_options_t *restore_options = rocksdb_restore_options_create();
+    rocksdb_restore_options_set_keep_log_files(restore_options, 0);
+    rocksdb_backup_engine_restore_db_from_latest_backup(be, dbname, dbname, restore_options, &err);
+    CheckNoError(err);
+    rocksdb_restore_options_destroy(restore_options);
+
+    rocksdb_options_set_error_if_exists(options, 0);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_set_error_if_exists(options, 1);
+
+    CheckGet(db, roptions, "foo", "hello");
+
+    rocksdb_backup_engine_close(be);
+  }
 
   StartPhase("compactall");
   rocksdb_compact_range(db, NULL, 0, NULL, 0);
