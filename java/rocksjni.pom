@@ -38,87 +38,29 @@
     </developers>
 
     <properties>
+        <project.build.source>1.7</project.build.source>
+        <project.build.target>1.7</project.build.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
     <build>
-        <!-- Use custom maven folder layout -->
-        <!-- Set folder for src root -->
-        <sourceDirectory>${project.basedir}</sourceDirectory>
-        <!-- main resources, nothing shall be excluded -->
-        <resources>
-            <resource>
-                <directory>${project.basedir}</directory>
-                <excludes>
-                    <exclude>**/*</exclude>
-                </excludes>
-            </resource>
-        </resources>
-        <!-- Set folder for test root -->
-        <testSourceDirectory>${project.basedir}</testSourceDirectory>
-        <!-- Bring libraries on classpath -->
-        <testResources>
-            <testResource>
-                <directory>${project.basedir}</directory>
-                <includes>
-                    <include>*.so</include>
-                    <include>*.jar</include>
-                    <include>*.jnilib</include>
-                </includes>
-            </testResource>
-        </testResources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>2.0.2</version>
+                <version>3.2</version>
                 <configuration>
-                    <source>1.7</source>
-                    <target>1.7</target>
-                    <!-- Exclude all tests from classes -->
-                    <excludes>
-                        <!-- Exclude Sample -->
-                        <exclude>*.java</exclude>
-                        <!-- Exclude Benchmark -->
-                        <exclude>org/rocksdb/benchmark/*.java</exclude>
-                        <!-- Exclude Tests -->
-                        <exclude>org/rocksdb/test/*.java</exclude>
-                        <exclude>org/rocksdb/WriteBatchTest.java</exclude>
-                    </excludes>
+                    <source>${project.build.source}</source>
+                    <target>${project.build.target}</target>
+                    <encoding>${project.build.sourceEncoding}</encoding>
                 </configuration>
-                <executions>
-                    <execution>
-                        <id>default-testCompile</id>
-                        <phase>test-compile</phase>
-                        <configuration>
-                            <!-- Include only tests in test-classes -->
-                            <testExcludes>
-                                <!-- Exclude everything but WriteBatchTest -->
-                                <exclude>%regex[org/rocksdb/[^WriteBatchTest].*java]</exclude>
-                                <!-- Exclude WriteBatchTest -->
-                                <exclude>*.java</exclude>
-                                <!-- Exclude Benchmark -->
-                                <exclude>org/rocksdb/benchmark/*.java</exclude>
-                                <!-- Exclude Utilities -->
-                                <exclude>org/rocksdb/util/*.java</exclude>
-                            </testExcludes>
-                            <testIncludes>
-                                <!-- Include Tests -->
-                                <include>org/rocksdb/test/*.java</include>
-                            </testIncludes>
-                        </configuration>
-                        <goals>
-                            <goal>testCompile</goal>
-                        </goals>
-                    </execution>
-                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.17</version>
+                <version>2.18.1</version>
                 <configuration>
-                    <argLine>${argLine} -Xcheck:jni</argLine>
+                    <argLine>-ea -Xcheck:jni -Djava.library.path=${project.build.directory}</argLine>
                 </configuration>
             </plugin>
             <plugin>
@@ -179,19 +121,19 @@
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
-            <version>4.12-beta-2</version>
+            <version>4.12</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
-            <version>1.7.0</version>
+            <version>1.7.1</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-all</artifactId>
-            <version>1.9.5</version>
+            <version>1.10.19</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
