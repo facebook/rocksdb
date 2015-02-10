@@ -14,6 +14,7 @@
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
+#include "util/thread_status_util.h"
 #include "util/string_util.h"
 
 
@@ -210,6 +211,8 @@ void ProfileQueries(bool enabled_time = false) {
   HistogramImpl hist_write_wal_time;
   HistogramImpl hist_write_memtable_time;
 
+  uint64_t total_db_mutex_nanos = 0;
+
   std::cout << "Inserting " << FLAGS_total_keys << " key/value pairs\n...\n";
 
   std::vector<int> keys;
@@ -225,13 +228,17 @@ void ProfileQueries(bool enabled_time = false) {
   if (FLAGS_random_key) {
     std::random_shuffle(keys.begin(), keys.end());
   }
-
+#ifndef NDEBUG
+  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 1U);
+#endif
+  int num_mutex_waited = 0;
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
       db->Flush(fo);
       continue;
     }
+
     std::string key = "k" + ToString(i);
     std::string value = "v" + ToString(i);
 
@@ -239,11 +246,20 @@ void ProfileQueries(bool enabled_time = false) {
 
     perf_context.Reset();
     db->Put(write_options, key, value);
+    if (++num_mutex_waited > 3) {
+#ifndef NDEBUG
+      ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
+#endif
+    }
     hist_write_pre_post.Add(perf_context.write_pre_and_post_process_time);
     hist_write_wal_time.Add(perf_context.write_wal_time);
     hist_write_memtable_time.Add(perf_context.write_memtable_time);
     hist_put.Add(perf_context.user_key_comparison_count);
+    total_db_mutex_nanos += perf_context.db_mutex_lock_nanos;
   }
+#ifndef NDEBUG
+  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
+#endif
 
   for (const int i : keys) {
     std::string key = "k" + ToString(i);
@@ -279,7 +295,8 @@ void ProfileQueries(bool enabled_time = false) {
             << " Writing WAL time: \n"
             << hist_write_wal_time.ToString() << "\n"
             << " Writing Mem Table time: \n"
-            << hist_write_memtable_time.ToString() << "\n";
+            << hist_write_memtable_time.ToString() << "\n"
+            << " Total DB mutex nanos: \n" << total_db_mutex_nanos << "\n";
 
   std::cout << "Get(): Time to get snapshot: \n" << hist_get_snapshot.ToString()
             << " Time to get value from memtables: \n"
@@ -316,6 +333,9 @@ void ProfileQueries(bool enabled_time = false) {
     ASSERT_GT(hist_mget_files.Average(), 0);
     ASSERT_GT(hist_mget_post_process.Average(), 0);
     ASSERT_GT(hist_mget_num_memtable_checked.Average(), 0);
+#ifndef NDEBUG
+    ASSERT_GT(total_db_mutex_nanos, 2000U);
+#endif
   }
 
   db.reset();
