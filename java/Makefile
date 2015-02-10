@@ -1,4 +1,5 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
+    org.rocksdb.AbstractLogger\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupableDB\
 	org.rocksdb.BackupableDBOptions\
@@ -54,7 +55,8 @@ ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 endif
 
-JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
+JAVA_TESTS = org.rocksdb.AbstractLoggerTest\
+    org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BackupableDBTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.CheckPointTest\

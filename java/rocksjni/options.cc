@@ -641,6 +641,19 @@ void Java_org_rocksdb_Options_setRateLimiter(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setLogger
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setLogger(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jlogger_handle) {
+std::shared_ptr<rocksdb::LoggerJniCallback> *pLogger =
+      reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback> *>(
+          jlogger_handle);
+  reinterpret_cast<rocksdb::Options*>(jhandle)->info_log = *pLogger;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setInfoLogLevel
  * Signature: (JB)V
  */
@@ -2933,6 +2946,19 @@ void Java_org_rocksdb_DBOptions_setRateLimiter(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
   reinterpret_cast<rocksdb::DBOptions*>(jhandle)->rate_limiter.reset(
       reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
+ * Method:    setLogger
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setLogger(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jlogger_handle) {
+  std::shared_ptr<rocksdb::LoggerJniCallback> *pLogger =
+      reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback> *>(
+          jlogger_handle);
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->info_log = *pLogger;
 }
 
 /*

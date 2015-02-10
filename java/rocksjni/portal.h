@@ -21,6 +21,7 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
 namespace rocksdb {
@@ -653,6 +654,72 @@ class WriteEntryJni {
       assert(fid != nullptr);
       return fid;
     }
+};
+
+class InfoLogLevelJni {
+ public:
+
+    // Get the DEBUG_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject DEBUG_LEVEL(JNIEnv* env) {
+      return getEnum(env, "DEBUG_LEVEL");
+    }
+
+    // Get the INFO_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject INFO_LEVEL(JNIEnv* env) {
+      return getEnum(env, "INFO_LEVEL");
+    }
+
+    // Get the WARN_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject WARN_LEVEL(JNIEnv* env) {
+      return getEnum(env, "WARN_LEVEL");
+    }
+
+    // Get the ERROR_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject ERROR_LEVEL(JNIEnv* env) {
+      return getEnum(env, "ERROR_LEVEL");
+    }
+
+    // Get the FATAL_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject FATAL_LEVEL(JNIEnv* env) {
+      return getEnum(env, "FATAL_LEVEL");
+    }
+
+ private:
+    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteType.
+    static jclass getJClass(JNIEnv* env) {
+      jclass jclazz = env->FindClass("org/rocksdb/InfoLogLevel");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject getEnum(JNIEnv* env, const char name[]) {
+      jclass jclazz = getJClass(env);
+      jfieldID jfid =
+          env->GetStaticFieldID(jclazz, name,
+          "Lorg/rocksdb/InfoLogLevel;");
+      assert(jfid != nullptr);
+      return env->GetStaticObjectField(jclazz, jfid);
+    }
+};
+
+// The portal class for org.rocksdb.AbstractLogger
+class AbstractLoggerJni : public RocksDBNativeClass<
+    std::shared_ptr<rocksdb::LoggerJniCallback>*, AbstractLoggerJni> {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/AbstractLogger");
+  }
+
+  // Get the java method `name` of org.rocksdb.AbstractLogger.
+  static jmethodID getLogMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "log",
+        "(Lorg/rocksdb/InfoLogLevel;Ljava/lang/String;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
 };
 
 class JniUtil {
