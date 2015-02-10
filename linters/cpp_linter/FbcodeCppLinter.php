@@ -31,7 +31,7 @@ class FbcodeCppLinter extends ArcanistLinter {
                              $this->getEngine()->getFilePathOnDisk($p));
         } else {
           $futures[$p] = new ExecFuture("%s %s 2>&1",
-            self::CPPLINT, $this->getEngine()->getFilePathOnDisk($p));
+            $CPP_LINT, $this->getEngine()->getFilePathOnDisk($p));
         }
       }
 
@@ -68,6 +68,9 @@ class FbcodeCppLinter extends ArcanistLinter {
   }
 
   private function getCppLintOutput($path) {
+    if (!array_key_exists($path, $this->rawLintOutput)) {
+      return array();
+    }
     list($output) = $this->rawLintOutput[$path];
 
     $msgs = array();

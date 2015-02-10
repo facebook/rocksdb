@@ -18,10 +18,10 @@ int main() {
 #include "rocksdb/table.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "port/atomic_pointer.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
+#include "table/get_context.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -46,11 +46,6 @@ static std::string MakeKey(int i, int j, bool through_db) {
   // key.
   InternalKey key(std::string(buf), 0, ValueType::kTypeValue);
   return key.Encode().ToString();
-}
-
-static bool DummySaveValue(void* arg, const ParsedInternalKey& ikey,
-                           const Slice& v) {
-  return false;
 }
 
 uint64_t Now(Env* env, bool measured_by_nanosecond) {
@@ -88,10 +83,12 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   TableBuilder* tb = nullptr;
   DB* db = nullptr;
   Status s;
+  const ImmutableCFOptions ioptions(opts);
   if (!through_db) {
     env->NewWritableFile(file_name, &file, env_options);
-    tb = opts.table_factory->NewTableBuilder(opts, ikc, file.get(),
-                                             CompressionType::kNoCompression);
+    tb = opts.table_factory->NewTableBuilder(ioptions, ikc, file.get(),
+                                             CompressionType::kNoCompression,
+                                             CompressionOptions());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
@@ -118,18 +115,17 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   unique_ptr<TableReader> table_reader;
   unique_ptr<RandomAccessFile> raf;
   if (!through_db) {
-    Status s = env->NewRandomAccessFile(file_name, &raf, env_options);
+    s = env->NewRandomAccessFile(file_name, &raf, env_options);
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
     s = opts.table_factory->NewTableReader(
-        opts, env_options, ikc, std::move(raf), file_size, &table_reader);
+        ioptions, env_options, ikc, std::move(raf), file_size, &table_reader);
   }
 
   Random rnd(301);
   std::string result;
   HistogramImpl hist;
 
-  void* arg = nullptr;
   for (int it = 0; it < num_iter; it++) {
     for (int i = 0; i < num_keys1; i++) {
       for (int j = 0; j < num_keys2; j++) {
@@ -145,8 +141,13 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
           std::string key = MakeKey(r1, r2, through_db);
           uint64_t start_time = Now(env, measured_by_nanosecond);
           if (!through_db) {
-            s = table_reader->Get(read_options, key, arg, DummySaveValue,
-                                  nullptr);
+            std::string value;
+            MergeContext merge_context;
+            GetContext get_context(ioptions.comparator, ioptions.merge_operator,
+                                   ioptions.info_log, ioptions.statistics,
+                                   GetContext::kNotFound, Slice(key), &value,
+                                   nullptr, &merge_context);
+            s = table_reader->Get(read_options, key, &get_context);
           } else {
             s = db->Get(read_options, key, &result);
           }
@@ -256,11 +257,18 @@ int main(int argc, char** argv) {
   options.compression = rocksdb::CompressionType::kNoCompression;
 
   if (FLAGS_table_factory == "cuckoo_hash") {
+#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
-
-    tf.reset(rocksdb::NewCuckooTableFactory(0.75));
+    rocksdb::CuckooTableOptions table_options;
+    table_options.hash_table_ratio = 0.75;
+    tf.reset(rocksdb::NewCuckooTableFactory(table_options));
+#else
+    fprintf(stderr, "Plain table is not supported in lite mode\n");
+    exit(1);
+#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "plain_table") {
+#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
 
@@ -272,6 +280,10 @@ int main(int argc, char** argv) {
     tf.reset(new rocksdb::PlainTableFactory(plain_table_options));
     options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
         FLAGS_prefix_len));
+#else
+    fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
+    exit(1);
+#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "block_based") {
     tf.reset(new rocksdb::BlockBasedTableFactory());
   } else {

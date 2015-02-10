@@ -122,7 +122,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   }
 
   // -- Make the log file expire
-  sleep(time);
+  sleep(static_cast<unsigned int>(time));
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
@@ -283,6 +283,47 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
                          std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
+}
+
+// Test the logger Header function for roll over logs
+// We expect the new logs creates as roll over to carry the headers specified
+TEST(AutoRollLoggerTest, LogHeaderTest) {
+  static const size_t MAX_HEADERS = 10;
+  static const size_t LOG_MAX_SIZE = 1024 * 5;
+  static const std::string HEADER_STR = "Log header line";
+
+  InitTestDb();
+
+  AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/ "",
+                        LOG_MAX_SIZE, /*log_file_time_to_roll=*/ 0);
+
+  // log some headers
+  for (size_t i = 0; i < MAX_HEADERS; i++) {
+    Header(&logger, "%s %d", HEADER_STR.c_str(), i);
+  }
+
+  // log enough data to cause a roll over
+  size_t i = 0;
+  while (logger.GetLogFileSize() < LOG_MAX_SIZE) {
+    Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
+    ++i;
+  }
+
+  // verify that the new log contains all the header logs
+  std::stringstream ssbuf;
+  std::string line;
+  size_t count = 0;
+
+  std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
+  ssbuf << inFile.rdbuf();
+
+  while (getline(ssbuf, line)) {
+    if (line.find(HEADER_STR) != std::string::npos) {
+      count++;
+    }
+  }
+
+  ASSERT_EQ(count, MAX_HEADERS);
 }
 
 TEST(AutoRollLoggerTest, LogFileExistence) {

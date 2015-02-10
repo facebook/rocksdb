@@ -133,7 +133,7 @@ class ColumnFamilyTest {
   void CreateColumnFamilies(
       const std::vector<std::string>& cfs,
       const std::vector<ColumnFamilyOptions> options = {}) {
-    int cfi = handles_.size();
+    int cfi = static_cast<int>(handles_.size());
     handles_.resize(cfi + cfs.size());
     names_.resize(cfi + cfs.size());
     for (size_t i = 0; i < cfs.size(); ++i) {
@@ -218,7 +218,7 @@ class ColumnFamilyTest {
 
   int NumTableFilesAtLevel(int level, int cf) {
     return GetProperty(cf,
-                       "rocksdb.num-files-at-level" + std::to_string(level));
+                       "rocksdb.num-files-at-level" + ToString(level));
   }
 
   // Return spread of files per level
@@ -231,7 +231,7 @@ class ColumnFamilyTest {
       snprintf(buf, sizeof(buf), "%s%d", (level ? "," : ""), f);
       result += buf;
       if (f > 0) {
-        last_non_zero_offset = result.size();
+        last_non_zero_offset = static_cast<int>(result.size());
       }
     }
     result.resize(last_non_zero_offset);
@@ -287,8 +287,8 @@ class ColumnFamilyTest {
     assert(num_per_cf.size() == handles_.size());
 
     for (size_t i = 0; i < num_per_cf.size(); ++i) {
-      ASSERT_EQ(num_per_cf[i],
-                GetProperty(i, "rocksdb.num-immutable-mem-table"));
+      ASSERT_EQ(num_per_cf[i], GetProperty(static_cast<int>(i),
+                                           "rocksdb.num-immutable-mem-table"));
     }
   }
 
@@ -387,7 +387,7 @@ TEST(ColumnFamilyTest, DropTest) {
     Open({"default"});
     CreateColumnFamiliesAndReopen({"pikachu"});
     for (int i = 0; i < 100; ++i) {
-      ASSERT_OK(Put(1, std::to_string(i), "bar" + std::to_string(i)));
+      ASSERT_OK(Put(1, ToString(i), "bar" + ToString(i)));
     }
     ASSERT_OK(Flush(1));
 
@@ -408,9 +408,15 @@ TEST(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   WriteBatch batch;
+  batch.Put(handles_[0], Slice("existing"), Slice("column-family"));
   batch.Put(handles_[1], Slice("non-existing"), Slice("column-family"));
   ASSERT_OK(db_->Write(WriteOptions(), &batch));
   DropColumnFamilies({1});
+  WriteOptions woptions_ignore_missing_cf;
+  woptions_ignore_missing_cf.ignore_missing_column_families = true;
+  batch.Put(handles_[0], Slice("still here"), Slice("column-family"));
+  ASSERT_OK(db_->Write(woptions_ignore_missing_cf, &batch));
+  ASSERT_EQ("column-family", Get(0, "still here"));
   Status s = db_->Write(WriteOptions(), &batch);
   ASSERT_TRUE(s.IsInvalidArgument());
   Close();
@@ -523,8 +529,28 @@ TEST(ColumnFamilyTest, FlushTest) {
   ASSERT_OK(Put(1, "mirko", "v3"));
   ASSERT_OK(Put(0, "foo", "v2"));
   ASSERT_OK(Put(2, "fodor", "v5"));
-  for (int i = 0; i < 3; ++i) {
-    Flush(i);
+
+  for (int j = 0; j < 2; j++) {
+    ReadOptions ro;
+    std::vector<Iterator*> iterators;
+    // Hold super version.
+    if (j == 0) {
+      ASSERT_OK(db_->NewIterators(ro, handles_, &iterators));
+    }
+
+    for (int i = 0; i < 3; ++i) {
+      uint64_t max_total_in_memory_state =
+          dbfull()->TEST_max_total_in_memory_state();
+      Flush(i);
+      ASSERT_EQ(dbfull()->TEST_max_total_in_memory_state(),
+                max_total_in_memory_state);
+    }
+    ASSERT_OK(Put(1, "foofoo", "bar"));
+    ASSERT_OK(Put(0, "foofoo", "bar"));
+
+    for (auto* it : iterators) {
+      delete it;
+    }
   }
   Reopen();
 
@@ -705,6 +731,27 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   Close();
 }
 
+TEST(ColumnFamilyTest, MemtableNotSupportSnapshot) {
+  Open();
+  auto* s1 = dbfull()->GetSnapshot();
+  ASSERT_TRUE(s1 != nullptr);
+  dbfull()->ReleaseSnapshot(s1);
+
+  // Add a column family that doesn't support snapshot
+  ColumnFamilyOptions first;
+  first.memtable_factory.reset(NewHashCuckooRepFactory(1024 * 1024));
+  CreateColumnFamilies({"first"}, {first});
+  auto* s2 = dbfull()->GetSnapshot();
+  ASSERT_TRUE(s2 == nullptr);
+
+  // Add a column family that supports snapshot. Snapshot stays not supported.
+  ColumnFamilyOptions second;
+  CreateColumnFamilies({"second"}, {second});
+  auto* s3 = dbfull()->GetSnapshot();
+  ASSERT_TRUE(s3 == nullptr);
+  Close();
+}
+
 TEST(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
@@ -768,14 +815,14 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
     PutRandomData(1, 11, 10000);
     WaitForFlush(1);
-    ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(1));
+    ASSERT_EQ(ToString(i + 1), FilesPerLevel(1));
   }
 
   // SETUP column family "two" -- level style with 4 levels
   for (int i = 0; i < two.level0_file_num_compaction_trigger - 1; ++i) {
     PutRandomData(2, 15, 10000);
     WaitForFlush(2);
-    ASSERT_EQ(std::to_string(i + 1), FilesPerLevel(2));
+    ASSERT_EQ(ToString(i + 1), FilesPerLevel(2));
   }
 
   // TRIGGER compaction "one"
@@ -910,11 +957,11 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
 
   for (size_t i = 0; i < handles_.size(); ++i) {
-    PutRandomData(i, 10, 100);
+    PutRandomData(static_cast<int>(i), 10, 100);
   }
   int num_writable_file_start = env_->GetNumberOfNewWritableFileCalls();
   // this will trigger the flushes
-  for (size_t i = 0; i <= 4; ++i) {
+  for (int i = 0; i <= 4; ++i) {
     ASSERT_OK(Flush(i));
   }
 

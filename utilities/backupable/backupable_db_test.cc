@@ -228,7 +228,7 @@ class FileManager : public EnvWrapper {
  public:
   explicit FileManager(Env* t) : EnvWrapper(t), rnd_(5) {}
 
-  Status DeleteRandomFileInDir(const std::string dir) {
+  Status DeleteRandomFileInDir(const std::string& dir) {
     std::vector<std::string> children;
     GetChildren(dir, &children);
     if (children.size() <= 2) { // . and ..
@@ -636,7 +636,34 @@ TEST(BackupableDBTest, CorruptionsTest) {
   ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
   s = restore_db_->RestoreDBFromBackup(2, dbname_, dbname_);
   ASSERT_TRUE(!s.ok());
+
+  // make sure that no corrupt backups have actually been deleted!
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/1"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/1"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5"));
+
+  // delete the corrupt backups and then make sure they're actually deleted
+  ASSERT_OK(restore_db_->DeleteBackup(5));
+  ASSERT_OK(restore_db_->DeleteBackup(4));
+  ASSERT_OK(restore_db_->DeleteBackup(3));
   ASSERT_OK(restore_db_->DeleteBackup(2));
+  (void) restore_db_->GarbageCollect();
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2") == false);
+
   CloseRestoreDB();
   AssertBackupConsistency(0, 0, keys_iteration * 1, keys_iteration * 5);
 
@@ -867,6 +894,8 @@ TEST(BackupableDBTest, DeleteTmpFiles) {
   file_manager_->WriteToFile(private_tmp_file, "tmp");
   ASSERT_EQ(true, file_manager_->FileExists(private_tmp_dir));
   OpenBackupableDB();
+  // Need to call this explicitly to delete tmp files
+  (void) db_->GarbageCollect();
   CloseBackupableDB();
   ASSERT_EQ(false, file_manager_->FileExists(shared_tmp));
   ASSERT_EQ(false, file_manager_->FileExists(private_tmp_file));
@@ -916,7 +945,7 @@ TEST(BackupableDBTest, RateLimiting) {
     auto backup_time = env_->NowMicros() - start_backup;
     auto rate_limited_backup_time = (bytes_written * kMicrosPerSec) /
                                     backupable_options_->backup_rate_limit;
-    ASSERT_GT(backup_time, 0.9 * rate_limited_backup_time);
+    ASSERT_GT(backup_time, 0.8 * rate_limited_backup_time);
 
     CloseBackupableDB();
 
@@ -927,7 +956,7 @@ TEST(BackupableDBTest, RateLimiting) {
     CloseRestoreDB();
     auto rate_limited_restore_time = (bytes_written * kMicrosPerSec) /
                                      backupable_options_->restore_rate_limit;
-    ASSERT_GT(restore_time, 0.9 * rate_limited_restore_time);
+    ASSERT_GT(restore_time, 0.8 * rate_limited_restore_time);
 
     AssertBackupConsistency(0, 0, 100000, 100010);
   }

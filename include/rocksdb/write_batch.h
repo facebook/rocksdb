@@ -105,10 +105,11 @@ class WriteBatch {
       return Status::InvalidArgument(
           "non-default column family and PutCF not implemented");
     }
-    virtual void Put(const Slice& key, const Slice& value);
+    virtual void Put(const Slice& key, const Slice& value) {}
+
     // Merge and LogData are not pure virtual. Otherwise, we would break
     // existing clients of Handler on a source code level. The default
-    // implementation of Merge simply throws a runtime exception.
+    // implementation of Merge does nothing.
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
                            const Slice& value) {
       if (column_family_id == 0) {
@@ -118,7 +119,8 @@ class WriteBatch {
       return Status::InvalidArgument(
           "non-default column family and MergeCF not implemented");
     }
-    virtual void Merge(const Slice& key, const Slice& value);
+    virtual void Merge(const Slice& key, const Slice& value) {}
+
     // The default implementation of LogData does nothing.
     virtual void LogData(const Slice& blob);
     virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
@@ -129,7 +131,8 @@ class WriteBatch {
       return Status::InvalidArgument(
           "non-default column family and DeleteCF not implemented");
     }
-    virtual void Delete(const Slice& key);
+    virtual void Delete(const Slice& key) {}
+
     // Continue is called by WriteBatch::Iterate. If it returns false,
     // iteration is halted. Otherwise, it continues iterating. The default
     // implementation always returns true.

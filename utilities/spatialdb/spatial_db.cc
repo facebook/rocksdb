@@ -7,11 +7,17 @@
 
 #include "rocksdb/utilities/spatial_db.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
+#include <algorithm>
+#include <condition_variable>
 #include <inttypes.h>
 #include <string>
 #include <vector>
-#include <algorithm>
+#include <mutex>
+#include <thread>
 #include <set>
 #include <unordered_set>
 
@@ -19,6 +25,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/statistics.h"
 #include "rocksdb/table.h"
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/stackable_db.h"
@@ -218,6 +225,7 @@ std::string FeatureSet::DebugString() const {
     switch (iter.second.type()) {
       case Variant::kNull:
         out.append("null");
+        break;
       case Variant::kBool:
         if (iter.second.get_bool()) {
           out.append("true");
@@ -364,7 +372,7 @@ class SpatialIndexCursor : public Cursor {
     }
     delete spatial_iterator;
 
-    valid_ = valid_ && primary_key_ids_.size() > 0;
+    valid_ = valid_ && !primary_key_ids_.empty();
 
     if (valid_) {
       primary_keys_iterator_ = primary_key_ids_.begin();
@@ -512,6 +520,7 @@ class SpatialDBImpl : public SpatialDB {
       return Status::InvalidArgument("Spatial indexes can't be empty");
     }
 
+    const size_t kWriteOutEveryBytes = 1024 * 1024;  // 1MB
     uint64_t id = next_id_.fetch_add(1);
 
     for (const auto& si : spatial_indexes) {
@@ -533,6 +542,13 @@ class SpatialDBImpl : public SpatialDB {
               &key, GetQuadKeyFromTile(x, y, spatial_index.tile_bits));
           PutFixed64BigEndian(&key, id);
           batch.Put(itr->second.column_family, key, Slice());
+          if (batch.GetDataSize() >= kWriteOutEveryBytes) {
+            Status s = Write(write_options, &batch);
+            batch.Clear();
+            if (!s.ok()) {
+              return s;
+            }
+          }
         }
       }
     }
@@ -548,26 +564,49 @@ class SpatialDBImpl : public SpatialDB {
     return Write(write_options, &batch);
   }
 
-  virtual Status Compact() override {
-    Status s, t;
+  virtual Status Compact(int num_threads) override {
+    std::vector<ColumnFamilyHandle*> column_families;
+    column_families.push_back(data_column_family_);
+
     for (auto& iter : name_to_index_) {
-      t = Flush(FlushOptions(), iter.second.column_family);
-      if (!t.ok()) {
-        s = t;
-      }
-      t = CompactRange(iter.second.column_family, nullptr, nullptr);
-      if (!t.ok()) {
-        s = t;
-      }
+      column_families.push_back(iter.second.column_family);
     }
-    t = Flush(FlushOptions(), data_column_family_);
-    if (!t.ok()) {
-      s = t;
+
+    std::mutex state_mutex;
+    std::condition_variable cv;
+    Status s;
+    int threads_running = 0;
+
+    std::vector<std::thread> threads;
+
+    for (auto cfh : column_families) {
+      threads.emplace_back([&, cfh] {
+          {
+            std::unique_lock<std::mutex> lk(state_mutex);
+            cv.wait(lk, [&] { return threads_running < num_threads; });
+            threads_running++;
+          }
+
+          Status t = Flush(FlushOptions(), cfh);
+          if (t.ok()) {
+            t = CompactRange(cfh, nullptr, nullptr);
+          }
+
+          {
+            std::unique_lock<std::mutex> lk(state_mutex);
+            threads_running--;
+            if (s.ok() && !t.ok()) {
+              s = t;
+            }
+            cv.notify_one();
+          }
+      });
     }
-    t = CompactRange(data_column_family_, nullptr, nullptr);
-    if (!t.ok()) {
-      s = t;
+
+    for (auto& t : threads) {
+      t.join();
     }
+
     return s;
   }
 
@@ -621,6 +660,7 @@ class SpatialDBImpl : public SpatialDB {
 namespace {
 DBOptions GetDBOptions(const SpatialDBOptions& options) {
   DBOptions db_options;
+  db_options.max_open_files = 50000;
   db_options.max_background_compactions = 3 * options.num_threads / 4;
   db_options.max_background_flushes =
       options.num_threads - db_options.max_background_compactions;
@@ -628,8 +668,12 @@ DBOptions GetDBOptions(const SpatialDBOptions& options) {
                                        Env::LOW);
   db_options.env->SetBackgroundThreads(db_options.max_background_flushes,
                                        Env::HIGH);
+  db_options.statistics = CreateDBStatistics();
   if (options.bulk_load) {
+    db_options.stats_dump_period_sec = 600;
     db_options.disableDataSync = true;
+  } else {
+    db_options.stats_dump_period_sec = 1800;  // 30min
   }
   return db_options;
 }
@@ -639,6 +683,8 @@ ColumnFamilyOptions GetColumnFamilyOptions(const SpatialDBOptions& options,
   ColumnFamilyOptions column_family_options;
   column_family_options.write_buffer_size = 128 * 1024 * 1024;  // 128MB
   column_family_options.max_write_buffer_number = 4;
+  column_family_options.max_bytes_for_level_base = 256 * 1024 * 1024;  // 256MB
+  column_family_options.target_file_size_base = 64 * 1024 * 1024;      // 64MB
   column_family_options.level0_file_num_compaction_trigger = 2;
   column_family_options.level0_slowdown_writes_trigger = 16;
   column_family_options.level0_slowdown_writes_trigger = 32;

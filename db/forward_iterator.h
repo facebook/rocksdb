@@ -14,6 +14,7 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "db/dbformat.h"
+#include "util/arena.h"
 
 namespace rocksdb {
 
@@ -50,7 +51,7 @@ typedef std::priority_queue<Iterator*,
 class ForwardIterator : public Iterator {
  public:
   ForwardIterator(DBImpl* db, const ReadOptions& read_options,
-                  ColumnFamilyData* cfd);
+                  ColumnFamilyData* cfd, SuperVersion* current_sv = nullptr);
   virtual ~ForwardIterator();
 
   void SeekToLast() override {
@@ -71,8 +72,8 @@ class ForwardIterator : public Iterator {
   virtual Status status() const override;
 
  private:
-  void Cleanup();
-  void RebuildIterators();
+  void Cleanup(bool release_sv);
+  void RebuildIterators(bool refresh_sv);
   void ResetIncompleteIterators();
   void SeekInternal(const Slice& internal_key, bool seek_to_first);
   void UpdateCurrent();
@@ -96,10 +97,13 @@ class ForwardIterator : public Iterator {
   Iterator* current_;
   // internal iterator status
   Status status_;
+  Status immutable_status_;
   bool valid_;
 
   IterKey prev_key_;
   bool is_prev_set_;
+  bool is_prev_inclusive_;
+  Arena arena_;
 };
 
 }  // namespace rocksdb

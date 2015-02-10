@@ -53,6 +53,13 @@ enum Tickers : uint32_t {
   // # of memtable misses.
   MEMTABLE_MISS,
 
+  // # of Get() queries served by L0
+  GET_HIT_L0,
+  // # of Get() queries served by L1
+  GET_HIT_L1,
+  // # of Get() queries served by L2 and up
+  GET_HIT_L2_AND_UP,
+
   /**
    * COMPACTION_KEY_DROP_* count the reasons for key drop during compaction
    * There are 3 reasons currently.
@@ -73,12 +80,16 @@ enum Tickers : uint32_t {
   NO_FILE_CLOSES,
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
-  // Time system had to wait to do LO-L1 compactions
+  // DEPRECATED Time system had to wait to do LO-L1 compactions
   STALL_L0_SLOWDOWN_MICROS,
-  // Time system had to wait to move memtable to L1.
+  // DEPRECATED Time system had to wait to move memtable to L1.
   STALL_MEMTABLE_COMPACTION_MICROS,
-  // write throttle because of too many files in L0
+  // DEPRECATED write throttle because of too many files in L0
   STALL_L0_NUM_FILES_MICROS,
+  // Writer has to wait for compaction or flush to finish.
+  STALL_MICROS,
+  // The wait time for db mutex.
+  DB_MUTEX_WAIT_MICROS,
   RATE_LIMIT_DELAY_MILLIS,
   NO_ITERATORS,  // number of iterators currently open
 
@@ -115,7 +126,7 @@ enum Tickers : uint32_t {
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
   WRITE_DONE_BY_OTHER,
-  WRITE_TIMEDOUT,        // Number of writes ending up with timed-out.
+  WRITE_TIMEDOUT,       // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction
   COMPACT_WRITE_BYTES,  // Bytes written during compaction
@@ -146,6 +157,9 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {BLOOM_FILTER_USEFUL, "rocksdb.bloom.filter.useful"},
     {MEMTABLE_HIT, "rocksdb.memtable.hit"},
     {MEMTABLE_MISS, "rocksdb.memtable.miss"},
+    {GET_HIT_L0, "rocksdb.l0.hit"},
+    {GET_HIT_L1, "rocksdb.l1.hit"},
+    {GET_HIT_L2_AND_UP, "rocksdb.l2andup.hit"},
     {COMPACTION_KEY_DROP_NEWER_ENTRY, "rocksdb.compaction.key.drop.new"},
     {COMPACTION_KEY_DROP_OBSOLETE, "rocksdb.compaction.key.drop.obsolete"},
     {COMPACTION_KEY_DROP_USER, "rocksdb.compaction.key.drop.user"},
@@ -160,6 +174,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {STALL_L0_SLOWDOWN_MICROS, "rocksdb.l0.slowdown.micros"},
     {STALL_MEMTABLE_COMPACTION_MICROS, "rocksdb.memtable.compaction.micros"},
     {STALL_L0_NUM_FILES_MICROS, "rocksdb.l0.num.files.stall.micros"},
+    {STALL_MICROS, "rocksdb.stall.micros"},
+    {DB_MUTEX_WAIT_MICROS, "rocksdb.db.mutex.wait.micros"},
     {RATE_LIMIT_DELAY_MILLIS, "rocksdb.rate.limit.delay.millis"},
     {NO_ITERATORS, "rocksdb.num.iterators"},
     {NUMBER_MULTIGET_CALLS, "rocksdb.number.multiget.get"},
@@ -212,7 +228,6 @@ enum Histograms : uint32_t {
   READ_BLOCK_COMPACTION_MICROS,
   READ_BLOCK_GET_MICROS,
   WRITE_RAW_BLOCK_MICROS,
-
   STALL_L0_SLOWDOWN_COUNT,
   STALL_MEMTABLE_COMPACTION_COUNT,
   STALL_L0_NUM_FILES_COUNT,
@@ -220,6 +235,7 @@ enum Histograms : uint32_t {
   SOFT_RATE_LIMIT_DELAY_COUNT,
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
+  WRITE_STALL,
   HISTOGRAM_ENUM_MAX,
 };
 

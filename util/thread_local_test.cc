@@ -24,11 +24,11 @@ class ThreadLocalTest {
 namespace {
 
 struct Params {
-  Params(port::Mutex* m, port::CondVar* c, int* unref, int n,
+  Params(port::Mutex* m, port::CondVar* c, int* u, int n,
          UnrefHandler handler = nullptr)
       : mu(m),
         cv(c),
-        unref(unref),
+        unref(u),
         total(n),
         started(0),
         completed(0),
@@ -112,24 +112,24 @@ TEST(ThreadLocalTest, SequentialReadWriteTest) {
   p.tls2 = &tls2;
 
   auto func = [](void* ptr) {
-    auto& p = *static_cast<Params*>(ptr);
+    auto& params = *static_cast<Params*>(ptr);
 
-    ASSERT_TRUE(p.tls1.Get() == nullptr);
-    p.tls1.Reset(reinterpret_cast<int*>(1));
-    ASSERT_TRUE(p.tls1.Get() == reinterpret_cast<int*>(1));
-    p.tls1.Reset(reinterpret_cast<int*>(2));
-    ASSERT_TRUE(p.tls1.Get() == reinterpret_cast<int*>(2));
+    ASSERT_TRUE(params.tls1.Get() == nullptr);
+    params.tls1.Reset(reinterpret_cast<int*>(1));
+    ASSERT_TRUE(params.tls1.Get() == reinterpret_cast<int*>(1));
+    params.tls1.Reset(reinterpret_cast<int*>(2));
+    ASSERT_TRUE(params.tls1.Get() == reinterpret_cast<int*>(2));
 
-    ASSERT_TRUE(p.tls2->Get() == nullptr);
-    p.tls2->Reset(reinterpret_cast<int*>(1));
-    ASSERT_TRUE(p.tls2->Get() == reinterpret_cast<int*>(1));
-    p.tls2->Reset(reinterpret_cast<int*>(2));
-    ASSERT_TRUE(p.tls2->Get() == reinterpret_cast<int*>(2));
+    ASSERT_TRUE(params.tls2->Get() == nullptr);
+    params.tls2->Reset(reinterpret_cast<int*>(1));
+    ASSERT_TRUE(params.tls2->Get() == reinterpret_cast<int*>(1));
+    params.tls2->Reset(reinterpret_cast<int*>(2));
+    ASSERT_TRUE(params.tls2->Get() == reinterpret_cast<int*>(2));
 
-    p.mu->Lock();
-    ++(p.completed);
-    p.cv->SignalAll();
-    p.mu->Unlock();
+    params.mu->Lock();
+    ++(params.completed);
+    params.cv->SignalAll();
+    params.mu->Unlock();
   };
 
   for (int iter = 0; iter < 1024; ++iter) {

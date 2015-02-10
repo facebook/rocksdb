@@ -8,14 +8,17 @@
 #include <vector>
 #include <memory>
 
-#include "include/rocksdb/db.h"
-#include "include/rocksdb/options.h"
-#include "include/rocksdb/env.h"
-#include "include/rocksdb/slice.h"
-#include "include/rocksdb/status.h"
-#include "include/rocksdb/comparator.h"
-#include "include/rocksdb/table.h"
-#include "include/rocksdb/slice_transform.h"
+#include "rocksdb/db.h"
+#include "rocksdb/options.h"
+#include "rocksdb/env.h"
+#include "rocksdb/slice.h"
+#include "rocksdb/status.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/table.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/filter_policy.h"
+#include "port/port.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -42,14 +45,14 @@ class SanityTest {
       return s;
     }
     for (int i = 0; i < 1000000; ++i) {
-      std::string k = "key" + std::to_string(i);
-      std::string v = "value" + std::to_string(i);
+      std::string k = "key" + ToString(i);
+      std::string v = "value" + ToString(i);
       s = db->Put(WriteOptions(), Slice(k), Slice(v));
       if (!s.ok()) {
         return s;
       }
     }
-    return Status::OK();
+    return db->Flush(FlushOptions());
   }
   Status Verify() {
     DB* db;
@@ -60,8 +63,8 @@ class SanityTest {
       return s;
     }
     for (int i = 0; i < 1000000; ++i) {
-      std::string k = "key" + std::to_string(i);
-      std::string v = "value" + std::to_string(i);
+      std::string k = "key" + ToString(i);
+      std::string v = "value" + ToString(i);
       std::string result;
       s = db->Get(ReadOptions(), Slice(k), &result);
       if (!s.ok()) {
@@ -130,6 +133,49 @@ class SanityTestZlibCompression : public SanityTest {
   Options options_;
 };
 
+class SanityTestZlibCompressionVersion2 : public SanityTest {
+ public:
+  explicit SanityTestZlibCompressionVersion2(const std::string& path)
+      : SanityTest(path) {
+    options_.compression = kZlibCompression;
+    BlockBasedTableOptions table_options;
+    table_options.format_version = 2;
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "ZlibCompressionVersion2"; }
+
+ private:
+  Options options_;
+};
+
+class SanityTestLZ4Compression : public SanityTest {
+ public:
+  explicit SanityTestLZ4Compression(const std::string& path)
+      : SanityTest(path) {
+    options_.compression = kLZ4Compression;
+  }
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "LZ4Compression"; }
+
+ private:
+  Options options_;
+};
+
+class SanityTestLZ4HCCompression : public SanityTest {
+ public:
+  explicit SanityTestLZ4HCCompression(const std::string& path)
+      : SanityTest(path) {
+    options_.compression = kLZ4HCCompression;
+  }
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "LZ4HCCompression"; }
+
+ private:
+  Options options_;
+};
+
+#ifndef ROCKSDB_LITE
 class SanityTestPlainTableFactory : public SanityTest {
  public:
   explicit SanityTestPlainTableFactory(const std::string& path)
@@ -145,20 +191,42 @@ class SanityTestPlainTableFactory : public SanityTest {
  private:
   Options options_;
 };
+#endif  // ROCKSDB_LITE
+
+class SanityTestBloomFilter : public SanityTest {
+ public:
+  explicit SanityTestBloomFilter(const std::string& path) : SanityTest(path) {
+    BlockBasedTableOptions table_options;
+    table_options.filter_policy.reset(NewBloomFilterPolicy(10));
+    options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  }
+  ~SanityTestBloomFilter() {}
+  virtual Options GetOptions() const { return options_; }
+  virtual std::string Name() const { return "BloomFilter"; }
+
+ private:
+  Options options_;
+};
 
 namespace {
 bool RunSanityTests(const std::string& command, const std::string& path) {
   std::vector<SanityTest*> sanity_tests = {
-      new SanityTestBasic(path),
-      new SanityTestSpecialComparator(path),
+      new SanityTestBasic(path), new SanityTestSpecialComparator(path),
       new SanityTestZlibCompression(path),
-      new SanityTestPlainTableFactory(path)};
+      new SanityTestZlibCompressionVersion2(path),
+      new SanityTestLZ4Compression(path),
+      new SanityTestLZ4HCCompression(path),
+#ifndef ROCKSDB_LITE
+      new SanityTestPlainTableFactory(path),
+#endif  // ROCKSDB_LITE
+      new SanityTestBloomFilter(path)};
 
   if (command == "create") {
     fprintf(stderr, "Creating...\n");
   } else {
     fprintf(stderr, "Verifying...\n");
   }
+  bool result = true;
   for (auto sanity_test : sanity_tests) {
     Status s;
     fprintf(stderr, "%s -- ", sanity_test->Name().c_str());
@@ -171,12 +239,12 @@ bool RunSanityTests(const std::string& command, const std::string& path) {
     fprintf(stderr, "%s\n", s.ToString().c_str());
     if (!s.ok()) {
       fprintf(stderr, "FAIL\n");
-      return false;
+      result = false;
     }
 
     delete sanity_test;
   }
-  return true;
+  return result;
 }
 }  // namespace
 

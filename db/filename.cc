@@ -6,7 +6,10 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include "db/filename.h"
 #include <inttypes.h>
 
@@ -16,6 +19,7 @@
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
 #include "util/logging.h"
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -74,6 +78,17 @@ std::string ArchivedLogFileName(const std::string& name, uint64_t number) {
 
 std::string MakeTableFileName(const std::string& path, uint64_t number) {
   return MakeFileName(path, number, "sst");
+}
+
+uint64_t TableFileNameToNumber(const std::string& name) {
+  uint64_t number = 0;
+  uint64_t base = 1;
+  int pos = static_cast<int>(name.find_last_of('.'));
+  while (--pos >= 0 && name[pos] >= '0' && name[pos] <= '9') {
+    number += (name[pos] - '0') * base;
+    base *= 10;
+  }
+  return number;
 }
 
 std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
@@ -313,6 +328,18 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
     env->DeleteFile(tmp);
   }
   return s;
+}
+
+Status SyncManifest(Env* env, const DBOptions* db_options, WritableFile* file) {
+  if (db_options->disableDataSync) {
+    return Status::OK();
+  } else if (db_options->use_fsync) {
+    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+    return file->Fsync();
+  } else {
+    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
+    return file->Sync();
+  }
 }
 
 }  // namespace rocksdb

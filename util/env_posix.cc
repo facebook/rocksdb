@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <chrono>
 #include <deque>
 #include <set>
 #include <dirent.h>
@@ -41,6 +42,8 @@
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
+#include "util/thread_status_updater.h"
+#include "util/thread_status_util.h"
 
 // Get nano time for mach systems
 #ifdef __MACH__
@@ -84,6 +87,10 @@ int Fadvise(int fd, off_t offset, size_t len, int advice) {
 #else
   return 0;  // simply do nothing.
 #endif
+}
+
+ThreadStatusUpdater* CreateThreadStatusUpdater() {
+  return new ThreadStatusUpdater();
 }
 
 // list of pathnames that are locked
@@ -200,7 +207,7 @@ class PosixSequentialFile: public SequentialFile {
   }
 
   virtual Status Skip(uint64_t n) {
-    if (fseek(file_, n, SEEK_CUR)) {
+    if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {
       return IOError(filename_, errno);
     }
     return Status::OK();
@@ -485,7 +492,7 @@ class PosixMmapFile : public WritableFile {
     const char* src = data.data();
     size_t left = data.size();
     TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
-    PrepareWrite(GetFileSize(), left);
+    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
     while (left > 0) {
       assert(base_ <= dst_);
       assert(dst_ <= limit_);
@@ -682,7 +689,7 @@ class PosixWritableFile : public WritableFile {
 
     TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
 
-    PrepareWrite(GetFileSize(), left);
+    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
     // if there is no space in the cache, then flush
     if (cursize_ + left > capacity_) {
       s = Flush();
@@ -736,14 +743,29 @@ class PosixWritableFile : public WritableFile {
     GetPreallocationStatus(&block_size, &last_allocated_block);
     if (last_allocated_block > 0) {
       // trim the extra space preallocated at the end of the file
+      // NOTE(ljin): we probably don't want to surface failure as an IOError,
+      // but it will be nice to log these errors.
       int dummy __attribute__((unused));
-      dummy = ftruncate(fd_, filesize_);  // ignore errors
+      dummy = ftruncate(fd_, filesize_);
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+      // in some file systems, ftruncate only trims trailing space if the
+      // new file size is smaller than the current size. Calling fallocate
+      // with FALLOC_FL_PUNCH_HOLE flag to explicitly release these unused
+      // blocks. FALLOC_FL_PUNCH_HOLE is supported on at least the following
+      // filesystems:
+      //   XFS (since Linux 2.6.38)
+      //   ext4 (since Linux 3.0)
+      //   Btrfs (since Linux 3.7)
+      //   tmpfs (since Linux 3.5)
+      // We ignore error since failure of this operation does not affect
+      // correctness.
+      fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
+                filesize_, block_size * last_allocated_block - filesize_);
+#endif
     }
 
     if (close(fd_) < 0) {
-      if (s.ok()) {
-        s = IOError(filename_, errno);
-      }
+      s = IOError(filename_, errno);
     }
     fd_ = -1;
     return s;
@@ -1047,7 +1069,7 @@ class PosixFileLock : public FileLock {
 void PthreadCall(const char* label, int result) {
   if (result != 0) {
     fprintf(stderr, "pthread %s: %s\n", label, strerror(result));
-    exit(1);
+    abort();
   }
 }
 
@@ -1055,10 +1077,16 @@ class PosixEnv : public Env {
  public:
   PosixEnv();
 
-  virtual ~PosixEnv(){
+  virtual ~PosixEnv() {
     for (const auto tid : threads_to_join_) {
       pthread_join(tid, nullptr);
     }
+    for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
+      thread_pools_[pool_id].JoinAllThreads();
+    }
+    // All threads must be joined before the deletion of
+    // thread_status_updater_.
+    delete thread_status_updater_;
   }
 
   void SetFD_CLOEXEC(int fd, const EnvOptions* options) {
@@ -1272,6 +1300,17 @@ class PosixEnv : public Env {
     return result;
   }
 
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    Status result;
+    if (link(src.c_str(), target.c_str()) != 0) {
+      if (errno == EXDEV) {
+        return Status::NotSupported("No cross FS links allowed");
+      }
+      result = IOError(src, errno);
+    }
+    return result;
+  }
+
   virtual Status LockFile(const std::string& fname, FileLock** lock) {
     *lock = nullptr;
     Status result;
@@ -1324,6 +1363,12 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
+  virtual Status GetThreadList(
+      std::vector<ThreadStatus>* thread_list) override {
+    assert(thread_status_updater_);
+    return thread_status_updater_->GetThreadList(thread_list);
+  }
+
   static uint64_t gettid(pthread_t tid) {
     uint64_t thread_id = 0;
     memcpy(&thread_id, &tid, std::min(sizeof(thread_id), sizeof(tid)));
@@ -1350,25 +1395,13 @@ class PosixEnv : public Env {
   }
 
   virtual uint64_t NowMicros() {
-    struct timeval tv;
-    // TODO(kailiu) MAC DON'T HAVE THIS
-    gettimeofday(&tv, nullptr);
-    return static_cast<uint64_t>(tv.tv_sec) * 1000000 + tv.tv_usec;
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
   }
 
   virtual uint64_t NowNanos() {
-#ifdef OS_LINUX
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#elif __MACH__
-    clock_serv_t cclock;
-    mach_timespec_t ts;
-    host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
-    clock_get_time(cclock, &ts);
-    mach_port_deallocate(mach_task_self(), cclock);
-#endif
-    return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
   }
 
   virtual void SleepForMicroseconds(int micros) {
@@ -1376,7 +1409,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status GetHostName(char* name, uint64_t len) {
-    int ret = gethostname(name, len);
+    int ret = gethostname(name, static_cast<size_t>(len));
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL)
         return Status::InvalidArgument(strerror(errno));
@@ -1416,6 +1449,12 @@ class PosixEnv : public Env {
   virtual void SetBackgroundThreads(int num, Priority pri) {
     assert(pri >= Priority::LOW && pri <= Priority::HIGH);
     thread_pools_[pri].SetBackgroundThreads(num);
+  }
+
+  // Allow increasing the number of worker threads.
+  virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+    assert(pri >= Priority::LOW && pri <= Priority::HIGH);
+    thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
   }
 
   virtual void LowerThreadPoolIOPriority(Priority pool = LOW) override {
@@ -1508,12 +1547,17 @@ class PosixEnv : public Env {
           queue_(),
           queue_len_(0),
           exit_all_threads_(false),
-          low_io_priority_(false) {
+          low_io_priority_(false),
+          env_(nullptr) {
       PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
       PthreadCall("cvar_init", pthread_cond_init(&bgsignal_, nullptr));
     }
 
     ~ThreadPool() {
+      assert(bgthreads_.size() == 0U);
+    }
+
+    void JoinAllThreads() {
       PthreadCall("lock", pthread_mutex_lock(&mu_));
       assert(!exit_all_threads_);
       exit_all_threads_ = true;
@@ -1522,6 +1566,11 @@ class PosixEnv : public Env {
       for (const auto tid : bgthreads_) {
         pthread_join(tid, nullptr);
       }
+      bgthreads_.clear();
+    }
+
+    void SetHostEnv(Env* env) {
+      env_ = env;
     }
 
     void LowerIOPriority() {
@@ -1547,6 +1596,17 @@ class PosixEnv : public Env {
     // Is one of the threads to terminate.
     bool IsExcessiveThread(size_t thread_id) {
       return static_cast<int>(thread_id) >= total_threads_limit_;
+    }
+
+    // Return the thread priority.
+    // This would allow its member-thread to know its priority.
+    Env::Priority GetThreadPriority() {
+      return priority_;
+    }
+
+    // Set the thread priority.
+    void SetThreadPriority(Env::Priority priority) {
+      priority_ = priority;
     }
 
     void BGThread(size_t thread_id) {
@@ -1575,16 +1635,13 @@ class PosixEnv : public Env {
             WakeUpAllThreads();
           }
           PthreadCall("unlock", pthread_mutex_unlock(&mu_));
-          // TODO(sdong): temp logging. Need to help debugging. Remove it when
-          // the feature is proved to be stable.
-          fprintf(stdout, "Bg thread %zu terminates %llx\n", thread_id,
-                  static_cast<long long unsigned int>(gettid()));
           break;
         }
         void (*function)(void*) = queue_.front().function;
         void* arg = queue_.front().arg;
         queue_.pop_front();
-        queue_len_.store(queue_.size(), std::memory_order_relaxed);
+        queue_len_.store(static_cast<unsigned int>(queue_.size()),
+                         std::memory_order_relaxed);
 
         bool decrease_io_priority = (low_io_priority != low_io_priority_);
         PthreadCall("unlock", pthread_mutex_unlock(&mu_));
@@ -1629,8 +1686,18 @@ class PosixEnv : public Env {
       BGThreadMetadata* meta = reinterpret_cast<BGThreadMetadata*>(arg);
       size_t thread_id = meta->thread_id_;
       ThreadPool* tp = meta->thread_pool_;
+#if ROCKSDB_USING_THREAD_STATUS
+      // for thread-status
+      ThreadStatusUtil::SetThreadType(tp->env_,
+          (tp->GetThreadPriority() == Env::Priority::HIGH ?
+              ThreadStatus::HIGH_PRIORITY :
+              ThreadStatus::LOW_PRIORITY));
+#endif
       delete meta;
       tp->BGThread(thread_id);
+#if ROCKSDB_USING_THREAD_STATUS
+      ThreadStatusUtil::UnregisterThread();
+#endif
       return nullptr;
     }
 
@@ -1638,19 +1705,27 @@ class PosixEnv : public Env {
       PthreadCall("signalall", pthread_cond_broadcast(&bgsignal_));
     }
 
-    void SetBackgroundThreads(int num) {
+    void SetBackgroundThreadsInternal(int num, bool allow_reduce) {
       PthreadCall("lock", pthread_mutex_lock(&mu_));
       if (exit_all_threads_) {
         PthreadCall("unlock", pthread_mutex_unlock(&mu_));
         return;
       }
-      if (num != total_threads_limit_) {
-        total_threads_limit_ = num;
+      if (num > total_threads_limit_ ||
+          (num < total_threads_limit_ && allow_reduce)) {
+        total_threads_limit_ = std::max(1, num);
         WakeUpAllThreads();
         StartBGThreads();
       }
-      assert(total_threads_limit_ > 0);
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+    }
+
+    void IncBackgroundThreadsIfNeeded(int num) {
+      SetBackgroundThreadsInternal(num, false);
+    }
+
+    void SetBackgroundThreads(int num) {
+      SetBackgroundThreadsInternal(num, true);
     }
 
     void StartBGThreads() {
@@ -1690,7 +1765,8 @@ class PosixEnv : public Env {
       queue_.push_back(BGItem());
       queue_.back().function = function;
       queue_.back().arg = arg;
-      queue_len_.store(queue_.size(), std::memory_order_relaxed);
+      queue_len_.store(static_cast<unsigned int>(queue_.size()),
+                       std::memory_order_relaxed);
 
       if (!HasExcessiveThread()) {
         // Wake up at least one waiting thread.
@@ -1721,6 +1797,8 @@ class PosixEnv : public Env {
     std::atomic_uint queue_len_;  // Queue length. Used for stats reporting
     bool exit_all_threads_;
     bool low_io_priority_;
+    Env::Priority priority_;
+    Env* env_;
   };
 
   std::vector<ThreadPool> thread_pools_;
@@ -1735,6 +1813,13 @@ PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
                        page_size_(getpagesize()),
                        thread_pools_(Priority::TOTAL) {
   PthreadCall("mutex_init", pthread_mutex_init(&mu_, nullptr));
+  for (int pool_id = 0; pool_id < Env::Priority::TOTAL; ++pool_id) {
+    thread_pools_[pool_id].SetThreadPriority(
+        static_cast<Env::Priority>(pool_id));
+    // This allows later initializing the thread-local-env of each thread.
+    thread_pools_[pool_id].SetHostEnv(this);
+  }
+  thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
 void PosixEnv::Schedule(void (*function)(void*), void* arg, Priority pri) {

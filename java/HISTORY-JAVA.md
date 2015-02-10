@@ -1,5 +1,20 @@
 # RocksJava Change Log
 
+## By 01/31/2015
+### New Features
+* WriteBatchWithIndex support.
+* Iterator support for WriteBatch and WriteBatchWithIndex
+* GetUpdatesSince support.
+* Snapshots carry now information about the related sequence number.
+* TTL DB support.
+
+## By 11/14/2014
+### New Features
+* Full support for Column Family.
+* Slice and Comparator support.
+* Default merge operator support.
+* RateLimiter support.
+
 ## By 06/15/2014
 ### New Features
 * Added basic Java binding for rocksdb::Env such that multiple RocksDB can share the same thread pool and environment.

@@ -15,36 +15,46 @@
 /*
  * Class:     org_rocksdb_PlainTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (IIDI)J
+ * Signature: (IIDIIBZZ)J
  */
 jlong Java_org_rocksdb_PlainTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jint jkey_size, jint jbloom_bits_per_key,
-    jdouble jhash_table_ratio, jint jindex_sparseness) {
+    jdouble jhash_table_ratio, jint jindex_sparseness,
+    jint jhuge_page_tlb_size, jbyte jencoding_type,
+    jboolean jfull_scan_mode, jboolean jstore_index_in_file) {
   rocksdb::PlainTableOptions options = rocksdb::PlainTableOptions();
   options.user_key_len = jkey_size;
   options.bloom_bits_per_key = jbloom_bits_per_key;
   options.hash_table_ratio = jhash_table_ratio;
   options.index_sparseness = jindex_sparseness;
+  options.huge_page_tlb_size = jhuge_page_tlb_size;
+  options.encoding_type = static_cast<rocksdb::EncodingType>(
+      jencoding_type);
+  options.full_scan_mode = jfull_scan_mode;
+  options.store_index_in_file = jstore_index_in_file;
   return reinterpret_cast<jlong>(rocksdb::NewPlainTableFactory(options));
 }
 
 /*
  * Class:     org_rocksdb_BlockBasedTableConfig
  * Method:    newTableFactoryHandle
- * Signature: (ZJIJIIZI)J
+ * Signature: (ZJIJIIZIZZJIBBI)J
  */
 jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
     JNIEnv* env, jobject jobj, jboolean no_block_cache, jlong block_cache_size,
-    jint num_shardbits, jlong block_size, jint block_size_deviation,
+    jint block_cache_num_shardbits, jlong block_size, jint block_size_deviation,
     jint block_restart_interval, jboolean whole_key_filtering,
-    jint bits_per_key) {
+    jlong jfilterPolicy, jboolean cache_index_and_filter_blocks,
+    jboolean hash_index_allow_collision, jlong block_cache_compressed_size,
+    jint block_cache_compressd_num_shard_bits, jbyte jchecksum_type,
+    jbyte jindex_type, jint jformat_version) {
   rocksdb::BlockBasedTableOptions options;
   options.no_block_cache = no_block_cache;
 
   if (!no_block_cache && block_cache_size > 0) {
-    if (num_shardbits > 0) {
+    if (block_cache_num_shardbits > 0) {
       options.block_cache =
-          rocksdb::NewLRUCache(block_cache_size, num_shardbits);
+          rocksdb::NewLRUCache(block_cache_size, block_cache_num_shardbits);
     } else {
       options.block_cache = rocksdb::NewLRUCache(block_cache_size);
     }
@@ -53,8 +63,27 @@ jlong Java_org_rocksdb_BlockBasedTableConfig_newTableFactoryHandle(
   options.block_size_deviation = block_size_deviation;
   options.block_restart_interval = block_restart_interval;
   options.whole_key_filtering = whole_key_filtering;
-  if (bits_per_key > 0) {
-    options.filter_policy.reset(rocksdb::NewBloomFilterPolicy(bits_per_key));
+  if (jfilterPolicy > 0) {
+    std::shared_ptr<rocksdb::FilterPolicy> *pFilterPolicy =
+        reinterpret_cast<std::shared_ptr<rocksdb::FilterPolicy> *>(
+            jfilterPolicy);
+    options.filter_policy = *pFilterPolicy;
   }
+  options.cache_index_and_filter_blocks = cache_index_and_filter_blocks;
+  options.hash_index_allow_collision = hash_index_allow_collision;
+  if (block_cache_compressed_size > 0) {
+    if (block_cache_compressd_num_shard_bits > 0) {
+      options.block_cache =
+          rocksdb::NewLRUCache(block_cache_compressed_size,
+              block_cache_compressd_num_shard_bits);
+    } else {
+      options.block_cache = rocksdb::NewLRUCache(block_cache_compressed_size);
+    }
+  }
+  options.checksum = static_cast<rocksdb::ChecksumType>(jchecksum_type);
+  options.index_type = static_cast<
+      rocksdb::BlockBasedTableOptions::IndexType>(jindex_type);
+  options.format_version = jformat_version;
+
   return reinterpret_cast<jlong>(rocksdb::NewBlockBasedTableFactory(options));
 }

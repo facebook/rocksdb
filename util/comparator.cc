@@ -69,18 +69,39 @@ class BytewiseComparatorImpl : public Comparator {
     // *key is a run of 0xffs.  Leave it alone.
   }
 };
-}  // namespace
+
+class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
+ public:
+  ReverseBytewiseComparatorImpl() { }
+
+  virtual const char* Name() const {
+    return "rocksdb.ReverseBytewiseComparator";
+  }
+
+  virtual int Compare(const Slice& a, const Slice& b) const {
+    return -a.compare(b);
+  }
+};
+
+}// namespace
 
 static port::OnceType once = LEVELDB_ONCE_INIT;
 static const Comparator* bytewise;
+static const Comparator* rbytewise;
 
 static void InitModule() {
   bytewise = new BytewiseComparatorImpl;
+  rbytewise= new ReverseBytewiseComparatorImpl;
 }
 
 const Comparator* BytewiseComparator() {
   port::InitOnce(&once, InitModule);
   return bytewise;
+}
+
+const Comparator* ReverseBytewiseComparator() {
+  port::InitOnce(&once, InitModule);
+  return rbytewise;
 }
 
 }  // namespace rocksdb

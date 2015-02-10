@@ -9,8 +9,6 @@
 
 #pragma once
 
-#include <gflags/gflags.h>
-
 #include <cassert>
 #include <functional>
 #include <limits>

@@ -21,6 +21,8 @@ namespace rocksdb {
 class MemTableList;
 class DBImpl;
 
+// IMPORTANT: If you add a new property here, also add it to the list in
+//            include/rocksdb/db.h
 enum DBPropertyType : uint32_t {
   kUnknown,
   kNumFilesAtLevel,  // Number of files at a specific level
@@ -36,6 +38,8 @@ enum DBPropertyType : uint32_t {
   kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,       // Return accumulated background errors encountered.
   kCurSizeActiveMemTable,  // Return current size of the active memtable
+  kCurSizeAllMemTables,    // Return current size of all (active + immutable)
+                           // memtables
   kNumEntriesInMutableMemtable,    // Return number of entries in the mutable
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
@@ -44,12 +48,16 @@ enum DBPropertyType : uint32_t {
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
   kIsFileDeletionEnabled,         // Equals disable_delete_obsolete_files_,
                                   // 0 means file deletions enabled
+  kNumSnapshots,                  // Number of snapshots in the system
+  kOldestSnapshotTime,            // Unix timestamp of the first snapshot
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,
                                       bool* is_int_property,
                                       bool* need_out_of_mutex);
 
+
+#ifndef ROCKSDB_LITE
 class InternalStats {
  public:
   enum InternalCFStatsType {
@@ -65,9 +73,11 @@ class InternalStats {
     WAL_FILE_BYTES,
     WAL_FILE_SYNCED,
     BYTES_WRITTEN,
+    NUMBER_KEYS_WRITTEN,
     WRITE_DONE_BY_OTHER,
     WRITE_DONE_BY_SELF,
     WRITE_WITH_WAL,
+    WRITE_STALL_MICROS,
     INTERNAL_DB_STATS_ENUM_MAX,
   };
 
@@ -114,6 +124,9 @@ class InternalStats {
     // Total bytes written during compaction between levels N and N+1
     uint64_t bytes_written;
 
+    // Total bytes moved to this level
+    uint64_t bytes_moved;
+
     // Files read from level N during compaction between levels N and N+1
     int files_in_leveln;
 
@@ -123,27 +136,40 @@ class InternalStats {
     // Files written during compaction between levels N and N+1
     int files_out_levelnp1;
 
+    // Total incoming entries during compaction between levels N and N+1
+    uint64_t num_input_records;
+
+    // Accumulated diff number of entries
+    // (num input entries - num output entires) for compaction  levels N and N+1
+    uint64_t num_dropped_records;
+
     // Number of compactions done
     int count;
 
-    explicit CompactionStats(int count = 0)
+    explicit CompactionStats(int _count = 0)
         : micros(0),
           bytes_readn(0),
           bytes_readnp1(0),
           bytes_written(0),
+          bytes_moved(0),
           files_in_leveln(0),
           files_in_levelnp1(0),
           files_out_levelnp1(0),
-          count(count) {}
+          num_input_records(0),
+          num_dropped_records(0),
+          count(_count) {}
 
     explicit CompactionStats(const CompactionStats& c)
         : micros(c.micros),
           bytes_readn(c.bytes_readn),
           bytes_readnp1(c.bytes_readnp1),
           bytes_written(c.bytes_written),
+          bytes_moved(c.bytes_moved),
           files_in_leveln(c.files_in_leveln),
           files_in_levelnp1(c.files_in_levelnp1),
           files_out_levelnp1(c.files_out_levelnp1),
+          num_input_records(c.num_input_records),
+          num_dropped_records(c.num_dropped_records),
           count(c.count) {}
 
     void Add(const CompactionStats& c) {
@@ -151,9 +177,12 @@ class InternalStats {
       this->bytes_readn += c.bytes_readn;
       this->bytes_readnp1 += c.bytes_readnp1;
       this->bytes_written += c.bytes_written;
+      this->bytes_moved += c.bytes_moved;
       this->files_in_leveln += c.files_in_leveln;
       this->files_in_levelnp1 += c.files_in_levelnp1;
       this->files_out_levelnp1 += c.files_out_levelnp1;
+      this->num_input_records += c.num_input_records;
+      this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
     }
 
@@ -162,15 +191,22 @@ class InternalStats {
       this->bytes_readn -= c.bytes_readn;
       this->bytes_readnp1 -= c.bytes_readnp1;
       this->bytes_written -= c.bytes_written;
+      this->bytes_moved -= c.bytes_moved;
       this->files_in_leveln -= c.files_in_leveln;
       this->files_in_levelnp1 -= c.files_in_levelnp1;
       this->files_out_levelnp1 -= c.files_out_levelnp1;
+      this->num_input_records -= c.num_input_records;
+      this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
     }
   };
 
   void AddCompactionStats(int level, const CompactionStats& stats) {
     comp_stats_[level].Add(stats);
+  }
+
+  void IncBytesMoved(int level, uint64_t amount) {
+    comp_stats_[level].bytes_moved += amount;
   }
 
   void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {
@@ -247,6 +283,13 @@ class InternalStats {
     // another thread.
     uint64_t write_other;
     uint64_t write_self;
+    // Total number of keys written. write_self and write_other measure number
+    // of write requests written, Each of the write request can contain updates
+    // to multiple keys. num_keys_written is total number of keys updated by all
+    // those writes.
+    uint64_t num_keys_written;
+    // Total time writes delayed by stalls.
+    uint64_t write_stall_micros;
     double seconds_up;
 
     DBStatsSnapshot()
@@ -256,6 +299,8 @@ class InternalStats {
           write_with_wal(0),
           write_other(0),
           write_self(0),
+          num_keys_written(0),
+          write_stall_micros(0),
           seconds_up(0) {}
   } db_stats_snapshot_;
 
@@ -271,5 +316,79 @@ class InternalStats {
   ColumnFamilyData* cfd_;
   const uint64_t started_at_;
 };
+
+#else
+
+class InternalStats {
+ public:
+  enum InternalCFStatsType {
+    LEVEL0_SLOWDOWN,
+    MEMTABLE_COMPACTION,
+    LEVEL0_NUM_FILES,
+    WRITE_STALLS_ENUM_MAX,
+    BYTES_FLUSHED,
+    INTERNAL_CF_STATS_ENUM_MAX,
+  };
+
+  enum InternalDBStatsType {
+    WAL_FILE_BYTES,
+    WAL_FILE_SYNCED,
+    BYTES_WRITTEN,
+    NUMBER_KEYS_WRITTEN,
+    WRITE_DONE_BY_OTHER,
+    WRITE_DONE_BY_SELF,
+    WRITE_WITH_WAL,
+    WRITE_STALL_MICROS,
+    INTERNAL_DB_STATS_ENUM_MAX,
+  };
+
+  InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd) {}
+
+  struct CompactionStats {
+    uint64_t micros;
+    uint64_t bytes_readn;
+    uint64_t bytes_readnp1;
+    uint64_t bytes_written;
+    uint64_t bytes_moved;
+    int files_in_leveln;
+    int files_in_levelnp1;
+    int files_out_levelnp1;
+    uint64_t num_input_records;
+    uint64_t num_dropped_records;
+    int count;
+
+    explicit CompactionStats(int _count = 0) {}
+
+    explicit CompactionStats(const CompactionStats& c) {}
+
+    void Add(const CompactionStats& c) {}
+
+    void Subtract(const CompactionStats& c) {}
+  };
+
+  void AddCompactionStats(int level, const CompactionStats& stats) {}
+
+  void IncBytesMoved(int level, uint64_t amount) {}
+
+  void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {}
+
+  void AddCFStats(InternalCFStatsType type, uint64_t value) {}
+
+  void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+
+  uint64_t GetBackgroundErrorCount() const { return 0; }
+
+  uint64_t BumpAndGetBackgroundErrorCount() { return 0; }
+
+  bool GetStringProperty(DBPropertyType property_type, const Slice& property,
+                         std::string* value) { return false; }
+
+  bool GetIntProperty(DBPropertyType property_type, uint64_t* value,
+                      DBImpl* db) const { return false; }
+
+  bool GetIntPropertyOutOfMutex(DBPropertyType property_type, Version* version,
+                                uint64_t* value) const { return false; }
+};
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb

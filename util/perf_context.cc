@@ -51,6 +51,8 @@ void PerfContext::Reset() {
   find_next_user_entry_time = 0;
   write_pre_and_post_process_time = 0;
   write_memtable_time = 0;
+  db_mutex_lock_nanos = 0;
+  db_condition_wait_nanos = 0;
 #endif
 }
 
@@ -82,7 +84,9 @@ std::string PerfContext::ToString() const {
      << OUTPUT(seek_internal_seek_time)
      << OUTPUT(find_next_user_entry_time)
      << OUTPUT(write_pre_and_post_process_time)
-     << OUTPUT(write_memtable_time);
+     << OUTPUT(write_memtable_time)
+     << OUTPUT(db_mutex_lock_nanos)
+     << OUTPUT(db_condition_wait_nanos);
   return ss.str();
 #endif
 }

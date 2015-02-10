@@ -58,6 +58,8 @@ class PosixLogger : public Logger {
     }
     last_flush_micros_ = env_->NowMicros();
   }
+
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) {
     const uint64_t thread_id = (*gettid_)();
 
@@ -123,14 +125,15 @@ class PosixLogger : public Logger {
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
       const size_t log_size = log_size_;
-      const int last_allocation_chunk =
+      const size_t last_allocation_chunk =
         ((kDebugLogChunkSize - 1 + log_size) / kDebugLogChunkSize);
-      const int desired_allocation_chunk =
+      const size_t desired_allocation_chunk =
         ((kDebugLogChunkSize - 1 + log_size + write_size) /
            kDebugLogChunkSize);
       if (last_allocation_chunk != desired_allocation_chunk) {
-        fallocate(fd_, FALLOC_FL_KEEP_SIZE, 0,
-                  desired_allocation_chunk * kDebugLogChunkSize);
+        fallocate(
+            fd_, FALLOC_FL_KEEP_SIZE, 0,
+            static_cast<off_t>(desired_allocation_chunk * kDebugLogChunkSize));
       }
 #endif
 

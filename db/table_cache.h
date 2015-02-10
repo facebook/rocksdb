@@ -19,6 +19,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/env.h"
 #include "rocksdb/table.h"
+#include "rocksdb/options.h"
 #include "table/table_reader.h"
 
 namespace rocksdb {
@@ -26,11 +27,12 @@ namespace rocksdb {
 class Env;
 class Arena;
 struct FileDescriptor;
+class GetContext;
 
 class TableCache {
  public:
-  TableCache(const Options* options, const EnvOptions& storage_options,
-             Cache* cache);
+  TableCache(const ImmutableCFOptions& ioptions,
+             const EnvOptions& storage_options, Cache* cache);
   ~TableCache();
 
   // Return an iterator for the specified file number (the corresponding
@@ -51,10 +53,8 @@ class TableCache {
   // it returns false.
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
-             const FileDescriptor& file_fd, const Slice& k, void* arg,
-             bool (*handle_result)(void*, const ParsedInternalKey&,
-                                   const Slice&),
-             void (*mark_key_may_exist)(void*) = nullptr);
+             const FileDescriptor& file_fd, const Slice& k,
+             GetContext* get_context);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
@@ -91,10 +91,8 @@ class TableCache {
   void ReleaseHandle(Cache::Handle* handle);
 
  private:
-  Env* const env_;
-  const std::vector<DbPath> db_paths_;
-  const Options* options_;
-  const EnvOptions& storage_options_;
+  const ImmutableCFOptions& ioptions_;
+  const EnvOptions& env_options_;
   Cache* const cache_;
 };
 

@@ -11,14 +11,15 @@
 
 #pragma once
 
-#include "rocksdb/status.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
 
 namespace rocksdb {
 
 class ColumnFamilyHandle;
-struct SliceParts;
 class Comparator;
 
 enum WriteType { kPutRecord, kMergeRecord, kDeleteRecord, kLogDataRecord };
@@ -38,9 +39,15 @@ class WBWIIterator {
 
   virtual bool Valid() const = 0;
 
+  virtual void SeekToFirst() = 0;
+
+  virtual void SeekToLast() = 0;
+
   virtual void Seek(const Slice& key) = 0;
 
   virtual void Next() = 0;
+
+  virtual void Prev() = 0;
 
   virtual const WriteEntry& Entry() const = 0;
 
@@ -56,43 +63,51 @@ class WBWIIterator {
 // A user can call NewIterator() to create an iterator.
 class WriteBatchWithIndex {
  public:
-  // index_comparator indicates the order when iterating data in the write
-  // batch. Technically, it doesn't have to be the same as the one used in
-  // the DB.
+  // backup_index_comparator: the backup comparator used to compare keys
+  // within the same column family, if column family is not given in the
+  // interface, or we can't find a column family from the column family handle
+  // passed in, backup_index_comparator will be used for the column family.
   // reserved_bytes: reserved bytes in underlying WriteBatch
-  explicit WriteBatchWithIndex(const Comparator* index_comparator,
-                               size_t reserved_bytes = 0);
+  // overwrite_key: if true, overwrite the key in the index when inserting
+  //                the same key as previously, so iterator will never
+  //                show two entries with the same key.
+  explicit WriteBatchWithIndex(
+      const Comparator* backup_index_comparator = BytewiseComparator(),
+      size_t reserved_bytes = 0, bool overwrite_key = false);
   virtual ~WriteBatchWithIndex();
 
   WriteBatch* GetWriteBatch();
 
-  virtual void Put(ColumnFamilyHandle* column_family, const Slice& key,
-                   const Slice& value);
+  void Put(ColumnFamilyHandle* column_family, const Slice& key,
+           const Slice& value);
 
-  virtual void Put(const Slice& key, const Slice& value);
+  void Put(const Slice& key, const Slice& value);
 
-  virtual void Merge(ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value);
+  void Merge(ColumnFamilyHandle* column_family, const Slice& key,
+             const Slice& value);
 
-  virtual void Merge(const Slice& key, const Slice& value);
+  void Merge(const Slice& key, const Slice& value);
 
-  virtual void PutLogData(const Slice& blob);
+  void PutLogData(const Slice& blob);
 
-  virtual void Delete(ColumnFamilyHandle* column_family, const Slice& key);
-  virtual void Delete(const Slice& key);
-
-  virtual void Delete(ColumnFamilyHandle* column_family, const SliceParts& key);
-
-  virtual void Delete(const SliceParts& key);
+  void Delete(ColumnFamilyHandle* column_family, const Slice& key);
+  void Delete(const Slice& key);
 
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the
   // order given by index_comparator. For multiple updates on the same key,
   // each update will be returned as a separate entry, in the order of update
   // time.
-  virtual WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
+  WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
   // Create an iterator of the default column family.
-  virtual WBWIIterator* NewIterator();
+  WBWIIterator* NewIterator();
+
+  // Will create a new Iterator that will use WBWIIterator as a delta and
+  // base_iterator as base
+  Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
+                                Iterator* base_iterator);
+  // default column family
+  Iterator* NewIteratorWithBase(Iterator* base_iterator);
 
  private:
   struct Rep;

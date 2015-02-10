@@ -158,7 +158,7 @@ class PlainTableDBTest {
   // Return spread of files per level
   std::string FilesPerLevel() {
     std::string result;
-    int last_non_zero_offset = 0;
+    size_t last_non_zero_offset = 0;
     for (int level = 0; level < db_->NumberLevels(); level++) {
       int f = NumTableFilesAtLevel(level);
       char buf[100];
@@ -192,16 +192,17 @@ extern const uint64_t kPlainTableMagicNumber;
 
 class TestPlainTableReader : public PlainTableReader {
  public:
-  TestPlainTableReader(const EnvOptions& storage_options,
+  TestPlainTableReader(const EnvOptions& env_options,
                        const InternalKeyComparator& icomparator,
                        EncodingType encoding_type, uint64_t file_size,
                        int bloom_bits_per_key, double hash_table_ratio,
                        size_t index_sparseness,
                        const TableProperties* table_properties,
                        unique_ptr<RandomAccessFile>&& file,
-                       const Options& options, bool* expect_bloom_not_match,
+                       const ImmutableCFOptions& ioptions,
+                       bool* expect_bloom_not_match,
                        bool store_index_in_file)
-      : PlainTableReader(options, std::move(file), storage_options, icomparator,
+      : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataFile();
@@ -218,7 +219,7 @@ class TestPlainTableReader : public PlainTableReader {
           PlainTablePropertyNames::kBloomVersion);
       ASSERT_TRUE(bloom_version_ptr != props->user_collected_properties.end());
       ASSERT_EQ(bloom_version_ptr->second, std::string("1"));
-      if (options.bloom_locality > 0) {
+      if (ioptions.bloom_locality > 0) {
         auto num_blocks_ptr = props->user_collected_properties.find(
             PlainTablePropertyNames::kNumBloomBlocks);
         ASSERT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
@@ -253,25 +254,26 @@ class TestPlainTableFactory : public PlainTableFactory {
         store_index_in_file_(options.store_index_in_file),
         expect_bloom_not_match_(expect_bloom_not_match) {}
 
-  Status NewTableReader(const Options& options, const EnvOptions& soptions,
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& env_options,
                         const InternalKeyComparator& internal_comparator,
                         unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
                         unique_ptr<TableReader>* table) const override {
     TableProperties* props = nullptr;
     auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                                 options.env, options.info_log.get(), &props);
+                                 ioptions.env, ioptions.info_log, &props);
     ASSERT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
-                        options.env, BloomBlockBuilder::kBloomBlock,
+                        ioptions.env, BloomBlockBuilder::kBloomBlock,
                         &bloom_block_handle);
       ASSERT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlock(
-          file.get(), file_size, kPlainTableMagicNumber, options.env,
+          file.get(), file_size, kPlainTableMagicNumber, ioptions.env,
           PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_handle);
       ASSERT_TRUE(s.ok());
     }
@@ -284,9 +286,9 @@ class TestPlainTableFactory : public PlainTableFactory {
         DecodeFixed32(encoding_type_prop->second.c_str()));
 
     std::unique_ptr<PlainTableReader> new_reader(new TestPlainTableReader(
-        soptions, internal_comparator, encoding_type, file_size,
+        env_options, internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
-        std::move(file), options, expect_bloom_not_match_,
+        std::move(file), ioptions, expect_bloom_not_match_,
         store_index_in_file_));
 
     *table = std::move(new_reader);
@@ -626,7 +628,7 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
   };
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], std::to_string(i)));
+    ASSERT_OK(Put(key_list[i], ToString(i)));
   }
 
   dbfull()->TEST_FlushMemTable();
@@ -637,7 +639,7 @@ TEST(PlainTableDBTest, IteratorLargeKeys) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(std::to_string(i), iter->value().ToString());
+    ASSERT_EQ(ToString(i), iter->value().ToString());
     iter->Next();
   }
 
@@ -674,7 +676,7 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
       MakeLongKeyWithPrefix(26, '6')};
 
   for (size_t i = 0; i < 7; i++) {
-    ASSERT_OK(Put(key_list[i], std::to_string(i)));
+    ASSERT_OK(Put(key_list[i], ToString(i)));
   }
 
   dbfull()->TEST_FlushMemTable();
@@ -685,7 +687,7 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   for (size_t i = 0; i < 7; i++) {
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(key_list[i], iter->key().ToString());
-    ASSERT_EQ(std::to_string(i), iter->value().ToString());
+    ASSERT_EQ(ToString(i), iter->value().ToString());
     iter->Next();
   }
 
@@ -694,40 +696,12 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   delete iter;
 }
 
-// A test comparator which compare two strings in this way:
-// (1) first compare prefix of 8 bytes in alphabet order,
-// (2) if two strings share the same prefix, sort the other part of the string
-//     in the reverse alphabet order.
-class SimpleSuffixReverseComparator : public Comparator {
- public:
-  SimpleSuffixReverseComparator() {}
-
-  virtual const char* Name() const { return "SimpleSuffixReverseComparator"; }
-
-  virtual int Compare(const Slice& a, const Slice& b) const {
-    Slice prefix_a = Slice(a.data(), 8);
-    Slice prefix_b = Slice(b.data(), 8);
-    int prefix_comp = prefix_a.compare(prefix_b);
-    if (prefix_comp != 0) {
-      return prefix_comp;
-    } else {
-      Slice suffix_a = Slice(a.data() + 8, a.size() - 8);
-      Slice suffix_b = Slice(b.data() + 8, b.size() - 8);
-      return -(suffix_a.compare(suffix_b));
-    }
-  }
-  virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
-
-  virtual void FindShortSuccessor(std::string* key) const {}
-};
-
 TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
   // Test index interval for the same prefix to be 1, 2 and 4
-  SimpleSuffixReverseComparator comp;
+  test::SimpleSuffixReverseComparator comp;
   options.comparator = &comp;
   DestroyAndReopen(&options);
 
@@ -890,7 +864,7 @@ TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
     for (unsigned char i = 1; i <= 3; i++) {
       Options options = CurrentOptions();
       options.create_if_missing = true;
-      SimpleSuffixReverseComparator comp;
+      test::SimpleSuffixReverseComparator comp;
       options.comparator = &comp;
       // Set only one bucket to force bucket conflict.
       // Test index interval for the same prefix to be 1, 2 and 4

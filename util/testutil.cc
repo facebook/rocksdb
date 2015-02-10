@@ -23,6 +23,15 @@ Slice RandomString(Random* rnd, int len, std::string* dst) {
   return Slice(*dst);
 }
 
+extern std::string RandomHumanReadableString(Random* rnd, int len) {
+  std::string ret;
+  ret.resize(len);
+  for (int i = 0; i < len; ++i) {
+    ret[i] = static_cast<char>('a' + rnd->Uniform(26));
+  }
+  return ret;
+}
+
 std::string RandomKey(Random* rnd, int len) {
   // Make sure to generate a wide variety of characters so we
   // test the boundary conditions for short-key optimizations.

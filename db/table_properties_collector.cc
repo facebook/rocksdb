@@ -7,6 +7,7 @@
 
 #include "db/dbformat.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -40,7 +41,7 @@ Status InternalKeyPropertiesCollector::Finish(
 UserCollectedProperties
 InternalKeyPropertiesCollector::GetReadableProperties() const {
   return {
-    { "kDeletedKeys", std::to_string(deleted_keys_) }
+    { "kDeletedKeys", ToString(deleted_keys_) }
   };
 }
 

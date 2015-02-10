@@ -7,7 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <limits>
 #include "util/testharness.h"
@@ -27,34 +30,33 @@ TEST(RateLimiterTest, StartStop) {
 TEST(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
-    Arg(int64_t target_rate, int burst)
-      : limiter(new GenericRateLimiter(target_rate, 100 * 1000, 10)),
-        request_size(target_rate / 10),
-        burst(burst) {}
+    Arg(int32_t _target_rate, int _burst)
+        : limiter(new GenericRateLimiter(_target_rate, 100 * 1000, 10)),
+          request_size(_target_rate / 10),
+          burst(_burst) {}
     std::unique_ptr<RateLimiter> limiter;
-    int64_t request_size;
+    int32_t request_size;
     int burst;
   };
 
   auto writer = [](void* p) {
-    auto* env = Env::Default();
+    auto* thread_env = Env::Default();
     auto* arg = static_cast<Arg*>(p);
     // Test for 2 seconds
-    auto until = env->NowMicros() + 2 * 1000000;
-    Random r((uint32_t)(env->NowNanos() %
-          std::numeric_limits<uint32_t>::max()));
-    while (env->NowMicros() < until) {
+    auto until = thread_env->NowMicros() + 2 * 1000000;
+    Random r((uint32_t)(thread_env->NowNanos() %
+                        std::numeric_limits<uint32_t>::max()));
+    while (thread_env->NowMicros() < until) {
       for (int i = 0; i < static_cast<int>(r.Skewed(arg->burst) + 1); ++i) {
         arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
                               Env::IO_HIGH);
       }
-      arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1,
-                            Env::IO_LOW);
+      arg->limiter->Request(r.Uniform(arg->request_size - 1) + 1, Env::IO_LOW);
     }
   };
 
   for (int i = 1; i <= 16; i*=2) {
-    int64_t target = i * 1024 * 10;
+    int32_t target = i * 1024 * 10;
     Arg arg(target, i / 4 + 1);
     auto start = env->NowMicros();
     for (int t = 0; t < i; ++t) {
@@ -65,7 +67,7 @@ TEST(RateLimiterTest, Rate) {
     auto elapsed = env->NowMicros() - start;
     double rate = arg.limiter->GetTotalBytesThrough()
                   * 1000000.0 / elapsed;
-    fprintf(stderr, "request size [1 - %" PRIi64 "], limit %" PRIi64
+    fprintf(stderr, "request size [1 - %" PRIi32 "], limit %" PRIi32
                     " KB/sec, actual rate: %lf KB/sec, elapsed %.2lf seconds\n",
             arg.request_size - 1, target / 1024, rate / 1024,
             elapsed / 1000000.0);

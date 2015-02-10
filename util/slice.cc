@@ -9,6 +9,7 @@
 
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/slice.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -22,7 +23,7 @@ class FixedPrefixTransform : public SliceTransform {
  public:
   explicit FixedPrefixTransform(size_t prefix_len)
       : prefix_len_(prefix_len),
-        name_("rocksdb.FixedPrefix." + std::to_string(prefix_len_)) {}
+        name_("rocksdb.FixedPrefix." + ToString(prefix_len_)) {}
 
   virtual const char* Name() const { return name_.c_str(); }
 
@@ -37,6 +38,38 @@ class FixedPrefixTransform : public SliceTransform {
 
   virtual bool InRange(const Slice& dst) const {
     return (dst.size() == prefix_len_);
+  }
+
+  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+    return InDomain(prefix);
+  }
+};
+
+class CappedPrefixTransform : public SliceTransform {
+ private:
+  size_t cap_len_;
+  std::string name_;
+
+ public:
+  explicit CappedPrefixTransform(size_t cap_len)
+      : cap_len_(cap_len),
+        name_("rocksdb.CappedPrefix." + ToString(cap_len_)) {}
+
+  virtual const char* Name() const { return name_.c_str(); }
+
+  virtual Slice Transform(const Slice& src) const {
+    assert(InDomain(src));
+    return Slice(src.data(), std::min(cap_len_, src.size()));
+  }
+
+  virtual bool InDomain(const Slice& src) const { return true; }
+
+  virtual bool InRange(const Slice& dst) const {
+    return (dst.size() <= cap_len_);
+  }
+
+  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+    return prefix.size() >= cap_len_;
   }
 };
 
@@ -59,12 +92,20 @@ class NoopTransform : public SliceTransform {
   virtual bool InRange(const Slice& dst) const {
     return true;
   }
+
+  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+    return false;
+  }
 };
 
 }
 
 const SliceTransform* NewFixedPrefixTransform(size_t prefix_len) {
   return new FixedPrefixTransform(prefix_len);
+}
+
+const SliceTransform* NewCappedPrefixTransform(size_t cap_len) {
+  return new CappedPrefixTransform(cap_len);
 }
 
 const SliceTransform* NewNoopTransform() {

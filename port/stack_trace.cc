@@ -5,15 +5,16 @@
 //
 #include "port/stack_trace.h"
 
-namespace rocksdb {
-namespace port {
-
 #if defined(ROCKSDB_LITE) || !(defined(OS_LINUX) || defined(OS_MACOSX))
 
 // noop
 
+namespace rocksdb {
+namespace port {
 void InstallStackTraceHandler() {}
 void PrintStack(int first_frames_to_skip) {}
+}  // namespace port
+}  // namespace rocksdb
 
 #else
 
@@ -25,6 +26,9 @@ void PrintStack(int first_frames_to_skip) {}
 #include <unistd.h>
 #include <cxxabi.h>
 
+namespace rocksdb {
+namespace port {
+
 namespace {
 
 #ifdef OS_LINUX
@@ -33,7 +37,7 @@ const char* GetExecutableName() {
 
   char link[1024];
   snprintf(link, sizeof(link), "/proc/%d/exe", getpid());
-  auto read = readlink(link, name, sizeof(name));
+  auto read = readlink(link, name, sizeof(name) - 1);
   if (-1 == read) {
     return nullptr;
   } else {
@@ -126,7 +130,7 @@ void InstallStackTraceHandler() {
   signal(SIGABRT, StackTraceHandler);
 }
 
-#endif
-
 }  // namespace port
 }  // namespace rocksdb
+
+#endif

@@ -32,7 +32,7 @@
 #   2. Once install, add the include path/lib path for gflags to CPATH and
 #      LIBRARY_PATH respectively. If installed with default mode, the
 #      lib and include path will be /usr/local/lib and /usr/local/include
-# Mac user can do this by running build_tools/mac-install-gflags.sh
+# Mac user can do this by having brew installed and running brew install gflags
 
 OUTPUT=$1
 if test -z "$OUTPUT"; then
@@ -46,18 +46,15 @@ PLATFORM_CXXFLAGS="-std=c++11"
 COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
 
 # Default to fbcode gcc on internal fb machines
-if [ -d /mnt/gvfs/third-party -a -z "$CXX" ]; then
+if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
     FBCODE_BUILD="true"
-    if [ -z "$USE_CLANG" ]; then
-        CENTOS_VERSION=`rpm -q --qf "%{VERSION}" \
-          $(rpm -q --whatprovides redhat-release)`
-        if [ "$CENTOS_VERSION" = "6" ]; then
-          source "$PWD/build_tools/fbcode.gcc481.sh"
-        else
-          source "$PWD/build_tools/fbcode.gcc471.sh"
-        fi
+    # If we're compiling with TSAN we need pic build
+    PIC_BUILD=$COMPILE_WITH_TSAN
+    if [ -z "$ROCKSDB_FBCODE_BUILD_WITH_481" ]; then
+      source "$PWD/build_tools/fbcode_config.sh"
     else
-        source "$PWD/build_tools/fbcode.clang31.sh"
+      # we need this to build with MySQL. Don't use for other purposes.
+      source "$PWD/build_tools/fbcode_config4.8.1.sh"
     fi
 fi
 
@@ -76,6 +73,14 @@ fi
 # Detect OS
 if test -z "$TARGET_OS"; then
     TARGET_OS=`uname -s`
+fi
+
+if test -z "$CLANG_SCAN_BUILD"; then
+    CLANG_SCAN_BUILD=scan-build
+fi
+
+if test -z "$CLANG_ANALYZER"; then  
+    CLANG_ANALYZER=$(which clang++)
 fi
 
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
@@ -164,7 +169,7 @@ if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
   "$PWD/build_tools/build_detect_version"
 fi
 
-# We want to make a list of all cc files within util, db, table, and helpers
+# We want to make a list of all cc files within util, db and table
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
@@ -173,36 +178,27 @@ DIRS="util db table utilities"
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *bench*.cc -prune"
-PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
-PORTABLE_CPP=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
+PRUNE_MOCK="-name *mock*.cc -prune"
+PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o $PRUNE_MOCK -o -name '*.cc' -print | sort | tr "\n" " "`
+MOCK_SOURCES=`cd "$ROCKSDB_ROOT"; find $DIRS -name '*mock*.cc' -print | grep -v "test" | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port
 # file.
 echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> "$OUTPUT"
-echo "SOURCESCPP=$PORTABLE_CPP" >> "$OUTPUT"
-echo "MEMENV_SOURCES=helpers/memenv/memenv.cc" >> "$OUTPUT"
+echo "MOCK_SOURCES=$MOCK_SOURCES" >> "$OUTPUT"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
     # Also don't need any compilation tests if compiling on fbcode
     true
 else
-    # If -std=c++0x works, use <atomic>.  Otherwise use port_posix.h.
-    $CXX $CFLAGS -std=c++0x -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <atomic>
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_ATOMIC_PRESENT"
-    fi
-
     # Test whether fallocate is available
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <fcntl.h>
       int main() {
 	int fd = open("/dev/null", 0);
-	fallocate(fd, 0, 0, 1024);
+  fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
       }
 EOF
     if [ "$?" = 0 ]; then
@@ -302,6 +298,14 @@ EOF
     fi
 fi
 
+# Test whether -Wshorten-64-to-32 is available
+$CXX $CFLAGS -x c++ - -o /dev/null -Wshorten-64-to-32 2>/dev/null  <<EOF
+  int main() {}
+EOF
+if [ "$?" = 0 ]; then
+    COMMON_FLAGS="$COMMON_FLAGS -Wshorten-64-to-32"
+fi
+
 # shall we use HDFS?
 
 if test "$USE_HDFS"; then
@@ -318,13 +322,21 @@ if test "$USE_HDFS"; then
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
 fi
 
-# if Intel SSE instruction set is supported, set USE_SSE=" -msse -msse4.2 "
-COMMON_FLAGS="$COMMON_FLAGS $USE_SSE"
+if test "$USE_SSE"; then
+  # if Intel SSE instruction set is supported, set USE_SSE=1
+  COMMON_FLAGS="$COMMON_FLAGS -msse -msse4.2 "
+elif test -z "$PORTABLE"; then
+  COMMON_FLAGS="$COMMON_FLAGS -march=native "
+fi
 
 PLATFORM_CCFLAGS="$PLATFORM_CCFLAGS $COMMON_FLAGS"
 PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS $COMMON_FLAGS"
 
 VALGRIND_VER="$VALGRIND_VER"
+
+ROCKSDB_MAJOR=`build_tools/version.sh major`
+ROCKSDB_MINOR=`build_tools/version.sh minor`
+ROCKSDB_PATCH=`build_tools/version.sh patch`
 
 echo "CC=$CC" >> "$OUTPUT"
 echo "CXX=$CXX" >> "$OUTPUT"
@@ -341,3 +353,8 @@ echo "PLATFORM_SHARED_VERSIONED=$PLATFORM_SHARED_VERSIONED" >> "$OUTPUT"
 echo "EXEC_LDFLAGS=$EXEC_LDFLAGS" >> "$OUTPUT"
 echo "JEMALLOC_INCLUDE=$JEMALLOC_INCLUDE" >> "$OUTPUT"
 echo "JEMALLOC_LIB=$JEMALLOC_LIB" >> "$OUTPUT"
+echo "ROCKSDB_MAJOR=$ROCKSDB_MAJOR" >> "$OUTPUT"
+echo "ROCKSDB_MINOR=$ROCKSDB_MINOR" >> "$OUTPUT"
+echo "ROCKSDB_PATCH=$ROCKSDB_PATCH" >> "$OUTPUT"
+echo "CLANG_SCAN_BUILD=$CLANG_SCAN_BUILD" >> "$OUTPUT"
+echo "CLANG_ANALYZER=$CLANG_ANALYZER" >> "$OUTPUT"

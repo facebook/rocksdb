@@ -10,7 +10,7 @@
 #include "util/thread_local.h"
 #include "util/mutexlock.h"
 #include "port/likely.h"
-
+#include <stdlib.h>
 
 namespace rocksdb {
 
@@ -36,7 +36,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
   // Unref stored pointers of current thread from all instances
   uint32_t id = 0;
   for (auto& e : tls->entries) {
-    void* raw = e.ptr.load(std::memory_order_relaxed);
+    void* raw = e.ptr.load();
     if (raw != nullptr) {
       auto unref = inst->GetHandler(id);
       if (unref != nullptr) {
@@ -51,7 +51,7 @@ void ThreadLocalPtr::StaticMeta::OnThreadExit(void* ptr) {
 
 ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
-    throw std::runtime_error("pthread_key_create failed");
+    abort();
   }
   head_.next = &head_;
   head_.prev = &head_;
@@ -98,7 +98,7 @@ ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
         inst->RemoveThreadData(tls_);
       }
       delete tls_;
-      throw std::runtime_error("pthread_setspecific failed");
+      abort();
     }
   }
   return tls_;
@@ -109,7 +109,7 @@ void* ThreadLocalPtr::StaticMeta::Get(uint32_t id) const {
   if (UNLIKELY(id >= tls->entries.size())) {
     return nullptr;
   }
-  return tls->entries[id].ptr.load(std::memory_order_relaxed);
+  return tls->entries[id].ptr.load(std::memory_order_acquire);
 }
 
 void ThreadLocalPtr::StaticMeta::Reset(uint32_t id, void* ptr) {
@@ -119,7 +119,7 @@ void ThreadLocalPtr::StaticMeta::Reset(uint32_t id, void* ptr) {
     MutexLock l(&mutex_);
     tls->entries.resize(id + 1);
   }
-  tls->entries[id].ptr.store(ptr, std::memory_order_relaxed);
+  tls->entries[id].ptr.store(ptr, std::memory_order_release);
 }
 
 void* ThreadLocalPtr::StaticMeta::Swap(uint32_t id, void* ptr) {
@@ -129,7 +129,7 @@ void* ThreadLocalPtr::StaticMeta::Swap(uint32_t id, void* ptr) {
     MutexLock l(&mutex_);
     tls->entries.resize(id + 1);
   }
-  return tls->entries[id].ptr.exchange(ptr, std::memory_order_relaxed);
+  return tls->entries[id].ptr.exchange(ptr, std::memory_order_acquire);
 }
 
 bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
@@ -140,8 +140,8 @@ bool ThreadLocalPtr::StaticMeta::CompareAndSwap(uint32_t id, void* ptr,
     MutexLock l(&mutex_);
     tls->entries.resize(id + 1);
   }
-  return tls->entries[id].ptr.compare_exchange_strong(expected, ptr,
-      std::memory_order_relaxed, std::memory_order_relaxed);
+  return tls->entries[id].ptr.compare_exchange_strong(
+      expected, ptr, std::memory_order_release, std::memory_order_relaxed);
 }
 
 void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
@@ -150,7 +150,7 @@ void ThreadLocalPtr::StaticMeta::Scrape(uint32_t id, autovector<void*>* ptrs,
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {
       void* ptr =
-          t->entries[id].ptr.exchange(replacement, std::memory_order_relaxed);
+          t->entries[id].ptr.exchange(replacement, std::memory_order_acquire);
       if (ptr != nullptr) {
         ptrs->push_back(ptr);
       }
@@ -198,8 +198,7 @@ void ThreadLocalPtr::StaticMeta::ReclaimId(uint32_t id) {
   auto unref = GetHandler(id);
   for (ThreadData* t = head_.next; t != &head_; t = t->next) {
     if (id < t->entries.size()) {
-      void* ptr =
-          t->entries[id].ptr.exchange(nullptr, std::memory_order_relaxed);
+      void* ptr = t->entries[id].ptr.exchange(nullptr);
       if (ptr != nullptr && unref != nullptr) {
         unref(ptr);
       }

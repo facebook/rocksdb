@@ -65,6 +65,9 @@ struct PerfContext {
   uint64_t write_wal_time;            // total time spent on writing to WAL
   // total time spent on writing to mem tables
   uint64_t write_memtable_time;
+  uint64_t db_mutex_lock_nanos;      // time spent on acquiring DB mutex.
+  // Time spent on waiting with a condition variable created with DB mutex.
+  uint64_t db_condition_wait_nanos;
 };
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)

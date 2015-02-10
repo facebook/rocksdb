@@ -14,15 +14,15 @@
 
 namespace rocksdb {
 
-class GenerateFileLevelTest {
+class GenerateLevelFilesBriefTest {
  public:
   std::vector<FileMetaData*> files_;
-  FileLevel file_level_;
+  LevelFilesBrief file_level_;
   Arena arena_;
 
-  GenerateFileLevelTest() { }
+  GenerateLevelFilesBriefTest() { }
 
-  ~GenerateFileLevelTest() {
+  ~GenerateLevelFilesBriefTest() {
     for (unsigned int i = 0; i < files_.size(); i++) {
       delete files_[i];
     }
@@ -49,33 +49,33 @@ class GenerateFileLevelTest {
   }
 };
 
-TEST(GenerateFileLevelTest, Empty) {
-  DoGenerateFileLevel(&file_level_, files_, &arena_);
+TEST(GenerateLevelFilesBriefTest, Empty) {
+  DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(0u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
-TEST(GenerateFileLevelTest, Single) {
+TEST(GenerateLevelFilesBriefTest, Single) {
   Add("p", "q");
-  DoGenerateFileLevel(&file_level_, files_, &arena_);
+  DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(1u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
 
-TEST(GenerateFileLevelTest, Multiple) {
+TEST(GenerateLevelFilesBriefTest, Multiple) {
   Add("150", "200");
   Add("200", "250");
   Add("300", "350");
   Add("400", "450");
-  DoGenerateFileLevel(&file_level_, files_, &arena_);
+  DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(4u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
 class FindLevelFileTest {
  public:
-  FileLevel file_level_;
+  LevelFilesBrief file_level_;
   bool disjoint_sorted_files_;
   Arena arena_;
 

@@ -50,12 +50,6 @@ class CuckooBuilderTest {
     TableProperties* props = nullptr;
     ASSERT_OK(ReadTableProperties(read_file.get(), read_file_size,
           kCuckooTableMagicNumber, env_, nullptr, &props));
-    ASSERT_EQ(props->num_entries, keys.size());
-    ASSERT_EQ(props->fixed_key_len, keys.empty() ? 0 : keys[0].size());
-    ASSERT_EQ(props->data_size, expected_unused_bucket.size() *
-        (expected_table_size + expected_cuckoo_block_size - 1));
-    ASSERT_EQ(props->raw_key_size, keys.size()*props->fixed_key_len);
-
     // Check unused bucket.
     std::string unused_key = props->user_collected_properties[
       CuckooTablePropertyNames::kEmptyKey];
@@ -83,17 +77,24 @@ class CuckooBuilderTest {
       *reinterpret_cast<const bool*>(props->user_collected_properties[
                 CuckooTablePropertyNames::kIsLastLevel].data());
     ASSERT_EQ(expected_is_last_level, is_last_level_found);
+
+    ASSERT_EQ(props->num_entries, keys.size());
+    ASSERT_EQ(props->fixed_key_len, keys.empty() ? 0 : keys[0].size());
+    ASSERT_EQ(props->data_size, expected_unused_bucket.size() *
+        (expected_table_size + expected_cuckoo_block_size - 1));
+    ASSERT_EQ(props->raw_key_size, keys.size()*props->fixed_key_len);
     delete props;
 
     // Check contents of the bucket.
     std::vector<bool> keys_found(keys.size(), false);
-    uint32_t bucket_size = expected_unused_bucket.size();
+    size_t bucket_size = expected_unused_bucket.size();
     for (uint32_t i = 0; i < table_size + cuckoo_block_size - 1; ++i) {
       Slice read_slice;
       ASSERT_OK(read_file->Read(i*bucket_size, bucket_size,
             &read_slice, nullptr));
-      uint32_t key_idx = std::find(expected_locations.begin(),
-          expected_locations.end(), i) - expected_locations.begin();
+      size_t key_idx =
+          std::find(expected_locations.begin(), expected_locations.end(), i) -
+          expected_locations.begin();
       if (key_idx == keys.size()) {
         // i is not one of the expected locaitons. Empty bucket.
         ASSERT_EQ(read_slice.compare(expected_unused_bucket), 0);
@@ -133,11 +134,12 @@ TEST(CuckooBuilderTest, SuccessWithEmptyFile) {
   fname = test::TmpDir() + "/EmptyFile";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      4, 100, BytewiseComparator(), 1, GetSliceHash);
+      4, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
+  ASSERT_EQ(0UL, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
-  CheckFileContents({}, {}, {}, "", 0, 2, false);
+  CheckFileContents({}, {}, {}, "", 2, 2, false);
 }
 
 TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
@@ -155,22 +157,25 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionFullKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -192,22 +197,25 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionFullKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -229,23 +237,27 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   uint32_t cuckoo_block_size = 2;
   fname = test::TmpDir() + "/WithCollisionFullKey2";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), cuckoo_block_size, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), cuckoo_block_size,
+      false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -272,22 +284,25 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKey) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathFullKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -311,22 +326,25 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   for (auto& user_key : user_keys) {
     keys.push_back(GetInternalKey(user_key, false));
   }
+  uint64_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathFullKeyAndCuckooBlock";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 2, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 2, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(keys[i]), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = GetInternalKey("key00", true);
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(keys, values, expected_locations,
@@ -344,22 +362,25 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
     {user_keys[3], {3, 4, 5, 6}}
   };
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
+  uint64_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/NoCollisionUserKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], true)), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = user_keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = "key00";
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(user_keys, values, expected_locations,
@@ -377,22 +398,25 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
     {user_keys[3], {0, 1, 2, 3}},
   };
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
+  uint64_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionUserKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], true)), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = user_keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = "key00";
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(user_keys, values, expected_locations,
@@ -412,22 +436,25 @@ TEST(CuckooBuilderTest, WithCollisionPathUserKey) {
     {user_keys[4], {0, 2}},
   };
   std::vector<uint64_t> expected_locations = {0, 1, 3, 4, 2};
+  uint64_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
 
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/WithCollisionPathUserKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 2, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 2, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], true)), Slice(values[i]));
     ASSERT_EQ(builder.NumEntries(), i + 1);
     ASSERT_OK(builder.status());
   }
+  size_t bucket_size = user_keys[0].size() + values[0].size();
+  ASSERT_EQ(expected_table_size * bucket_size - 1, builder.FileSize());
   ASSERT_OK(builder.Finish());
   ASSERT_OK(writable_file->Close());
+  ASSERT_LE(expected_table_size * bucket_size, builder.FileSize());
 
-  uint32_t expected_table_size = NextPowOf2(user_keys.size() / kHashTableRatio);
   std::string expected_unused_bucket = "key00";
   expected_unused_bucket += std::string(values[0].size(), 'a');
   CheckFileContents(user_keys, values, expected_locations,
@@ -453,7 +480,7 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   fname = test::TmpDir() + "/WithCollisionPathUserKey";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 2, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 2, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
   for (uint32_t i = 0; i < user_keys.size(); i++) {
     builder.Add(Slice(GetInternalKey(user_keys[i], false)), Slice("value"));
@@ -473,7 +500,7 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
   fname = test::TmpDir() + "/FailWhenSameKeyInserted";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
   CuckooTableBuilder builder(writable_file.get(), kHashTableRatio,
-      num_hash_fun, 100, BytewiseComparator(), 1, GetSliceHash);
+      num_hash_fun, 100, BytewiseComparator(), 1, false, false, GetSliceHash);
   ASSERT_OK(builder.status());
 
   builder.Add(Slice(GetInternalKey(user_key, false)), Slice("value1"));

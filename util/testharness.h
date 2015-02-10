@@ -12,18 +12,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
+#include <string>
 #include "port/stack_trace.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace test {
 
 // Run some of the tests registered by the TEST() macro.  If the
-// environment variable "ROCKSDB_TESTS" is not set, runs all tests.
-// Otherwise, runs only the tests whose name contains the value of
-// "ROCKSDB_TESTS" as a substring.  E.g., suppose the tests are:
+// environment variable "ROCKSDB_TESTS" and "ROCKSDB_TESTS_FROM"
+// are not set, runs all tests. Otherwise, run all tests after
+// ROCKSDB_TESTS_FROM and those specified by ROCKSDB_TESTS.
+// Partial name match also works for ROCKSDB_TESTS and
+// ROCKSDB_TESTS_FROM. E.g., suppose the tests are:
 //    TEST(Foo, Hello) { ... }
 //    TEST(Foo, World) { ... }
 // ROCKSDB_TESTS=Hello will run the first test
@@ -35,7 +39,7 @@ namespace test {
 extern int RunAllTests();
 
 // Return the directory to use for temporary storage.
-extern std::string TmpDir();
+extern std::string TmpDir(Env* env = Env::Default());
 
 // Return a randomization seed for this run.  Typically returns the
 // same number on repeated invocations of this binary, but automated
@@ -80,6 +84,14 @@ class Tester {
     return *this;
   }
 
+  Tester& IsNotOk(const Status& s) {
+    if (s.ok()) {
+      ss_ << " Error status expected";
+      ok_ = false;
+    }
+    return *this;
+  }
+
 #define BINARY_OP(name,op)                              \
   template <class X, class Y>                           \
   Tester& name(const X& x, const Y& y) {                \
@@ -110,6 +122,7 @@ class Tester {
 
 #define ASSERT_TRUE(c) ::rocksdb::test::Tester(__FILE__, __LINE__).Is((c), #c)
 #define ASSERT_OK(s) ::rocksdb::test::Tester(__FILE__, __LINE__).IsOk((s))
+#define ASSERT_NOK(s) ::rocksdb::test::Tester(__FILE__, __LINE__).IsNotOk((s))
 #define ASSERT_EQ(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsEq((a),(b))
 #define ASSERT_NE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsNe((a),(b))
 #define ASSERT_GE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsGe((a),(b))

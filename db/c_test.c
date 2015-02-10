@@ -10,9 +10,11 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <inttypes.h>
 
 const char* phase = "";
 static char dbname[200];
+static char dbbackupname[200];
 
 static void StartPhase(const char* name) {
   fprintf(stderr, "=== Test %s\n", name);
@@ -132,7 +134,7 @@ static void CmpDestroy(void* arg) { }
 
 static int CmpCompare(void* arg, const char* a, size_t alen,
                       const char* b, size_t blen) {
-  int n = (alen < blen) ? alen : blen;
+  size_t n = (alen < blen) ? alen : blen;
   int r = memcmp(a, b, n);
   if (r == 0) {
     if (alen < blen) r = -1;
@@ -346,6 +348,11 @@ int main(int argc, char** argv) {
            GetTempDir(),
            ((int) geteuid()));
 
+  snprintf(dbbackupname, sizeof(dbbackupname),
+           "%s/rocksdb_c_test-%d-backup",
+           GetTempDir(),
+           ((int) geteuid()));
+
   StartPhase("create_objects");
   cmp = rocksdb_comparator_create(NULL, CmpDestroy, CmpCompare, CmpName);
   env = rocksdb_create_default_env();
@@ -395,6 +402,41 @@ int main(int argc, char** argv) {
   rocksdb_put(db, woptions, "foo", 3, "hello", 5, &err);
   CheckNoError(err);
   CheckGet(db, roptions, "foo", "hello");
+
+  StartPhase("backup_and_restore");
+  {
+    rocksdb_destroy_db(options, dbbackupname, &err);
+    CheckNoError(err);
+
+    rocksdb_backup_engine_t *be = rocksdb_backup_engine_open(options, dbbackupname, &err);
+    CheckNoError(err);
+
+    rocksdb_backup_engine_create_new_backup(be, db, &err);
+    CheckNoError(err);
+
+    rocksdb_delete(db, woptions, "foo", 3, &err);
+    CheckNoError(err);
+
+    rocksdb_close(db);
+
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_restore_options_t *restore_options = rocksdb_restore_options_create();
+    rocksdb_restore_options_set_keep_log_files(restore_options, 0);
+    rocksdb_backup_engine_restore_db_from_latest_backup(be, dbname, dbname, restore_options, &err);
+    CheckNoError(err);
+    rocksdb_restore_options_destroy(restore_options);
+
+    rocksdb_options_set_error_if_exists(options, 0);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+    rocksdb_options_set_error_if_exists(options, 1);
+
+    CheckGet(db, roptions, "foo", "hello");
+
+    rocksdb_backup_engine_close(be);
+  }
 
   StartPhase("compactall");
   rocksdb_compact_range(db, NULL, 0, NULL, 0);
@@ -576,37 +618,39 @@ int main(int argc, char** argv) {
 
   StartPhase("compaction_filter");
   {
-    rocksdb_options_t* options = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(options, 1);
+    rocksdb_options_t* options_with_filter = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(options_with_filter, 1);
     rocksdb_compactionfilter_t* cfilter;
     cfilter = rocksdb_compactionfilter_create(NULL, CFilterDestroy,
                                               CFilterFilter, CFilterName);
     // Create new database
     rocksdb_close(db);
-    rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_compaction_filter(options, cfilter);
-    db = CheckCompaction(db, options, roptions, woptions);
+    rocksdb_destroy_db(options_with_filter, dbname, &err);
+    rocksdb_options_set_compaction_filter(options_with_filter, cfilter);
+    db = CheckCompaction(db, options_with_filter, roptions, woptions);
 
-    rocksdb_options_set_compaction_filter(options, NULL);
+    rocksdb_options_set_compaction_filter(options_with_filter, NULL);
     rocksdb_compactionfilter_destroy(cfilter);
-    rocksdb_options_destroy(options);
+    rocksdb_options_destroy(options_with_filter);
   }
 
   StartPhase("compaction_filter_factory");
   {
-    rocksdb_options_t* options = rocksdb_options_create();
-    rocksdb_options_set_create_if_missing(options, 1);
+    rocksdb_options_t* options_with_filter_factory = rocksdb_options_create();
+    rocksdb_options_set_create_if_missing(options_with_filter_factory, 1);
     rocksdb_compactionfilterfactory_t* factory;
     factory = rocksdb_compactionfilterfactory_create(
         NULL, CFilterFactoryDestroy, CFilterCreate, CFilterFactoryName);
     // Create new database
     rocksdb_close(db);
-    rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_compaction_filter_factory(options, factory);
-    db = CheckCompaction(db, options, roptions, woptions);
+    rocksdb_destroy_db(options_with_filter_factory, dbname, &err);
+    rocksdb_options_set_compaction_filter_factory(options_with_filter_factory,
+                                                  factory);
+    db = CheckCompaction(db, options_with_filter_factory, roptions, woptions);
 
-    rocksdb_options_set_compaction_filter_factory(options, NULL);
-    rocksdb_options_destroy(options);
+    rocksdb_options_set_compaction_filter_factory(
+        options_with_filter_factory, NULL);
+    rocksdb_options_destroy(options_with_filter_factory);
   }
 
   StartPhase("compaction_filter_v2");
@@ -799,8 +843,87 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
+
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
   }
 
+  StartPhase("cuckoo_options");
+  {
+    rocksdb_cuckoo_table_options_t* cuckoo_options;
+    cuckoo_options = rocksdb_cuckoo_options_create();
+    rocksdb_cuckoo_options_set_hash_ratio(cuckoo_options, 0.5);
+    rocksdb_cuckoo_options_set_max_search_depth(cuckoo_options, 200);
+    rocksdb_cuckoo_options_set_cuckoo_block_size(cuckoo_options, 10);
+    rocksdb_cuckoo_options_set_identity_as_first_hash(cuckoo_options, 1);
+    rocksdb_cuckoo_options_set_use_module_hash(cuckoo_options, 0);
+    rocksdb_options_set_cuckoo_table_factory(options, cuckoo_options);
+
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_cuckoo_options_destroy(cuckoo_options);
+  }
+
+  StartPhase("iterate_upper_bound");
+  {
+    // Create new empty database
+    rocksdb_close(db);
+    rocksdb_destroy_db(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_options_set_prefix_extractor(options, NULL);
+    db = rocksdb_open(options, dbname, &err);
+    CheckNoError(err);
+
+    rocksdb_put(db, woptions, "a",    1, "0",    1, &err); CheckNoError(err);
+    rocksdb_put(db, woptions, "foo",  3, "bar",  3, &err); CheckNoError(err);
+    rocksdb_put(db, woptions, "foo1", 4, "bar1", 4, &err); CheckNoError(err);
+    rocksdb_put(db, woptions, "g1",   2, "0",    1, &err); CheckNoError(err);
+
+    // testing basic case with no iterate_upper_bound and no prefix_extractor
+    {
+       rocksdb_readoptions_set_iterate_upper_bound(roptions, NULL, 0);
+       rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
+
+       rocksdb_iter_seek(iter, "foo", 3);
+       CheckCondition(rocksdb_iter_valid(iter));
+       CheckIter(iter, "foo", "bar");
+
+       rocksdb_iter_next(iter);
+       CheckCondition(rocksdb_iter_valid(iter));
+       CheckIter(iter, "foo1", "bar1");
+
+       rocksdb_iter_next(iter);
+       CheckCondition(rocksdb_iter_valid(iter));
+       CheckIter(iter, "g1", "0");
+
+       rocksdb_iter_destroy(iter);
+    }
+
+    // testing iterate_upper_bound and forward iterator
+    // to make sure it stops at bound
+    {
+       // iterate_upper_bound points beyond the last expected entry
+       rocksdb_readoptions_set_iterate_upper_bound(roptions, "foo2", 4);
+
+       rocksdb_iterator_t* iter = rocksdb_create_iterator(db, roptions);
+
+       rocksdb_iter_seek(iter, "foo", 3);
+       CheckCondition(rocksdb_iter_valid(iter));
+       CheckIter(iter, "foo", "bar");
+
+       rocksdb_iter_next(iter);
+       CheckCondition(rocksdb_iter_valid(iter));
+       CheckIter(iter, "foo1", "bar1");
+
+       rocksdb_iter_next(iter);
+       // should stop here...
+       CheckCondition(!rocksdb_iter_valid(iter));
+
+       rocksdb_iter_destroy(iter);
+    }
+  }
 
   StartPhase("cleanup");
   rocksdb_close(db);

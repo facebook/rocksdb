@@ -14,10 +14,12 @@
 #include <utility>
 #include <string>
 
+#include "rocksdb/options.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
+#include "table/table_properties_internal.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -27,6 +29,8 @@ class BlockIter;
 class BlockHandle;
 class Cache;
 class FilterBlockReader;
+class BlockBasedFilterBlockReader;
+class FullFilterBlockReader;
 class Footer;
 class InternalKeyComparator;
 class Iterator;
@@ -36,8 +40,8 @@ class TableReader;
 class WritableFile;
 struct BlockBasedTableOptions;
 struct EnvOptions;
-struct Options;
 struct ReadOptions;
+class GetContext;
 
 using std::unique_ptr;
 
@@ -47,6 +51,7 @@ using std::unique_ptr;
 class BlockBasedTable : public TableReader {
  public:
   static const std::string kFilterBlockPrefix;
+  static const std::string kFullFilterBlockPrefix;
 
   // Attempt to open the table that is stored in bytes [0..file_size)
   // of "file", and read the metadata entries necessary to allow
@@ -58,7 +63,8 @@ class BlockBasedTable : public TableReader {
   // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
-  static Status Open(const Options& db_options, const EnvOptions& env_options,
+  static Status Open(const ImmutableCFOptions& ioptions,
+                     const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
@@ -72,11 +78,7 @@ class BlockBasedTable : public TableReader {
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
   Status Get(const ReadOptions& readOptions, const Slice& key,
-             void* handle_context,
-             bool (*result_handler)(void* handle_context,
-                                    const ParsedInternalKey& k, const Slice& v),
-             void (*mark_key_may_exist_handler)(void* handle_context) =
-                 nullptr) override;
+             GetContext* get_context) override;
 
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
@@ -97,6 +99,9 @@ class BlockBasedTable : public TableReader {
   std::shared_ptr<const TableProperties> GetTableProperties() const override;
 
   size_t ApproximateMemoryUsage() const override;
+
+  // convert SST file to a human readable form
+  Status DumpTable(WritableFile* out_file) override;
 
   ~BlockBasedTable();
 
@@ -145,7 +150,7 @@ class BlockBasedTable : public TableReader {
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed, Statistics* statistics,
       const ReadOptions& read_options,
-      BlockBasedTable::CachableEntry<Block>* block);
+      BlockBasedTable::CachableEntry<Block>* block, uint32_t format_version);
   // Put a raw block (maybe compressed) to the corresponding block caches.
   // This method will perform decompression against raw_block if needed and then
   // populate the block caches.
@@ -158,7 +163,7 @@ class BlockBasedTable : public TableReader {
       const Slice& block_cache_key, const Slice& compressed_block_cache_key,
       Cache* block_cache, Cache* block_cache_compressed,
       const ReadOptions& read_options, Statistics* statistics,
-      CachableEntry<Block>* block, Block* raw_block);
+      CachableEntry<Block>* block, Block* raw_block, uint32_t format_version);
 
   // Calls (*handle_result)(arg, ...) repeatedly, starting with the entry found
   // after a call to Seek(key), until handle_result returns false.
@@ -175,6 +180,9 @@ class BlockBasedTable : public TableReader {
   Status CreateIndexReader(IndexReader** index_reader,
                            Iterator* preloaded_meta_index_iter = nullptr);
 
+  bool FullFilterKeyMayMatch(FilterBlockReader* filter,
+                             const Slice& user_key) const;
+
   // Read the meta block from sst.
   static Status ReadMetaBlock(
       Rep* rep,
@@ -182,8 +190,10 @@ class BlockBasedTable : public TableReader {
       std::unique_ptr<Iterator>* iter);
 
   // Create the filter from the filter block.
-  static FilterBlockReader* ReadFilter(const BlockHandle& filter_handle,
-                                       Rep* rep, size_t* filter_size = nullptr);
+  static FilterBlockReader* ReadFilter(
+      Rep* rep,
+      Iterator* meta_index_iter,
+      size_t* filter_size = nullptr);
 
   static void SetupCacheKeyPrefix(Rep* rep);
 
@@ -199,6 +209,10 @@ class BlockBasedTable : public TableReader {
   // The longest prefix of the cache key used to identify blocks.
   // For Posix files the unique ID is three varints.
   static const size_t kMaxCacheKeyPrefixSize = kMaxVarint64Length*3+1;
+
+  // Helper functions for DumpTable()
+  Status DumpIndexBlock(WritableFile* out_file);
+  Status DumpDataBlocks(WritableFile* out_file);
 
   // No copying allowed
   explicit BlockBasedTable(const TableReader&) = delete;

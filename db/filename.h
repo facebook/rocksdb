@@ -14,15 +14,18 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
+
+#include "port/port.h"
+#include "rocksdb/options.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/transaction_log.h"
-#include "port/port.h"
 
 namespace rocksdb {
 
 class Env;
 class Directory;
+class WritableFile;
 
 enum FileType {
   kLogFile,
@@ -35,9 +38,6 @@ enum FileType {
   kMetaDatabase,
   kIdentityFile
 };
-
-// map from file number to path ID.
-typedef std::unordered_map<uint64_t, uint32_t> FileNumToPathIdMap;
 
 // Return the name of the log file with the specified number
 // in the db named by "dbname".  The result will be prefixed with
@@ -54,6 +54,10 @@ extern std::string ArchivedLogFileName(const std::string& dbname,
                                        uint64_t num);
 
 extern std::string MakeTableFileName(const std::string& name, uint64_t number);
+
+// the reverse function of MakeTableFileName
+// TODO(yhchiang): could merge this function with ParseFileName()
+extern uint64_t TableFileNameToNumber(const std::string& name);
 
 // Return the name of the sstable with the specified number
 // in the db named by "dbname".  The result will be prefixed with
@@ -133,5 +137,9 @@ extern Status SetCurrentFile(Env* env, const std::string& dbname,
 
 // Make the IDENTITY file for the db
 extern Status SetIdentityFile(Env* env, const std::string& dbname);
+
+// Sync manifest file `file`.
+extern Status SyncManifest(Env* env, const DBOptions* db_options,
+                           WritableFile* file);
 
 }  // namespace rocksdb

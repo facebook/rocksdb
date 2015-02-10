@@ -8,11 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "rocksdb/options.h"
+#include "rocksdb/immutable_options.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <limits>
 
+#include "db/writebuffer.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
@@ -27,6 +32,45 @@
 #include "util/statistics.h"
 
 namespace rocksdb {
+
+ImmutableCFOptions::ImmutableCFOptions(const Options& options)
+  : compaction_style(options.compaction_style),
+    compaction_options_universal(options.compaction_options_universal),
+    compaction_options_fifo(options.compaction_options_fifo),
+    prefix_extractor(options.prefix_extractor.get()),
+    comparator(options.comparator),
+    merge_operator(options.merge_operator.get()),
+    compaction_filter(options.compaction_filter),
+    compaction_filter_factory(options.compaction_filter_factory.get()),
+    compaction_filter_factory_v2(options.compaction_filter_factory_v2.get()),
+    inplace_update_support(options.inplace_update_support),
+    inplace_callback(options.inplace_callback),
+    info_log(options.info_log.get()),
+    statistics(options.statistics.get()),
+    env(options.env),
+    allow_mmap_reads(options.allow_mmap_reads),
+    allow_mmap_writes(options.allow_mmap_writes),
+    db_paths(options.db_paths),
+    memtable_factory(options.memtable_factory.get()),
+    table_factory(options.table_factory.get()),
+    table_properties_collector_factories(
+        options.table_properties_collector_factories),
+    advise_random_on_open(options.advise_random_on_open),
+    bloom_locality(options.bloom_locality),
+    purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
+    min_partial_merge_operands(options.min_partial_merge_operands),
+    disable_data_sync(options.disableDataSync),
+    use_fsync(options.use_fsync),
+    compression(options.compression),
+    compression_per_level(options.compression_per_level),
+    compression_opts(options.compression_opts),
+    access_hint_on_compaction_start(options.access_hint_on_compaction_start),
+    num_levels(options.num_levels)
+#ifndef ROCKSDB_LITE
+    , listeners(options.listeners) {}
+#else  // ROCKSDB_LITE
+    {}
+#endif  // ROCKSDB_LITE
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
@@ -74,7 +118,12 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       memtable_prefix_bloom_huge_page_tlb_size(0),
       bloom_locality(0),
       max_successive_merges(0),
-      min_partial_merge_operands(2) {
+      min_partial_merge_operands(2)
+#ifndef ROCKSDB_LITE
+      , listeners() {
+#else  // ROCKSDB_LITE
+      {
+#endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -134,7 +183,12 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.memtable_prefix_bloom_huge_page_tlb_size),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
-      min_partial_merge_operands(options.min_partial_merge_operands) {
+      min_partial_merge_operands(options.min_partial_merge_operands)
+#ifndef ROCKSDB_LITE
+      , listeners(options.listeners) {
+#else   // ROCKSDB_LITE
+      {
+#endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -150,7 +204,11 @@ DBOptions::DBOptions()
       env(Env::Default()),
       rate_limiter(nullptr),
       info_log(nullptr),
+#ifdef NDEBUG
       info_log_level(INFO_LEVEL),
+#else
+      info_log_level(DEBUG_LEVEL),
+#endif  // NDEBUG
       max_open_files(5000),
       max_total_wal_size(0),
       statistics(nullptr),
@@ -177,10 +235,11 @@ DBOptions::DBOptions()
       skip_log_error_on_recovery(false),
       stats_dump_period_sec(3600),
       advise_random_on_open(true),
+      db_write_buffer_size(0),
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
-      allow_thread_local(true),
-      bytes_per_sync(0) {}
+      bytes_per_sync(0),
+      enable_thread_tracking(false) {}
 
 DBOptions::DBOptions(const Options& options)
     : create_if_missing(options.create_if_missing),
@@ -220,10 +279,11 @@ DBOptions::DBOptions(const Options& options)
       skip_log_error_on_recovery(options.skip_log_error_on_recovery),
       stats_dump_period_sec(options.stats_dump_period_sec),
       advise_random_on_open(options.advise_random_on_open),
+      db_write_buffer_size(options.db_write_buffer_size),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       use_adaptive_mutex(options.use_adaptive_mutex),
-      allow_thread_local(options.allow_thread_local),
-      bytes_per_sync(options.bytes_per_sync) {}
+      bytes_per_sync(options.bytes_per_sync),
+      enable_thread_tracking(options.enable_thread_tracking) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
@@ -240,8 +300,8 @@ void DBOptions::Dump(Logger* log) const {
     Log(log, "       Options.disableDataSync: %d", disableDataSync);
     Log(log, "             Options.use_fsync: %d", use_fsync);
     Log(log, "     Options.max_log_file_size: %zu", max_log_file_size);
-    Log(log, "Options.max_manifest_file_size: %lu",
-        (unsigned long)max_manifest_file_size);
+    Log(log, "Options.max_manifest_file_size: %" PRIu64,
+        max_manifest_file_size);
     Log(log, "     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
     Log(log, "     Options.keep_log_file_num: %zu", keep_log_file_num);
     Log(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
@@ -257,16 +317,16 @@ void DBOptions::Dump(Logger* log) const {
         table_cache_numshardbits);
     Log(log, "    Options.table_cache_remove_scan_count_limit: %d",
         table_cache_remove_scan_count_limit);
-    Log(log, "    Options.delete_obsolete_files_period_micros: %lu",
-        (unsigned long)delete_obsolete_files_period_micros);
+    Log(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
+        delete_obsolete_files_period_micros);
     Log(log, "             Options.max_background_compactions: %d",
         max_background_compactions);
     Log(log, "                 Options.max_background_flushes: %d",
         max_background_flushes);
-    Log(log, "                        Options.WAL_ttl_seconds: %lu",
-        (unsigned long)WAL_ttl_seconds);
-    Log(log, "                      Options.WAL_size_limit_MB: %lu",
-        (unsigned long)WAL_size_limit_MB);
+    Log(log, "                        Options.WAL_ttl_seconds: %" PRIu64,
+        WAL_ttl_seconds);
+    Log(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
+        WAL_size_limit_MB);
     Log(log, "            Options.manifest_preallocation_size: %zu",
         manifest_preallocation_size);
     Log(log, "                         Options.allow_os_buffer: %d",
@@ -277,20 +337,22 @@ void DBOptions::Dump(Logger* log) const {
         allow_mmap_writes);
     Log(log, "                     Options.is_fd_close_on_exec: %d",
         is_fd_close_on_exec);
-    Log(log, "              Options.skip_log_error_on_recovery: %d",
-        skip_log_error_on_recovery);
     Log(log, "                   Options.stats_dump_period_sec: %u",
         stats_dump_period_sec);
     Log(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
+    Log(log, "                   Options.db_write_buffer_size: %zd",
+        db_write_buffer_size);
     Log(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
     Log(log, "                      Options.use_adaptive_mutex: %d",
         use_adaptive_mutex);
     Log(log, "                            Options.rate_limiter: %p",
         rate_limiter.get());
-    Log(log, "                          Options.bytes_per_sync: %lu",
-        (unsigned long)bytes_per_sync);
+    Log(log, "                          Options.bytes_per_sync: %" PRIu64,
+        bytes_per_sync);
+    Log(log, "                    enable_thread_tracking: %d",
+        enable_thread_tracking);
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {
@@ -338,20 +400,20 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         level0_stop_writes_trigger);
     Log(log,"               Options.max_mem_compaction_level: %d",
         max_mem_compaction_level);
-    Log(log,"                  Options.target_file_size_base: %d",
+    Log(log,"                  Options.target_file_size_base: %" PRIu64,
         target_file_size_base);
     Log(log,"            Options.target_file_size_multiplier: %d",
         target_file_size_multiplier);
-    Log(log,"               Options.max_bytes_for_level_base: %lu",
-        (unsigned long)max_bytes_for_level_base);
+    Log(log,"               Options.max_bytes_for_level_base: %" PRIu64,
+        max_bytes_for_level_base);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
     for (int i = 0; i < num_levels; i++) {
       Log(log,"Options.max_bytes_for_level_multiplier_addtl[%d]: %d",
           i, max_bytes_for_level_multiplier_additional[i]);
     }
-    Log(log,"      Options.max_sequential_skip_in_iterations: %lu",
-        (unsigned long)max_sequential_skip_in_iterations);
+    Log(log,"      Options.max_sequential_skip_in_iterations: %" PRIu64,
+        max_sequential_skip_in_iterations);
     Log(log,"             Options.expanded_compaction_factor: %d",
         expanded_compaction_factor);
     Log(log,"               Options.source_compaction_factor: %d",
@@ -386,7 +448,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
             "max_size_amplification_percent: %u",
         compaction_options_universal.max_size_amplification_percent);
     Log(log,
-        "Options.compaction_options_universal.compression_size_percent: %u",
+        "Options.compaction_options_universal.compression_size_percent: %d",
         compaction_options_universal.compression_size_percent);
     Log(log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
         compaction_options_fifo.max_table_files_size);
@@ -447,6 +509,15 @@ Options::PrepareForBulkLoad()
   // increasing the total time needed for compactions.
   num_levels = 2;
 
+  // Need to allow more write buffers to allow more parallism
+  // of flushes.
+  max_write_buffer_number = 6;
+  min_write_buffer_number_to_merge = 1;
+
+  // When compaction is disabled, more parallel flush threads can
+  // help with write throughput.
+  max_background_flushes = 4;
+
   // Prevent a memtable flush to automatically promote files
   // to L1. This is helpful so that all files that are
   // input to the manual compaction are all at L0.
@@ -457,6 +528,7 @@ Options::PrepareForBulkLoad()
   return this;
 }
 
+#ifndef ROCKSDB_LITE
 // Optimization functions
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
     uint64_t block_cache_size_mb) {
@@ -465,17 +537,15 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeForPointLookup(
   block_based_options.index_type = BlockBasedTableOptions::kHashSearch;
   block_based_options.filter_policy.reset(NewBloomFilterPolicy(10));
   block_based_options.block_cache =
-    NewLRUCache(block_cache_size_mb * 1024 * 1024);
+      NewLRUCache(static_cast<size_t>(block_cache_size_mb * 1024 * 1024));
   table_factory.reset(new BlockBasedTableFactory(block_based_options));
-#ifndef ROCKSDB_LITE
   memtable_factory.reset(NewHashLinkListRepFactory());
-#endif
   return this;
 }
 
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
     uint64_t memtable_memory_budget) {
-  write_buffer_size = memtable_memory_budget / 4;
+  write_buffer_size = static_cast<size_t>(memtable_memory_budget / 4);
   // merge two memtables when flushing to L0
   min_write_buffer_number_to_merge = 2;
   // this means we'll use 50% extra memory in the worst case, but will reduce
@@ -507,7 +577,7 @@ ColumnFamilyOptions* ColumnFamilyOptions::OptimizeLevelStyleCompaction(
 
 ColumnFamilyOptions* ColumnFamilyOptions::OptimizeUniversalStyleCompaction(
     uint64_t memtable_memory_budget) {
-  write_buffer_size = memtable_memory_budget / 4;
+  write_buffer_size = static_cast<size_t>(memtable_memory_budget / 4);
   // merge two memtables when flushing to L0
   min_write_buffer_number_to_merge = 2;
   // this means we'll use 50% extra memory in the worst case, but will reduce
@@ -526,5 +596,6 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   env->SetBackgroundThreads(1, Env::HIGH);
   return this;
 }
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

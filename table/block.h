@@ -14,6 +14,10 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
 #include "db/dbformat.h"
+#include "table/block_prefix_index.h"
+#include "table/block_hash_index.h"
+
+#include "format.h"
 
 namespace rocksdb {
 
@@ -26,15 +30,17 @@ class BlockPrefixIndex;
 class Block {
  public:
   // Initialize the block with the specified contents.
-  explicit Block(const BlockContents& contents);
+  explicit Block(BlockContents&& contents);
 
-  ~Block();
+  ~Block() = default;
 
   size_t size() const { return size_; }
   const char* data() const { return data_; }
-  bool cachable() const { return cachable_; }
+  bool cachable() const { return contents_.cachable; }
   uint32_t NumRestarts() const;
-  CompressionType compression_type() const { return compression_type_; }
+  CompressionType compression_type() const {
+    return contents_.compression_type;
+  }
 
   // If hash index lookup is enabled and `use_hash_index` is true. This block
   // will do hash lookup for the key prefix.
@@ -58,12 +64,10 @@ class Block {
   size_t ApproximateMemoryUsage() const;
 
  private:
-  const char* data_;
-  size_t size_;
+  BlockContents contents_;
+  const char* data_;            // contents_.data.data()
+  size_t size_;                 // contents_.data.size()
   uint32_t restart_offset_;     // Offset in data_ of restart array
-  bool owned_;                  // Block owns data_[]
-  bool cachable_;
-  CompressionType compression_type_;
   std::unique_ptr<BlockHashIndex> hash_index_;
   std::unique_ptr<BlockPrefixIndex> prefix_index_;
 
@@ -155,7 +159,8 @@ class BlockIter : public Iterator {
 
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
-    return (value_.data() + value_.size()) - data_;
+    // NOTE: We don't support files bigger than 2GB
+    return static_cast<uint32_t>((value_.data() + value_.size()) - data_);
   }
 
   uint32_t GetRestartPoint(uint32_t index) {

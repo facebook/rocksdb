@@ -9,6 +9,7 @@
 namespace {
 void f0() {
   char *p = nullptr;
+  // cppcheck-suppress nullPointer
   *p = 10;  /* SIGSEGV here!! */
 }
 

@@ -13,11 +13,13 @@
 #include "db/memtable.h"
 #include "db/column_family.h"
 #include "db/write_batch_internal.h"
+#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/logging.h"
 #include "util/testharness.h"
+#include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
 
@@ -26,13 +28,17 @@ static std::string PrintContents(WriteBatch* b) {
   auto factory = std::make_shared<SkipListFactory>();
   Options options;
   options.memtable_factory = factory;
-  MemTable* mem = new MemTable(cmp, options);
+  ImmutableCFOptions ioptions(options);
+  WriteBuffer wb(options.db_write_buffer_size);
+  MemTable* mem = new MemTable(cmp, ioptions,
+                               MutableCFOptions(options, ioptions), &wb);
   mem->Ref();
   std::string state;
-  ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  ColumnFamilyMemTablesDefault cf_mems_default(mem);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
-  Iterator* iter = mem->NewIterator(ReadOptions());
+  Arena arena;
+  ScopedArenaIterator iter(mem->NewIterator(ReadOptions(), &arena));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     memset((void *)&ikey, 0, sizeof(ikey));
@@ -67,7 +73,6 @@ static std::string PrintContents(WriteBatch* b) {
     state.append("@");
     state.append(NumberToString(ikey.sequence));
   }
-  delete iter;
   if (!s.ok()) {
     state.append(s.ToString());
   } else if (count != WriteBatchInternal::Count(b)) {
@@ -152,7 +157,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
+        seen += "PutCF(" + ToString(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
@@ -162,7 +167,7 @@ namespace {
       if (column_family_id == 0) {
         seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
+        seen += "MergeCF(" + ToString(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
@@ -174,12 +179,45 @@ namespace {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
       } else {
-        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
+        seen += "DeleteCF(" + ToString(column_family_id) + ", " +
                 key.ToString() + ")";
       }
       return Status::OK();
     }
   };
+}
+
+TEST(WriteBatchTest, MergeNotImplemented) {
+  WriteBatch batch;
+  batch.Merge(Slice("foo"), Slice("bar"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Merge(foo, bar)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST(WriteBatchTest, PutNotImplemented) {
+  WriteBatch batch;
+  batch.Put(Slice("k1"), Slice("v1"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST(WriteBatchTest, DeleteNotImplemented) {
+  WriteBatch batch;
+  batch.Delete(Slice("k2"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Delete(k2)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
 }
 
 TEST(WriteBatchTest, Blob) {
@@ -287,6 +325,9 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
   explicit ColumnFamilyHandleImplDummy(int id)
       : ColumnFamilyHandleImpl(nullptr, nullptr, nullptr), id_(id) {}
   uint32_t GetID() const override { return id_; }
+  const Comparator* user_comparator() const override {
+    return BytewiseComparator();
+  }
 
  private:
   uint32_t id_;
@@ -318,7 +359,7 @@ TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
 }
 
 TEST(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
-  WriteBatchWithIndex batch(BytewiseComparator(), 20);
+  WriteBatchWithIndex batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
   batch.Put(&zero, Slice("foo"), Slice("bar"));
   batch.Put(&two, Slice("twofoo"), Slice("bar2"));

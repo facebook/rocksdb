@@ -19,8 +19,8 @@ class InternalKeyComparator;
 class Arena;
 
 struct TwoLevelIteratorState {
-  explicit TwoLevelIteratorState(bool check_prefix_may_match)
-    : check_prefix_may_match(check_prefix_may_match) {}
+  explicit TwoLevelIteratorState(bool _check_prefix_may_match)
+      : check_prefix_may_match(_check_prefix_may_match) {}
 
   virtual ~TwoLevelIteratorState() {}
   virtual Iterator* NewSecondaryIterator(const Slice& handle) = 0;

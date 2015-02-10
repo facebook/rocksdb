@@ -19,7 +19,6 @@
 namespace rocksdb {
 
 class Slice;
-class WritableFile;
 
 // Append a human-readable size in bytes
 int AppendHumanBytes(uint64_t bytes, char* output, int len);

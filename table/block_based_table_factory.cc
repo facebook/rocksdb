@@ -14,11 +14,12 @@
 #include <string>
 #include <stdint.h>
 
+#include "port/port.h"
 #include "rocksdb/flush_block_policy.h"
 #include "rocksdb/cache.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_reader.h"
-#include "port/port.h"
+#include "table/format.h"
 
 namespace rocksdb {
 
@@ -41,23 +42,47 @@ BlockBasedTableFactory::BlockBasedTableFactory(
 }
 
 Status BlockBasedTableFactory::NewTableReader(
-    const Options& options, const EnvOptions& soptions,
+    const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
     const InternalKeyComparator& internal_comparator,
     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
-  return BlockBasedTable::Open(options, soptions, table_options_,
+  return BlockBasedTable::Open(ioptions, soptions, table_options_,
                                internal_comparator, std::move(file), file_size,
                                table_reader);
 }
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
-    const Options& options, const InternalKeyComparator& internal_comparator,
-    WritableFile* file, CompressionType compression_type) const {
+    const ImmutableCFOptions& ioptions,
+    const InternalKeyComparator& internal_comparator,
+    WritableFile* file, const CompressionType compression_type,
+    const CompressionOptions& compression_opts) const {
 
   auto table_builder = new BlockBasedTableBuilder(
-      options, table_options_, internal_comparator, file, compression_type);
+      ioptions, table_options_, internal_comparator, file,
+      compression_type, compression_opts);
 
   return table_builder;
+}
+
+Status BlockBasedTableFactory::SanitizeOptions(
+    const DBOptions& db_opts,
+    const ColumnFamilyOptions& cf_opts) const {
+  if (table_options_.index_type == BlockBasedTableOptions::kHashSearch &&
+      cf_opts.prefix_extractor == nullptr) {
+    return Status::InvalidArgument("Hash index is specified for block-based "
+        "table, but prefix_extractor is not given");
+  }
+  if (table_options_.cache_index_and_filter_blocks &&
+      table_options_.no_block_cache) {
+    return Status::InvalidArgument("Enable cache_index_and_filter_blocks, "
+        ", but block cache is disabled");
+  }
+  if (!BlockBasedTableSupportedVersion(table_options_.format_version)) {
+    return Status::InvalidArgument(
+        "Unsupported BlockBasedTable format_version. Please check "
+        "include/rocksdb/table.h for more info");
+  }
+  return Status::OK();
 }
 
 std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
@@ -116,8 +141,14 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  whole_key_filtering: %d\n",
            table_options_.whole_key_filtering);
+  snprintf(buffer, kBufferSize, "  format_version: %d\n",
+           table_options_.format_version);
   ret.append(buffer);
   return ret;
+}
+
+const BlockBasedTableOptions& BlockBasedTableFactory::GetTableOptions() const {
+  return table_options_;
 }
 
 TableFactory* NewBlockBasedTableFactory(

@@ -7,6 +7,8 @@
 // where enough posix functionality is available.
 
 #pragma once
+#include <list>
+
 #include "db/filename.h"
 #include "port/port.h"
 #include "util/posix_logger.h"
@@ -38,7 +40,12 @@ class AutoRollLogger : public Logger {
     ResetLogger();
   }
 
+  using Logger::Logv;
   void Logv(const char* format, va_list ap);
+
+  // Write a header entry to the log. All header information will be written
+  // again every time the log rolls over.
+  virtual void LogHeader(const char* format, va_list ap) override;
 
   // check if the logger has encountered any problem.
   Status GetStatus() {
@@ -57,10 +64,15 @@ class AutoRollLogger : public Logger {
   }
 
  private:
-
   bool LogExpired();
   Status ResetLogger();
   void RollLogFile();
+  // Log message to logger without rolling
+  void LogInternal(const char* format, ...);
+  // Serialize the va_list to a string
+  std::string ValistToString(const char* format, va_list args) const;
+  // Write the logs marked as headers to the new log file
+  void WriteHeaderInfo();
 
   std::string log_fname_; // Current active info log's file name.
   std::string dbname_;
@@ -72,6 +84,8 @@ class AutoRollLogger : public Logger {
   Status status_;
   const size_t kMaxLogFileSize;
   const size_t kLogFileTimeToRoll;
+  // header information
+  std::list<std::string> headers_;
   // to avoid frequent env->NowMicros() calls, we cached the current time
   uint64_t cached_now;
   uint64_t ctime_;

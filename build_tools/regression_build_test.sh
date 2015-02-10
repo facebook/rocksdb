@@ -344,6 +344,38 @@ common_in_mem_args="--db=/dev/shm/rocksdb \
     --threads=32 \
     --writes_per_second=81920 > ${STAT_FILE}.seekwhilewriting_in_ram
 
+# measure fillseq with bunch of column families
+./db_bench \
+    --benchmarks=fillseq \
+    --num_column_families=500 \
+    --write_buffer_size=1048576 \
+    --db=$DATA_DIR \
+    --use_existing_db=0 \
+    --num=$NUM \
+    --writes=$NUM \
+    --open_files=55000 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0  > ${STAT_FILE}.fillseq_lots_column_families
+
+# measure overwrite performance with bunch of column families
+./db_bench \
+    --benchmarks=overwrite \
+    --num_column_families=500 \
+    --write_buffer_size=1048576 \
+    --db=$DATA_DIR \
+    --use_existing_db=1 \
+    --num=$NUM \
+    --writes=$((NUM / 10)) \
+    --open_files=55000 \
+    --statistics=1 \
+    --histogram=1 \
+    --disable_data_sync=1 \
+    --disable_wal=1 \
+    --sync=0 \
+    --threads=8 > ${STAT_FILE}.overwrite_lots_column_families
 
 # send data to ods
 function send_to_ods {
@@ -392,3 +424,5 @@ send_benchmark_to_ods readrandom memtablereadrandom $STAT_FILE.memtablefillreadr
 send_benchmark_to_ods readwhilewriting readwhilewriting $STAT_FILE.readwhilewriting
 send_benchmark_to_ods readwhilewriting readwhilewriting_in_ram ${STAT_FILE}.readwhilewriting_in_ram
 send_benchmark_to_ods seekrandomwhilewriting seekwhilewriting_in_ram ${STAT_FILE}.seekwhilewriting_in_ram
+send_benchmark_to_ods fillseq fillseq_lots_column_families ${STAT_FILE}.fillseq_lots_column_families
+send_benchmark_to_ods overwrite overwrite_lots_column_families ${STAT_FILE}.overwrite_lots_column_families

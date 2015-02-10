@@ -222,7 +222,9 @@ class SpatialDB : public StackableDB {
 
   // Calling Compact() after inserting a bunch of elements should speed up
   // reading. This is especially useful if you use SpatialDBOptions::bulk_load
-  virtual Status Compact() = 0;
+  // Num threads determines how many threads we'll use for compactions. Setting
+  // this to bigger number will use more IO and CPU, but finish faster
+  virtual Status Compact(int num_threads = 1) = 0;
 
   // Query the specified spatial_index. Query will return all elements that
   // intersect bbox, but it may also return some extra elements.

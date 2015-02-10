@@ -93,6 +93,8 @@ class HdfsEnv : public Env {
 
   virtual Status RenameFile(const std::string& src, const std::string& target);
 
+  virtual Status LinkFile(const std::string& src, const std::string& target);
+
   virtual Status LockFile(const std::string& fname, FileLock** lock);
 
   virtual Status UnlockFile(FileLock* lock);
@@ -143,6 +145,10 @@ class HdfsEnv : public Env {
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) {
     posixEnv->SetBackgroundThreads(number, pri);
+  }
+
+  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
+    posixEnv->IncBackgroundThreadsIfNeeded(number, pri);
   }
 
   virtual std::string TimeToString(uint64_t number) {
@@ -232,7 +238,7 @@ class HdfsEnv : public Env {
   explicit HdfsEnv(const std::string& fsname) {
     fprintf(stderr, "You have not build rocksdb with HDFS support\n");
     fprintf(stderr, "Please see hdfs/README for details\n");
-    throw std::exception();
+    abort();
   }
 
   virtual ~HdfsEnv() {
@@ -287,6 +293,10 @@ class HdfsEnv : public Env {
 
   virtual Status RenameFile(const std::string& src, const std::string& target){return notsup;}
 
+  virtual Status LinkFile(const std::string& src, const std::string& target) {
+    return notsup;
+  }
+
   virtual Status LockFile(const std::string& fname, FileLock** lock){return notsup;}
 
   virtual Status UnlockFile(FileLock* lock){return notsup;}
@@ -319,7 +329,7 @@ class HdfsEnv : public Env {
       std::string* outputpath) {return notsup;}
 
   virtual void SetBackgroundThreads(int number, Priority pri = LOW) {}
-
+  virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) {}
   virtual std::string TimeToString(uint64_t number) { return "";}
 };
 }

@@ -9,7 +9,10 @@
 
 #include "util/logging.h"
 
+#ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
+#endif
+
 #include <inttypes.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -42,7 +45,7 @@ int AppendHumanBytes(uint64_t bytes, char* output, int len) {
 
 void AppendNumberTo(std::string* str, uint64_t num) {
   char buf[30];
-  snprintf(buf, sizeof(buf), "%llu", (unsigned long long) num);
+  snprintf(buf, sizeof(buf), "%" PRIu64, num);
   str->append(buf);
 }
 
