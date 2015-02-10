@@ -2772,9 +2772,17 @@ void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   }
 }
 
-void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files) {
-  files->insert(files->end(), obsolete_files_.begin(), obsolete_files_.end());
-  obsolete_files_.clear();
+void VersionSet::GetObsoleteFiles(std::vector<FileMetaData*>* files,
+                                  uint64_t min_pending_output) {
+  std::vector<FileMetaData*> pending_files;
+  for (auto f : obsolete_files_) {
+    if (f->fd.GetNumber() < min_pending_output) {
+      files->push_back(f);
+    } else {
+      pending_files.push_back(f);
+    }
+  }
+  obsolete_files_.swap(pending_files);
 }
 
 ColumnFamilyData* VersionSet::CreateColumnFamily(

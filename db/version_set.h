@@ -590,7 +590,8 @@ class VersionSet {
 
   void GetLiveFilesMetaData(std::vector<LiveFileMetaData> *metadata);
 
-  void GetObsoleteFiles(std::vector<FileMetaData*>* files);
+  void GetObsoleteFiles(std::vector<FileMetaData*>* files,
+                        uint64_t min_pending_output);
 
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
   const EnvOptions& env_options() { return env_options_; }

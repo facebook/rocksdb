@@ -464,8 +464,18 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     }
   }
 
+  // don't delete files that might be currently written to from compaction
+  // threads
+  if (!pending_outputs_.empty()) {
+    job_context->min_pending_output = *pending_outputs_.begin();
+  } else {
+    // delete all of them
+    job_context->min_pending_output = std::numeric_limits<uint64_t>::max();
+  }
+
   // get obsolete files
-  versions_->GetObsoleteFiles(&job_context->sst_delete_files);
+  versions_->GetObsoleteFiles(&job_context->sst_delete_files,
+                              job_context->min_pending_output);
 
   // store the current filenum, lognum, etc
   job_context->manifest_file_number = versions_->manifest_file_number();
@@ -473,14 +483,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       versions_->pending_manifest_file_number();
   job_context->log_number = versions_->MinLogNumber();
   job_context->prev_log_number = versions_->prev_log_number();
-
-  // don't delete live files
-  if (pending_outputs_.size()) {
-    job_context->min_pending_output = *pending_outputs_.begin();
-  } else {
-    // delete all of them
-    job_context->min_pending_output = std::numeric_limits<uint64_t>::max();
-  }
 
   versions_->AddLiveFiles(&job_context->sst_live);
   if (doing_the_full_scan) {
