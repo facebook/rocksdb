@@ -250,7 +250,7 @@ bool JSONDocument::operator==(const JSONDocument& rhs) const {
     case kBool:
       return data_.b == rhs.data_.b;
     case kDouble:
-      return data_.d == rhs.data_.d;
+      return std::fabs(data_.d - rhs.data_.d) <= std::numeric_limits<double>::epsilon();
     case kInt64:
       return data_.i == rhs.data_.i;
     case kObject:
