@@ -77,8 +77,6 @@ jobject
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
 
   std::vector<jbyte*> cfnames_to_free;
-  // the zero-terminated version of cfnames_to_free.
-  std::vector<char*> c_cfnames_to_free;
   std::vector<jbyteArray> jcfnames_for_free;
 
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
@@ -94,8 +92,8 @@ jobject
       jobject jcf_descriptor = env->CallObjectMethod(iteratorObj,
           rocksdb::ListJni::getNextMethod(env));
       // get ColumnFamilyName
-      jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
-          jcf_descriptor,
+      jbyteArray cf_name_in_byte_array = static_cast<jbyteArray>(
+          env->CallObjectMethod(jcf_descriptor,
           rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
               env)));
       // get CF Options
@@ -105,18 +103,14 @@ jobject
       rocksdb::ColumnFamilyOptions* cfOptions =
           rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
 
-      jbyte* cfname = env->GetByteArrayElements(byteArray, 0);
-      const int len = env->GetArrayLength(byteArray) + 1;
-      char* c_cfname = new char[len];
-      memcpy(c_cfname, cfname, len - 1);
-      c_cfname[len - 1] = 0;
+      jbyte* cfname = env->GetByteArrayElements(cf_name_in_byte_array, 0);
+      const int len = env->GetArrayLength(cf_name_in_byte_array);
 
       // free allocated cfnames after call to open
       cfnames_to_free.push_back(cfname);
-      c_cfnames_to_free.push_back(c_cfname);
-      jcfnames_for_free.push_back(byteArray);
+      jcfnames_for_free.push_back(cf_name_in_byte_array);
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(
-          c_cfname, *cfOptions));
+          std::string(reinterpret_cast<char *>(cfname), len), *cfOptions));
   }
 
   rocksdb::Status s = rocksdb::DB::OpenForReadOnly(*opt,
@@ -127,8 +121,6 @@ jobject
       i != cfnames_to_free.size(); i++) {
     // free  cfnames
     env->ReleaseByteArrayElements(jcfnames_for_free[i], cfnames_to_free[i], 0);
-    // free c_cfnames
-    delete[] c_cfnames_to_free[i];
   }
 
   // check if open operation was successful
@@ -170,8 +162,6 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
   const char* db_path = env->GetStringUTFChars(jdb_path, 0);
 
   std::vector<jbyte*> cfnames_to_free;
-  // the zero-terminated version of cfnames_to_free.
-  std::vector<char*> c_cfnames_to_free;
   std::vector<jbyteArray> jcfnames_for_free;
 
   std::vector<rocksdb::ColumnFamilyDescriptor> column_families;
@@ -187,8 +177,8 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
       jobject jcf_descriptor = env->CallObjectMethod(iteratorObj,
           rocksdb::ListJni::getNextMethod(env));
       // get ColumnFamilyName
-      jbyteArray byteArray = static_cast<jbyteArray>(env->CallObjectMethod(
-          jcf_descriptor,
+      jbyteArray cf_name_in_byte_array = static_cast<jbyteArray>(
+          env->CallObjectMethod(jcf_descriptor,
           rocksdb::ColumnFamilyDescriptorJni::getColumnFamilyNameMethod(
               env)));
       // get CF Options
@@ -198,18 +188,14 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
       rocksdb::ColumnFamilyOptions* cfOptions =
           rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
 
-      jbyte* cfname = env->GetByteArrayElements(byteArray, 0);
-      const int len = env->GetArrayLength(byteArray) + 1;
-      char* c_cfname = new char[len];
-      memcpy(c_cfname, cfname, len - 1);
-      c_cfname[len - 1] = 0;
+      jbyte* cfname = env->GetByteArrayElements(cf_name_in_byte_array, 0);
+      const int len = env->GetArrayLength(cf_name_in_byte_array);
 
       // free allocated cfnames after call to open
       cfnames_to_free.push_back(cfname);
-      c_cfnames_to_free.push_back(c_cfname);
-      jcfnames_for_free.push_back(byteArray);
+      jcfnames_for_free.push_back(cf_name_in_byte_array);
       column_families.push_back(rocksdb::ColumnFamilyDescriptor(
-          c_cfname, *cfOptions));
+          std::string(reinterpret_cast<char *>(cfname), len), *cfOptions));
   }
 
   rocksdb::Status s = rocksdb::DB::Open(*opt, db_path, column_families,
@@ -220,8 +206,6 @@ jobject Java_org_rocksdb_RocksDB_open__JLjava_lang_String_2Ljava_util_List_2I(
       i != cfnames_to_free.size(); i++) {
     // free  cfnames
     env->ReleaseByteArrayElements(jcfnames_for_free[i], cfnames_to_free[i], 0);
-    // free c_cfnames
-    delete[] c_cfnames_to_free[i];
   }
 
   // check if open operation was successful
@@ -281,7 +265,7 @@ jobject Java_org_rocksdb_RocksDB_listColumnFamilies(
           env->NewByteArray(static_cast<jsize>(column_family_names[i].size()));
       env->SetByteArrayRegion(
           jcf_value, 0, static_cast<jsize>(column_family_names[i].size()),
-          reinterpret_cast<const jbyte*>(column_family_names[i].c_str()));
+          reinterpret_cast<const jbyte*>(column_family_names[i].data()));
       env->CallBooleanMethod(jvalue_list,
           rocksdb::ListJni::getListAddMethodId(env), jcf_value);
     }
@@ -1294,15 +1278,11 @@ jlong Java_org_rocksdb_RocksDB_createColumnFamily(
       rocksdb::ColumnFamilyOptionsJni::getHandle(env, jcf_opt_obj);
 
   jbyte* cfname = env->GetByteArrayElements(byteArray, 0);
-  const int len = env->GetArrayLength(byteArray) + 1;
-  char* c_cfname = new char[len];
-  memcpy(c_cfname, cfname, len - 1);
-  c_cfname[len - 1] = 0;
+  const int len = env->GetArrayLength(byteArray);
 
   rocksdb::Status s = db_handle->CreateColumnFamily(
-      *cfOptions, c_cfname, &handle);
+      *cfOptions, std::string(reinterpret_cast<char *>(cfname), len), &handle);
   env->ReleaseByteArrayElements(byteArray, cfname, 0);
-  delete[] c_cfname;
 
   if (s.ok()) {
     return reinterpret_cast<jlong>(handle);

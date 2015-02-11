@@ -5,10 +5,7 @@
 
 package org.rocksdb;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Map;
+import java.util.*;
 
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -604,4 +601,77 @@ public class ColumnFamilyTest {
     }
   }
 
+  @Test
+  public void testByteCreateFolumnFamily() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options().setCreateIfMissing(true);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+
+      byte[] b0 = new byte[] { (byte)0x00 };
+      byte[] b1 = new byte[] { (byte)0x01 };
+      byte[] b2 = new byte[] { (byte)0x02 };
+      db.createColumnFamily(new ColumnFamilyDescriptor(b0));
+      db.createColumnFamily(new ColumnFamilyDescriptor(b1));
+      List<byte[]> families = RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
+      assertThat(families).contains("default".getBytes(), b0, b1);
+      db.createColumnFamily(new ColumnFamilyDescriptor(b2));
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void testCFNamesWithZeroBytes() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options().setCreateIfMissing(true);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+
+      byte[] b0 = new byte[] { 0, 0 };
+      byte[] b1 = new byte[] { 0, 1 };
+      db.createColumnFamily(new ColumnFamilyDescriptor(b0));
+      db.createColumnFamily(new ColumnFamilyDescriptor(b1));
+      List<byte[]> families = RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
+      assertThat(families).contains("default".getBytes(), b0, b1);
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void testCFNameSimplifiedChinese() throws RocksDBException {
+    RocksDB db = null;
+    Options options = null;
+    try {
+      options = new Options().setCreateIfMissing(true);
+      db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
+      final String simplifiedChinese = "简体字";
+      db.createColumnFamily(new ColumnFamilyDescriptor(simplifiedChinese.getBytes()));
+
+      List<byte[]> families = RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
+      assertThat(families).contains("default".getBytes(), simplifiedChinese.getBytes());
+    } finally {
+      if (db != null) {
+        db.close();
+      }
+      if (options != null) {
+        options.dispose();
+      }
+    }
+
+
+  }
 }
