@@ -2807,4 +2807,12 @@ ColumnFamilyData* VersionSet::CreateColumnFamily(
   return new_cfd;
 }
 
+uint64_t VersionSet::GetNumLiveVersions(Version* dummy_versions) {
+  uint64_t count = 0;
+  for (Version* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
+    count++;
+  }
+  return count;
+}
+
 }  // namespace rocksdb

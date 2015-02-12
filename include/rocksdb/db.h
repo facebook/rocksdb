@@ -325,6 +325,10 @@ class DB {
   //  "rocksdb.is-file-deletions-enabled"
   //  "rocksdb.num-snapshots"
   //  "rocksdb.oldest-snapshot-time"
+  //  "rocksdb.num-live-versions" - `version` is an internal data structure.
+  //      See version_set.h for details. More live versions often mean more SST
+  //      files are held from being deleted, by iterators or unfinished
+  //      compactions.
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
@@ -347,6 +351,7 @@ class DB {
   //  "rocksdb.is-file-deletions-enabled"
   //  "rocksdb.num-snapshots"
   //  "rocksdb.oldest-snapshot-time"
+  //  "rocksdb.num-live-versions"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {

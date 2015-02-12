@@ -140,6 +140,8 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kNumSnapshots;
   } else if (in == "oldest-snapshot-time") {
     return kOldestSnapshotTime;
+  } else if (in == "num-live-versions") {
+    return kNumLiveVersions;
   }
   return kUnknown;
 }
@@ -224,6 +226,7 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
 
 bool InternalStats::GetIntProperty(DBPropertyType property_type,
                                    uint64_t* value, DBImpl* db) const {
+  db->mutex_.AssertHeld();
   const auto* vstorage = cfd_->current()->storage_info();
 
   switch (property_type) {
@@ -272,6 +275,9 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       return true;
     case kOldestSnapshotTime:
       *value = static_cast<uint64_t>(db->snapshots().GetOldestSnapshotTime());
+      return true;
+    case kNumLiveVersions:
+      *value = cfd_->GetNumLiveVersions();
       return true;
 #ifndef ROCKSDB_LITE
     case kIsFileDeletionEnabled:

@@ -596,6 +596,8 @@ class VersionSet {
   ColumnFamilySet* GetColumnFamilySet() { return column_family_set_.get(); }
   const EnvOptions& env_options() { return env_options_; }
 
+  static uint64_t GetNumLiveVersions(Version* dummy_versions);
+
  private:
   struct ManifestWriter;
 

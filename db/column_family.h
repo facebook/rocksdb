@@ -207,6 +207,8 @@ class ColumnFamilyData {
   Version* current() { return current_; }
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* current);
+  uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
+
   MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options);
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
   void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);

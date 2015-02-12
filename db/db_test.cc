@@ -3230,6 +3230,43 @@ TEST(DBTest, GetProperty) {
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
   ASSERT_GT(int_num, 0U);
+
+  // Test rocksdb.num-live-versions
+  {
+    options.level0_file_num_compaction_trigger = 20;
+    Reopen(options);
+    ASSERT_TRUE(
+        dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
+    ASSERT_EQ(int_num, 1U);
+
+    // Use an iterator to hold current version
+    std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
+
+    ASSERT_OK(dbfull()->Put(writeOpt, "k6", big_value));
+    Flush();
+    ASSERT_TRUE(
+        dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
+    ASSERT_EQ(int_num, 2U);
+
+    // Use an iterator to hold current version
+    std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
+
+    ASSERT_OK(dbfull()->Put(writeOpt, "k7", big_value));
+    Flush();
+    ASSERT_TRUE(
+        dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
+    ASSERT_EQ(int_num, 3U);
+
+    iter2.reset();
+    ASSERT_TRUE(
+        dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
+    ASSERT_EQ(int_num, 2U);
+
+    iter1.reset();
+    ASSERT_TRUE(
+        dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
+    ASSERT_EQ(int_num, 1U);
+  }
 }
 
 TEST(DBTest, FLUSH) {

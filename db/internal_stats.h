@@ -50,6 +50,7 @@ enum DBPropertyType : uint32_t {
                                   // 0 means file deletions enabled
   kNumSnapshots,                  // Number of snapshots in the system
   kOldestSnapshotTime,            // Unix timestamp of the first snapshot
+  kNumLiveVersions,
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,

@@ -439,6 +439,10 @@ void ColumnFamilyData::SetCurrent(Version* current_version) {
   current_ = current_version;
 }
 
+uint64_t ColumnFamilyData::GetNumLiveVersions() const {
+  return VersionSet::GetNumLiveVersions(dummy_versions_);
+}
+
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options) {
   assert(current_ != nullptr);
