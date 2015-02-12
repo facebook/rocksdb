@@ -24,7 +24,7 @@ public class FlushOptions extends RocksObject {
    */
   public FlushOptions setWaitForFlush(boolean waitForFlush) {
     assert(isInitialized());
-    waitForFlush(nativeHandle_);
+    setWaitForFlush(nativeHandle_, waitForFlush);
     return this;
   }
 
