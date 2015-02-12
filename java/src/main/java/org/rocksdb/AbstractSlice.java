@@ -99,7 +99,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    *    2) == 0 if this == other
    *    3) &gt; 0 if this &gt; other
    */
-  public int compare(final AbstractSlice other) {
+  public int compare(final AbstractSlice<?> other) {
     assert (other != null);
     assert (isInitialized());
     return compare0(nativeHandle_, other.nativeHandle_);
@@ -118,7 +118,7 @@ abstract class AbstractSlice<T> extends RocksObject {
   @Override
   public boolean equals(final Object other) {
     if (other != null && other instanceof AbstractSlice) {
-      return compare((AbstractSlice)other) == 0;
+      return compare((AbstractSlice<?>)other) == 0;
     } else {
       return false;
     }
@@ -134,7 +134,7 @@ abstract class AbstractSlice<T> extends RocksObject {
    * @return true when this slice starts with the
    *   {@code prefix} slice
    */
-  public boolean startsWith(final AbstractSlice prefix) {
+  public boolean startsWith(final AbstractSlice<?> prefix) {
     if (prefix != null) {
       assert (isInitialized());
       return startsWith0(nativeHandle_, prefix.nativeHandle_);

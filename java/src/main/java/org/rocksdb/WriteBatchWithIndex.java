@@ -58,8 +58,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   inserting a duplicate key, in this way an iterator will never
    *   show two entries with the same key.
    */
-  public WriteBatchWithIndex(AbstractComparator fallbackIndexComparator, int reservedBytes,
-      boolean overwriteKey) {
+  public WriteBatchWithIndex(AbstractComparator<? extends AbstractSlice<?>>
+      fallbackIndexComparator, int reservedBytes, boolean overwriteKey) {
     super();
     newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_, reservedBytes, overwriteKey);
   }
