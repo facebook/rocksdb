@@ -124,7 +124,7 @@ public interface ColumnFamilyOptionsInterface {
    * operators are "put", "uint64add", "stringappend" and "stringappendtest".
    * @return the instance of the current Object.
    */
-  public Object setMergeOperatorName(String name);
+  Object setMergeOperatorName(String name);
 
   /**
    * <p>Set the merge operator to be used for merging two different key/value
@@ -135,7 +135,7 @@ public interface ColumnFamilyOptionsInterface {
    * @param mergeOperator {@link MergeOperator} instance.
    * @return the instance of the current Object.
    */
-  public Object setMergeOperator(MergeOperator mergeOperator);
+  Object setMergeOperator(MergeOperator mergeOperator);
 
   /**
    * Amount of data to build up in memory (backed by an unsorted log

@@ -16,7 +16,7 @@ public interface WriteBatchInterface {
      *
      * @return number of items in WriteBatch
      */
-    public int count();
+    int count();
 
     /**
      * <p>Store the mapping "key-&gt;value" in the database.</p>
@@ -24,7 +24,7 @@ public interface WriteBatchInterface {
      * @param key the specified key to be inserted.
      * @param value the value associated with the specified key.
      */
-    public void put(byte[] key, byte[] value);
+    void put(byte[] key, byte[] value);
 
     /**
      * <p>Store the mapping "key-&gt;value" within given column
@@ -35,7 +35,7 @@ public interface WriteBatchInterface {
      * @param key the specified key to be inserted.
      * @param value the value associated with the specified key.
      */
-    public void put(ColumnFamilyHandle columnFamilyHandle,
+    void put(ColumnFamilyHandle columnFamilyHandle,
                     byte[] key, byte[] value);
 
     /**
@@ -46,7 +46,7 @@ public interface WriteBatchInterface {
      * @param value the value to be merged with the current value for
      * the specified key.
      */
-    public void merge(byte[] key, byte[] value);
+    void merge(byte[] key, byte[] value);
 
     /**
      * <p>Merge "value" with the existing value of "key" in given column family.
@@ -57,7 +57,7 @@ public interface WriteBatchInterface {
      * @param value the value to be merged with the current value for
      * the specified key.
      */
-    public void merge(ColumnFamilyHandle columnFamilyHandle,
+    void merge(ColumnFamilyHandle columnFamilyHandle,
                       byte[] key, byte[] value);
 
     /**
@@ -65,7 +65,7 @@ public interface WriteBatchInterface {
      *
      * @param key Key to delete within database
      */
-    public void remove(byte[] key);
+    void remove(byte[] key);
 
     /**
      * <p>If column family contains a mapping for "key", erase it.  Else do nothing.</p>
@@ -73,7 +73,7 @@ public interface WriteBatchInterface {
      * @param columnFamilyHandle {@link ColumnFamilyHandle} instance
      * @param key Key to delete within database
      */
-    public void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key);
+    void remove(ColumnFamilyHandle columnFamilyHandle, byte[] key);
 
     /**
      * Append a blob of arbitrary size to the records in this batch. The blob will
@@ -89,10 +89,10 @@ public interface WriteBatchInterface {
      *
      * @param blob binary object to be inserted
      */
-    public void putLogData(byte[] blob);
+    void putLogData(byte[] blob);
 
     /**
      * Clear all updates buffered in this batch
      */
-    public void clear();
+    void clear();
 }

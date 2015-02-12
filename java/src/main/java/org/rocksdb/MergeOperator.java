@@ -11,5 +11,5 @@ package org.rocksdb;
  * value.
  */
 public interface MergeOperator {
-    public long newMergeOperatorHandle();
+    long newMergeOperatorHandle();
 }
