@@ -6540,8 +6540,11 @@ TEST(DBTest, DBOpen_Change_NumLevels) {
 
 TEST(DBTest, DestroyDBMetaDatabase) {
   std::string dbname = test::TmpDir(env_) + "/db_meta";
+  ASSERT_OK(env_->CreateDirIfMissing(dbname));
   std::string metadbname = MetaDatabaseName(dbname, 0);
+  ASSERT_OK(env_->CreateDirIfMissing(metadbname));
   std::string metametadbname = MetaDatabaseName(metadbname, 0);
+  ASSERT_OK(env_->CreateDirIfMissing(metametadbname));
 
   // Destroy previous versions if they exist. Using the long way.
   Options options = CurrentOptions();
