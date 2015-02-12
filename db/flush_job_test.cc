@@ -81,7 +81,7 @@ class FlushJobTest {
 };
 
 TEST(FlushJobTest, Empty) {
-  JobContext job_context;
+  JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
@@ -93,7 +93,7 @@ TEST(FlushJobTest, Empty) {
 }
 
 TEST(FlushJobTest, NonEmpty) {
-  JobContext job_context;
+  JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions());
   new_mem->Ref();

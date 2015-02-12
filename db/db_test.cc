@@ -10357,7 +10357,7 @@ TEST(DBTest, DontDeletePendingOutputs) {
   // Every time we write to a table file, call FOF/POF with full DB scan. This
   // will make sure our pending_outputs_ protection work correctly
   std::function<void()> purge_obsolete_files_function = [&]() {
-    JobContext job_context;
+    JobContext job_context(0);
     dbfull()->TEST_LockMutex();
     dbfull()->FindObsoleteFiles(&job_context, true /*force*/);
     dbfull()->TEST_UnlockMutex();

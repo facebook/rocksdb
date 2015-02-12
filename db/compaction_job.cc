@@ -202,14 +202,15 @@ struct CompactionJob::CompactionState {
 };
 
 CompactionJob::CompactionJob(
-    Compaction* compaction, const DBOptions& db_options,
+    int job_id, Compaction* compaction, const DBOptions& db_options,
     const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
     VersionSet* versions, std::atomic<bool>* shutting_down,
     LogBuffer* log_buffer, Directory* db_directory, Directory* output_directory,
     Statistics* stats, SnapshotList* snapshots, bool is_snapshot_supported,
     std::shared_ptr<Cache> table_cache,
     std::function<uint64_t()> yield_callback)
-    : compact_(new CompactionState(compaction)),
+    : job_id_(job_id),
+      compact_(new CompactionState(compaction)),
       compaction_stats_(1),
       db_options_(db_options),
       mutable_cf_options_(mutable_cf_options),
@@ -235,8 +236,8 @@ void CompactionJob::Prepare() {
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   assert(cfd != nullptr);
   LogToBuffer(
-      log_buffer_, "[%s] Compacting %d@%d + %d@%d files, score %.2f",
-      cfd->GetName().c_str(), compact_->compaction->num_input_files(0),
+      log_buffer_, "[%s] [JOB %d] Compacting %d@%d + %d@%d files, score %.2f",
+      cfd->GetName().c_str(), job_id_, compact_->compaction->num_input_files(0),
       compact_->compaction->level(), compact_->compaction->num_input_files(1),
       compact_->compaction->output_level(), compact_->compaction->score());
   char scratch[2345];
@@ -324,8 +325,8 @@ Status CompactionJob::Run() {
       if (!ParseInternalKey(key, &ikey)) {
         // log error
         Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
-            "[%s] Failed to parse key: %s",
-            cfd->GetName().c_str(), key.ToString().c_str());
+            "[%s] [JOB %d] Failed to parse key: %s", cfd->GetName().c_str(),
+            job_id_, key.ToString().c_str());
         continue;
       } else {
         const SliceTransform* transformer =
@@ -946,10 +947,11 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
     s = iter->status();
     delete iter;
     if (s.ok()) {
-      Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-          "[%s] Generated table #%" PRIu64 ": %" PRIu64
-          " keys, %" PRIu64 " bytes", cfd->GetName().c_str(),
-          output_number, current_entries, current_bytes);
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
+          " keys, %" PRIu64 " bytes",
+          cfd->GetName().c_str(), job_id_, output_number, current_entries,
+          current_bytes);
     }
   }
   return s;
@@ -964,8 +966,8 @@ Status CompactionJob::InstallCompactionResults(InstrumentedMutex* db_mutex) {
   // pick the same files to compact_.
   if (!versions_->VerifyCompactionFileConsistency(compact_->compaction)) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "[%s] Compaction %d@%d + %d@%d files aborted",
-        compact_->compaction->column_family_data()->GetName().c_str(),
+        "[%s] [JOB %d] Compaction %d@%d + %d@%d files aborted",
+        compact_->compaction->column_family_data()->GetName().c_str(), job_id_,
         compact_->compaction->num_input_files(0), compact_->compaction->level(),
         compact_->compaction->num_input_files(1),
         compact_->compaction->output_level());
@@ -973,13 +975,11 @@ Status CompactionJob::InstallCompactionResults(InstrumentedMutex* db_mutex) {
   }
 
   Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-      "[%s] Compacted %d@%d + %d@%d files => %" PRIu64 " bytes",
-      compact_->compaction->column_family_data()->GetName().c_str(),
-      compact_->compaction->num_input_files(0),
-      compact_->compaction->level(),
+      "[%s] [JOB %d] Compacted %d@%d + %d@%d files => %" PRIu64 " bytes",
+      compact_->compaction->column_family_data()->GetName().c_str(), job_id_,
+      compact_->compaction->num_input_files(0), compact_->compaction->level(),
       compact_->compaction->num_input_files(1),
-      compact_->compaction->output_level(),
-      compact_->total_bytes);
+      compact_->compaction->output_level(), compact_->total_bytes);
 
   // Add compaction outputs
   compact_->compaction->AddInputDeletions(compact_->compaction->edit());
@@ -1043,9 +1043,9 @@ Status CompactionJob::OpenCompactionOutputFile() {
 
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-        "[%s] OpenCompactionOutputFiles for table #%" PRIu64
+        "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64
         " fails at NewWritableFile with status %s",
-        compact_->compaction->column_family_data()->GetName().c_str(),
+        compact_->compaction->column_family_data()->GetName().c_str(), job_id_,
         file_number, s.ToString().c_str());
     LogFlush(db_options_.info_log);
     return s;

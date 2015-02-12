@@ -36,6 +36,9 @@ struct JobContext {
     }
   };
 
+  // Unique job id
+  int job_id;
+
   // a list of all files that we'll consider deleting
   // (every once in a while this is filled up with all files
   // in the DB directory)
@@ -67,7 +70,8 @@ struct JobContext {
 
   uint64_t min_pending_output = 0;
 
-  explicit JobContext(bool create_superversion = false) {
+  explicit JobContext(int _job_id, bool create_superversion = false) {
+    job_id = _job_id;
     manifest_file_number = 0;
     pending_manifest_file_number = 0;
     log_number = 0;

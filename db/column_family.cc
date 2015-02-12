@@ -75,7 +75,9 @@ ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
 
 ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
   if (cfd_ != nullptr) {
-    JobContext job_context;
+    // Job id == 0 means that this is not our background process, but rather
+    // user thread
+    JobContext job_context(0);
     mutex_->Lock();
     if (cfd_->Unref()) {
       delete cfd_;

@@ -45,7 +45,9 @@ Status DBImpl::DisableFileDeletions() {
 }
 
 Status DBImpl::EnableFileDeletions(bool force) {
-  JobContext job_context;
+  // Job id == 0 means that this is not our background process, but rather
+  // user thread
+  JobContext job_context(0);
   bool should_purge_files = false;
   {
     InstrumentedMutexLock l(&mutex_);

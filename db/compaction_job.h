@@ -53,7 +53,7 @@ class CompactionJob {
   // TODO(icanadi) make effort to reduce number of parameters here
   // IMPORTANT: mutable_cf_options needs to be alive while CompactionJob is
   // alive
-  CompactionJob(Compaction* compaction, const DBOptions& db_options,
+  CompactionJob(int job_id, Compaction* compaction, const DBOptions& db_options,
                 const MutableCFOptions& mutable_cf_options,
                 const EnvOptions& env_options, VersionSet* versions,
                 std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
@@ -93,6 +93,8 @@ class CompactionJob {
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile();
   void CleanupCompaction(const Status& status);
+
+  int job_id_;
 
   // CompactionJob state
   struct CompactionState;

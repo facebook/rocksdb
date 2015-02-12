@@ -571,6 +571,10 @@ class DBImpl : public DB {
   // last time stats were dumped to LOG
   std::atomic<uint64_t> last_stats_dump_time_microsec_;
 
+  // Each flush or compaction gets its own job id. this counter makes sure
+  // they're unique
+  std::atomic<int> next_job_id_;
+
   bool flush_on_destroy_; // Used when disableWAL is true.
 
   static const int KEEP_LOG_FILE_NUM = 1000;

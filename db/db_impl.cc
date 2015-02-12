@@ -221,6 +221,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
           options.env->NowMicros() +
           db_options_.delete_obsolete_files_period_micros),
       last_stats_dump_time_microsec_(0),
+      next_job_id_(1),
       flush_on_destroy_(false),
       env_options_(options),
 #ifndef ROCKSDB_LITE
@@ -309,7 +310,7 @@ DBImpl::~DBImpl() {
   // result, all "live" files can get deleted by accident. However, corrupted
   // manifest is recoverable by RepairDB().
   if (opened_successfully_) {
-    JobContext job_context;
+    JobContext job_context(next_job_id_.fetch_add(1));
     FindObsoleteFiles(&job_context, true);
     // manifest number starting from 2
     job_context.manifest_file_number = 1;
@@ -650,7 +651,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
 #ifdef ROCKSDB_LITE
     Status s = env_->DeleteFile(fname);
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-        "Delete %s type=%d #%" PRIu64 " -- %s\n",
+        "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
         fname.c_str(), type, number, s.ToString().c_str());
 #else   // not ROCKSDB_LITE
     if (type == kLogFile && (db_options_.WAL_ttl_seconds > 0 ||
@@ -659,7 +660,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
     } else {
       Status s = env_->DeleteFile(fname);
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-          "Delete %s type=%d #%" PRIu64 " -- %s\n",
+          "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
           fname.c_str(), type, number, s.ToString().c_str());
     }
 #endif  // ROCKSDB_LITE
@@ -675,12 +676,12 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       std::string full_path_to_delete = (db_options_.db_log_dir.empty() ?
            dbname_ : db_options_.db_log_dir) + "/" + to_delete;
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-          "Delete info log file %s\n",
+          "[JOB %d] Delete info log file %s\n", state.job_id,
           full_path_to_delete.c_str());
       Status s = env_->DeleteFile(full_path_to_delete);
       if (!s.ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL,
-            db_options_.info_log, "Delete info log file %s FAILED -- %s\n",
+        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+            "[JOB %d] Delete info log file %s FAILED -- %s\n", state.job_id,
             to_delete.c_str(), s.ToString().c_str());
       }
     }
@@ -693,7 +694,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
 
 void DBImpl::DeleteObsoleteFiles() {
   mutex_.AssertHeld();
-  JobContext job_context;
+  JobContext job_context(next_job_id_.fetch_add(1));
   FindObsoleteFiles(&job_context, true);
   if (job_context.HaveSomethingToDelete()) {
     PurgeObsoleteFiles(job_context);
@@ -1366,17 +1367,18 @@ Status DBImpl::CompactFilesImpl(
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->IsDeletionCompaction());
 
-  JobContext job_context(true);
+  JobContext job_context(0, true);
   auto yield_callback = [&]() {
     return CallFlushDuringCompaction(c->column_family_data(),
                                      *c->mutable_cf_options(), &job_context,
                                      &log_buffer);
   };
   CompactionJob compaction_job(
-      c.get(), db_options_, *c->mutable_cf_options(), env_options_,
-      versions_.get(), &shutting_down_, &log_buffer, directories_.GetDbDir(),
-      directories_.GetDataDir(c->GetOutputPathId()), stats_, &snapshots_,
-      is_snapshot_supported_, table_cache_, std::move(yield_callback));
+      job_context.job_id, c.get(), db_options_, *c->mutable_cf_options(),
+      env_options_, versions_.get(), &shutting_down_, &log_buffer,
+      directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
+      stats_, &snapshots_, is_snapshot_supported_, table_cache_,
+      std::move(yield_callback));
   compaction_job.Prepare();
 
   mutex_.Unlock();
@@ -1395,7 +1397,9 @@ Status DBImpl::CompactFilesImpl(
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {
-    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log, "Compaction error: %s",
+    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+        "[%s] [JOB %d] Compaction error: %s",
+        c->column_family_data()->GetName().c_str(), job_context.job_id,
         status.ToString().c_str());
     if (db_options_.paranoid_checks && bg_error_.ok()) {
       bg_error_ = status;
@@ -1910,7 +1914,7 @@ Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
 
 void DBImpl::BackgroundCallFlush() {
   bool madeProgress = false;
-  JobContext job_context(true);
+  JobContext job_context(next_job_id_.fetch_add(1), true);
   assert(bg_flush_scheduled_);
 
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -1978,7 +1982,7 @@ void DBImpl::BackgroundCallFlush() {
 
 void DBImpl::BackgroundCallCompaction() {
   bool madeProgress = false;
-  JobContext job_context(true);
+  JobContext job_context(next_job_id_.fetch_add(1), true);
 
   MaybeDumpStats();
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
@@ -2250,10 +2254,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                        log_buffer);
     };
     CompactionJob compaction_job(
-        c.get(), db_options_, *c->mutable_cf_options(), env_options_,
-        versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
-        directories_.GetDataDir(c->GetOutputPathId()), stats_, &snapshots_,
-        is_snapshot_supported_, table_cache_, std::move(yield_callback));
+        job_context->job_id, c.get(), db_options_, *c->mutable_cf_options(),
+        env_options_, versions_.get(), &shutting_down_, log_buffer,
+        directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
+        stats_, &snapshots_, is_snapshot_supported_, table_cache_,
+        std::move(yield_callback));
     compaction_job.Prepare();
     mutex_.Unlock();
     status = compaction_job.Run();
@@ -2361,7 +2366,9 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
   IterState* state = reinterpret_cast<IterState*>(arg1);
 
   if (state->super_version->Unref()) {
-    JobContext job_context;
+    // Job id == 0 means that this is not our background process, but rather
+    // user thread
+    JobContext job_context(0);
 
     state->mu->Lock();
     state->super_version->Cleanup();
@@ -3525,7 +3532,7 @@ Status DBImpl::DeleteFile(std::string name) {
   FileMetaData* metadata;
   ColumnFamilyData* cfd;
   VersionEdit edit;
-  JobContext job_context(true);
+  JobContext job_context(next_job_id_.fetch_add(1), true);
   {
     InstrumentedMutexLock l(&mutex_);
     status = versions_->GetMetadataForFile(number, &level, &metadata, &cfd);
