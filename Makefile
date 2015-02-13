@@ -722,12 +722,8 @@ endif
 # The sed command makes sure the "target" file in the generated .d file has
 # the correct path prefix.
 %.d: %.cc
-	$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) -MM $< -o $@
-ifeq ($(PLATFORM), OS_MACOSX)
-	@sed -i '' -e 's,.*:,$*.o:,' $@
-else
-	@sed -i -e 's,.*:,$*.o:,' $@
-endif
+	$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
+	  -MM -MT'$@' -MT'$(<:.cc=.o)' "$<" -o '$@'
 
 DEPFILES = $(filter-out util/build_version.d,$(SOURCES:.cc=.d))
 
