@@ -13,7 +13,7 @@ package org.rocksdb;
  * use the default memtable representation (SkipList) instead
  * and post a warning in the LOG.
  */
-public class HashLinkedListMemTableConfig extends MemTableConfig {
+public final class HashLinkedListMemTableConfig extends MemTableConfig {
   public static final long DEFAULT_BUCKET_COUNT = 50000;
   public static final long DEFAULT_HUGE_PAGE_TLB_SIZE = 0;
   public static final int DEFAULT_BUCKET_ENTRIES_LOG_THRES = 4096;
@@ -39,7 +39,8 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @param count the number of hash buckets.
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
-  public HashLinkedListMemTableConfig setBucketCount(long count) {
+  public HashLinkedListMemTableConfig setBucketCount(
+      final long count) {
     bucketCount_ = count;
     return this;
   }
@@ -66,7 +67,8 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @param size if set to {@code <= 0} hashtable bytes from malloc
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
-  public HashLinkedListMemTableConfig setHugePageTlbSize(long size) {
+  public HashLinkedListMemTableConfig setHugePageTlbSize(
+      final long size) {
     hugePageTlbSize_ = size;
     return this;
   }
@@ -89,7 +91,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   public HashLinkedListMemTableConfig
-      setBucketEntriesLoggingThreshold(int threshold) {
+      setBucketEntriesLoggingThreshold(final int threshold) {
     bucketEntriesLoggingThreshold_ = threshold;
     return this;
   }
@@ -113,7 +115,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   public HashLinkedListMemTableConfig
-      setIfLogBucketDistWhenFlush(boolean logDistribution) {
+      setIfLogBucketDistWhenFlush(final boolean logDistribution) {
     ifLogBucketDistWhenFlush_ = logDistribution;
     return this;
   }
@@ -137,7 +139,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
    * @return the reference to the current HashLinkedListMemTableConfig.
    */
   public HashLinkedListMemTableConfig
-      setThresholdUseSkiplist(int threshold) {
+      setThresholdUseSkiplist(final int threshold) {
     thresholdUseSkiplist_ = threshold;
     return this;
   }

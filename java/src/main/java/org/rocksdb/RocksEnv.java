@@ -46,7 +46,7 @@ public class RocksEnv extends RocksObject {
    *
    * @return current {@link org.rocksdb.RocksEnv} instance.
    */
-  public RocksEnv setBackgroundThreads(int num) {
+  public RocksEnv setBackgroundThreads(final int num) {
     return setBackgroundThreads(num, FLUSH_POOL);
   }
 
@@ -61,7 +61,7 @@ public class RocksEnv extends RocksObject {
    * <p>Default number: 1</p>
    * @return current {@link org.rocksdb.RocksEnv} instance.
    */
-  public RocksEnv setBackgroundThreads(int num, int poolID) {
+  public RocksEnv setBackgroundThreads(final int num, final int poolID) {
     setBackgroundThreads(nativeHandle_, num, poolID);
     return this;
   }
@@ -77,7 +77,7 @@ public class RocksEnv extends RocksObject {
    *
    * @return the thread pool queue length.
    */
-  public int getThreadPoolQueueLen(int poolID) {
+  public int getThreadPoolQueueLen(final int poolID) {
     return getThreadPoolQueueLen(nativeHandle_, poolID);
   }
   private native int getThreadPoolQueueLen(long handle, int poolID);
@@ -91,7 +91,7 @@ public class RocksEnv extends RocksObject {
    * the ownership of the input handle.  As a result, calling
    * {@code dispose()} of the created RocksEnv will be no-op.</p>
    */
-  RocksEnv(long handle) {
+  RocksEnv(final long handle) {
     super();
     nativeHandle_ = handle;
     disOwnNativeHandle();

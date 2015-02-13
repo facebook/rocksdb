@@ -3,7 +3,7 @@ package org.rocksdb;
 /**
  * The config for skip-list memtable representation.
  */
-public class SkipListMemTableConfig extends MemTableConfig {
+public final class SkipListMemTableConfig extends MemTableConfig {
 
   public static final long DEFAULT_LOOKAHEAD = 0;
 
@@ -24,7 +24,7 @@ public class SkipListMemTableConfig extends MemTableConfig {
    *     seeks with consecutive keys.
    * @return the current instance of SkipListMemTableConfig
    */
-  public SkipListMemTableConfig setLookahead(long lookahead) {
+  public SkipListMemTableConfig setLookahead(final long lookahead) {
     lookahead_ = lookahead;
     return this;
   }

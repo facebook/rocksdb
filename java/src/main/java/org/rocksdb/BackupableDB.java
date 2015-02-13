@@ -13,7 +13,7 @@ import java.util.List;
  *
  * @see org.rocksdb.BackupableDBOptions
  */
-public class BackupableDB extends RocksDB {
+public final class BackupableDB extends RocksDB {
   /**
    * <p>Open a {@code BackupableDB} under the specified path.
    * Note that the backup path should be set properly in the
@@ -30,7 +30,7 @@ public class BackupableDB extends RocksDB {
    *    native library.
    */
   public static BackupableDB open(
-      Options opt, BackupableDBOptions bopt, String db_path)
+      final Options opt, final BackupableDBOptions bopt, final String db_path)
       throws RocksDBException {
 
     RocksDB db = RocksDB.open(opt, db_path);
@@ -54,7 +54,7 @@ public class BackupableDB extends RocksDB {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void createNewBackup(boolean flushBeforeBackup)
+  public void createNewBackup(final boolean flushBeforeBackup)
       throws RocksDBException {
     assert(isInitialized());
     createNewBackup(nativeHandle_, flushBeforeBackup);
@@ -68,7 +68,7 @@ public class BackupableDB extends RocksDB {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void purgeOldBackups(int numBackupsToKeep)
+  public void purgeOldBackups(final int numBackupsToKeep)
       throws RocksDBException {
     assert(isInitialized());
     purgeOldBackups(nativeHandle_, numBackupsToKeep);
@@ -82,7 +82,7 @@ public class BackupableDB extends RocksDB {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void deleteBackup(int backupId) throws RocksDBException {
+  public void deleteBackup(final int backupId) throws RocksDBException {
     assert(isInitialized());
     deleteBackup0(nativeHandle_, backupId);
   }

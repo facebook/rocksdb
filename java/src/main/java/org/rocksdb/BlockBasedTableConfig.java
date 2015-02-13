@@ -9,7 +9,7 @@ package org.rocksdb;
  *
  * BlockBasedTable is a RocksDB's default SST file format.
  */
-public class BlockBasedTableConfig extends TableFormatConfig {
+public final class BlockBasedTableConfig extends TableFormatConfig {
 
   public BlockBasedTableConfig() {
     noBlockCache_ = false;
@@ -38,7 +38,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param noBlockCache if use block cache
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setNoBlockCache(boolean noBlockCache) {
+  public BlockBasedTableConfig setNoBlockCache(final boolean noBlockCache) {
     noBlockCache_ = noBlockCache;
     return this;
   }
@@ -58,7 +58,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param blockCacheSize block cache size in bytes
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setBlockCacheSize(long blockCacheSize) {
+  public BlockBasedTableConfig setBlockCacheSize(final long blockCacheSize) {
     blockCacheSize_ = blockCacheSize;
     return this;
   }
@@ -79,7 +79,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    *     number means use default settings."
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setCacheNumShardBits(int blockCacheNumShardBits) {
+  public BlockBasedTableConfig setCacheNumShardBits(
+      final int blockCacheNumShardBits) {
     blockCacheNumShardBits_ = blockCacheNumShardBits;
     return this;
   }
@@ -105,7 +106,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param blockSize block size in bytes
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setBlockSize(long blockSize) {
+  public BlockBasedTableConfig setBlockSize(final long blockSize) {
     blockSize_ = blockSize;
     return this;
   }
@@ -128,7 +129,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param blockSizeDeviation the deviation to block size allowed
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setBlockSizeDeviation(int blockSizeDeviation) {
+  public BlockBasedTableConfig setBlockSizeDeviation(
+      final int blockSizeDeviation) {
     blockSizeDeviation_ = blockSizeDeviation;
     return this;
   }
@@ -146,7 +148,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param restartInterval block restart interval.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setBlockRestartInterval(int restartInterval) {
+  public BlockBasedTableConfig setBlockRestartInterval(
+      final int restartInterval) {
     blockRestartInterval_ = restartInterval;
     return this;
   }
@@ -166,7 +169,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param wholeKeyFiltering if enable whole key filtering
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setWholeKeyFiltering(boolean wholeKeyFiltering) {
+  public BlockBasedTableConfig setWholeKeyFiltering(
+      final boolean wholeKeyFiltering) {
     wholeKeyFiltering_ = wholeKeyFiltering;
     return this;
   }
@@ -191,7 +195,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param filter {@link org.rocksdb.Filter} Filter Policy java instance.
    * @return the reference to the current config.
    */
-  public BlockBasedTableConfig setFilter(Filter filter) {
+  public BlockBasedTableConfig setFilter(
+      final Filter filter) {
     filter_ = filter;
     return this;
   }
@@ -216,7 +221,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setCacheIndexAndFilterBlocks(
-      boolean cacheIndexAndFilterBlocks) {
+      final boolean cacheIndexAndFilterBlocks) {
     cacheIndexAndFilterBlocks_ = cacheIndexAndFilterBlocks;
     return this;
   }
@@ -243,7 +248,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setHashIndexAllowCollision(
-      boolean hashIndexAllowCollision) {
+      final boolean hashIndexAllowCollision) {
     hashIndexAllowCollision_ = hashIndexAllowCollision;
     return this;
   }
@@ -266,7 +271,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current config.
    */
   public BlockBasedTableConfig setBlockCacheCompressedSize(
-      long blockCacheCompressedSize) {
+      final long blockCacheCompressedSize) {
     blockCacheCompressedSize_ = blockCacheCompressedSize;
     return this;
   }
@@ -293,7 +298,7 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @return the reference to the current option.
    */
   public BlockBasedTableConfig setBlockCacheCompressedNumShardBits(
-      int blockCacheCompressedNumShardBits) {
+      final int blockCacheCompressedNumShardBits) {
     blockCacheCompressedNumShardBits_ = blockCacheCompressedNumShardBits;
     return this;
   }
@@ -304,7 +309,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param checksumType {@link org.rocksdb.ChecksumType} value.
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setChecksumType(ChecksumType checksumType) {
+  public BlockBasedTableConfig setChecksumType(
+      final ChecksumType checksumType) {
     checksumType_ = checksumType;
     return this;
   }
@@ -323,7 +329,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param indexType {@link org.rocksdb.IndexType} value
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setIndexType(IndexType indexType) {
+  public BlockBasedTableConfig setIndexType(
+      final IndexType indexType) {
     indexType_ = indexType;
     return this;
   }
@@ -358,7 +365,8 @@ public class BlockBasedTableConfig extends TableFormatConfig {
    * @param formatVersion integer representing the version to be used.
    * @return the reference to the current option.
    */
-  public BlockBasedTableConfig setFormatVersion(int formatVersion) {
+  public BlockBasedTableConfig setFormatVersion(
+      final int formatVersion) {
     assert(formatVersion >= 0 && formatVersion <= 2);
     formatVersion_ = formatVersion;
     return this;

@@ -12,7 +12,7 @@ package org.rocksdb;
  * to release the allocated memory in c++.
  *
  */
-public class RestoreOptions extends RocksObject {
+public final class RestoreOptions extends RocksObject {
   /**
    * Constructor
    *
@@ -22,7 +22,7 @@ public class RestoreOptions extends RocksObject {
    *     for persisting in-memory databases.
    *     Default: false
    */
-  public RestoreOptions(boolean keepLogFiles) {
+  public RestoreOptions(final boolean keepLogFiles) {
     super();
     nativeHandle_ = newRestoreOptions(keepLogFiles);
   }

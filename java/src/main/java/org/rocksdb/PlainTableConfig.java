@@ -12,7 +12,7 @@ package org.rocksdb;
  *
  * <p>It also support prefix hash feature.</p>
  */
-public class PlainTableConfig extends TableFormatConfig {
+public final class PlainTableConfig extends TableFormatConfig {
   public static final int VARIABLE_LENGTH = 0;
   public static final int DEFAULT_BLOOM_BITS_PER_KEY = 10;
   public static final double DEFAULT_HASH_TABLE_RATIO = 0.75;

@@ -9,7 +9,7 @@ package org.rocksdb;
  * <p>Describes a column family with a
  * name and respective Options.</p>
  */
-public class ColumnFamilyDescriptor {
+public final class ColumnFamilyDescriptor {
 
   /**
    * <p>Creates a new Column Family using a name and default

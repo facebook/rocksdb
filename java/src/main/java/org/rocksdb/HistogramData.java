@@ -12,8 +12,9 @@ public class HistogramData {
   private final double average_;
   private final double standardDeviation_;
 
-  public HistogramData(double median, double percentile95,
-      double percentile99, double average, double standardDeviation) {
+  public HistogramData(final double median, final double percentile95,
+      final double percentile99, final double average,
+      final double standardDeviation) {
     median_ = median;
     percentile95_ = percentile95;
     percentile99_ = percentile99;

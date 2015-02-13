@@ -36,7 +36,7 @@ public class WriteBatch extends AbstractWriteBatch {
    *
    * @param reserved_bytes reserved size for WriteBatch
    */
-  public WriteBatch(int reserved_bytes) {
+  public WriteBatch(final int reserved_bytes) {
     nativeHandle_ = 0;
     newWriteBatch(reserved_bytes);
   }
@@ -49,7 +49,7 @@ public class WriteBatch extends AbstractWriteBatch {
    *
    * @throws RocksDBException If we cannot iterate over the batch
    */
-  public void iterate(Handler handler) throws RocksDBException {
+  public void iterate(final Handler handler) throws RocksDBException {
     iterate(handler.nativeHandle_);
   }
 
@@ -60,7 +60,7 @@ public class WriteBatch extends AbstractWriteBatch {
    *
    * @param nativeHandle address of native instance.
    */
-  WriteBatch(long nativeHandle) {
+  WriteBatch(final long nativeHandle) {
     super();
     disOwnNativeHandle();
     nativeHandle_ = nativeHandle;

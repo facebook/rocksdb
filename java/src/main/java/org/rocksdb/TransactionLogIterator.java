@@ -5,7 +5,7 @@ package org.rocksdb;
  * One run of the iterator is continuous, i.e. the iterator will stop at the
  * beginning of any gap in sequences.</p>
  */
-public class TransactionLogIterator extends RocksObject {
+public final class TransactionLogIterator extends RocksObject {
 
   /**
    * <p>An iterator is either positioned at a WriteBatch
@@ -56,7 +56,7 @@ public class TransactionLogIterator extends RocksObject {
    *
    * @param nativeHandle address to native address.
    */
-  TransactionLogIterator(long nativeHandle) {
+  TransactionLogIterator(final long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
   }
@@ -70,7 +70,7 @@ public class TransactionLogIterator extends RocksObject {
    * by a TransactionLogIterator containing a sequence
    * number and a {@link WriteBatch} instance.</p>
    */
-  public class BatchResult {
+  public final class BatchResult {
     /**
      * <p>Constructor of BatchResult class.</p>
      *
@@ -78,7 +78,8 @@ public class TransactionLogIterator extends RocksObject {
      * @param nativeHandle to {@link org.rocksdb.WriteBatch}
      *     native instance.
      */
-    public BatchResult(long sequenceNumber, long nativeHandle) {
+    public BatchResult(final long sequenceNumber,
+        final long nativeHandle) {
       sequenceNumber_ = sequenceNumber;
       writeBatch_ = new WriteBatch(nativeHandle);
     }

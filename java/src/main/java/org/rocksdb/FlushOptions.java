@@ -4,7 +4,7 @@ package org.rocksdb;
  * FlushOptions to be passed to flush operations of
  * {@link org.rocksdb.RocksDB}.
  */
-public class FlushOptions extends RocksObject {
+public final class FlushOptions extends RocksObject {
 
   /**
    * Construct a new instance of FlushOptions.
@@ -22,7 +22,7 @@ public class FlushOptions extends RocksObject {
    *
    * @return instance of current FlushOptions.
    */
-  public FlushOptions setWaitForFlush(boolean waitForFlush) {
+  public FlushOptions setWaitForFlush(final boolean waitForFlush) {
     assert(isInitialized());
     setWaitForFlush(nativeHandle_, waitForFlush);
     return this;

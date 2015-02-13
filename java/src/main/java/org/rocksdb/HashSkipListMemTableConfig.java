@@ -13,7 +13,7 @@ package org.rocksdb;
  * use the default memtable representation (SkipList) instead
  * and post a warning in the LOG.
  */
-public class HashSkipListMemTableConfig extends MemTableConfig {
+public final class HashSkipListMemTableConfig extends MemTableConfig {
   public static final int DEFAULT_BUCKET_COUNT = 1000000;
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
   public static final int DEFAULT_HEIGHT = 4;
@@ -35,7 +35,8 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    *    skiplist memtable.
    * @return the reference to the current HashSkipListMemTableConfig.
    */
-  public HashSkipListMemTableConfig setBucketCount(long count) {
+  public HashSkipListMemTableConfig setBucketCount(
+      final long count) {
     bucketCount_ = count;
     return this;
   }
@@ -54,7 +55,7 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    *
    * @return the reference to the current HashSkipListMemTableConfig.
    */
-  public HashSkipListMemTableConfig setHeight(int height) {
+  public HashSkipListMemTableConfig setHeight(final int height) {
     height_ = height;
     return this;
   }
@@ -75,7 +76,8 @@ public class HashSkipListMemTableConfig extends MemTableConfig {
    *     lists in the skip list.
    * @return the reference to the current HashSkipListMemTableConfig.
    */
-  public HashSkipListMemTableConfig setBranchingFactor(int bf) {
+  public HashSkipListMemTableConfig setBranchingFactor(
+      final int bf) {
     branchingFactor_ = bf;
     return this;
   }

@@ -12,7 +12,7 @@ package org.rocksdb;
  * If {@link #dispose()} function is not called, then it will be GC'd automatically
  * and native resources will be released as part of the process.
  */
-public class Options extends RocksObject
+public final class Options extends RocksObject
     implements DBOptionsInterface, ColumnFamilyOptionsInterface {
   static {
     RocksDB.loadLibrary();
@@ -37,28 +37,29 @@ public class Options extends RocksObject
    * @param columnFamilyOptions {@link org.rocksdb.ColumnFamilyOptions}
    *     instance
    */
-  public Options(DBOptions dbOptions, ColumnFamilyOptions columnFamilyOptions) {
+  public Options(final DBOptions dbOptions,
+      final ColumnFamilyOptions columnFamilyOptions) {
     super();
     newOptions(dbOptions.nativeHandle_, columnFamilyOptions.nativeHandle_);
     env_ = RocksEnv.getDefault();
   }
 
   @Override
-  public Options setIncreaseParallelism(int totalThreads) {
+  public Options setIncreaseParallelism(final int totalThreads) {
     assert(isInitialized());
     setIncreaseParallelism(nativeHandle_, totalThreads);
     return this;
   }
 
   @Override
-  public Options setCreateIfMissing(boolean flag) {
+  public Options setCreateIfMissing(final boolean flag) {
     assert(isInitialized());
     setCreateIfMissing(nativeHandle_, flag);
     return this;
   }
 
   @Override
-  public Options setCreateMissingColumnFamilies(boolean flag) {
+  public Options setCreateMissingColumnFamilies(final boolean flag) {
     assert(isInitialized());
     setCreateMissingColumnFamilies(nativeHandle_, flag);
     return this;
@@ -72,7 +73,7 @@ public class Options extends RocksObject
    * @param env {@link RocksEnv} instance.
    * @return the instance of the current Options.
    */
-  public Options setEnv(RocksEnv env) {
+  public Options setEnv(final RocksEnv env) {
     assert(isInitialized());
     setEnv(nativeHandle_, env.nativeHandle_);
     env_ = env;
@@ -149,14 +150,14 @@ public class Options extends RocksObject
 
   @Override
   public Options optimizeUniversalStyleCompaction(
-      long memtableMemoryBudget) {
+      final long memtableMemoryBudget) {
     optimizeUniversalStyleCompaction(nativeHandle_,
         memtableMemoryBudget);
     return this;
   }
 
   @Override
-  public Options setComparator(BuiltinComparator builtinComparator) {
+  public Options setComparator(final BuiltinComparator builtinComparator) {
     assert(isInitialized());
     setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
     return this;
@@ -164,7 +165,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setComparator(
-      AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isInitialized());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
     comparator_ = comparator;
@@ -172,7 +173,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMergeOperatorName(String name) {
+  public Options setMergeOperatorName(final String name) {
     assert (isInitialized());
     if (name == null) {
       throw new IllegalArgumentException(
@@ -183,13 +184,13 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMergeOperator(MergeOperator mergeOperator) {
+  public Options setMergeOperator(final MergeOperator mergeOperator) {
     setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
     return this;
   }
 
   @Override
-  public Options setWriteBufferSize(long writeBufferSize)
+  public Options setWriteBufferSize(final long writeBufferSize)
       throws RocksDBException {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
@@ -203,7 +204,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxWriteBufferNumber(int maxWriteBufferNumber) {
+  public Options setMaxWriteBufferNumber(final int maxWriteBufferNumber) {
     assert(isInitialized());
     setMaxWriteBufferNumber(nativeHandle_, maxWriteBufferNumber);
     return this;
@@ -222,7 +223,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setErrorIfExists(boolean errorIfExists) {
+  public Options setErrorIfExists(final boolean errorIfExists) {
     assert(isInitialized());
     setErrorIfExists(nativeHandle_, errorIfExists);
     return this;
@@ -235,7 +236,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setParanoidChecks(boolean paranoidChecks) {
+  public Options setParanoidChecks(final boolean paranoidChecks) {
     assert(isInitialized());
     setParanoidChecks(nativeHandle_, paranoidChecks);
     return this;
@@ -248,7 +249,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxTotalWalSize(long maxTotalWalSize) {
+  public Options setMaxTotalWalSize(final long maxTotalWalSize) {
     assert(isInitialized());
     setMaxTotalWalSize(nativeHandle_, maxTotalWalSize);
     return this;
@@ -261,7 +262,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxOpenFiles(int maxOpenFiles) {
+  public Options setMaxOpenFiles(final int maxOpenFiles) {
     assert(isInitialized());
     setMaxOpenFiles(nativeHandle_, maxOpenFiles);
     return this;
@@ -274,7 +275,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setDisableDataSync(boolean disableDataSync) {
+  public Options setDisableDataSync(final boolean disableDataSync) {
     assert(isInitialized());
     setDisableDataSync(nativeHandle_, disableDataSync);
     return this;
@@ -287,7 +288,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setUseFsync(boolean useFsync) {
+  public Options setUseFsync(final boolean useFsync) {
     assert(isInitialized());
     setUseFsync(nativeHandle_, useFsync);
     return this;
@@ -300,7 +301,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setDbLogDir(String dbLogDir) {
+  public Options setDbLogDir(final String dbLogDir) {
     assert(isInitialized());
     setDbLogDir(nativeHandle_, dbLogDir);
     return this;
@@ -313,7 +314,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setWalDir(String walDir) {
+  public Options setWalDir(final String walDir) {
     assert(isInitialized());
     setWalDir(nativeHandle_, walDir);
     return this;
@@ -326,7 +327,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setDeleteObsoleteFilesPeriodMicros(long micros) {
+  public Options setDeleteObsoleteFilesPeriodMicros(
+      final long micros) {
     assert(isInitialized());
     setDeleteObsoleteFilesPeriodMicros(nativeHandle_, micros);
     return this;
@@ -359,7 +361,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBackgroundCompactions(int maxBackgroundCompactions) {
+  public Options setMaxBackgroundCompactions(
+      final int maxBackgroundCompactions) {
     assert(isInitialized());
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
     return this;
@@ -372,7 +375,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBackgroundFlushes(int maxBackgroundFlushes) {
+  public Options setMaxBackgroundFlushes(
+      final int maxBackgroundFlushes) {
     assert(isInitialized());
     setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
     return this;
@@ -385,7 +389,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxLogFileSize(long maxLogFileSize)
+  public Options setMaxLogFileSize(final long maxLogFileSize)
       throws RocksDBException {
     assert(isInitialized());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
@@ -399,7 +403,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLogFileTimeToRoll(long logFileTimeToRoll)
+  public Options setLogFileTimeToRoll(final long logFileTimeToRoll)
       throws RocksDBException{
     assert(isInitialized());
     setLogFileTimeToRoll(nativeHandle_, logFileTimeToRoll);
@@ -413,7 +417,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setKeepLogFileNum(long keepLogFileNum)
+  public Options setKeepLogFileNum(final long keepLogFileNum)
       throws RocksDBException{
     assert(isInitialized());
     setKeepLogFileNum(nativeHandle_, keepLogFileNum);
@@ -427,7 +431,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxManifestFileSize(long maxManifestFileSize) {
+  public Options setMaxManifestFileSize(
+      final long maxManifestFileSize) {
     assert(isInitialized());
     setMaxManifestFileSize(nativeHandle_, maxManifestFileSize);
     return this;
@@ -440,7 +445,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setTableCacheNumshardbits(int tableCacheNumshardbits) {
+  public Options setTableCacheNumshardbits(
+      final int tableCacheNumshardbits) {
     assert(isInitialized());
     setTableCacheNumshardbits(nativeHandle_, tableCacheNumshardbits);
     return this;
@@ -453,7 +459,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setTableCacheRemoveScanCountLimit(int limit) {
+  public Options setTableCacheRemoveScanCountLimit(
+      final int limit) {
     assert(isInitialized());
     setTableCacheRemoveScanCountLimit(nativeHandle_, limit);
     return this;
@@ -466,7 +473,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setWalTtlSeconds(long walTtlSeconds) {
+  public Options setWalTtlSeconds(final long walTtlSeconds) {
     assert(isInitialized());
     setWalTtlSeconds(nativeHandle_, walTtlSeconds);
     return this;
@@ -479,7 +486,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setWalSizeLimitMB(long sizeLimitMB) {
+  public Options setWalSizeLimitMB(final long sizeLimitMB) {
     assert(isInitialized());
     setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
     return this;
@@ -492,7 +499,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setManifestPreallocationSize(long size)
+  public Options setManifestPreallocationSize(final long size)
       throws RocksDBException {
     assert(isInitialized());
     setManifestPreallocationSize(nativeHandle_, size);
@@ -506,7 +513,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setAllowOsBuffer(boolean allowOsBuffer) {
+  public Options setAllowOsBuffer(final boolean allowOsBuffer) {
     assert(isInitialized());
     setAllowOsBuffer(nativeHandle_, allowOsBuffer);
     return this;
@@ -519,7 +526,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setAllowMmapReads(boolean allowMmapReads) {
+  public Options setAllowMmapReads(final boolean allowMmapReads) {
     assert(isInitialized());
     setAllowMmapReads(nativeHandle_, allowMmapReads);
     return this;
@@ -532,7 +539,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setAllowMmapWrites(boolean allowMmapWrites) {
+  public Options setAllowMmapWrites(final boolean allowMmapWrites) {
     assert(isInitialized());
     setAllowMmapWrites(nativeHandle_, allowMmapWrites);
     return this;
@@ -545,7 +552,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setIsFdCloseOnExec(boolean isFdCloseOnExec) {
+  public Options setIsFdCloseOnExec(final boolean isFdCloseOnExec) {
     assert(isInitialized());
     setIsFdCloseOnExec(nativeHandle_, isFdCloseOnExec);
     return this;
@@ -560,7 +567,7 @@ public class Options extends RocksObject
 
   @Override
   @Deprecated
-  public Options setSkipLogErrorOnRecovery(boolean skip) {
+  public Options setSkipLogErrorOnRecovery(final boolean skip) {
     assert(isInitialized());
     setSkipLogErrorOnRecovery(nativeHandle_, skip);
     return this;
@@ -573,7 +580,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setStatsDumpPeriodSec(int statsDumpPeriodSec) {
+  public Options setStatsDumpPeriodSec(final int statsDumpPeriodSec) {
     assert(isInitialized());
     setStatsDumpPeriodSec(nativeHandle_, statsDumpPeriodSec);
     return this;
@@ -585,7 +592,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setAdviseRandomOnOpen(boolean adviseRandomOnOpen) {
+  public Options setAdviseRandomOnOpen(final boolean adviseRandomOnOpen) {
     assert(isInitialized());
     setAdviseRandomOnOpen(nativeHandle_, adviseRandomOnOpen);
     return this;
@@ -598,7 +605,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setUseAdaptiveMutex(boolean useAdaptiveMutex) {
+  public Options setUseAdaptiveMutex(final boolean useAdaptiveMutex) {
     assert(isInitialized());
     setUseAdaptiveMutex(nativeHandle_, useAdaptiveMutex);
     return this;
@@ -610,14 +617,14 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setBytesPerSync(long bytesPerSync) {
+  public Options setBytesPerSync(final long bytesPerSync) {
     assert(isInitialized());
     setBytesPerSync(nativeHandle_, bytesPerSync);
     return this;
   }
 
   @Override
-  public Options setMemTableConfig(MemTableConfig config)
+  public Options setMemTableConfig(final MemTableConfig config)
       throws RocksDBException {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
@@ -625,14 +632,14 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setRateLimiterConfig(RateLimiterConfig config) {
+  public Options setRateLimiterConfig(final RateLimiterConfig config) {
     rateLimiterConfig_ = config;
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
     return this;
   }
 
   @Override
-  public Options setInfoLogLevel(InfoLogLevel infoLogLevel) {
+  public Options setInfoLogLevel(final InfoLogLevel infoLogLevel) {
     assert(isInitialized());
     setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
     return this;
@@ -652,7 +659,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setTableFormatConfig(TableFormatConfig config) {
+  public Options setTableFormatConfig(final TableFormatConfig config) {
     tableFormatConfig_ = config;
     setTableFactory(nativeHandle_, config.newTableFactoryHandle());
     return this;
@@ -665,7 +672,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options useFixedLengthPrefixExtractor(int n) {
+  public Options useFixedLengthPrefixExtractor(final int n) {
     assert(isInitialized());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
     return this;
@@ -688,7 +695,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setCompactionStyle(CompactionStyle compactionStyle) {
+  public Options setCompactionStyle(
+      final CompactionStyle compactionStyle) {
     setCompactionStyle(nativeHandle_, compactionStyle.getValue());
     return this;
   }
@@ -711,7 +719,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setLevelZeroFileNumCompactionTrigger(
-      int numFiles) {
+      final int numFiles) {
     setLevelZeroFileNumCompactionTrigger(
         nativeHandle_, numFiles);
     return this;
@@ -724,7 +732,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setLevelZeroSlowdownWritesTrigger(
-      int numFiles) {
+      final int numFiles) {
     setLevelZeroSlowdownWritesTrigger(nativeHandle_, numFiles);
     return this;
   }
@@ -735,7 +743,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLevelZeroStopWritesTrigger(int numFiles) {
+  public Options setLevelZeroStopWritesTrigger(
+      final int numFiles) {
     setLevelZeroStopWritesTrigger(nativeHandle_, numFiles);
     return this;
   }
@@ -746,7 +755,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxMemCompactionLevel(int maxMemCompactionLevel) {
+  public Options setMaxMemCompactionLevel(
+      final int maxMemCompactionLevel) {
     setMaxMemCompactionLevel(nativeHandle_, maxMemCompactionLevel);
     return this;
   }
@@ -779,7 +789,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBytesForLevelBase(long maxBytesForLevelBase) {
+  public Options setMaxBytesForLevelBase(final long maxBytesForLevelBase) {
     setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
     return this;
   }
@@ -790,7 +800,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxBytesForLevelMultiplier(int multiplier) {
+  public Options setMaxBytesForLevelMultiplier(final int multiplier) {
     setMaxBytesForLevelMultiplier(nativeHandle_, multiplier);
     return this;
   }
@@ -801,7 +811,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setExpandedCompactionFactor(int expandedCompactionFactor) {
+  public Options setExpandedCompactionFactor(
+      final int expandedCompactionFactor) {
     setExpandedCompactionFactor(nativeHandle_, expandedCompactionFactor);
     return this;
   }
@@ -824,7 +835,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setMaxGrandparentOverlapFactor(
-      int maxGrandparentOverlapFactor) {
+      final int maxGrandparentOverlapFactor) {
     setMaxGrandparentOverlapFactor(nativeHandle_, maxGrandparentOverlapFactor);
     return this;
   }
@@ -835,7 +846,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setSoftRateLimit(double softRateLimit) {
+  public Options setSoftRateLimit(final double softRateLimit) {
     setSoftRateLimit(nativeHandle_, softRateLimit);
     return this;
   }
@@ -858,7 +869,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setRateLimitDelayMaxMilliseconds(
-      int rateLimitDelayMaxMilliseconds) {
+      final int rateLimitDelayMaxMilliseconds) {
     setRateLimitDelayMaxMilliseconds(
         nativeHandle_, rateLimitDelayMaxMilliseconds);
     return this;
@@ -870,7 +881,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setArenaBlockSize(long arenaBlockSize)
+  public Options setArenaBlockSize(final long arenaBlockSize)
       throws RocksDBException {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
     return this;
@@ -882,7 +893,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setDisableAutoCompactions(boolean disableAutoCompactions) {
+  public Options setDisableAutoCompactions(
+      final boolean disableAutoCompactions) {
     setDisableAutoCompactions(nativeHandle_, disableAutoCompactions);
     return this;
   }
@@ -894,7 +906,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setPurgeRedundantKvsWhileFlush(
-      boolean purgeRedundantKvsWhileFlush) {
+      final boolean purgeRedundantKvsWhileFlush) {
     setPurgeRedundantKvsWhileFlush(
         nativeHandle_, purgeRedundantKvsWhileFlush);
     return this;
@@ -907,7 +919,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setVerifyChecksumsInCompaction(
-      boolean verifyChecksumsInCompaction) {
+      final boolean verifyChecksumsInCompaction) {
     setVerifyChecksumsInCompaction(
         nativeHandle_, verifyChecksumsInCompaction);
     return this;
@@ -919,7 +931,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setFilterDeletes(boolean filterDeletes) {
+  public Options setFilterDeletes(
+      final boolean filterDeletes) {
     setFilterDeletes(nativeHandle_, filterDeletes);
     return this;
   }
@@ -930,7 +943,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxSequentialSkipInIterations(long maxSequentialSkipInIterations) {
+  public Options setMaxSequentialSkipInIterations(
+      final long maxSequentialSkipInIterations) {
     setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
     return this;
   }
@@ -941,7 +955,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setInplaceUpdateSupport(boolean inplaceUpdateSupport) {
+  public Options setInplaceUpdateSupport(
+      final boolean inplaceUpdateSupport) {
     setInplaceUpdateSupport(nativeHandle_, inplaceUpdateSupport);
     return this;
   }
@@ -952,8 +967,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setInplaceUpdateNumLocks(long inplaceUpdateNumLocks)
-      throws RocksDBException {
+  public Options setInplaceUpdateNumLocks(
+      final long inplaceUpdateNumLocks) throws RocksDBException {
     setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
     return this;
   }
@@ -964,7 +979,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMemtablePrefixBloomBits(int memtablePrefixBloomBits) {
+  public Options setMemtablePrefixBloomBits(
+      final int memtablePrefixBloomBits) {
     setMemtablePrefixBloomBits(nativeHandle_, memtablePrefixBloomBits);
     return this;
   }
@@ -975,7 +991,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMemtablePrefixBloomProbes(int memtablePrefixBloomProbes) {
+  public Options setMemtablePrefixBloomProbes(
+      final int memtablePrefixBloomProbes) {
     setMemtablePrefixBloomProbes(nativeHandle_, memtablePrefixBloomProbes);
     return this;
   }
@@ -986,7 +1003,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setBloomLocality(int bloomLocality) {
+  public Options setBloomLocality(final int bloomLocality) {
     setBloomLocality(nativeHandle_, bloomLocality);
     return this;
   }
@@ -1009,7 +1026,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMinWriteBufferNumberToMerge(int minWriteBufferNumberToMerge) {
+  public Options setMinWriteBufferNumberToMerge(
+      final int minWriteBufferNumberToMerge) {
     setMinWriteBufferNumberToMerge(nativeHandle_, minWriteBufferNumberToMerge);
     return this;
   }
@@ -1020,7 +1038,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMinPartialMergeOperands(int minPartialMergeOperands) {
+  public Options setMinPartialMergeOperands(
+      final int minPartialMergeOperands) {
     setMinPartialMergeOperands(nativeHandle_, minPartialMergeOperands);
     return this;
   }

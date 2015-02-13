@@ -18,7 +18,7 @@ package org.rocksdb;
  * FilterPolicy (like {@code BloomFilter}) that does not ignore
  * trailing spaces in keys.</p>
  */
-public class BloomFilter extends Filter {
+public final class BloomFilter extends Filter {
 
   private static final int DEFAULT_BITS_PER_KEY = 10;
   private static final boolean DEFAULT_MODE = true;
@@ -49,7 +49,7 @@ public class BloomFilter extends Filter {
    *
    * @param bitsPerKey number of bits to use
    */
-  public BloomFilter(int bitsPerKey) {
+  public BloomFilter(final int bitsPerKey) {
     this(bitsPerKey, DEFAULT_MODE);
   }
 
@@ -72,7 +72,7 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param useBlockBasedMode use block based mode or full filter mode
    */
-  public BloomFilter(int bitsPerKey, boolean useBlockBasedMode) {
+  public BloomFilter(final int bitsPerKey, final boolean useBlockBasedMode) {
     super();
     bitsPerKey_ = bitsPerKey;
     useBlockBasedMode_ = useBlockBasedMode;
@@ -80,7 +80,7 @@ public class BloomFilter extends Filter {
   }
 
   @Override
-  protected void createNewFilter() {
+  protected final void createNewFilter() {
     createNewBloomFilter(bitsPerKey_, useBlockBasedMode_);
   }
 

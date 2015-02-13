@@ -32,8 +32,9 @@ public class StatisticsCollector {
    * @param statsCollectionIntervalInMilliSeconds Statistics collection time
    *        period (specified in milliseconds).
    */
-  public StatisticsCollector(List<StatsCollectorInput> statsCollectorInputList,
-      int statsCollectionIntervalInMilliSeconds) {
+  public StatisticsCollector(
+      final List<StatsCollectorInput> statsCollectorInputList,
+      final int statsCollectionIntervalInMilliSeconds) {
     _statsCollectorInputList = statsCollectorInputList;
     _statsCollectionInterval = statsCollectionIntervalInMilliSeconds;
 
@@ -51,7 +52,7 @@ public class StatisticsCollector {
    *        killing the collection process.
    * @throws java.lang.InterruptedException thrown if Threads are interrupted.
    */
-  public void shutDown(int shutdownTimeout) throws InterruptedException {
+  public void shutDown(final int shutdownTimeout) throws InterruptedException {
     _isRunning = false;
 
     _executorService.shutdownNow();

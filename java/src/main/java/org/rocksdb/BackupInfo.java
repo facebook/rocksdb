@@ -8,7 +8,7 @@ package org.rocksdb;
  * Instances of this class describe a Backup made by
  * {@link org.rocksdb.BackupableDB}.
  */
-public class BackupInfo {
+public final class BackupInfo {
 
   /**
    * Package private constructor used to create instances
@@ -20,8 +20,8 @@ public class BackupInfo {
    * @param size size of backup
    * @param numberFiles number of files related to this backup.
    */
-  BackupInfo(int backupId, long timestamp, long size,
-      int numberFiles) {
+  BackupInfo(final int backupId, final long timestamp, final long size,
+      final int numberFiles) {
     backupId_ = backupId;
     timestamp_ = timestamp;
     size_ = size;

@@ -11,7 +11,7 @@ package org.rocksdb;
  * Note that developers should call WriteOptions.dispose() to release the
  * c++ side memory before a WriteOptions instance runs out of scope.
  */
-public class WriteOptions extends RocksObject {
+public final class WriteOptions extends RocksObject {
   /**
    * Construct WriteOptions instance.
    */
@@ -47,7 +47,7 @@ public class WriteOptions extends RocksObject {
    *     should be synchronized.
    * @return the instance of the current WriteOptions.
    */
-  public WriteOptions setSync(boolean flag) {
+  public WriteOptions setSync(final boolean flag) {
     setSync(nativeHandle_, flag);
     return this;
   }
@@ -82,7 +82,7 @@ public class WriteOptions extends RocksObject {
    *     write-ahead-log on writes.
    * @return the instance of the current WriteOptions.
    */
-  public WriteOptions setDisableWAL(boolean flag) {
+  public WriteOptions setDisableWAL(final boolean flag) {
     setDisableWAL(nativeHandle_, flag);
     return this;
   }

@@ -13,7 +13,7 @@ public class Statistics {
 
   private final long statsHandle_;
 
-  public Statistics(long statsHandle) {
+  public Statistics(final long statsHandle) {
     statsHandle_ = statsHandle;
   }
 
@@ -22,7 +22,7 @@ public class Statistics {
     return getTickerCount0(tickerType.getValue(), statsHandle_);
   }
 
-  public HistogramData geHistogramData(HistogramType histogramType) {
+  public HistogramData geHistogramData(final HistogramType histogramType) {
     assert(isInitialized());
     return geHistogramData0(
         histogramType.getValue(), statsHandle_);

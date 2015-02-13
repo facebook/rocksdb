@@ -23,7 +23,8 @@ public abstract class AbstractRocksIterator<P extends RocksObject>
     extends RocksObject implements RocksIteratorInterface {
   final P parent_;
 
-  protected AbstractRocksIterator(P parent, long nativeHandle) {
+  protected AbstractRocksIterator(final P parent,
+      final long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
     // parent must point to a valid RocksDB instance.

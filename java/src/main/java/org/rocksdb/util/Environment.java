@@ -1,6 +1,6 @@
 package org.rocksdb.util;
 
-public class Environment {
+public final  class Environment {
   private static String OS = System.getProperty("os.name").toLowerCase();
   private static String ARCH = System.getProperty("os.arch").toLowerCase();
 
@@ -22,11 +22,11 @@ public class Environment {
     return (ARCH.indexOf("64") > 0);
   }
 
-  public static String getSharedLibraryName(String name) {
+  public static String getSharedLibraryName(final String name) {
     return name + "jni";
   }
 
-  public static String getSharedLibraryFileName(String name) {
+  public static String getSharedLibraryFileName(final String name) {
     return appendLibOsSuffix("lib" + getSharedLibraryName(name), true);
   }
 
