@@ -30,9 +30,12 @@ TableBuilder* NewTableBuilder(const ImmutableCFOptions& ioptions,
                               const InternalKeyComparator& internal_comparator,
                               WritableFile* file,
                               const CompressionType compression_type,
-                              const CompressionOptions& compression_opts) {
-  return ioptions.table_factory->NewTableBuilder(
-      ioptions, internal_comparator, file, compression_type, compression_opts);
+                              const CompressionOptions& compression_opts,
+                              const bool skip_filters) {
+  return ioptions.table_factory->NewTableBuilder(ioptions, internal_comparator,
+                                                 file, compression_type,
+                                                 compression_opts,
+                                                 skip_filters);
 }
 
 Status BuildTable(const std::string& dbname, Env* env,

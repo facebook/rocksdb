@@ -53,13 +53,12 @@ Status BlockBasedTableFactory::NewTableReader(
 
 TableBuilder* BlockBasedTableFactory::NewTableBuilder(
     const ImmutableCFOptions& ioptions,
-    const InternalKeyComparator& internal_comparator,
-    WritableFile* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts) const {
-
+    const InternalKeyComparator& internal_comparator, WritableFile* file,
+    const CompressionType compression_type,
+    const CompressionOptions& compression_opts, const bool skip_filters) const {
   auto table_builder = new BlockBasedTableBuilder(
-      ioptions, table_options_, internal_comparator, file,
-      compression_type, compression_opts);
+      ioptions, table_options_, internal_comparator, file, compression_type,
+      compression_opts, skip_filters);
 
   return table_builder;
 }

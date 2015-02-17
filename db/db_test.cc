@@ -419,7 +419,8 @@ class DBTest {
     kInfiniteMaxOpenFiles = 23,
     kxxHashChecksum = 24,
     kFIFOCompaction = 25,
-    kEnd = 26
+    kOptimizeFiltersForHits = 26,
+    kEnd = 27
   };
   int option_config_;
 
@@ -682,6 +683,12 @@ class DBTest {
         options.prefix_extractor.reset(NewNoopTransform());
         break;
       }
+      case kOptimizeFiltersForHits: {
+        options.optimize_filters_for_hits = true;
+        set_block_based_table_factory = true;
+        break;
+      }
+
       default:
         break;
     }
@@ -10794,6 +10801,58 @@ TEST(DBTest, DeleteMovedFileAfterCompaction) {
 
     // this file should have been compacted away
     ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + moved_file_name));
+  }
+}
+
+TEST(DBTest, OptimizeFiltersForHits) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 32 * 1024;
+  options.target_file_size_base = 32 * 1024;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 4;
+  options.max_bytes_for_level_base = 64 * 1024;
+  options.max_write_buffer_number = 2;
+  options.max_background_compactions = 8;
+  options.max_background_flushes = 8;
+  options.compaction_style = kCompactionStyleLevel;
+  BlockBasedTableOptions bbto;
+  bbto.filter_policy.reset(NewBloomFilterPolicy(10, true));
+  bbto.whole_key_filtering = true;
+  options.table_factory.reset(NewBlockBasedTableFactory(bbto));
+  options.optimize_filters_for_hits = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  CreateAndReopenWithCF({"mypikachu"}, options);
+
+  int numkeys = 200000;
+  for (int i = 0; i < 20; i += 2) {
+    for (int j = i; j < numkeys; j += 20) {
+      ASSERT_OK(Put(1, Key(j), "val"));
+    }
+  }
+
+
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+
+  for (int i = 1; i < numkeys; i += 2) {
+    ASSERT_EQ(Get(1, Key(i)), "NOT_FOUND");
+  }
+
+  ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L0));
+  ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L1));
+  ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
+
+  // When the skip_filters_on_last_level is ON, the last level which has
+  // most of the keys does not use bloom filters. We end up using
+  // bloom filters in a very small number of cases. Without the flag.
+  // this number would be close to 150000 (all the key at the last level) +
+  // some use in the upper levels
+  //
+  ASSERT_GT(90000, TestGetTickerCount(options, BLOOM_FILTER_USEFUL));
+
+  for (int i = 0; i < numkeys; i += 2) {
+    ASSERT_EQ(Get(1, Key(i)), "val");
   }
 }
 

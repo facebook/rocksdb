@@ -65,7 +65,7 @@ TableBuilder* MockTableFactory::NewTableBuilder(
     const ImmutableCFOptions& ioptions,
     const InternalKeyComparator& internal_key, WritableFile* file,
     const CompressionType compression_type,
-    const CompressionOptions& compression_opts) const {
+    const CompressionOptions& compression_opts, const bool skip_filters) const {
   uint32_t id = GetAndWriteNextID(file);
 
   return new MockTableBuilder(id, &file_system_);

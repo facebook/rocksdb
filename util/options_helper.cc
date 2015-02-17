@@ -447,6 +447,8 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       } else {
         return false;
       }
+    } else if (name == "optimize_filters_for_hits") {
+      new_options->optimize_filters_for_hits = ParseBoolean(name, value);
     } else {
       return false;
     }

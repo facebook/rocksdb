@@ -66,7 +66,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
     compression_per_level(options.compression_per_level),
     compression_opts(options.compression_opts),
     access_hint_on_compaction_start(options.access_hint_on_compaction_start),
-    num_levels(options.num_levels)
+    num_levels(options.num_levels),
+    optimize_filters_for_hits(options.optimize_filters_for_hits)
 #ifndef ROCKSDB_LITE
     , listeners(options.listeners) {}
 #else  // ROCKSDB_LITE
@@ -119,7 +120,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       memtable_prefix_bloom_huge_page_tlb_size(0),
       bloom_locality(0),
       max_successive_merges(0),
-      min_partial_merge_operands(2)
+      min_partial_merge_operands(2),
+      optimize_filters_for_hits(false)
 #ifndef ROCKSDB_LITE
       , listeners() {
 #else  // ROCKSDB_LITE
@@ -184,7 +186,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.memtable_prefix_bloom_huge_page_tlb_size),
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
-      min_partial_merge_operands(options.min_partial_merge_operands)
+      min_partial_merge_operands(options.min_partial_merge_operands),
+      optimize_filters_for_hits(options.optimize_filters_for_hits)
 #ifndef ROCKSDB_LITE
       , listeners(options.listeners) {
 #else   // ROCKSDB_LITE
@@ -240,7 +243,8 @@ DBOptions::DBOptions()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
-      enable_thread_tracking(false) {}
+      enable_thread_tracking(false) {
+}
 
 DBOptions::DBOptions(const Options& options)
     : create_if_missing(options.create_if_missing),
@@ -342,7 +346,7 @@ void DBOptions::Dump(Logger* log) const {
         stats_dump_period_sec);
     Log(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
-    Log(log, "                   Options.db_write_buffer_size: %zd",
+    Log(log, "                    Options.db_write_buffer_size: %zd",
         db_write_buffer_size);
     Log(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
@@ -352,7 +356,7 @@ void DBOptions::Dump(Logger* log) const {
         rate_limiter.get());
     Log(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
-    Log(log, "                    enable_thread_tracking: %d",
+    Log(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
 }  // DBOptions::Dump
 
@@ -477,6 +481,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         bloom_locality);
     Log(log, "                   Options.max_successive_merges: %zd",
         max_successive_merges);
+    Log(log, "               Options.optimize_fllters_for_hits: %d",
+        optimize_filters_for_hits);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

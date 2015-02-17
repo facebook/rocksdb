@@ -610,6 +610,22 @@ struct ColumnFamilyOptions {
   // Default: 2
   uint32_t min_partial_merge_operands;
 
+  // This flag specifies that the implementation should optimize the filters
+  // mainly for cases where keys are found rather than also optimize for keys
+  // missed. This would be used in cases where the application knows that
+  // there are very few misses or the performance in the case of misses is not
+  // important.
+  //
+  // For now, this flag allows us to not store filters for the last level i.e
+  // the largest level which contains data of the LSM store. For keys which
+  // are hits, the filters in this level are not useful because we will search
+  // for the data anyway. NOTE: the filters in other levels are still useful
+  // even for key hit because they tell us whether to look in that level or go
+  // to the higher level.
+  //
+  // Default: false
+  bool optimize_filters_for_hits;
+
 #ifndef ROCKSDB_LITE
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.

@@ -134,7 +134,8 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
     {"bloom_locality", "29"},
     {"max_successive_merges", "30"},
     {"min_partial_merge_operands", "31"},
-    {"prefix_extractor", "fixed:31"}
+    {"prefix_extractor", "fixed:31"},
+    {"optimize_filters_for_hits", "true"},
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
@@ -226,6 +227,7 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.max_successive_merges, 30U);
   ASSERT_EQ(new_cf_opt.min_partial_merge_operands, 31U);
   ASSERT_TRUE(new_cf_opt.prefix_extractor != nullptr);
+  ASSERT_EQ(new_cf_opt.optimize_filters_for_hits, true);
   ASSERT_EQ(std::string(new_cf_opt.prefix_extractor->Name()),
             "rocksdb.FixedPrefix.31");
 
@@ -395,6 +397,15 @@ TEST(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
              "write_buffer_size=10;max_write_buffer_number=16;"
              "block_based_table_factory={xx_block_size=4;}",
              &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
+           "optimize_filters_for_hits=true",
+           &new_cf_opt));
+  ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
+            "optimize_filters_for_hits=false",
+            &new_cf_opt));
+  ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
+              "optimize_filters_for_hits=junk",
+              &new_cf_opt));
 }
 #endif  // !ROCKSDB_LITE
 

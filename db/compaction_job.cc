@@ -1062,10 +1062,20 @@ Status CompactionJob::OpenCompactionOutputFile() {
       compact_->compaction->OutputFilePreallocationSize(mutable_cf_options_)));
 
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  bool skip_filters = false;
+
+  // If the Column family flag is to only optimize filters for hits,
+  // we can skip creating filters if this is the bottommost_level where
+  // data is going to be found
+  //
+  if (cfd->ioptions()->optimize_filters_for_hits && bottommost_level_) {
+    skip_filters = true;
+  }
+
   compact_->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(), compact_->outfile.get(),
       compact_->compaction->OutputCompressionType(),
-      cfd->ioptions()->compression_opts));
+      cfd->ioptions()->compression_opts, skip_filters));
   LogFlush(db_options_.info_log);
   return s;
 }

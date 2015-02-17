@@ -91,6 +91,8 @@ struct ImmutableCFOptions {
 
   int num_levels;
 
+  bool optimize_filters_for_hits;
+
 #ifndef ROCKSDB_LITE
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.

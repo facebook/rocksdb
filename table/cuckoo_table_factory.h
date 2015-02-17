@@ -60,8 +60,10 @@ class CuckooTableFactory : public TableFactory {
       unique_ptr<TableReader>* table) const override;
 
   TableBuilder* NewTableBuilder(const ImmutableCFOptions& options,
-      const InternalKeyComparator& icomparator, WritableFile* file,
-      const CompressionType, const CompressionOptions&) const override;
+                                const InternalKeyComparator& icomparator,
+                                WritableFile* file, const CompressionType,
+                                const CompressionOptions&,
+                                const bool skip_filters = false) const override;
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,

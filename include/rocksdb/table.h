@@ -371,9 +371,10 @@ class TableFactory {
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
       const ImmutableCFOptions& ioptions,
-      const InternalKeyComparator& internal_comparator,
-      WritableFile* file, const CompressionType compression_type,
-      const CompressionOptions& compression_opts) const = 0;
+      const InternalKeyComparator& internal_comparator, WritableFile* file,
+      const CompressionType compression_type,
+      const CompressionOptions& compression_opts,
+      const bool skipFilters = false) const = 0;
 
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   //

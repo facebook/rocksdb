@@ -462,7 +462,7 @@ struct BlockBasedTableBuilder::Rep {
       const BlockBasedTableOptions& table_opt,
       const InternalKeyComparator& icomparator, WritableFile* f,
       const CompressionType _compression_type,
-      const CompressionOptions& _compression_opts)
+      const CompressionOptions& _compression_opts, const bool skip_filters)
       : ioptions(_ioptions),
         table_options(table_opt),
         internal_comparator(icomparator),
@@ -474,7 +474,8 @@ struct BlockBasedTableBuilder::Rep {
                                          &this->internal_prefix_transform)),
         compression_type(_compression_type),
         compression_opts(_compression_opts),
-        filter_block(CreateFilterBlockBuilder(_ioptions, table_options)),
+        filter_block(skip_filters ? nullptr : CreateFilterBlockBuilder(
+                                                  _ioptions, table_options)),
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)) {
@@ -495,7 +496,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const BlockBasedTableOptions& table_options,
     const InternalKeyComparator& internal_comparator, WritableFile* file,
     const CompressionType compression_type,
-    const CompressionOptions& compression_opts) {
+    const CompressionOptions& compression_opts, const bool skip_filters) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
       sanitized_table_options.checksum != kCRC32c) {
@@ -508,7 +509,8 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   }
 
   rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator, file,
-                 compression_type, compression_opts);
+                 compression_type, compression_opts, skip_filters);
+
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
   }

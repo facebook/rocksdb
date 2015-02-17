@@ -54,9 +54,10 @@ class BlockBasedTableFactory : public TableFactory {
 
   TableBuilder* NewTableBuilder(
       const ImmutableCFOptions& ioptions,
-      const InternalKeyComparator& internal_comparator,
-      WritableFile* file, const CompressionType compression_type,
-      const CompressionOptions& compression_opts) const override;
+      const InternalKeyComparator& internal_comparator, WritableFile* file,
+      const CompressionType compression_type,
+      const CompressionOptions& compression_opts,
+      const bool skip_filters = false) const override;
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,
