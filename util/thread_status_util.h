@@ -60,6 +60,12 @@ class ThreadStatusUtil {
 
   static void ResetThreadStatus();
 
+#ifndef NDEBUG
+  static void TEST_SetStateDelay(
+      const ThreadStatus::StateType state, int micro);
+  static void TEST_StateDelay(const ThreadStatus::StateType state);
+#endif
+
  protected:
   // Initialize the thread-local ThreadStatusUpdater when it finds
   // the cached value is nullptr.  Returns true if it has cached
