@@ -71,25 +71,28 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 endif
 
+# This (the first rule) must depend on "all".
+default: all
+
 #-------------------------------------------------
 # make install related stuff
 INSTALL_PATH ?= /usr/local
 
 uninstall:
-	@rm -rf $(INSTALL_PATH)/include/rocksdb
-	@rm -rf $(INSTALL_PATH)/lib/$(LIBRARY)
-	@rm -rf $(INSTALL_PATH)/lib/$(SHARED)
+	rm -rf $(INSTALL_PATH)/include/rocksdb \
+	  $(INSTALL_PATH)/lib/$(LIBRARY) \
+	  $(INSTALL_PATH)/lib/$(SHARED)
 
 install:
-	@install -d $(INSTALL_PATH)/lib
-	@for header_dir in `find "include/rocksdb" -type d`; do \
+	install -d $(INSTALL_PATH)/lib
+	for header_dir in `find "include/rocksdb" -type d`; do \
 		install -d $(INSTALL_PATH)/$$header_dir; \
 	done
-	@for header in `find "include/rocksdb" -type f -name *.h`; do \
+	for header in `find "include/rocksdb" -type f -name *.h`; do \
 		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
 	done
-	@[ ! -e $(LIBRARY) ] || install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib
-	@[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
+	[ ! -e $(LIBRARY) ] || install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib
+	[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
 #-------------------------------------------------
 
 WARNING_FLAGS = -Wall -Werror -Wsign-compare -Wshadow
