@@ -9653,6 +9653,21 @@ TEST(DBTest, DynamicMemtableOptions) {
 }
 
 #if ROCKSDB_USING_THREAD_STATUS
+namespace {
+void VerifyOperationCount(Env* env, ThreadStatus::OperationType op_type,
+                          int expected_count) {
+  int op_count = 0;
+  std::vector<ThreadStatus> thread_list;
+  ASSERT_OK(env->GetThreadList(&thread_list));
+  for (auto thread : thread_list) {
+    if (thread.operation_type == op_type) {
+      op_count++;
+    }
+  }
+  ASSERT_EQ(op_count, expected_count);
+}
+}  // namespace
+
 TEST(DBTest, GetThreadStatus) {
   Options options;
   options.env = env_;
@@ -9723,6 +9738,38 @@ TEST(DBTest, DisableThreadStatus) {
       handles_, false);
 }
 
+TEST(DBTest, ThreadStatusFlush) {
+  Options options;
+  options.env = env_;
+  options.write_buffer_size = 100000;  // Small write buffer
+  options.enable_thread_tracking = true;
+  options = CurrentOptions(options);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"FlushJob::Run:Start", "DBTest::ThreadStatusFlush:1"},
+      {"DBTest::ThreadStatusFlush:2", "FlushJob::Run:End"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
+
+  ASSERT_OK(Put(1, "foo", "v1"));
+  ASSERT_EQ("v1", Get(1, "foo"));
+  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
+
+  Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
+  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
+  Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
+  // wait for flush to be scheduled
+  env_->SleepForMicroseconds(250000);
+  TEST_SYNC_POINT("DBTest::ThreadStatusFlush:1");
+  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 1);
+  TEST_SYNC_POINT("DBTest::ThreadStatusFlush:2");
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST(DBTest, ThreadStatusSingleCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
@@ -9741,14 +9788,15 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
   options.enable_thread_tracking = true;
   const int kNumL0Files = 4;
   options.level0_file_num_compaction_trigger = kNumL0Files;
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"CompactionJob::Run:Start", "DBTest::ThreadStatusSingleCompaction:1"},
+      {"DBTest::ThreadStatusSingleCompaction:2", "CompactionJob::Run:End"},
+  });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   for (int tests = 0; tests < 2; ++tests) {
     TryReopen(options);
-    // Each compaction will run at least 2 seconds, which allows
-    // the test to capture the status of compaction with fewer
-    // false alarm.
-    const int kCompactionDelayMicro = 2000000;
-    ThreadStatusUtil::TEST_SetOperationDelay(
-        ThreadStatus::OP_COMPACTION, kCompactionDelayMicro);
 
     Random rnd(301);
     for (int key = kEntriesPerBuffer * kNumL0Files; key >= 0; --key) {
@@ -9756,33 +9804,22 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
     }
 
     // wait for compaction to be scheduled
-    env_->SleepForMicroseconds(500000);
+    env_->SleepForMicroseconds(250000);
 
-    // check how many threads are doing compaction using GetThreadList
-    std::vector<ThreadStatus> thread_list;
-    Status s = env_->GetThreadList(&thread_list);
-    ASSERT_OK(s);
-    int compaction_count = 0;
-    for (auto thread : thread_list) {
-      if (thread.operation_type == ThreadStatus::OP_COMPACTION) {
-        compaction_count++;
-      }
-    }
-
+    TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:1");
     if (options.enable_thread_tracking) {
       // expecting one single L0 to L1 compaction
-      ASSERT_EQ(compaction_count, 1);
+      VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 1);
     } else {
       // If thread tracking is not enabled, compaction count should be 0.
-      ASSERT_EQ(compaction_count, 0);
+      VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 0);
     }
-
-    ThreadStatusUtil::TEST_SetOperationDelay(
-        ThreadStatus::OP_COMPACTION, 0);
+    TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:2");
 
     // repeat the test with disabling thread tracking.
     options.enable_thread_tracking = false;
   }
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST(DBTest, ThreadStatusMultipleCompaction) {
@@ -9812,53 +9849,58 @@ TEST(DBTest, ThreadStatusMultipleCompaction) {
   options.max_bytes_for_level_multiplier = 2;
   options.max_background_compactions = kLowPriCount;
 
-  for (int tests = 0; tests < 2; ++tests) {
-    TryReopen(options);
-    Random rnd(301);
+  TryReopen(options);
+  Random rnd(301);
 
-    int max_compaction_count = 0;
-    std::vector<ThreadStatus> thread_list;
-    const int kCompactionDelayMicro = 20000;
-    ThreadStatusUtil::TEST_SetOperationDelay(
-        ThreadStatus::OP_COMPACTION, kCompactionDelayMicro);
+  std::vector<ThreadStatus> thread_list;
+  // Delay both flush and compaction
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"FlushJob::Run:Start",
+           "CompactionJob::Run:Start"},
+      {"CompactionJob::Run:Start",
+           "DBTest::ThreadStatusMultipleCompaction:GetThreadList"},
+      {"DBTest::ThreadStatusMultipleCompaction:VerifyStatus",
+           "CompactionJob::Run:End"},
+      {"CompactionJob::Run:End",
+           "FlushJob::Run:End"}});
 
-    // Make rocksdb busy
-    int key = 0;
-    for (int file = 0; file < 64 * kNumL0Files; ++file) {
-      for (int k = 0; k < kEntriesPerBuffer; ++k) {
-        ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
-      }
-
-      // check how many threads are doing compaction using GetThreadList
-      int compaction_count = 0;
-      Status s = env_->GetThreadList(&thread_list);
-      for (auto thread : thread_list) {
-        if (thread.operation_type == ThreadStatus::OP_COMPACTION) {
-          compaction_count++;
-        }
-      }
-
-      // Record the max number of compactions at a time.
-      if (max_compaction_count < compaction_count) {
-        max_compaction_count = compaction_count;
-      }
+  // Make rocksdb busy
+  int key = 0;
+  int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
+  for (int file = 0; file < 64 * kNumL0Files; ++file) {
+    for (int k = 0; k < kEntriesPerBuffer; ++k) {
+      ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
     }
 
-    if (options.enable_thread_tracking) {
-      // Expect rocksdb to at least utilize 60% of the compaction threads.
-      ASSERT_GE(1.0 * max_compaction_count,
-                0.6 * options.max_background_compactions);
-    } else {
-      // If thread tracking is not enabled, compaction count should be 0.
-      ASSERT_EQ(max_compaction_count, 0);
+    // check how many threads are doing compaction using GetThreadList
+    int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
+    TEST_SYNC_POINT(
+        "DBTest::ThreadStatusMultipleCompaction:GetThreadList");
+    Status s = env_->GetThreadList(&thread_list);
+    TEST_SYNC_POINT(
+        "DBTest::ThreadStatusMultipleCompaction:VerifyStatus");
+    for (auto thread : thread_list) {
+      operation_count[thread.operation_type]++;
     }
 
-    // repeat the test with disabling thread tracking.
-    options.enable_thread_tracking = false;
+    // Record the max number of compactions at a time.
+    for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
+      if (max_operation_count[i] < operation_count[i]) {
+        max_operation_count[i] = operation_count[i];
+      }
+    }
+    // Speed up the test
+    if (max_operation_count[ThreadStatus::OP_FLUSH] > 1 &&
+        max_operation_count[ThreadStatus::OP_COMPACTION] >
+            0.6 * options.max_background_compactions) {
+      break;
+    }
   }
 
-  ThreadStatusUtil::TEST_SetOperationDelay(
-      ThreadStatus::OP_COMPACTION, 0);
+  ASSERT_GE(max_operation_count[ThreadStatus::OP_FLUSH], 1);
+  // Expect rocksdb to at least utilize 60% of the compaction threads.
+  ASSERT_GE(1.0 * max_operation_count[ThreadStatus::OP_COMPACTION],
+            0.6 * options.max_background_compactions);
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS

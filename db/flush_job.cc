@@ -48,6 +48,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
+#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -88,6 +89,11 @@ Status FlushJob::Run(uint64_t* file_number) {
     return Status::OK();
   }
 
+  // Update the thread status to indicate flush.
+  ThreadStatusUtil::SetColumnFamily(cfd_);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
+  TEST_SYNC_POINT("FlushJob::Run:Start");
+
   // entries mems are (implicitly) sorted in ascending order by their created
   // time. We will use the first memtable's `edit` to keep the meta info for
   // this flush.
@@ -120,6 +126,9 @@ Status FlushJob::Run(uint64_t* file_number) {
   if (s.ok() && file_number != nullptr) {
     *file_number = fn;
   }
+
+  TEST_SYNC_POINT("FlushJob::Run:End");
+  ThreadStatusUtil::ResetThreadStatus();
   return s;
 }
 

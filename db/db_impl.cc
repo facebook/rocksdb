@@ -2216,9 +2216,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // TODO(yhchiang): add op details for showing trivial-move.
     ThreadStatusUtil::SetColumnFamily(c->column_family_data());
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
-#ifndef NDEBUG
-    ThreadStatusUtil::TEST_OperationDelay(ThreadStatus::OP_COMPACTION);
-#endif
 
     // Move file to next level
     assert(c->num_input_files(0) == 1);

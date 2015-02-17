@@ -275,9 +275,7 @@ Status CompactionJob::Run() {
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   ThreadStatusUtil::SetColumnFamily(cfd);
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
-#ifndef NDEBUG
-  ThreadStatusUtil::TEST_OperationDelay(ThreadStatus::OP_COMPACTION);
-#endif
+  TEST_SYNC_POINT("CompactionJob::Run:Start");
 
   const uint64_t start_micros = env_->NowMicros();
   std::unique_ptr<Iterator> input(
@@ -467,6 +465,7 @@ Status CompactionJob::Run() {
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
+  TEST_SYNC_POINT("CompactionJob::Run:End");
   ThreadStatusUtil::ResetThreadStatus();
   return status;
 }
