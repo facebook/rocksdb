@@ -1021,27 +1021,20 @@ struct ReadOptions {
   // Not supported in ROCKSDB_LITE mode!
   bool tailing;
 
+  // Specify to create a managed iterator -- a special iterator that
+  // uses less resources by having the ability to free its underlying
+  // resources on request.
+  // Default: false
+  // Not supported in ROCKSDB_LITE mode!
+  bool managed;
+
   // Enable a total order seek regardless of index format (e.g. hash index)
   // used in the table. Some table format (e.g. plain table) may not support
   // this option.
   bool total_order_seek;
 
-  ReadOptions()
-      : verify_checksums(true),
-        fill_cache(true),
-        snapshot(nullptr),
-        iterate_upper_bound(nullptr),
-        read_tier(kReadAllTier),
-        tailing(false),
-        total_order_seek(false) {}
-  ReadOptions(bool cksum, bool cache)
-      : verify_checksums(cksum),
-        fill_cache(cache),
-        snapshot(nullptr),
-        iterate_upper_bound(nullptr),
-        read_tier(kReadAllTier),
-        tailing(false),
-        total_order_seek(false) {}
+  ReadOptions();
+  ReadOptions(bool cksum, bool cache);
 };
 
 // Options that control write operations

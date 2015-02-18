@@ -29,7 +29,14 @@ namespace rocksdb {
 #else
 
 struct Options;
+class ManagedIterator;
+class DBImpl;
 void GetXFTestOptions(Options* options, int skip_policy);
+void xf_manage_release(ManagedIterator* iter);
+void xf_manage_new(DBImpl* db, ReadOptions* readoptions,
+                   bool is_snapshot_supported);
+void xf_manage_create(ManagedIterator* iter);
+void xf_manage_options(ReadOptions* read_options);
 
 // This class provides the facility to run custom code to test a specific
 // feature typically with all existing unit tests.
@@ -66,10 +73,14 @@ class XFuncPoint {
             ((test.compare("") == 0) || (test.compare(xfunc_test_) == 0)));
   }
 
+  static void SetSkip(int skip) { skip_policy_ = skip; }
+  static int GetSkip(void) { return skip_policy_; }
+
  private:
   static std::string xfunc_test_;
   static bool initialized_;
   static bool enabled_;
+  static int skip_policy_;
 };
 
 // Use XFUNC_TEST to specify cross functional test points inside the code base.

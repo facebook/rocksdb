@@ -35,6 +35,7 @@
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
+#include "db/managed_iterator.h"
 #include "db/memtable.h"
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
@@ -80,6 +81,7 @@
 #include "util/string_util.h"
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
+#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -2788,7 +2790,24 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
 
-  if (read_options.tailing) {
+  XFUNC_TEST("", "managed_new", managed_new1, xf_manage_new,
+             reinterpret_cast<DBImpl*>(this),
+             const_cast<ReadOptions*>(&read_options), is_snapshot_supported_);
+  if (read_options.managed) {
+#ifdef ROCKSDB_LITE
+    // not supported in lite version
+    return NewErrorIterator(Status::InvalidArgument(
+        "Managed Iterators not supported in RocksDBLite."));
+#else
+    if ((read_options.tailing) || (read_options.snapshot != nullptr) ||
+        (is_snapshot_supported_)) {
+      return new ManagedIterator(this, read_options, cfd);
+    }
+    // Managed iter not supported
+    return NewErrorIterator(Status::InvalidArgument(
+        "Managed Iterators not supported without snapshots."));
+#endif
+  } else if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     // not supported in lite version
     return nullptr;
@@ -2873,8 +2892,26 @@ Status DBImpl::NewIterators(
     std::vector<Iterator*>* iterators) {
   iterators->clear();
   iterators->reserve(column_families.size());
-
-  if (read_options.tailing) {
+  XFUNC_TEST("", "managed_new", managed_new1, xf_manage_new,
+             reinterpret_cast<DBImpl*>(this),
+             const_cast<ReadOptions*>(&read_options), is_snapshot_supported_);
+  if (read_options.managed) {
+#ifdef ROCKSDB_LITE
+    return Status::InvalidArgument(
+        "Managed interator not supported in RocksDB lite");
+#else
+    if ((!read_options.tailing) && (read_options.snapshot == nullptr) &&
+        (!is_snapshot_supported_)) {
+      return Status::InvalidArgument(
+          "Managed interator not supported without snapshots");
+    }
+    for (auto cfh : column_families) {
+      auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+      auto iter = new ManagedIterator(this, read_options, cfd);
+      iterators->push_back(iter);
+    }
+#endif
+  } else if (read_options.tailing) {
 #ifdef ROCKSDB_LITE
     return Status::InvalidArgument(
         "Tailing interator not supported in RocksDB lite");

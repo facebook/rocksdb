@@ -30,6 +30,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 #include "util/statistics.h"
+#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -596,6 +597,33 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   env->SetBackgroundThreads(1, Env::HIGH);
   return this;
 }
+
+ReadOptions::ReadOptions()
+    : verify_checksums(true),
+      fill_cache(true),
+      snapshot(nullptr),
+      iterate_upper_bound(nullptr),
+      read_tier(kReadAllTier),
+      tailing(false),
+      managed(false),
+      total_order_seek(false) {
+  XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
+             reinterpret_cast<ReadOptions*>(this));
+}
+
+ReadOptions::ReadOptions(bool cksum, bool cache)
+    : verify_checksums(cksum),
+      fill_cache(cache),
+      snapshot(nullptr),
+      iterate_upper_bound(nullptr),
+      read_tier(kReadAllTier),
+      tailing(false),
+      managed(false),
+      total_order_seek(false) {
+  XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
+             reinterpret_cast<ReadOptions*>(this));
+}
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
