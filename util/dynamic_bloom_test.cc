@@ -177,10 +177,10 @@ TEST(DynamicBloomTest, perf) {
         ++count;
       }
     }
+    ASSERT_EQ(count, num_keys);
     elapsed = timer.ElapsedNanos();
     fprintf(stderr, "standard bloom, avg query latency %" PRIu64 "\n",
             elapsed / count);
-    ASSERT_TRUE(count == num_keys);
 
     // Locality enabled version
     DynamicBloom blocked_bloom(&arena, num_keys * 10, 1, num_probes);

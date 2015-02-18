@@ -401,16 +401,16 @@ class PosixMmapFile : public WritableFile {
     return s;
   }
 
-  bool UnmapCurrentRegion() {
-    bool result = true;
+  Status UnmapCurrentRegion() {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (base_ != nullptr) {
       if (last_sync_ < limit_) {
         // Defer syncing this data until next Sync() call, if any
         pending_sync_ = true;
       }
-      if (munmap(base_, limit_ - base_) != 0) {
-        result = false;
+      int munmap_status = munmap(base_, limit_ - base_);
+      if (munmap_status != 0) {
+        return IOError(filename_, munmap_status);
       }
       file_offset_ += limit_ - base_;
       base_ = nullptr;
@@ -423,7 +423,7 @@ class PosixMmapFile : public WritableFile {
         map_size_ *= 2;
       }
     }
-    return result;
+    return Status::OK();
   }
 
   Status MapNewRegion() {
@@ -498,13 +498,15 @@ class PosixMmapFile : public WritableFile {
       assert(dst_ <= limit_);
       size_t avail = limit_ - dst_;
       if (avail == 0) {
-        if (UnmapCurrentRegion()) {
-          Status s = MapNewRegion();
-          if (!s.ok()) {
-            return s;
-          }
-          TEST_KILL_RANDOM(rocksdb_kill_odds);
+        Status s = UnmapCurrentRegion();
+        if (!s.ok()) {
+          return s;
         }
+        s = MapNewRegion();
+        if (!s.ok()) {
+          return s;
+        }
+        TEST_KILL_RANDOM(rocksdb_kill_odds);
       }
 
       size_t n = (left <= avail) ? left : avail;
@@ -524,7 +526,8 @@ class PosixMmapFile : public WritableFile {
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
 
-    if (!UnmapCurrentRegion()) {
+    s = UnmapCurrentRegion();
+    if (!s.ok()) {
       s = IOError(filename_, errno);
     } else if (unused > 0) {
       // Trim the extra space at the end of the file
