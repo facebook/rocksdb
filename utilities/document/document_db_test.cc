@@ -67,7 +67,7 @@ class DocumentDBTest {
 TEST(DocumentDBTest, SimpleQueryTest) {
   DocumentDBOptions options;
   DocumentDB::IndexDescriptor index;
-  index.description = Parse("{\"name\": 1}");
+  index.description = Parse("{'name': 1}");
   index.name = "name_index";
 
   ASSERT_OK(DocumentDB::Open(options, dbname_, {}, &db_));
@@ -78,8 +78,8 @@ TEST(DocumentDBTest, SimpleQueryTest) {
   delete index.description;
 
   std::vector<std::string> json_objects = {
-      "{\"_id\': 1, \"name\": \"One\"}",   "{\"_id\": 2, \"name\": \"Two\"}",
-      "{\"_id\": 3, \"name\": \"Three\"}", "{\"_id\": 4, \"name\": \"Four\"}"};
+      "{'_id': 1, 'name': 'One'}",   "{'_id': 2, 'name': 'Two'}",
+      "{'_id': 3, 'name': 'Three'}", "{'_id': 4, 'name': 'Four'}"};
 
   for (auto& json : json_objects) {
     std::unique_ptr<JSONDocument> document(Parse(json));
@@ -252,24 +252,6 @@ TEST(DocumentDBTest, ComplexQueryTest) {
   {
     std::unique_ptr<JSONDocument> query(Parse("{'job_name': 'white'}"));
     std::unique_ptr<JSONDocument> update(Parse("{'$set': {'priority': 10}}"));
-    ASSERT_OK(db_->Update(ReadOptions(), WriteOptions(), *query, *update));
-  }
-
-  // update twice: set priority to 15 where job_name is 'white'
-  {
-    std::unique_ptr<JSONDocument> query(Parse("{'job_name': 'white'}"));
-    std::unique_ptr<JSONDocument> update(Parse("{'$set': {'priority': 10},"
-                                               "'$set': {'priority': 15}}"));
-    ASSERT_OK(db_->Update(ReadOptions(), WriteOptions(), *query, *update));
-  }
-
-  // update twice: set priority to 15 and
-  // progress to 40 where job_name is 'white'
-  {
-    std::unique_ptr<JSONDocument> query(Parse("{'job_name': 'white'}"));
-    std::unique_ptr<JSONDocument> update(
-        Parse("{'$set': {'priority': 10, 'progress': 35},"
-              "'$set': {'priority': 15, 'progress': 40}}"));
     ASSERT_OK(db_->Update(ReadOptions(), WriteOptions(), *query, *update));
   }
 

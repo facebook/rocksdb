@@ -3,9 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include <map>
 #include <set>
-#include <string>
 
 #include "rocksdb/utilities/json_document.h"
 
@@ -50,10 +48,6 @@ void AssertField(const JSONDocument& json, const std::string& field,
 
 class JSONDocumentTest {
  public:
-  JSONDocumentTest()
-  : rnd_(101)
-  {}
-
   void AssertSampleJSON(const JSONDocument& json) {
     AssertField(json, "title", std::string("json"));
     AssertField(json, "type", std::string("object"));
@@ -100,95 +94,14 @@ class JSONDocumentTest {
       "\"flags\": [10, \"parse\", {\"tag\": \"no\", \"status\": 2}], "
       "\"age\": 110.5e-4, \"depth\": -10 }, \"latlong\": [53.25, 43.75], "
       "\"enabled\": true }";
-
-  Random rnd_;
 };
 
-TEST(JSONDocumentTest, MakeNullTest) {
-  JSONDocument x;
-  ASSERT_TRUE(x.IsNull());
-  ASSERT_TRUE(x.IsOwner());
-  ASSERT_TRUE(!x.IsBool());
-}
-
-TEST(JSONDocumentTest, MakeBoolTest) {
-  {
-    JSONDocument x(true);
-    ASSERT_TRUE(x.IsOwner());
-    ASSERT_TRUE(x.IsBool());
-    ASSERT_TRUE(!x.IsInt64());
-    ASSERT_EQ(x.GetBool(), true);
-  }
-
-  {
-    JSONDocument x(false);
-    ASSERT_TRUE(x.IsOwner());
-    ASSERT_TRUE(x.IsBool());
-    ASSERT_TRUE(!x.IsInt64());
-    ASSERT_EQ(x.GetBool(), false);
-  }
-}
-
-TEST(JSONDocumentTest, MakeInt64Test) {
-  JSONDocument x(static_cast<int64_t>(16));
-  ASSERT_TRUE(x.IsInt64());
-  ASSERT_TRUE(x.IsInt64());
-  ASSERT_TRUE(!x.IsBool());
-  ASSERT_TRUE(x.IsOwner());
-  ASSERT_EQ(x.GetInt64(), 16);
-}
-
-TEST(JSONDocumentTest, MakeStringTest) {
-  JSONDocument x("string");
-  ASSERT_TRUE(x.IsOwner());
-  ASSERT_TRUE(x.IsString());
-  ASSERT_TRUE(!x.IsBool());
-  ASSERT_EQ(x.GetString(), "string");
-}
-
-TEST(JSONDocumentTest, MakeDoubleTest) {
-  JSONDocument x(5.6);
-  ASSERT_TRUE(x.IsOwner());
-  ASSERT_TRUE(x.IsDouble());
-  ASSERT_TRUE(!x.IsBool());
-  ASSERT_EQ(x.GetDouble(), 5.6);
-}
-
-TEST(JSONDocumentTest, MakeByTypeTest) {
-  {
-    JSONDocument x(JSONDocument::kNull);
-    ASSERT_TRUE(x.IsNull());
-  }
-  {
-    JSONDocument x(JSONDocument::kBool);
-    ASSERT_TRUE(x.IsBool());
-  }
-  {
-    JSONDocument x(JSONDocument::kString);
-    ASSERT_TRUE(x.IsString());
-  }
-  {
-    JSONDocument x(JSONDocument::kInt64);
-    ASSERT_TRUE(x.IsInt64());
-  }
-  {
-    JSONDocument x(JSONDocument::kDouble);
-    ASSERT_TRUE(x.IsDouble());
-  }
-  {
-    JSONDocument x(JSONDocument::kObject);
-    ASSERT_TRUE(x.IsObject());
-  }
-  {
-    JSONDocument x(JSONDocument::kArray);
-    ASSERT_TRUE(x.IsArray());
-  }
-}
-
 TEST(JSONDocumentTest, Parsing) {
-  std::unique_ptr<JSONDocument> parsed_json(
-          JSONDocument::ParseJSON(kSampleJSON.c_str()));
-  ASSERT_TRUE(parsed_json->IsOwner());
+  JSONDocument x(static_cast<int64_t>(5));
+  ASSERT_TRUE(x.IsInt64());
+
+  // make sure it's correctly parsed
+  auto parsed_json = JSONDocument::ParseJSON(kSampleJSON.c_str());
   ASSERT_TRUE(parsed_json != nullptr);
   AssertSampleJSON(*parsed_json);
 
@@ -196,11 +109,13 @@ TEST(JSONDocumentTest, Parsing) {
   JSONDocument copied_json_document(*parsed_json);
   AssertSampleJSON(copied_json_document);
   ASSERT_TRUE(copied_json_document == *parsed_json);
+  delete parsed_json;
 
-  std::unique_ptr<JSONDocument> parsed_different_sample(
-      JSONDocument::ParseJSON(kSampleJSONDifferent.c_str()));
+  auto parsed_different_sample =
+      JSONDocument::ParseJSON(kSampleJSONDifferent.c_str());
   ASSERT_TRUE(parsed_different_sample != nullptr);
   ASSERT_TRUE(!(*parsed_different_sample == copied_json_document));
+  delete parsed_different_sample;
 
   // parse error
   const std::string kFaultyJSON =
@@ -209,116 +124,45 @@ TEST(JSONDocumentTest, Parsing) {
 }
 
 TEST(JSONDocumentTest, Serialization) {
-  std::unique_ptr<JSONDocument> parsed_json(
-            JSONDocument::ParseJSON(kSampleJSON.c_str()));
+  auto parsed_json = JSONDocument::ParseJSON(kSampleJSON.c_str());
   ASSERT_TRUE(parsed_json != nullptr);
-  ASSERT_TRUE(parsed_json->IsOwner());
   std::string serialized;
   parsed_json->Serialize(&serialized);
+  delete parsed_json;
 
-  std::unique_ptr<JSONDocument> deserialized_json(
-            JSONDocument::Deserialize(Slice(serialized)));
+  auto deserialized_json = JSONDocument::Deserialize(Slice(serialized));
   ASSERT_TRUE(deserialized_json != nullptr);
   AssertSampleJSON(*deserialized_json);
+  delete deserialized_json;
 
   // deserialization failure
   ASSERT_TRUE(JSONDocument::Deserialize(
                   Slice(serialized.data(), serialized.size() - 10)) == nullptr);
 }
 
-TEST(JSONDocumentTest, OperatorEqualsTest) {
-  // kNull
-  ASSERT_TRUE(JSONDocument() == JSONDocument());
+TEST(JSONDocumentTest, Mutation) {
+  auto sample_json = JSONDocument::ParseJSON(kSampleJSON.c_str());
+  ASSERT_TRUE(sample_json != nullptr);
+  auto different_json = JSONDocument::ParseJSON(kSampleJSONDifferent.c_str());
+  ASSERT_TRUE(different_json != nullptr);
 
-  // kBool
-  ASSERT_TRUE(JSONDocument(false) != JSONDocument());
-  ASSERT_TRUE(JSONDocument(false) == JSONDocument(false));
-  ASSERT_TRUE(JSONDocument(true) == JSONDocument(true));
-  ASSERT_TRUE(JSONDocument(false) != JSONDocument(true));
+  (*different_json)["properties"]["flags"][2].Set("status", JSONDocument());
 
-  // kString
-  ASSERT_TRUE(JSONDocument("test") != JSONDocument());
-  ASSERT_TRUE(JSONDocument("test") == JSONDocument("test"));
+  ASSERT_TRUE(*different_json == *sample_json);
 
-  // kInt64
-  ASSERT_TRUE(JSONDocument(static_cast<int64_t>(15)) != JSONDocument());
-  ASSERT_TRUE(JSONDocument(static_cast<int64_t>(15)) !=
-              JSONDocument(static_cast<int64_t>(14)));
-  ASSERT_TRUE(JSONDocument(static_cast<int64_t>(15)) ==
-              JSONDocument(static_cast<int64_t>(15)));
+  delete different_json;
+  delete sample_json;
 
-  unique_ptr<JSONDocument> arrayWithInt8Doc(JSONDocument::ParseJSON("[8]"));
-  ASSERT_TRUE(arrayWithInt8Doc != nullptr);
-  ASSERT_TRUE(arrayWithInt8Doc->IsArray());
-  ASSERT_TRUE((*arrayWithInt8Doc)[0].IsInt64());
-  ASSERT_TRUE((*arrayWithInt8Doc)[0] == JSONDocument(static_cast<int64_t>(8)));
+  auto json1 = JSONDocument::ParseJSON("{\"a\": [1, 2, 3]}");
+  auto json2 = JSONDocument::ParseJSON("{\"a\": [2, 2, 3, 4]}");
+  ASSERT_TRUE(json1 != nullptr && json2 != nullptr);
 
-  unique_ptr<JSONDocument> arrayWithInt16Doc(JSONDocument::ParseJSON("[512]"));
-  ASSERT_TRUE(arrayWithInt16Doc != nullptr);
-  ASSERT_TRUE(arrayWithInt16Doc->IsArray());
-  ASSERT_TRUE((*arrayWithInt16Doc)[0].IsInt64());
-  ASSERT_TRUE((*arrayWithInt16Doc)[0] ==
-              JSONDocument(static_cast<int64_t>(512)));
+  (*json1)["a"].SetInArray(0, static_cast<int64_t>(2))->PushBack(
+      static_cast<int64_t>(4));
+  ASSERT_TRUE(*json1 == *json2);
 
-  unique_ptr<JSONDocument> arrayWithInt32Doc(
-    JSONDocument::ParseJSON("[1000000]"));
-  ASSERT_TRUE(arrayWithInt32Doc != nullptr);
-  ASSERT_TRUE(arrayWithInt32Doc->IsArray());
-  ASSERT_TRUE((*arrayWithInt32Doc)[0].IsInt64());
-  ASSERT_TRUE((*arrayWithInt32Doc)[0] ==
-               JSONDocument(static_cast<int64_t>(1000000)));
-
-  // kDouble
-  ASSERT_TRUE(JSONDocument(15.) != JSONDocument());
-  ASSERT_TRUE(JSONDocument(15.) != JSONDocument(14.));
-  ASSERT_TRUE(JSONDocument(15.) == JSONDocument(15.));
-}
-
-TEST(JSONDocumentTest, JSONDocumentBuilderTest) {
-  unique_ptr<JSONDocument> parsedArray(
-    JSONDocument::ParseJSON("[1, [123, \"a\", \"b\"], {\"b\":\"c\"}]"));
-  ASSERT_TRUE(parsedArray != nullptr);
-
-  JSONDocumentBuilder builder;
-  ASSERT_TRUE(builder.WriteStartArray());
-  ASSERT_TRUE(builder.WriteJSONDocument(1));
-
-  ASSERT_TRUE(builder.WriteStartArray());
-    ASSERT_TRUE(builder.WriteJSONDocument(123));
-    ASSERT_TRUE(builder.WriteJSONDocument("a"));
-    ASSERT_TRUE(builder.WriteJSONDocument("b"));
-  ASSERT_TRUE(builder.WriteEndArray());
-
-  ASSERT_TRUE(builder.WriteStartObject());
-    ASSERT_TRUE(builder.WriteKeyValue("b", "c"));
-  ASSERT_TRUE(builder.WriteEndObject());
-
-  ASSERT_TRUE(builder.WriteEndArray());
-
-  ASSERT_TRUE(*parsedArray == builder.GetJSONDocument());
-}
-
-TEST(JSONDocumentTest, OwnershipTest) {
-  std::unique_ptr<JSONDocument> parsed(
-          JSONDocument::ParseJSON(kSampleJSON.c_str()));
-  ASSERT_TRUE(parsed != nullptr);
-  ASSERT_TRUE(parsed->IsOwner());
-
-  // Copy constructor from owner -> owner
-  JSONDocument copy_constructor(*parsed);
-  ASSERT_TRUE(copy_constructor.IsOwner());
-
-  // Copy constructor from non-owner -> non-owner
-  JSONDocument non_owner((*parsed)["properties"]);
-  ASSERT_TRUE(!non_owner.IsOwner());
-
-  // Move constructor from owner -> owner
-  JSONDocument moved_from_owner(std::move(copy_constructor));
-  ASSERT_TRUE(moved_from_owner.IsOwner());
-
-  // Move constructor from non-owner -> non-owner
-  JSONDocument moved_from_non_owner(std::move(non_owner));
-  ASSERT_TRUE(!moved_from_non_owner.IsOwner());
+  delete json1;
+  delete json2;
 }
 
 }  //  namespace rocksdb
