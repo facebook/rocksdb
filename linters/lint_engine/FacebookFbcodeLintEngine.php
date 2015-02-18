@@ -87,7 +87,8 @@ class FacebookFbcodeLintEngine extends ArcanistLintEngine {
         $spelling_linter->addPath($path);
         $spelling_linter->addData($path, $this->loadData($path));
       }
-      if (preg_match('/\.(cpp|c|cc|cxx|h|hh|hpp|hxx|tcc)$/', $path)) {
+      if (preg_match('/\.(cpp|c|cc|cxx|h|hh|hpp|hxx|tcc)$/', $path)
+          && !preg_match('/third-party/', $path)) {
         foreach ($cpp_linters as &$linter) {
           $linter->addPath($path);
           $linter->addData($path, $this->loadData($path));
