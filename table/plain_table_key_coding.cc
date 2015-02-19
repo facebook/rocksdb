@@ -276,7 +276,6 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
         if (seekable != nullptr) {
           *seekable = false;
         }
-        assert(prefix_len_ >= 0);
         cur_key_.Reserve(prefix_len_ + size);
 
         Slice tmp_slice;

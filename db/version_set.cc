@@ -333,7 +333,6 @@ void DoGenerateLevelFilesBrief(LevelFilesBrief* file_level,
         const std::vector<FileMetaData*>& files,
         Arena* arena) {
   assert(file_level);
-  assert(files.size() >= 0);
   assert(arena);
 
   size_t num = files.size();
