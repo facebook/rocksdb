@@ -64,12 +64,13 @@ const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
 // On success fill *result and return OK - caller owns *result
 Status ReadBlockFromFile(RandomAccessFile* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
-                         Block** result, Env* env, bool do_uncompress = true) {
+                         std::unique_ptr<Block>* result, Env* env,
+                         bool do_uncompress = true) {
   BlockContents contents;
   Status s = ReadBlockContents(file, footer, options, handle, &contents, env,
                                do_uncompress);
   if (s.ok()) {
-    *result = new Block(std::move(contents));
+    result->reset(new Block(std::move(contents)));
   }
 
   return s;
@@ -168,12 +169,13 @@ class BinarySearchIndexReader : public IndexReader {
                        const BlockHandle& index_handle, Env* env,
                        const Comparator* comparator,
                        IndexReader** index_reader) {
-    Block* index_block = nullptr;
+    std::unique_ptr<Block> index_block;
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env);
 
     if (s.ok()) {
-      *index_reader = new BinarySearchIndexReader(comparator, index_block);
+      *index_reader =
+          new BinarySearchIndexReader(comparator, std::move(index_block));
     }
 
     return s;
@@ -192,8 +194,9 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
  private:
-  BinarySearchIndexReader(const Comparator* comparator, Block* index_block)
-      : IndexReader(comparator), index_block_(index_block) {
+  BinarySearchIndexReader(const Comparator* comparator,
+                          std::unique_ptr<Block>&& index_block)
+      : IndexReader(comparator), index_block_(std::move(index_block)) {
     assert(index_block_ != nullptr);
   }
   std::unique_ptr<Block> index_block_;
@@ -209,7 +212,7 @@ class HashIndexReader : public IndexReader {
                        const BlockHandle& index_handle,
                        Iterator* meta_index_iter, IndexReader** index_reader,
                        bool hash_index_allow_collision) {
-    Block* index_block = nullptr;
+    std::unique_ptr<Block> index_block;
     auto s = ReadBlockFromFile(file, footer, ReadOptions(), index_handle,
                                &index_block, env);
 
@@ -222,7 +225,7 @@ class HashIndexReader : public IndexReader {
     // So, Create will succeed regardless, from this point on.
 
     auto new_index_reader =
-        new HashIndexReader(comparator, index_block);
+        new HashIndexReader(comparator, std::move(index_block));
     *index_reader = new_index_reader;
 
     // Get prefixes block
@@ -300,8 +303,9 @@ class HashIndexReader : public IndexReader {
   }
 
  private:
-  HashIndexReader(const Comparator* comparator, Block* index_block)
-      : IndexReader(comparator), index_block_(index_block) {
+  HashIndexReader(const Comparator* comparator,
+                  std::unique_ptr<Block>&& index_block)
+      : IndexReader(comparator), index_block_(std::move(index_block)) {
     assert(index_block_ != nullptr);
   }
 
@@ -615,7 +619,7 @@ Status BlockBasedTable::ReadMetaBlock(
   // TODO(sanjay): Skip this if footer.metaindex_handle() size indicates
   // it is an empty block.
   //  TODO: we never really verify check sum for meta index block
-  Block* meta = nullptr;
+  std::unique_ptr<Block> meta;
   Status s = ReadBlockFromFile(
       rep->file.get(),
       rep->footer,
@@ -628,13 +632,12 @@ Status BlockBasedTable::ReadMetaBlock(
     Log(InfoLogLevel::ERROR_LEVEL, rep->ioptions.info_log,
         "Encountered error while reading data from properties"
         " block %s", s.ToString().c_str());
-    delete meta;
     return s;
   }
 
-  meta_block->reset(meta);
+  *meta_block = std::move(meta);
   // meta block uses bytewise comparator.
-  iter->reset(meta->NewIterator(BytewiseComparator()));
+  iter->reset(meta_block->get()->NewIterator(BytewiseComparator()));
   return Status::OK();
 }
 
@@ -970,7 +973,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
                               rep->table_options.format_version);
 
     if (block.value == nullptr && !no_io && ro.fill_cache) {
-      Block* raw_block = nullptr;
+      std::unique_ptr<Block> raw_block;
       {
         StopWatch sw(rep->ioptions.env, statistics, READ_BLOCK_GET_MICROS);
         s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
@@ -980,7 +983,7 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
 
       if (s.ok()) {
         s = PutDataBlockToCache(key, ckey, block_cache, block_cache_compressed,
-                                ro, statistics, &block, raw_block,
+                                ro, statistics, &block, raw_block.release(),
                                 rep->table_options.format_version);
       }
     }
@@ -997,8 +1000,12 @@ Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
         return NewErrorIterator(Status::Incomplete("no blocking io"));
       }
     }
+    std::unique_ptr<Block> block_value;
     s = ReadBlockFromFile(rep->file.get(), rep->footer, ro, handle,
-                          &block.value, rep->ioptions.env);
+                          &block_value, rep->ioptions.env);
+    if (s.ok()) {
+      block.value = block_value.release();
+    }
   }
 
   Iterator* iter;
