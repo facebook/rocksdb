@@ -1369,8 +1369,9 @@ class Benchmark {
     delete prefix_extractor_;
   }
 
-  Slice AllocateKey() {
-    return Slice(new char[key_size_], key_size_);
+  Slice AllocateKey(std::unique_ptr<const char[]>* key_guard) {
+    key_guard->reset(new char[key_size_]);
+    return Slice(key_guard->get(), key_size_);
   }
 
   // Generate key according to the given specification and random number.
@@ -2280,8 +2281,8 @@ class Benchmark {
     Status s;
     int64_t bytes = 0;
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     int64_t stage = 0;
     while (!duration.Done(entries_per_batch_)) {
       if (duration.GetStage() != stage) {
@@ -2376,8 +2377,8 @@ class Benchmark {
     int64_t found = 0;
     int64_t nonexist = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     std::string value;
     DB* db = SelectDBWithCfh(thread)->db;
 
@@ -2423,8 +2424,8 @@ class Benchmark {
     int64_t read = 0;
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     std::string value;
 
     Duration duration(FLAGS_duration, reads_);
@@ -2470,9 +2471,11 @@ class Benchmark {
     int64_t found = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     std::vector<Slice> keys;
+    std::vector<std::unique_ptr<const char[]> > key_guards;
     std::vector<std::string> values(entries_per_batch_);
     while (static_cast<int64_t>(keys.size()) < entries_per_batch_) {
-      keys.push_back(AllocateKey());
+      key_guards.push_back(std::move(std::unique_ptr<const char[]>()));
+      keys.push_back(AllocateKey(&key_guards.back()));
     }
 
     Duration duration(FLAGS_duration, reads_);
@@ -2496,9 +2499,6 @@ class Benchmark {
         }
       }
       thread->stats.FinishedOps(nullptr, db, entries_per_batch_);
-    }
-    for (auto& k : keys) {
-      delete k.data();
     }
 
     char msg[100];
@@ -2543,8 +2543,8 @@ class Benchmark {
     }
     uint64_t last_refresh = FLAGS_env->NowMicros();
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
 
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
@@ -2617,8 +2617,8 @@ class Benchmark {
     WriteBatch batch;
     Duration duration(seq ? 0 : FLAGS_duration, num_);
     int64_t i = 0;
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
 
     while (!duration.Done(entries_per_batch_)) {
       DB* db = SelectDB(thread);
@@ -2670,8 +2670,8 @@ class Benchmark {
     // Don't merge stats from this thread with the readers.
     thread->stats.SetExcludeFromMerge();
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
 
     while (true) {
       DB* db = SelectDB(thread);
@@ -2803,8 +2803,8 @@ class Benchmark {
     int64_t puts_done = 0;
     int64_t deletes_done = 0;
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
 
     // the number of iterations is the larger of read_ or write_
     for (int64_t i = 0; i < readwrites_; i++) {
@@ -2872,8 +2872,8 @@ class Benchmark {
     int64_t writes_done = 0;
     Duration duration(FLAGS_duration, readwrites_);
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
 
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
@@ -2925,8 +2925,8 @@ class Benchmark {
     int64_t found = 0;
     Duration duration(FLAGS_duration, readwrites_);
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     // the number of iterations is the larger of read_ or write_
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
@@ -2963,8 +2963,8 @@ class Benchmark {
     std::string value;
     int64_t found = 0;
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
@@ -3019,8 +3019,8 @@ class Benchmark {
   void MergeRandom(ThreadState* thread) {
     RandomGenerator gen;
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     // The number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
@@ -3058,8 +3058,8 @@ class Benchmark {
     int64_t num_merges = 0;
     size_t max_length = 0;
 
-    Slice key = AllocateKey();
-    std::unique_ptr<const char[]> key_guard(key.data());
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     // the number of iterations is the larger of read_ or write_
     Duration duration(FLAGS_duration, readwrites_);
     while (!duration.Done(1)) {
@@ -3115,7 +3115,8 @@ class Benchmark {
     std::unique_ptr<Iterator> iter(
       db->NewIterator(ReadOptions(FLAGS_verify_checksum, true)));
 
-    Slice key = AllocateKey();
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
     for (int64_t i = 0; i < FLAGS_num; ++i) {
       GenerateKeyFromInt(i, FLAGS_num, &key);
       iter->Seek(key);
