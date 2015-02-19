@@ -182,8 +182,9 @@ class TesterHelper {
       t._Run();                                                       \
     }                                                                 \
   };                                                                  \
-  bool TCONCAT(_Test_ignored_, name) = ::rocksdb::test::RegisterTest( \
-      #base, #name, &TCONCAT(_Test_, name)::_RunIt);                  \
+  bool TCONCAT(_Test_ignored_, name) __attribute__((__unused__))      \
+    = ::rocksdb::test::RegisterTest(#base, #name,                     \
+                                    &TCONCAT(_Test_, name)::_RunIt);  \
   void TCONCAT(_Test_, name)::_Run()
 
 // Register the specified test.  Typically not used directly, but

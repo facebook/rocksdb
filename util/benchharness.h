@@ -154,7 +154,8 @@ AddBenchmark(const char* file, const char* name, Lambda&& lambda) {
 #define FB_CONCATENATE_IMPL(s1, s2) s1##s2
 #define FB_CONCATENATE(s1, s2) FB_CONCATENATE_IMPL(s1, s2)
 
-#define FB_ANONYMOUS_VARIABLE(str) FB_CONCATENATE(str, __LINE__)
+#define FB_ANONYMOUS_VARIABLE(str) \
+  FB_CONCATENATE(str, __LINE__ __attribute__((__unused__)))
 
 #define FB_STRINGIZE(x) #x
 
