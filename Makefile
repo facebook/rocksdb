@@ -130,6 +130,27 @@ CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverl
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
+date := $(shell date +%F)
+git_sha := $(shell git describe HEAD 2>/dev/null)
+gen_build_version =							\
+  printf '%s\n'								\
+    '\#include "build_version.h"'					\
+    'const char* rocksdb_build_git_sha =				\
+      "rocksdb_build_git_sha:$(git_sha)";'				\
+    'const char* rocksdb_build_git_date =				\
+      "rocksdb_build_git_date:$(date)";'				\
+    'const char* rocksdb_build_compile_date = __DATE__;'
+
+# Record the version of the source that we are compiling.
+# We keep a record of the git revision in this file.  It is then built
+# as a regular source file as part of the compilation process.
+# One can run "strings executable_filename | grep _build_" to find
+# the version of the source that we used to build the executable file.
+util/build_version.cc:
+	$(AM_V_GEN)$(gen_build_version) > $@.tmp
+	$(AM_V_at)if test -f $@; then \
+	  cmp -s $@.tmp $@ && : || mv -f $@.tmp $@; else mv -f $@.tmp $@; fi
+
 LIBOBJECTS = $(SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
@@ -751,7 +772,7 @@ endif
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.cc=.o)' "$<" -o '$@'
 
-DEPFILES = $(filter-out util/build_version.d,$(SOURCES:.cc=.d))
+DEPFILES = $(SOURCES:.cc=.d)
 
 depend: $(DEPFILES)
 

@@ -4047,8 +4047,8 @@ void DumpRocksDBBuildVersion(Logger * log) {
       "RocksDB version: %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
       ROCKSDB_PATCH);
   Log(InfoLogLevel::INFO_LEVEL, log, "Git sha %s", rocksdb_build_git_sha);
-  Log(InfoLogLevel::INFO_LEVEL, log, "Compile time %s %s",
-      rocksdb_build_compile_time, rocksdb_build_compile_date);
+  Log(InfoLogLevel::INFO_LEVEL, log, "Compile date %s",
+      rocksdb_build_compile_date);
 #endif
 }
 

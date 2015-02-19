@@ -79,7 +79,7 @@ if test -z "$CLANG_SCAN_BUILD"; then
     CLANG_SCAN_BUILD=scan-build
 fi
 
-if test -z "$CLANG_ANALYZER"; then  
+if test -z "$CLANG_ANALYZER"; then
     CLANG_ANALYZER=$(which clang++)
 fi
 
@@ -165,11 +165,7 @@ esac
 
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 
-if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
-  "$PWD/build_tools/build_detect_version"
-fi
-
-# We want to make a list of all cc files within util, db and table
+# We want to make a list of all cc files in $DIRS,
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the
 # prune take effect.
@@ -182,6 +178,12 @@ PRUNE_MOCK="-name *mock*.cc -prune"
 PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o $PRUNE_MOCK -o -name '*.cc' -print | sort | tr "\n" " "`
 MOCK_SOURCES=`cd "$ROCKSDB_ROOT"; find $DIRS -name '*mock*.cc' -print | grep -v "test" | sort | tr "\n" " "`
 set +f # re-enable globbing
+
+# If the generated util/build_version.cc is not on the list, add it:
+case $PORTABLE_FILES in
+    *util/build_version.cc*) ;;
+    *) PORTABLE_FILES="$PORTABLE_FILES util/build_version.cc" ;;
+esac
 
 # The sources consist of the portable files, plus the platform-specific port
 # file.
