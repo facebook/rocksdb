@@ -1851,7 +1851,7 @@ TEST(Harness, Randomized) {
 
 TEST(Harness, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
-  TestArgs args = { DB_TEST, false, 16, kNoCompression };
+  TestArgs args = { DB_TEST, false, 16, kNoCompression, 0 };
   Init(args);
   int num_entries = 100000;
   for (int e = 0; e < num_entries; e++) {
