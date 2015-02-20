@@ -277,8 +277,9 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
 }
 #endif  // !ROCKSDB_LITE
 
-#ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in ROCKSDB_LITE
-TEST(OptionsTest, GetOptionsFromStringTest) {
+#ifndef ROCKSDB_LITE  // GetColumnFamilyOptionsFromString is not supported in
+                      // ROCKSDB_LITE
+TEST(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
   base_cf_opt.table_factory.reset();
@@ -451,6 +452,38 @@ TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
              &new_opt));
 }
 #endif  // !ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in RocksDB Lite
+TEST(OptionsTest, GetOptionsFromStringTest) {
+  Options base_options, new_options;
+  base_options.write_buffer_size = 20;
+  base_options.min_write_buffer_number_to_merge = 15;
+  BlockBasedTableOptions block_based_table_options;
+  block_based_table_options.cache_index_and_filter_blocks = true;
+  base_options.table_factory.reset(
+      NewBlockBasedTableFactory(block_based_table_options));
+  ASSERT_OK(GetOptionsFromString(
+      base_options,
+      "write_buffer_size=10;max_write_buffer_number=16;"
+      "block_based_table_factory={block_cache=1M;block_size=4;};"
+      "create_if_missing=true;max_open_files=1",
+      &new_options));
+
+  ASSERT_EQ(new_options.write_buffer_size, 10U);
+  ASSERT_EQ(new_options.max_write_buffer_number, 16U);
+  BlockBasedTableOptions new_block_based_table_options =
+      dynamic_cast<BlockBasedTableFactory*>(new_options.table_factory.get())
+          ->GetTableOptions();
+  ASSERT_EQ(new_block_based_table_options.block_cache->GetCapacity(), 1U << 20);
+  ASSERT_EQ(new_block_based_table_options.block_size, 4);
+  // don't overwrite block based table options
+  ASSERT_TRUE(new_block_based_table_options.cache_index_and_filter_blocks);
+
+  ASSERT_EQ(new_options.create_if_missing, true);
+  ASSERT_EQ(new_options.max_open_files, 1);
+}
+#endif  // !ROCKSDB_LITE
+
 
 Status StringToMap(
     const std::string& opts_str,

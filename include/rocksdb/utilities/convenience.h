@@ -53,6 +53,9 @@ Status GetBlockBasedTableOptionsFromString(
     const std::string& opts_str,
     BlockBasedTableOptions* new_table_options);
 
+Status GetOptionsFromString(const Options& base_options,
+                            const std::string& opts_str, Options* new_options);
+
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
