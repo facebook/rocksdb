@@ -56,6 +56,12 @@ class AutoRollLogger : public Logger {
     return logger_->GetLogFileSize();
   }
 
+  void Flush() {
+    if (logger_) {
+      logger_->Flush();
+    }
+  }
+
   virtual ~AutoRollLogger() {
   }
 

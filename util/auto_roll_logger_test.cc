@@ -308,6 +308,7 @@ TEST(AutoRollLoggerTest, LogHeaderTest) {
     Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
     ++i;
   }
+  LogFlush(&logger);
 
   // verify that the new log contains all the header logs
   std::stringstream ssbuf;
