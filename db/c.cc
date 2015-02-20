@@ -584,22 +584,22 @@ int rocksdb_backup_engine_info_count(const rocksdb_backup_engine_info_t* info) {
   return static_cast<int>(info->rep.size());
 }
 
-const int64_t rocksdb_backup_engine_info_timestamp(
+int64_t rocksdb_backup_engine_info_timestamp(
     const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].timestamp;
 }
 
-const uint32_t rocksdb_backup_engine_info_backup_id(
+uint32_t rocksdb_backup_engine_info_backup_id(
     const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].backup_id;
 }
 
-const uint64_t rocksdb_backup_engine_info_size(
+uint64_t rocksdb_backup_engine_info_size(
     const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].size;
 }
 
-const uint32_t rocksdb_backup_engine_info_number_files(
+uint32_t rocksdb_backup_engine_info_number_files(
     const rocksdb_backup_engine_info_t* info, int index) {
   return info->rep[index].number_files;
 }

@@ -135,19 +135,19 @@ extern const rocksdb_backup_engine_info_t* rocksdb_backup_engine_get_backup_info
 extern int rocksdb_backup_engine_info_count(
     const rocksdb_backup_engine_info_t* info);
 
-extern const int64_t rocksdb_backup_engine_info_timestamp(
+extern int64_t rocksdb_backup_engine_info_timestamp(
     const rocksdb_backup_engine_info_t* info,
     int index);
 
-extern const uint32_t rocksdb_backup_engine_info_backup_id(
+extern uint32_t rocksdb_backup_engine_info_backup_id(
     const rocksdb_backup_engine_info_t* info,
     int index);
 
-extern const uint64_t rocksdb_backup_engine_info_size(
+extern uint64_t rocksdb_backup_engine_info_size(
     const rocksdb_backup_engine_info_t* info,
     int index);
 
-extern const uint32_t rocksdb_backup_engine_info_number_files(
+extern uint32_t rocksdb_backup_engine_info_number_files(
     const rocksdb_backup_engine_info_t* info,
     int index);
 

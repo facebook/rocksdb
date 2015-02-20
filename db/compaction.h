@@ -92,7 +92,7 @@ class Compaction {
   // input level.
   // REQUIREMENT: "compaction_input_level" must be >= 0 and
   //              < "input_levels()"
-  std::vector<FileMetaData*>* const inputs(size_t compaction_input_level) {
+  std::vector<FileMetaData*>* inputs(size_t compaction_input_level) {
     assert(compaction_input_level < inputs_.size());
     return &inputs_[compaction_input_level].files;
   }
