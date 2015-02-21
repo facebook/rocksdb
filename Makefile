@@ -30,6 +30,7 @@ OPT += -DNDEBUG
 endif
 
 #-----------------------------------------------
+include src.mk
 
 AM_DEFAULT_VERBOSITY = 0
 
@@ -157,7 +158,7 @@ util/build_version.cc:
 	$(AM_V_at)if test -f $@; then \
 	  cmp -s $@.tmp $@ && : || mv -f $@.tmp $@; else mv -f $@.tmp $@; fi
 
-LIBOBJECTS = $(SOURCES:.cc=.o)
+LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o
@@ -291,7 +292,7 @@ $(SHARED3): $(SHARED4)
 endif
 
 $(SHARED4):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(SOURCES) $(LDFLAGS) -o $@
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
@@ -775,13 +776,12 @@ endif
 
 # The .d file indicates .cc file's dependencies on .h files. We generate such
 # dependency by g++'s -MM option, whose output is a make dependency rule.
-# The sed command makes sure the "target" file in the generated .d file has
-# the correct path prefix.
 %.d: %.cc
 	@$(CXX) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) \
 	  -MM -MT'$@' -MT'$(<:.cc=.o)' "$<" -o '$@'
 
-DEPFILES = $(SOURCES:.cc=.d)
+all_sources = $(LIB_SOURCES) $(TEST_BENCH_SOURCES) $(MOCK_SOURCES)
+DEPFILES = $(all_sources:.cc=.d)
 
 depend: $(DEPFILES)
 
