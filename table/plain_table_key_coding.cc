@@ -73,10 +73,9 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
 
   Slice key_to_write = key;  // Portion of internal key to write out.
 
-  uint32_t user_key_size = fixed_user_key_len_;
+  uint32_t user_key_size = static_cast<uint32_t>(key.size() - 8);
   if (encoding_type_ == kPlain) {
     if (fixed_user_key_len_ == kPlainTableVariableLength) {
-      user_key_size = static_cast<uint32_t>(key.size() - 8);
       // Write key length
       char key_size_buf[5];  // tmp buffer for key size as varint32
       char* ptr = EncodeVarint32(key_size_buf, user_key_size);
@@ -92,8 +91,6 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
     assert(encoding_type_ == kPrefix);
     char size_bytes[12];
     size_t size_bytes_pos = 0;
-
-    user_key_size = static_cast<uint32_t>(key.size() - 8);
 
     Slice prefix =
         prefix_extractor_->Transform(Slice(key.data(), user_key_size));

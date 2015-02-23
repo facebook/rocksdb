@@ -1726,6 +1726,7 @@ class StressTest {
         break;
       case rocksdb::kLZ4Compression:
         compression = "lz4";
+        break;
       case rocksdb::kLZ4HCCompression:
         compression = "lz4hc";
         break;

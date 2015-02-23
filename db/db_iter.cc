@@ -225,7 +225,6 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
           num_skipped++;  // skip this entry
           PERF_COUNTER_ADD(internal_key_skipped_count, 1);
         } else {
-          skipping = false;
           switch (ikey.type) {
             case kTypeDeletion:
               // Arrange to skip all upcoming entries for this key since

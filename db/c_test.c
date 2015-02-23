@@ -388,7 +388,7 @@ int main(int argc, char** argv) {
   Free(&err);
 
   StartPhase("open_error");
-  db = rocksdb_open(options, dbname, &err);
+  rocksdb_open(options, dbname, &err);
   CheckCondition(err != NULL);
   Free(&err);
 
