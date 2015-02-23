@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #include <string>
+#include <vector>
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -287,6 +288,43 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
 
 // Test the logger Header function for roll over logs
 // We expect the new logs creates as roll over to carry the headers specified
+static list<string> GetOldFileNames(const string& path) {
+  const string dirname = path.substr(/*start=*/ 0, path.find_last_of("/"));
+  const string fname = path.substr(path.find_last_of("/") + 1);
+
+  vector<string> children;
+  Env::Default()->GetChildren(dirname, &children);
+
+  // We know that the old log files are named [path]<something>
+  // Return all entities that match the pattern
+  list<string> ret;
+  for (auto child : children) {
+    if (fname != child && child.find(fname) == 0) {
+      ret.push_back(dirname + "/" + child);
+    }
+  }
+
+  return ret;
+}
+
+// Return the number of lines where a given pattern was found in the file
+static size_t GetLinesCount(const string& fname, const string& pattern) {
+  stringstream ssbuf;
+  string line;
+  size_t count = 0;
+
+  ifstream inFile(fname.c_str());
+  ssbuf << inFile.rdbuf();
+
+  while (getline(ssbuf, line)) {
+    if (line.find(pattern) != std::string::npos) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
 TEST(AutoRollLoggerTest, LogHeaderTest) {
   static const size_t MAX_HEADERS = 10;
   static const size_t LOG_MAX_SIZE = 1024 * 5;
@@ -302,29 +340,32 @@ TEST(AutoRollLoggerTest, LogHeaderTest) {
     Header(&logger, "%s %d", HEADER_STR.c_str(), i);
   }
 
+  const string& newfname = logger.TEST_log_fname().c_str();
+
   // log enough data to cause a roll over
-  size_t i = 0;
-  while (logger.GetLogFileSize() < LOG_MAX_SIZE) {
-    Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
-    ++i;
+  int i = 0;
+  for (size_t iter = 0; iter < 2; iter++) {
+    while (logger.GetLogFileSize() < LOG_MAX_SIZE) {
+      Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
+      ++i;
+    }
+
+    Info(&logger, "Rollover");
   }
+
+  // Flus the log for the latest file
   LogFlush(&logger);
 
-  // verify that the new log contains all the header logs
-  std::stringstream ssbuf;
-  std::string line;
-  size_t count = 0;
+  const list<string> oldfiles = GetOldFileNames(newfname);
 
-  std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
-  ssbuf << inFile.rdbuf();
+  ASSERT_EQ(oldfiles.size(), (size_t) 2);
 
-  while (getline(ssbuf, line)) {
-    if (line.find(HEADER_STR) != std::string::npos) {
-      count++;
-    }
+  for (auto oldfname : oldfiles) {
+    // verify that the files rolled over
+    ASSERT_NE(oldfname, newfname);
+    // verify that the old log contains all the header logs
+    ASSERT_EQ(GetLinesCount(oldfname, HEADER_STR), MAX_HEADERS);
   }
-
-  ASSERT_EQ(count, MAX_HEADERS);
 }
 
 TEST(AutoRollLoggerTest, LogFileExistence) {

@@ -69,6 +69,11 @@ class AutoRollLogger : public Logger {
     call_NowMicros_every_N_records_ = call_NowMicros_every_N_records;
   }
 
+  // Expose the log file path for testing purpose
+  std::string TEST_log_fname() const {
+    return log_fname_;
+  }
+
  private:
   bool LogExpired();
   Status ResetLogger();
