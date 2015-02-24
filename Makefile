@@ -124,8 +124,12 @@ install:
 	[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
 #-------------------------------------------------
 
-WARNING_FLAGS = -W -Wextra -Wall -Werror -Wsign-compare -Wshadow \
+WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
+
+ifndef DISABLE_WARNING_AS_ERROR
+	WARNING_FLAGS += -Werror
+endif
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
 CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor
