@@ -46,7 +46,7 @@ class MILock {
 
  private:
   std::mutex* const mu_;
-  ManagedIterator* mi_ __attribute__((unused)) = nullptr;
+  ManagedIterator* mi_;
   // No copying allowed
   MILock(const MILock&) = delete;
   void operator=(const MILock&) = delete;
