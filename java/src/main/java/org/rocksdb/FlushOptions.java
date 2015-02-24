@@ -4,7 +4,7 @@ package org.rocksdb;
  * FlushOptions to be passed to flush operations of
  * {@link org.rocksdb.RocksDB}.
  */
-public final class FlushOptions extends RocksObject {
+public class FlushOptions extends RocksObject {
 
   /**
    * Construct a new instance of FlushOptions.

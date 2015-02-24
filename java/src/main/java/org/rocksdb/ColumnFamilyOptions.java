@@ -14,7 +14,7 @@ import java.util.Properties;
  * If {@link #dispose()} function is not called, then it will be GC'd automatically
  * and native resources will be released as part of the process.
  */
-public final class ColumnFamilyOptions extends RocksObject
+public class ColumnFamilyOptions extends RocksObject
     implements ColumnFamilyOptionsInterface {
   static {
     RocksDB.loadLibrary();

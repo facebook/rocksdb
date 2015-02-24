@@ -13,7 +13,7 @@ package org.rocksdb;
  * use the default memtable representation (SkipList) instead
  * and post a warning in the LOG.
  */
-public final class HashSkipListMemTableConfig extends MemTableConfig {
+public class HashSkipListMemTableConfig extends MemTableConfig {
   public static final int DEFAULT_BUCKET_COUNT = 1000000;
   public static final int DEFAULT_BRANCHING_FACTOR = 4;
   public static final int DEFAULT_HEIGHT = 4;

@@ -9,7 +9,7 @@ package org.rocksdb;
  *
  * BlockBasedTable is a RocksDB's default SST file format.
  */
-public final class BlockBasedTableConfig extends TableFormatConfig {
+public class BlockBasedTableConfig extends TableFormatConfig {
 
   public BlockBasedTableConfig() {
     noBlockCache_ = false;

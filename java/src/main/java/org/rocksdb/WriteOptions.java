@@ -11,7 +11,7 @@ package org.rocksdb;
  * Note that developers should call WriteOptions.dispose() to release the
  * c++ side memory before a WriteOptions instance runs out of scope.
  */
-public final class WriteOptions extends RocksObject {
+public class WriteOptions extends RocksObject {
   /**
    * Construct WriteOptions instance.
    */

@@ -16,7 +16,7 @@ import java.util.List;
  * memory in c++.</p>
  *
  */
-public final class RestoreBackupableDB extends RocksObject {
+public class RestoreBackupableDB extends RocksObject {
   /**
    * <p>Construct new estoreBackupableDB instance.</p>
    *

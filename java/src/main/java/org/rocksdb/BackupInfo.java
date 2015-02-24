@@ -8,7 +8,7 @@ package org.rocksdb;
  * Instances of this class describe a Backup made by
  * {@link org.rocksdb.BackupableDB}.
  */
-public final class BackupInfo {
+public class BackupInfo {
 
   /**
    * Package private constructor used to create instances

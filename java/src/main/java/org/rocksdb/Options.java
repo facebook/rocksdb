@@ -12,7 +12,7 @@ package org.rocksdb;
  * If {@link #dispose()} function is not called, then it will be GC'd automatically
  * and native resources will be released as part of the process.
  */
-public final class Options extends RocksObject
+public class Options extends RocksObject
     implements DBOptionsInterface, ColumnFamilyOptionsInterface {
   static {
     RocksDB.loadLibrary();

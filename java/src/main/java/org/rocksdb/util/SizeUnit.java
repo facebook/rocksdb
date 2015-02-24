@@ -5,7 +5,7 @@
 
 package org.rocksdb.util;
 
-public final class SizeUnit {
+public class SizeUnit {
   public static final long KB = 1024L;
   public static final long MB = KB * KB;
   public static final long GB = KB * MB;

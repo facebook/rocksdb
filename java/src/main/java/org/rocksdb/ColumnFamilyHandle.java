@@ -9,7 +9,7 @@ package org.rocksdb;
  * ColumnFamilyHandle class to hold handles to underlying rocksdb
  * ColumnFamily Pointers.
  */
-public final class ColumnFamilyHandle extends RocksObject {
+public class ColumnFamilyHandle extends RocksObject {
   ColumnFamilyHandle(final RocksDB rocksDB,
       final long nativeHandle) {
     super();

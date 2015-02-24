@@ -9,7 +9,7 @@ package org.rocksdb;
  * Provides Checkpoint functionality. Checkpoints
  * provide persistent snapshots of RocksDB databases.
  */
-public final class Checkpoint extends RocksObject {
+public class Checkpoint extends RocksObject {
 
   /**
    * Creates a Checkpoint object to be used for creating open-able

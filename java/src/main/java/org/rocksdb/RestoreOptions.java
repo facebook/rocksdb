@@ -12,7 +12,7 @@ package org.rocksdb;
  * to release the allocated memory in c++.
  *
  */
-public final class RestoreOptions extends RocksObject {
+public class RestoreOptions extends RocksObject {
   /**
    * Constructor
    *

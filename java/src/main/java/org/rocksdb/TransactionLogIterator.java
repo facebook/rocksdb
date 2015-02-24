@@ -5,7 +5,7 @@ package org.rocksdb;
  * One run of the iterator is continuous, i.e. the iterator will stop at the
  * beginning of any gap in sequences.</p>
  */
-public final class TransactionLogIterator extends RocksObject {
+public class TransactionLogIterator extends RocksObject {
 
   /**
    * <p>An iterator is either positioned at a WriteBatch

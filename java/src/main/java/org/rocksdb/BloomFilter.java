@@ -18,7 +18,7 @@ package org.rocksdb;
  * FilterPolicy (like {@code BloomFilter}) that does not ignore
  * trailing spaces in keys.</p>
  */
-public final class BloomFilter extends Filter {
+public class BloomFilter extends Filter {
 
   private static final int DEFAULT_BITS_PER_KEY = 10;
   private static final boolean DEFAULT_MODE = true;

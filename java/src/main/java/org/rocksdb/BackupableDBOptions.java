@@ -17,7 +17,7 @@ import java.nio.file.Path;
  *
  * @see org.rocksdb.BackupableDB
  */
-public final class BackupableDBOptions extends RocksObject {
+public class BackupableDBOptions extends RocksObject {
 
   /**
    * <p>BackupableDBOptions constructor.</p>

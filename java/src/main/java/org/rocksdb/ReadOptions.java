@@ -11,7 +11,7 @@ package org.rocksdb;
  * Note that dispose() must be called before an Options instance
  * become out-of-scope to release the allocated memory in c++.
  */
-public final class ReadOptions extends RocksObject {
+public class ReadOptions extends RocksObject {
   public ReadOptions() {
     super();
     newReadOptions();

@@ -13,7 +13,7 @@ import java.util.List;
  *
  * @see org.rocksdb.BackupableDBOptions
  */
-public final class BackupableDB extends RocksDB {
+public class BackupableDB extends RocksDB {
   /**
    * <p>Open a {@code BackupableDB} under the specified path.
    * Note that the backup path should be set properly in the

@@ -3,7 +3,7 @@ package org.rocksdb;
 /**
  * The config for vector memtable representation.
  */
-public final class VectorMemTableConfig extends MemTableConfig {
+public class VectorMemTableConfig extends MemTableConfig {
   public static final int DEFAULT_RESERVED_SIZE = 0;
 
   /**
