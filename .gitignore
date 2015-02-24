@@ -48,3 +48,5 @@ java/crossbuild/.vagrant
 .vagrant/
 java/**.asc
 java/javadoc
+
+scan_build_report/

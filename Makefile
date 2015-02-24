@@ -358,9 +358,11 @@ valgrind_check: all $(PROGRAMS) $(TESTS)
 		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
 	done
 
-analyze:
-	$(MAKE) clean
-	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) -o $(CURDIR)/scan_build_report $(MAKE) all -j32
+analyze: clean
+	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
+		--use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
+		-o $(CURDIR)/scan_build_report \
+		$(MAKE) dbg
 
 unity.cc:
 	$(shell (export ROCKSDB_ROOT="$(CURDIR)"; "$(CURDIR)/build_tools/unity" "$(CURDIR)/unity.cc"))
@@ -369,11 +371,12 @@ unity: unity.o
 	$(AM_LINK)
 
 clean:
-	-rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) make_config.mk unity.cc
-	-rm -rf ios-x86/* ios-arm/*
-	-find . -name "*.[oda]" -exec rm {} \;
-	-find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
-	-rm -rf bzip2* snappy* zlib*
+	rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) make_config.mk unity.cc
+	rm -rf ios-x86 ios-arm scan_build_report
+	find . -name "*.[oda]" -exec rm {} \;
+	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+	rm -rf bzip2* snappy* zlib*
+
 tags:
 	ctags * -R
 	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
