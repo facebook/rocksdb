@@ -26,19 +26,19 @@ public interface RocksIteratorInterface {
    *
    * @return true if iterator is valid.
    */
-  public boolean isValid();
+  boolean isValid();
 
   /**
    * <p>Position at the first entry in the source.  The iterator is Valid()
    * after this call if the source is not empty.</p>
    */
-  public void seekToFirst();
+  void seekToFirst();
 
   /**
    * <p>Position at the last entry in the source.  The iterator is
    * valid after this call if the source is not empty.</p>
    */
-  public void seekToLast();
+  void seekToLast();
 
   /**
    * <p>Position at the first entry in the source whose key is that or
@@ -50,7 +50,7 @@ public interface RocksIteratorInterface {
    * @param target byte array describing a key or a
    *               key prefix to seek for.
    */
-  public void seek(byte[] target);
+  void seek(byte[] target);
 
   /**
    * <p>Moves to the next entry in the source.  After this call, Valid() is
@@ -58,7 +58,7 @@ public interface RocksIteratorInterface {
    *
    * <p>REQUIRES: {@link #isValid()}</p>
    */
-  public void next();
+  void next();
 
   /**
    * <p>Moves to the previous entry in the source.  After this call, Valid() is
@@ -66,7 +66,7 @@ public interface RocksIteratorInterface {
    *
    * <p>REQUIRES: {@link #isValid()}</p>
    */
-  public void prev();
+  void prev();
 
   /**
    * <p>If an error has occurred, return it.  Else return an ok status.
@@ -76,5 +76,5 @@ public interface RocksIteratorInterface {
    * @throws RocksDBException thrown if error happens in underlying
    *                          native library.
    */
-  public void status() throws RocksDBException;
+  void status() throws RocksDBException;
 }
