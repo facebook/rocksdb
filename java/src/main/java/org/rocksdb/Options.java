@@ -163,7 +163,8 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setComparator(AbstractComparator comparator) {
+  public Options setComparator(
+      AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isInitialized());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
     comparator_ = comparator;
@@ -1253,5 +1254,5 @@ public class Options extends RocksObject
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
   RateLimiterConfig rateLimiterConfig_;
-  AbstractComparator comparator_;
+  AbstractComparator<? extends AbstractSlice<?>> comparator_;
 }

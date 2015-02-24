@@ -118,7 +118,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setComparator(AbstractComparator comparator) {
+  public ColumnFamilyOptions setComparator(
+      AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isInitialized());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
     comparator_ = comparator;
@@ -705,5 +706,5 @@ public class ColumnFamilyOptions extends RocksObject
 
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
-  AbstractComparator comparator_;
+  AbstractComparator<? extends AbstractSlice<?>> comparator_;
 }
