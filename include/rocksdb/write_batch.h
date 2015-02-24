@@ -27,6 +27,7 @@
 
 #include <string>
 #include "rocksdb/status.h"
+#include "rocksdb/write_batch_base.h"
 
 namespace rocksdb {
 
@@ -34,15 +35,16 @@ class Slice;
 class ColumnFamilyHandle;
 struct SliceParts;
 
-class WriteBatch {
+class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0);
   ~WriteBatch();
 
+  using WriteBatchBase::Put;
   // Store the mapping "key->value" in the database.
   void Put(ColumnFamilyHandle* column_family, const Slice& key,
-           const Slice& value);
-  void Put(const Slice& key, const Slice& value) {
+           const Slice& value) override;
+  void Put(const Slice& key, const Slice& value) override {
     Put(nullptr, key, value);
   }
 
@@ -50,27 +52,31 @@ class WriteBatch {
   // that will be written to the database are concatentations of arrays of
   // slices.
   void Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-           const SliceParts& value);
-  void Put(const SliceParts& key, const SliceParts& value) {
+           const SliceParts& value) override;
+  void Put(const SliceParts& key, const SliceParts& value) override {
     Put(nullptr, key, value);
   }
 
+  using WriteBatchBase::Merge;
   // Merge "value" with the existing value of "key" in the database.
   // "key->merge(existing, value)"
   void Merge(ColumnFamilyHandle* column_family, const Slice& key,
-             const Slice& value);
-  void Merge(const Slice& key, const Slice& value) {
+             const Slice& value) override;
+  void Merge(const Slice& key, const Slice& value) override {
     Merge(nullptr, key, value);
   }
 
+  using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
-  void Delete(ColumnFamilyHandle* column_family, const Slice& key);
-  void Delete(const Slice& key) { Delete(nullptr, key); }
+  void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  void Delete(const Slice& key) override { Delete(nullptr, key); }
 
   // variant that takes SliceParts
-  void Delete(ColumnFamilyHandle* column_family, const SliceParts& key);
-  void Delete(const SliceParts& key) { Delete(nullptr, key); }
+  void Delete(ColumnFamilyHandle* column_family,
+              const SliceParts& key) override;
+  void Delete(const SliceParts& key) override { Delete(nullptr, key); }
 
+  using WriteBatchBase::PutLogData;
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,
   // it will not be persisted to the SST files. When iterating over this
@@ -81,10 +87,11 @@ class WriteBatch {
   //
   // Example application: add timestamps to the transaction log for use in
   // replication.
-  void PutLogData(const Slice& blob);
+  void PutLogData(const Slice& blob) override;
 
+  using WriteBatchBase::Clear;
   // Clear all updates buffered in this batch.
-  void Clear();
+  void Clear() override;
 
   // Support for iterating over the contents of a batch.
   class Handler {
@@ -148,6 +155,9 @@ class WriteBatch {
 
   // Returns the number of updates in the batch
   int Count() const;
+
+  using WriteBatchBase::GetWriteBatch;
+  WriteBatch* GetWriteBatch() override { return this; }
 
   // Constructor with a serialized string object
   explicit WriteBatch(std::string rep): rep_(rep) {}

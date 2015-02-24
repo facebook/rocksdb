@@ -470,6 +470,9 @@ struct WriteBatchWithIndex::Rep {
   // Allocate an index entry pointing to the last entry in the write batch and
   // put it to skip list.
   void AddNewEntry(uint32_t column_family_id);
+
+  // Clear all updates buffered in this batch.
+  void Clear();
 };
 
 bool WriteBatchWithIndex::Rep::UpdateExistingEntry(
@@ -521,6 +524,15 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
     auto* index_entry =
         new (mem) WriteBatchIndexEntry(last_entry_offset, column_family_id);
     skip_list.Insert(index_entry);
+  }
+
+  void WriteBatchWithIndex::Rep::Clear() {
+    write_batch.Clear();
+    arena.~Arena();
+    new (&arena) Arena();
+    skip_list.~WriteBatchEntrySkipList();
+    new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
+    last_entry_offset = 0;
   }
 
 Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
@@ -644,6 +656,8 @@ void WriteBatchWithIndex::Delete(const Slice& key) {
   rep->write_batch.Delete(key);
   rep->AddOrUpdateIndex(key);
 }
+
+void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
 int WriteBatchEntryComparator::operator()(
     const WriteBatchIndexEntry* entry1,

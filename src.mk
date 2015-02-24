@@ -27,6 +27,7 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/repair.cc                                                  \
+  db/slice.cc                                                  \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
@@ -35,6 +36,7 @@ LIB_SOURCES =                                                   \
   db/version_set.cc                                             \
   db/wal_manager.cc                                             \
   db/write_batch.cc                                             \
+  db/write_batch_base.cc                                        \
   db/write_controller.cc                                        \
   db/write_thread.cc                                            \
   port/stack_trace.cc                                           \

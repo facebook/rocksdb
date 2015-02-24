@@ -16,6 +16,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/write_batch_base.h"
 
 namespace rocksdb {
 
@@ -61,7 +62,7 @@ class WBWIIterator {
 // By calling GetWriteBatch(), a user will get the WriteBatch for the data
 // they inserted, which can be used for DB::Write().
 // A user can call NewIterator() to create an iterator.
-class WriteBatchWithIndex {
+class WriteBatchWithIndex : public WriteBatchBase {
  public:
   // backup_index_comparator: the backup comparator used to compare keys
   // within the same column family, if column family is not given in the
@@ -76,22 +77,30 @@ class WriteBatchWithIndex {
       size_t reserved_bytes = 0, bool overwrite_key = false);
   virtual ~WriteBatchWithIndex();
 
-  WriteBatch* GetWriteBatch();
-
+  using WriteBatchBase::Put;
   void Put(ColumnFamilyHandle* column_family, const Slice& key,
-           const Slice& value);
+           const Slice& value) override;
 
-  void Put(const Slice& key, const Slice& value);
+  void Put(const Slice& key, const Slice& value) override;
 
+  using WriteBatchBase::Merge;
   void Merge(ColumnFamilyHandle* column_family, const Slice& key,
-             const Slice& value);
+             const Slice& value) override;
 
-  void Merge(const Slice& key, const Slice& value);
+  void Merge(const Slice& key, const Slice& value) override;
 
-  void PutLogData(const Slice& blob);
+  using WriteBatchBase::Delete;
+  void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  void Delete(const Slice& key) override;
 
-  void Delete(ColumnFamilyHandle* column_family, const Slice& key);
-  void Delete(const Slice& key);
+  using WriteBatchBase::PutLogData;
+  void PutLogData(const Slice& blob) override;
+
+  using WriteBatchBase::Clear;
+  void Clear() override;
+
+  using WriteBatchBase::GetWriteBatch;
+  WriteBatch* GetWriteBatch() override;
 
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the

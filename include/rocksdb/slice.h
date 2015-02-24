@@ -42,6 +42,10 @@ class Slice {
   /* implicit */
   Slice(const char* s) : data_(s), size_(strlen(s)) { }
 
+  // Create a single slice from SliceParts using buf as storage.
+  // buf must exist as long as the returned Slice exists.
+  Slice(const struct SliceParts& parts, std::string* buf);
+
   // Return a pointer to the beginning of the referenced data
   const char* data() const { return data_; }
 
