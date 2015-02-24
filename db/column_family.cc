@@ -101,7 +101,8 @@ const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
 }
 
 ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
-                                    const ColumnFamilyOptions& src) {
+                                    const ColumnFamilyOptions& src,
+                                    Logger* info_log) {
   ColumnFamilyOptions result = src;
   result.comparator = icmp;
 #ifdef OS_MACOSX
@@ -161,6 +162,37 @@ ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
     result.level0_file_num_compaction_trigger = std::numeric_limits<int>::max();
     result.level0_slowdown_writes_trigger = std::numeric_limits<int>::max();
     result.level0_stop_writes_trigger = std::numeric_limits<int>::max();
+  }
+
+  if (result.level0_stop_writes_trigger <
+          result.level0_slowdown_writes_trigger ||
+      result.level0_slowdown_writes_trigger <
+          result.level0_file_num_compaction_trigger) {
+    Warn(info_log,
+         "This condition must be satisfied: "
+         "level0_stop_writes_trigger(%d) >= "
+         "level0_slowdown_writes_trigger(%d) >= "
+         "level0_file_num_compaction_trigger(%d)",
+         result.level0_stop_writes_trigger,
+         result.level0_slowdown_writes_trigger,
+         result.level0_file_num_compaction_trigger);
+    if (result.level0_slowdown_writes_trigger <
+        result.level0_file_num_compaction_trigger) {
+      result.level0_slowdown_writes_trigger =
+          result.level0_file_num_compaction_trigger;
+    }
+    if (result.level0_stop_writes_trigger <
+        result.level0_slowdown_writes_trigger) {
+      result.level0_stop_writes_trigger = result.level0_slowdown_writes_trigger;
+    }
+    Warn(info_log,
+         "Adjust the value to "
+         "level0_stop_writes_trigger(%d)"
+         "level0_slowdown_writes_trigger(%d)"
+         "level0_file_num_compaction_trigger(%d)",
+         result.level0_stop_writes_trigger,
+         result.level0_slowdown_writes_trigger,
+         result.level0_file_num_compaction_trigger);
   }
 
   return result;
@@ -237,7 +269,8 @@ ColumnFamilyData::ColumnFamilyData(
       refs_(0),
       dropped_(false),
       internal_comparator_(cf_options.comparator),
-      options_(*db_options, SanitizeOptions(&internal_comparator_, cf_options)),
+      options_(*db_options, SanitizeOptions(&internal_comparator_, cf_options,
+                                            db_options->info_log.get())),
       ioptions_(options_),
       mutable_cf_options_(options_, ioptions_),
       write_buffer_(write_buffer),

@@ -1742,6 +1742,16 @@ TEST(DBTest, GetLevel0Ordering) {
   } while (ChangeOptions());
 }
 
+TEST(DBTest, WrongLevel0Config) {
+  Options options = CurrentOptions();
+  Close();
+  ASSERT_OK(DestroyDB(dbname_, options));
+  options.level0_stop_writes_trigger = 1;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_file_num_compaction_trigger = 3;
+  ASSERT_OK(DB::Open(options, dbname_, &db_));
+}
+
 TEST(DBTest, GetOrderedByLevels) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());

@@ -326,6 +326,13 @@ class ColumnFamilyTest {
   Random rnd_;
 };
 
+class DumbLogger : public Logger {
+ public:
+  using Logger::Logv;
+  virtual void Logv(const char* format, va_list ap) {}
+  virtual size_t GetLogFileSize() const { return 0; }
+};
+
 TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
     Open();
@@ -1010,6 +1017,27 @@ TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
   s = TryOpen({"default", "one", "two"});
   ASSERT_TRUE(s.ok());
   Close();
+}
+
+TEST(ColumnFamilyTest, SanitizeOptions) {
+  DumbLogger logger;
+  for (int i = 1; i <= 3; i++) {
+    for (int j = 1; j <= 3; j++) {
+      for (int k = 1; k <= 3; k++) {
+        ColumnFamilyOptions original;
+        original.level0_stop_writes_trigger = i;
+        original.level0_slowdown_writes_trigger = j;
+        original.level0_file_num_compaction_trigger = k;
+        ColumnFamilyOptions result = SanitizeOptions(NULL, original, &logger);
+        ASSERT_TRUE(result.level0_stop_writes_trigger >=
+                    result.level0_slowdown_writes_trigger);
+        ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
+                    result.level0_file_num_compaction_trigger);
+        ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
+                    original.level0_file_num_compaction_trigger);
+      }
+    }
+  }
 }
 
 }  // namespace rocksdb

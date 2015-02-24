@@ -123,7 +123,8 @@ struct SuperVersion {
 };
 
 extern ColumnFamilyOptions SanitizeOptions(const InternalKeyComparator* icmp,
-                                           const ColumnFamilyOptions& src);
+                                           const ColumnFamilyOptions& src,
+                                           Logger* info_log);
 
 class ColumnFamilySet;
 

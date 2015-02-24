@@ -108,7 +108,8 @@ Options SanitizeOptions(const std::string& dbname,
                         const InternalKeyComparator* icmp,
                         const Options& src) {
   auto db_options = SanitizeOptions(dbname, DBOptions(src));
-  auto cf_options = SanitizeOptions(icmp, ColumnFamilyOptions(src));
+  auto cf_options = SanitizeOptions(icmp, ColumnFamilyOptions(src),
+                                    db_options.info_log.get());
   return Options(db_options, cf_options);
 }
 
