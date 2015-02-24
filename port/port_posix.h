@@ -9,8 +9,7 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#ifndef STORAGE_LEVELDB_PORT_PORT_POSIX_H_
-#define STORAGE_LEVELDB_PORT_PORT_POSIX_H_
+#pragma once
 
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
@@ -139,4 +138,3 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 } // namespace port
 } // namespace rocksdb
 
-#endif  // STORAGE_LEVELDB_PORT_PORT_POSIX_H_
