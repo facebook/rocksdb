@@ -43,6 +43,7 @@ class MILock {
     XFUNC_TEST("managed_xftest_release", "managed_unlock", managed_unlock1,
                xf_manage_release, mi_);
   }
+  ManagedIterator* GetManagedIterator() { return mi_; }
 
  private:
   std::mutex* const mu_;
