@@ -70,7 +70,7 @@ class TestKeyComparator : public Comparator {
 
   // Compare needs to be aware of the possibility of a and/or b is
   // prefix only
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     const TestKey* key_a = SliceToTestKey(a);
     const TestKey* key_b = SliceToTestKey(b);
     if (key_a->prefix != key_b->prefix) {
@@ -106,13 +106,10 @@ class TestKeyComparator : public Comparator {
     return "TestKeyComparator";
   }
 
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const {
-  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const {}
-
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 namespace {

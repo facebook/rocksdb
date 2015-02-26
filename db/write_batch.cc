@@ -332,7 +332,7 @@ class MemTableInserter : public WriteBatch::Handler {
     return true;
   }
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+                       const Slice& value) override {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
@@ -388,7 +388,7 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                         const Slice& value) override {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
@@ -458,7 +458,8 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+  virtual Status DeleteCF(uint32_t column_family_id,
+                          const Slice& key) override {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;

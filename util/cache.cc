@@ -471,34 +471,33 @@ class ShardedLRUCache : public Cache {
     delete[] shards_;
   }
   virtual Handle* Insert(const Slice& key, void* value, size_t charge,
-                         void (*deleter)(const Slice& key, void* value)) {
+                         void (*deleter)(const Slice& key,
+                                         void* value)) override {
     const uint32_t hash = HashSlice(key);
     return shards_[Shard(hash)].Insert(key, hash, value, charge, deleter);
   }
-  virtual Handle* Lookup(const Slice& key) {
+  virtual Handle* Lookup(const Slice& key) override {
     const uint32_t hash = HashSlice(key);
     return shards_[Shard(hash)].Lookup(key, hash);
   }
-  virtual void Release(Handle* handle) {
+  virtual void Release(Handle* handle) override {
     LRUHandle* h = reinterpret_cast<LRUHandle*>(handle);
     shards_[Shard(h->hash)].Release(handle);
   }
-  virtual void Erase(const Slice& key) {
+  virtual void Erase(const Slice& key) override {
     const uint32_t hash = HashSlice(key);
     shards_[Shard(hash)].Erase(key, hash);
   }
-  virtual void* Value(Handle* handle) {
+  virtual void* Value(Handle* handle) override {
     return reinterpret_cast<LRUHandle*>(handle)->value;
   }
-  virtual uint64_t NewId() {
+  virtual uint64_t NewId() override {
     MutexLock l(&id_mutex_);
     return ++(last_id_);
   }
-  virtual size_t GetCapacity() const {
-    return capacity_;
-  }
+  virtual size_t GetCapacity() const override { return capacity_; }
 
-  virtual size_t GetUsage() const {
+  virtual size_t GetUsage() const override {
     // We will not lock the cache when getting the usage from shards.
     // for (size_t i = 0; i < num_shard_bits_; ++i)
     int num_shards = 1 << num_shard_bits_;
@@ -509,9 +508,7 @@ class ShardedLRUCache : public Cache {
     return usage;
   }
 
-  virtual void DisownData() {
-    shards_ = nullptr;
-  }
+  virtual void DisownData() override { shards_ = nullptr; }
 
   virtual void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
                                       bool thread_safe) override {

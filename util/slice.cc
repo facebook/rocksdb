@@ -25,22 +25,22 @@ class FixedPrefixTransform : public SliceTransform {
       : prefix_len_(prefix_len),
         name_("rocksdb.FixedPrefix." + ToString(prefix_len_)) {}
 
-  virtual const char* Name() const { return name_.c_str(); }
+  virtual const char* Name() const override { return name_.c_str(); }
 
-  virtual Slice Transform(const Slice& src) const {
+  virtual Slice Transform(const Slice& src) const override {
     assert(InDomain(src));
     return Slice(src.data(), prefix_len_);
   }
 
-  virtual bool InDomain(const Slice& src) const {
+  virtual bool InDomain(const Slice& src) const override {
     return (src.size() >= prefix_len_);
   }
 
-  virtual bool InRange(const Slice& dst) const {
+  virtual bool InRange(const Slice& dst) const override {
     return (dst.size() == prefix_len_);
   }
 
-  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+  virtual bool SameResultWhenAppended(const Slice& prefix) const override {
     return InDomain(prefix);
   }
 };
@@ -55,20 +55,20 @@ class CappedPrefixTransform : public SliceTransform {
       : cap_len_(cap_len),
         name_("rocksdb.CappedPrefix." + ToString(cap_len_)) {}
 
-  virtual const char* Name() const { return name_.c_str(); }
+  virtual const char* Name() const override { return name_.c_str(); }
 
-  virtual Slice Transform(const Slice& src) const {
+  virtual Slice Transform(const Slice& src) const override {
     assert(InDomain(src));
     return Slice(src.data(), std::min(cap_len_, src.size()));
   }
 
-  virtual bool InDomain(const Slice& src) const { return true; }
+  virtual bool InDomain(const Slice& src) const override { return true; }
 
-  virtual bool InRange(const Slice& dst) const {
+  virtual bool InRange(const Slice& dst) const override {
     return (dst.size() <= cap_len_);
   }
 
-  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+  virtual bool SameResultWhenAppended(const Slice& prefix) const override {
     return prefix.size() >= cap_len_;
   }
 };
@@ -77,23 +77,15 @@ class NoopTransform : public SliceTransform {
  public:
   explicit NoopTransform() { }
 
-  virtual const char* Name() const {
-    return "rocksdb.Noop";
-  }
+  virtual const char* Name() const override { return "rocksdb.Noop"; }
 
-  virtual Slice Transform(const Slice& src) const {
-    return src;
-  }
+  virtual Slice Transform(const Slice& src) const override { return src; }
 
-  virtual bool InDomain(const Slice& src) const {
-    return true;
-  }
+  virtual bool InDomain(const Slice& src) const override { return true; }
 
-  virtual bool InRange(const Slice& dst) const {
-    return true;
-  }
+  virtual bool InRange(const Slice& dst) const override { return true; }
 
-  virtual bool SameResultWhenAppended(const Slice& prefix) const {
+  virtual bool SameResultWhenAppended(const Slice& prefix) const override {
     return false;
   }
 };

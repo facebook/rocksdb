@@ -51,7 +51,7 @@ class PosixLogger : public Logger {
   virtual ~PosixLogger() {
     fclose(file_);
   }
-  virtual void Flush() {
+  virtual void Flush() override {
     if (flush_pending_) {
       flush_pending_ = false;
       fflush(file_);
@@ -60,7 +60,7 @@ class PosixLogger : public Logger {
   }
 
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) {
+  virtual void Logv(const char* format, va_list ap) override {
     const uint64_t thread_id = (*gettid_)();
 
     // We try twice: the first time with a fixed-size stack allocated buffer,
@@ -156,9 +156,7 @@ class PosixLogger : public Logger {
       break;
     }
   }
-  size_t GetLogFileSize() const {
-    return log_size_;
-  }
+  size_t GetLogFileSize() const override { return log_size_; }
 };
 
 }  // namespace rocksdb

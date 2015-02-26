@@ -606,7 +606,7 @@ class VersionSet {
 
   struct LogReporter : public log::Reader::Reporter {
     Status* status;
-    virtual void Corruption(size_t bytes, const Status& s) {
+    virtual void Corruption(size_t bytes, const Status& s) override {
       if (this->status->ok()) *this->status = s;
     }
   };

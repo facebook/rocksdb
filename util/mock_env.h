@@ -29,56 +29,58 @@ class MockEnv : public EnvWrapper {
   // Partial implementation of the Env interface.
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& soptions);
+                                   const EnvOptions& soptions) override;
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& soptions);
+                                     const EnvOptions& soptions) override;
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& env_options);
+                                 const EnvOptions& env_options) override;
 
   virtual Status NewRandomRWFile(const std::string& fname,
                                  unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options);
+                                 const EnvOptions& options) override;
 
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result);
+                              unique_ptr<Directory>* result) override;
 
-  virtual bool FileExists(const std::string& fname);
+  virtual bool FileExists(const std::string& fname) override;
 
   virtual Status GetChildren(const std::string& dir,
-                             std::vector<std::string>* result);
+                             std::vector<std::string>* result) override;
 
   void DeleteFileInternal(const std::string& fname);
 
-  virtual Status DeleteFile(const std::string& fname);
+  virtual Status DeleteFile(const std::string& fname) override;
 
-  virtual Status CreateDir(const std::string& dirname);
+  virtual Status CreateDir(const std::string& dirname) override;
 
-  virtual Status CreateDirIfMissing(const std::string& dirname);
+  virtual Status CreateDirIfMissing(const std::string& dirname) override;
 
-  virtual Status DeleteDir(const std::string& dirname);
+  virtual Status DeleteDir(const std::string& dirname) override;
 
-  virtual Status GetFileSize(const std::string& fname, uint64_t* file_size);
+  virtual Status GetFileSize(const std::string& fname,
+                             uint64_t* file_size) override;
 
   virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* time);
+                                         uint64_t* time) override;
 
   virtual Status RenameFile(const std::string& src,
-                            const std::string& target);
+                            const std::string& target) override;
 
-  virtual Status LinkFile(const std::string& src, const std::string& target);
+  virtual Status LinkFile(const std::string& src,
+                          const std::string& target) override;
 
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result);
+                           shared_ptr<Logger>* result) override;
 
-  virtual Status LockFile(const std::string& fname, FileLock** flock);
+  virtual Status LockFile(const std::string& fname, FileLock** flock) override;
 
-  virtual Status UnlockFile(FileLock* flock);
+  virtual Status UnlockFile(FileLock* flock) override;
 
-  virtual Status GetTestDirectory(std::string* path);
+  virtual Status GetTestDirectory(std::string* path) override;
 
   // Non-virtual functions, specific to MockEnv
   Status Truncate(const std::string& fname, size_t size);

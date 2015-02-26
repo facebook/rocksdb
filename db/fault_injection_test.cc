@@ -136,10 +136,10 @@ class TestWritableFile : public WritableFile {
                             unique_ptr<WritableFile>&& f,
                             FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
-  virtual Status Append(const Slice& data);
-  virtual Status Close();
-  virtual Status Flush();
-  virtual Status Sync();
+  virtual Status Append(const Slice& data) override;
+  virtual Status Close() override;
+  virtual Status Flush() override;
+  virtual Status Sync() override;
 
  private:
   FileState state_;
@@ -184,7 +184,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
 
   Status NewWritableFile(const std::string& fname,
                          unique_ptr<WritableFile>* result,
-                         const EnvOptions& soptions) {
+                         const EnvOptions& soptions) override {
     Status s = target()->NewWritableFile(fname, result, soptions);
     if (s.ok()) {
       result->reset(new TestWritableFile(fname, std::move(*result), this));
@@ -200,7 +200,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status DeleteFile(const std::string& f) {
+  virtual Status DeleteFile(const std::string& f) override {
     Status s = EnvWrapper::DeleteFile(f);
     if (!s.ok()) {
       fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
@@ -213,7 +213,8 @@ class FaultInjectionTestEnv : public EnvWrapper {
     return s;
   }
 
-  virtual Status RenameFile(const std::string& s, const std::string& t) {
+  virtual Status RenameFile(const std::string& s,
+                            const std::string& t) override {
     Status ret = EnvWrapper::RenameFile(s, t);
 
     if (ret.ok()) {

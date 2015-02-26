@@ -395,13 +395,13 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
         whole_key_filtering_(whole_key_filtering),
         prefix_filtering_(prefix_filtering) {}
 
-  virtual Status Add(const Slice& key, const Slice& value) {
+  virtual Status Add(const Slice& key, const Slice& value) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
   }
 
-  virtual Status Finish(UserCollectedProperties* properties) {
+  virtual Status Finish(UserCollectedProperties* properties) override {
     std::string val;
     PutFixed32(&val, static_cast<uint32_t>(index_type_));
     properties->insert({BlockBasedTablePropertyNames::kIndexType, val});
@@ -413,11 +413,11 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
   }
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "BlockBasedTablePropertiesCollector";
   }
 
-  virtual UserCollectedProperties GetReadableProperties() const {
+  virtual UserCollectedProperties GetReadableProperties() const override {
     // Intentionally left blank.
     return UserCollectedProperties();
   }

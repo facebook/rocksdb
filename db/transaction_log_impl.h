@@ -27,20 +27,20 @@ class LogFileImpl : public LogFile {
     sizeFileBytes_(sizeBytes) {
   }
 
-  std::string PathName() const {
+  std::string PathName() const override {
     if (type_ == kArchivedLogFile) {
       return ArchivedLogFileName("", logNumber_);
     }
     return LogFileName("", logNumber_);
   }
 
-  uint64_t LogNumber() const { return logNumber_; }
+  uint64_t LogNumber() const override { return logNumber_; }
 
-  WalFileType Type() const { return type_; }
+  WalFileType Type() const override { return type_; }
 
-  SequenceNumber StartSequence() const { return startSequence_; }
+  SequenceNumber StartSequence() const override { return startSequence_; }
 
-  uint64_t SizeFileBytes() const { return sizeFileBytes_; }
+  uint64_t SizeFileBytes() const override { return sizeFileBytes_; }
 
   bool operator < (const LogFile& that) const {
     return LogNumber() < that.LogNumber();
@@ -62,13 +62,13 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
       const EnvOptions& soptions, const SequenceNumber seqNum,
       std::unique_ptr<VectorLogPtr> files, VersionSet const* const versions);
 
-  virtual bool Valid();
+  virtual bool Valid() override;
 
-  virtual void Next();
+  virtual void Next() override;
 
-  virtual Status status();
+  virtual Status status() override;
 
-  virtual BatchResult GetBatch();
+  virtual BatchResult GetBatch() override;
 
  private:
   const std::string& dir_;
@@ -88,7 +88,7 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
-    virtual void Corruption(size_t bytes, const Status& s) {
+    virtual void Corruption(size_t bytes, const Status& s) override {
       Log(InfoLogLevel::ERROR_LEVEL, info_log, "dropping %zu bytes; %s", bytes,
           s.ToString().c_str());
     }

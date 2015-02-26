@@ -416,7 +416,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
 
     Status* status;
     bool ignore_error;  // true if db_options_.paranoid_checks==false
-    virtual void Corruption(size_t bytes, const Status& s) {
+    virtual void Corruption(size_t bytes, const Status& s) override {
       Log(InfoLogLevel::WARN_LEVEL, info_log,
           "[WalManager] %s%s: dropping %d bytes; %s",
           (this->ignore_error ? "(ignoring error) " : ""), fname,

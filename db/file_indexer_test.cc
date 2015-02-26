@@ -19,7 +19,7 @@ namespace rocksdb {
 
 class IntComparator : public Comparator {
  public:
-  int Compare(const Slice& a, const Slice& b) const {
+  int Compare(const Slice& a, const Slice& b) const override {
     assert(a.size() == 8);
     assert(b.size() == 8);
     int64_t diff = *reinterpret_cast<const int64_t*>(a.data()) -
@@ -33,13 +33,12 @@ class IntComparator : public Comparator {
     }
   }
 
-  const char* Name() const {
-    return "IntComparator";
-  }
+  const char* Name() const override { return "IntComparator"; }
 
-  void FindShortestSeparator(std::string* start, const Slice& limit) const {}
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {}
 
-  void FindShortSuccessor(std::string* key) const {}
+  void FindShortSuccessor(std::string* key) const override {}
 };
 
 struct FileIndexerTest {

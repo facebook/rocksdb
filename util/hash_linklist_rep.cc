@@ -252,33 +252,32 @@ class HashLinkListRep : public MemTableRep {
     }
 
     // Returns true iff the iterator is positioned at a valid node.
-    virtual bool Valid() const {
-      return iter_.Valid();
-    }
+    virtual bool Valid() const override { return iter_.Valid(); }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
-    virtual const char* key() const {
+    virtual const char* key() const override {
       assert(Valid());
       return iter_.key();
     }
 
     // Advances to the next position.
     // REQUIRES: Valid()
-    virtual void Next() {
+    virtual void Next() override {
       assert(Valid());
       iter_.Next();
     }
 
     // Advances to the previous position.
     // REQUIRES: Valid()
-    virtual void Prev() {
+    virtual void Prev() override {
       assert(Valid());
       iter_.Prev();
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const Slice& internal_key, const char* memtable_key) {
+    virtual void Seek(const Slice& internal_key,
+                      const char* memtable_key) override {
       const char* encoded_key =
           (memtable_key != nullptr) ?
               memtable_key : EncodeKey(&tmp_, internal_key);
@@ -287,15 +286,11 @@ class HashLinkListRep : public MemTableRep {
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToFirst() {
-      iter_.SeekToFirst();
-    }
+    virtual void SeekToFirst() override { iter_.SeekToFirst(); }
 
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToLast() {
-      iter_.SeekToLast();
-    }
+    virtual void SeekToLast() override { iter_.SeekToLast(); }
    private:
     MemtableSkipList::Iterator iter_;
     // To destruct with the iterator.
@@ -315,41 +310,40 @@ class HashLinkListRep : public MemTableRep {
     virtual ~LinkListIterator() {}
 
     // Returns true iff the iterator is positioned at a valid node.
-    virtual bool Valid() const {
-      return node_ != nullptr;
-    }
+    virtual bool Valid() const override { return node_ != nullptr; }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
-    virtual const char* key() const {
+    virtual const char* key() const override {
       assert(Valid());
       return node_->key;
     }
 
     // Advances to the next position.
     // REQUIRES: Valid()
-    virtual void Next() {
+    virtual void Next() override {
       assert(Valid());
       node_ = node_->Next();
     }
 
     // Advances to the previous position.
     // REQUIRES: Valid()
-    virtual void Prev() {
+    virtual void Prev() override {
       // Prefix iterator does not support total order.
       // We simply set the iterator to invalid state
       Reset(nullptr);
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const Slice& internal_key, const char* memtable_key) {
+    virtual void Seek(const Slice& internal_key,
+                      const char* memtable_key) override {
       node_ = hash_link_list_rep_->FindGreaterOrEqualInBucket(head_,
                                                               internal_key);
     }
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToFirst() {
+    virtual void SeekToFirst() override {
       // Prefix iterator does not support total order.
       // We simply set the iterator to invalid state
       Reset(nullptr);
@@ -357,7 +351,7 @@ class HashLinkListRep : public MemTableRep {
 
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToLast() {
+    virtual void SeekToLast() override {
       // Prefix iterator does not support total order.
       // We simply set the iterator to invalid state
       Reset(nullptr);
@@ -386,7 +380,7 @@ class HashLinkListRep : public MemTableRep {
           memtable_rep_(memtable_rep) {}
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const Slice& k, const char* memtable_key) {
+    virtual void Seek(const Slice& k, const char* memtable_key) override {
       auto transformed = memtable_rep_.GetPrefix(k);
       auto* bucket = memtable_rep_.GetBucket(transformed);
 
@@ -415,21 +409,21 @@ class HashLinkListRep : public MemTableRep {
       }
     }
 
-    virtual bool Valid() const {
+    virtual bool Valid() const override {
       if (skip_list_iter_) {
         return skip_list_iter_->Valid();
       }
       return HashLinkListRep::LinkListIterator::Valid();
     }
 
-    virtual const char* key() const {
+    virtual const char* key() const override {
       if (skip_list_iter_) {
         return skip_list_iter_->key();
       }
       return HashLinkListRep::LinkListIterator::key();
     }
 
-    virtual void Next() {
+    virtual void Next() override {
       if (skip_list_iter_) {
         skip_list_iter_->Next();
       } else {
@@ -448,18 +442,18 @@ class HashLinkListRep : public MemTableRep {
     // instantiating an empty bucket over which to iterate.
    public:
     EmptyIterator() { }
-    virtual bool Valid() const {
-      return false;
-    }
-    virtual const char* key() const {
+    virtual bool Valid() const override { return false; }
+    virtual const char* key() const override {
       assert(false);
       return nullptr;
     }
-    virtual void Next() { }
-    virtual void Prev() { }
-    virtual void Seek(const Slice& user_key, const char* memtable_key) { }
-    virtual void SeekToFirst() { }
-    virtual void SeekToLast() { }
+    virtual void Next() override {}
+    virtual void Prev() override {}
+    virtual void Seek(const Slice& user_key,
+                      const char* memtable_key) override {}
+    virtual void SeekToFirst() override {}
+    virtual void SeekToLast() override {}
+
    private:
   };
 };

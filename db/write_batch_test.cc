@@ -153,7 +153,7 @@ namespace {
   struct TestHandler : public WriteBatch::Handler {
     std::string seen;
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+                         const Slice& value) override {
       if (column_family_id == 0) {
         seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
@@ -163,7 +163,7 @@ namespace {
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                           const Slice& value) override {
       if (column_family_id == 0) {
         seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
@@ -172,10 +172,11 @@ namespace {
       }
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) {
+    virtual void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
       } else {
@@ -256,20 +257,21 @@ TEST(WriteBatchTest, Continue) {
   struct Handler : public TestHandler {
     int num_seen = 0;
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+                         const Slice& value) override {
       ++num_seen;
       return TestHandler::PutCF(column_family_id, key, value);
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                           const Slice& value) override {
       ++num_seen;
       return TestHandler::MergeCF(column_family_id, key, value);
     }
-    virtual void LogData(const Slice& blob) {
+    virtual void LogData(const Slice& blob) override {
       ++num_seen;
       TestHandler::LogData(blob);
     }
-    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
       ++num_seen;
       return TestHandler::DeleteCF(column_family_id, key);
     }

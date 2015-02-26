@@ -53,7 +53,7 @@ class LevelIterator : public Iterator {
     status_ = Status::NotSupported("LevelIterator::SeekToLast()");
     valid_ = false;
   }
-  void Prev() {
+  void Prev() override {
     status_ = Status::NotSupported("LevelIterator::Prev()");
     valid_ = false;
   }

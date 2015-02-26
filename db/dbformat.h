@@ -111,12 +111,11 @@ class InternalKeyComparator : public Comparator {
   }
   virtual ~InternalKeyComparator() {}
 
-  virtual const char* Name() const;
-  virtual int Compare(const Slice& a, const Slice& b) const;
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const;
-  virtual void FindShortSuccessor(std::string* key) const;
+  virtual const char* Name() const override;
+  virtual int Compare(const Slice& a, const Slice& b) const override;
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override;
+  virtual void FindShortSuccessor(std::string* key) const override;
 
   const Comparator* user_comparator() const { return user_comparator_; }
 
@@ -371,19 +370,19 @@ class InternalKeySliceTransform : public SliceTransform {
   explicit InternalKeySliceTransform(const SliceTransform* transform)
       : transform_(transform) {}
 
-  virtual const char* Name() const { return transform_->Name(); }
+  virtual const char* Name() const override { return transform_->Name(); }
 
-  virtual Slice Transform(const Slice& src) const {
+  virtual Slice Transform(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->Transform(user_key);
   }
 
-  virtual bool InDomain(const Slice& src) const {
+  virtual bool InDomain(const Slice& src) const override {
     auto user_key = ExtractUserKey(src);
     return transform_->InDomain(user_key);
   }
 
-  virtual bool InRange(const Slice& dst) const {
+  virtual bool InRange(const Slice& dst) const override {
     auto user_key = ExtractUserKey(dst);
     return transform_->InRange(user_key);
   }

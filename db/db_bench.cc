@@ -653,7 +653,7 @@ class ReportFileOpEnv : public EnvWrapper {
   }
 
   Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
-                           const EnvOptions& soptions) {
+                           const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      private:
       unique_ptr<SequentialFile> target_;
@@ -664,7 +664,7 @@ class ReportFileOpEnv : public EnvWrapper {
                    ReportFileOpCounters* counters)
           : target_(std::move(target)), counters_(counters) {}
 
-      virtual Status Read(size_t n, Slice* result, char* scratch) {
+      virtual Status Read(size_t n, Slice* result, char* scratch) override {
         counters_->read_counter_.fetch_add(1, std::memory_order_relaxed);
         Status rv = target_->Read(n, result, scratch);
         counters_->bytes_read_.fetch_add(result->size(),
@@ -672,7 +672,7 @@ class ReportFileOpEnv : public EnvWrapper {
         return rv;
       }
 
-      virtual Status Skip(uint64_t n) { return target_->Skip(n); }
+      virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
     };
 
     Status s = target()->NewSequentialFile(f, r, soptions);
@@ -685,7 +685,7 @@ class ReportFileOpEnv : public EnvWrapper {
 
   Status NewRandomAccessFile(const std::string& f,
                              unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& soptions) {
+                             const EnvOptions& soptions) override {
     class CountingFile : public RandomAccessFile {
      private:
       unique_ptr<RandomAccessFile> target_;
@@ -696,7 +696,7 @@ class ReportFileOpEnv : public EnvWrapper {
                    ReportFileOpCounters* counters)
           : target_(std::move(target)), counters_(counters) {}
       virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const {
+                          char* scratch) const override {
         counters_->read_counter_.fetch_add(1, std::memory_order_relaxed);
         Status rv = target_->Read(offset, n, result, scratch);
         counters_->bytes_read_.fetch_add(result->size(),
@@ -714,7 +714,7 @@ class ReportFileOpEnv : public EnvWrapper {
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) {
+                         const EnvOptions& soptions) override {
     class CountingFile : public WritableFile {
      private:
       unique_ptr<WritableFile> target_;
@@ -725,7 +725,7 @@ class ReportFileOpEnv : public EnvWrapper {
                    ReportFileOpCounters* counters)
           : target_(std::move(target)), counters_(counters) {}
 
-      Status Append(const Slice& data) {
+      Status Append(const Slice& data) override {
         counters_->append_counter_.fetch_add(1, std::memory_order_relaxed);
         Status rv = target_->Append(data);
         counters_->bytes_written_.fetch_add(data.size(),
@@ -733,9 +733,9 @@ class ReportFileOpEnv : public EnvWrapper {
         return rv;
       }
 
-      Status Close() { return target_->Close(); }
-      Status Flush() { return target_->Flush(); }
-      Status Sync() { return target_->Sync(); }
+      Status Close() override { return target_->Close(); }
+      Status Flush() override { return target_->Flush(); }
+      Status Sync() override { return target_->Sync(); }
     };
 
     Status s = target()->NewWritableFile(f, r, soptions);

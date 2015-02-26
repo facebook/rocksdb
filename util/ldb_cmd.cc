@@ -1343,7 +1343,7 @@ void ChangeCompactionStyleCommand::DoCommand() {
 namespace {
 
 struct StdErrReporter : public log::Reader::Reporter {
-  virtual void Corruption(size_t bytes, const Status& s) {
+  virtual void Corruption(size_t bytes, const Status& s) override {
     cerr << "Corruption detected in log file " << s.ToString() << "\n";
   }
 };
@@ -1365,17 +1365,17 @@ class InMemoryHandler : public WriteBatch::Handler {
     }
   }
 
-  virtual void Put(const Slice& key, const Slice& value) {
+  virtual void Put(const Slice& key, const Slice& value) override {
     row_ << "PUT : ";
     commonPutMerge(key, value);
   }
 
-  virtual void Merge(const Slice& key, const Slice& value) {
+  virtual void Merge(const Slice& key, const Slice& value) override {
     row_ << "MERGE : ";
     commonPutMerge(key, value);
   }
 
-  virtual void Delete(const Slice& key) {
+  virtual void Delete(const Slice& key) override {
     row_ <<",DELETE : ";
     row_ << LDBCommand::StringToHex(key.ToString()) << " ";
   }

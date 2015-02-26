@@ -221,8 +221,8 @@ class MemTableIterator: public Iterator {
     }
   }
 
-  virtual bool Valid() const { return valid_; }
-  virtual void Seek(const Slice& k) {
+  virtual bool Valid() const override { return valid_; }
+  virtual void Seek(const Slice& k) override {
     if (bloom_ != nullptr &&
         !bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)))) {
       valid_ = false;
@@ -231,35 +231,35 @@ class MemTableIterator: public Iterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
-  virtual void SeekToFirst() {
+  virtual void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
   }
-  virtual void SeekToLast() {
+  virtual void SeekToLast() override {
     iter_->SeekToLast();
     valid_ = iter_->Valid();
   }
-  virtual void Next() {
+  virtual void Next() override {
     assert(Valid());
     iter_->Next();
     valid_ = iter_->Valid();
   }
-  virtual void Prev() {
+  virtual void Prev() override {
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
   }
-  virtual Slice key() const {
+  virtual Slice key() const override {
     assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());
   }
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
     return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
   }
 
-  virtual Status status() const { return Status::OK(); }
+  virtual Status status() const override { return Status::OK(); }
 
  private:
   DynamicBloom* bloom_;

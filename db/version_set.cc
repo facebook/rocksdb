@@ -425,23 +425,21 @@ class LevelFileNumIterator : public Iterator {
         index_(static_cast<uint32_t>(flevel->num_files)),
         current_value_(0, 0, 0) {  // Marks as invalid
   }
-  virtual bool Valid() const {
-    return index_ < flevel_->num_files;
-  }
-  virtual void Seek(const Slice& target) {
+  virtual bool Valid() const override { return index_ < flevel_->num_files; }
+  virtual void Seek(const Slice& target) override {
     index_ = FindFile(icmp_, *flevel_, target);
   }
-  virtual void SeekToFirst() { index_ = 0; }
-  virtual void SeekToLast() {
+  virtual void SeekToFirst() override { index_ = 0; }
+  virtual void SeekToLast() override {
     index_ = (flevel_->num_files == 0)
                  ? 0
                  : static_cast<uint32_t>(flevel_->num_files) - 1;
   }
-  virtual void Next() {
+  virtual void Next() override {
     assert(Valid());
     index_++;
   }
-  virtual void Prev() {
+  virtual void Prev() override {
     assert(Valid());
     if (index_ == 0) {
       index_ = static_cast<uint32_t>(flevel_->num_files);  // Marks as invalid
@@ -449,11 +447,11 @@ class LevelFileNumIterator : public Iterator {
       index_--;
     }
   }
-  Slice key() const {
+  Slice key() const override {
     assert(Valid());
     return flevel_->files[index_].largest_key;
   }
-  Slice value() const {
+  Slice value() const override {
     assert(Valid());
 
     auto file_meta = flevel_->files[index_];
@@ -461,7 +459,8 @@ class LevelFileNumIterator : public Iterator {
     return Slice(reinterpret_cast<const char*>(&current_value_),
                  sizeof(FileDescriptor));
   }
-  virtual Status status() const { return Status::OK(); }
+  virtual Status status() const override { return Status::OK(); }
+
  private:
   const InternalKeyComparator icmp_;
   const LevelFilesBrief* flevel_;

@@ -34,7 +34,7 @@ class DummyDB : public StackableDB {
      : StackableDB(nullptr), options_(options), dbname_(dbname),
        deletions_enabled_(true), sequence_number_(0) {}
 
-  virtual SequenceNumber GetLatestSequenceNumber() const {
+  virtual SequenceNumber GetLatestSequenceNumber() const override {
     return ++sequence_number_;
   }
 
@@ -86,7 +86,7 @@ class DummyDB : public StackableDB {
       return path_;
     }
 
-    virtual uint64_t LogNumber() const {
+    virtual uint64_t LogNumber() const override {
       // what business do you have calling this method?
       ASSERT_TRUE(false);
       return 0;
@@ -96,13 +96,13 @@ class DummyDB : public StackableDB {
       return alive_ ? kAliveLogFile : kArchivedLogFile;
     }
 
-    virtual SequenceNumber StartSequence() const {
+    virtual SequenceNumber StartSequence() const override {
       // backupabledb should not need this method
       ASSERT_TRUE(false);
       return 0;
     }
 
-    virtual uint64_t SizeFileBytes() const {
+    virtual uint64_t SizeFileBytes() const override {
       // backupabledb should not need this method
       ASSERT_TRUE(false);
       return 0;
@@ -140,7 +140,7 @@ class TestEnv : public EnvWrapper {
   class DummySequentialFile : public SequentialFile {
    public:
     DummySequentialFile() : SequentialFile(), rnd_(5) {}
-    virtual Status Read(size_t n, Slice* result, char* scratch) {
+    virtual Status Read(size_t n, Slice* result, char* scratch) override {
       size_t read_size = (n > size_left) ? size_left : n;
       for (size_t i = 0; i < read_size; ++i) {
         scratch[i] = rnd_.Next() & 255;
@@ -150,7 +150,7 @@ class TestEnv : public EnvWrapper {
       return Status::OK();
     }
 
-    virtual Status Skip(uint64_t n) {
+    virtual Status Skip(uint64_t n) override {
       size_left = (n > size_left) ? size_left - n : 0;
       return Status::OK();
     }
@@ -159,9 +159,8 @@ class TestEnv : public EnvWrapper {
     Random rnd_;
   };
 
-  Status NewSequentialFile(const std::string& f,
-                           unique_ptr<SequentialFile>* r,
-                           const EnvOptions& options) {
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& options) override {
     MutexLock l(&mutex_);
     if (dummy_sequential_file_) {
       r->reset(new TestEnv::DummySequentialFile());
@@ -172,7 +171,7 @@ class TestEnv : public EnvWrapper {
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) {
+                         const EnvOptions& options) override {
     MutexLock l(&mutex_);
     written_files_.push_back(f);
     if (limit_written_files_ <= 0) {

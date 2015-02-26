@@ -125,12 +125,9 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
     (*destructor_)(state_);
   }
 
-  virtual bool Filter(
-      int level,
-      const Slice& key,
-      const Slice& existing_value,
-      std::string* new_value,
-      bool* value_changed) const {
+  virtual bool Filter(int level, const Slice& key, const Slice& existing_value,
+                      std::string* new_value,
+                      bool* value_changed) const override {
     char* c_new_value = nullptr;
     size_t new_value_length = 0;
     unsigned char c_value_changed = 0;
@@ -147,9 +144,7 @@ struct rocksdb_compactionfilter_t : public CompactionFilter {
     return result;
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 };
 
 struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
@@ -162,14 +157,14 @@ struct rocksdb_compactionfilterfactory_t : public CompactionFilterFactory {
   virtual ~rocksdb_compactionfilterfactory_t() { (*destructor_)(state_); }
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) {
+      const CompactionFilter::Context& context) override {
     rocksdb_compactionfiltercontext_t ccontext;
     ccontext.rep = context;
     CompactionFilter* cf = (*create_compaction_filter_)(state_, &ccontext);
     return std::unique_ptr<CompactionFilter>(cf);
   }
 
-  virtual const char* Name() const { return (*name_)(state_); }
+  virtual const char* Name() const override { return (*name_)(state_); }
 };
 
 struct rocksdb_compactionfilterv2_t : public CompactionFilterV2 {
@@ -186,15 +181,12 @@ struct rocksdb_compactionfilterv2_t : public CompactionFilterV2 {
     (*destructor_)(state_);
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 
-  virtual std::vector<bool> Filter(int level,
-                                   const SliceVector& keys,
-                                   const SliceVector& existing_values,
-                                   std::vector<std::string>* new_values,
-                                   std::vector<bool>* values_changed) const {
+  virtual std::vector<bool> Filter(
+      int level, const SliceVector& keys, const SliceVector& existing_values,
+      std::vector<std::string>* new_values,
+      std::vector<bool>* values_changed) const override {
     // Make a vector pointing to the underlying key data.
     size_t num_keys = keys.size();
     std::vector<const char*> keys_list(num_keys);
@@ -256,12 +248,10 @@ struct rocksdb_compactionfilterfactoryv2_t : public CompactionFilterFactoryV2 {
     (*destructor_)(state_);
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 
   virtual std::unique_ptr<CompactionFilterV2> CreateCompactionFilterV2(
-      const CompactionFilterContext& context) {
+      const CompactionFilterContext& context) override {
     struct rocksdb_compactionfiltercontext_t c_context;
     c_context.rep.is_full_compaction = context.is_full_compaction;
     c_context.rep.is_manual_compaction = context.is_manual_compaction;
@@ -283,17 +273,16 @@ struct rocksdb_comparator_t : public Comparator {
     (*destructor_)(state_);
   }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     return (*compare_)(state_, a.data(), a.size(), b.data(), b.size());
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 
   // No-ops since the C binding does not support key shortening methods.
-  virtual void FindShortestSeparator(std::string*, const Slice&) const { }
-  virtual void FindShortSuccessor(std::string* key) const { }
+  virtual void FindShortestSeparator(std::string*,
+                                     const Slice&) const override {}
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 struct rocksdb_filterpolicy_t : public FilterPolicy {
@@ -317,11 +306,10 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
     (*destructor_)(state_);
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 
-  virtual void CreateFilter(const Slice* keys, int n, std::string* dst) const {
+  virtual void CreateFilter(const Slice* keys, int n,
+                            std::string* dst) const override {
     std::vector<const char*> key_pointers(n);
     std::vector<size_t> key_sizes(n);
     for (int i = 0; i < n; i++) {
@@ -339,7 +327,8 @@ struct rocksdb_filterpolicy_t : public FilterPolicy {
     }
   }
 
-  virtual bool KeyMayMatch(const Slice& key, const Slice& filter) const {
+  virtual bool KeyMayMatch(const Slice& key,
+                           const Slice& filter) const override {
     return (*key_match_)(state_, key.data(), key.size(),
                          filter.data(), filter.size());
   }
@@ -368,17 +357,12 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
     (*destructor_)(state_);
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 
-  virtual bool FullMerge(
-      const Slice& key,
-      const Slice* existing_value,
-      const std::deque<std::string>& operand_list,
-      std::string* new_value,
-      Logger* logger) const {
-
+  virtual bool FullMerge(const Slice& key, const Slice* existing_value,
+                         const std::deque<std::string>& operand_list,
+                         std::string* new_value,
+                         Logger* logger) const override {
     size_t n = operand_list.size();
     std::vector<const char*> operand_pointers(n);
     std::vector<size_t> operand_sizes(n);
@@ -414,7 +398,8 @@ struct rocksdb_mergeoperator_t : public MergeOperator {
 
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,
-                                 std::string* new_value, Logger* logger) const {
+                                 std::string* new_value,
+                                 Logger* logger) const override {
     size_t operand_count = operand_list.size();
     std::vector<const char*> operand_pointers(operand_count);
     std::vector<size_t> operand_sizes(operand_count);
@@ -465,21 +450,19 @@ struct rocksdb_slicetransform_t : public SliceTransform {
     (*destructor_)(state_);
   }
 
-  virtual const char* Name() const {
-    return (*name_)(state_);
-  }
+  virtual const char* Name() const override { return (*name_)(state_); }
 
-  virtual Slice Transform(const Slice& src) const {
+  virtual Slice Transform(const Slice& src) const override {
     size_t len;
     char* dst = (*transform_)(state_, src.data(), src.size(), &len);
     return Slice(dst, len);
   }
 
-  virtual bool InDomain(const Slice& src) const {
+  virtual bool InDomain(const Slice& src) const override {
     return (*in_domain_)(state_, src.data(), src.size());
   }
 
-  virtual bool InRange(const Slice& src) const {
+  virtual bool InRange(const Slice& src) const override {
     return (*in_range_)(state_, src.data(), src.size());
   }
 };
@@ -1126,10 +1109,10 @@ void rocksdb_writebatch_iterate(
     void* state_;
     void (*put_)(void*, const char* k, size_t klen, const char* v, size_t vlen);
     void (*deleted_)(void*, const char* k, size_t klen);
-    virtual void Put(const Slice& key, const Slice& value) {
+    virtual void Put(const Slice& key, const Slice& value) override {
       (*put_)(state_, key.data(), key.size(), value.data(), value.size());
     }
-    virtual void Delete(const Slice& key) {
+    virtual void Delete(const Slice& key) override {
       (*deleted_)(state_, key.data(), key.size());
     }
   };
@@ -1913,11 +1896,12 @@ rocksdb_filterpolicy_t* rocksdb_filterpolicy_create_bloom(int bits_per_key) {
   struct Wrapper : public rocksdb_filterpolicy_t {
     const FilterPolicy* rep_;
     ~Wrapper() { delete rep_; }
-    const char* Name() const { return rep_->Name(); }
-    void CreateFilter(const Slice* keys, int n, std::string* dst) const {
+    const char* Name() const override { return rep_->Name(); }
+    void CreateFilter(const Slice* keys, int n,
+                      std::string* dst) const override {
       return rep_->CreateFilter(keys, n, dst);
     }
-    bool KeyMayMatch(const Slice& key, const Slice& filter) const {
+    bool KeyMayMatch(const Slice& key, const Slice& filter) const override {
       return rep_->KeyMayMatch(key, filter);
     }
     static void DoNothing(void*) { }
@@ -2099,16 +2083,14 @@ rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t pref
   struct Wrapper : public rocksdb_slicetransform_t {
     const SliceTransform* rep_;
     ~Wrapper() { delete rep_; }
-    const char* Name() const { return rep_->Name(); }
-    Slice Transform(const Slice& src) const {
+    const char* Name() const override { return rep_->Name(); }
+    Slice Transform(const Slice& src) const override {
       return rep_->Transform(src);
     }
-    bool InDomain(const Slice& src) const {
+    bool InDomain(const Slice& src) const override {
       return rep_->InDomain(src);
     }
-    bool InRange(const Slice& src) const {
-      return rep_->InRange(src);
-    }
+    bool InRange(const Slice& src) const override { return rep_->InRange(src); }
     static void DoNothing(void*) { }
   };
   Wrapper* wrapper = new Wrapper;

@@ -401,11 +401,12 @@ class SimpleSortedIndex : public Index {
     return BytewiseComparator();
   }
 
-  virtual bool UsefulIndex(const Filter& filter) const {
+  virtual bool UsefulIndex(const Filter& filter) const override {
     return filter.GetInterval(field_) != nullptr;
   }
   // REQUIRES: UsefulIndex(filter) == true
-  virtual Direction Position(const Filter& filter, Iterator* iterator) const {
+  virtual Direction Position(const Filter& filter,
+                             Iterator* iterator) const override {
     auto interval = filter.GetInterval(field_);
     assert(interval != nullptr);  // because index is useful
     Direction direction;
@@ -428,9 +429,9 @@ class SimpleSortedIndex : public Index {
     return direction;
   }
   // REQUIRES: UsefulIndex(filter) == true
-  virtual bool ShouldContinueLooking(const Filter& filter,
-                                     const Slice& secondary_key,
-                                     Index::Direction direction) const {
+  virtual bool ShouldContinueLooking(
+      const Filter& filter, const Slice& secondary_key,
+      Index::Direction direction) const override {
     auto interval = filter.GetInterval(field_);
     assert(interval != nullptr);  // because index is useful
 
@@ -521,17 +522,17 @@ class CursorWithFilterIndexed : public Cursor {
   virtual bool Valid() const override {
     return valid_ && secondary_index_iter_->Valid();
   }
-  virtual void Next() {
+  virtual void Next() override {
     assert(Valid());
     Advance();
     AdvanceUntilSatisfies();
   }
   // temporary object. copy it if you want to use it
-  virtual const JSONDocument& document() const {
+  virtual const JSONDocument& document() const override {
     assert(Valid());
     return *current_json_document_;
   }
-  virtual Status status() const {
+  virtual Status status() const override {
     if (!status_.ok()) {
       return status_;
     }
@@ -726,7 +727,7 @@ class DocumentDBImpl : public DocumentDB {
   }
 
   virtual Status CreateIndex(const WriteOptions& write_options,
-                             const IndexDescriptor& index) {
+                             const IndexDescriptor& index) override {
     auto index_obj =
         Index::CreateIndexFromDescription(*index.description, index.name);
     if (index_obj == nullptr) {
@@ -769,7 +770,7 @@ class DocumentDBImpl : public DocumentDB {
     return DocumentDB::Write(write_options, &batch);
   }
 
-  virtual Status DropIndex(const std::string& name) {
+  virtual Status DropIndex(const std::string& name) override {
     MutexLock l(&write_mutex_);
 
     auto index_iter = name_to_index_.find(name);
@@ -795,7 +796,7 @@ class DocumentDBImpl : public DocumentDB {
   }
 
   virtual Status Insert(const WriteOptions& options,
-                        const JSONDocument& document) {
+                        const JSONDocument& document) override {
     WriteBatch batch;
 
     if (!document.IsObject()) {
@@ -888,7 +889,7 @@ class DocumentDBImpl : public DocumentDB {
   virtual Status Update(const ReadOptions& read_options,
                         const WriteOptions& write_options,
                         const JSONDocument& filter,
-                        const JSONDocument& updates) {
+                        const JSONDocument& updates) override {
     MutexLock l(&write_mutex_);
     std::unique_ptr<Cursor> cursor(
         ConstructFilterCursor(read_options, nullptr, filter));

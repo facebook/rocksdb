@@ -175,7 +175,7 @@ class SequentialFileImpl : public SequentialFile {
     file_->Unref();
   }
 
-  virtual Status Read(size_t n, Slice* result, char* scratch) {
+  virtual Status Read(size_t n, Slice* result, char* scratch) override {
     Status s = file_->Read(pos_, n, result, scratch);
     if (s.ok()) {
       pos_ += result->size();
@@ -183,7 +183,7 @@ class SequentialFileImpl : public SequentialFile {
     return s;
   }
 
-  virtual Status Skip(uint64_t n) {
+  virtual Status Skip(uint64_t n) override {
     if (pos_ > file_->Size()) {
       return Status::IOError("pos_ > file_->Size()");
     }
@@ -211,7 +211,7 @@ class RandomAccessFileImpl : public RandomAccessFile {
   }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const {
+                      char* scratch) const override {
     return file_->Read(offset, n, result, scratch);
   }
 
@@ -229,13 +229,13 @@ class WritableFileImpl : public WritableFile {
     file_->Unref();
   }
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     return file_->Append(data);
   }
 
-  virtual Status Close() { return Status::OK(); }
-  virtual Status Flush() { return Status::OK(); }
-  virtual Status Sync() { return Status::OK(); }
+  virtual Status Close() override { return Status::OK(); }
+  virtual Status Flush() override { return Status::OK(); }
+  virtual Status Sync() override { return Status::OK(); }
 
  private:
   FileState* file_;
@@ -243,7 +243,7 @@ class WritableFileImpl : public WritableFile {
 
 class InMemoryDirectory : public Directory {
  public:
-  virtual Status Fsync() { return Status::OK(); }
+  virtual Status Fsync() override { return Status::OK(); }
 };
 
 class InMemoryEnv : public EnvWrapper {
@@ -259,7 +259,7 @@ class InMemoryEnv : public EnvWrapper {
   // Partial implementation of the Env interface.
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& soptions) {
+                                   const EnvOptions& soptions) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     if (file_map_.find(fname) == file_map_.end()) {
@@ -273,7 +273,7 @@ class InMemoryEnv : public EnvWrapper {
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& soptions) {
+                                     const EnvOptions& soptions) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     if (file_map_.find(nfname) == file_map_.end()) {
@@ -287,7 +287,7 @@ class InMemoryEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) {
+                                 const EnvOptions& soptions) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     if (file_map_.find(nfname) != file_map_.end()) {
@@ -303,19 +303,19 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) {
+                              unique_ptr<Directory>* result) override {
     result->reset(new InMemoryDirectory());
     return Status::OK();
   }
 
-  virtual bool FileExists(const std::string& fname) {
+  virtual bool FileExists(const std::string& fname) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     return file_map_.find(nfname) != file_map_.end();
   }
 
   virtual Status GetChildren(const std::string& dir,
-                             std::vector<std::string>* result) {
+                             std::vector<std::string>* result) override {
     MutexLock lock(&mutex_);
     result->clear();
 
@@ -340,7 +340,7 @@ class InMemoryEnv : public EnvWrapper {
     file_map_.erase(fname);
   }
 
-  virtual Status DeleteFile(const std::string& fname) {
+  virtual Status DeleteFile(const std::string& fname) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
     if (file_map_.find(nfname) == file_map_.end()) {
@@ -351,19 +351,20 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
-  virtual Status CreateDir(const std::string& dirname) {
+  virtual Status CreateDir(const std::string& dirname) override {
     return Status::OK();
   }
 
-  virtual Status CreateDirIfMissing(const std::string& dirname) {
+  virtual Status CreateDirIfMissing(const std::string& dirname) override {
     return Status::OK();
   }
 
-  virtual Status DeleteDir(const std::string& dirname) {
+  virtual Status DeleteDir(const std::string& dirname) override {
     return Status::OK();
   }
 
-  virtual Status GetFileSize(const std::string& fname, uint64_t* file_size) {
+  virtual Status GetFileSize(const std::string& fname,
+                             uint64_t* file_size) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
 
@@ -376,11 +377,12 @@ class InMemoryEnv : public EnvWrapper {
   }
 
   virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* time) {
+                                         uint64_t* time) override {
     return Status::NotSupported("getFileMTime", "Not supported in MemEnv");
   }
 
-  virtual Status RenameFile(const std::string& src, const std::string& dest) {
+  virtual Status RenameFile(const std::string& src,
+                            const std::string& dest) override {
     std::string nsrc = NormalizeFileName(src);
     std::string ndest = NormalizeFileName(dest);
     MutexLock lock(&mutex_);
@@ -394,17 +396,17 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
-  virtual Status LockFile(const std::string& fname, FileLock** lock) {
+  virtual Status LockFile(const std::string& fname, FileLock** lock) override {
     *lock = new FileLock;
     return Status::OK();
   }
 
-  virtual Status UnlockFile(FileLock* lock) {
+  virtual Status UnlockFile(FileLock* lock) override {
     delete lock;
     return Status::OK();
   }
 
-  virtual Status GetTestDirectory(std::string* path) {
+  virtual Status GetTestDirectory(std::string* path) override {
     *path = "/test";
     return Status::OK();
   }

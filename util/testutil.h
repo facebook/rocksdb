@@ -45,7 +45,7 @@ class ErrorEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) {
+                                 const EnvOptions& soptions) override {
     result->reset();
     if (writable_file_error_) {
       ++num_writable_file_errors_;
@@ -88,9 +88,11 @@ class SimpleSuffixReverseComparator : public Comparator {
  public:
   SimpleSuffixReverseComparator() {}
 
-  virtual const char* Name() const { return "SimpleSuffixReverseComparator"; }
+  virtual const char* Name() const override {
+    return "SimpleSuffixReverseComparator";
+  }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     Slice prefix_a = Slice(a.data(), 8);
     Slice prefix_b = Slice(b.data(), 8);
     int prefix_comp = prefix_a.compare(prefix_b);
@@ -103,9 +105,9 @@ class SimpleSuffixReverseComparator : public Comparator {
     }
   }
   virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const {}
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 // Returns a user key comparator that can be used for comparing two uint64_t

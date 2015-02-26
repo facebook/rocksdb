@@ -66,24 +66,23 @@ std::string Reverse(const Slice& key) {
 
 class ReverseKeyComparator : public Comparator {
  public:
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "rocksdb.ReverseBytewiseComparator";
   }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     return BytewiseComparator()->Compare(Reverse(a), Reverse(b));
   }
 
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const {
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {
     std::string s = Reverse(*start);
     std::string l = Reverse(limit);
     BytewiseComparator()->FindShortestSeparator(&s, l);
     *start = Reverse(s);
   }
 
-  virtual void FindShortSuccessor(std::string* key) const {
+  virtual void FindShortSuccessor(std::string* key) const override {
     std::string s = Reverse(*key);
     BytewiseComparator()->FindShortSuccessor(&s);
     *key = Reverse(s);
@@ -122,11 +121,11 @@ class StringSink: public WritableFile {
 
   const std::string& contents() const { return contents_; }
 
-  virtual Status Close() { return Status::OK(); }
-  virtual Status Flush() { return Status::OK(); }
-  virtual Status Sync() { return Status::OK(); }
+  virtual Status Close() override { return Status::OK(); }
+  virtual Status Flush() override { return Status::OK(); }
+  virtual Status Sync() override { return Status::OK(); }
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     contents_.append(data.data(), data.size());
     return Status::OK();
   }
@@ -148,7 +147,7 @@ class StringSource: public RandomAccessFile {
   uint64_t Size() const { return contents_.size(); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                       char* scratch) const {
+                      char* scratch) const override {
     if (offset > contents_.size()) {
       return Status::InvalidArgument("invalid Read offset");
     }
@@ -164,7 +163,7 @@ class StringSource: public RandomAccessFile {
     return Status::OK();
   }
 
-  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
     if (max_size < 20) {
       return 0;
     }
@@ -253,7 +252,7 @@ class BlockConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) {
+                            const KVMap& kv_map) override {
     delete block_;
     block_ = nullptr;
     BlockBuilder builder(table_options.block_restart_interval);
@@ -269,7 +268,7 @@ class BlockConstructor: public Constructor {
     block_ = new Block(std::move(contents));
     return Status::OK();
   }
-  virtual Iterator* NewIterator() const {
+  virtual Iterator* NewIterator() const override {
     return block_->NewIterator(comparator_);
   }
 
@@ -293,19 +292,19 @@ class KeyConvertingIterator: public Iterator {
       delete iter_;
     }
   }
-  virtual bool Valid() const { return iter_->Valid(); }
-  virtual void Seek(const Slice& target) {
+  virtual bool Valid() const override { return iter_->Valid(); }
+  virtual void Seek(const Slice& target) override {
     ParsedInternalKey ikey(target, kMaxSequenceNumber, kTypeValue);
     std::string encoded;
     AppendInternalKey(&encoded, ikey);
     iter_->Seek(encoded);
   }
-  virtual void SeekToFirst() { iter_->SeekToFirst(); }
-  virtual void SeekToLast() { iter_->SeekToLast(); }
-  virtual void Next() { iter_->Next(); }
-  virtual void Prev() { iter_->Prev(); }
+  virtual void SeekToFirst() override { iter_->SeekToFirst(); }
+  virtual void SeekToLast() override { iter_->SeekToLast(); }
+  virtual void Next() override { iter_->Next(); }
+  virtual void Prev() override { iter_->Prev(); }
 
-  virtual Slice key() const {
+  virtual Slice key() const override {
     assert(Valid());
     ParsedInternalKey parsed_key;
     if (!ParseInternalKey(iter_->key(), &parsed_key)) {
@@ -315,8 +314,8 @@ class KeyConvertingIterator: public Iterator {
     return parsed_key.user_key;
   }
 
-  virtual Slice value() const { return iter_->value(); }
-  virtual Status status() const {
+  virtual Slice value() const override { return iter_->value(); }
+  virtual Status status() const override {
     return status_.ok() ? iter_->status() : status_;
   }
 
@@ -342,7 +341,7 @@ class TableConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) {
+                            const KVMap& kv_map) override {
     Reset();
     sink_.reset(new StringSink());
     unique_ptr<TableBuilder> builder;
@@ -375,7 +374,7 @@ class TableConstructor: public Constructor {
         sink_->contents().size(), &table_reader_);
   }
 
-  virtual Iterator* NewIterator() const {
+  virtual Iterator* NewIterator() const override {
     ReadOptions ro;
     Iterator* iter = table_reader_->NewIterator(ro);
     if (convert_to_internal_key_) {
@@ -446,7 +445,7 @@ class MemTableConstructor: public Constructor {
   virtual Status FinishImpl(const Options&, const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) {
+                            const KVMap& kv_map) override {
     delete memtable_->Unref();
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
@@ -460,7 +459,7 @@ class MemTableConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual Iterator* NewIterator() const {
+  virtual Iterator* NewIterator() const override {
     return new KeyConvertingIterator(
         memtable_->NewIterator(ReadOptions(), &arena_), true);
   }
@@ -493,7 +492,7 @@ class DBConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) {
+                            const KVMap& kv_map) override {
     delete db_;
     db_ = nullptr;
     NewDB();
@@ -504,11 +503,11 @@ class DBConstructor: public Constructor {
     }
     return Status::OK();
   }
-  virtual Iterator* NewIterator() const {
+  virtual Iterator* NewIterator() const override {
     return db_->NewIterator(ReadOptions());
   }
 
-  virtual DB* db() const { return db_; }
+  virtual DB* db() const override { return db_; }
 
  private:
   void NewDB() {
@@ -679,11 +678,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
       prefix_len_(prefix_len) {
   }
 
-  virtual const char* Name() const {
-    return "rocksdb.FixedPrefix";
-  }
+  virtual const char* Name() const override { return "rocksdb.FixedPrefix"; }
 
-  virtual Slice Transform(const Slice& src) const {
+  virtual Slice Transform(const Slice& src) const override {
     assert(InDomain(src));
     if (src.size() < prefix_len_) {
       return src;
@@ -691,11 +688,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
     return Slice(src.data(), prefix_len_);
   }
 
-  virtual bool InDomain(const Slice& src) const {
-    return true;
-  }
+  virtual bool InDomain(const Slice& src) const override { return true; }
 
-  virtual bool InRange(const Slice& dst) const {
+  virtual bool InRange(const Slice& dst) const override {
     return (dst.size() <= prefix_len_);
   }
 };

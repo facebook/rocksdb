@@ -41,7 +41,7 @@ class AutoRollLogger : public Logger {
   }
 
   using Logger::Logv;
-  void Logv(const char* format, va_list ap);
+  void Logv(const char* format, va_list ap) override;
 
   // Write a header entry to the log. All header information will be written
   // again every time the log rolls over.
@@ -52,11 +52,9 @@ class AutoRollLogger : public Logger {
     return status_;
   }
 
-  size_t GetLogFileSize() const {
-    return logger_->GetLogFileSize();
-  }
+  size_t GetLogFileSize() const override { return logger_->GetLogFileSize(); }
 
-  void Flush() {
+  void Flush() override {
     if (logger_) {
       logger_->Flush();
     }

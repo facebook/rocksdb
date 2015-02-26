@@ -23,17 +23,16 @@ class BytewiseComparatorImpl : public Comparator {
  public:
   BytewiseComparatorImpl() { }
 
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "leveldb.BytewiseComparator";
   }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     return a.compare(b);
   }
 
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const {
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {
     // Find length of common prefix
     size_t min_length = std::min(start->size(), limit.size());
     size_t diff_index = 0;
@@ -55,7 +54,7 @@ class BytewiseComparatorImpl : public Comparator {
     }
   }
 
-  virtual void FindShortSuccessor(std::string* key) const {
+  virtual void FindShortSuccessor(std::string* key) const override {
     // Find first character that can be incremented
     size_t n = key->size();
     for (size_t i = 0; i < n; i++) {
@@ -74,11 +73,11 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
  public:
   ReverseBytewiseComparatorImpl() { }
 
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "rocksdb.ReverseBytewiseComparator";
   }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     return -a.compare(b);
   }
 };

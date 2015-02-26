@@ -55,8 +55,8 @@ class LogTest {
       reader_contents_ = Slice(contents_.data(), 0);
     };
 
-    virtual Status Close() { return Status::OK(); }
-    virtual Status Flush() {
+    virtual Status Close() override { return Status::OK(); }
+    virtual Status Flush() override {
       ASSERT_TRUE(reader_contents_.size() <= last_flush_);
       size_t offset = last_flush_ - reader_contents_.size();
       reader_contents_ = Slice(
@@ -66,8 +66,8 @@ class LogTest {
 
       return Status::OK();
     }
-    virtual Status Sync() { return Status::OK(); }
-    virtual Status Append(const Slice& slice) {
+    virtual Status Sync() override { return Status::OK(); }
+    virtual Status Append(const Slice& slice) override {
       contents_.append(slice.data(), slice.size());
       return Status::OK();
     }
@@ -99,7 +99,7 @@ class LogTest {
       force_eof_position_(0),
       returned_partial_(false) { }
 
-    virtual Status Read(size_t n, Slice* result, char* scratch) {
+    virtual Status Read(size_t n, Slice* result, char* scratch) override {
       ASSERT_TRUE(!returned_partial_) << "must not Read() after eof/error";
 
       if (force_error_) {
@@ -138,7 +138,7 @@ class LogTest {
       return Status::OK();
     }
 
-    virtual Status Skip(uint64_t n) {
+    virtual Status Skip(uint64_t n) override {
       if (n > contents_.size()) {
         contents_.clear();
         return Status::NotFound("in-memory file skipepd past end");
@@ -156,7 +156,7 @@ class LogTest {
     std::string message_;
 
     ReportCollector() : dropped_bytes_(0) { }
-    virtual void Corruption(size_t bytes, const Status& status) {
+    virtual void Corruption(size_t bytes, const Status& status) override {
       dropped_bytes_ += bytes;
       message_.append(status.ToString());
     }

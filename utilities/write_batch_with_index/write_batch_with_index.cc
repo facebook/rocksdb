@@ -139,7 +139,7 @@ class BaseDeltaIterator : public Iterator {
                             : delta_iterator_->Entry().value;
   }
 
-  Status status() const {
+  Status status() const override {
     if (!status_.ok()) {
       return status_;
     }
@@ -358,7 +358,7 @@ class WBWIIteratorImpl : public WBWIIterator {
 
   virtual bool Valid() const override { return valid_; }
 
-  virtual void SeekToFirst() {
+  virtual void SeekToFirst() override {
     valid_ = true;
     WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
                                       column_family_id_);
@@ -366,7 +366,7 @@ class WBWIIteratorImpl : public WBWIIterator {
     ReadEntry();
   }
 
-  virtual void SeekToLast() {
+  virtual void SeekToLast() override {
     valid_ = true;
     WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
                                       column_family_id_ + 1);

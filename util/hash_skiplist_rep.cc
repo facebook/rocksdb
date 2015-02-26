@@ -94,33 +94,34 @@ class HashSkipListRep : public MemTableRep {
     }
 
     // Returns true iff the iterator is positioned at a valid node.
-    virtual bool Valid() const {
+    virtual bool Valid() const override {
       return list_ != nullptr && iter_.Valid();
     }
 
     // Returns the key at the current position.
     // REQUIRES: Valid()
-    virtual const char* key() const {
+    virtual const char* key() const override {
       assert(Valid());
       return iter_.key();
     }
 
     // Advances to the next position.
     // REQUIRES: Valid()
-    virtual void Next() {
+    virtual void Next() override {
       assert(Valid());
       iter_.Next();
     }
 
     // Advances to the previous position.
     // REQUIRES: Valid()
-    virtual void Prev() {
+    virtual void Prev() override {
       assert(Valid());
       iter_.Prev();
     }
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const Slice& internal_key, const char* memtable_key) {
+    virtual void Seek(const Slice& internal_key,
+                      const char* memtable_key) override {
       if (list_ != nullptr) {
         const char* encoded_key =
             (memtable_key != nullptr) ?
@@ -131,7 +132,7 @@ class HashSkipListRep : public MemTableRep {
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToFirst() {
+    virtual void SeekToFirst() override {
       if (list_ != nullptr) {
         iter_.SeekToFirst();
       }
@@ -139,7 +140,7 @@ class HashSkipListRep : public MemTableRep {
 
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToLast() {
+    virtual void SeekToLast() override {
       if (list_ != nullptr) {
         iter_.SeekToLast();
       }
@@ -173,7 +174,7 @@ class HashSkipListRep : public MemTableRep {
         memtable_rep_(memtable_rep) {}
 
     // Advance to the first entry with a key >= target
-    virtual void Seek(const Slice& k, const char* memtable_key) {
+    virtual void Seek(const Slice& k, const char* memtable_key) override {
       auto transformed = memtable_rep_.transform_->Transform(ExtractUserKey(k));
       Reset(memtable_rep_.GetBucket(transformed));
       HashSkipListRep::Iterator::Seek(k, memtable_key);
@@ -181,7 +182,7 @@ class HashSkipListRep : public MemTableRep {
 
     // Position at the first entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToFirst() {
+    virtual void SeekToFirst() override {
       // Prefix iterator does not support total order.
       // We simply set the iterator to invalid state
       Reset(nullptr);
@@ -189,7 +190,7 @@ class HashSkipListRep : public MemTableRep {
 
     // Position at the last entry in collection.
     // Final state of iterator is Valid() iff collection is not empty.
-    virtual void SeekToLast() {
+    virtual void SeekToLast() override {
       // Prefix iterator does not support total order.
       // We simply set the iterator to invalid state
       Reset(nullptr);
@@ -204,19 +205,18 @@ class HashSkipListRep : public MemTableRep {
     // instantiating an empty bucket over which to iterate.
    public:
     EmptyIterator() { }
-    virtual bool Valid() const {
-      return false;
-    }
-    virtual const char* key() const {
+    virtual bool Valid() const override { return false; }
+    virtual const char* key() const override {
       assert(false);
       return nullptr;
     }
-    virtual void Next() { }
-    virtual void Prev() { }
+    virtual void Next() override {}
+    virtual void Prev() override {}
     virtual void Seek(const Slice& internal_key,
-                      const char* memtable_key) { }
-    virtual void SeekToFirst() { }
-    virtual void SeekToLast() { }
+                      const char* memtable_key) override {}
+    virtual void SeekToFirst() override {}
+    virtual void SeekToLast() override {}
+
    private:
   };
 };

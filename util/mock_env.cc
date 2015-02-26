@@ -178,7 +178,7 @@ class MockSequentialFile : public SequentialFile {
     file_->Unref();
   }
 
-  virtual Status Read(size_t n, Slice* result, char* scratch) {
+  virtual Status Read(size_t n, Slice* result, char* scratch) override {
     Status s = file_->Read(pos_, n, result, scratch);
     if (s.ok()) {
       pos_ += result->size();
@@ -186,7 +186,7 @@ class MockSequentialFile : public SequentialFile {
     return s;
   }
 
-  virtual Status Skip(uint64_t n) {
+  virtual Status Skip(uint64_t n) override {
     if (pos_ > file_->Size()) {
       return Status::IOError("pos_ > file_->Size()");
     }
@@ -214,7 +214,7 @@ class MockRandomAccessFile : public RandomAccessFile {
   }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const {
+                      char* scratch) const override {
     return file_->Read(offset, n, result, scratch);
   }
 
@@ -234,7 +234,7 @@ class MockWritableFile : public WritableFile {
     file_->Unref();
   }
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     uint64_t bytes_written = 0;
     while (bytes_written < data.size()) {
       auto bytes = RequestToken(data.size() - bytes_written);
@@ -247,21 +247,13 @@ class MockWritableFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Close() {
-    return file_->Fsync();
-  }
+  virtual Status Close() override { return file_->Fsync(); }
 
-  virtual Status Flush() {
-    return Status::OK();
-  }
+  virtual Status Flush() override { return Status::OK(); }
 
-  virtual Status Sync() {
-    return file_->Fsync();
-  }
+  virtual Status Sync() override { return file_->Fsync(); }
 
-  virtual uint64_t GetFileSize() {
-    return file_->Size();
-  }
+  virtual uint64_t GetFileSize() override { return file_->Size(); }
 
  private:
   inline size_t RequestToken(size_t bytes) {
@@ -279,7 +271,7 @@ class MockWritableFile : public WritableFile {
 
 class MockEnvDirectory : public Directory {
  public:
-  virtual Status Fsync() { return Status::OK(); }
+  virtual Status Fsync() override { return Status::OK(); }
 };
 
 class MockEnvFileLock : public FileLock {
@@ -316,7 +308,7 @@ class TestMemLogger : public Logger {
   virtual ~TestMemLogger() {
   }
 
-  virtual void Flush() {
+  virtual void Flush() override {
     if (flush_pending_) {
       flush_pending_ = false;
     }
@@ -324,7 +316,7 @@ class TestMemLogger : public Logger {
   }
 
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) {
+  virtual void Logv(const char* format, va_list ap) override {
     // We try twice: the first time with a fixed-size stack allocated buffer,
     // and the second time with a much larger dynamically allocated buffer.
     char buffer[500];
@@ -396,9 +388,7 @@ class TestMemLogger : public Logger {
       break;
     }
   }
-  size_t GetLogFileSize() const {
-    return log_size_;
-  }
+  size_t GetLogFileSize() const override { return log_size_; }
 };
 
 }  // Anonymous namespace

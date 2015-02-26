@@ -64,17 +64,17 @@ class PlainTableReader: public TableReader {
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
-  void Prepare(const Slice& target);
+  void Prepare(const Slice& target) override;
 
   Status Get(const ReadOptions&, const Slice& key,
              GetContext* get_context) override;
 
-  uint64_t ApproximateOffsetOf(const Slice& key);
+  uint64_t ApproximateOffsetOf(const Slice& key) override;
 
   uint32_t GetIndexSize() const { return index_.GetIndexSize(); }
-  void SetupForCompaction();
+  void SetupForCompaction() override;
 
-  std::shared_ptr<const TableProperties> GetTableProperties() const {
+  std::shared_ptr<const TableProperties> GetTableProperties() const override {
     return table_properties_;
   }
 

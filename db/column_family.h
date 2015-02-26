@@ -55,7 +55,7 @@ class ColumnFamilyHandleImpl : public ColumnFamilyHandle {
   virtual ColumnFamilyData* cfd() const { return cfd_; }
   virtual const Comparator* user_comparator() const;
 
-  virtual uint32_t GetID() const;
+  virtual uint32_t GetID() const override;
   virtual const std::string& GetName() const override;
 
  private:

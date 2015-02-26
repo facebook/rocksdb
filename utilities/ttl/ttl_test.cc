@@ -29,7 +29,7 @@ class SpecialTimeEnv : public EnvWrapper {
   }
 
   void Sleep(int64_t sleep_time) { current_time_ += sleep_time; }
-  virtual Status GetCurrentTime(int64_t* current_time) {
+  virtual Status GetCurrentTime(int64_t* current_time) override {
     *current_time = current_time_;
     return Status::OK();
   }

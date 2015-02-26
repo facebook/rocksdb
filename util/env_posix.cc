@@ -179,7 +179,7 @@ class PosixSequentialFile: public SequentialFile {
   }
   virtual ~PosixSequentialFile() { fclose(file_); }
 
-  virtual Status Read(size_t n, Slice* result, char* scratch) {
+  virtual Status Read(size_t n, Slice* result, char* scratch) override {
     Status s;
     size_t r = 0;
     do {
@@ -206,14 +206,14 @@ class PosixSequentialFile: public SequentialFile {
     return s;
   }
 
-  virtual Status Skip(uint64_t n) {
+  virtual Status Skip(uint64_t n) override {
     if (fseek(file_, static_cast<long int>(n), SEEK_CUR)) {
       return IOError(filename_, errno);
     }
     return Status::OK();
   }
 
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t offset, size_t length) override {
 #ifndef OS_LINUX
     return Status::OK();
 #else
@@ -243,7 +243,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
   virtual ~PosixRandomAccessFile() { close(fd_); }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const {
+                      char* scratch) const override {
     Status s;
     ssize_t r = -1;
     size_t left = n;
@@ -276,12 +276,12 @@ class PosixRandomAccessFile: public RandomAccessFile {
   }
 
 #ifdef OS_LINUX
-  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
     return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
 
-  virtual void Hint(AccessPattern pattern) {
+  virtual void Hint(AccessPattern pattern) override {
     switch(pattern) {
       case NORMAL:
         Fadvise(fd_, 0, 0, POSIX_FADV_NORMAL);
@@ -304,7 +304,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
     }
   }
 
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t offset, size_t length) override {
 #ifndef OS_LINUX
     return Status::OK();
 #else
@@ -345,7 +345,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
   }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const {
+                      char* scratch) const override {
     Status s;
     if (offset + n > length_) {
       *result = Slice();
@@ -355,7 +355,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
     }
     return s;
   }
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t offset, size_t length) override {
 #ifndef OS_LINUX
     return Status::OK();
 #else
@@ -488,7 +488,7 @@ class PosixMmapFile : public WritableFile {
     }
   }
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
     TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
@@ -520,7 +520,7 @@ class PosixMmapFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Close() {
+  virtual Status Close() override {
     Status s;
     size_t unused = limit_ - dst_;
 
@@ -550,12 +550,12 @@ class PosixMmapFile : public WritableFile {
     return s;
   }
 
-  virtual Status Flush() {
+  virtual Status Flush() override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     return Status::OK();
   }
 
-  virtual Status Sync() {
+  virtual Status Sync() override {
     Status s;
 
     if (pending_sync_) {
@@ -587,7 +587,7 @@ class PosixMmapFile : public WritableFile {
   /**
    * Flush data as well as metadata to stable storage.
    */
-  virtual Status Fsync() {
+  virtual Status Fsync() override {
     if (pending_sync_) {
       // Some unmapped data was not synced
       TEST_KILL_RANDOM(rocksdb_kill_odds);
@@ -607,12 +607,12 @@ class PosixMmapFile : public WritableFile {
    * size that is returned from the filesystem because we use mmap
    * to extend file by map_size every time.
    */
-  virtual uint64_t GetFileSize() {
+  virtual uint64_t GetFileSize() override {
     size_t used = dst_ - base_;
     return file_offset_ + used;
   }
 
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t offset, size_t length) override {
 #ifndef OS_LINUX
     return Status::OK();
 #else
@@ -626,7 +626,7 @@ class PosixMmapFile : public WritableFile {
   }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual Status Allocate(off_t offset, off_t len) {
+  virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
@@ -683,7 +683,7 @@ class PosixWritableFile : public WritableFile {
     }
   }
 
-  virtual Status Append(const Slice& data) {
+  virtual Status Append(const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
     Status s;
@@ -732,7 +732,7 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Close() {
+  virtual Status Close() override {
     Status s;
     s = Flush(); // flush cache to OS
     if (!s.ok()) {
@@ -775,7 +775,7 @@ class PosixWritableFile : public WritableFile {
   }
 
   // write out the cached data to the OS cache
-  virtual Status Flush() {
+  virtual Status Flush() override {
     TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
     size_t left = cursize_;
     char* src = buf_.get();
@@ -807,7 +807,7 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Sync() {
+  virtual Status Sync() override {
     Status s = Flush();
     if (!s.ok()) {
       return s;
@@ -821,7 +821,7 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual Status Fsync() {
+  virtual Status Fsync() override {
     Status s = Flush();
     if (!s.ok()) {
       return s;
@@ -836,11 +836,9 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
-  virtual uint64_t GetFileSize() {
-    return filesize_;
-  }
+  virtual uint64_t GetFileSize() override { return filesize_; }
 
-  virtual Status InvalidateCache(size_t offset, size_t length) {
+  virtual Status InvalidateCache(size_t offset, size_t length) override {
 #ifndef OS_LINUX
     return Status::OK();
 #else
@@ -854,7 +852,7 @@ class PosixWritableFile : public WritableFile {
   }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual Status Allocate(off_t offset, off_t len) {
+  virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
@@ -865,14 +863,14 @@ class PosixWritableFile : public WritableFile {
     }
   }
 
-  virtual Status RangeSync(off_t offset, off_t nbytes) {
+  virtual Status RangeSync(off_t offset, off_t nbytes) override {
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {
       return IOError(filename_, errno);
     }
   }
-  virtual size_t GetUniqueId(char* id, size_t max_size) const {
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
     return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
@@ -916,7 +914,7 @@ class PosixRandomRWFile : public RandomRWFile {
     }
   }
 
-  virtual Status Write(uint64_t offset, const Slice& data) {
+  virtual Status Write(uint64_t offset, const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
     Status s;
@@ -942,7 +940,7 @@ class PosixRandomRWFile : public RandomRWFile {
   }
 
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const {
+                      char* scratch) const override {
     Status s;
     ssize_t r = -1;
     size_t left = n;
@@ -967,7 +965,7 @@ class PosixRandomRWFile : public RandomRWFile {
     return s;
   }
 
-  virtual Status Close() {
+  virtual Status Close() override {
     Status s = Status::OK();
     if (fd_ >= 0 && close(fd_) < 0) {
       s = IOError(filename_, errno);
@@ -976,7 +974,7 @@ class PosixRandomRWFile : public RandomRWFile {
     return s;
   }
 
-  virtual Status Sync() {
+  virtual Status Sync() override {
     if (pending_sync_ && fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
     }
@@ -984,7 +982,7 @@ class PosixRandomRWFile : public RandomRWFile {
     return Status::OK();
   }
 
-  virtual Status Fsync() {
+  virtual Status Fsync() override {
     if (pending_fsync_ && fsync(fd_) < 0) {
       return IOError(filename_, errno);
     }
@@ -994,7 +992,7 @@ class PosixRandomRWFile : public RandomRWFile {
   }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual Status Allocate(off_t offset, off_t len) {
+  virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
@@ -1014,7 +1012,7 @@ class PosixDirectory : public Directory {
     close(fd_);
   }
 
-  virtual Status Fsync() {
+  virtual Status Fsync() override {
     if (fsync(fd_) == -1) {
       return IOError("directory", errno);
     }
@@ -1100,7 +1098,7 @@ class PosixEnv : public Env {
 
   virtual Status NewSequentialFile(const std::string& fname,
                                    unique_ptr<SequentialFile>* result,
-                                   const EnvOptions& options) {
+                                   const EnvOptions& options) override {
     result->reset();
     FILE* f = nullptr;
     do {
@@ -1119,7 +1117,7 @@ class PosixEnv : public Env {
 
   virtual Status NewRandomAccessFile(const std::string& fname,
                                      unique_ptr<RandomAccessFile>* result,
-                                     const EnvOptions& options) {
+                                     const EnvOptions& options) override {
     result->reset();
     Status s;
     int fd = open(fname.c_str(), O_RDONLY);
@@ -1150,7 +1148,7 @@ class PosixEnv : public Env {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) {
+                                 const EnvOptions& options) override {
     result->reset();
     Status s;
     int fd = -1;
@@ -1188,7 +1186,7 @@ class PosixEnv : public Env {
 
   virtual Status NewRandomRWFile(const std::string& fname,
                                  unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options) {
+                                 const EnvOptions& options) override {
     result->reset();
     // no support for mmap yet
     if (options.use_mmap_writes || options.use_mmap_reads) {
@@ -1206,7 +1204,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) {
+                              unique_ptr<Directory>* result) override {
     result->reset();
     const int fd = open(name.c_str(), 0);
     if (fd < 0) {
@@ -1217,12 +1215,12 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  virtual bool FileExists(const std::string& fname) {
+  virtual bool FileExists(const std::string& fname) override {
     return access(fname.c_str(), F_OK) == 0;
   }
 
   virtual Status GetChildren(const std::string& dir,
-                             std::vector<std::string>* result) {
+                             std::vector<std::string>* result) override {
     result->clear();
     DIR* d = opendir(dir.c_str());
     if (d == nullptr) {
@@ -1236,7 +1234,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  virtual Status DeleteFile(const std::string& fname) {
+  virtual Status DeleteFile(const std::string& fname) override {
     Status result;
     if (unlink(fname.c_str()) != 0) {
       result = IOError(fname, errno);
@@ -1244,7 +1242,7 @@ class PosixEnv : public Env {
     return result;
   };
 
-  virtual Status CreateDir(const std::string& name) {
+  virtual Status CreateDir(const std::string& name) override {
     Status result;
     if (mkdir(name.c_str(), 0755) != 0) {
       result = IOError(name, errno);
@@ -1252,7 +1250,7 @@ class PosixEnv : public Env {
     return result;
   };
 
-  virtual Status CreateDirIfMissing(const std::string& name) {
+  virtual Status CreateDirIfMissing(const std::string& name) override {
     Status result;
     if (mkdir(name.c_str(), 0755) != 0) {
       if (errno != EEXIST) {
@@ -1266,7 +1264,7 @@ class PosixEnv : public Env {
     return result;
   };
 
-  virtual Status DeleteDir(const std::string& name) {
+  virtual Status DeleteDir(const std::string& name) override {
     Status result;
     if (rmdir(name.c_str()) != 0) {
       result = IOError(name, errno);
@@ -1274,7 +1272,8 @@ class PosixEnv : public Env {
     return result;
   };
 
-  virtual Status GetFileSize(const std::string& fname, uint64_t* size) {
+  virtual Status GetFileSize(const std::string& fname,
+                             uint64_t* size) override {
     Status s;
     struct stat sbuf;
     if (stat(fname.c_str(), &sbuf) != 0) {
@@ -1287,7 +1286,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status GetFileModificationTime(const std::string& fname,
-                                         uint64_t* file_mtime) {
+                                         uint64_t* file_mtime) override {
     struct stat s;
     if (stat(fname.c_str(), &s) !=0) {
       return IOError(fname, errno);
@@ -1295,7 +1294,8 @@ class PosixEnv : public Env {
     *file_mtime = static_cast<uint64_t>(s.st_mtime);
     return Status::OK();
   }
-  virtual Status RenameFile(const std::string& src, const std::string& target) {
+  virtual Status RenameFile(const std::string& src,
+                            const std::string& target) override {
     Status result;
     if (rename(src.c_str(), target.c_str()) != 0) {
       result = IOError(src, errno);
@@ -1303,7 +1303,8 @@ class PosixEnv : public Env {
     return result;
   }
 
-  virtual Status LinkFile(const std::string& src, const std::string& target) {
+  virtual Status LinkFile(const std::string& src,
+                          const std::string& target) override {
     Status result;
     if (link(src.c_str(), target.c_str()) != 0) {
       if (errno == EXDEV) {
@@ -1314,7 +1315,7 @@ class PosixEnv : public Env {
     return result;
   }
 
-  virtual Status LockFile(const std::string& fname, FileLock** lock) {
+  virtual Status LockFile(const std::string& fname, FileLock** lock) override {
     *lock = nullptr;
     Status result;
     int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
@@ -1333,7 +1334,7 @@ class PosixEnv : public Env {
     return result;
   }
 
-  virtual Status UnlockFile(FileLock* lock) {
+  virtual Status UnlockFile(FileLock* lock) override {
     PosixFileLock* my_lock = reinterpret_cast<PosixFileLock*>(lock);
     Status result;
     if (LockOrUnlock(my_lock->filename, my_lock->fd_, false) == -1) {
@@ -1344,15 +1345,16 @@ class PosixEnv : public Env {
     return result;
   }
 
-  virtual void Schedule(void (*function)(void*), void* arg, Priority pri = LOW);
+  virtual void Schedule(void (*function)(void*), void* arg,
+                        Priority pri = LOW) override;
 
-  virtual void StartThread(void (*function)(void* arg), void* arg);
+  virtual void StartThread(void (*function)(void* arg), void* arg) override;
 
-  virtual void WaitForJoin();
+  virtual void WaitForJoin() override;
 
   virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const override;
 
-  virtual Status GetTestDirectory(std::string* result) {
+  virtual Status GetTestDirectory(std::string* result) override {
     const char* env = getenv("TEST_TMPDIR");
     if (env && env[0] != '\0') {
       *result = env;
@@ -1384,7 +1386,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) {
+                           shared_ptr<Logger>* result) override {
     FILE* f = fopen(fname.c_str(), "w");
     if (f == nullptr) {
       result->reset();
@@ -1397,21 +1399,19 @@ class PosixEnv : public Env {
     }
   }
 
-  virtual uint64_t NowMicros() {
+  virtual uint64_t NowMicros() override {
     return std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
   }
 
-  virtual uint64_t NowNanos() {
+  virtual uint64_t NowNanos() override {
     return std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
   }
 
-  virtual void SleepForMicroseconds(int micros) {
-    usleep(micros);
-  }
+  virtual void SleepForMicroseconds(int micros) override { usleep(micros); }
 
-  virtual Status GetHostName(char* name, uint64_t len) {
+  virtual Status GetHostName(char* name, uint64_t len) override {
     int ret = gethostname(name, static_cast<size_t>(len));
     if (ret < 0) {
       if (errno == EFAULT || errno == EINVAL)
@@ -1422,7 +1422,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  virtual Status GetCurrentTime(int64_t* unix_time) {
+  virtual Status GetCurrentTime(int64_t* unix_time) override {
     time_t ret = time(nullptr);
     if (ret == (time_t) -1) {
       return IOError("GetCurrentTime", errno);
@@ -1432,7 +1432,7 @@ class PosixEnv : public Env {
   }
 
   virtual Status GetAbsolutePath(const std::string& db_path,
-      std::string* output_path) {
+                                 std::string* output_path) override {
     if (db_path.find('/') == 0) {
       *output_path = db_path;
       return Status::OK();
@@ -1449,13 +1449,13 @@ class PosixEnv : public Env {
   }
 
   // Allow increasing the number of worker threads.
-  virtual void SetBackgroundThreads(int num, Priority pri) {
+  virtual void SetBackgroundThreads(int num, Priority pri) override {
     assert(pri >= Priority::LOW && pri <= Priority::HIGH);
     thread_pools_[pri].SetBackgroundThreads(num);
   }
 
   // Allow increasing the number of worker threads.
-  virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+  virtual void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
     assert(pri >= Priority::LOW && pri <= Priority::HIGH);
     thread_pools_[pri].IncBackgroundThreadsIfNeeded(num);
   }
@@ -1467,7 +1467,7 @@ class PosixEnv : public Env {
 #endif
   }
 
-  virtual std::string TimeToString(uint64_t secondsSince1970) {
+  virtual std::string TimeToString(uint64_t secondsSince1970) override {
     const time_t seconds = (time_t)secondsSince1970;
     struct tm t;
     int maxsize = 64;
@@ -1487,7 +1487,7 @@ class PosixEnv : public Env {
     return dummy;
   }
 
-  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const {
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
@@ -1497,7 +1497,8 @@ class PosixEnv : public Env {
     return optimized;
   }
 
-  EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const {
+  EnvOptions OptimizeForManifestWrite(
+      const EnvOptions& env_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
     optimized.fallocate_with_keep_size = true;

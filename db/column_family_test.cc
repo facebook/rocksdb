@@ -38,7 +38,7 @@ class EnvCounter : public EnvWrapper {
     return num_new_writable_file_;
   }
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) {
+                         const EnvOptions& soptions) override {
     ++num_new_writable_file_;
     return EnvWrapper::NewWritableFile(f, r, soptions);
   }
@@ -329,8 +329,8 @@ class ColumnFamilyTest {
 class DumbLogger : public Logger {
  public:
   using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) {}
-  virtual size_t GetLogFileSize() const { return 0; }
+  virtual void Logv(const char* format, va_list ap) override {}
+  virtual size_t GetLogFileSize() const override { return 0; }
 };
 
 TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {

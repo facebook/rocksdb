@@ -385,7 +385,7 @@ public:
 
   static void Help(string& ret);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
 private:
   bool null_from_;
@@ -404,7 +404,7 @@ class DBFileDumperCommand : public LDBCommand {
 
   static void Help(string& ret);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 };
 
 class DBDumperCommand: public LDBCommand {
@@ -416,7 +416,7 @@ public:
 
   static void Help(string& ret);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
 private:
   bool null_from_;
@@ -445,7 +445,7 @@ public:
 
   static void Help(string& ret);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
 private:
   bool has_from_;
@@ -476,9 +476,9 @@ public:
       const map<string, string>& options, const vector<string>& flags);
 
   static void Help(string& ret);
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
-  virtual Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB() override;
 
 private:
   bool create_if_missing_;
@@ -499,11 +499,9 @@ public:
       const map<string, string>& options, const vector<string>& flags);
 
   static void Help(string& ret);
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
-  virtual bool NoDBOpen() {
-    return true;
-  }
+  virtual bool NoDBOpen() override { return true; }
 
 private:
   bool verbose_;
@@ -522,9 +520,9 @@ class ListColumnFamiliesCommand : public LDBCommand {
                             const vector<string>& flags);
 
   static void Help(string& ret);
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
-  virtual bool NoDBOpen() { return true; }
+  virtual bool NoDBOpen() override { return true; }
 
  private:
   string dbname_;
@@ -537,13 +535,11 @@ public:
   ReduceDBLevelsCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB() override;
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
-  virtual bool NoDBOpen() {
-    return true;
-  }
+  virtual bool NoDBOpen() override { return true; }
 
   static void Help(string& msg);
 
@@ -568,9 +564,9 @@ public:
   ChangeCompactionStyleCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB() override;
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& msg);
 
@@ -589,12 +585,10 @@ public:
   WALDumperCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual bool  NoDBOpen() {
-    return true;
-  }
+  virtual bool NoDBOpen() override { return true; }
 
   static void Help(string& ret);
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
 private:
   bool print_header_;
@@ -614,7 +608,7 @@ public:
   GetCommand(const vector<string>& params, const map<string, string>& options,
       const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& ret);
 
@@ -629,7 +623,7 @@ public:
   ApproxSizeCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& ret);
 
@@ -645,11 +639,11 @@ public:
   BatchPutCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& ret);
 
-  virtual Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB() override;
 
 private:
   /**
@@ -665,7 +659,7 @@ public:
   ScanCommand(const vector<string>& params, const map<string, string>& options,
       const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& ret);
 
@@ -684,7 +678,7 @@ public:
   DeleteCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& ret);
 
@@ -699,11 +693,11 @@ public:
   PutCommand(const vector<string>& params, const map<string, string>& options,
       const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
   static void Help(string& ret);
 
-  virtual Options PrepareOptionsForOpenDB();
+  virtual Options PrepareOptionsForOpenDB() override;
 
 private:
   string key_;
@@ -723,7 +717,7 @@ public:
 
   static void Help(string& ret);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
 private:
   static const char* HELP_CMD;
@@ -739,11 +733,9 @@ public:
   CheckConsistencyCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags);
 
-  virtual void DoCommand();
+  virtual void DoCommand() override;
 
-  virtual bool NoDBOpen() {
-    return true;
-  }
+  virtual bool NoDBOpen() override { return true; }
 
   static void Help(string& ret);
 };

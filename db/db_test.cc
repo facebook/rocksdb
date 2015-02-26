@@ -202,7 +202,7 @@ class SpecialEnv : public EnvWrapper {
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& soptions) {
+                         const EnvOptions& soptions) override {
     class SSTableFile : public WritableFile {
      private:
       SpecialEnv* env_;
@@ -213,7 +213,7 @@ class SpecialEnv : public EnvWrapper {
           : env_(env),
             base_(std::move(base)) {
       }
-      Status Append(const Slice& data) {
+      Status Append(const Slice& data) override {
         if (env_->table_write_callback_) {
           (*env_->table_write_callback_)();
         }
@@ -227,16 +227,16 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
-      Status Close() { return base_->Close(); }
-      Status Flush() { return base_->Flush(); }
-      Status Sync() {
+      Status Close() override { return base_->Close(); }
+      Status Flush() override { return base_->Flush(); }
+      Status Sync() override {
         ++env_->sync_counter_;
         while (env_->delay_sstable_sync_.load(std::memory_order_acquire)) {
           env_->SleepForMicroseconds(100000);
         }
         return base_->Sync();
       }
-      void SetIOPriority(Env::IOPriority pri) {
+      void SetIOPriority(Env::IOPriority pri) override {
         base_->SetIOPriority(pri);
       }
     };
@@ -247,16 +247,16 @@ class SpecialEnv : public EnvWrapper {
      public:
       ManifestFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) { }
-      Status Append(const Slice& data) {
+      Status Append(const Slice& data) override {
         if (env_->manifest_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
         } else {
           return base_->Append(data);
         }
       }
-      Status Close() { return base_->Close(); }
-      Status Flush() { return base_->Flush(); }
-      Status Sync() {
+      Status Close() override { return base_->Close(); }
+      Status Flush() override { return base_->Flush(); }
+      Status Sync() override {
         ++env_->sync_counter_;
         if (env_->manifest_sync_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated sync error");
@@ -264,9 +264,7 @@ class SpecialEnv : public EnvWrapper {
           return base_->Sync();
         }
       }
-      uint64_t GetFileSize() {
-        return base_->GetFileSize();
-      }
+      uint64_t GetFileSize() override { return base_->GetFileSize(); }
     };
     class WalFile : public WritableFile {
      private:
@@ -275,7 +273,7 @@ class SpecialEnv : public EnvWrapper {
      public:
       WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {}
-      Status Append(const Slice& data) {
+      Status Append(const Slice& data) override {
         if (env_->log_write_error_.load(std::memory_order_acquire)) {
           return Status::IOError("simulated writer error");
         } else {
@@ -287,9 +285,9 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
-      Status Close() { return base_->Close(); }
-      Status Flush() { return base_->Flush(); }
-      Status Sync() {
+      Status Close() override { return base_->Close(); }
+      Status Flush() override { return base_->Flush(); }
+      Status Sync() override {
         ++env_->sync_counter_;
         return base_->Sync();
       }
@@ -328,7 +326,7 @@ class SpecialEnv : public EnvWrapper {
 
   Status NewRandomAccessFile(const std::string& f,
                              unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& soptions) {
+                             const EnvOptions& soptions) override {
     class CountingFile : public RandomAccessFile {
      private:
       unique_ptr<RandomAccessFile> target_;
@@ -339,7 +337,7 @@ class SpecialEnv : public EnvWrapper {
           : target_(std::move(target)), counter_(counter) {
       }
       virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                          char* scratch) const {
+                          char* scratch) const override {
         counter_->Increment();
         return target_->Read(offset, n, result, scratch);
       }
@@ -353,7 +351,7 @@ class SpecialEnv : public EnvWrapper {
   }
 
   Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
-                           const EnvOptions& soptions) {
+                           const EnvOptions& soptions) override {
     class CountingFile : public SequentialFile {
      private:
       unique_ptr<SequentialFile> target_;
@@ -363,11 +361,11 @@ class SpecialEnv : public EnvWrapper {
       CountingFile(unique_ptr<SequentialFile>&& target,
                    anon::AtomicCounter* counter)
           : target_(std::move(target)), counter_(counter) {}
-      virtual Status Read(size_t n, Slice* result, char* scratch) {
+      virtual Status Read(size_t n, Slice* result, char* scratch) override {
         counter_->Increment();
         return target_->Read(n, result, scratch);
       }
-      virtual Status Skip(uint64_t n) { return target_->Skip(n); }
+      virtual Status Skip(uint64_t n) override { return target_->Skip(n); }
     };
 
     Status s = target()->NewSequentialFile(f, r, soptions);
@@ -377,7 +375,7 @@ class SpecialEnv : public EnvWrapper {
     return s;
   }
 
-  virtual void SleepForMicroseconds(int micros) {
+  virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
     target()->SleepForMicroseconds(micros);
   }
@@ -6337,14 +6335,17 @@ TEST(DBTest, L0_CompactionBug_Issue44_b) {
 TEST(DBTest, ComparatorCheck) {
   class NewComparator : public Comparator {
    public:
-    virtual const char* Name() const { return "rocksdb.NewComparator"; }
-    virtual int Compare(const Slice& a, const Slice& b) const {
+    virtual const char* Name() const override {
+      return "rocksdb.NewComparator";
+    }
+    virtual int Compare(const Slice& a, const Slice& b) const override {
       return BytewiseComparator()->Compare(a, b);
     }
-    virtual void FindShortestSeparator(std::string* s, const Slice& l) const {
+    virtual void FindShortestSeparator(std::string* s,
+                                       const Slice& l) const override {
       BytewiseComparator()->FindShortestSeparator(s, l);
     }
-    virtual void FindShortSuccessor(std::string* key) const {
+    virtual void FindShortSuccessor(std::string* key) const override {
       BytewiseComparator()->FindShortSuccessor(key);
     }
   };
@@ -6367,15 +6368,18 @@ TEST(DBTest, ComparatorCheck) {
 TEST(DBTest, CustomComparator) {
   class NumberComparator : public Comparator {
    public:
-    virtual const char* Name() const { return "test.NumberComparator"; }
-    virtual int Compare(const Slice& a, const Slice& b) const {
+    virtual const char* Name() const override {
+      return "test.NumberComparator";
+    }
+    virtual int Compare(const Slice& a, const Slice& b) const override {
       return ToNumber(a) - ToNumber(b);
     }
-    virtual void FindShortestSeparator(std::string* s, const Slice& l) const {
+    virtual void FindShortestSeparator(std::string* s,
+                                       const Slice& l) const override {
       ToNumber(*s);     // Check format
       ToNumber(l);      // Check format
     }
-    virtual void FindShortSuccessor(std::string* key) const {
+    virtual void FindShortSuccessor(std::string* key) const override {
       ToNumber(*key);   // Check format
     }
    private:
@@ -7829,20 +7833,22 @@ TEST(DBTest, TransactionLogIteratorBlobs) {
   auto res = OpenTransactionLogIter(0)->GetBatch();
   struct Handler : public WriteBatch::Handler {
     std::string seen;
-    virtual Status PutCF(uint32_t cf, const Slice& key, const Slice& value) {
+    virtual Status PutCF(uint32_t cf, const Slice& key,
+                         const Slice& value) override {
       seen += "Put(" + ToString(cf) + ", " + key.ToString() + ", " +
               ToString(value.size()) + ")";
       return Status::OK();
     }
-    virtual Status MergeCF(uint32_t cf, const Slice& key, const Slice& value) {
+    virtual Status MergeCF(uint32_t cf, const Slice& key,
+                           const Slice& value) override {
       seen += "Merge(" + ToString(cf) + ", " + key.ToString() + ", " +
               ToString(value.size()) + ")";
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) {
+    virtual void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual Status DeleteCF(uint32_t cf, const Slice& key) {
+    virtual Status DeleteCF(uint32_t cf, const Slice& key) override {
       seen += "Delete(" + ToString(cf) + ", " + key.ToString() + ")";
       return Status::OK();
     }
@@ -8090,7 +8096,7 @@ class ModelDB: public DB {
    public:
     KVMap map_;
 
-    virtual SequenceNumber GetSequenceNumber() const {
+    virtual SequenceNumber GetSequenceNumber() const override {
       // no need to call this
       assert(false);
       return 0;
@@ -8100,28 +8106,28 @@ class ModelDB: public DB {
   explicit ModelDB(const Options& options) : options_(options) {}
   using DB::Put;
   virtual Status Put(const WriteOptions& o, ColumnFamilyHandle* cf,
-                     const Slice& k, const Slice& v) {
+                     const Slice& k, const Slice& v) override {
     WriteBatch batch;
     batch.Put(cf, k, v);
     return Write(o, &batch);
   }
   using DB::Merge;
   virtual Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf,
-                       const Slice& k, const Slice& v) {
+                       const Slice& k, const Slice& v) override {
     WriteBatch batch;
     batch.Merge(cf, k, v);
     return Write(o, &batch);
   }
   using DB::Delete;
   virtual Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
-                        const Slice& key) {
+                        const Slice& key) override {
     WriteBatch batch;
     batch.Delete(cf, key);
     return Write(o, &batch);
   }
   using DB::Get;
   virtual Status Get(const ReadOptions& options, ColumnFamilyHandle* cf,
-                     const Slice& key, std::string* value) {
+                     const Slice& key, std::string* value) override {
     return Status::NotSupported(key);
   }
 
@@ -8129,22 +8135,25 @@ class ModelDB: public DB {
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<std::string>* values) {
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override {
     std::vector<Status> s(keys.size(),
                           Status::NotSupported("Not implemented."));
     return s;
   }
 
   using DB::GetPropertiesOfAllTables;
-  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
-                                          TablePropertiesCollection* props) {
+  virtual Status GetPropertiesOfAllTables(
+      ColumnFamilyHandle* column_family,
+      TablePropertiesCollection* props) override {
     return Status();
   }
 
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value, bool* value_found = nullptr) {
+                           std::string* value,
+                           bool* value_found = nullptr) override {
     if (value_found != nullptr) {
       *value_found = false;
     }
@@ -8152,7 +8161,7 @@ class ModelDB: public DB {
   }
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family) {
+                                ColumnFamilyHandle* column_family) override {
     if (options.snapshot == nullptr) {
       KVMap* saved = new KVMap;
       *saved = map_;
@@ -8166,31 +8175,32 @@ class ModelDB: public DB {
   virtual Status NewIterators(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
-      std::vector<Iterator*>* iterators) {
+      std::vector<Iterator*>* iterators) override {
     return Status::NotSupported("Not supported yet");
   }
-  virtual const Snapshot* GetSnapshot() {
+  virtual const Snapshot* GetSnapshot() override {
     ModelSnapshot* snapshot = new ModelSnapshot;
     snapshot->map_ = map_;
     return snapshot;
   }
 
-  virtual void ReleaseSnapshot(const Snapshot* snapshot) {
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override {
     delete reinterpret_cast<const ModelSnapshot*>(snapshot);
   }
 
-  virtual Status Write(const WriteOptions& options, WriteBatch* batch) {
+  virtual Status Write(const WriteOptions& options,
+                       WriteBatch* batch) override {
     class Handler : public WriteBatch::Handler {
      public:
       KVMap* map_;
-      virtual void Put(const Slice& key, const Slice& value) {
+      virtual void Put(const Slice& key, const Slice& value) override {
         (*map_)[key.ToString()] = value.ToString();
       }
-      virtual void Merge(const Slice& key, const Slice& value) {
+      virtual void Merge(const Slice& key, const Slice& value) override {
         // ignore merge for now
         //(*map_)[key.ToString()] = value.ToString();
       }
-      virtual void Delete(const Slice& key) {
+      virtual void Delete(const Slice& key) override {
         map_->erase(key.ToString());
       }
     };
@@ -8201,7 +8211,7 @@ class ModelDB: public DB {
 
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
-                           const Slice& property, std::string* value) {
+                           const Slice& property, std::string* value) override {
     return false;
   }
   using DB::GetIntProperty;
@@ -8211,7 +8221,8 @@ class ModelDB: public DB {
   }
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n, uint64_t* sizes) {
+                                   const Range* range, int n,
+                                   uint64_t* sizes) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }
@@ -8220,7 +8231,7 @@ class ModelDB: public DB {
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* start, const Slice* end,
                               bool reduce_level, int target_level,
-                              uint32_t output_path_id) {
+                              uint32_t output_path_id) override {
     return Status::NotSupported("Not supported operation.");
   }
 
@@ -8234,76 +8245,73 @@ class ModelDB: public DB {
   }
 
   using DB::NumberLevels;
-  virtual int NumberLevels(ColumnFamilyHandle* column_family) { return 1; }
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
+    return 1;
+  }
 
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
+  virtual int MaxMemCompactionLevel(
+      ColumnFamilyHandle* column_family) override {
     return 1;
   }
 
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
+  virtual int Level0StopWriteTrigger(
+      ColumnFamilyHandle* column_family) override {
     return -1;
   }
 
-  virtual const std::string& GetName() const {
-    return name_;
-  }
+  virtual const std::string& GetName() const override { return name_; }
 
-  virtual Env* GetEnv() const {
-    return nullptr;
-  }
+  virtual Env* GetEnv() const override { return nullptr; }
 
   using DB::GetOptions;
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const {
+  virtual const Options& GetOptions(
+      ColumnFamilyHandle* column_family) const override {
     return options_;
   }
 
   using DB::Flush;
   virtual Status Flush(const rocksdb::FlushOptions& options,
-                       ColumnFamilyHandle* column_family) {
+                       ColumnFamilyHandle* column_family) override {
     Status ret;
     return ret;
   }
 
-  virtual Status DisableFileDeletions() {
-    return Status::OK();
-  }
-  virtual Status EnableFileDeletions(bool force) {
+  virtual Status DisableFileDeletions() override { return Status::OK(); }
+  virtual Status EnableFileDeletions(bool force) override {
     return Status::OK();
   }
   virtual Status GetLiveFiles(std::vector<std::string>&, uint64_t* size,
-                              bool flush_memtable = true) {
+                              bool flush_memtable = true) override {
     return Status::OK();
   }
 
-  virtual Status GetSortedWalFiles(VectorLogPtr& files) {
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
     return Status::OK();
   }
 
-  virtual Status DeleteFile(std::string name) {
+  virtual Status DeleteFile(std::string name) override { return Status::OK(); }
+
+  virtual Status GetDbIdentity(std::string& identity) override {
     return Status::OK();
   }
 
-  virtual Status GetDbIdentity(std::string& identity) {
-    return Status::OK();
-  }
-
-  virtual SequenceNumber GetLatestSequenceNumber() const {
-    return 0;
-  }
+  virtual SequenceNumber GetLatestSequenceNumber() const override { return 0; }
   virtual Status GetUpdatesSince(
       rocksdb::SequenceNumber, unique_ptr<rocksdb::TransactionLogIterator>*,
       const TransactionLogIterator::ReadOptions&
-          read_options = TransactionLogIterator::ReadOptions()) {
+          read_options = TransactionLogIterator::ReadOptions()) override {
     return Status::NotSupported("Not supported in Model DB");
   }
 
-  virtual ColumnFamilyHandle* DefaultColumnFamily() const { return nullptr; }
+  virtual ColumnFamilyHandle* DefaultColumnFamily() const override {
+    return nullptr;
+  }
 
   virtual void GetColumnFamilyMetaData(
       ColumnFamilyHandle* column_family,
-      ColumnFamilyMetaData* metadata) {}
+      ColumnFamilyMetaData* metadata) override {}
 
  private:
   class ModelIter: public Iterator {
@@ -8314,20 +8322,20 @@ class ModelDB: public DB {
     ~ModelIter() {
       if (owned_) delete map_;
     }
-    virtual bool Valid() const { return iter_ != map_->end(); }
-    virtual void SeekToFirst() { iter_ = map_->begin(); }
-    virtual void SeekToLast() {
+    virtual bool Valid() const override { return iter_ != map_->end(); }
+    virtual void SeekToFirst() override { iter_ = map_->begin(); }
+    virtual void SeekToLast() override {
       if (map_->empty()) {
         iter_ = map_->end();
       } else {
         iter_ = map_->find(map_->rbegin()->first);
       }
     }
-    virtual void Seek(const Slice& k) {
+    virtual void Seek(const Slice& k) override {
       iter_ = map_->lower_bound(k.ToString());
     }
-    virtual void Next() { ++iter_; }
-    virtual void Prev() {
+    virtual void Next() override { ++iter_; }
+    virtual void Prev() override {
       if (iter_ == map_->begin()) {
         iter_ = map_->end();
         return;
@@ -8335,9 +8343,10 @@ class ModelDB: public DB {
       --iter_;
     }
 
-    virtual Slice key() const { return iter_->first; }
-    virtual Slice value() const { return iter_->second; }
-    virtual Status status() const { return Status::OK(); }
+    virtual Slice key() const override { return iter_->first; }
+    virtual Slice value() const override { return iter_->second; }
+    virtual Status status() const override { return Status::OK(); }
+
    private:
     const KVMap* const map_;
     const bool owned_;  // Do we own map_

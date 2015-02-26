@@ -56,23 +56,23 @@ class PlainTableIterator : public Iterator {
   explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
   ~PlainTableIterator();
 
-  bool Valid() const;
+  bool Valid() const override;
 
-  void SeekToFirst();
+  void SeekToFirst() override;
 
-  void SeekToLast();
+  void SeekToLast() override;
 
-  void Seek(const Slice& target);
+  void Seek(const Slice& target) override;
 
-  void Next();
+  void Next() override;
 
-  void Prev();
+  void Prev() override;
 
-  Slice key() const;
+  Slice key() const override;
 
-  Slice value() const;
+  Slice value() const override;
 
-  Status status() const;
+  Status status() const override;
 
  private:
   PlainTableReader* table_;

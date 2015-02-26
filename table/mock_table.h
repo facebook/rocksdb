@@ -60,23 +60,23 @@ class MockTableIterator : public Iterator {
     itr_ = table_.end();
   }
 
-  bool Valid() const { return itr_ != table_.end(); }
+  bool Valid() const override { return itr_ != table_.end(); }
 
-  void SeekToFirst() { itr_ = table_.begin(); }
+  void SeekToFirst() override { itr_ = table_.begin(); }
 
-  void SeekToLast() {
+  void SeekToLast() override {
     itr_ = table_.end();
     --itr_;
   }
 
-  void Seek(const Slice& target) {
+  void Seek(const Slice& target) override {
     std::string str_target(target.data(), target.size());
     itr_ = table_.lower_bound(str_target);
   }
 
-  void Next() { ++itr_; }
+  void Next() override { ++itr_; }
 
-  void Prev() {
+  void Prev() override {
     if (itr_ == table_.begin()) {
       itr_ = table_.end();
     } else {
@@ -84,11 +84,11 @@ class MockTableIterator : public Iterator {
     }
   }
 
-  Slice key() const { return Slice(itr_->first); }
+  Slice key() const override { return Slice(itr_->first); }
 
-  Slice value() const { return Slice(itr_->second); }
+  Slice value() const override { return Slice(itr_->second); }
 
-  Status status() const { return Status::OK(); }
+  Status status() const override { return Status::OK(); }
 
  private:
   const MockFileContents& table_;
@@ -139,13 +139,13 @@ class MockTableFactory : public TableFactory {
                         const EnvOptions& env_options,
                         const InternalKeyComparator& internal_key,
                         unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                        unique_ptr<TableReader>* table_reader) const;
+                        unique_ptr<TableReader>* table_reader) const override;
 
   TableBuilder* NewTableBuilder(
       const ImmutableCFOptions& ioptions,
       const InternalKeyComparator& internal_key, WritableFile* file,
       const CompressionType compression_type,
-      const CompressionOptions& compression_opts) const;
+      const CompressionOptions& compression_opts) const override;
 
   // This function will directly create mock table instead of going through
   // MockTableBuilder. MockFileContents has to have a format of <internal_key,
@@ -153,8 +153,9 @@ class MockTableFactory : public TableFactory {
   Status CreateMockTable(Env* env, const std::string& fname,
                          MockFileContents file_contents);
 
-  virtual Status SanitizeOptions(const DBOptions& db_opts,
-                                 const ColumnFamilyOptions& cf_opts) const {
+  virtual Status SanitizeOptions(
+      const DBOptions& db_opts,
+      const ColumnFamilyOptions& cf_opts) const override {
     return Status::OK();
   }
 

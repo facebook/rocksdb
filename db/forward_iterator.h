@@ -58,7 +58,7 @@ class ForwardIterator : public Iterator {
     status_ = Status::NotSupported("ForwardIterator::SeekToLast()");
     valid_ = false;
   }
-  void Prev() {
+  void Prev() override {
     status_ = Status::NotSupported("ForwardIterator::Prev");
     valid_ = false;
   }

@@ -33,18 +33,20 @@ typedef std::map<std::string, std::string, MapComparator> KVMap;
 class KVIter : public Iterator {
  public:
   explicit KVIter(const KVMap* map) : map_(map), iter_(map_->end()) {}
-  virtual bool Valid() const { return iter_ != map_->end(); }
-  virtual void SeekToFirst() { iter_ = map_->begin(); }
-  virtual void SeekToLast() {
+  virtual bool Valid() const override { return iter_ != map_->end(); }
+  virtual void SeekToFirst() override { iter_ = map_->begin(); }
+  virtual void SeekToLast() override {
     if (map_->empty()) {
       iter_ = map_->end();
     } else {
       iter_ = map_->find(map_->rbegin()->first);
     }
   }
-  virtual void Seek(const Slice& k) { iter_ = map_->lower_bound(k.ToString()); }
-  virtual void Next() { ++iter_; }
-  virtual void Prev() {
+  virtual void Seek(const Slice& k) override {
+    iter_ = map_->lower_bound(k.ToString());
+  }
+  virtual void Next() override { ++iter_; }
+  virtual void Prev() override {
     if (iter_ == map_->begin()) {
       iter_ = map_->end();
       return;
@@ -52,9 +54,9 @@ class KVIter : public Iterator {
     --iter_;
   }
 
-  virtual Slice key() const { return iter_->first; }
-  virtual Slice value() const { return iter_->second; }
-  virtual Status status() const { return Status::OK(); }
+  virtual Slice key() const override { return iter_->first; }
+  virtual Slice value() const override { return iter_->second; }
+  virtual Status status() const override { return Status::OK(); }
 
  private:
   const KVMap* const map_;
@@ -171,9 +173,9 @@ class DoubleComparator : public Comparator {
  public:
   DoubleComparator() {}
 
-  virtual const char* Name() const { return "DoubleComparator"; }
+  virtual const char* Name() const override { return "DoubleComparator"; }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     double da = std::stod(a.ToString());
     double db = std::stod(b.ToString());
     if (da == db) {
@@ -185,18 +187,18 @@ class DoubleComparator : public Comparator {
     }
   }
   virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const {}
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 class HashComparator : public Comparator {
  public:
   HashComparator() {}
 
-  virtual const char* Name() const { return "HashComparator"; }
+  virtual const char* Name() const override { return "HashComparator"; }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     uint32_t ha = Hash(a.data(), a.size(), 66);
     uint32_t hb = Hash(b.data(), b.size(), 66);
     if (ha == hb) {
@@ -208,18 +210,18 @@ class HashComparator : public Comparator {
     }
   }
   virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const {}
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 class TwoStrComparator : public Comparator {
  public:
   TwoStrComparator() {}
 
-  virtual const char* Name() const { return "TwoStrComparator"; }
+  virtual const char* Name() const override { return "TwoStrComparator"; }
 
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     assert(a.size() >= 2);
     assert(b.size() >= 2);
     size_t size_a1 = static_cast<size_t>(a[0]);
@@ -240,9 +242,9 @@ class TwoStrComparator : public Comparator {
     return a2.compare(b2);
   }
   virtual void FindShortestSeparator(std::string* start,
-                                     const Slice& limit) const {}
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const {}
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 }  // namespace
 

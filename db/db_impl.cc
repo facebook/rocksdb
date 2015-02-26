@@ -891,7 +891,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     Logger* info_log;
     const char* fname;
     Status* status;  // nullptr if db_options_.paranoid_checks==false
-    virtual void Corruption(size_t bytes, const Status& s) {
+    virtual void Corruption(size_t bytes, const Status& s) override {
       Log(InfoLogLevel::WARN_LEVEL,
           info_log, "%s%s: dropping %d bytes; %s",
           (this->status == nullptr ? "(ignoring error) " : ""),

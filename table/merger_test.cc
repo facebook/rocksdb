@@ -21,23 +21,23 @@ class VectorIterator : public Iterator {
     std::sort(keys_.begin(), keys_.end());
   }
 
-  virtual bool Valid() const { return current_ < keys_.size(); }
+  virtual bool Valid() const override { return current_ < keys_.size(); }
 
-  virtual void SeekToFirst() { current_ = 0; }
-  virtual void SeekToLast() { current_ = keys_.size() - 1; }
+  virtual void SeekToFirst() override { current_ = 0; }
+  virtual void SeekToLast() override { current_ = keys_.size() - 1; }
 
-  virtual void Seek(const Slice& target) {
+  virtual void Seek(const Slice& target) override {
     current_ = std::lower_bound(keys_.begin(), keys_.end(), target.ToString()) -
                keys_.begin();
   }
 
-  virtual void Next() { current_++; }
-  virtual void Prev() { current_--; }
+  virtual void Next() override { current_++; }
+  virtual void Prev() override { current_--; }
 
-  virtual Slice key() const { return Slice(keys_[current_]); }
-  virtual Slice value() const { return Slice(); }
+  virtual Slice key() const override { return Slice(keys_[current_]); }
+  virtual Slice value() const override { return Slice(); }
 
-  virtual Status status() const { return Status::OK(); }
+  virtual Status status() const override { return Status::OK(); }
 
  private:
   std::vector<std::string> keys_;

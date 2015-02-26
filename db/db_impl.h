@@ -62,30 +62,33 @@ class DBImpl : public DB {
   using DB::Put;
   virtual Status Put(const WriteOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     const Slice& value);
+                     const Slice& value) override;
   using DB::Merge;
   virtual Status Merge(const WriteOptions& options,
                        ColumnFamilyHandle* column_family, const Slice& key,
-                       const Slice& value);
+                       const Slice& value) override;
   using DB::Delete;
   virtual Status Delete(const WriteOptions& options,
-                        ColumnFamilyHandle* column_family, const Slice& key);
+                        ColumnFamilyHandle* column_family,
+                        const Slice& key) override;
   using DB::Write;
-  virtual Status Write(const WriteOptions& options, WriteBatch* updates);
+  virtual Status Write(const WriteOptions& options,
+                       WriteBatch* updates) override;
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
-                     std::string* value);
+                     std::string* value) override;
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys, std::vector<std::string>* values);
+      const std::vector<Slice>& keys,
+      std::vector<std::string>* values) override;
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family,
-                                    ColumnFamilyHandle** handle);
-  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family);
+                                    ColumnFamilyHandle** handle) override;
+  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override;
 
   // Returns false if key doesn't exist in the database and true if it may.
   // If value_found is not passed in as null, then return the value if found in
@@ -94,75 +97,81 @@ class DBImpl : public DB {
   using DB::KeyMayExist;
   virtual bool KeyMayExist(const ReadOptions& options,
                            ColumnFamilyHandle* column_family, const Slice& key,
-                           std::string* value, bool* value_found = nullptr);
+                           std::string* value,
+                           bool* value_found = nullptr) override;
   using DB::NewIterator;
   virtual Iterator* NewIterator(const ReadOptions& options,
-                                ColumnFamilyHandle* column_family);
+                                ColumnFamilyHandle* column_family) override;
   virtual Status NewIterators(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators);
-  virtual const Snapshot* GetSnapshot();
-  virtual void ReleaseSnapshot(const Snapshot* snapshot);
+      std::vector<Iterator*>* iterators) override;
+  virtual const Snapshot* GetSnapshot() override;
+  virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
   using DB::GetProperty;
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
-                           const Slice& property, std::string* value);
+                           const Slice& property, std::string* value) override;
   using DB::GetIntProperty;
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) override;
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n, uint64_t* sizes);
+                                   const Range* range, int n,
+                                   uint64_t* sizes) override;
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
                               bool reduce_level = false, int target_level = -1,
-                              uint32_t target_path_id = 0);
+                              uint32_t target_path_id = 0) override;
 
   using DB::CompactFiles;
-  virtual Status CompactFiles(
-      const CompactionOptions& compact_options,
-      ColumnFamilyHandle* column_family,
-      const std::vector<std::string>& input_file_names,
-      const int output_level, const int output_path_id = -1);
+  virtual Status CompactFiles(const CompactionOptions& compact_options,
+                              ColumnFamilyHandle* column_family,
+                              const std::vector<std::string>& input_file_names,
+                              const int output_level,
+                              const int output_path_id = -1) override;
 
   using DB::SetOptions;
-  Status SetOptions(ColumnFamilyHandle* column_family,
-      const std::unordered_map<std::string, std::string>& options_map);
+  Status SetOptions(
+      ColumnFamilyHandle* column_family,
+      const std::unordered_map<std::string, std::string>& options_map) override;
 
   using DB::NumberLevels;
-  virtual int NumberLevels(ColumnFamilyHandle* column_family);
+  virtual int NumberLevels(ColumnFamilyHandle* column_family) override;
   using DB::MaxMemCompactionLevel;
-  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family);
+  virtual int MaxMemCompactionLevel(ColumnFamilyHandle* column_family) override;
   using DB::Level0StopWriteTrigger;
-  virtual int Level0StopWriteTrigger(ColumnFamilyHandle* column_family);
-  virtual const std::string& GetName() const;
-  virtual Env* GetEnv() const;
+  virtual int Level0StopWriteTrigger(
+      ColumnFamilyHandle* column_family) override;
+  virtual const std::string& GetName() const override;
+  virtual Env* GetEnv() const override;
   using DB::GetOptions;
-  virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const;
+  virtual const Options& GetOptions(
+      ColumnFamilyHandle* column_family) const override;
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
-                       ColumnFamilyHandle* column_family);
+                       ColumnFamilyHandle* column_family) override;
 
-  virtual SequenceNumber GetLatestSequenceNumber() const;
+  virtual SequenceNumber GetLatestSequenceNumber() const override;
 
 #ifndef ROCKSDB_LITE
-  virtual Status DisableFileDeletions();
-  virtual Status EnableFileDeletions(bool force);
+  virtual Status DisableFileDeletions() override;
+  virtual Status EnableFileDeletions(bool force) override;
   virtual int IsFileDeletionsEnabled() const;
   // All the returned filenames start with "/"
   virtual Status GetLiveFiles(std::vector<std::string>&,
                               uint64_t* manifest_file_size,
-                              bool flush_memtable = true);
-  virtual Status GetSortedWalFiles(VectorLogPtr& files);
+                              bool flush_memtable = true) override;
+  virtual Status GetSortedWalFiles(VectorLogPtr& files) override;
 
   virtual Status GetUpdatesSince(
       SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions&
-          read_options = TransactionLogIterator::ReadOptions());
-  virtual Status DeleteFile(std::string name);
+          read_options = TransactionLogIterator::ReadOptions()) override;
+  virtual Status DeleteFile(std::string name) override;
 
-  virtual void GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata);
+  virtual void GetLiveFilesMetaData(
+      std::vector<LiveFileMetaData>* metadata) override;
 
   // Obtains the meta data of the specified column family of the DB.
   // Status::NotFound() will be returned if the current DB does not have
@@ -178,7 +187,7 @@ class DBImpl : public DB {
   // match to our in-memory records
   virtual Status CheckConsistency();
 
-  virtual Status GetDbIdentity(std::string& identity);
+  virtual Status GetDbIdentity(std::string& identity) override;
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
@@ -252,7 +261,7 @@ class DBImpl : public DB {
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(const JobContext& background_contet);
 
-  ColumnFamilyHandle* DefaultColumnFamily() const;
+  ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   const SnapshotList& snapshots() const { return snapshots_; }
 

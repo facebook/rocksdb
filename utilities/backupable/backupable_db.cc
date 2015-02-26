@@ -116,24 +116,22 @@ class BackupEngineImpl : public BackupEngine {
   BackupEngineImpl(Env* db_env, const BackupableDBOptions& options,
                    bool read_only = false);
   ~BackupEngineImpl();
-  Status CreateNewBackup(DB* db, bool flush_before_backup = false);
-  Status PurgeOldBackups(uint32_t num_backups_to_keep);
-  Status DeleteBackup(BackupID backup_id);
-  void StopBackup() {
+  Status CreateNewBackup(DB* db, bool flush_before_backup = false) override;
+  Status PurgeOldBackups(uint32_t num_backups_to_keep) override;
+  Status DeleteBackup(BackupID backup_id) override;
+  void StopBackup() override {
     stop_backup_.store(true, std::memory_order_release);
   }
-  Status GarbageCollect();
+  Status GarbageCollect() override;
 
-  void GetBackupInfo(std::vector<BackupInfo>* backup_info);
-  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids);
-  Status RestoreDBFromBackup(BackupID backup_id, const std::string& db_dir,
-                             const std::string& wal_dir,
-                             const RestoreOptions& restore_options =
-                                 RestoreOptions());
-  Status RestoreDBFromLatestBackup(const std::string& db_dir,
-                                   const std::string& wal_dir,
-                                   const RestoreOptions& restore_options =
-                                       RestoreOptions()) {
+  void GetBackupInfo(std::vector<BackupInfo>* backup_info) override;
+  void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) override;
+  Status RestoreDBFromBackup(
+      BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
+      const RestoreOptions& restore_options = RestoreOptions()) override;
+  Status RestoreDBFromLatestBackup(
+      const std::string& db_dir, const std::string& wal_dir,
+      const RestoreOptions& restore_options = RestoreOptions()) override {
     return RestoreDBFromBackup(latest_backup_id_, db_dir, wal_dir,
                                restore_options);
   }
@@ -1291,24 +1289,25 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
 
   virtual ~BackupEngineReadOnlyImpl() {}
 
-  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) {
+  virtual void GetBackupInfo(std::vector<BackupInfo>* backup_info) override {
     backup_engine_->GetBackupInfo(backup_info);
   }
 
-  virtual void GetCorruptedBackups(std::vector<BackupID>* corrupt_backup_ids) {
+  virtual void GetCorruptedBackups(
+      std::vector<BackupID>* corrupt_backup_ids) override {
     backup_engine_->GetCorruptedBackups(corrupt_backup_ids);
   }
 
   virtual Status RestoreDBFromBackup(
       BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) {
+      const RestoreOptions& restore_options = RestoreOptions()) override {
     return backup_engine_->RestoreDBFromBackup(backup_id, db_dir, wal_dir,
                                                restore_options);
   }
 
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
-      const RestoreOptions& restore_options = RestoreOptions()) {
+      const RestoreOptions& restore_options = RestoreOptions()) override {
     return backup_engine_->RestoreDBFromLatestBackup(db_dir, wal_dir,
                                                      restore_options);
   }

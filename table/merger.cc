@@ -81,11 +81,9 @@ class MergingIterator : public Iterator {
     }
   }
 
-  virtual bool Valid() const {
-    return (current_ != nullptr);
-  }
+  virtual bool Valid() const override { return (current_ != nullptr); }
 
-  virtual void SeekToFirst() {
+  virtual void SeekToFirst() override {
     ClearHeaps();
     for (auto& child : children_) {
       child.SeekToFirst();
@@ -97,7 +95,7 @@ class MergingIterator : public Iterator {
     direction_ = kForward;
   }
 
-  virtual void SeekToLast() {
+  virtual void SeekToLast() override {
     ClearHeaps();
     for (auto& child : children_) {
       child.SeekToLast();
@@ -109,7 +107,7 @@ class MergingIterator : public Iterator {
     direction_ = kReverse;
   }
 
-  virtual void Seek(const Slice& target) {
+  virtual void Seek(const Slice& target) override {
     // Invalidate the heap.
     use_heap_ = false;
     IteratorWrapper* first_child = nullptr;
@@ -154,7 +152,7 @@ class MergingIterator : public Iterator {
     direction_ = kForward;
   }
 
-  virtual void Next() {
+  virtual void Next() override {
     assert(Valid());
 
     // Ensure that all children are positioned after key().
@@ -192,7 +190,7 @@ class MergingIterator : public Iterator {
     }
   }
 
-  virtual void Prev() {
+  virtual void Prev() override {
     assert(Valid());
     // Ensure that all children are positioned before key().
     // If we are moving in the reverse direction, it is already
@@ -226,17 +224,17 @@ class MergingIterator : public Iterator {
     FindLargest();
   }
 
-  virtual Slice key() const {
+  virtual Slice key() const override {
     assert(Valid());
     return current_->key();
   }
 
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(Valid());
     return current_->value();
   }
 
-  virtual Status status() const {
+  virtual Status status() const override {
     Status s;
     for (auto& child : children_) {
       s = child.status();

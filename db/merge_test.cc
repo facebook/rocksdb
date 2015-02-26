@@ -57,7 +57,8 @@ class CountMergeOperator : public AssociativeMergeOperator {
 
   virtual bool PartialMergeMulti(const Slice& key,
                                  const std::deque<Slice>& operand_list,
-                                 std::string* new_value, Logger* logger) const {
+                                 std::string* new_value,
+                                 Logger* logger) const override {
     ++num_partial_merge_calls;
     return mergeOperator_->PartialMergeMulti(key, operand_list, new_value,
                                              logger);

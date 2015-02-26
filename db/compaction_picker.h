@@ -298,7 +298,7 @@ class NullCompactionPicker : public CompactionPicker {
 
   // Given the current number of levels, returns the highest allowed level
   // for compaction input.
-  virtual int MaxInputLevel(int current_num_levels) const {
+  virtual int MaxInputLevel(int current_num_levels) const override {
     return current_num_levels - 2;
   }
 

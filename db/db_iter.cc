@@ -90,17 +90,17 @@ class DBIter: public Iterator {
     assert(iter_ == nullptr);
     iter_ = iter;
   }
-  virtual bool Valid() const { return valid_; }
-  virtual Slice key() const {
+  virtual bool Valid() const override { return valid_; }
+  virtual Slice key() const override {
     assert(valid_);
     return saved_key_.GetKey();
   }
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(valid_);
     return (direction_ == kForward && !current_entry_is_merged_) ?
       iter_->value() : saved_value_;
   }
-  virtual Status status() const {
+  virtual Status status() const override {
     if (status_.ok()) {
       return iter_->status();
     } else {
@@ -108,11 +108,11 @@ class DBIter: public Iterator {
     }
   }
 
-  virtual void Next();
-  virtual void Prev();
-  virtual void Seek(const Slice& target);
-  virtual void SeekToFirst();
-  virtual void SeekToLast();
+  virtual void Next() override;
+  virtual void Prev() override;
+  virtual void Seek(const Slice& target) override;
+  virtual void SeekToFirst() override;
+  virtual void SeekToLast() override;
 
  private:
   void PrevInternal();

@@ -30,27 +30,25 @@ class GeoDBImpl : public GeoDB {
 
   // Associate the GPS location with the identified by 'id'. The value
   // is a blob that is associated with this object.
-  virtual Status Insert(const GeoObject& object);
+  virtual Status Insert(const GeoObject& object) override;
 
   // Retrieve the value of the object located at the specified GPS
   // location and is identified by the 'id'.
-  virtual Status GetByPosition(const GeoPosition& pos,
-                               const Slice& id,
-                               std::string* value);
+  virtual Status GetByPosition(const GeoPosition& pos, const Slice& id,
+                               std::string* value) override;
 
   // Retrieve the value of the object identified by the 'id'. This method
   // could be potentially slower than GetByPosition
-  virtual Status GetById(const Slice& id, GeoObject* object);
+  virtual Status GetById(const Slice& id, GeoObject* object) override;
 
   // Delete the specified object
-  virtual Status Remove(const Slice& id);
+  virtual Status Remove(const Slice& id) override;
 
   // Returns a list of all items within a circular radius from the
   // specified gps location
-  virtual Status SearchRadial(const GeoPosition& pos,
-                              double radius,
+  virtual Status SearchRadial(const GeoPosition& pos, double radius,
                               std::vector<GeoObject>* values,
-                              int number_of_values);
+                              int number_of_values) override;
 
  private:
   DB* db_;

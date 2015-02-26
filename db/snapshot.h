@@ -20,7 +20,7 @@ class SnapshotImpl : public Snapshot {
  public:
   SequenceNumber number_;  // const after creation
 
-  virtual SequenceNumber GetSequenceNumber() const { return number_; }
+  virtual SequenceNumber GetSequenceNumber() const override { return number_; }
 
  private:
   friend class SnapshotList;

@@ -744,97 +744,104 @@ class EnvWrapper : public Env {
   Env* target() const { return target_; }
 
   // The following text is boilerplate that forwards all methods to target()
-  Status NewSequentialFile(const std::string& f,
-                           unique_ptr<SequentialFile>* r,
-                           const EnvOptions& options) {
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& options) override {
     return target_->NewSequentialFile(f, r, options);
   }
   Status NewRandomAccessFile(const std::string& f,
                              unique_ptr<RandomAccessFile>* r,
-                             const EnvOptions& options) {
+                             const EnvOptions& options) override {
     return target_->NewRandomAccessFile(f, r, options);
   }
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) {
+                         const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
   }
   Status NewRandomRWFile(const std::string& f, unique_ptr<RandomRWFile>* r,
-                         const EnvOptions& options) {
+                         const EnvOptions& options) override {
     return target_->NewRandomRWFile(f, r, options);
   }
   virtual Status NewDirectory(const std::string& name,
-                              unique_ptr<Directory>* result) {
+                              unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
-  bool FileExists(const std::string& f) { return target_->FileExists(f); }
-  Status GetChildren(const std::string& dir, std::vector<std::string>* r) {
+  bool FileExists(const std::string& f) override {
+    return target_->FileExists(f);
+  }
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* r) override {
     return target_->GetChildren(dir, r);
   }
-  Status DeleteFile(const std::string& f) { return target_->DeleteFile(f); }
-  Status CreateDir(const std::string& d) { return target_->CreateDir(d); }
-  Status CreateDirIfMissing(const std::string& d) {
+  Status DeleteFile(const std::string& f) override {
+    return target_->DeleteFile(f);
+  }
+  Status CreateDir(const std::string& d) override {
+    return target_->CreateDir(d);
+  }
+  Status CreateDirIfMissing(const std::string& d) override {
     return target_->CreateDirIfMissing(d);
   }
-  Status DeleteDir(const std::string& d) { return target_->DeleteDir(d); }
-  Status GetFileSize(const std::string& f, uint64_t* s) {
+  Status DeleteDir(const std::string& d) override {
+    return target_->DeleteDir(d);
+  }
+  Status GetFileSize(const std::string& f, uint64_t* s) override {
     return target_->GetFileSize(f, s);
   }
 
   Status GetFileModificationTime(const std::string& fname,
-                                 uint64_t* file_mtime) {
+                                 uint64_t* file_mtime) override {
     return target_->GetFileModificationTime(fname, file_mtime);
   }
 
-  Status RenameFile(const std::string& s, const std::string& t) {
+  Status RenameFile(const std::string& s, const std::string& t) override {
     return target_->RenameFile(s, t);
   }
 
-  Status LinkFile(const std::string& s, const std::string& t) {
+  Status LinkFile(const std::string& s, const std::string& t) override {
     return target_->LinkFile(s, t);
   }
 
-  Status LockFile(const std::string& f, FileLock** l) {
+  Status LockFile(const std::string& f, FileLock** l) override {
     return target_->LockFile(f, l);
   }
-  Status UnlockFile(FileLock* l) { return target_->UnlockFile(l); }
-  void Schedule(void (*f)(void*), void* a, Priority pri) {
+  Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
+  void Schedule(void (*f)(void*), void* a, Priority pri) override {
     return target_->Schedule(f, a, pri);
   }
-  void StartThread(void (*f)(void*), void* a) {
+  void StartThread(void (*f)(void*), void* a) override {
     return target_->StartThread(f, a);
   }
-  void WaitForJoin() { return target_->WaitForJoin(); }
-  virtual unsigned int GetThreadPoolQueueLen(Priority pri = LOW) const {
+  void WaitForJoin() override { return target_->WaitForJoin(); }
+  virtual unsigned int GetThreadPoolQueueLen(
+      Priority pri = LOW) const override {
     return target_->GetThreadPoolQueueLen(pri);
   }
-  virtual Status GetTestDirectory(std::string* path) {
+  virtual Status GetTestDirectory(std::string* path) override {
     return target_->GetTestDirectory(path);
   }
   virtual Status NewLogger(const std::string& fname,
-                           shared_ptr<Logger>* result) {
+                           shared_ptr<Logger>* result) override {
     return target_->NewLogger(fname, result);
   }
-  uint64_t NowMicros() {
-    return target_->NowMicros();
-  }
-  void SleepForMicroseconds(int micros) {
+  uint64_t NowMicros() override { return target_->NowMicros(); }
+  void SleepForMicroseconds(int micros) override {
     target_->SleepForMicroseconds(micros);
   }
-  Status GetHostName(char* name, uint64_t len) {
+  Status GetHostName(char* name, uint64_t len) override {
     return target_->GetHostName(name, len);
   }
-  Status GetCurrentTime(int64_t* unix_time) {
+  Status GetCurrentTime(int64_t* unix_time) override {
     return target_->GetCurrentTime(unix_time);
   }
   Status GetAbsolutePath(const std::string& db_path,
-      std::string* output_path) {
+                         std::string* output_path) override {
     return target_->GetAbsolutePath(db_path, output_path);
   }
-  void SetBackgroundThreads(int num, Priority pri) {
+  void SetBackgroundThreads(int num, Priority pri) override {
     return target_->SetBackgroundThreads(num, pri);
   }
 
-  void IncBackgroundThreadsIfNeeded(int num, Priority pri) {
+  void IncBackgroundThreadsIfNeeded(int num, Priority pri) override {
     return target_->IncBackgroundThreadsIfNeeded(num, pri);
   }
 
@@ -842,11 +849,11 @@ class EnvWrapper : public Env {
     target_->LowerThreadPoolIOPriority(pool);
   }
 
-  std::string TimeToString(uint64_t time) {
+  std::string TimeToString(uint64_t time) override {
     return target_->TimeToString(time);
   }
 
-  Status GetThreadList(std::vector<ThreadStatus>* thread_list) {
+  Status GetThreadList(std::vector<ThreadStatus>* thread_list) override {
     return target_->GetThreadList(thread_list);
   }
 

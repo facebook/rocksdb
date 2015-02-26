@@ -71,7 +71,7 @@ class DBWithTTLImpl : public DBWithTTL {
   virtual Iterator* NewIterator(const ReadOptions& opts,
                                 ColumnFamilyHandle* column_family) override;
 
-  virtual DB* GetBaseDB() { return db_; }
+  virtual DB* GetBaseDB() override { return db_; }
 
   static bool IsStale(const Slice& value, int32_t ttl, Env* env);
 
@@ -95,26 +95,26 @@ class TtlIterator : public Iterator {
 
   ~TtlIterator() { delete iter_; }
 
-  bool Valid() const { return iter_->Valid(); }
+  bool Valid() const override { return iter_->Valid(); }
 
-  void SeekToFirst() { iter_->SeekToFirst(); }
+  void SeekToFirst() override { iter_->SeekToFirst(); }
 
-  void SeekToLast() { iter_->SeekToLast(); }
+  void SeekToLast() override { iter_->SeekToLast(); }
 
-  void Seek(const Slice& target) { iter_->Seek(target); }
+  void Seek(const Slice& target) override { iter_->Seek(target); }
 
-  void Next() { iter_->Next(); }
+  void Next() override { iter_->Next(); }
 
-  void Prev() { iter_->Prev(); }
+  void Prev() override { iter_->Prev(); }
 
-  Slice key() const { return iter_->key(); }
+  Slice key() const override { return iter_->key(); }
 
   int32_t timestamp() const {
     return DecodeFixed32(iter_->value().data() + iter_->value().size() -
                          DBWithTTLImpl::kTSLength);
   }
 
-  Slice value() const {
+  Slice value() const override {
     // TODO: handle timestamp corruption like in general iterator semantics
     assert(DBWithTTLImpl::SanityCheckTimestamp(iter_->value()).ok());
     Slice trimmed_value = iter_->value();
@@ -122,7 +122,7 @@ class TtlIterator : public Iterator {
     return trimmed_value;
   }
 
-  Status status() const { return iter_->status(); }
+  Status status() const override { return iter_->status(); }
 
  private:
   Iterator* iter_;
@@ -187,7 +187,7 @@ class TtlCompactionFilterFactory : public CompactionFilterFactory {
       : ttl_(ttl), env_(env), user_comp_filter_factory_(comp_filter_factory) {}
 
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-      const CompactionFilter::Context& context) {
+      const CompactionFilter::Context& context) override {
     return std::unique_ptr<TtlCompactionFilter>(new TtlCompactionFilter(
         ttl_, env_, nullptr,
         std::move(user_comp_filter_factory_->CreateCompactionFilter(context))));
