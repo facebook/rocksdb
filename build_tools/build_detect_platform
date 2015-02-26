@@ -75,6 +75,10 @@ if test -z "$TARGET_OS"; then
     TARGET_OS=`uname -s`
 fi
 
+if test -z "$TARGET_ARCHITECTURE"; then
+    TARGET_ARCHITECTURE=`uname -m`
+fi
+
 if test -z "$CLANG_SCAN_BUILD"; then
     CLANG_SCAN_BUILD=scan-build
 fi
@@ -300,12 +304,16 @@ EOF
     fi
 fi
 
-# Test whether -Wshorten-64-to-32 is available
-$CXX $CFLAGS -x c++ - -o /dev/null -Wshorten-64-to-32 2>/dev/null  <<EOF
-  int main() {}
+# TODO(tec): Fix -Wshorten-64-to-32 errors on FreeBSD and enable the warning.
+# -Wshorten-64-to-32 breaks compilation on FreeBSD i386
+if ! [ "$TARGET_OS" = FreeBSD -a "$TARGET_ARCHITECTURE" = i386 ]; then
+  # Test whether -Wshorten-64-to-32 is available
+  $CXX $CFLAGS -x c++ - -o /dev/null -Wshorten-64-to-32 2>/dev/null  <<EOF
+    int main() {}
 EOF
-if [ "$?" = 0 ]; then
+  if [ "$?" = 0 ]; then
     COMMON_FLAGS="$COMMON_FLAGS -Wshorten-64-to-32"
+  fi
 fi
 
 # shall we use HDFS?
@@ -322,6 +330,11 @@ if test "$USE_HDFS"; then
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"
   PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS $HDFS_LDFLAGS"
   JAVA_LDFLAGS="$JAVA_LDFLAGS $HDFS_LDFLAGS"
+fi
+
+if [ "$TARGET_OS" = FreeBSD -a "$TARGET_ARCHITECTURE" = i386 ]; then
+  # Intel SSE instructions breaks compilation on FreeBSD i386
+  unset USE_SSE
 fi
 
 if test "$USE_SSE"; then
