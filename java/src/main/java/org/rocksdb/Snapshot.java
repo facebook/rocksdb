@@ -9,7 +9,7 @@ package org.rocksdb;
  * Snapshot of database
  */
 public class Snapshot extends RocksObject {
-  Snapshot(long nativeHandle) {
+  Snapshot(final long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
   }

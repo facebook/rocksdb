@@ -26,7 +26,7 @@ public class BackupableDBOptions extends RocksObject {
    *     Best to set this to {@code db name_ + "/backups"}
    * @throws java.lang.IllegalArgumentException if illegal path is used.
    */
-  public BackupableDBOptions(String path) {
+  public BackupableDBOptions(final String path) {
     super();
     File backupPath = path == null ? null : new File(path);
     if (backupPath == null || !backupPath.isDirectory() || !backupPath.canWrite()) {
@@ -57,7 +57,7 @@ public class BackupableDBOptions extends RocksObject {
    *
    * @return instance of current BackupableDBOptions.
    */
-  public BackupableDBOptions setShareTableFiles(boolean shareTableFiles) {
+  public BackupableDBOptions setShareTableFiles(final boolean shareTableFiles) {
     assert(isInitialized());
     setShareTableFiles(nativeHandle_, shareTableFiles);
     return this;
@@ -86,7 +86,7 @@ public class BackupableDBOptions extends RocksObject {
    *
    * @return instance of current BackupableDBOptions.
    */
-  public BackupableDBOptions setSync(boolean sync) {
+  public BackupableDBOptions setSync(final boolean sync) {
     assert(isInitialized());
     setSync(nativeHandle_, sync);
     return this;
@@ -111,7 +111,7 @@ public class BackupableDBOptions extends RocksObject {
    *
    * @return instance of current BackupableDBOptions.
    */
-  public BackupableDBOptions setDestroyOldData(boolean destroyOldData) {
+  public BackupableDBOptions setDestroyOldData(final boolean destroyOldData) {
     assert(isInitialized());
     setDestroyOldData(nativeHandle_, destroyOldData);
     return this;
@@ -138,7 +138,7 @@ public class BackupableDBOptions extends RocksObject {
    *
    * @return instance of current BackupableDBOptions.
    */
-  public BackupableDBOptions setBackupLogFiles(boolean backupLogFiles) {
+  public BackupableDBOptions setBackupLogFiles(final boolean backupLogFiles) {
     assert(isInitialized());
     setBackupLogFiles(nativeHandle_, backupLogFiles);
     return this;
@@ -226,7 +226,7 @@ public class BackupableDBOptions extends RocksObject {
    * @return instance of current BackupableDBOptions.
    */
   public BackupableDBOptions setShareFilesWithChecksum(
-      boolean shareFilesWithChecksum) {
+      final boolean shareFilesWithChecksum) {
     assert(isInitialized());
     setShareFilesWithChecksum(nativeHandle_, shareFilesWithChecksum);
     return this;

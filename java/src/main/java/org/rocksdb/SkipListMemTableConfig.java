@@ -24,7 +24,7 @@ public class SkipListMemTableConfig extends MemTableConfig {
    *     seeks with consecutive keys.
    * @return the current instance of SkipListMemTableConfig
    */
-  public SkipListMemTableConfig setLookahead(long lookahead) {
+  public SkipListMemTableConfig setLookahead(final long lookahead) {
     lookahead_ = lookahead;
     return this;
   }

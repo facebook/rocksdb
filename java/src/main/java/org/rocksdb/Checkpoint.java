@@ -23,7 +23,7 @@ public class Checkpoint extends RocksObject {
    * @throws java.lang.IllegalStateException if {@link RocksDB}
    *     instance is not initialized.
    */
-  public static Checkpoint create(RocksDB db) {
+  public static Checkpoint create(final RocksDB db) {
     if (db == null) {
       throw new IllegalArgumentException(
           "RocksDB instance shall not be null.");
@@ -46,7 +46,7 @@ public class Checkpoint extends RocksObject {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public void createCheckpoint(String checkpointPath)
+  public void createCheckpoint(final String checkpointPath)
       throws RocksDBException {
     createCheckpoint(nativeHandle_, checkpointPath);
   }
@@ -62,7 +62,7 @@ public class Checkpoint extends RocksObject {
     db_ = db;
   }
 
-  RocksDB db_;
+  private RocksDB db_;
 
   private static native long newCheckpoint(long dbHandle);
   private native void disposeInternal(long handle);

@@ -63,7 +63,7 @@ public class TtlDB extends RocksDB {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public static TtlDB open(Options options, String db_path)
+  public static TtlDB open(final Options options, final String db_path)
       throws RocksDBException {
     return open(options, db_path, 0, false);
   }
@@ -82,8 +82,8 @@ public class TtlDB extends RocksDB {
    * @throws RocksDBException thrown if an error occurs within the native
    *     part of the library.
    */
-  public static TtlDB open(Options options, String db_path, int ttl,
-      boolean readOnly) throws RocksDBException {
+  public static TtlDB open(final Options options, final String db_path,
+      final int ttl, final boolean readOnly) throws RocksDBException {
     TtlDB ttldb = new TtlDB();
     ttldb.open(options.nativeHandle_, db_path, ttl, readOnly);
     return ttldb;
@@ -108,10 +108,11 @@ public class TtlDB extends RocksDB {
    * @throws java.lang.IllegalArgumentException when there is not a ttl value
    *     per given column family handle.
    */
-  public static TtlDB open(DBOptions options, String db_path,
-      List<ColumnFamilyDescriptor> columnFamilyDescriptors,
-      List<ColumnFamilyHandle> columnFamilyHandles,
-      List<Integer> ttlValues, boolean readOnly) throws RocksDBException {
+  public static TtlDB open(final DBOptions options, final String db_path,
+      final List<ColumnFamilyDescriptor> columnFamilyDescriptors,
+      final List<ColumnFamilyHandle> columnFamilyHandles,
+      final List<Integer> ttlValues, final boolean readOnly)
+      throws RocksDBException {
     if (columnFamilyDescriptors.size() != ttlValues.size()) {
       throw new IllegalArgumentException("There must be a ttl value per column" +
           "family handle.");
@@ -143,8 +144,8 @@ public class TtlDB extends RocksDB {
    *    native library.
    */
   public ColumnFamilyHandle createColumnFamilyWithTtl(
-      ColumnFamilyDescriptor columnFamilyDescriptor, int ttl)
-      throws RocksDBException {
+      final ColumnFamilyDescriptor columnFamilyDescriptor,
+      final int ttl) throws RocksDBException {
     assert(isInitialized());
     return new ColumnFamilyHandle(this,
         createColumnFamilyWithTtl(nativeHandle_,

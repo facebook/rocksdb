@@ -22,11 +22,11 @@ public class Environment {
     return (ARCH.indexOf("64") > 0);
   }
 
-  public static String getSharedLibraryName(String name) {
+  public static String getSharedLibraryName(final String name) {
     return name + "jni";
   }
 
-  public static String getSharedLibraryFileName(String name) {
+  public static String getSharedLibraryFileName(final String name) {
     return appendLibOsSuffix("lib" + getSharedLibraryName(name), true);
   }
 

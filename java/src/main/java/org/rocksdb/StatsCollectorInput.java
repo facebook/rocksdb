@@ -19,8 +19,8 @@ public class StatsCollectorInput {
    * @param statistics Reference of DB statistics.
    * @param statsCallback Reference of statistics callback interface.
    */
-  public StatsCollectorInput(Statistics statistics,
-      StatisticsCollectorCallback statsCallback) {
+  public StatsCollectorInput(final Statistics statistics,
+      final StatisticsCollectorCallback statsCallback) {
     _statistics = statistics;
     _statsCallback = statsCallback;
   }

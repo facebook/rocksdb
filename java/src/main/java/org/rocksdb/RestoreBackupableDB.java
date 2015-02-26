@@ -22,7 +22,7 @@ public class RestoreBackupableDB extends RocksObject {
    *
    * @param options {@link org.rocksdb.BackupableDBOptions} instance
    */
-  public RestoreBackupableDB(BackupableDBOptions options) {
+  public RestoreBackupableDB(final BackupableDBOptions options) {
     super();
     nativeHandle_ = newRestoreBackupableDB(options.nativeHandle_);
   }
@@ -49,8 +49,9 @@ public class RestoreBackupableDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void restoreDBFromBackup(long backupId, String dbDir, String walDir,
-      RestoreOptions restoreOptions) throws RocksDBException {
+  public void restoreDBFromBackup(final long backupId, final String dbDir,
+      final String walDir, final RestoreOptions restoreOptions)
+      throws RocksDBException {
     assert(isInitialized());
     restoreDBFromBackup0(nativeHandle_, backupId, dbDir, walDir,
         restoreOptions.nativeHandle_);
@@ -66,8 +67,9 @@ public class RestoreBackupableDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void restoreDBFromLatestBackup(String dbDir, String walDir,
-      RestoreOptions restoreOptions) throws RocksDBException {
+  public void restoreDBFromLatestBackup(final String dbDir,
+      final String walDir, final RestoreOptions restoreOptions)
+      throws RocksDBException {
     assert(isInitialized());
     restoreDBFromLatestBackup0(nativeHandle_, dbDir, walDir,
         restoreOptions.nativeHandle_);
@@ -81,7 +83,8 @@ public class RestoreBackupableDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void purgeOldBackups(int numBackupsToKeep) throws RocksDBException {
+  public void purgeOldBackups(final int numBackupsToKeep)
+      throws RocksDBException {
     assert(isInitialized());
     purgeOldBackups0(nativeHandle_, numBackupsToKeep);
   }
@@ -94,7 +97,8 @@ public class RestoreBackupableDB extends RocksObject {
    * @throws RocksDBException thrown if error happens in underlying
    *    native library.
    */
-  public void deleteBackup(int backupId) throws RocksDBException {
+  public void deleteBackup(final int backupId)
+      throws RocksDBException {
     assert(isInitialized());
     deleteBackup0(nativeHandle_, backupId);
   }

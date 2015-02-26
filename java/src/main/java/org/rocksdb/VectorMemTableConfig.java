@@ -20,7 +20,7 @@ public class VectorMemTableConfig extends MemTableConfig {
    * @param size the initial size of the vector.
    * @return the reference to the current config.
    */
-  public VectorMemTableConfig setReservedSize(int size) {
+  public VectorMemTableConfig setReservedSize(final int size) {
     reservedSize_ = size;
     return this;
   }

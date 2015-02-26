@@ -49,7 +49,7 @@ public class BloomFilter extends Filter {
    *
    * @param bitsPerKey number of bits to use
    */
-  public BloomFilter(int bitsPerKey) {
+  public BloomFilter(final int bitsPerKey) {
     this(bitsPerKey, DEFAULT_MODE);
   }
 
@@ -72,7 +72,7 @@ public class BloomFilter extends Filter {
    * @param bitsPerKey number of bits to use
    * @param useBlockBasedMode use block based mode or full filter mode
    */
-  public BloomFilter(int bitsPerKey, boolean useBlockBasedMode) {
+  public BloomFilter(final int bitsPerKey, final boolean useBlockBasedMode) {
     super();
     bitsPerKey_ = bitsPerKey;
     useBlockBasedMode_ = useBlockBasedMode;
@@ -80,7 +80,7 @@ public class BloomFilter extends Filter {
   }
 
   @Override
-  protected void createNewFilter() {
+  protected final void createNewFilter() {
     createNewBloomFilter(bitsPerKey_, useBlockBasedMode_);
   }
 

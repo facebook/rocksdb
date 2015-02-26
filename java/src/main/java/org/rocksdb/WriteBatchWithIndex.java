@@ -40,7 +40,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   inserting a duplicate key, in this way an iterator will never
    *   show two entries with the same key.
    */
-  public WriteBatchWithIndex(boolean overwriteKey) {
+  public WriteBatchWithIndex(final boolean overwriteKey) {
     super();
     newWriteBatchWithIndex(overwriteKey);
   }
@@ -58,8 +58,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    *   inserting a duplicate key, in this way an iterator will never
    *   show two entries with the same key.
    */
-  public WriteBatchWithIndex(AbstractComparator<? extends AbstractSlice<?>>
-      fallbackIndexComparator, int reservedBytes, boolean overwriteKey) {
+  public WriteBatchWithIndex(final AbstractComparator<? extends AbstractSlice<?>>
+      fallbackIndexComparator, final int reservedBytes, final boolean overwriteKey) {
     super();
     newWriteBatchWithIndex(fallbackIndexComparator.nativeHandle_, reservedBytes, overwriteKey);
   }
@@ -75,7 +75,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @param columnFamilyHandle The column family to iterate over
    * @return An iterator for the Write Batch contents, restricted to the column family
    */
-  public WBWIRocksIterator newIterator(ColumnFamilyHandle columnFamilyHandle) {
+  public WBWIRocksIterator newIterator(final ColumnFamilyHandle columnFamilyHandle) {
     return new WBWIRocksIterator(this, iterator1(columnFamilyHandle.nativeHandle_));
   }
 
@@ -103,8 +103,8 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator which shows a view comprised of both the database point-in-time
    * from baseIterator and modifications made in this write batch.
    */
-  public RocksIterator newIteratorWithBase(ColumnFamilyHandle columnFamilyHandle,
-      RocksIterator baseIterator) {
+  public RocksIterator newIteratorWithBase(final ColumnFamilyHandle columnFamilyHandle,
+      final RocksIterator baseIterator) {
     RocksIterator iterator = new RocksIterator(
         baseIterator.parent_,
         iteratorWithBase(columnFamilyHandle.nativeHandle_, baseIterator.nativeHandle_));
@@ -122,7 +122,7 @@ public class WriteBatchWithIndex extends AbstractWriteBatch {
    * @return An iterator which shows a view comprised of both the database point-in-time
    * from baseIterator and modifications made in this write batch.
    */
-  public RocksIterator newIteratorWithBase(RocksIterator baseIterator) {
+  public RocksIterator newIteratorWithBase(final RocksIterator baseIterator) {
     return newIteratorWithBase(baseIterator.parent_.getDefaultColumnFamily(), baseIterator);
   }
 

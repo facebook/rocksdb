@@ -15,7 +15,7 @@ public class RocksDBException extends Exception {
    *
    * @param msg the specified error message.
    */
-  public RocksDBException(String msg) {
+  public RocksDBException(final String msg) {
     super(msg);
   }
 }

@@ -47,7 +47,7 @@ public class WriteOptions extends RocksObject {
    *     should be synchronized.
    * @return the instance of the current WriteOptions.
    */
-  public WriteOptions setSync(boolean flag) {
+  public WriteOptions setSync(final boolean flag) {
     setSync(nativeHandle_, flag);
     return this;
   }
@@ -82,7 +82,7 @@ public class WriteOptions extends RocksObject {
    *     write-ahead-log on writes.
    * @return the instance of the current WriteOptions.
    */
-  public WriteOptions setDisableWAL(boolean flag) {
+  public WriteOptions setDisableWAL(final boolean flag) {
     setDisableWAL(nativeHandle_, flag);
     return this;
   }

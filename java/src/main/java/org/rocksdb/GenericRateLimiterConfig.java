@@ -34,8 +34,8 @@ public class GenericRateLimiterConfig extends RateLimiterConfig {
    *     fairness chance even though high-pri requests exist to avoid starvation.
    *     You should be good by leaving it at default 10.
    */
-  public GenericRateLimiterConfig(long rateBytesPerSecond,
-      long refillPeriodMicros, int fairness) {
+  public GenericRateLimiterConfig(final long rateBytesPerSecond,
+      final long refillPeriodMicros, final int fairness) {
     rateBytesPerSecond_ = rateBytesPerSecond;
     refillPeriodMicros_ = refillPeriodMicros;
     fairness_ = fairness;
@@ -49,7 +49,7 @@ public class GenericRateLimiterConfig extends RateLimiterConfig {
    *     and flush in bytes per second. Currently, RocksDB does not enforce
    *     rate limit for anything other than flush and compaction, e.g. write to WAL.
    */
-  public GenericRateLimiterConfig(long rateBytesPerSecond) {
+  public GenericRateLimiterConfig(final long rateBytesPerSecond) {
     this(rateBytesPerSecond, DEFAULT_REFILL_PERIOD_MICROS, DEFAULT_FAIRNESS);
   }
 

@@ -40,7 +40,8 @@ public class ReadOptions extends RocksObject {
    *     will be performed on every read.
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setVerifyChecksums(boolean verifyChecksums) {
+  public ReadOptions setVerifyChecksums(
+      final boolean verifyChecksums) {
     assert(isInitialized());
     setVerifyChecksums(nativeHandle_, verifyChecksums);
     return this;
@@ -72,7 +73,7 @@ public class ReadOptions extends RocksObject {
    *     performed.
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setFillCache(boolean fillCache) {
+  public ReadOptions setFillCache(final boolean fillCache) {
     assert(isInitialized());
     setFillCache(nativeHandle_, fillCache);
     return this;
@@ -90,7 +91,7 @@ public class ReadOptions extends RocksObject {
    * @param snapshot {@link Snapshot} instance
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setSnapshot(Snapshot snapshot) {
+  public ReadOptions setSnapshot(final Snapshot snapshot) {
     assert(isInitialized());
     if (snapshot != null) {
       setSnapshot(nativeHandle_, snapshot.nativeHandle_);
@@ -145,7 +146,7 @@ public class ReadOptions extends RocksObject {
    * @param tailing if true, then tailing iterator will be enabled.
    * @return the reference to the current ReadOptions.
    */
-  public ReadOptions setTailing(boolean tailing) {
+  public ReadOptions setTailing(final boolean tailing) {
     assert(isInitialized());
     setTailing(nativeHandle_, tailing);
     return this;

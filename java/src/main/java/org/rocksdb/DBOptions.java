@@ -51,7 +51,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
    *     {@link java.util.Properties} instance is passed to the method call.
    */
   public static DBOptions getDBOptionsFromProps(
-      Properties properties) {
+      final Properties properties) {
     if (properties == null || properties.size() == 0) {
       throw new IllegalArgumentException(
           "Properties value must contain at least one value.");
@@ -73,14 +73,15 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setIncreaseParallelism(int totalThreads) {
+  public DBOptions setIncreaseParallelism(
+      final int totalThreads) {
     assert (isInitialized());
     setIncreaseParallelism(nativeHandle_, totalThreads);
     return this;
   }
 
   @Override
-  public DBOptions setCreateIfMissing(boolean flag) {
+  public DBOptions setCreateIfMissing(final boolean flag) {
     assert(isInitialized());
     setCreateIfMissing(nativeHandle_, flag);
     return this;
@@ -93,7 +94,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setCreateMissingColumnFamilies(boolean flag) {
+  public DBOptions setCreateMissingColumnFamilies(
+      final boolean flag) {
     assert(isInitialized());
     setCreateMissingColumnFamilies(nativeHandle_, flag);
     return this;
@@ -106,7 +108,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setErrorIfExists(boolean errorIfExists) {
+  public DBOptions setErrorIfExists(
+      final boolean errorIfExists) {
     assert(isInitialized());
     setErrorIfExists(nativeHandle_, errorIfExists);
     return this;
@@ -119,7 +122,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setParanoidChecks(boolean paranoidChecks) {
+  public DBOptions setParanoidChecks(
+      final boolean paranoidChecks) {
     assert(isInitialized());
     setParanoidChecks(nativeHandle_, paranoidChecks);
     return this;
@@ -132,7 +136,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setRateLimiterConfig(RateLimiterConfig config) {
+  public DBOptions setRateLimiterConfig(
+      final RateLimiterConfig config) {
     assert(isInitialized());
     rateLimiterConfig_ = config;
     setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
@@ -140,7 +145,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setInfoLogLevel(InfoLogLevel infoLogLevel) {
+  public DBOptions setInfoLogLevel(
+      final InfoLogLevel infoLogLevel) {
     assert(isInitialized());
     setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
     return this;
@@ -154,7 +160,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setMaxOpenFiles(int maxOpenFiles) {
+  public DBOptions setMaxOpenFiles(
+      final int maxOpenFiles) {
     assert(isInitialized());
     setMaxOpenFiles(nativeHandle_, maxOpenFiles);
     return this;
@@ -167,7 +174,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setMaxTotalWalSize(long maxTotalWalSize) {
+  public DBOptions setMaxTotalWalSize(
+      final long maxTotalWalSize) {
     assert(isInitialized());
     setMaxTotalWalSize(nativeHandle_, maxTotalWalSize);
     return this;
@@ -200,7 +208,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setDisableDataSync(boolean disableDataSync) {
+  public DBOptions setDisableDataSync(
+      final boolean disableDataSync) {
     assert(isInitialized());
     setDisableDataSync(nativeHandle_, disableDataSync);
     return this;
@@ -213,7 +222,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setUseFsync(boolean useFsync) {
+  public DBOptions setUseFsync(
+      final boolean useFsync) {
     assert(isInitialized());
     setUseFsync(nativeHandle_, useFsync);
     return this;
@@ -226,7 +236,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setDbLogDir(String dbLogDir) {
+  public DBOptions setDbLogDir(
+      final String dbLogDir) {
     assert(isInitialized());
     setDbLogDir(nativeHandle_, dbLogDir);
     return this;
@@ -239,7 +250,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setWalDir(String walDir) {
+  public DBOptions setWalDir(
+      final String walDir) {
     assert(isInitialized());
     setWalDir(nativeHandle_, walDir);
     return this;
@@ -252,7 +264,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setDeleteObsoleteFilesPeriodMicros(long micros) {
+  public DBOptions setDeleteObsoleteFilesPeriodMicros(
+      final long micros) {
     assert(isInitialized());
     setDeleteObsoleteFilesPeriodMicros(nativeHandle_, micros);
     return this;
@@ -265,7 +278,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setMaxBackgroundCompactions(int maxBackgroundCompactions) {
+  public DBOptions setMaxBackgroundCompactions(
+      final int maxBackgroundCompactions) {
     assert(isInitialized());
     setMaxBackgroundCompactions(nativeHandle_, maxBackgroundCompactions);
     return this;
@@ -278,7 +292,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setMaxBackgroundFlushes(int maxBackgroundFlushes) {
+  public DBOptions setMaxBackgroundFlushes(
+      final int maxBackgroundFlushes) {
     assert(isInitialized());
     setMaxBackgroundFlushes(nativeHandle_, maxBackgroundFlushes);
     return this;
@@ -291,8 +306,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setMaxLogFileSize(long maxLogFileSize)
-      throws RocksDBException {
+  public DBOptions setMaxLogFileSize(
+      final long maxLogFileSize) throws RocksDBException {
     assert(isInitialized());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
@@ -305,8 +320,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setLogFileTimeToRoll(long logFileTimeToRoll)
-      throws RocksDBException{
+  public DBOptions setLogFileTimeToRoll(
+      final long logFileTimeToRoll) throws RocksDBException{
     assert(isInitialized());
     setLogFileTimeToRoll(nativeHandle_, logFileTimeToRoll);
     return this;
@@ -319,8 +334,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setKeepLogFileNum(long keepLogFileNum)
-      throws RocksDBException{
+  public DBOptions setKeepLogFileNum(
+      final long keepLogFileNum) throws RocksDBException{
     assert(isInitialized());
     setKeepLogFileNum(nativeHandle_, keepLogFileNum);
     return this;
@@ -333,7 +348,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setMaxManifestFileSize(long maxManifestFileSize) {
+  public DBOptions setMaxManifestFileSize(
+      final long maxManifestFileSize) {
     assert(isInitialized());
     setMaxManifestFileSize(nativeHandle_, maxManifestFileSize);
     return this;
@@ -346,7 +362,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setTableCacheNumshardbits(int tableCacheNumshardbits) {
+  public DBOptions setTableCacheNumshardbits(
+      final int tableCacheNumshardbits) {
     assert(isInitialized());
     setTableCacheNumshardbits(nativeHandle_, tableCacheNumshardbits);
     return this;
@@ -359,7 +376,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setTableCacheRemoveScanCountLimit(int limit) {
+  public DBOptions setTableCacheRemoveScanCountLimit(
+      final int limit) {
     assert(isInitialized());
     setTableCacheRemoveScanCountLimit(nativeHandle_, limit);
     return this;
@@ -372,7 +390,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setWalTtlSeconds(long walTtlSeconds) {
+  public DBOptions setWalTtlSeconds(
+      final long walTtlSeconds) {
     assert(isInitialized());
     setWalTtlSeconds(nativeHandle_, walTtlSeconds);
     return this;
@@ -385,7 +404,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setWalSizeLimitMB(long sizeLimitMB) {
+  public DBOptions setWalSizeLimitMB(
+      final long sizeLimitMB) {
     assert(isInitialized());
     setWalSizeLimitMB(nativeHandle_, sizeLimitMB);
     return this;
@@ -398,8 +418,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setManifestPreallocationSize(long size)
-      throws RocksDBException {
+  public DBOptions setManifestPreallocationSize(
+      final long size) throws RocksDBException {
     assert(isInitialized());
     setManifestPreallocationSize(nativeHandle_, size);
     return this;
@@ -412,7 +432,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setAllowOsBuffer(boolean allowOsBuffer) {
+  public DBOptions setAllowOsBuffer(
+      final boolean allowOsBuffer) {
     assert(isInitialized());
     setAllowOsBuffer(nativeHandle_, allowOsBuffer);
     return this;
@@ -425,7 +446,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setAllowMmapReads(boolean allowMmapReads) {
+  public DBOptions setAllowMmapReads(
+      final boolean allowMmapReads) {
     assert(isInitialized());
     setAllowMmapReads(nativeHandle_, allowMmapReads);
     return this;
@@ -438,7 +460,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setAllowMmapWrites(boolean allowMmapWrites) {
+  public DBOptions setAllowMmapWrites(
+      final boolean allowMmapWrites) {
     assert(isInitialized());
     setAllowMmapWrites(nativeHandle_, allowMmapWrites);
     return this;
@@ -451,7 +474,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setIsFdCloseOnExec(boolean isFdCloseOnExec) {
+  public DBOptions setIsFdCloseOnExec(
+      final boolean isFdCloseOnExec) {
     assert(isInitialized());
     setIsFdCloseOnExec(nativeHandle_, isFdCloseOnExec);
     return this;
@@ -465,7 +489,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   @Override
   @Deprecated
-  public DBOptions setSkipLogErrorOnRecovery(boolean skip) {
+  public DBOptions setSkipLogErrorOnRecovery(
+      final boolean skip) {
     assert(isInitialized());
     setSkipLogErrorOnRecovery(nativeHandle_, skip);
     return this;
@@ -479,7 +504,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setStatsDumpPeriodSec(int statsDumpPeriodSec) {
+  public DBOptions setStatsDumpPeriodSec(
+      final int statsDumpPeriodSec) {
     assert(isInitialized());
     setStatsDumpPeriodSec(nativeHandle_, statsDumpPeriodSec);
     return this;
@@ -492,7 +518,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setAdviseRandomOnOpen(boolean adviseRandomOnOpen) {
+  public DBOptions setAdviseRandomOnOpen(
+      final boolean adviseRandomOnOpen) {
     assert(isInitialized());
     setAdviseRandomOnOpen(nativeHandle_, adviseRandomOnOpen);
     return this;
@@ -504,7 +531,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setUseAdaptiveMutex(boolean useAdaptiveMutex) {
+  public DBOptions setUseAdaptiveMutex(
+      final boolean useAdaptiveMutex) {
     assert(isInitialized());
     setUseAdaptiveMutex(nativeHandle_, useAdaptiveMutex);
     return this;
@@ -517,7 +545,8 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setBytesPerSync(long bytesPerSync) {
+  public DBOptions setBytesPerSync(
+      final long bytesPerSync) {
     assert(isInitialized());
     setBytesPerSync(nativeHandle_, bytesPerSync);
     return this;
@@ -545,7 +574,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
    *
    * @param handle native handle to DBOptions instance.
    */
-  private DBOptions(long handle) {
+  private DBOptions(final long handle) {
     super();
     nativeHandle_ = handle;
   }

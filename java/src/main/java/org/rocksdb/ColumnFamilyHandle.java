@@ -10,7 +10,8 @@ package org.rocksdb;
  * ColumnFamily Pointers.
  */
 public class ColumnFamilyHandle extends RocksObject {
-  ColumnFamilyHandle(RocksDB rocksDB, long nativeHandle) {
+  ColumnFamilyHandle(final RocksDB rocksDB,
+      final long nativeHandle) {
     super();
     nativeHandle_ = nativeHandle;
     // rocksDB must point to a valid RocksDB instance;

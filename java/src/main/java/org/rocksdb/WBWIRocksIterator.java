@@ -8,7 +8,7 @@ package org.rocksdb;
 public class WBWIRocksIterator extends AbstractRocksIterator<WriteBatchWithIndex> {
   private final WriteEntry entry = new WriteEntry();
 
-  protected WBWIRocksIterator(WriteBatchWithIndex wbwi, long nativeHandle) {
+  protected WBWIRocksIterator(final WriteBatchWithIndex wbwi, final long nativeHandle) {
     super(wbwi, nativeHandle);
   }
 

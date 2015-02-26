@@ -51,7 +51,7 @@ public class ColumnFamilyOptions extends RocksObject
    *     {@link Properties} instance is passed to the method call.
    */
   public static ColumnFamilyOptions getColumnFamilyOptionsFromProps(
-      Properties properties) {
+      final Properties properties) {
     if (properties == null || properties.size() == 0) {
       throw new IllegalArgumentException(
           "Properties value must contain at least one value.");
@@ -74,7 +74,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions optimizeForPointLookup(
-      long blockCacheSizeMb) {
+      final long blockCacheSizeMb) {
     optimizeForPointLookup(nativeHandle_,
         blockCacheSizeMb);
     return this;
@@ -89,7 +89,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions optimizeLevelStyleCompaction(
-      long memtableMemoryBudget) {
+      final long memtableMemoryBudget) {
     optimizeLevelStyleCompaction(nativeHandle_,
         memtableMemoryBudget);
     return this;
@@ -104,14 +104,14 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions optimizeUniversalStyleCompaction(
-      long memtableMemoryBudget) {
+      final long memtableMemoryBudget) {
     optimizeUniversalStyleCompaction(nativeHandle_,
         memtableMemoryBudget);
     return this;
   }
 
   @Override
-  public ColumnFamilyOptions setComparator(BuiltinComparator builtinComparator) {
+  public ColumnFamilyOptions setComparator(final BuiltinComparator builtinComparator) {
     assert(isInitialized());
     setComparatorHandle(nativeHandle_, builtinComparator.ordinal());
     return this;
@@ -119,7 +119,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setComparator(
-      AbstractComparator<? extends AbstractSlice<?>> comparator) {
+      final AbstractComparator<? extends AbstractSlice<?>> comparator) {
     assert (isInitialized());
     setComparatorHandle(nativeHandle_, comparator.nativeHandle_);
     comparator_ = comparator;
@@ -127,7 +127,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMergeOperatorName(String name) {
+  public ColumnFamilyOptions setMergeOperatorName(final String name) {
     assert (isInitialized());
     if (name == null) {
       throw new IllegalArgumentException(
@@ -138,13 +138,13 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMergeOperator(MergeOperator mergeOperator) {
+  public ColumnFamilyOptions setMergeOperator(final MergeOperator mergeOperator) {
     setMergeOperator(nativeHandle_, mergeOperator.newMergeOperatorHandle());
     return this;
   }
 
   @Override
-  public ColumnFamilyOptions setWriteBufferSize(long writeBufferSize)
+  public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize)
       throws RocksDBException {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
@@ -159,7 +159,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMaxWriteBufferNumber(
-      int maxWriteBufferNumber) {
+      final int maxWriteBufferNumber) {
     assert(isInitialized());
     setMaxWriteBufferNumber(nativeHandle_, maxWriteBufferNumber);
     return this;
@@ -173,7 +173,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMinWriteBufferNumberToMerge(
-      int minWriteBufferNumberToMerge) {
+      final int minWriteBufferNumberToMerge) {
     setMinWriteBufferNumberToMerge(nativeHandle_, minWriteBufferNumberToMerge);
     return this;
   }
@@ -184,14 +184,14 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions useFixedLengthPrefixExtractor(int n) {
+  public ColumnFamilyOptions useFixedLengthPrefixExtractor(final int n) {
     assert(isInitialized());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
     return this;
   }
 
   @Override
-  public ColumnFamilyOptions setCompressionType(CompressionType compressionType) {
+  public ColumnFamilyOptions setCompressionType(final CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
   }
@@ -202,7 +202,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setNumLevels(int numLevels) {
+  public ColumnFamilyOptions setNumLevels(final int numLevels) {
     setNumLevels(nativeHandle_, numLevels);
     return this;
   }
@@ -214,7 +214,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setLevelZeroFileNumCompactionTrigger(
-      int numFiles) {
+      final int numFiles) {
     setLevelZeroFileNumCompactionTrigger(
         nativeHandle_, numFiles);
     return this;
@@ -227,7 +227,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setLevelZeroSlowdownWritesTrigger(
-      int numFiles) {
+      final int numFiles) {
     setLevelZeroSlowdownWritesTrigger(nativeHandle_, numFiles);
     return this;
   }
@@ -238,7 +238,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setLevelZeroStopWritesTrigger(int numFiles) {
+  public ColumnFamilyOptions setLevelZeroStopWritesTrigger(final int numFiles) {
     setLevelZeroStopWritesTrigger(nativeHandle_, numFiles);
     return this;
   }
@@ -250,7 +250,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMaxMemCompactionLevel(
-      int maxMemCompactionLevel) {
+      final int maxMemCompactionLevel) {
     setMaxMemCompactionLevel(nativeHandle_, maxMemCompactionLevel);
     return this;
   }
@@ -261,7 +261,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setTargetFileSizeBase(long targetFileSizeBase) {
+  public ColumnFamilyOptions setTargetFileSizeBase(
+      final long targetFileSizeBase) {
     setTargetFileSizeBase(nativeHandle_, targetFileSizeBase);
     return this;
   }
@@ -272,7 +273,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setTargetFileSizeMultiplier(int multiplier) {
+  public ColumnFamilyOptions setTargetFileSizeMultiplier(
+      final int multiplier) {
     setTargetFileSizeMultiplier(nativeHandle_, multiplier);
     return this;
   }
@@ -284,7 +286,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMaxBytesForLevelBase(
-      long maxBytesForLevelBase) {
+      final long maxBytesForLevelBase) {
     setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
     return this;
   }
@@ -295,7 +297,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMaxBytesForLevelMultiplier(int multiplier) {
+  public ColumnFamilyOptions setMaxBytesForLevelMultiplier(
+      final int multiplier) {
     setMaxBytesForLevelMultiplier(nativeHandle_, multiplier);
     return this;
   }
@@ -306,7 +309,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setExpandedCompactionFactor(int expandedCompactionFactor) {
+  public ColumnFamilyOptions setExpandedCompactionFactor(
+      final int expandedCompactionFactor) {
     setExpandedCompactionFactor(nativeHandle_, expandedCompactionFactor);
     return this;
   }
@@ -317,7 +321,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSourceCompactionFactor(int sourceCompactionFactor) {
+  public ColumnFamilyOptions setSourceCompactionFactor(
+      final int sourceCompactionFactor) {
     setSourceCompactionFactor(nativeHandle_, sourceCompactionFactor);
     return this;
   }
@@ -329,7 +334,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMaxGrandparentOverlapFactor(
-      int maxGrandparentOverlapFactor) {
+      final int maxGrandparentOverlapFactor) {
     setMaxGrandparentOverlapFactor(nativeHandle_, maxGrandparentOverlapFactor);
     return this;
   }
@@ -340,7 +345,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setSoftRateLimit(double softRateLimit) {
+  public ColumnFamilyOptions setSoftRateLimit(
+      final double softRateLimit) {
     setSoftRateLimit(nativeHandle_, softRateLimit);
     return this;
   }
@@ -351,7 +357,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setHardRateLimit(double hardRateLimit) {
+  public ColumnFamilyOptions setHardRateLimit(
+      final double hardRateLimit) {
     setHardRateLimit(nativeHandle_, hardRateLimit);
     return this;
   }
@@ -363,7 +370,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setRateLimitDelayMaxMilliseconds(
-      int rateLimitDelayMaxMilliseconds) {
+      final int rateLimitDelayMaxMilliseconds) {
     setRateLimitDelayMaxMilliseconds(
         nativeHandle_, rateLimitDelayMaxMilliseconds);
     return this;
@@ -375,7 +382,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setArenaBlockSize(long arenaBlockSize)
+  public ColumnFamilyOptions setArenaBlockSize(
+      final long arenaBlockSize)
       throws RocksDBException {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
     return this;
@@ -387,7 +395,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setDisableAutoCompactions(boolean disableAutoCompactions) {
+  public ColumnFamilyOptions setDisableAutoCompactions(
+      final boolean disableAutoCompactions) {
     setDisableAutoCompactions(nativeHandle_, disableAutoCompactions);
     return this;
   }
@@ -399,7 +408,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setPurgeRedundantKvsWhileFlush(
-      boolean purgeRedundantKvsWhileFlush) {
+      final boolean purgeRedundantKvsWhileFlush) {
     setPurgeRedundantKvsWhileFlush(
         nativeHandle_, purgeRedundantKvsWhileFlush);
     return this;
@@ -411,7 +420,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setCompactionStyle(CompactionStyle compactionStyle) {
+  public ColumnFamilyOptions setCompactionStyle(
+      final CompactionStyle compactionStyle) {
     setCompactionStyle(nativeHandle_, compactionStyle.getValue());
     return this;
   }
@@ -423,7 +433,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setVerifyChecksumsInCompaction(
-      boolean verifyChecksumsInCompaction) {
+      final boolean verifyChecksumsInCompaction) {
     setVerifyChecksumsInCompaction(
         nativeHandle_, verifyChecksumsInCompaction);
     return this;
@@ -435,7 +445,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setFilterDeletes(boolean filterDeletes) {
+  public ColumnFamilyOptions setFilterDeletes(
+      final boolean filterDeletes) {
     setFilterDeletes(nativeHandle_, filterDeletes);
     return this;
   }
@@ -446,7 +457,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMaxSequentialSkipInIterations(long maxSequentialSkipInIterations) {
+  public ColumnFamilyOptions setMaxSequentialSkipInIterations(
+      final long maxSequentialSkipInIterations) {
     setMaxSequentialSkipInIterations(nativeHandle_, maxSequentialSkipInIterations);
     return this;
   }
@@ -457,8 +469,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMemTableConfig(MemTableConfig config)
-      throws RocksDBException {
+  public ColumnFamilyOptions setMemTableConfig(
+      final MemTableConfig config) throws RocksDBException {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
@@ -471,7 +483,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setTableFormatConfig(TableFormatConfig config) {
+  public ColumnFamilyOptions setTableFormatConfig(
+      final TableFormatConfig config) {
     tableFormatConfig_ = config;
     setTableFactory(nativeHandle_, config.newTableFactoryHandle());
     return this;
@@ -484,7 +497,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setInplaceUpdateSupport(boolean inplaceUpdateSupport) {
+  public ColumnFamilyOptions setInplaceUpdateSupport(
+      final boolean inplaceUpdateSupport) {
     setInplaceUpdateSupport(nativeHandle_, inplaceUpdateSupport);
     return this;
   }
@@ -495,7 +509,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setInplaceUpdateNumLocks(long inplaceUpdateNumLocks)
+  public ColumnFamilyOptions setInplaceUpdateNumLocks(
+      final long inplaceUpdateNumLocks)
       throws RocksDBException {
     setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
     return this;
@@ -507,7 +522,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMemtablePrefixBloomBits(int memtablePrefixBloomBits) {
+  public ColumnFamilyOptions setMemtablePrefixBloomBits(
+      final int memtablePrefixBloomBits) {
     setMemtablePrefixBloomBits(nativeHandle_, memtablePrefixBloomBits);
     return this;
   }
@@ -518,7 +534,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMemtablePrefixBloomProbes(int memtablePrefixBloomProbes) {
+  public ColumnFamilyOptions setMemtablePrefixBloomProbes(
+      final int memtablePrefixBloomProbes) {
     setMemtablePrefixBloomProbes(nativeHandle_, memtablePrefixBloomProbes);
     return this;
   }
@@ -540,8 +557,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMaxSuccessiveMerges(long maxSuccessiveMerges)
-      throws RocksDBException {
+  public ColumnFamilyOptions setMaxSuccessiveMerges(
+      final long maxSuccessiveMerges) throws RocksDBException {
     setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
     return this;
   }
@@ -552,7 +569,8 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setMinPartialMergeOperands(int minPartialMergeOperands) {
+  public ColumnFamilyOptions setMinPartialMergeOperands(
+      final int minPartialMergeOperands) {
     setMinPartialMergeOperands(nativeHandle_, minPartialMergeOperands);
     return this;
   }
@@ -577,7 +595,7 @@ public class ColumnFamilyOptions extends RocksObject
    *
    * @param handle native handle to ColumnFamilyOptions instance.
    */
-  private ColumnFamilyOptions(long handle) {
+  private ColumnFamilyOptions(final long handle) {
     super();
     nativeHandle_ = handle;
   }

@@ -22,7 +22,7 @@ public class RestoreOptions extends RocksObject {
    *     for persisting in-memory databases.
    *     Default: false
    */
-  public RestoreOptions(boolean keepLogFiles) {
+  public RestoreOptions(final boolean keepLogFiles) {
     super();
     nativeHandle_ = newRestoreOptions(keepLogFiles);
   }
