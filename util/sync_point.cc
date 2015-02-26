@@ -14,6 +14,7 @@ SyncPoint* SyncPoint::GetInstance() {
 }
 
 void SyncPoint::LoadDependency(const std::vector<Dependency>& dependencies) {
+  std::unique_lock<std::mutex> lock(mutex_);
   successors_.clear();
   predecessors_.clear();
   cleared_points_.clear();
@@ -21,6 +22,7 @@ void SyncPoint::LoadDependency(const std::vector<Dependency>& dependencies) {
     successors_[dependency.predecessor].push_back(dependency.successor);
     predecessors_[dependency.successor].push_back(dependency.predecessor);
   }
+  cv_.notify_all();
 }
 
 bool SyncPoint::PredecessorsAllCleared(const std::string& point) {
