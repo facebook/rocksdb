@@ -5,15 +5,27 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <string>
+#include <deque>
 #include <map>
+#include <memory>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/slice.h"
 
 // We use JSONDocument for DocumentDB API
-// Implementation inspired by folly::dynamic and rapidjson
+// Implementation inspired by folly::dynamic, rapidjson and fbson
+
+namespace fbson {
+  class FbsonValue;
+  class ObjectVal;
+  template <typename T>
+  class FbsonWriterT;
+  class FbsonOutStream;
+  typedef FbsonWriterT<FbsonOutStream> FbsonWriter;
+}  // namespace fbson
 
 namespace rocksdb {
 
@@ -33,52 +45,38 @@ class JSONDocument {
     kString,
   };
 
-  JSONDocument();  // null
+  /* implicit */ JSONDocument();  // null
   /* implicit */ JSONDocument(bool b);
   /* implicit */ JSONDocument(double d);
+  /* implicit */ JSONDocument(int8_t i);
+  /* implicit */ JSONDocument(int16_t i);
+  /* implicit */ JSONDocument(int32_t i);
   /* implicit */ JSONDocument(int64_t i);
   /* implicit */ JSONDocument(const std::string& s);
   /* implicit */ JSONDocument(const char* s);
   // constructs JSONDocument of specific type with default value
-  explicit JSONDocument(Type type);
+  explicit JSONDocument(Type _type);
 
-  // copy constructor
   JSONDocument(const JSONDocument& json_document);
 
-  ~JSONDocument();
+  JSONDocument(JSONDocument&& json_document);
 
   Type type() const;
 
   // REQUIRES: IsObject()
   bool Contains(const std::string& key) const;
-  // Returns nullptr if !Contains()
-  // don't delete the returned pointer
   // REQUIRES: IsObject()
-  const JSONDocument* Get(const std::string& key) const;
-  // REQUIRES: IsObject()
-  JSONDocument& operator[](const std::string& key);
-  // REQUIRES: IsObject()
-  const JSONDocument& operator[](const std::string& key) const;
-  // returns `this`, so you can chain operations.
-  // Copies value
-  // REQUIRES: IsObject()
-  JSONDocument* Set(const std::string& key, const JSONDocument& value);
+  // Returns non-owner object
+  JSONDocument operator[](const std::string& key) const;
 
   // REQUIRES: IsArray() == true || IsObject() == true
   size_t Count() const;
 
   // REQUIRES: IsArray()
-  const JSONDocument* GetFromArray(size_t i) const;
-  // REQUIRES: IsArray()
-  JSONDocument& operator[](size_t i);
-  // REQUIRES: IsArray()
-  const JSONDocument& operator[](size_t i) const;
-  // returns `this`, so you can chain operations.
-  // Copies the value
-  // REQUIRES: IsArray() && i < Count()
-  JSONDocument* SetInArray(size_t i, const JSONDocument& value);
-  // REQUIRES: IsArray()
-  JSONDocument* PushBack(const JSONDocument& value);
+  // Returns non-owner object
+  JSONDocument operator[](size_t i) const;
+
+  JSONDocument& operator=(JSONDocument jsonDocument);
 
   bool IsNull() const;
   bool IsArray() const;
@@ -95,9 +93,15 @@ class JSONDocument {
   // REQUIRES: IsInt64() == true
   int64_t GetInt64() const;
   // REQUIRES: IsString() == true
-  const std::string& GetString() const;
+  std::string GetString() const;
 
   bool operator==(const JSONDocument& rhs) const;
+
+  bool operator!=(const JSONDocument& rhs) const;
+
+  JSONDocument Copy() const;
+
+  bool IsOwner() const;
 
   std::string DebugString() const;
 
@@ -114,59 +118,76 @@ class JSONDocument {
   static JSONDocument* Deserialize(const Slice& src);
 
  private:
-  void SerializeInternal(std::string* dst, bool type_prefix) const;
-  // returns false if Slice doesn't represent valid serialized JSONDocument.
-  // Otherwise, true
-  bool DeserializeInternal(Slice* input);
+  friend class JSONDocumentBuilder;
 
-  typedef std::vector<JSONDocument*> Array;
-  typedef std::unordered_map<std::string, JSONDocument*> Object;
+  JSONDocument(fbson::FbsonValue* val, bool makeCopy);
+
+  void InitFromValue(const fbson::FbsonValue* val);
 
   // iteration on objects
   class const_item_iterator {
-   public:
-    typedef Object::const_iterator It;
-    typedef Object::value_type value_type;
-    /* implicit */ const_item_iterator(It it) : it_(it) {}
-    It& operator++() { return ++it_; }
-    bool operator!=(const const_item_iterator& other) {
-      return it_ != other.it_;
-    }
-    value_type operator*() { return *it_; }
-
    private:
-    It it_;
+    class Impl;
+   public:
+    typedef std::pair<std::string, JSONDocument> value_type;
+    explicit const_item_iterator(Impl* impl);
+    const_item_iterator(const_item_iterator&&);
+    const_item_iterator& operator++();
+    bool operator!=(const const_item_iterator& other);
+    value_type operator*();
+    ~const_item_iterator();
+   private:
+    friend class ItemsIteratorGenerator;
+    std::unique_ptr<Impl> it_;
   };
+
   class ItemsIteratorGenerator {
    public:
-    /* implicit */ ItemsIteratorGenerator(const Object& object)
-        : object_(object) {}
-    const_item_iterator begin() { return object_.begin(); }
-    const_item_iterator end() { return object_.end(); }
+    explicit ItemsIteratorGenerator(const fbson::ObjectVal& object);
+    const_item_iterator begin() const;
+
+    const_item_iterator end() const;
 
    private:
-    const Object& object_;
+    const fbson::ObjectVal& object_;
   };
 
-  union Data {
-    Data() : n(nullptr) {}
-    ~Data() {}
-
-    void* n;
-    Array a;
-    bool b;
-    double d;
-    int64_t i;
-    std::string s;
-    Object o;
-  } data_;
-  const Type type_;
+  std::unique_ptr<char[]> data_;
+  mutable fbson::FbsonValue* value_;
 
   // Our serialization format's first byte specifies the encoding version. That
   // way, we can easily change our format while providing backwards
   // compatibility. This constant specifies the current version of the
   // serialization format
   static const char kSerializationFormatVersion;
+};
+
+class JSONDocumentBuilder {
+ public:
+  JSONDocumentBuilder();
+
+  explicit JSONDocumentBuilder(fbson::FbsonOutStream* out);
+
+  void Reset();
+
+  bool WriteStartArray();
+
+  bool WriteEndArray();
+
+  bool WriteStartObject();
+
+  bool WriteEndObject();
+
+  bool WriteKeyValue(const std::string& key, const JSONDocument& value);
+
+  bool WriteJSONDocument(const JSONDocument& value);
+
+  JSONDocument GetJSONDocument();
+
+  ~JSONDocumentBuilder();
+
+ private:
+  std::unique_ptr<fbson::FbsonWriter> writer_;
 };
 
 }  // namespace rocksdb
