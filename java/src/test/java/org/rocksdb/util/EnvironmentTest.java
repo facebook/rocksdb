@@ -4,6 +4,8 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 package org.rocksdb.util;
 
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.lang.reflect.Field;
@@ -12,10 +14,17 @@ import java.lang.reflect.Modifier;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class EnvironmentTest {
+  private final static String ARCH_FIELD_NAME = "ARCH";
+  private final static String OS_FIELD_NAME = "OS";
 
-  // Init static context
-  private static Environment environment =
-      new Environment();
+  private static String INITIAL_OS;
+  private static String INITIAL_ARCH;
+
+  @BeforeClass
+  public static void saveState() {
+    INITIAL_ARCH = getEnvironmentClassField(ARCH_FIELD_NAME);
+    INITIAL_OS = getEnvironmentClassField(OS_FIELD_NAME);
+  }
 
   @Test
   public void mac32() {
@@ -122,11 +131,31 @@ public class EnvironmentTest {
 
   private void setEnvironmentClassFields(String osName,
       String osArch) {
-    setEnvironmentClassField("OS", osName);
-    setEnvironmentClassField("ARCH", osArch);
+    setEnvironmentClassField(OS_FIELD_NAME, osName);
+    setEnvironmentClassField(ARCH_FIELD_NAME, osArch);
   }
 
-  private void setEnvironmentClassField(String fieldName, String value) {
+  @AfterClass
+  public static void restoreState() {
+    setEnvironmentClassField(OS_FIELD_NAME, INITIAL_OS);
+    setEnvironmentClassField(ARCH_FIELD_NAME, INITIAL_ARCH);
+  }
+
+  private static String getEnvironmentClassField(String fieldName) {
+    final Field field;
+    try {
+      field = Environment.class.getDeclaredField(fieldName);
+      field.setAccessible(true);
+      final Field modifiersField = Field.class.getDeclaredField("modifiers");
+      modifiersField.setAccessible(true);
+      modifiersField.setInt(field, field.getModifiers() & ~Modifier.FINAL);
+      return (String)field.get(null);
+    } catch (NoSuchFieldException | IllegalAccessException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private static void setEnvironmentClassField(String fieldName, String value) {
     final Field field;
     try {
       field = Environment.class.getDeclaredField(fieldName);
