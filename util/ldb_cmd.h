@@ -290,7 +290,7 @@ protected:
    * used by this command.  It includes the common options and the ones
    * passed in.
    */
-  vector<string> BuildCmdLineOptions(vector<string> options) {
+  static vector<string> BuildCmdLineOptions(vector<string> options) {
     vector<string> ret = {ARG_DB,               ARG_BLOOM_BITS,
                           ARG_BLOCK_SIZE,       ARG_AUTO_COMPACTION,
                           ARG_COMPRESSION_TYPE, ARG_WRITE_BUFFER_SIZE,
