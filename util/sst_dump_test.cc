@@ -147,6 +147,28 @@ TEST(SSTDumpToolTest, FullFilterBlock) {
     delete[] usage[i];
   }
 }
+
+TEST(SSTDumpToolTest, GetProperties) {
+  table_options_.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
+  std::string file_name = "rocksdb_sst_test.sst";
+  createSST(file_name, table_options_);
+
+  char* usage[3];
+  for (int i = 0; i < 3; i++) {
+    usage[i] = new char[optLength];
+  }
+  snprintf(usage[0], optLength, "./sst_dump");
+  snprintf(usage[1], optLength, "--show_properties");
+  snprintf(usage[2], optLength, "--file=rocksdb_sst_test.sst");
+
+  rocksdb::SSTDumpTool tool;
+  ASSERT_TRUE(!tool.Run(3, usage));
+
+  cleanup(file_name);
+  for (int i = 0; i < 3; i++) {
+    delete[] usage[i];
+  }
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }

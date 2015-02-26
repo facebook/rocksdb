@@ -15,6 +15,8 @@
 
 namespace rocksdb {
 
+using std::dynamic_pointer_cast;
+
 SstFileReader::SstFileReader(const std::string& file_path,
                              bool verify_checksum,
                              bool output_hex)
@@ -23,7 +25,7 @@ SstFileReader::SstFileReader(const std::string& file_path,
     internal_comparator_(BytewiseComparator()) {
   fprintf(stdout, "Process %s\n", file_path.c_str());
 
-  init_result_ = NewTableReader(file_name_);
+  init_result_ = GetTableReader(file_name_);
 }
 
 extern const uint64_t kBlockBasedTableMagicNumber;
@@ -31,7 +33,7 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
 extern const uint64_t kLegacyPlainTableMagicNumber;
 
-Status SstFileReader::NewTableReader(const std::string& file_path) {
+Status SstFileReader::GetTableReader(const std::string& file_path) {
   uint64_t magic_number;
 
   // read table magic number
@@ -66,11 +68,34 @@ Status SstFileReader::NewTableReader(const std::string& file_path) {
   }
 
   if (s.ok()) {
-    s = options_.table_factory->NewTableReader(
-        ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
-        &table_reader_);
+    s = NewTableReader(ioptions_, soptions_, internal_comparator_,
+                       std::move(file_), file_size, &table_reader_);
   }
   return s;
+}
+
+Status SstFileReader::NewTableReader(
+    const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
+    const InternalKeyComparator& internal_comparator,
+    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+    unique_ptr<TableReader>* table_reader) {
+  // We need to turn off pre-fetching of index and filter nodes for
+  // BlockBasedTable
+  shared_ptr<BlockBasedTableFactory> block_table_factory =
+      dynamic_pointer_cast<BlockBasedTableFactory>(options_.table_factory);
+
+  if (block_table_factory) {
+    return block_table_factory->NewTableReader(
+        ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
+        &table_reader_, /*enable_prefetch=*/false);
+  }
+
+  assert(!block_table_factory);
+
+  // For all other factory implementation
+  return options_.table_factory->NewTableReader(
+      ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
+      &table_reader_);
 }
 
 Status SstFileReader::DumpTable(const std::string& out_filename) {

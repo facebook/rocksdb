@@ -63,12 +63,15 @@ class BlockBasedTable : public TableReader {
   // to nullptr and returns a non-ok status.
   //
   // *file must remain live while this Table is in use.
+  // *prefetch_blocks can be used to disable prefetching of index and filter
+  //  blocks at statup
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
                      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                     unique_ptr<TableReader>* table_reader);
+                     unique_ptr<TableReader>* table_reader,
+                     bool prefetch_index_and_filter = true);
 
   bool PrefixMayMatch(const Slice& internal_key);
 

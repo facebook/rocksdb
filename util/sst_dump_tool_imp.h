@@ -53,11 +53,20 @@ class SstFileReader {
   Status getStatus() { return init_result_; }
 
  private:
-  Status NewTableReader(const std::string& file_path);
+  // Get the TableReader implementation for the sst file
+  Status GetTableReader(const std::string& file_path);
   Status ReadTableProperties(uint64_t table_magic_number,
                              RandomAccessFile* file, uint64_t file_size);
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();
+
+  // Helper function to call the factory with settings specific to the
+  // factory implementation
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<TableReader>* table_reader);
 
   std::string file_name_;
   uint64_t read_num_;
