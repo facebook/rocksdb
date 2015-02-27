@@ -10,7 +10,7 @@ CFLAGS += ${EXTRA_CFLAGS}
 CXXFLAGS += ${EXTRA_CXXFLAGS}
 LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
-ARFLAGS = rsD
+ARFLAGS = rs
 
 ifneq ($(MAKECMDGOALS),dbg)
 OPT += -O2 -fno-omit-frame-pointer

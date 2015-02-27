@@ -84,7 +84,7 @@ if test -z "$CLANG_SCAN_BUILD"; then
 fi
 
 if test -z "$CLANG_ANALYZER"; then
-    CLANG_ANALYZER=$(which clang++)
+    CLANG_ANALYZER=$(which clang++ 2> /dev/null)
 fi
 
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
