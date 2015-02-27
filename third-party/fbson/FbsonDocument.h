@@ -63,6 +63,7 @@
 #ifndef FBSON_FBSONDOCUMENT_H
 #define FBSON_FBSONDOCUMENT_H
 
+#include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 
