@@ -46,7 +46,7 @@ void InitJSONDocument(std::unique_ptr<char[]>* data,
                       Func f) {
   // TODO(stash): maybe add function to FbsonDocument to avoid creating array?
   fbson::FbsonWriter writer;
-  bool res = writer.writeStartArray();
+  bool res __attribute__((unused)) = writer.writeStartArray();
   assert(res);
   uint32_t bytesWritten __attribute__((unused)) = f(writer);
   assert(bytesWritten != 0);
@@ -67,7 +67,7 @@ void InitString(std::unique_ptr<char[]>* data,
                 const std::string& s) {
   InitJSONDocument(data, value, std::bind(
       [](fbson::FbsonWriter& writer, const std::string& str) -> uint32_t {
-        bool res = writer.writeStartString();
+        bool res __attribute__((unused)) = writer.writeStartString();
         assert(res);
         auto bytesWritten = writer.writeString(str.c_str(),
                             static_cast<uint32_t>(str.length()));
@@ -113,7 +113,7 @@ bool IsComparable(fbson::FbsonValue* left, fbson::FbsonValue* right) {
 
 void CreateArray(std::unique_ptr<char[]>* data, fbson::FbsonValue** value) {
   fbson::FbsonWriter writer;
-  bool res = writer.writeStartArray();
+  bool res __attribute__((unused)) = writer.writeStartArray();
   assert(res);
   res = writer.writeEndArray();
   assert(res);
@@ -126,7 +126,7 @@ void CreateArray(std::unique_ptr<char[]>* data, fbson::FbsonValue** value) {
 
 void CreateObject(std::unique_ptr<char[]>* data, fbson::FbsonValue** value) {
   fbson::FbsonWriter writer;
-  bool res = writer.writeStartObject();
+  bool res __attribute__((unused)) = writer.writeStartObject();
   assert(res);
   res = writer.writeEndObject();
   assert(res);
@@ -402,7 +402,7 @@ bool CompareSimpleTypes(fbson::FbsonValue* left, fbson::FbsonValue* right) {
   return memcmp(left, right, left->numPackedBytes()) == 0;
 }
 
-bool Compare(fbson::FbsonValue* left, fbson::FbsonValue* right) {
+bool CompareFbsonValue(fbson::FbsonValue* left, fbson::FbsonValue* right) {
   if (!IsComparable(left, right)) {
     return false;
   }
@@ -432,8 +432,8 @@ bool Compare(fbson::FbsonValue* left, fbson::FbsonValue* right) {
         if (rightObject->find(str.c_str()) == nullptr) {
           return false;
         }
-        if (!Compare(keyValue.value(),
-                     rightObject->find(str.c_str()))) {
+        if (!CompareFbsonValue(keyValue.value(),
+                               rightObject->find(str.c_str()))) {
           return false;
         }
       }
@@ -447,7 +447,7 @@ bool Compare(fbson::FbsonValue* left, fbson::FbsonValue* right) {
         return false;
       }
       for (int i = 0; i < static_cast<int>(leftArr->numElem()); ++i) {
-        if (!Compare(leftArr->get(i), rightArr->get(i))) {
+        if (!CompareFbsonValue(leftArr->get(i), rightArr->get(i))) {
           return false;
         }
       }
@@ -462,7 +462,7 @@ bool Compare(fbson::FbsonValue* left, fbson::FbsonValue* right) {
 }  // namespace
 
 bool JSONDocument::operator==(const JSONDocument& rhs) const {
-  return Compare(value_, rhs.value_);
+  return CompareFbsonValue(value_, rhs.value_);
 }
 
 bool JSONDocument::operator!=(const JSONDocument& rhs) const {

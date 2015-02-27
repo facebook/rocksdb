@@ -916,7 +916,7 @@ class DocumentDBImpl : public DocumentDB {
       for (const auto& update : updates.Items()) {
         if (update.first == "$set") {
           JSONDocumentBuilder builder;
-          bool res = builder.WriteStartObject();
+          bool res __attribute__((unused)) = builder.WriteStartObject();
           assert(res);
           for (const auto& itr : update.second.Items()) {
             if (itr.first == kPrimaryKey) {
