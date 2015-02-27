@@ -674,6 +674,39 @@ TEST(BackupableDBTest, CorruptionsTest) {
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
 }
 
+// This test verifies we don't delete the latest backup when read-only option is
+// set
+TEST(BackupableDBTest, NoDeleteWithReadOnly) {
+  const int keys_iteration = 5000;
+  Random rnd(6);
+  Status s;
+
+  OpenBackupableDB(true);
+  // create five backups
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(!!(rnd.Next() % 2)));
+  }
+  CloseBackupableDB();
+  ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "4"));
+
+  backupable_options_->destroy_old_data = false;
+  BackupEngineReadOnly* read_only_backup_engine;
+  ASSERT_OK(BackupEngineReadOnly::Open(env_, *backupable_options_,
+                                       &read_only_backup_engine));
+
+  // assert that data from backup 5 is still here (even though LATEST_BACKUP
+  // says 4 is latest)
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == true);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == true);
+
+  // even though 5 is here, we should only see 4 backups
+  std::vector<BackupInfo> backup_info;
+  read_only_backup_engine->GetBackupInfo(&backup_info);
+  ASSERT_EQ(4UL, backup_info.size());
+  delete read_only_backup_engine;
+}
+
 // open DB, write, close DB, backup, restore, repeat
 TEST(BackupableDBTest, OfflineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
@@ -974,8 +1007,9 @@ TEST(BackupableDBTest, ReadOnlyBackupEngine) {
   backupable_options_->destroy_old_data = false;
   test_backup_env_->ClearWrittenFiles();
   test_backup_env_->SetLimitDeleteFiles(0);
-  auto read_only_backup_engine =
-      BackupEngineReadOnly::NewReadOnlyBackupEngine(env_, *backupable_options_);
+  BackupEngineReadOnly* read_only_backup_engine;
+  ASSERT_OK(BackupEngineReadOnly::Open(env_, *backupable_options_,
+                                       &read_only_backup_engine));
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
   ASSERT_EQ(backup_info.size(), 2U);

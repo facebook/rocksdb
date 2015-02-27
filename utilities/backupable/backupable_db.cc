@@ -13,6 +13,7 @@
 #include "db/filename.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/logging.h"
 #include "rocksdb/transaction_log.h"
 
 #ifndef __STDC_FORMAT_MACROS
@@ -24,6 +25,7 @@
 #include <algorithm>
 #include <vector>
 #include <map>
+#include <sstream>
 #include <string>
 #include <limits>
 #include <atomic>
@@ -204,6 +206,21 @@ class BackupEngineImpl : public BackupEngine {
     Status LoadFromFile(const std::string& backup_dir);
     Status StoreToFile(bool sync);
 
+    std::string GetInfoString() {
+      std::ostringstream ss;
+      ss << "Timestamp: " << timestamp_ << std::endl;
+      char human_size[16];
+      AppendHumanBytes(size_, human_size, sizeof(human_size));
+      ss << "Size: " << human_size << std::endl;
+      ss << "Files:" << std::endl;
+      for (const auto& file : files_) {
+        AppendHumanBytes(file->size, human_size, sizeof(human_size));
+        ss << file->filename << ", size " << human_size << ", refs "
+           << file->refs << std::endl;
+      }
+      return ss.str();
+    }
+
    private:
     int64_t timestamp_;
     // sequence number is only approximate, should not be used
@@ -379,10 +396,16 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
   backup_env_->GetChildren(GetBackupMetaDir(), &backup_meta_files);
   // create backups_ structure
   for (auto& file : backup_meta_files) {
+    if (file == "." || file == "..") {
+      continue;
+    }
+    Log(options_.info_log, "Detected backup %s", file.c_str());
     BackupID backup_id = 0;
     sscanf(file.c_str(), "%u", &backup_id);
     if (backup_id == 0 || file != std::to_string(backup_id)) {
       if (!read_only_) {
+        Log(options_.info_log, "Unrecognized meta file %s, deleting",
+            file.c_str());
         // invalid file name, delete that
         backup_env_->DeleteFile(GetBackupMetaDir() + "/" + file);
       }
@@ -397,6 +420,9 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
 
   if (options_.destroy_old_data) {  // Destory old data
     assert(!read_only_);
+    Log(options_.info_log,
+        "Backup Engine started with destroy_old_data == true, deleting all "
+        "backups");
     PurgeOldBackups(0);
     (void) GarbageCollect();
     // start from beginning
@@ -410,6 +436,9 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
             s.ToString().c_str());
         corrupt_backups_.insert(std::make_pair(
               backup.first, std::make_pair(s, std::move(backup.second))));
+      } else {
+        Log(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
+            backup.first, backup.second->GetInfoString().c_str());
       }
     }
 
@@ -429,21 +458,32 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
     }
   }
 
+  Log(options_.info_log, "Latest backup is %u", latest_backup_id_);
+
   // delete any backups that claim to be later than latest
   std::vector<BackupID> later_ids;
   for (auto itr = backups_.lower_bound(latest_backup_id_ + 1);
        itr != backups_.end(); itr++) {
+    Log(options_.info_log,
+        "Found backup claiming to be later than latest: %" PRIu32, itr->first);
     later_ids.push_back(itr->first);
   }
   for (auto id : later_ids) {
-    DeleteBackup(id);
+    if (!read_only_) {
+      DeleteBackup(id);
+    } else {
+      auto backup = backups_.find(id);
+      // We just found it couple of lines earlier!
+      assert(backup != backups_.end());
+      backup->second->Delete(false);
+      backups_.erase(backup);
+    }
   }
 
   if (!read_only_) {
     PutLatestBackupFileContents(latest_backup_id_);  // Ignore errors
   }
-  Log(options_.info_log, "Initialized BackupEngine, the latest backup is %u.",
-      latest_backup_id_);
+  Log(options_.info_log, "Initialized BackupEngine");
 }
 
 BackupEngineImpl::~BackupEngineImpl() { LogFlush(options_.info_log); }
@@ -543,6 +583,10 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
 
   if (s.ok()) {
     // move tmp private backup to real backup folder
+    Log(options_.info_log,
+        "Moving tmp backup directory to the real one: %s -> %s\n",
+        GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)).c_str(),
+        GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)).c_str());
     s = backup_env_->RenameFile(
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, true)),  // tmp
         GetAbsolutePath(GetPrivateFileRel(new_backup_id, false)));
@@ -603,8 +647,9 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   double backup_speed = new_backup->GetSize() / (1.048576 * backup_time);
   Log(options_.info_log, "Backup number of files: %u",
       new_backup->GetNumberFiles());
-  Log(options_.info_log, "Backup size: %" PRIu64 " bytes",
-      new_backup->GetSize());
+  char human_size[16];
+  AppendHumanBytes(new_backup->GetSize(), human_size, sizeof(human_size));
+  Log(options_.info_log, "Backup size: %s", human_size);
   Log(options_.info_log, "Backup time: %" PRIu64 " microseconds", backup_time);
   Log(options_.info_log, "Backup speed: %.3f MB/s", backup_speed);
   Log(options_.info_log, "Backup Statistics %s",
@@ -982,7 +1027,8 @@ Status BackupEngineImpl::BackupFile(BackupID backup_id, BackupMeta* backup,
                             &checksum_value);
     }
   } else {
-    Log(options_.info_log, "Copying %s", src_fname.c_str());
+    Log(options_.info_log, "Copying %s to %s", src_fname.c_str(),
+        dst_path_tmp.c_str());
     s = CopyFile(src_dir + src_fname,
                  dst_path_tmp,
                  db_env_,
@@ -1209,7 +1255,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     }
 
     if (line.empty()) {
-      return Status::Corruption("File checksum is missing");
+      return Status::Corruption("File checksum is missing in " + filename);
     }
 
     uint32_t checksum_value = 0;
@@ -1218,10 +1264,10 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       checksum_value = static_cast<uint32_t>(
           strtoul(line.data(), nullptr, 10));
       if (line != std::to_string(checksum_value)) {
-        return Status::Corruption("Invalid checksum value");
+        return Status::Corruption("Invalid checksum value in " + filename);
       }
     } else {
-      return Status::Corruption("Unknown checksum type");
+      return Status::Corruption("Unknown checksum type in " + filename);
     }
 
     files.emplace_back(new FileInfo(filename, size, checksum_value));
@@ -1229,7 +1275,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   if (s.ok() && data.size() > 0) {
     // file has to be read completely. if not, we count it as corruption
-    s = Status::Corruption("Tailing data in backup meta file");
+    s = Status::Corruption("Tailing data in backup meta file in " + filename);
   }
 
   if (s.ok()) {
@@ -1323,6 +1369,17 @@ BackupEngineReadOnly* BackupEngineReadOnly::NewReadOnlyBackupEngine(
     return nullptr;
   }
   return new BackupEngineReadOnlyImpl(db_env, options);
+}
+
+Status BackupEngineReadOnly::Open(Env* env, const BackupableDBOptions& options,
+                                  BackupEngineReadOnly** backup_engine_ptr) {
+  if (options.destroy_old_data) {
+    assert(false);
+    return Status::InvalidArgument(
+        "Can't destroy old data with ReadOnly BackupEngine");
+  }
+  *backup_engine_ptr = new BackupEngineReadOnlyImpl(env, options);
+  return Status::OK();
 }
 
 // --- BackupableDB methods --------

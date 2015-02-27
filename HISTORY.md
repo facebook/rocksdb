@@ -15,6 +15,7 @@
 * Add SliceTransform.SameResultWhenAppended() to help users determine it is safe to apply prefix bloom/hash.
 * Block based table now makes use of prefix bloom filter if it is a full fulter.
 * Block based table remembers whether a whole key or prefix based bloom filter is supported in SST files. Do a sanity check when reading the file with users' configuration.
+* Fixed a bug in ReadOnlyBackupEngine that deleted corrupted backups in some cases, even though the engine was ReadOnly
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option
