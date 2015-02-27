@@ -1255,7 +1255,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     }
 
     if (line.empty()) {
-      return Status::Corruption("File checksum is missing in " + filename);
+      return Status::Corruption("File checksum is missing for " + filename +
+                                " in " + meta_filename_);
     }
 
     uint32_t checksum_value = 0;
@@ -1264,10 +1265,12 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       checksum_value = static_cast<uint32_t>(
           strtoul(line.data(), nullptr, 10));
       if (line != std::to_string(checksum_value)) {
-        return Status::Corruption("Invalid checksum value in " + filename);
+        return Status::Corruption("Invalid checksum value for " + filename +
+                                  " in " + meta_filename_);
       }
     } else {
-      return Status::Corruption("Unknown checksum type in " + filename);
+      return Status::Corruption("Unknown checksum type for " + filename +
+                                " in " + meta_filename_);
     }
 
     files.emplace_back(new FileInfo(filename, size, checksum_value));
@@ -1275,7 +1278,8 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
 
   if (s.ok() && data.size() > 0) {
     // file has to be read completely. if not, we count it as corruption
-    s = Status::Corruption("Tailing data in backup meta file in " + filename);
+    s = Status::Corruption("Tailing data in backup meta file in " +
+                           meta_filename_);
   }
 
   if (s.ok()) {
