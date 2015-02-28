@@ -223,6 +223,8 @@ class MemTableIterator: public Iterator {
 
   virtual bool Valid() const override { return valid_; }
   virtual void Seek(const Slice& k) override {
+    PERF_TIMER_GUARD(seek_on_memtable_time);
+    PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr &&
         !bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)))) {
       valid_ = false;

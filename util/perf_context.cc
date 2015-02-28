@@ -44,6 +44,8 @@ void PerfContext::Reset() {
   get_from_memtable_count = 0;
   get_post_process_time = 0;
   get_from_output_files_time = 0;
+  seek_on_memtable_time = 0;
+  seek_on_memtable_count = 0;
   seek_child_seek_time = 0;
   seek_child_seek_count = 0;
   seek_min_heap_time = 0;
@@ -78,6 +80,8 @@ std::string PerfContext::ToString() const {
      << OUTPUT(get_from_memtable_count)
      << OUTPUT(get_post_process_time)
      << OUTPUT(get_from_output_files_time)
+     << OUTPUT(seek_on_memtable_time)
+     << OUTPUT(seek_on_memtable_count)
      << OUTPUT(seek_child_seek_time)
      << OUTPUT(seek_child_seek_count)
      << OUTPUT(seek_min_heap_time)
