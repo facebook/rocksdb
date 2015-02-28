@@ -539,6 +539,21 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void optimizeFiltersForHits() {
+    ColumnFamilyOptions opt = null;
+    try {
+      boolean aBoolean = rand.nextBoolean();
+      opt = new ColumnFamilyOptions();
+      opt.setOptimizeFiltersForHits(aBoolean);
+      assertThat(opt.optimizeFiltersForHits()).isEqualTo(aBoolean);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void memTable() throws RocksDBException {
     ColumnFamilyOptions opt = null;
     try {

@@ -1732,6 +1732,30 @@ void Java_org_rocksdb_Options_setMinPartialMergeOperands(
 }
 
 /*
+ * Class:     org_rocksdb_Options
+ * Method:    optimizeFiltersForHits
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_optimizeFiltersForHits(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+      jhandle)->optimize_filters_for_hits;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setOptimizeFiltersForHits
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setOptimizeFiltersForHits(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean joptimize_filters_for_hits) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->optimize_filters_for_hits =
+          static_cast<bool>(joptimize_filters_for_hits);
+}
+
+/*
  * Method:    optimizeForPointLookup
  * Signature: (JJ)V
  */
@@ -2776,6 +2800,30 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMinPartialMergeOperands(
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
       jhandle)->min_partial_merge_operands =
           static_cast<int32_t>(jmin_partial_merge_operands);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    optimizeFiltersForHits
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_optimizeFiltersForHits(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->optimize_filters_for_hits;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setOptimizeFiltersForHits
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setOptimizeFiltersForHits(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean joptimize_filters_for_hits) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->optimize_filters_for_hits =
+          static_cast<bool>(joptimize_filters_for_hits);
 }
 
 /////////////////////////////////////////////////////////////////////

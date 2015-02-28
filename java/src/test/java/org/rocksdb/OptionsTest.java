@@ -501,6 +501,21 @@ public class OptionsTest {
   }
 
   @Test
+  public void optimizeFiltersForHits() {
+    Options opt = null;
+    try {
+      boolean aBoolean = rand.nextBoolean();
+      opt = new Options();
+      opt.setOptimizeFiltersForHits(aBoolean);
+      assertThat(opt.optimizeFiltersForHits()).isEqualTo(aBoolean);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void createIfMissing() {
     Options opt = null;
     try {
