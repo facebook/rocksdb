@@ -390,7 +390,7 @@ void DBImpl::PrintStatistics() {
   auto dbstats = db_options_.statistics.get();
   if (dbstats) {
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "STATISTCS:\n %s",
+        "STATISTICS:\n %s",
         dbstats->ToString().c_str());
   }
 }
