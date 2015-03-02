@@ -143,7 +143,11 @@ public class MergeTest {
       throws InterruptedException, RocksDBException {
     RocksDB db = null;
     DBOptions opt = null;
-    ColumnFamilyHandle columnFamilyHandle = null;
+    ColumnFamilyHandle cfHandle = null;
+    List<ColumnFamilyDescriptor> cfDescriptors =
+        new ArrayList<>();
+    List<ColumnFamilyHandle> columnFamilyHandleList =
+        new ArrayList<>();
     try {
       String db_path_string =
           dbFolder.getRoot().getAbsolutePath();
@@ -152,10 +156,6 @@ public class MergeTest {
       opt.setCreateMissingColumnFamilies(true);
       StringAppendOperator stringAppendOperator = new StringAppendOperator();
 
-      List<ColumnFamilyDescriptor> cfDescriptors =
-          new ArrayList<>();
-      List<ColumnFamilyHandle> columnFamilyHandleList =
-          new ArrayList<>();
       cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
           new ColumnFamilyOptions().setMergeOperator(
               stringAppendOperator)));
@@ -175,22 +175,24 @@ public class MergeTest {
       String strValue = new String(value);
 
       // Test also with createColumnFamily
-      columnFamilyHandle = db.createColumnFamily(
+      cfHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf2".getBytes(),
               new ColumnFamilyOptions().setMergeOperator(stringAppendOperator)));
       // writing xx under cfkey2
-      db.put(columnFamilyHandle, "cfkey2".getBytes(), "xx".getBytes());
+      db.put(cfHandle, "cfkey2".getBytes(), "xx".getBytes());
       // merge yy under cfkey2
-      db.merge(columnFamilyHandle, new WriteOptions(), "cfkey2".getBytes(), "yy".getBytes());
-      value = db.get(columnFamilyHandle, "cfkey2".getBytes());
+      db.merge(cfHandle, new WriteOptions(), "cfkey2".getBytes(), "yy".getBytes());
+      value = db.get(cfHandle, "cfkey2".getBytes());
       String strValueTmpCf = new String(value);
 
-      columnFamilyHandle.dispose();
       assertThat(strValue).isEqualTo("aa,bb");
       assertThat(strValueTmpCf).isEqualTo("xx,yy");
     } finally {
-      if (columnFamilyHandle != null) {
+      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
         columnFamilyHandle.dispose();
+      }
+      if (cfHandle != null) {
+        cfHandle.dispose();
       }
       if (db != null) {
         db.close();
