@@ -58,11 +58,7 @@ public class ColumnFamilyTest {
     Options options = null;
     ColumnFamilyHandle cfh = null;
     try {
-      options = new Options();
-      options.setCreateIfMissing(true);
-
-      DBOptions dbOptions = new DBOptions();
-      dbOptions.setCreateIfMissing(true);
+      options = new Options().setCreateIfMissing(true);
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
       cfh = db.getDefaultColumnFamily();
@@ -78,9 +74,6 @@ public class ColumnFamilyTest {
       assertThat(cfh).isNotNull();
       assertThat(actualValue).isEqualTo(value);
     } finally {
-      if (cfh != null) {
-        cfh.dispose();
-      }
       if (db != null) {
         db.close();
       }
