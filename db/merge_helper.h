@@ -10,6 +10,7 @@
 #include "rocksdb/slice.h"
 #include <string>
 #include <deque>
+#include "rocksdb/env.h"
 
 namespace rocksdb {
 
@@ -48,7 +49,7 @@ class MergeHelper {
   //                   we could reach the start of the history of this user key.
   void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
                   bool at_bottom = false, Statistics* stats = nullptr,
-                  int* steps = nullptr);
+                  int* steps = nullptr, Env* env_ = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call

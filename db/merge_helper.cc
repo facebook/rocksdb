@@ -11,6 +11,8 @@
 #include "util/statistics.h"
 #include <string>
 #include <stdio.h>
+#include "util/perf_context_imp.h"
+#include "util/stop_watch.h"
 
 namespace rocksdb {
 
@@ -21,7 +23,8 @@ namespace rocksdb {
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
 void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
-                             bool at_bottom, Statistics* stats, int* steps) {
+                             bool at_bottom, Statistics* stats, int* steps,
+                             Env* env_) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -78,10 +81,14 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => store result in operands_.back() (and update keys_.back())
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Return a success if the merge passes.
-      success_ = user_merge_operator_->FullMerge(ikey.user_key, nullptr,
-                                                 operands_, &merge_result,
-                                                 logger_);
-
+      {
+        StopWatchNano timer(env_, stats != nullptr);
+        PERF_TIMER_GUARD(merge_operator_time_nanos);
+        success_ = user_merge_operator_->FullMerge(
+            ikey.user_key, nullptr, operands_, &merge_result, logger_);
+        RecordTick(stats, MERGE_OPERATION_TOTAL_TIME,
+                   env_ != nullptr ? timer.ElapsedNanos() : 0);
+      }
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (success_) {
@@ -110,9 +117,14 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Success!
       const Slice val = iter->value();
-      success_ = user_merge_operator_->FullMerge(ikey.user_key, &val, operands_,
-                                                 &merge_result, logger_);
-
+      {
+        StopWatchNano timer(env_, stats != nullptr);
+        PERF_TIMER_GUARD(merge_operator_time_nanos);
+        success_ = user_merge_operator_->FullMerge(
+            ikey.user_key, &val, operands_, &merge_result, logger_);
+        RecordTick(stats, MERGE_OPERATION_TOTAL_TIME,
+                   env_ != nullptr ? timer.ElapsedNanos() : 0);
+      }
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (success_) {
@@ -173,10 +185,14 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     assert(kTypeMerge == orig_ikey.type);
     assert(operands_.size() >= 1);
     assert(operands_.size() == keys_.size());
-    success_ = user_merge_operator_->FullMerge(orig_ikey.user_key, nullptr,
-                                               operands_, &merge_result,
-                                               logger_);
-
+    {
+      StopWatchNano timer(env_, stats != nullptr);
+      PERF_TIMER_GUARD(merge_operator_time_nanos);
+      success_ = user_merge_operator_->FullMerge(
+          orig_ikey.user_key, nullptr, operands_, &merge_result, logger_);
+      RecordTick(stats, MERGE_OPERATION_TOTAL_TIME,
+                 env_ != nullptr ? timer.ElapsedNanos() : 0);
+    }
     if (success_) {
       std::string& original_key = keys_.back();  // The original key encountered
       orig_ikey.type = kTypeValue;
@@ -195,16 +211,25 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     // merge the stacked merge operands into a single operand.
 
     if (operands_.size() >= 2 &&
-        operands_.size() >= min_partial_merge_operands_ &&
-        user_merge_operator_->PartialMergeMulti(
+        operands_.size() >= min_partial_merge_operands_) {
+      bool merge_success = false;
+      {
+        StopWatchNano timer(env_, stats != nullptr);
+        PERF_TIMER_GUARD(merge_operator_time_nanos);
+        merge_success = user_merge_operator_->PartialMergeMulti(
             orig_ikey.user_key,
             std::deque<Slice>(operands_.begin(), operands_.end()),
-            &merge_result, logger_)) {
-      // Merging of operands (associative merge) was successful.
-      // Replace operands with the merge result
-      operands_.clear();
-      operands_.push_front(std::move(merge_result));
-      keys_.erase(keys_.begin(), keys_.end() - 1);
+            &merge_result, logger_);
+        RecordTick(stats, MERGE_OPERATION_TOTAL_TIME,
+                   env_ != nullptr ? timer.ElapsedNanos() : 0);
+      }
+      if (merge_success) {
+        // Merging of operands (associative merge) was successful.
+        // Replace operands with the merge result
+        operands_.clear();
+        operands_.push_front(std::move(merge_result));
+        keys_.erase(keys_.begin(), keys_.end() - 1);
+      }
     }
   }
 }

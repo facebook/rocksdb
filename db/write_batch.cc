@@ -33,6 +33,7 @@
 #include "util/coding.h"
 #include "util/statistics.h"
 #include <stdexcept>
+#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -435,8 +436,17 @@ class MemTableInserter : public WriteBatch::Handler {
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
-      if (!merge_operator->FullMerge(key, &get_value_slice, operands,
-                                     &new_value, moptions->info_log)) {
+      bool merge_success = false;
+      {
+        StopWatchNano timer(Env::Default(), moptions->statistics != nullptr);
+        PERF_TIMER_GUARD(merge_operator_time_nanos);
+        merge_success = merge_operator->FullMerge(
+            key, &get_value_slice, operands, &new_value, moptions->info_log);
+        RecordTick(moptions->statistics, MERGE_OPERATION_TOTAL_TIME,
+                   timer.ElapsedNanos());
+      }
+
+      if (!merge_success) {
           // Failed to merge!
         RecordTick(moptions->statistics, NUMBER_MERGE_FAILURES);
 

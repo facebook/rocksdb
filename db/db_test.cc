@@ -394,6 +394,10 @@ class SpecialEnv : public EnvWrapper {
     }
     return s;
   }
+
+  virtual uint64_t NowNanos() override {
+    return target()->NowNanos() + addon_time_ * 1000;
+  }
 };
 
 class DBTest : public testing::Test {
@@ -3755,6 +3759,22 @@ class DeleteFilter : public CompactionFilter {
   virtual const char* Name() const override { return "DeleteFilter"; }
 };
 
+class DelayFilter : public CompactionFilter {
+ public:
+  explicit DelayFilter(DBTest* d) : db_test(d) {}
+  virtual bool Filter(int level, const Slice& key, const Slice& value,
+                      std::string* new_value,
+                      bool* value_changed) const override {
+    db_test->env_->addon_time_ += 1000;
+    return true;
+  }
+
+  virtual const char* Name() const override { return "DelayFilter"; }
+
+ private:
+  DBTest* db_test;
+};
+
 class ConditionalFilter : public CompactionFilter {
  public:
   explicit ConditionalFilter(const std::string* filtered_value)
@@ -3819,6 +3839,20 @@ class DeleteFilterFactory : public CompactionFilterFactory {
   }
 
   virtual const char* Name() const override { return "DeleteFilterFactory"; }
+};
+
+class DelayFilterFactory : public CompactionFilterFactory {
+ public:
+  explicit DelayFilterFactory(DBTest* d) : db_test(d) {}
+  virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+      const CompactionFilter::Context& context) override {
+    return std::unique_ptr<CompactionFilter>(new DelayFilter(db_test));
+  }
+
+  virtual const char* Name() const override { return "DelayFilterFactory"; }
+
+ private:
+  DBTest* db_test;
 };
 
 class ConditionalFilterFactory : public CompactionFilterFactory {
@@ -10216,14 +10250,10 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
   const int kNumL0Files = 4;
   options.level0_file_num_compaction_trigger = kNumL0Files;
 
-
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"DBTest::ThreadStatusSingleCompaction:0",
-       "DBImpl::BGWorkCompaction"},
-      {"CompactionJob::Run():Start",
-       "DBTest::ThreadStatusSingleCompaction:1"},
-      {"DBTest::ThreadStatusSingleCompaction:2",
-       "CompactionJob::Run():End"},
+      {"DBTest::ThreadStatusSingleCompaction:0", "DBImpl::BGWorkCompaction"},
+      {"CompactionJob::Run():Start", "DBTest::ThreadStatusSingleCompaction:1"},
+      {"DBTest::ThreadStatusSingleCompaction:2", "CompactionJob::Run():End"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -11810,6 +11840,118 @@ TEST_F(DBTest, CloseSpeedup) {
 
   Destroy(options);
 }
+
+class DelayedMergeOperator : public AssociativeMergeOperator {
+ private:
+  DBTest* db_test_;
+
+ public:
+  explicit DelayedMergeOperator(DBTest* d) : db_test_(d) {}
+  virtual bool Merge(const Slice& key, const Slice* existing_value,
+                     const Slice& value, std::string* new_value,
+                     Logger* logger) const override {
+    db_test_->env_->addon_time_ += 1000;
+    return true;
+  }
+
+  virtual const char* Name() const override { return "DelayedMergeOperator"; }
+};
+
+TEST_F(DBTest, MergeTestTime) {
+  std::string one, two, three;
+  PutFixed64(&one, 1);
+  PutFixed64(&two, 2);
+  PutFixed64(&three, 3);
+
+  // Enable time profiling
+  SetPerfLevel(kEnableTime);
+  this->env_->addon_time_ = 0;
+  Options options;
+  options = CurrentOptions(options);
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.merge_operator.reset(new DelayedMergeOperator(this));
+  DestroyAndReopen(options);
+
+  ASSERT_EQ(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
+  db_->Put(WriteOptions(), "foo", one);
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", two));
+  ASSERT_OK(Flush());
+  ASSERT_OK(db_->Merge(WriteOptions(), "foo", three));
+  ASSERT_OK(Flush());
+
+  ReadOptions opt;
+  opt.verify_checksums = true;
+  opt.snapshot = nullptr;
+  std::string result;
+  db_->Get(opt, "foo", &result);
+
+  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 2100000);
+  ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 1900000);
+
+  ReadOptions read_options;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options));
+  int count = 0;
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    ASSERT_OK(iter->status());
+    ++count;
+  }
+
+  ASSERT_EQ(1, count);
+
+  ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 4200000);
+  ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 3800000);
+}
+
+TEST_F(DBTest, MergeCompactionTimeTest) {
+  SetPerfLevel(kEnableTime);
+  Options options;
+  options = CurrentOptions(options);
+  options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.merge_operator.reset(new DelayedMergeOperator(this));
+  options.compaction_style = kCompactionStyleUniversal;
+  DestroyAndReopen(options);
+
+  for (int i = 0; i < 1000; i++) {
+    ASSERT_OK(db_->Merge(WriteOptions(), "foo", "TEST"));
+    ASSERT_OK(Flush());
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_NE(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
+}
+
+TEST_F(DBTest, FilterCompactionTimeTest) {
+  Options options;
+  options.compaction_filter_factory =
+      std::make_shared<DelayFilterFactory>(this);
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  // put some data
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+  }
+
+  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_EQ(0U, CountLiveFiles());
+
+  Reopen(options);
+
+  Iterator* itr = db_->NewIterator(ReadOptions());
+  itr->SeekToFirst();
+  ASSERT_NE(TestGetTickerCount(options, FILTER_OPERATION_TOTAL_TIME), 0);
+  delete itr;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

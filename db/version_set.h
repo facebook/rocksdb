@@ -36,6 +36,7 @@
 #include "db/log_reader.h"
 #include "db/file_indexer.h"
 #include "db/write_controller.h"
+#include "rocksdb/env.h"
 #include "util/instrumented_mutex.h"
 
 namespace rocksdb {
@@ -435,6 +436,7 @@ class Version {
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
  private:
+  Env* env_;
   friend class VersionSet;
 
   const InternalKeyComparator* internal_comparator() const {

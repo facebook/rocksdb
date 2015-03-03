@@ -1611,7 +1611,7 @@ TEST_F(BlockBasedTableTest, BlockCacheDisabledTest) {
 
   {
     GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                           GetContext::kNotFound, Slice(), nullptr,
+                           GetContext::kNotFound, Slice(), nullptr, nullptr,
                            nullptr, nullptr);
     // a hack that just to trigger BlockBasedTable::GetFilter.
     reader->Get(ReadOptions(), "non-exist-key", &get_context);
@@ -1747,7 +1747,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_TRUE(!reader->TEST_filter_block_preloaded());
   std::string value;
   GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, user_key, &value,
+                         GetContext::kNotFound, user_key, &value, nullptr,
                          nullptr, nullptr);
   ASSERT_OK(reader->Get(ReadOptions(), user_key, &get_context));
   ASSERT_EQ(value, "hello");
@@ -2003,8 +2003,8 @@ TEST_F(MemTableTest, Simple) {
   options.memtable_factory = table_factory;
   ImmutableCFOptions ioptions(options);
   WriteBuffer wb(options.db_write_buffer_size);
-  MemTable* memtable = new MemTable(cmp, ioptions,
-                                    MutableCFOptions(options, ioptions), &wb);
+  MemTable* memtable =
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

@@ -55,6 +55,7 @@ void PerfContext::Reset() {
   write_memtable_time = 0;
   db_mutex_lock_nanos = 0;
   db_condition_wait_nanos = 0;
+  merge_operator_time_nanos = 0;
 #endif
 }
 
@@ -65,32 +66,20 @@ std::string PerfContext::ToString() const {
   return "";
 #else
   std::ostringstream ss;
-  ss << OUTPUT(user_key_comparison_count)
-     << OUTPUT(block_cache_hit_count)
-     << OUTPUT(block_read_count)
-     << OUTPUT(block_read_byte)
-     << OUTPUT(block_read_time)
-     << OUTPUT(block_checksum_time)
-     << OUTPUT(block_decompress_time)
-     << OUTPUT(internal_key_skipped_count)
-     << OUTPUT(internal_delete_skipped_count)
-     << OUTPUT(write_wal_time)
-     << OUTPUT(get_snapshot_time)
-     << OUTPUT(get_from_memtable_time)
-     << OUTPUT(get_from_memtable_count)
-     << OUTPUT(get_post_process_time)
-     << OUTPUT(get_from_output_files_time)
-     << OUTPUT(seek_on_memtable_time)
-     << OUTPUT(seek_on_memtable_count)
-     << OUTPUT(seek_child_seek_time)
-     << OUTPUT(seek_child_seek_count)
-     << OUTPUT(seek_min_heap_time)
-     << OUTPUT(seek_internal_seek_time)
-     << OUTPUT(find_next_user_entry_time)
-     << OUTPUT(write_pre_and_post_process_time)
-     << OUTPUT(write_memtable_time)
-     << OUTPUT(db_mutex_lock_nanos)
-     << OUTPUT(db_condition_wait_nanos);
+  ss << OUTPUT(user_key_comparison_count) << OUTPUT(block_cache_hit_count)
+     << OUTPUT(block_read_count) << OUTPUT(block_read_byte)
+     << OUTPUT(block_read_time) << OUTPUT(block_checksum_time)
+     << OUTPUT(block_decompress_time) << OUTPUT(internal_key_skipped_count)
+     << OUTPUT(internal_delete_skipped_count) << OUTPUT(write_wal_time)
+     << OUTPUT(get_snapshot_time) << OUTPUT(get_from_memtable_time)
+     << OUTPUT(get_from_memtable_count) << OUTPUT(get_post_process_time)
+     << OUTPUT(get_from_output_files_time) << OUTPUT(seek_on_memtable_time)
+     << OUTPUT(seek_on_memtable_count) << OUTPUT(seek_child_seek_time)
+     << OUTPUT(seek_child_seek_count) << OUTPUT(seek_min_heap_time)
+     << OUTPUT(seek_internal_seek_time) << OUTPUT(find_next_user_entry_time)
+     << OUTPUT(write_pre_and_post_process_time) << OUTPUT(write_memtable_time)
+     << OUTPUT(db_mutex_lock_nanos) << OUTPUT(db_condition_wait_nanos)
+     << OUTPUT(merge_operator_time_nanos);
   return ss.str();
 #endif
 }

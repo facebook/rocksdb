@@ -84,7 +84,8 @@ class CompactionJob {
   Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input,
                                    bool is_compaction_v2);
   // Call compaction_filter_v2->Filter() on kv-pairs in compact
-  void CallCompactionFilterV2(CompactionFilterV2* compaction_filter_v2);
+  void CallCompactionFilterV2(CompactionFilterV2* compaction_filter_v2,
+                              uint64_t* time);
   Status FinishCompactionOutputFile(Iterator* input);
   Status InstallCompactionResults(InstrumentedMutex* db_mutex);
   SequenceNumber findEarliestVisibleSnapshot(

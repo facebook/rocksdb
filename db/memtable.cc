@@ -76,7 +76,8 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                  : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       should_flush_(ShouldFlushNow()),
-      flush_scheduled_(false) {
+      flush_scheduled_(false),
+      env_(ioptions.env) {
   // if should_flush_ == true without an entry inserted, something must have
   // gone wrong already.
   assert(!should_flush_);
@@ -349,6 +350,7 @@ struct Saver {
   Logger* logger;
   Statistics* statistics;
   bool inplace_update_support;
+  Env* env_;
 };
 }  // namespace
 
@@ -383,9 +385,17 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
           assert(merge_operator);
-          if (!merge_operator->FullMerge(s->key->user_key(), &v,
-                                         merge_context->GetOperands(), s->value,
-                                         s->logger)) {
+          bool merge_success = false;
+          {
+            StopWatchNano timer(s->env_, s->statistics != nullptr);
+            PERF_TIMER_GUARD(merge_operator_time_nanos);
+            merge_success = merge_operator->FullMerge(
+                s->key->user_key(), &v, merge_context->GetOperands(), s->value,
+                s->logger);
+            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
+                       timer.ElapsedNanos());
+          }
+          if (!merge_success) {
             RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
             *(s->status) =
                 Status::Corruption("Error: Could not perform merge.");
@@ -403,9 +413,17 @@ static bool SaveValue(void* arg, const char* entry) {
         if (*(s->merge_in_progress)) {
           assert(merge_operator);
           *(s->status) = Status::OK();
-          if (!merge_operator->FullMerge(s->key->user_key(), nullptr,
-                                         merge_context->GetOperands(), s->value,
-                                         s->logger)) {
+          bool merge_success = false;
+          {
+            StopWatchNano timer(s->env_, s->statistics != nullptr);
+            PERF_TIMER_GUARD(merge_operator_time_nanos);
+            merge_success = merge_operator->FullMerge(
+                s->key->user_key(), nullptr, merge_context->GetOperands(),
+                s->value, s->logger);
+            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
+                       timer.ElapsedNanos());
+          }
+          if (!merge_success) {
             RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
             *(s->status) =
                 Status::Corruption("Error: Could not perform merge.");
@@ -472,6 +490,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
+    saver.env_ = env_;
     table_->Get(key, &saver, SaveValue);
   }
 
