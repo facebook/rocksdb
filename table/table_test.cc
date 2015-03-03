@@ -47,6 +47,9 @@
 #include "util/testutil.h"
 #include "util/scoped_arena_iterator.h"
 
+using std::vector;
+using std::string;
+
 namespace rocksdb {
 
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
@@ -1124,6 +1127,131 @@ TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
   auto& props = *c.GetTableReader()->GetTableProperties();
   ASSERT_EQ("rocksdb.BuiltinBloomFilter", props.filter_policy_name);
 }
+
+//
+// BlockBasedTableTest::PrefetchTest
+//
+void AssertKeysInCache(BlockBasedTable* table_reader,
+                 const vector<string>& keys_in_cache,
+                 const vector<string>& keys_not_in_cache) {
+  for (auto key : keys_in_cache) {
+    ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
+  }
+
+  for (auto key : keys_not_in_cache) {
+    ASSERT_TRUE(!table_reader->TEST_KeyInCache(ReadOptions(), key));
+  }
+}
+
+void PrefetchRange(TableConstructor* c, Options* opt,
+                   BlockBasedTableOptions* table_options,
+                   const vector<std::string>& keys,
+                   const char* key_begin, const char* key_end,
+                   const vector<string>& keys_in_cache,
+                   const vector<string>& keys_not_in_cache,
+                   const Status expected_status = Status::OK()) {
+  // reset the cache and reopen the table
+  table_options->block_cache = NewLRUCache(16 * 1024 * 1024);
+  opt->table_factory.reset(NewBlockBasedTableFactory(*table_options));
+  const ImmutableCFOptions ioptions2(*opt);
+  ASSERT_OK(c->Reopen(ioptions2));
+
+  // prefetch
+  auto* table_reader = dynamic_cast<BlockBasedTable*>(c->GetTableReader());
+  // empty string replacement is a trick so we don't crash the test
+  Slice begin(key_begin ? key_begin : "");
+  Slice end(key_end ? key_end : "");
+  Status s = table_reader->Prefetch(key_begin ? &begin : nullptr,
+                                    key_end ? &end : nullptr);
+  ASSERT_TRUE(s.code() == expected_status.code());
+
+  // assert our expectation in cache warmup
+  AssertKeysInCache(table_reader, keys_in_cache, keys_not_in_cache);
+}
+
+
+TEST(BlockBasedTableTest, PrefetchTest) {
+  // The purpose of this test is to test the prefetching operation built into
+  // BlockBasedTable.
+  Options opt;
+  unique_ptr<InternalKeyComparator> ikc;
+  ikc.reset(new test::PlainInternalKeyComparator(opt.comparator));
+  opt.compression = kNoCompression;
+  BlockBasedTableOptions table_options;
+  table_options.block_size = 1024;
+  // big enough so we don't ever lose cached values.
+  table_options.block_cache = NewLRUCache(16 * 1024 * 1024);
+  opt.table_factory.reset(NewBlockBasedTableFactory(table_options));
+
+  TableConstructor c(BytewiseComparator());
+  c.Add("k01", "hello");
+  c.Add("k02", "hello2");
+  c.Add("k03", std::string(10000, 'x'));
+  c.Add("k04", std::string(200000, 'x'));
+  c.Add("k05", std::string(300000, 'x'));
+  c.Add("k06", "hello3");
+  c.Add("k07", std::string(100000, 'x'));
+  std::vector<std::string> keys;
+  KVMap kvmap;
+  const ImmutableCFOptions ioptions(opt);
+  c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
+
+  // We get the following data spread :
+  //
+  // Data block         Index
+  // ========================
+  // [ k01 k02 k03 ]    k03
+  // [ k04         ]    k04
+  // [ k05         ]    k05
+  // [ k06 k07     ]    k07
+
+
+  // Simple
+  PrefetchRange(&c, &opt, &table_options, keys,
+                /*key_range=*/ "k01", "k05",
+                /*keys_in_cache=*/ {"k01", "k02", "k03", "k04", "k05"},
+                /*keys_not_in_cache=*/ {"k06", "k07"});
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "k01", "k01",
+                {"k01", "k02", "k03"},
+                {"k04", "k05", "k06", "k07"});
+  // odd
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "a", "z",
+                {"k01", "k02", "k03", "k04", "k05", "k06", "k07"},
+                {});
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "k00", "k00",
+                {"k01", "k02", "k03"},
+                {"k04", "k05", "k06", "k07"});
+  // Edge cases
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "k00", "k06",
+                {"k01", "k02", "k03", "k04", "k05", "k06", "k07"},
+                {});
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "k00", "zzz",
+                {"k01", "k02", "k03", "k04", "k05", "k06", "k07"},
+                {});
+  // null keys
+  PrefetchRange(&c, &opt, &table_options, keys,
+                nullptr, nullptr,
+                {"k01", "k02", "k03", "k04", "k05", "k06", "k07"},
+                {});
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "k04", nullptr,
+                {"k04", "k05", "k06", "k07"},
+                {"k01", "k02", "k03"});
+  PrefetchRange(&c, &opt, &table_options, keys,
+                nullptr, "k05",
+                {"k01", "k02", "k03", "k04", "k05"},
+                {"k06", "k07"});
+  // invalid
+  PrefetchRange(&c, &opt, &table_options, keys,
+                "k06", "k00", {}, {},
+                Status::InvalidArgument(Slice("k06 "), Slice("k07")));
+}
+
 
 TEST(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   BlockBasedTableOptions table_options;

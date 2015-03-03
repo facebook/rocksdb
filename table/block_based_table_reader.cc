@@ -1240,6 +1240,52 @@ Status BlockBasedTable::Get(
   return s;
 }
 
+Status BlockBasedTable::Prefetch(const Slice* const begin,
+                                 const Slice* const end) {
+  auto& comparator = rep_->internal_comparator;
+  // pre-condition
+  if (begin && end && comparator.Compare(*begin, *end) > 0) {
+    return Status::InvalidArgument(*begin, *end);
+  }
+
+  BlockIter iiter;
+  NewIndexIterator(ReadOptions(), &iiter);
+
+  if (!iiter.status().ok()) {
+    // error opening index iterator
+    return iiter.status();
+  }
+
+  // indicates if we are on the last page that need to be pre-fetched
+  bool prefetching_boundary_page = false;
+
+  for (begin ? iiter.Seek(*begin) : iiter.SeekToFirst(); iiter.Valid();
+       iiter.Next()) {
+    Slice block_handle = iiter.value();
+
+    if (end && comparator.Compare(iiter.key(), *end) >= 0) {
+      if (prefetching_boundary_page) {
+        break;
+      }
+
+      // The index entry represents the last key in the data block.
+      // We should load this page into memory as well, but no more
+      prefetching_boundary_page = true;
+    }
+
+    // Load the block specified by the block_handle into the block cache
+    BlockIter biter;
+    NewDataBlockIterator(rep_, ReadOptions(), block_handle, &biter);
+
+    if (!biter.status().ok()) {
+      // there was an unexpected error while pre-fetching
+      return biter.status();
+    }
+  }
+
+  return Status::OK();
+}
+
 bool BlockBasedTable::TEST_KeyInCache(const ReadOptions& options,
                                       const Slice& key) {
   std::unique_ptr<Iterator> iiter(NewIndexIterator(options));

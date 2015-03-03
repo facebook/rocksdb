@@ -83,6 +83,11 @@ class BlockBasedTable : public TableReader {
   Status Get(const ReadOptions& readOptions, const Slice& key,
              GetContext* get_context) override;
 
+  // Pre-fetch the disk blocks that correspond to the key range specified by
+  // (kbegin, kend). The call will return return error status in the event of
+  // IO or iteration error.
+  Status Prefetch(const Slice* begin, const Slice* end) override;
+
   // Given a key, return an approximate byte offset in the file where
   // the data for that key begins (or would begin if the key were
   // present in the file).  The returned value is in terms of file
