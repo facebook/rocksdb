@@ -23,6 +23,20 @@
 
 namespace rocksdb {
 
+// for micros < 10ms, print "XX us".
+// for micros < 10sec, print "XX ms".
+// for micros >= 10 sec, print "XX sec".
+int AppendHumanMicros(uint64_t micros, char* output, int len) {
+  if (micros < 10000) {
+    return snprintf(output, len, "%" PRIu64 " us", micros);
+  } else if (micros < 10000000) {
+    return snprintf(output, len, "%.3lf ms",
+                    static_cast<double>(micros) / 1000);
+  } else {
+    return snprintf(output, len, "%.3lf sec",
+                    static_cast<double>(micros) / 1000000);
+  }
+}
 
 // for sizes >=10TB, print "XXTB"
 // for sizes >=10GB, print "XXGB"

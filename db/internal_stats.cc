@@ -312,6 +312,9 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t wal_synced = db_stats_[InternalStats::WAL_FILE_SYNCED];
   uint64_t write_with_wal = db_stats_[InternalStats::WRITE_WITH_WAL];
   uint64_t write_stall_micros = db_stats_[InternalStats::WRITE_STALL_MICROS];
+  const int kHumanMicrosLen = 32;
+  char human_micros[kHumanMicrosLen];
+
   // Data
   // writes: total number of write requests.
   // keys: total number of key updates issued by all the write requests
@@ -321,13 +324,14 @@ void InternalStats::DumpDBStats(std::string* value) {
   // writes/batches is the average group commit size.
   //
   // The format is the same for interval stats.
+  AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen);
   snprintf(buf, sizeof(buf),
            "Cumulative writes: %" PRIu64 " writes, %" PRIu64 " keys, %" PRIu64
            " batches, %.1f writes per batch, %.2f GB user ingest, "
-           "stall micros: %" PRIu64 "\n",
+           "stall time: %s\n",
            write_other + write_self, num_keys_written, write_self,
            (write_other + write_self) / static_cast<double>(write_self + 1),
-           user_bytes_written / kGB, write_stall_micros);
+           user_bytes_written / kGB, human_micros);
   value->append(buf);
   // WAL
   snprintf(buf, sizeof(buf),
@@ -343,16 +347,19 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_write_self = write_self - db_stats_snapshot_.write_self;
   uint64_t interval_num_keys_written =
       num_keys_written - db_stats_snapshot_.num_keys_written;
+  AppendHumanMicros(
+      write_stall_micros - db_stats_snapshot_.write_stall_micros,
+      human_micros, kHumanMicrosLen);
   snprintf(buf, sizeof(buf),
            "Interval writes: %" PRIu64 " writes, %" PRIu64 " keys, %" PRIu64
            " batches, %.1f writes per batch, %.1f MB user ingest, "
-           "stall micros: %" PRIu64 "\n",
+           "stall time: %s\n",
            interval_write_other + interval_write_self,
            interval_num_keys_written, interval_write_self,
            static_cast<double>(interval_write_other + interval_write_self) /
                (interval_write_self + 1),
            (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB,
-           write_stall_micros - db_stats_snapshot_.write_stall_micros);
+           human_micros);
   value->append(buf);
 
   uint64_t interval_write_with_wal =

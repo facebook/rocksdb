@@ -3233,6 +3233,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 Status DBImpl::DelayWrite(uint64_t expiration_time) {
   uint64_t time_delayed = 0;
   bool delayed = false;
+  bool timed_out = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
     bool has_timeout = (expiration_time > 0);
@@ -3250,7 +3251,8 @@ Status DBImpl::DelayWrite(uint64_t expiration_time) {
       if (has_timeout) {
         bg_cv_.TimedWait(expiration_time);
         if (env_->NowMicros() > expiration_time) {
-          return Status::TimedOut();
+          timed_out = true;
+          break;
         }
       } else {
         bg_cv_.Wait();
@@ -3261,6 +3263,10 @@ Status DBImpl::DelayWrite(uint64_t expiration_time) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
                                            time_delayed);
     RecordTick(stats_, STALL_MICROS, time_delayed);
+  }
+
+  if (timed_out) {
+    return Status::TimedOut();
   }
 
   return bg_error_;
