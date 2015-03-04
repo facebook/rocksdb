@@ -723,7 +723,7 @@ public class ColumnFamilyTest {
     try {
       options = new Options().setCreateIfMissing(true);
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
-      final String simplifiedChinese = "简体字";
+      final String simplifiedChinese = "\u7b80\u4f53\u5b57";
       columnFamilyHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor(simplifiedChinese.getBytes()));
 
