@@ -56,7 +56,7 @@ public class ColumnFamilyTest {
   public void defaultColumnFamily() throws RocksDBException {
     RocksDB db = null;
     Options options = null;
-    ColumnFamilyHandle cfh = null;
+    ColumnFamilyHandle cfh;
     try {
       options = new Options().setCreateIfMissing(true);
 
@@ -95,7 +95,7 @@ public class ColumnFamilyTest {
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
       columnFamilyHandle = db.createColumnFamily(
           new ColumnFamilyDescriptor("new_cf".getBytes(), new ColumnFamilyOptions()));
-      db.close();
+
       List<byte[]> columnFamilyNames;
       columnFamilyNames = RocksDB.listColumnFamilies(options, dbFolder.getRoot().getAbsolutePath());
       assertThat(columnFamilyNames).isNotNull();
@@ -464,6 +464,7 @@ public class ColumnFamilyTest {
         new ArrayList<>();
     List<ColumnFamilyHandle> columnFamilyHandleList =
         new ArrayList<>();
+    List<RocksIterator> iterators = null;
     try {
       options = new DBOptions();
       options.setCreateIfMissing(true);
@@ -474,8 +475,7 @@ public class ColumnFamilyTest {
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfNames, columnFamilyHandleList);
-      List<RocksIterator> iterators =
-          db.newIterators(columnFamilyHandleList);
+      iterators = db.newIterators(columnFamilyHandleList);
       assertThat(iterators.size()).isEqualTo(2);
       RocksIterator iter = iterators.get(0);
       iter.seekToFirst();
@@ -499,6 +499,11 @@ public class ColumnFamilyTest {
         iter.next();
       }
     } finally {
+      if (iterators != null) {
+        for (RocksIterator rocksIterator : iterators) {
+          rocksIterator.dispose();
+        }
+      }
       for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
         columnFamilyHandle.dispose();
       }

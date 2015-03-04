@@ -58,41 +58,9 @@ public class RocksIteratorTest {
       assertThat(iterator.value()).isEqualTo("value2".getBytes());
       iterator.status();
     } finally {
-      if (db != null) {
-        db.close();
-      }
-      if (options != null) {
-        options.dispose();
-      }
       if (iterator != null) {
         iterator.dispose();
       }
-    }
-  }
-
-  @Test
-  public void rocksIteratorGc()
-      throws RocksDBException {
-    RocksDB db = null;
-    Options options = null;
-    try {
-      options = new Options();
-      options.setCreateIfMissing(true)
-          .setCreateMissingColumnFamilies(true);
-      db = RocksDB.open(options,
-          dbFolder.getRoot().getAbsolutePath());
-      db.put("key".getBytes(), "value".getBytes());
-      db.newIterator();
-      db.newIterator();
-      RocksIterator iter3 = db.newIterator();
-      db.close();
-      db = null;
-      System.gc();
-      System.runFinalization();
-      iter3.dispose();
-      System.gc();
-      System.runFinalization();
-    } finally {
       if (db != null) {
         db.close();
       }
