@@ -133,7 +133,7 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
   result.env->IncBackgroundThreadsIfNeeded(src.max_background_flushes,
                                            Env::Priority::HIGH);
 
-  if (!result.rate_limiter) {
+  if (result.rate_limiter.get() != nullptr) {
     if (result.bytes_per_sync == 0) {
       result.bytes_per_sync = 1024 * 1024;
     }

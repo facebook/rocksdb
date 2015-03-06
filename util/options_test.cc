@@ -480,7 +480,7 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
       base_options,
       "write_buffer_size=10;max_write_buffer_number=16;"
       "block_based_table_factory={block_cache=1M;block_size=4;};"
-      "create_if_missing=true;max_open_files=1",
+      "create_if_missing=true;max_open_files=1;rate_limiter_bytes_per_sec=1024",
       &new_options));
 
   ASSERT_EQ(new_options.write_buffer_size, 10U);
@@ -495,6 +495,7 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
 
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
+  ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
 }
 #endif  // !ROCKSDB_LITE
 

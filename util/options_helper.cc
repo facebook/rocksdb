@@ -9,6 +9,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
@@ -474,6 +475,9 @@ bool ParseDBOption(const std::string& name, const std::string& value,
       new_options->error_if_exists = ParseBoolean(name, value);
     } else if (name == "paranoid_checks") {
       new_options->paranoid_checks = ParseBoolean(name, value);
+    } else if (name == "rate_limiter_bytes_per_sec") {
+      new_options->rate_limiter.reset(
+          NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
     } else if (name == "max_open_files") {
       new_options->max_open_files = ParseInt(value);
     } else if (name == "max_total_wal_size") {
