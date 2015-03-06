@@ -94,6 +94,8 @@ struct ThreadStatus {
   // The followings are a set of utility functions for interpreting
   // the information of ThreadStatus
 
+  static const std::string& GetThreadTypeName(ThreadType thread_type);
+
   // Obtain the name of an operation given its type.
   static const std::string& GetOperationName(OperationType op_type);
 

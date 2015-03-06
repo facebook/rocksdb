@@ -460,6 +460,10 @@ DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
 DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
+DEFINE_int32(thread_status_per_interval, 0,
+             "Takes and report a snapshot of the current status of each thread"
+             " when this is greater than 0.");
+
 DEFINE_int32(perf_level, 0, "Level of perf collection");
 
 static bool ValidateRateLimit(const char* flagname, double value) {
@@ -910,6 +914,23 @@ class Stats {
   void SetId(int id) { id_ = id; }
   void SetExcludeFromMerge() { exclude_from_merge_ = true; }
 
+  void PrintThreadStatus() {
+    std::vector<ThreadStatus> thread_list;
+    FLAGS_env->GetThreadList(&thread_list);
+
+    fprintf(stderr, "\n%18s %10s %25s %12s %12s\n",
+        "ThreadID", "ThreadType", "cfName", "Operation", "State");
+
+    for (auto ts : thread_list) {
+      fprintf(stderr, "%18" PRIu64 " %10s %25s %12s %12s\n",
+          ts.thread_id,
+          ThreadStatus::GetThreadTypeName(ts.thread_type).c_str(),
+          ts.cf_name.c_str(),
+          ThreadStatus::GetOperationName(ts.operation_type).c_str(),
+          ThreadStatus::GetStateName(ts.state_type).c_str());
+    }
+  }
+
   void FinishedOps(DBWithColumnFamilies* db_with_cfh, DB* db, int64_t num_ops) {
     if (FLAGS_histogram) {
       double now = FLAGS_env->NowMicros();
@@ -933,7 +954,6 @@ class Stats {
         else if (next_report_ < 500000) next_report_ += 50000;
         else                            next_report_ += 100000;
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
-        fflush(stderr);
       } else {
         double now = FLAGS_env->NowMicros();
         fprintf(stderr,
@@ -963,11 +983,14 @@ class Stats {
           }
         }
 
-        fflush(stderr);
         next_report_ += FLAGS_stats_interval;
         last_report_finish_ = now;
         last_report_done_ = done_;
       }
+      if (id_ == 0 && FLAGS_thread_status_per_interval) {
+        PrintThreadStatus();
+      }
+      fflush(stderr);
     }
   }
 
@@ -2122,6 +2145,9 @@ class Benchmark {
     if (FLAGS_universal_compression_size_percent != -1) {
       options.compaction_options_universal.compression_size_percent =
         FLAGS_universal_compression_size_percent;
+    }
+    if (FLAGS_thread_status_per_interval > 0) {
+      options.enable_thread_tracking = true;
     }
 
     if (FLAGS_num_multi_db <= 1) {

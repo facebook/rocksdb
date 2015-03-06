@@ -10,6 +10,13 @@
 namespace rocksdb {
 
 #if ROCKSDB_USING_THREAD_STATUS
+const std::string& ThreadStatus::GetThreadTypeName(
+    ThreadStatus::ThreadType thread_type) {
+  static std::string thread_type_names[NUM_THREAD_TYPES + 1] = {
+      "High Pri", "Low Pri", "User", "Unknown"};
+  return thread_type_names[thread_type];
+}
+
 const std::string& ThreadStatus::GetOperationName(
     ThreadStatus::OperationType op_type) {
   return global_operation_table[op_type].name;
@@ -21,6 +28,12 @@ const std::string& ThreadStatus::GetStateName(
 }
 
 #else
+
+const std::string& ThreadStatus::GetThreadTypeName(
+    ThreadStatus::ThreadType thread_type) {
+  static std::string dummy_str = "";
+  return dummy_str;
+}
 
 const std::string& ThreadStatus::GetOperationName(
     ThreadStatus::OperationType op_type) {
