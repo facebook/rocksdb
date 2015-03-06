@@ -2,7 +2,8 @@
 # REQUIRE: db_bench binary exists in the current directory
 
 if [ $# -ne 1 ]; then
-  echo "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/readrandom/readwhilewriting]"
+  echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
+  echo    "readrandom/readwhilewriting/updaterandom/mergerandom]"
   exit 0
 fi
 
@@ -24,6 +25,14 @@ fi
 output_dir=${OUTPUT_DIR:-/tmp/}
 if [ ! -d $output_dir ]; then
   mkdir -p $output_dir
+fi
+
+# all multithreaded tests run with sync=1 unless
+# $DB_BENCH_NO_SYNC is defined
+syncval="1"
+if [ ! -z $DB_BENCH_NO_SYNC ]; then
+  echo "Turning sync off for all multithreaded tests"
+  syncval="0";
 fi
 
 num_read_threads=${NUM_READ_THREADS:-16}
@@ -94,7 +103,7 @@ function run_bulkload {
        --disable_auto_compactions=1 \
        --sync=0 \
        --disable_data_sync=0 \
-       --threads=1 2>&1 | tee $output_dir/benchmark_bulkload_fillrandom.log"
+       --threads=1 2>&1 | tee -a $output_dir/benchmark_bulkload_fillrandom.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
   eval $cmd
   echo "Compacting..."
@@ -104,7 +113,7 @@ function run_bulkload {
        --disable_auto_compactions=1 \
        --sync=0 \
        --disable_data_sync=0 \
-       --threads=1 2>&1 | tee $output_dir/benchmark_bulkload_compact.log"
+       --threads=1 2>&1 | tee -a $output_dir/benchmark_bulkload_compact.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_compact.log
   eval $cmd
 }
@@ -114,9 +123,9 @@ function run_fillseq {
   cmd="./db_bench $params_w --benchmarks=fillseq \
        --use_existing_db=0 \
        --num=$num_keys \
-       --sync=1 \
+       --sync=0 \
        --disable_data_sync=0 \
-       --threads=1 2>&1 | tee $output_dir/benchmark_fillseq.log"
+       --threads=1 2>&1 | tee -a $output_dir/benchmark_fillseq.log"
   echo $cmd | tee $output_dir/benchmark_fillseq.log
   eval $cmd
 }
@@ -126,9 +135,9 @@ function run_overwrite {
   cmd="./db_bench $params_w --benchmarks=overwrite \
        --use_existing_db=1 \
        --num=$num_keys \
-       --sync=1 \
+       --sync=0 \
        --disable_data_sync=0 \
-       --threads=1 2>&1 | tee $output_dir/benchmark_overwrite.log"
+       --threads=1 2>&1 | tee -a $output_dir/benchmark_overwrite.log"
   echo $cmd | tee $output_dir/benchmark_overwrite.log
   eval $cmd
 }
@@ -138,9 +147,9 @@ function run_filluniquerandom {
   cmd="./db_bench $params_w --benchmarks=filluniquerandom \
        --use_existing_db=0 \
        --num=$num_keys \
-       --sync=1 \
+       --sync=0 \
        --disable_data_sync=0 \
-       --threads=1 2>&1 | tee $output_dir/benchmark_filluniquerandom.log"
+       --threads=1 2>&1 | tee -a $output_dir/benchmark_filluniquerandom.log"
   echo $cmd | tee $output_dir/benchmark_filluniquerandom.log
   eval $cmd
 }
@@ -152,7 +161,7 @@ function run_readrandom {
        --num=$num_keys \
        --threads=$num_read_threads \
        --disable_auto_compactions=1 \
-       2>&1 | tee $output_dir/benchmark_readrandom.log"
+       2>&1 | tee -a $output_dir/benchmark_readrandom.log"
   echo $cmd | tee $output_dir/benchmark_readrandom.log
   eval $cmd
 }
@@ -162,11 +171,11 @@ function run_readwhilewriting {
   cmd="./db_bench $params_r --benchmarks=readwhilewriting \
        --use_existing_db=1 \
        --num=$num_keys \
-       --sync=1 \
+       --sync=$syncval \
        --disable_data_sync=0 \
        --threads=$num_read_threads \
        --writes_per_second=$writes_per_second \
-       2>&1 | tee $output_dir/benchmark_readwhilewriting.log"
+       2>&1 | tee -a $output_dir/benchmark_readwhilewriting.log"
   echo $cmd | tee $output_dir/benchmark_readwhilewriting.log
   eval $cmd
 }
@@ -176,13 +185,38 @@ function run_rangescanwhilewriting {
   cmd="./db_bench $params_r --benchmarks=seekrandomwhilewriting \
        --use_existing_db=1 \
        --num=$num_keys \
-       --sync=1 \
+       --sync=$syncval \
        --disable_data_sync=0 \
        --threads=$num_read_threads \
        --writes_per_second=$writes_per_second \
        --seek_nexts=$num_nexts_per_seek \
-       2>&1 | tee $output_dir/benchmark_rangescanwhilewriting.log"
+       2>&1 | tee -a $output_dir/benchmark_rangescanwhilewriting.log"
   echo $cmd | tee $output_dir/benchmark_rangescanwhilewriting.log
+  eval $cmd
+}
+
+function run_updaterandom {
+  echo "Read/Modify/Write $num_keys random keys (not using merge).."
+  cmd="./db_bench $params_w --benchmarks=updaterandom \
+       --use_existing_db=0 \
+       --num=$num_keys \
+       --sync=$syncval \
+       --disable_data_sync=0 \
+       --threads=$num_read_threads 2>&1 | tee -a $output_dir/benchmark_updaterandom.log"
+  echo $cmd | tee $output_dir/benchmark_updaterandom.log
+  eval $cmd
+}
+
+function run_mergerandom {
+  echo "Read/Modify/Write $num_keys random keys (using merge operator).."
+  cmd="./db_bench $params_w --benchmarks=mergerandom \
+       --use_existing_db=0 \
+       --num=$num_keys \
+       --sync=$syncval \
+       --disable_data_sync=0 \
+       --merge_operator=\"put\" \
+       --threads=$num_read_threads 2>&1 | tee -a $output_dir/benchmark_mergerandom.log"
+  echo $cmd | tee $output_dir/benchmark_mergerandom.log
   eval $cmd
 }
 
@@ -217,8 +251,12 @@ for job in ${jobs[@]}; do
     run_readwhilewriting
   elif [ $job = rangescanwhilewriting ]; then
     run_rangescanwhilewriting
+  elif [ $job = updaterandom ]; then
+    run_updaterandom
+  elif [ $job = mergerandom ]; then
+    run_mergerandom
   elif [ $job = debug ]; then
-    num_keys=10000; # debug
+    num_keys=1000; # debug
     echo "Setting num_keys to $num_keys"
   else
     echo "unknown job $job"
@@ -230,14 +268,18 @@ for job in ${jobs[@]}; do
     echo "Complete $job in $((end-start)) seconds" | tee -a $report
   fi
 
-  if [[ $job = readrandom || $job = readwhilewriting || $job == rangescanwhilewriting ]]; then
-    lat=$(grep "micros\/op" "$output_dir/benchmark_$job.log" | grep "ops\/sec" | awk '{print $3}')
-    qps=$(grep "micros\/op" "$output_dir/benchmark_$job.log" | grep "ops\/sec" | awk '{print $5}')
+  if [[ $job == readrandom || $job == readwhilewriting \
+     || $job == rangescanwhilewriting || $job == updaterandom \
+     || $job == mergerandom ]]; then
+    lat=$(grep "micros\/op" "$output_dir/benchmark_$job.log" \
+        | grep "ops\/sec" | awk '{print $3}')
+    qps=$(grep "micros\/op" "$output_dir/benchmark_$job.log" \
+        | grep "ops\/sec" | awk '{print $5}')
     line=$(grep "rocksdb.db.get.micros" "$output_dir/benchmark_$job.log")
     p50=$(echo $line | awk '{print $7}')
     p99=$(echo $line | awk '{print $13}')
     print_percentile=$(echo "$p50 != 0 || $p99 != 0" | bc);
-    if [ $print_percentile == "1" ]; then
+    if [ "$print_percentile" == "1" ]; then
       echo "Read latency p50 = $p50 us, p99 = $p99 us" | tee -a $report
     fi
     echo "QPS = $qps ops/sec" | tee -a $report
