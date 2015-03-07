@@ -196,6 +196,12 @@ DEFINE_int32(num_multi_db, 0,
 DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
               " to this fraction of their original size after compression");
 
+DEFINE_double(read_random_exp_range, 0.0,
+              "Read random's key will be generated using distribution of "
+              "num * exp(r) where r is uniform number from 0 to this value. "
+              "The larger the number is, the more skewed the reads are. "
+              "Only used in readrandom and multireadrandom benchmarks.");
+
 DEFINE_bool(histogram, false, "Print histogram of operation timings");
 
 DEFINE_bool(enable_numa, false,
@@ -1132,6 +1138,7 @@ class Benchmark {
   WriteOptions write_options_;
   Options open_options_;  // keep options around to properly destroy db later
   int64_t reads_;
+  double read_random_exp_range_;
   int64_t writes_;
   int64_t readwrites_;
   int64_t merge_keys_;
@@ -1331,32 +1338,39 @@ class Benchmark {
 
  public:
   Benchmark()
-  : cache_(FLAGS_cache_size >= 0 ?
-           (FLAGS_cache_numshardbits >= 1 ?
-            NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits,
-                        FLAGS_cache_remove_scan_count_limit) :
-            NewLRUCache(FLAGS_cache_size)) : nullptr),
-    compressed_cache_(FLAGS_compressed_cache_size >= 0 ?
-           (FLAGS_cache_numshardbits >= 1 ?
-            NewLRUCache(FLAGS_compressed_cache_size, FLAGS_cache_numshardbits) :
-            NewLRUCache(FLAGS_compressed_cache_size)) : nullptr),
-    filter_policy_(FLAGS_bloom_bits >= 0 ?
-        NewBloomFilterPolicy(FLAGS_bloom_bits, FLAGS_use_block_based_filter)
-        : nullptr),
-    prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
-    num_(FLAGS_num),
-    value_size_(FLAGS_value_size),
-    key_size_(FLAGS_key_size),
-    prefix_size_(FLAGS_prefix_size),
-    keys_per_prefix_(FLAGS_keys_per_prefix),
-    entries_per_batch_(1),
-    reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
-    writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
-    readwrites_((FLAGS_writes < 0  && FLAGS_reads < 0)? FLAGS_num :
-                ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)
-               ),
-    merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
-    report_file_operations_(FLAGS_report_file_operations) {
+      : cache_(
+            FLAGS_cache_size >= 0
+                ? (FLAGS_cache_numshardbits >= 1
+                       ? NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits,
+                                     FLAGS_cache_remove_scan_count_limit)
+                       : NewLRUCache(FLAGS_cache_size))
+                : nullptr),
+        compressed_cache_(FLAGS_compressed_cache_size >= 0
+                              ? (FLAGS_cache_numshardbits >= 1
+                                     ? NewLRUCache(FLAGS_compressed_cache_size,
+                                                   FLAGS_cache_numshardbits)
+                                     : NewLRUCache(FLAGS_compressed_cache_size))
+                              : nullptr),
+        filter_policy_(FLAGS_bloom_bits >= 0
+                           ? NewBloomFilterPolicy(FLAGS_bloom_bits,
+                                                  FLAGS_use_block_based_filter)
+                           : nullptr),
+        prefix_extractor_(NewFixedPrefixTransform(FLAGS_prefix_size)),
+        num_(FLAGS_num),
+        value_size_(FLAGS_value_size),
+        key_size_(FLAGS_key_size),
+        prefix_size_(FLAGS_prefix_size),
+        keys_per_prefix_(FLAGS_keys_per_prefix),
+        entries_per_batch_(1),
+        reads_(FLAGS_reads < 0 ? FLAGS_num : FLAGS_reads),
+        read_random_exp_range_(0.0),
+        writes_(FLAGS_writes < 0 ? FLAGS_num : FLAGS_writes),
+        readwrites_(
+            (FLAGS_writes < 0 && FLAGS_reads < 0)
+                ? FLAGS_num
+                : ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)),
+        merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
+        report_file_operations_(FLAGS_report_file_operations) {
     if (report_file_operations_) {
       if (!FLAGS_hdfs.empty()) {
         fprintf(stderr,
@@ -1477,6 +1491,7 @@ class Benchmark {
       key_size_ = FLAGS_key_size;
       entries_per_batch_ = FLAGS_batch_size;
       write_options_ = WriteOptions();
+      read_random_exp_range_ = FLAGS_read_random_exp_range;
       if (FLAGS_sync) {
         write_options_.sync = true;
       }
@@ -2451,6 +2466,32 @@ class Benchmark {
     }
   }
 
+  int64_t GetRandomKey(Random64* rand) {
+    uint64_t rand_int = rand->Next();
+    int64_t key_rand;
+    if (read_random_exp_range_ == 0) {
+      key_rand = rand_int % FLAGS_num;
+    } else {
+      const uint64_t kBigInt = static_cast<uint64_t>(1U) << 62;
+      long double order = -static_cast<long double>(rand_int % kBigInt) /
+                          static_cast<long double>(kBigInt) *
+                          read_random_exp_range_;
+      long double exp_ran = std::exp(order);
+      key_rand =
+          static_cast<int64_t>(exp_ran * static_cast<long double>(FLAGS_num));
+
+      if (FLAGS_num > 256) {
+        // Put least signifant byte to highest significant so that key
+        // range is distributed.
+        key_rand = key_rand / 256 + FLAGS_num / 256 * (key_rand % 256);
+        if (key_rand >= FLAGS_num) {
+          key_rand = FLAGS_num - 1;
+        }
+      }
+    }
+    return key_rand;
+  }
+
   void ReadRandom(ThreadState* thread) {
     int64_t read = 0;
     int64_t found = 0;
@@ -2465,7 +2506,7 @@ class Benchmark {
       // We use same key_rand as seed for key and column family so that we can
       // deterministically find the cfh corresponding to a particular key, as it
       // is done in DoWrite method.
-      int64_t key_rand = thread->rand.Next() % FLAGS_num;
+      int64_t key_rand = GetRandomKey(&thread->rand);
       GenerateKeyFromInt(key_rand, FLAGS_num, &key);
       read++;
       Status s;
@@ -2513,8 +2554,7 @@ class Benchmark {
     while (!duration.Done(1)) {
       DB* db = SelectDB(thread);
       for (int64_t i = 0; i < entries_per_batch_; ++i) {
-        GenerateKeyFromInt(thread->rand.Next() % FLAGS_num,
-            FLAGS_num, &keys[i]);
+        GenerateKeyFromInt(GetRandomKey(&thread->rand), FLAGS_num, &keys[i]);
       }
       std::vector<Status> statuses = db->MultiGet(options, keys, &values);
       assert(static_cast<int64_t>(statuses.size()) == entries_per_batch_);
