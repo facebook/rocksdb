@@ -2490,17 +2490,12 @@ class Benchmark {
                           static_cast<long double>(kBigInt) *
                           read_random_exp_range_;
       long double exp_ran = std::exp(order);
-      key_rand =
+      uint64_t rand_num =
           static_cast<int64_t>(exp_ran * static_cast<long double>(FLAGS_num));
-
-      if (FLAGS_num > 256) {
-        // Put least signifant byte to highest significant so that key
-        // range is distributed.
-        key_rand = key_rand / 256 + FLAGS_num / 256 * (key_rand % 256);
-        if (key_rand >= FLAGS_num) {
-          key_rand = FLAGS_num - 1;
-        }
-      }
+      // Map to a different number to avoid locality.
+      const uint64_t kBigPrime = 0x5bd1e995;
+      // Overflow is like %(2^64). Will have little impact of results.
+      key_rand = static_cast<int64_t>((rand_num * kBigPrime) % FLAGS_num);
     }
     return key_rand;
   }
