@@ -37,9 +37,9 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
 // If enable_compression is false, then compression is always disabled no
 // matter what the values of the other two parameters are.
 // Otherwise, the compression type is determined based on options and level.
-CompressionType GetCompressionType(
-    const ImmutableCFOptions& ioptions, int level,
-    const bool enable_compression = true) {
+CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
+                                   int level, int base_level,
+                                   const bool enable_compression = true) {
   if (!enable_compression) {
     // disable compression
     return kNoCompression;
@@ -47,13 +47,16 @@ CompressionType GetCompressionType(
   // If the use has specified a different compression level for each level,
   // then pick the compression for that level.
   if (!ioptions.compression_per_level.empty()) {
+    assert(level == 0 || level >= base_level);
+    int idx = (level == 0) ? 0 : level - base_level + 1;
+
     const int n = static_cast<int>(ioptions.compression_per_level.size()) - 1;
     // It is possible for level_ to be -1; in that case, we use level
     // 0's compression.  This occurs mostly in backwards compatibility
     // situations when the builder doesn't know what level the file
     // belongs to.  Likewise, if level is beyond the end of the
     // specified compression levels, use the last value.
-    return ioptions.compression_per_level[std::max(0, std::min(level, n))];
+    return ioptions.compression_per_level[std::max(0, std::min(idx, n))];
   } else {
     return ioptions.compression;
   }
@@ -417,7 +420,8 @@ Compaction* CompactionPicker::CompactRange(
       vstorage->num_levels(), input_level, output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
       mutable_cf_options.MaxGrandParentOverlapBytes(input_level),
-      output_path_id, GetCompressionType(ioptions_, output_level));
+      output_path_id,
+      GetCompressionType(ioptions_, output_level, vstorage->base_level()));
 
   c->inputs_[0].files = inputs;
   if (ExpandWhileOverlapping(cf_name, vstorage, c) == false) {
@@ -828,11 +832,12 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   }
   assert(output_level < NumberLevels());
 
-  c = new Compaction(vstorage->num_levels(), level, output_level,
-                     mutable_cf_options.MaxFileSizeForLevel(output_level),
-                     mutable_cf_options.MaxGrandParentOverlapBytes(level),
-                     GetPathId(ioptions_, mutable_cf_options, output_level),
-                     GetCompressionType(ioptions_, output_level));
+  c = new Compaction(
+      vstorage->num_levels(), level, output_level,
+      mutable_cf_options.MaxFileSizeForLevel(output_level),
+      mutable_cf_options.MaxGrandParentOverlapBytes(level),
+      GetPathId(ioptions_, mutable_cf_options, output_level),
+      GetCompressionType(ioptions_, output_level, vstorage->base_level()));
   c->score_ = score;
 
   // Pick the largest file in this level that is not already
@@ -1160,7 +1165,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
   Compaction* c = new Compaction(
       vstorage->num_levels(), kLevel0, kLevel0,
       mutable_cf_options.MaxFileSizeForLevel(kLevel0), LLONG_MAX, path_id,
-      GetCompressionType(ioptions_, kLevel0, enable_compression));
+      GetCompressionType(ioptions_, kLevel0, 1, enable_compression));
   c->score_ = score;
 
   for (unsigned int i = start_index; i < first_index_after; i++) {
@@ -1280,7 +1285,7 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalSizeAmp(
   Compaction* c =
       new Compaction(vstorage->num_levels(), kLevel, kLevel,
                      mutable_cf_options.MaxFileSizeForLevel(kLevel), LLONG_MAX,
-                     path_id, GetCompressionType(ioptions_, kLevel));
+                     path_id, GetCompressionType(ioptions_, kLevel, 1));
   c->score_ = score;
   for (unsigned int loop = start_index; loop < files.size(); loop++) {
     f = files[loop];

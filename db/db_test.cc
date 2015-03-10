@@ -39,6 +39,7 @@
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
+#include "table/mock_table.h"
 #include "table/plain_table_factory.h"
 #include "util/hash.h"
 #include "util/hash_linklist_rep.h"
@@ -10455,6 +10456,11 @@ TEST(DBTest, DynamicLevelMaxBytesBase) {
       options.max_background_compactions = max_background_compactions;
       options.num_levels = 5;
 
+      options.compression_per_level.resize(3);
+      options.compression_per_level[0] = kNoCompression;
+      options.compression_per_level[1] = kLZ4Compression;
+      options.compression_per_level[2] = kSnappyCompression;
+
       DestroyAndReopen(options);
 
       for (int i = 0; i < kNKeys; i++) {
@@ -10640,6 +10646,171 @@ TEST(DBTest, DynamicLevelMaxBytesBase2) {
 
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
   ASSERT_EQ(1U, int_prop);
+}
+
+TEST(DBTest, DynamicLevelCompressionPerLevel) {
+  const int kNKeys = 120;
+  int keys[kNKeys];
+  for (int i = 0; i < kNKeys; i++) {
+    keys[i] = i;
+  }
+  std::random_shuffle(std::begin(keys), std::end(keys));
+
+  Random rnd(301);
+  Options options;
+  options.create_if_missing = true;
+  options.db_write_buffer_size = 20480;
+  options.write_buffer_size = 20480;
+  options.max_write_buffer_number = 2;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 2;
+  options.target_file_size_base = 2048;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = 102400;
+  options.max_bytes_for_level_multiplier = 4;
+  options.max_background_compactions = 1;
+  options.num_levels = 5;
+
+  options.compression_per_level.resize(3);
+  options.compression_per_level[0] = kNoCompression;
+  options.compression_per_level[1] = kNoCompression;
+  options.compression_per_level[2] = kSnappyCompression;
+
+  DestroyAndReopen(options);
+
+  // Insert more than 80K. L4 should be base level. Neither L0 nor L4 should
+  // be compressed, so total data size should be more than 80K.
+  for (int i = 0; i < 20; i++) {
+    ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(3), 0);
+  ASSERT_GT(SizeAtLevel(0) + SizeAtLevel(4), 20U * 4000U);
+
+  // Insert 400KB. Some data will be compressed
+  for (int i = 21; i < 120; i++) {
+    ASSERT_OK(Put(Key(keys[i]), CompressibleString(&rnd, 4000)));
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  ASSERT_LT(SizeAtLevel(0) + SizeAtLevel(3) + SizeAtLevel(4), 120U * 4000U);
+  // Make sure data in files in L3 is not compacted by removing all files
+  // in L4 and calculate number of rows
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "true"},
+  }));
+  ColumnFamilyMetaData cf_meta;
+  db_->GetColumnFamilyMetaData(&cf_meta);
+  for (auto file : cf_meta.levels[4].files) {
+    ASSERT_OK(dbfull()->DeleteFile(file.name));
+  }
+  int num_keys = 0;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    num_keys++;
+  }
+  ASSERT_OK(iter->status());
+  ASSERT_GT(SizeAtLevel(0) + SizeAtLevel(3), num_keys * 4000U);
+}
+
+TEST(DBTest, DynamicLevelCompressionPerLevel2) {
+  const int kNKeys = 500;
+  int keys[kNKeys];
+  for (int i = 0; i < kNKeys; i++) {
+    keys[i] = i;
+  }
+  std::random_shuffle(std::begin(keys), std::end(keys));
+
+  Random rnd(301);
+  Options options;
+  options.create_if_missing = true;
+  options.db_write_buffer_size = 6000;
+  options.write_buffer_size = 6000;
+  options.max_write_buffer_number = 2;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 2;
+  options.hard_rate_limit = 1.1;
+
+  // Use file size to distinguish levels
+  // L1: 10, L2: 20, L3 40, L4 80
+  // L0 is less than 30
+  options.target_file_size_base = 10;
+  options.target_file_size_multiplier = 2;
+
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = 200;
+  options.max_bytes_for_level_multiplier = 8;
+  options.max_background_compactions = 1;
+  options.num_levels = 5;
+  std::shared_ptr<mock::MockTableFactory> mtf(new mock::MockTableFactory);
+  options.table_factory = mtf;
+
+  options.compression_per_level.resize(3);
+  options.compression_per_level[0] = kNoCompression;
+  options.compression_per_level[1] = kLZ4Compression;
+  options.compression_per_level[2] = kZlibCompression;
+
+  DestroyAndReopen(options);
+  // When base level is L4, L4 is LZ4.
+  std::atomic<bool> seen_lz4(false);
+  std::function<void(const CompressionType&, uint64_t)> cb1 =
+      [&](const CompressionType& ct, uint64_t size) {
+    ASSERT_TRUE(size <= 30 || ct == kLZ4Compression);
+    if (ct == kLZ4Compression) {
+      seen_lz4.store(true);
+    }
+  };
+  mock::MockTableBuilder::finish_cb_ = &cb1;
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(seen_lz4.load());
+
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(3), 0);
+
+  // After base level turn L4->L3, L3 becomes LZ4 and L4 becomes Zlib
+  std::atomic<bool> seen_zlib(false);
+  std::function<void(const CompressionType&, uint64_t)> cb2 =
+      [&](const CompressionType& ct, uint64_t size) {
+    ASSERT_TRUE(size <= 30 || ct != kNoCompression);
+    if (ct == kZlibCompression) {
+      if (!seen_zlib.load()) {
+        seen_lz4.store(false);
+      }
+      seen_zlib.store(true);
+    }
+    // Make sure after making L4 the base level, L4 is LZ4.
+    if (seen_zlib.load()) {
+      if (ct == kLZ4Compression && size < 80) {
+        seen_lz4.store(true);
+      }
+    }
+  };
+  mock::MockTableBuilder::finish_cb_ = &cb2;
+  for (int i = 101; i < 500; i++) {
+    ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
+    if (i % 100 == 99) {
+      Flush();
+      dbfull()->TEST_WaitForCompact();
+    }
+  }
+  ASSERT_TRUE(seen_lz4.load());
+  ASSERT_TRUE(seen_zlib.load());
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+  mock::MockTableBuilder::finish_cb_ = nullptr;
 }
 
 TEST(DBTest, DynamicCompactionOptions) {

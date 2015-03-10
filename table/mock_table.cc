@@ -61,6 +61,9 @@ Status MockTableFactory::NewTableReader(
   return Status::OK();
 }
 
+std::function<void(const CompressionType&, uint64_t)>*
+    MockTableBuilder::finish_cb_ = nullptr;
+
 TableBuilder* MockTableFactory::NewTableBuilder(
     const ImmutableCFOptions& ioptions,
     const InternalKeyComparator& internal_key, WritableFile* file,
@@ -68,7 +71,7 @@ TableBuilder* MockTableFactory::NewTableBuilder(
     const CompressionOptions& compression_opts, const bool skip_filters) const {
   uint32_t id = GetAndWriteNextID(file);
 
-  return new MockTableBuilder(id, &file_system_);
+  return new MockTableBuilder(id, &file_system_, compression_type);
 }
 
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,

@@ -255,6 +255,20 @@ struct ColumnFamilyOptions {
   // be slower. This array, if non-empty, should have an entry for
   // each level of the database; these override the value specified in
   // the previous field 'compression'.
+  //
+  // NOTICE if level_compaction_dynamic_level_bytes=true,
+  // compression_per_level[0] still determines L0, but other elements
+  // of the array are based on base level (the level L0 files are merged
+  // to), and may not match the level users see from info log for metadata.
+  // If L0 files are merged to level-n, then, for i>0, compression_per_level[i]
+  // determines compaction type for level n+i-1.
+  // For example, if we have three 5 levels, and we determine to merge L0
+  // data to L4 (which means L1..L3 will be empty), then the new files go to
+  // L4 uses compression type compression_per_level[1].
+  // If now L0 is merged to L2. Data goes to L2 will be compressed
+  // according to compression_per_level[1], L3 using compression_per_level[2]
+  // and L4 using compression_per_level[3]. Compaction for each level can
+  // change when data grows.
   std::vector<CompressionType> compression_per_level;
 
   // different options for compression algorithms

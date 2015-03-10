@@ -97,8 +97,11 @@ class MockTableIterator : public Iterator {
 
 class MockTableBuilder : public TableBuilder {
  public:
-  MockTableBuilder(uint32_t id, MockTableFileSystem* file_system)
-      : id_(id), file_system_(file_system) {}
+  MockTableBuilder(uint32_t id, MockTableFileSystem* file_system,
+                   CompressionType compression_type)
+      : id_(id),
+        file_system_(file_system),
+        compression_type_(compression_type) {}
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~MockTableBuilder() {}
@@ -114,6 +117,9 @@ class MockTableBuilder : public TableBuilder {
   Status status() const override { return Status::OK(); }
 
   Status Finish() override {
+    if (finish_cb_ != nullptr) {
+      (*finish_cb_)(compression_type_, FileSize());
+    }
     MutexLock lock_guard(&file_system_->mutex);
     file_system_->files.insert({id_, table_});
     return Status::OK();
@@ -125,10 +131,13 @@ class MockTableBuilder : public TableBuilder {
 
   uint64_t FileSize() const override { return table_.size(); }
 
+  static std::function<void(const CompressionType&, uint64_t)>* finish_cb_;
+
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
   MockFileContents table_;
+  CompressionType compression_type_;
 };
 
 class MockTableFactory : public TableFactory {
