@@ -20,6 +20,9 @@ namespace rocksdb {
     public:
       LoggerJniCallback(JNIEnv* env, jobject jAbstractLogger);
       virtual ~LoggerJniCallback();
+
+      using Logger::SetInfoLogLevel;
+      using Logger::GetInfoLogLevel;
       // Write an entry to the log file with the specified format.
       virtual void Logv(const char* format, va_list ap);
       // Write an entry to the log file with the specified log level

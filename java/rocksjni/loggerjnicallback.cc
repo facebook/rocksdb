@@ -156,6 +156,30 @@ void Java_org_rocksdb_AbstractLogger_createNewLoggerDbOptions(
 
 /*
  * Class:     org_rocksdb_AbstractLogger
+ * Method:    setInfoLogLevel
+ * Signature: (JB)V
+ */
+void Java_org_rocksdb_AbstractLogger_setInfoLogLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle, jbyte jlog_level) {
+  std::shared_ptr<rocksdb::LoggerJniCallback> *handle =
+      reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback> *>(jhandle);
+  (*handle)->SetInfoLogLevel(static_cast<rocksdb::InfoLogLevel>(jlog_level));
+}
+
+/*
+ * Class:     org_rocksdb_AbstractLogger
+ * Method:    infoLogLevel
+ * Signature: (J)B
+ */
+jbyte Java_org_rocksdb_AbstractLogger_infoLogLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  std::shared_ptr<rocksdb::LoggerJniCallback> *handle =
+      reinterpret_cast<std::shared_ptr<rocksdb::LoggerJniCallback> *>(jhandle);
+  return static_cast<jbyte>((*handle)->GetInfoLogLevel());
+}
+
+/*
+ * Class:     org_rocksdb_AbstractLogger
  * Method:    disposeInternal
  * Signature: (J)V
  */

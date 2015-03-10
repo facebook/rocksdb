@@ -37,6 +37,25 @@ public abstract class AbstractLogger extends RocksObject {
     createNewLoggerDbOptions(dboptions.nativeHandle_);
   }
 
+  /**
+   * Set {@link org.rocksdb.InfoLogLevel} to AbstractLogger.
+   *
+   * @param infoLogLevel {@link org.rocksdb.InfoLogLevel} instance.
+   */
+  public void setInfoLogLevel(InfoLogLevel infoLogLevel) {
+      setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
+  }
+
+  /**
+   * Return the loggers log level.
+   *
+   * @return {@link org.rocksdb.InfoLogLevel} instance.
+   */
+  public InfoLogLevel infoLogLevel() {
+    return InfoLogLevel.getInfoLogLevel(
+        infoLogLevel(nativeHandle_));
+  }
+
   protected abstract void log(InfoLogLevel infoLogLevel,
       String logMsg);
 
@@ -56,5 +75,8 @@ public abstract class AbstractLogger extends RocksObject {
       long options);
   protected native void createNewLoggerDbOptions(
       long dbOptions);
+  protected native void setInfoLogLevel(long handle,
+      byte infoLogLevel);
+  protected native byte infoLogLevel(long handle);
   private native void disposeInternal(long handle);
 }
