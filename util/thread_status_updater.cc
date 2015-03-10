@@ -63,6 +63,15 @@ void ThreadStatusUpdater::SetThreadOperation(
   data->operation_type.store(type, std::memory_order_relaxed);
 }
 
+void ThreadStatusUpdater::SetOperationStartTime(const int64_t start_time) {
+  auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
+  data->op_start_time.store(start_time, std::memory_order_relaxed);
+}
+
 void ThreadStatusUpdater::ClearThreadOperation() {
   auto* data = InitAndGet();
   if (!data->enable_tracking) {
@@ -116,6 +125,7 @@ Status ThreadStatusUpdater::GetThreadList(
     const std::string* cf_name = nullptr;
     ThreadStatus::OperationType op_type = ThreadStatus::OP_UNKNOWN;
     ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
+    int64_t op_start_time = 0;
     if (cf_info != nullptr) {
       db_name = &cf_info->db_name;
       cf_name = &cf_info->cf_name;
@@ -123,6 +133,8 @@ Status ThreadStatusUpdater::GetThreadList(
           std::memory_order_relaxed);
       // display lower-level info only when higher-level info is available.
       if (op_type != ThreadStatus::OP_UNKNOWN) {
+        op_start_time = thread_data->op_start_time.load(
+            std::memory_order_relaxed);
         state_type = thread_data->state_type.load(
             std::memory_order_relaxed);
       }
@@ -131,7 +143,7 @@ Status ThreadStatusUpdater::GetThreadList(
         thread_data->thread_id, thread_type,
         db_name ? *db_name : "",
         cf_name ? *cf_name : "",
-        op_type, state_type);
+        op_type, op_start_time, state_type);
   }
 
   return Status::OK();

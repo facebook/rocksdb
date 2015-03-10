@@ -62,11 +62,14 @@ struct ThreadStatus {
                const std::string& _db_name,
                const std::string& _cf_name,
                const OperationType _operation_type,
+               const int64_t _op_start_time,
                const StateType _state_type) :
       thread_id(_id), thread_type(_thread_type),
       db_name(_db_name),
       cf_name(_cf_name),
-      operation_type(_operation_type), state_type(_state_type) {}
+      operation_type(_operation_type),
+      op_start_time(_op_start_time),
+      state_type(_state_type) {}
 
   // An unique ID for the thread.
   const uint64_t thread_id;
@@ -88,6 +91,10 @@ struct ThreadStatus {
   // The operation (high-level action) that the current thread is involved.
   const OperationType operation_type;
 
+  // The start time of the current status in the form of seconds since the
+  // Epoch, 1970-01-01 00:00:00 (UTC).
+  const int64_t op_start_time;
+
   // The state (lower-level action) that the current thread is involved.
   const StateType state_type;
 
@@ -98,6 +105,8 @@ struct ThreadStatus {
 
   // Obtain the name of an operation given its type.
   static const std::string& GetOperationName(OperationType op_type);
+
+  static const std::string TimeToString(int64_t op_start_time);
 
   // Obtain the name of a state given its type.
   static const std::string& GetStateName(StateType state_type);

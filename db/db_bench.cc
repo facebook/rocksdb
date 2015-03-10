@@ -924,15 +924,28 @@ class Stats {
     std::vector<ThreadStatus> thread_list;
     FLAGS_env->GetThreadList(&thread_list);
 
-    fprintf(stderr, "\n%18s %10s %25s %12s %12s\n",
-        "ThreadID", "ThreadType", "cfName", "Operation", "State");
+    fprintf(stderr, "\n%18s %10s %25s %12s %20s %13s %12s\n",
+        "ThreadID", "ThreadType", "cfName", "Operation",
+        "OP_StartTime ", "ElapsedTime", "State");
 
+    int64_t current_time = 0;
+    Env::Default()->GetCurrentTime(&current_time);
     for (auto ts : thread_list) {
-      fprintf(stderr, "%18" PRIu64 " %10s %25s %12s %12s\n",
+      char elapsed_time[25];
+      if (ts.op_start_time != 0) {
+        AppendHumanMicros(
+            current_time - ts.op_start_time,
+            elapsed_time, 24);
+      } else {
+        elapsed_time[0] = 0;
+      }
+      fprintf(stderr, "%18" PRIu64 " %10s %25s %12s %20s %13s %12s\n",
           ts.thread_id,
           ThreadStatus::GetThreadTypeName(ts.thread_type).c_str(),
           ts.cf_name.c_str(),
           ThreadStatus::GetOperationName(ts.operation_type).c_str(),
+          ThreadStatus::TimeToString(ts.op_start_time).c_str(),
+          elapsed_time,
           ThreadStatus::GetStateName(ts.state_type).c_str());
     }
   }

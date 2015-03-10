@@ -4,6 +4,7 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
 #include "util/thread_operation.h"
 
@@ -25,6 +26,14 @@ const std::string& ThreadStatus::GetOperationName(
 const std::string& ThreadStatus::GetStateName(
     ThreadStatus::StateType state_type) {
   return global_state_table[state_type].name;
+}
+
+const std::string ThreadStatus::TimeToString(
+    int64_t time) {
+  if (time == 0) {
+    return "";
+  }
+  return Env::Default()->TimeToString(time);
 }
 
 #else
