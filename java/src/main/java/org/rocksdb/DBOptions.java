@@ -145,7 +145,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setLogger(final AbstractLogger logger) {
+  public DBOptions setLogger(final Logger logger) {
     assert(isInitialized());
     setLogger(nativeHandle_, logger.nativeHandle_);
     return this;

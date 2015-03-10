@@ -1,5 +1,4 @@
 NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
-    org.rocksdb.AbstractLogger\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupableDB\
 	org.rocksdb.BackupableDBOptions\
@@ -18,6 +17,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.GenericRateLimiterConfig\
 	org.rocksdb.HashLinkedListMemTableConfig\
 	org.rocksdb.HashSkipListMemTableConfig\
+	org.rocksdb.Logger\
 	org.rocksdb.MergeOperator\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
@@ -55,8 +55,7 @@ ifeq ($(PLATFORM), OS_MACOSX)
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar
 endif
 
-JAVA_TESTS = org.rocksdb.AbstractLoggerTest\
-    org.rocksdb.BackupableDBOptionsTest\
+JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.BackupableDBTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.CheckPointTest\
@@ -73,6 +72,7 @@ JAVA_TESTS = org.rocksdb.AbstractLoggerTest\
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
+    org.rocksdb.LoggerTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\

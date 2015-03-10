@@ -1,3 +1,8 @@
+// Copyright (c) 2015, Facebook, Inc.  All rights reserved.
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree. An additional grant
+// of patent rights can be found in the PATENTS file in the same directory.
+
 package org.rocksdb;
 
 /**
@@ -9,7 +14,7 @@ package org.rocksdb;
  * Java logging APIs like Log4j or Slf4j without keeping
  * database logs in the filesystem.</p>
  */
-public abstract class AbstractLogger extends RocksObject {
+public abstract class Logger extends RocksObject {
 
   /**
    * <p>AbstractLogger constructor.</p>
@@ -20,7 +25,7 @@ public abstract class AbstractLogger extends RocksObject {
    *
    * @param options {@link org.rocksdb.Options} instance.
    */
-  public AbstractLogger(Options options) {
+  public Logger(final Options options) {
     createNewLoggerOptions(options.nativeHandle_);
   }
 
@@ -33,7 +38,7 @@ public abstract class AbstractLogger extends RocksObject {
    *
    * @param dboptions {@link org.rocksdb.DBOptions} instance.
    */
-  public AbstractLogger(DBOptions dboptions) {
+  public Logger(final DBOptions dboptions) {
     createNewLoggerDbOptions(dboptions.nativeHandle_);
   }
 
@@ -42,7 +47,7 @@ public abstract class AbstractLogger extends RocksObject {
    *
    * @param infoLogLevel {@link org.rocksdb.InfoLogLevel} instance.
    */
-  public void setInfoLogLevel(InfoLogLevel infoLogLevel) {
+  public void setInfoLogLevel(final InfoLogLevel infoLogLevel) {
       setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
   }
 

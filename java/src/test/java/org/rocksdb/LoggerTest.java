@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class AbstractLoggerTest {
+public class LoggerTest {
   @ClassRule
   public static final RocksMemoryResource rocksMemoryResource =
       new RocksMemoryResource();
@@ -33,7 +33,7 @@ public class AbstractLoggerTest {
           setCreateIfMissing(true);
 
       // Create new logger with max log level passed by options
-      AbstractLogger abstractLogger = new AbstractLogger(options) {
+      Logger logger = new Logger(options) {
         @Override
         protected void log(InfoLogLevel infoLogLevel, String logMsg) {
           assertThat(logMsg).isNotNull();
@@ -43,7 +43,7 @@ public class AbstractLoggerTest {
       };
 
       // Set custom logger to options
-      options.setLogger(abstractLogger);
+      options.setLogger(logger);
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
 
@@ -71,7 +71,7 @@ public class AbstractLoggerTest {
           setCreateIfMissing(true);
 
       // Create new logger with max log level passed by options
-      AbstractLogger abstractLogger = new AbstractLogger(options) {
+      Logger logger = new Logger(options) {
         @Override
         protected void log(InfoLogLevel infoLogLevel, String logMsg) {
           assertThat(logMsg).isNotNull();
@@ -81,7 +81,7 @@ public class AbstractLoggerTest {
       };
 
       // Set custom logger to options
-      options.setLogger(abstractLogger);
+      options.setLogger(logger);
 
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
 
@@ -99,7 +99,7 @@ public class AbstractLoggerTest {
   @Test
   public void dbOptionsLogger() throws RocksDBException {
     RocksDB db = null;
-    AbstractLogger abstractLogger = null;
+    Logger logger = null;
     List<ColumnFamilyHandle> cfHandles = new ArrayList<>();
     List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
     cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
@@ -112,7 +112,7 @@ public class AbstractLoggerTest {
           setCreateIfMissing(true);
 
       // Create new logger with max log level passed by options
-      abstractLogger = new AbstractLogger(options) {
+      logger = new Logger(options) {
         @Override
         protected void log(InfoLogLevel infoLogLevel, String logMsg) {
           assertThat(logMsg).isNotNull();
@@ -122,7 +122,7 @@ public class AbstractLoggerTest {
       };
 
       // Set custom logger to options
-      options.setLogger(abstractLogger);
+      options.setLogger(logger);
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           cfDescriptors, cfHandles);
       // there should be zero messages
@@ -136,15 +136,15 @@ public class AbstractLoggerTest {
       if (db != null) {
         db.close();
       }
-      if (abstractLogger != null) {
-        abstractLogger.dispose();
+      if (logger != null) {
+        logger.dispose();
       }
     }
   }
 
   @Test
   public void setInfoLogLevel() {
-    AbstractLogger abstractLogger = null;
+    Logger logger = null;
     try {
       // Setup options
       final Options options = new Options().
@@ -152,7 +152,7 @@ public class AbstractLoggerTest {
           setCreateIfMissing(true);
 
       // Create new logger with max log level passed by options
-      abstractLogger = new AbstractLogger(options) {
+      logger = new Logger(options) {
         @Override
         protected void log(InfoLogLevel infoLogLevel, String logMsg) {
           assertThat(logMsg).isNotNull();
@@ -160,14 +160,14 @@ public class AbstractLoggerTest {
           logMessageCounter.incrementAndGet();
         }
       };
-      assertThat(abstractLogger.infoLogLevel()).
+      assertThat(logger.infoLogLevel()).
           isEqualTo(InfoLogLevel.FATAL_LEVEL);
-      abstractLogger.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);
-      assertThat(abstractLogger.infoLogLevel()).
+      logger.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);
+      assertThat(logger.infoLogLevel()).
           isEqualTo(InfoLogLevel.DEBUG_LEVEL);
     } finally {
-      if (abstractLogger != null) {
-        abstractLogger.dispose();
+      if (logger != null) {
+        logger.dispose();
       }
     }
   }
@@ -184,7 +184,7 @@ public class AbstractLoggerTest {
           setCreateIfMissing(true);
 
       // Create new logger with max log level passed by options
-      AbstractLogger abstractLogger = new AbstractLogger(options) {
+      Logger logger = new Logger(options) {
         @Override
         protected void log(InfoLogLevel infoLogLevel, String logMsg) {
           assertThat(logMsg).isNotNull();
@@ -194,7 +194,7 @@ public class AbstractLoggerTest {
       };
 
       // Set custom logger to options
-      options.setLogger(abstractLogger);
+      options.setLogger(logger);
       db = RocksDB.open(options, dbFolder.getRoot().getAbsolutePath());
 
       // there should be zero messages
@@ -202,7 +202,7 @@ public class AbstractLoggerTest {
       assertThat(logMessageCounter.get()).isEqualTo(0);
 
       // change log level to debug level
-      abstractLogger.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);
+      logger.setInfoLogLevel(InfoLogLevel.DEBUG_LEVEL);
 
       db.put("key".getBytes(), "value".getBytes());
       db.flush(new FlushOptions().setWaitForFlush(true));

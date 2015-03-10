@@ -136,10 +136,10 @@ public interface DBOptionsInterface {
    *
    * <p>Default: nullptr</p>
    *
-   * @param logger {@link AbstractLogger} instance.
+   * @param logger {@link Logger} instance.
    * @return the instance of the current Object.
    */
-  Object setLogger(AbstractLogger logger);
+  Object setLogger(Logger logger);
 
   /**
    * <p>Sets the RocksDB log level. Default level is INFO</p>

@@ -639,7 +639,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLogger(final AbstractLogger logger) {
+  public Options setLogger(final Logger logger) {
     assert(isInitialized());
     setLogger(nativeHandle_, logger.nativeHandle_);
     return this;

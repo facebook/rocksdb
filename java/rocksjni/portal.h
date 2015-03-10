@@ -658,7 +658,6 @@ class WriteEntryJni {
 
 class InfoLogLevelJni {
  public:
-
     // Get the DEBUG_LEVEL enum field of org.rocksdb.InfoLogLevel
     static jobject DEBUG_LEVEL(JNIEnv* env) {
       return getEnum(env, "DEBUG_LEVEL");
@@ -703,16 +702,16 @@ class InfoLogLevelJni {
     }
 };
 
-// The portal class for org.rocksdb.AbstractLogger
-class AbstractLoggerJni : public RocksDBNativeClass<
-    std::shared_ptr<rocksdb::LoggerJniCallback>*, AbstractLoggerJni> {
+// The portal class for org.rocksdb.Logger
+class LoggerJni : public RocksDBNativeClass<
+    std::shared_ptr<rocksdb::LoggerJniCallback>*, LoggerJni> {
  public:
   static jclass getJClass(JNIEnv* env) {
     return RocksDBNativeClass::getJClass(env,
-        "org/rocksdb/AbstractLogger");
+        "org/rocksdb/Logger");
   }
 
-  // Get the java method `name` of org.rocksdb.AbstractLogger.
+  // Get the java method `name` of org.rocksdb.Logger.
   static jmethodID getLogMethodId(JNIEnv* env) {
     static jmethodID mid = env->GetMethodID(
         getJClass(env), "log",
