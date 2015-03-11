@@ -791,14 +791,27 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxBytesForLevelBase(final long maxBytesForLevelBase) {
+    setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
+    return this;
+  }
+
+  @Override
   public long maxBytesForLevelBase() {
     return maxBytesForLevelBase(nativeHandle_);
   }
 
   @Override
-  public Options setMaxBytesForLevelBase(final long maxBytesForLevelBase) {
-    setMaxBytesForLevelBase(nativeHandle_, maxBytesForLevelBase);
+  public Options setLevelCompactionDynamicLevelBytes(
+      final boolean enableLevelCompactionDynamicLevelBytes) {
+    setLevelCompactionDynamicLevelBytes(nativeHandle_,
+        enableLevelCompactionDynamicLevelBytes);
     return this;
+  }
+
+  @Override
+  public boolean levelCompactionDynamicLevelBytes() {
+    return levelCompactionDynamicLevelBytes(nativeHandle_);
   }
 
   @Override
@@ -1223,6 +1236,10 @@ public class Options extends RocksObject
   private native void setMaxBytesForLevelBase(
       long handle, long maxBytesForLevelBase);
   private native long maxBytesForLevelBase(long handle);
+  private native void setLevelCompactionDynamicLevelBytes(
+      long handle, boolean enableLevelCompactionDynamicLevelBytes);
+  private native boolean levelCompactionDynamicLevelBytes(
+      long handle);
   private native void setMaxBytesForLevelMultiplier(
       long handle, int multiplier);
   private native int maxBytesForLevelMultiplier(long handle);

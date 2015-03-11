@@ -239,6 +239,22 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void levelCompactionDynamicLevelBytes() {
+    ColumnFamilyOptions opt = null;
+    try {
+      opt = new ColumnFamilyOptions();
+      boolean boolValue = rand.nextBoolean();
+      opt.setLevelCompactionDynamicLevelBytes(boolValue);
+      assertThat(opt.levelCompactionDynamicLevelBytes())
+          .isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void maxBytesForLevelMultiplier() {
     ColumnFamilyOptions opt = null;
     try {
