@@ -236,7 +236,8 @@ TESTS = \
 	listener_test \
 	compaction_job_test \
 	thread_list_test \
-	sst_dump_test
+	sst_dump_test \
+	compact_files_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -614,6 +615,9 @@ thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)

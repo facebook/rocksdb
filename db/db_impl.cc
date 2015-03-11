@@ -1285,24 +1285,53 @@ Status DBImpl::CompactFiles(
     // not supported in lite version
   return Status::NotSupported("Not supported in ROCKSDB LITE");
 #else
-  InstrumentedMutexLock l(&mutex_);
   if (column_family == nullptr) {
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
   }
 
   auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family)->cfd();
   assert(cfd);
-  // TODO(yhchiang): use superversion
-  cfd->Ref();
-  auto version = cfd->current();
-  version->Ref();
-  auto s = CompactFilesImpl(compact_options, cfd, version,
-                            input_file_names, output_level, output_path_id);
-  // TODO(yhchiang): unref could move into CompactFilesImpl().  Otherwise,
-  // FindObsoleteFiles might never able to find any file to delete.
-  version->Unref();
-  // TODO(yhchiang): cfd should be deleted after its last reference.
-  cfd->Unref();
+
+  Status s;
+  JobContext job_context(0, true);
+  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
+                       db_options_.info_log.get());
+
+  // Perform CompactFiles
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  {
+    InstrumentedMutexLock l(&mutex_);
+
+    s = CompactFilesImpl(compact_options, cfd, sv->current,
+                         input_file_names, output_level,
+                         output_path_id, &job_context, &log_buffer);
+  }
+  ReturnAndCleanupSuperVersion(cfd, sv);
+
+  // Find and delete obsolete files
+  {
+    InstrumentedMutexLock l(&mutex_);
+    // If !s.ok(), this means that Compaction failed. In that case, we want
+    // to delete all obsolete files we might have created and we force
+    // FindObsoleteFiles(). This is because job_context does not
+    // catch all created files if compaction failed.
+    FindObsoleteFiles(&job_context, !s.ok());
+  }
+
+  // delete unnecessary files if any, this is done outside the mutex
+  if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
+    // Have to flush the info logs before bg_compaction_scheduled_--
+    // because if bg_flush_scheduled_ becomes 0 and the lock is
+    // released, the deconstructor of DB can kick in and destroy all the
+    // states of DB so info_log might not be available after that point.
+    // It also applies to access other states that DB owns.
+    log_buffer.FlushBufferToLog();
+    if (job_context.HaveSomethingToDelete()) {
+      PurgeObsoleteFiles(job_context);
+    }
+    job_context.Clean();
+  }
+
   return s;
 #endif  // ROCKSDB_LITE
 }
@@ -1311,10 +1340,9 @@ Status DBImpl::CompactFiles(
 Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
-    const int output_level, int output_path_id) {
+    const int output_level, int output_path_id, JobContext* job_context,
+    LogBuffer* log_buffer) {
   mutex_.AssertHeld();
-
-  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
 
   if (shutting_down_.load(std::memory_order_acquire)) {
     return Status::ShutdownInProgress();
@@ -1376,15 +1404,14 @@ Status DBImpl::CompactFilesImpl(
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->IsDeletionCompaction());
 
-  JobContext job_context(0, true);
   auto yield_callback = [&]() {
-    return CallFlushDuringCompaction(c->column_family_data(),
-                                     *c->mutable_cf_options(), &job_context,
-                                     &log_buffer);
+    return CallFlushDuringCompaction(
+        c->column_family_data(), *c->mutable_cf_options(),
+        job_context, log_buffer);
   };
   CompactionJob compaction_job(
-      job_context.job_id, c.get(), db_options_, *c->mutable_cf_options(),
-      env_options_, versions_.get(), &shutting_down_, &log_buffer,
+      job_context->job_id, c.get(), db_options_, *c->mutable_cf_options(),
+      env_options_, versions_.get(), &shutting_down_, log_buffer,
       directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
       stats_, &snapshots_, is_snapshot_supported_, table_cache_,
       std::move(yield_callback));
@@ -1395,7 +1422,7 @@ Status DBImpl::CompactFilesImpl(
   mutex_.Lock();
   compaction_job.Install(&status, &mutex_);
   if (status.ok()) {
-    InstallSuperVersionBackground(c->column_family_data(), &job_context,
+    InstallSuperVersionBackground(c->column_family_data(), job_context,
                                   *c->mutable_cf_options());
   }
   c->ReleaseCompactionFiles(s);
@@ -1408,35 +1435,11 @@ Status DBImpl::CompactFilesImpl(
   } else {
     Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] Compaction error: %s",
-        c->column_family_data()->GetName().c_str(), job_context.job_id,
+        c->column_family_data()->GetName().c_str(), job_context->job_id,
         status.ToString().c_str());
     if (db_options_.paranoid_checks && bg_error_.ok()) {
       bg_error_ = status;
     }
-  }
-
-  // If !s.ok(), this means that Compaction failed. In that case, we want
-  // to delete all obsolete files we might have created and we force
-  // FindObsoleteFiles(). This is because job_context does not
-  // catch all created files if compaction failed.
-  // TODO(yhchiang): write an unit-test to make sure files are actually
-  //                 deleted after CompactFiles.
-  FindObsoleteFiles(&job_context, !s.ok());
-
-  // delete unnecessary files if any, this is done outside the mutex
-  if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
-    mutex_.Unlock();
-    // Have to flush the info logs before bg_compaction_scheduled_--
-    // because if bg_flush_scheduled_ becomes 0 and the lock is
-    // released, the deconstructor of DB can kick in and destroy all the
-    // states of DB so info_log might not be available after that point.
-    // It also applies to access other states that DB owns.
-    log_buffer.FlushBufferToLog();
-    if (job_context.HaveSomethingToDelete()) {
-      PurgeObsoleteFiles(job_context);
-    }
-    job_context.Clean();
-    mutex_.Lock();
   }
 
   bg_compaction_scheduled_--;
