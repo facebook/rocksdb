@@ -37,7 +37,7 @@ fi
 
 title "Adding new tag for this release ..."
 BRANCH="$ROCKSDB_VERSION.fb"
-$GIT co -b $BRANCH
+$GIT checkout -b $BRANCH
 
 # Setting up the proxy for remote repo access
 title "Pushing new branch to remote repo ..."
