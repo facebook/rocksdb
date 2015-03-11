@@ -11038,12 +11038,12 @@ TEST(DBTest, DeleteMovedFileAfterCompaction) {
 
 TEST(DBTest, OptimizeFiltersForHits) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 32 * 1024;
-  options.target_file_size_base = 32 * 1024;
+  options.write_buffer_size = 256 * 1024;
+  options.target_file_size_base = 256 * 1024;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
   options.level0_stop_writes_trigger = 4;
-  options.max_bytes_for_level_base = 64 * 1024;
+  options.max_bytes_for_level_base = 256 * 1024;
   options.max_write_buffer_number = 2;
   options.max_background_compactions = 8;
   options.max_background_flushes = 8;
