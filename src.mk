@@ -89,6 +89,7 @@ LIB_SOURCES =                                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
+  utilities/convenience/convenience.cc                          \
   utilities/checkpoint/checkpoint.cc                            \
   utilities/compacted_db/compacted_db_impl.cc                   \
   utilities/document/document_db.cc                             \
