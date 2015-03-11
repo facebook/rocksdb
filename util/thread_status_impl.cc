@@ -56,5 +56,11 @@ const std::string& ThreadStatus::GetStateName(
   return dummy_str;
 }
 
+const std::string ThreadStatus::TimeToString(
+    int64_t time) {
+  static std::string dummy_str = "";
+  return dummy_str;
+}
+
 #endif  // ROCKSDB_USING_THREAD_STATUS
 }  // namespace rocksdb
