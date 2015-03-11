@@ -265,6 +265,8 @@ class DBImpl : public DB {
 
   const SnapshotList& snapshots() const { return snapshots_; }
 
+  void CancelAllBackgroundWork(bool wait = false);
+
  protected:
   Env* const env_;
   const std::string dbname_;

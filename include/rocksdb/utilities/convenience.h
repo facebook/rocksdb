@@ -56,6 +56,7 @@ Status GetBlockBasedTableOptionsFromString(
 Status GetOptionsFromString(const Options& base_options,
                             const std::string& opts_str, Options* new_options);
 
+void CancelAllBackgroundWork(DB* db);
 #endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

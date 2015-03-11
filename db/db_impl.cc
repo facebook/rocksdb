@@ -257,6 +257,18 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   LogFlush(db_options_.info_log);
 }
 
+void DBImpl::CancelAllBackgroundWork(bool wait) {
+  shutting_down_.store(true, std::memory_order_release);
+  if (!wait) {
+    return;
+  }
+
+  // Wait for background work to finish
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
+    bg_cv_.Wait();
+  }
+}
+
 DBImpl::~DBImpl() {
   EraseThreadStatusDbInfo();
   mutex_.Lock();
@@ -273,12 +285,7 @@ DBImpl::~DBImpl() {
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
-
-  // Wait for background work to finish
-  shutting_down_.store(true, std::memory_order_release);
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
-    bg_cv_.Wait();
-  }
+  CancelAllBackgroundWork(true);
   listeners_.clear();
   flush_scheduler_.Clear();
 
@@ -1871,8 +1878,13 @@ Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
                                LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
-  if (!bg_error_.ok()) {
-    return bg_error_;
+  Status status = bg_error_;
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::ShutdownInProgress();
+  }
+
+  if (!status.ok()) {
+    return status;
   }
 
   ColumnFamilyData* cfd = nullptr;
@@ -1893,7 +1905,6 @@ Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
     break;
   }
 
-  Status status;
   if (cfd != nullptr) {
     const MutableCFOptions mutable_cf_options =
         *cfd->GetLatestMutableCFOptions();
@@ -1926,26 +1937,24 @@ void DBImpl::BackgroundCallFlush() {
         CaptureCurrentFileNumberInPendingOutputs();
 
     Status s;
-    if (!shutting_down_.load(std::memory_order_acquire)) {
-      s = BackgroundFlush(&madeProgress, &job_context, &log_buffer);
-      if (!s.ok()) {
-        // Wait a little bit before retrying background compaction in
-        // case this is an environmental problem and we do not want to
-        // chew up resources for failed compactions for the duration of
-        // the problem.
-        uint64_t error_cnt =
-          default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
-        bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-        mutex_.Unlock();
-        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-            "Waiting after background flush error: %s"
-            "Accumulated background error counts: %" PRIu64,
-            s.ToString().c_str(), error_cnt);
-        log_buffer.FlushBufferToLog();
-        LogFlush(db_options_.info_log);
-        env_->SleepForMicroseconds(1000000);
-        mutex_.Lock();
-      }
+    s = BackgroundFlush(&madeProgress, &job_context, &log_buffer);
+    if (!s.ok() && !s.IsShutdownInProgress()) {
+      // Wait a little bit before retrying background flush in
+      // case this is an environmental problem and we do not want to
+      // chew up resources for failed flushes for the duration of
+      // the problem.
+      uint64_t error_cnt =
+        default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
+      bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
+      mutex_.Unlock();
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Waiting after background flush error: %s"
+          "Accumulated background error counts: %" PRIu64,
+          s.ToString().c_str(), error_cnt);
+      log_buffer.FlushBufferToLog();
+      LogFlush(db_options_.info_log);
+      env_->SleepForMicroseconds(1000000);
+      mutex_.Lock();
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -1995,26 +2004,24 @@ void DBImpl::BackgroundCallCompaction() {
 
     assert(bg_compaction_scheduled_);
     Status s;
-    if (!shutting_down_.load(std::memory_order_acquire)) {
-      s = BackgroundCompaction(&madeProgress, &job_context, &log_buffer);
-      if (!s.ok()) {
-        // Wait a little bit before retrying background compaction in
-        // case this is an environmental problem and we do not want to
-        // chew up resources for failed compactions for the duration of
-        // the problem.
-        uint64_t error_cnt =
+    s = BackgroundCompaction(&madeProgress, &job_context, &log_buffer);
+    if (!s.ok() && !s.IsShutdownInProgress()) {
+      // Wait a little bit before retrying background compaction in
+      // case this is an environmental problem and we do not want to
+      // chew up resources for failed compactions for the duration of
+      // the problem.
+      uint64_t error_cnt =
           default_cf_internal_stats_->BumpAndGetBackgroundErrorCount();
-        bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
-        mutex_.Unlock();
-        log_buffer.FlushBufferToLog();
-        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-            "Waiting after background compaction error: %s, "
-            "Accumulated background error counts: %" PRIu64,
-            s.ToString().c_str(), error_cnt);
-        LogFlush(db_options_.info_log);
-        env_->SleepForMicroseconds(1000000);
-        mutex_.Lock();
-      }
+      bg_cv_.SignalAll();  // In case a waiter can proceed despite the error
+      mutex_.Unlock();
+      log_buffer.FlushBufferToLog();
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "Waiting after background compaction error: %s, "
+          "Accumulated background error counts: %" PRIu64,
+          s.ToString().c_str(), error_cnt);
+      LogFlush(db_options_.info_log);
+      env_->SleepForMicroseconds(1000000);
+      mutex_.Lock();
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
@@ -2071,14 +2078,19 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
   bool is_manual = (manual_compaction_ != nullptr) &&
                    (manual_compaction_->in_progress == false);
 
-  if (!bg_error_.ok()) {
+  Status status = bg_error_;
+  if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
+    status = Status::ShutdownInProgress();
+  }
+
+  if (!status.ok()) {
     if (is_manual) {
-      manual_compaction_->status = bg_error_;
+      manual_compaction_->status = status;
       manual_compaction_->done = true;
       manual_compaction_->in_progress = false;
       manual_compaction_ = nullptr;
     }
-    return bg_error_;
+    return status;
   }
 
   if (is_manual) {
@@ -2189,7 +2201,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     }
   }
 
-  Status status;
   if (!c) {
     // Nothing to do
     LogToBuffer(log_buffer, "Compaction nothing to do");

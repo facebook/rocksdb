@@ -37,6 +37,7 @@
 #include "rocksdb/thread_status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/hash.h"
@@ -10179,6 +10180,231 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
     options.enable_thread_tracking = false;
   }
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST(DBTest, PreShutdownManualCompaction) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
+      << "Need to update this test to match kMaxMemCompactLevel";
+
+  // iter - 0 with 7 levels
+  // iter - 1 with 3 levels
+  for (int iter = 0; iter < 2; ++iter) {
+    MakeTables(3, "p", "q", 1);
+    ASSERT_EQ("1,1,1", FilesPerLevel(1));
+
+    // Compaction range falls before files
+    Compact(1, "", "c");
+    ASSERT_EQ("1,1,1", FilesPerLevel(1));
+
+    // Compaction range falls after files
+    Compact(1, "r", "z");
+    ASSERT_EQ("1,1,1", FilesPerLevel(1));
+
+    // Compaction range overlaps files
+    Compact(1, "p1", "p9");
+    ASSERT_EQ("0,0,1", FilesPerLevel(1));
+
+    // Populate a different range
+    MakeTables(3, "c", "e", 1);
+    ASSERT_EQ("1,1,2", FilesPerLevel(1));
+
+    // Compact just the new range
+    Compact(1, "b", "f");
+    ASSERT_EQ("0,0,2", FilesPerLevel(1));
+
+    // Compact all
+    MakeTables(1, "a", "z", 1);
+    ASSERT_EQ("0,1,2", FilesPerLevel(1));
+    CancelAllBackgroundWork(db_);
+    db_->CompactRange(handles_[1], nullptr, nullptr);
+    ASSERT_EQ("0,1,2", FilesPerLevel(1));
+
+    if (iter == 0) {
+      options = CurrentOptions();
+      options.max_background_flushes = 0;
+      options.num_levels = 3;
+      options.create_if_missing = true;
+      DestroyAndReopen(options);
+      CreateAndReopenWithCF({"pikachu"}, options);
+    }
+  }
+}
+
+TEST(DBTest, PreShutdownMultipleCompaction) {
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
+  const int kEntriesPerBuffer = 10;
+  const int kNumL0Files = 4;
+
+  const int kHighPriCount = 3;
+  const int kLowPriCount = 5;
+  env_->SetBackgroundThreads(kHighPriCount, Env::HIGH);
+  env_->SetBackgroundThreads(kLowPriCount, Env::LOW);
+
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base =
+      options.target_file_size_base * kNumL0Files;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  options.env = env_;
+  options.enable_thread_tracking = true;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.max_bytes_for_level_multiplier = 2;
+  options.max_background_compactions = kLowPriCount;
+
+  TryReopen(options);
+  Random rnd(301);
+
+  std::vector<ThreadStatus> thread_list;
+  // Delay both flush and compaction
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"FlushJob::Run:Start", "CompactionJob::Run:Start"},
+       {"CompactionJob::Run:Start",
+        "DBTest::PreShutdownMultipleCompaction:Preshutdown"},
+       {"DBTest::PreShutdownMultipleCompaction:Preshutdown",
+        "CompactionJob::Run:End"},
+       {"CompactionJob::Run:End",
+        "DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Make rocksdb busy
+  int key = 0;
+  int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
+  // check how many threads are doing compaction using GetThreadList
+  int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
+  for (int file = 0; file < 64 * kNumL0Files; ++file) {
+    for (int k = 0; k < kEntriesPerBuffer; ++k) {
+      ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
+    }
+
+    Status s = env_->GetThreadList(&thread_list);
+    for (auto thread : thread_list) {
+      operation_count[thread.operation_type]++;
+    }
+
+    // Record the max number of compactions at a time.
+    for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
+      if (max_operation_count[i] < operation_count[i]) {
+        max_operation_count[i] = operation_count[i];
+      }
+    }
+    // Speed up the test
+    if (max_operation_count[ThreadStatus::OP_FLUSH] > 1 &&
+        max_operation_count[ThreadStatus::OP_COMPACTION] >
+            0.6 * options.max_background_compactions) {
+      break;
+    }
+  }
+
+  TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
+  ASSERT_GE(max_operation_count[ThreadStatus::OP_COMPACTION], 1);
+  CancelAllBackgroundWork(db_);
+  TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
+  dbfull()->TEST_WaitForCompact();
+  // Record the number of compactions at a time.
+  for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
+    operation_count[i] = 0;
+  }
+  Status s = env_->GetThreadList(&thread_list);
+  for (auto thread : thread_list) {
+    operation_count[thread.operation_type]++;
+  }
+  ASSERT_EQ(operation_count[ThreadStatus::OP_COMPACTION], 0);
+}
+
+TEST(DBTest, PreShutdownCompactionMiddle) {
+  const int kTestKeySize = 16;
+  const int kTestValueSize = 984;
+  const int kEntrySize = kTestKeySize + kTestValueSize;
+  const int kEntriesPerBuffer = 10;
+  const int kNumL0Files = 4;
+
+  const int kHighPriCount = 3;
+  const int kLowPriCount = 5;
+  env_->SetBackgroundThreads(kHighPriCount, Env::HIGH);
+  env_->SetBackgroundThreads(kLowPriCount, Env::LOW);
+
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = kEntrySize * kEntriesPerBuffer;
+  options.compaction_style = kCompactionStyleLevel;
+  options.target_file_size_base = options.write_buffer_size;
+  options.max_bytes_for_level_base =
+      options.target_file_size_base * kNumL0Files;
+  options.compression = kNoCompression;
+  options = CurrentOptions(options);
+  options.env = env_;
+  options.enable_thread_tracking = true;
+  options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.max_bytes_for_level_multiplier = 2;
+  options.max_background_compactions = kLowPriCount;
+
+  TryReopen(options);
+  Random rnd(301);
+
+  std::vector<ThreadStatus> thread_list;
+  // Delay both flush and compaction
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"DBTest::PreShutdownMultipleCompaction:Preshutdown",
+        "CompactionJob::Run:Inprogress"},
+       {"CompactionJob::Run:Inprogress", "CompactionJob::Run:End"},
+       {"CompactionJob::Run:End",
+        "DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // Make rocksdb busy
+  int key = 0;
+  int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
+  // check how many threads are doing compaction using GetThreadList
+  int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
+  for (int file = 0; file < 64 * kNumL0Files; ++file) {
+    for (int k = 0; k < kEntriesPerBuffer; ++k) {
+      ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
+    }
+
+    Status s = env_->GetThreadList(&thread_list);
+    for (auto thread : thread_list) {
+      operation_count[thread.operation_type]++;
+    }
+
+    // Record the max number of compactions at a time.
+    for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
+      if (max_operation_count[i] < operation_count[i]) {
+        max_operation_count[i] = operation_count[i];
+      }
+    }
+    // Speed up the test
+    if (max_operation_count[ThreadStatus::OP_FLUSH] > 1 &&
+        max_operation_count[ThreadStatus::OP_COMPACTION] >
+            0.6 * options.max_background_compactions) {
+      break;
+    }
+  }
+
+  ASSERT_GE(max_operation_count[ThreadStatus::OP_COMPACTION], 1);
+  CancelAllBackgroundWork(db_);
+  TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
+  TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
+  dbfull()->TEST_WaitForCompact();
+  // Record the number of compactions at a time.
+  for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
+    operation_count[i] = 0;
+  }
+  Status s = env_->GetThreadList(&thread_list);
+  for (auto thread : thread_list) {
+    operation_count[thread.operation_type]++;
+  }
+  ASSERT_EQ(operation_count[ThreadStatus::OP_COMPACTION], 0);
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS
