@@ -60,7 +60,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>2.18.1</version>
                 <configuration>
-                    <argLine>-ea -Xcheck:jni -Djava.library.path=${project.build.directory}</argLine>
+                    <argLine>${argLine} -ea -Xcheck:jni -Djava.library.path=${project.build.directory}</argLine>
                 </configuration>
             </plugin>
             <plugin>
