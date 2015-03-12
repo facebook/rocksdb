@@ -820,6 +820,8 @@ struct DBWithColumnFamilies {
 
   DBWithColumnFamilies() : db(nullptr) {
     cfh.clear();
+    num_created = 0;
+    num_hot = 0;
   }
 
   DBWithColumnFamilies(const DBWithColumnFamilies& other)
