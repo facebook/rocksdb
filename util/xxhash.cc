@@ -92,6 +92,7 @@ FORCE_INLINE void  XXH_free  (void* p)  { free(p); }
 FORCE_INLINE void* XXH_memcpy(void* dest, const void* src, size_t size) { return memcpy(dest,src,size); }
 
 
+namespace rocksdb {
 //**************************************
 // Basic Types
 //**************************************
@@ -473,3 +474,5 @@ U32 XXH32_digest (void* state_in)
 
     return h32;
 }
+
+}  // namespace rocksdb
