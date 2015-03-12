@@ -152,11 +152,10 @@ public interface ColumnFamilyOptionsInterface {
    * Default: 4MB
    * @param writeBufferSize the size of write buffer.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setWriteBufferSize(long writeBufferSize)
-      throws RocksDBException;
+  Object setWriteBufferSize(long writeBufferSize);
 
   /**
    * Return size of write buffer size.
@@ -701,11 +700,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param arenaBlockSize the size of an arena block
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setArenaBlockSize(long arenaBlockSize)
-      throws RocksDBException;
+  Object setArenaBlockSize(long arenaBlockSize);
 
   /**
    * The size of one block in arena memory allocation.
@@ -850,11 +848,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param config the mem-table config.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setMemTableConfig(MemTableConfig config)
-      throws RocksDBException;
+  Object setMemTableConfig(MemTableConfig config);
 
   /**
    * Returns the name of the current mem table representation.
@@ -915,11 +912,10 @@ public interface ColumnFamilyOptionsInterface {
    * @param inplaceUpdateNumLocks the number of locks used for
    *     inplace updates.
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setInplaceUpdateNumLocks(long inplaceUpdateNumLocks)
-      throws RocksDBException;
+  Object setInplaceUpdateNumLocks(long inplaceUpdateNumLocks);
 
   /**
    * Number of locks used for inplace update
@@ -1010,11 +1006,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param maxSuccessiveMerges the maximum number of successive merges.
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setMaxSuccessiveMerges(long maxSuccessiveMerges)
-      throws RocksDBException;
+  Object setMaxSuccessiveMerges(long maxSuccessiveMerges);
 
   /**
    * Maximum number of successive merge operations on a key in the memtable.

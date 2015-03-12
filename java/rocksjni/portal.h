@@ -26,7 +26,7 @@
 
 namespace rocksdb {
 
-// detect if jlong overflows size_t
+// Detect if jlong overflows size_t
 inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
   Status s = Status::OK();
   if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
@@ -68,27 +68,18 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
   }
 };
 
-// The portal class for org.rocksdb.RocksDB
-class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+// Java Exception template
+template<class DERIVED> class RocksDBJavaException {
  public:
-  // Get the java class id of org.rocksdb.RocksDB.
-  static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
-  }
-};
-
-// The portal class for org.rocksdb.RocksDBException
-class RocksDBExceptionJni {
- public:
-  // Get the jclass of org.rocksdb.RocksDBException
-  static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/RocksDBException");
+  // Get the java class id
+  static jclass getJClass(JNIEnv* env, const char* jclazz_name) {
+    jclass jclazz = env->FindClass(jclazz_name);
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Create and throw a java exception by converting the input
-  // Status to an RocksDBException.
+  // Status.
   //
   // In case s.ok() is true, then this function will not throw any
   // exception.
@@ -99,12 +90,45 @@ class RocksDBExceptionJni {
     jstring msg = env->NewStringUTF(s.ToString().c_str());
     // get the constructor id of org.rocksdb.RocksDBException
     static jmethodID mid = env->GetMethodID(
-        getJClass(env), "<init>", "(Ljava/lang/String;)V");
+        DERIVED::getJClass(env), "<init>", "(Ljava/lang/String;)V");
     assert(mid != nullptr);
 
-    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, msg));
+    env->Throw((jthrowable)env->NewObject(DERIVED::getJClass(env),
+        mid, msg));
   }
 };
+
+// The portal class for org.rocksdb.RocksDB
+class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+ public:
+  // Get the java class id of org.rocksdb.RocksDB.
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
+  }
+};
+
+// The portal class for org.rocksdb.RocksDBException
+class RocksDBExceptionJni :
+    public RocksDBJavaException<RocksDBExceptionJni> {
+ public:
+  // Get the java class id of java.lang.IllegalArgumentException
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBJavaException::getJClass(env,
+        "org/rocksdb/RocksDBException");
+  }
+};
+
+// The portal class for java.lang.IllegalArgumentException
+class IllegalArgumentExceptionJni :
+    public RocksDBJavaException<IllegalArgumentExceptionJni> {
+ public:
+  // Get the java class id of java.lang.IllegalArgumentException
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBJavaException::getJClass(env,
+        "java/lang/IllegalArgumentException");
+  }
+};
+
 
 // The portal class for org.rocksdb.Options
 class OptionsJni : public RocksDBNativeClass<

@@ -27,7 +27,7 @@ jlong Java_org_rocksdb_HashSkipListMemTableConfig_newMemTableFactoryHandle(
         static_cast<int32_t>(jheight),
         static_cast<int32_t>(jbranching_factor)));
   }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   return 0;
 }
 
@@ -52,7 +52,7 @@ jlong Java_org_rocksdb_HashLinkedListMemTableConfig_newMemTableFactoryHandle(
         static_cast<bool>(jif_log_bucket_dist_when_flash),
         static_cast<int32_t>(jthreshold_use_skiplist)));
   }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env,
+  rocksdb::IllegalArgumentExceptionJni::ThrowNew(env,
       !statusBucketCount.ok()?statusBucketCount:statusHugePageTlb);
   return 0;
 }
@@ -69,7 +69,7 @@ jlong Java_org_rocksdb_VectorMemTableConfig_newMemTableFactoryHandle(
     return reinterpret_cast<jlong>(new rocksdb::VectorRepFactory(
         static_cast<size_t>(jreserved_size)));
   }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   return 0;
 }
 
@@ -85,6 +85,6 @@ jlong Java_org_rocksdb_SkipListMemTableConfig_newMemTableFactoryHandle0(
     return reinterpret_cast<jlong>(new rocksdb::SkipListFactory(
         static_cast<size_t>(jlookahead)));
   }
-  rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+  rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   return 0;
 }

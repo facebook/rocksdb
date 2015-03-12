@@ -144,8 +144,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize)
-      throws RocksDBException {
+  public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize) {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
@@ -396,8 +395,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setArenaBlockSize(
-      final long arenaBlockSize)
-      throws RocksDBException {
+      final long arenaBlockSize) {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
     return this;
   }
@@ -483,7 +481,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMemTableConfig(
-      final MemTableConfig config) throws RocksDBException {
+      final MemTableConfig config) {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
@@ -523,8 +521,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setInplaceUpdateNumLocks(
-      final long inplaceUpdateNumLocks)
-      throws RocksDBException {
+      final long inplaceUpdateNumLocks) {
     setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
     return this;
   }
@@ -571,7 +568,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMaxSuccessiveMerges(
-      final long maxSuccessiveMerges) throws RocksDBException {
+      final long maxSuccessiveMerges) {
     setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
     return this;
   }
@@ -644,7 +641,7 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setMergeOperator(
       long handle, long mergeOperatorHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
@@ -706,7 +703,8 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, int rateLimitDelayMaxMilliseconds);
   private native int rateLimitDelayMaxMilliseconds(long handle);
   private native void setArenaBlockSize(
-      long handle, long arenaBlockSize) throws RocksDBException;
+      long handle, long arenaBlockSize)
+      throws IllegalArgumentException;
   private native long arenaBlockSize(long handle);
   private native void setDisableAutoCompactions(
       long handle, boolean disableAutoCompactions);
@@ -733,7 +731,8 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);
   private native void setInplaceUpdateNumLocks(
-      long handle, long inplaceUpdateNumLocks) throws RocksDBException;
+      long handle, long inplaceUpdateNumLocks)
+      throws IllegalArgumentException;
   private native long inplaceUpdateNumLocks(long handle);
   private native void setMemtablePrefixBloomBits(
       long handle, int memtablePrefixBloomBits);
@@ -745,7 +744,8 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);
   private native void setMaxSuccessiveMerges(
-      long handle, long maxSuccessiveMerges) throws RocksDBException;
+      long handle, long maxSuccessiveMerges)
+      throws IllegalArgumentException;
   private native long maxSuccessiveMerges(long handle);
   private native void setMinPartialMergeOperands(
       long handle, int minPartialMergeOperands);
