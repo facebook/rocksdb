@@ -21,8 +21,6 @@
 
 namespace rocksdb {
 
-const size_t kInlineSize = 2048;
-
 class Arena : public Allocator {
  public:
   // No copying allowed
