@@ -10282,7 +10282,7 @@ TEST(DBTest, PreShutdownMultipleCompaction) {
   int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
   // check how many threads are doing compaction using GetThreadList
   int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
-  for (int file = 0; file < 64 * kNumL0Files; ++file) {
+  for (int file = 0; file < 8 * kNumL0Files; ++file) {
     for (int k = 0; k < kEntriesPerBuffer; ++k) {
       ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
     }
@@ -10368,7 +10368,7 @@ TEST(DBTest, PreShutdownCompactionMiddle) {
   int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
   // check how many threads are doing compaction using GetThreadList
   int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
-  for (int file = 0; file < 64 * kNumL0Files; ++file) {
+  for (int file = 0; file < 8 * kNumL0Files; ++file) {
     for (int k = 0; k < kEntriesPerBuffer; ++k) {
       ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
     }
