@@ -10666,6 +10666,9 @@ TEST(DBTest, DynamicLevelMaxBytesBase2) {
 }
 
 TEST(DBTest, DynamicLevelCompressionPerLevel) {
+  if (!SnappyCompressionSupported()) {
+    return;
+  }
   const int kNKeys = 120;
   int keys[kNKeys];
   for (int i = 0; i < kNKeys; i++) {
