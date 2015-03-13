@@ -229,12 +229,10 @@ CompactionJob::CompactionJob(
   ThreadStatusUtil::SetColumnFamily(
       compact_->compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
-  TEST_SYNC_POINT("CompactionJob::CompationJob()");
 }
 
 CompactionJob::~CompactionJob() {
   assert(compact_ == nullptr);
-  TEST_SYNC_POINT("CompactionJob::~CompactionJob()");
   ThreadStatusUtil::ResetThreadStatus();
 }
 
@@ -290,6 +288,7 @@ void CompactionJob::Prepare() {
 Status CompactionJob::Run() {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_RUN);
+  TEST_SYNC_POINT("CompactionJob::Run():Start");
   log_buffer_->FlushBufferToLog();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
 
@@ -481,6 +480,7 @@ Status CompactionJob::Run() {
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
+  TEST_SYNC_POINT("CompactionJob::Run():End");
   return status;
 }
 

@@ -10165,20 +10165,23 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
   options.level0_file_num_compaction_trigger = kNumL0Files;
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"CompactionJob::CompationJob()",
+      {"CompactionJob::Run():Start",
        "DBTest::ThreadStatusSingleCompaction:1"},
       {"DBTest::ThreadStatusSingleCompaction:2",
-       "CompactionJob::~CompactionJob()"},
+       "CompactionJob::Run():End"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int tests = 0; tests < 2; ++tests) {
-    TryReopen(options);
+    DestroyAndReopen(options);
 
     Random rnd(301);
     for (int key = kEntriesPerBuffer * kNumL0Files; key >= 0; --key) {
       ASSERT_OK(Put(ToString(key), RandomString(&rnd, kTestValueSize)));
     }
+    Flush();
+    ASSERT_GE(NumTableFilesAtLevel(0),
+              options.level0_file_num_compaction_trigger);
 
     // wait for compaction to be scheduled
     env_->SleepForMicroseconds(250000);
