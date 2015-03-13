@@ -66,6 +66,11 @@ static bool SnappyCompressionSupported(const CompressionOptions& options) {
   return Snappy_Compress(options, in.data(), in.size(), &out);
 }
 
+static bool SnappyCompressionSupported() {
+  CompressionOptions options;
+  return SnappyCompressionSupported(options);
+}
+
 static bool ZlibCompressionSupported(const CompressionOptions& options) {
   std::string out;
   Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -4110,8 +4115,10 @@ TEST(DBTest, UniversalCompactionStopStyleSimilarSize) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 4);
 }
 
-#if defined(SNAPPY)
 TEST(DBTest, CompressedCache) {
+  if (!SnappyCompressionSupported()) {
+    return;
+  }
   int num_iter = 80;
 
   // Run this test three iterations.
@@ -4233,6 +4240,9 @@ static std::string CompressibleString(Random* rnd, int len) {
 }
 
 TEST(DBTest, UniversalCompactionCompressRatio1) {
+  if (!SnappyCompressionSupported()) {
+    return;
+  }
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
@@ -4298,6 +4308,9 @@ TEST(DBTest, UniversalCompactionCompressRatio1) {
 }
 
 TEST(DBTest, UniversalCompactionCompressRatio2) {
+  if (!SnappyCompressionSupported()) {
+    return;
+  }
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.write_buffer_size = 100<<10; //100KB
@@ -4336,6 +4349,9 @@ TEST(DBTest, FailMoreDbPaths) {
 }
 
 TEST(DBTest, UniversalCompactionSecondPathRatio) {
+  if (!SnappyCompressionSupported()) {
+    return;
+  }
   Options options;
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
@@ -4754,8 +4770,6 @@ TEST(DBTest, UniversalCompactionFourPaths) {
 
   Destroy(options);
 }
-
-#endif
 
 void CheckColumnFamilyMeta(const ColumnFamilyMetaData& cf_meta) {
   uint64_t cf_size = 0;
