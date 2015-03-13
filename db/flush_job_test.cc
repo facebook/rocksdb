@@ -83,11 +83,12 @@ class FlushJobTest {
 TEST(FlushJobTest, Empty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  EventLogger event_logger(db_options_.info_log.get());
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      SequenceNumber(), &job_context, nullptr, nullptr, nullptr,
-                     kNoCompression, nullptr);
+                     kNoCompression, nullptr, &event_logger);
   ASSERT_OK(flush_job.Run());
   job_context.Clean();
 }
@@ -107,11 +108,12 @@ TEST(FlushJobTest, NonEmpty) {
   }
   cfd->imm()->Add(new_mem);
 
+  EventLogger event_logger(db_options_.info_log.get());
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      SequenceNumber(), &job_context, nullptr, nullptr, nullptr,
-                     kNoCompression, nullptr);
+                     kNoCompression, nullptr, &event_logger);
   mutex_.Lock();
   ASSERT_OK(flush_job.Run());
   mutex_.Unlock();

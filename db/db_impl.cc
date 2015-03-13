@@ -199,9 +199,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       db_options_(SanitizeOptions(dbname, options)),
       stats_(db_options_.statistics.get()),
       db_lock_(nullptr),
-      mutex_(stats_, env_,
-             DB_MUTEX_WAIT_MICROS,
-             options.use_adaptive_mutex),
+      mutex_(stats_, env_, DB_MUTEX_WAIT_MICROS, options.use_adaptive_mutex),
       shutting_down_(false),
       bg_cv_(&mutex_),
       logfile_number_(0),
@@ -229,6 +227,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 #ifndef ROCKSDB_LITE
       wal_manager_(db_options_, env_options_),
 #endif  // ROCKSDB_LITE
+      event_logger_(db_options_.info_log.get()),
       bg_work_gate_closed_(false),
       refitting_level_(false),
       opened_successfully_(false),
@@ -652,6 +651,9 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
       fname = TableFileName(db_options_.db_paths, number, path_id);
+      event_logger_.Log() << "event"
+                          << "table_file_deletion"
+                          << "file_number" << number;
     } else {
       fname = ((type == kLogFile) ?
           db_options_.wal_dir : dbname_) + "/" + to_delete;
@@ -1140,7 +1142,8 @@ Status DBImpl::FlushMemTableToOutputFile(
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      snapshots_.GetNewest(), job_context, log_buffer,
                      directories_.GetDbDir(), directories_.GetDataDir(0U),
-                     GetCompressionFlush(*cfd->ioptions()), stats_);
+                     GetCompressionFlush(*cfd->ioptions()), stats_,
+                     &event_logger_);
 
   uint64_t file_number;
   Status s = flush_job.Run(&file_number);

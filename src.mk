@@ -105,6 +105,7 @@ LIB_SOURCES =                                                   \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
+  util/event_logger.cc                                          \
   util/ldb_cmd.cc                                               \
   util/ldb_tool.cc                                              \
   util/log_buffer.cc                                            \
@@ -209,6 +210,7 @@ TEST_BENCH_SOURCES =                                                    \
   util/memenv_test.cc                                                   \
   util/mock_env_test.cc                                                 \
   util/options_test.cc                                                  \
+  util/event_logger_test.cc                                             \
   util/rate_limiter_test.cc                                             \
   util/signal_test.cc                                                   \
   util/slice_transform_test.cc                                          \

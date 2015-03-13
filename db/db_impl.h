@@ -32,6 +32,8 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
+#include "util/event_logger.h"
+#include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "util/scoped_arena_iterator.h"
@@ -598,6 +600,9 @@ class DBImpl : public DB {
 #ifndef ROCKSDB_LITE
   WalManager wal_manager_;
 #endif  // ROCKSDB_LITE
+
+  // Unified interface for logging events
+  EventLogger event_logger_;
 
   // A value of true temporarily disables scheduling of background work
   bool bg_work_gate_closed_;

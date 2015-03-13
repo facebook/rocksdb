@@ -228,6 +228,7 @@ TESTS = \
 	geodb_test \
 	rate_limiter_test \
 	options_test \
+	event_logger_test \
 	cuckoo_table_builder_test \
 	cuckoo_table_reader_test \
 	cuckoo_table_db_test \
@@ -621,6 +622,9 @@ compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 options_test: util/options_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+event_logger_test: util/event_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)

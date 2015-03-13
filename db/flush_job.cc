@@ -40,6 +40,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
+#include "util/event_logger.h"
 #include "util/file_util.h"
 #include "util/logging.h"
 #include "util/log_buffer.h"
@@ -61,7 +62,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    SequenceNumber newest_snapshot, JobContext* job_context,
                    LogBuffer* log_buffer, Directory* db_directory,
                    Directory* output_file_directory,
-                   CompressionType output_compression, Statistics* stats)
+                   CompressionType output_compression, Statistics* stats,
+                   EventLogger* event_logger)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -76,7 +78,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       db_directory_(db_directory),
       output_file_directory_(output_file_directory),
       output_compression_(output_compression),
-      stats_(stats) {}
+      stats_(stats),
+      event_logger_(event_logger) {}
 
 Status FlushJob::Run(uint64_t* file_number) {
   // Save the contents of the earliest memtable as a new Table
@@ -180,6 +183,10 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber(),
         meta.fd.GetFileSize(), s.ToString().c_str());
+    event_logger_->Log() << "event"
+                         << "table_file_creation"
+                         << "file_number" << meta.fd.GetNumber() << "file_size"
+                         << meta.fd.GetFileSize();
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }
