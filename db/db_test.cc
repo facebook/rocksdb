@@ -10176,10 +10176,13 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
     DestroyAndReopen(options);
 
     Random rnd(301);
-    for (int key = kEntriesPerBuffer * kNumL0Files; key >= 0; --key) {
-      ASSERT_OK(Put(ToString(key), RandomString(&rnd, kTestValueSize)));
+    for (int file = 0; file < kNumL0Files; ++file) {
+      for (int key = 0; key < kEntriesPerBuffer; ++key) {
+        ASSERT_OK(Put(ToString(key + file * kEntriesPerBuffer),
+                      RandomString(&rnd, kTestValueSize)));
+      }
+      Flush();
     }
-    Flush();
     ASSERT_GE(NumTableFilesAtLevel(0),
               options.level0_file_num_compaction_trigger);
 
