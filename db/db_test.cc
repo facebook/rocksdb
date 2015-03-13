@@ -10283,6 +10283,8 @@ TEST(DBTest, PreShutdownMultipleCompaction) {
   options.level0_file_num_compaction_trigger = kNumL0Files;
   options.max_bytes_for_level_multiplier = 2;
   options.max_background_compactions = kLowPriCount;
+  options.level0_stop_writes_trigger = 1 << 10;
+  options.level0_slowdown_writes_trigger = 1 << 10;
 
   TryReopen(options);
   Random rnd(301);
@@ -10371,6 +10373,8 @@ TEST(DBTest, PreShutdownCompactionMiddle) {
   options.level0_file_num_compaction_trigger = kNumL0Files;
   options.max_bytes_for_level_multiplier = 2;
   options.max_background_compactions = kLowPriCount;
+  options.level0_stop_writes_trigger = 1 << 10;
+  options.level0_slowdown_writes_trigger = 1 << 10;
 
   TryReopen(options);
   Random rnd(301);
