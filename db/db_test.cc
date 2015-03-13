@@ -10168,7 +10168,7 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
       {"CompactionJob::CompationJob()",
        "DBTest::ThreadStatusSingleCompaction:1"},
       {"DBTest::ThreadStatusSingleCompaction:2",
-       "CompactionJob::Run:~CompactionJob()"},
+       "CompactionJob::~CompactionJob()"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
