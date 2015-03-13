@@ -1423,8 +1423,10 @@ class Benchmark {
                   [](ColumnFamilyHandle* cfh) { delete cfh; });
     delete db_.db;
     delete prefix_extractor_;
-    // this will leak, but we're shutting down so nobody cares
-    cache_->DisownData();
+    if (cache_.get() != nullptr) {
+      // this will leak, but we're shutting down so nobody cares
+      cache_->DisownData();
+    }
   }
 
   Slice AllocateKey(std::unique_ptr<const char[]>* key_guard) {
