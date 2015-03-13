@@ -8,6 +8,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <chrono>
 
 #include "rocksdb/env.h"
 
