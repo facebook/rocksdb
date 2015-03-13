@@ -27,15 +27,16 @@ public class KeyMayExistTest {
   public void keyMayExist() throws RocksDBException {
     RocksDB db = null;
     DBOptions options = null;
+    List<ColumnFamilyDescriptor> cfDescriptors =
+        new ArrayList<>();
+    List<ColumnFamilyHandle> columnFamilyHandleList =
+        new ArrayList<>();
     try {
       options = new DBOptions();
       options.setCreateIfMissing(true)
           .setCreateMissingColumnFamilies(true);
       // open database using cf names
-      List<ColumnFamilyDescriptor> cfDescriptors =
-          new ArrayList<>();
-      List<ColumnFamilyHandle> columnFamilyHandleList =
-          new ArrayList<>();
+
       cfDescriptors.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY));
       cfDescriptors.add(new ColumnFamilyDescriptor("new_cf".getBytes()));
       db = RocksDB.open(options,
@@ -80,6 +81,9 @@ public class KeyMayExistTest {
       assertThat(db.keyMayExist(columnFamilyHandleList.get(1),
           "key".getBytes(), retValue)).isFalse();
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }

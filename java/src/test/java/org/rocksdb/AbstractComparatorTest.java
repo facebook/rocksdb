@@ -78,6 +78,7 @@ public abstract class AbstractComparatorTest {
         lastKey = thisKey;
         count++;
       }
+      it.dispose();
       db.close();
 
       assertThat(count).isEqualTo(ITERATIONS);
@@ -162,6 +163,8 @@ public abstract class AbstractComparatorTest {
         lastKey = thisKey;
         count++;
       }
+
+      it.dispose();
       for (ColumnFamilyHandle handle : cfHandles) {
         handle.dispose();
       }

@@ -418,9 +418,11 @@ public class DbBenchmark {
         stats_.found_++;
         stats_.finishedSingleOp(iter.key().length + iter.value().length);
         if (isFinished()) {
+          iter.dispose();
           return;
         }
       }
+      iter.dispose();
     }
   }
 

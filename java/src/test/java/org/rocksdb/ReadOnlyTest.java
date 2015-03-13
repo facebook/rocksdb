@@ -80,11 +80,20 @@ public class ReadOnlyTest {
       assertThat(new String(db3.get(readOnlyColumnFamilyHandleList2.get(1),
           "key2".getBytes()))).isEqualTo("value2");
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : columnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db2 != null) {
         db2.close();
+      }
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList2) {
+        columnFamilyHandle.dispose();
       }
       if (db3 != null) {
         db3.close();
@@ -100,13 +109,15 @@ public class ReadOnlyTest {
     RocksDB db = null;
     RocksDB rDb = null;
     Options options = null;
+    List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
+        new ArrayList<>();
     try {
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+
       cfDescriptors.add(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
-      List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-          new ArrayList<>();
+
       options = new Options();
       options.setCreateIfMissing(true);
 
@@ -120,6 +131,9 @@ public class ReadOnlyTest {
       // test that put fails in readonly mode
       rDb.put("key".getBytes(), "value".getBytes());
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
@@ -137,13 +151,14 @@ public class ReadOnlyTest {
     RocksDB db = null;
     RocksDB rDb = null;
     Options options = null;
+    List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
+        new ArrayList<>();
     try {
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
       cfDescriptors.add(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
-      List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-          new ArrayList<>();
+
       options = new Options();
       options.setCreateIfMissing(true);
 
@@ -157,6 +172,9 @@ public class ReadOnlyTest {
       rDb.put(readOnlyColumnFamilyHandleList.get(0),
           "key".getBytes(), "value".getBytes());
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
@@ -174,13 +192,13 @@ public class ReadOnlyTest {
     RocksDB db = null;
     RocksDB rDb = null;
     Options options = null;
+    List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
+        new ArrayList<>();
     try {
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
       cfDescriptors.add(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
-      List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-          new ArrayList<>();
 
       options = new Options();
       options.setCreateIfMissing(true);
@@ -194,6 +212,9 @@ public class ReadOnlyTest {
 
       rDb.remove("key".getBytes());
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
@@ -211,13 +232,13 @@ public class ReadOnlyTest {
     RocksDB db = null;
     RocksDB rDb = null;
     Options options = null;
+    List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
+        new ArrayList<>();
     try {
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
       cfDescriptors.add(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
-      List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-          new ArrayList<>();
 
       options = new Options();
       options.setCreateIfMissing(true);
@@ -233,6 +254,9 @@ public class ReadOnlyTest {
       rDb.remove(readOnlyColumnFamilyHandleList.get(0),
           "key".getBytes());
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
@@ -250,13 +274,14 @@ public class ReadOnlyTest {
     RocksDB db = null;
     RocksDB rDb = null;
     Options options = null;
+    List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
+        new ArrayList<>();
     try {
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+
       cfDescriptors.add(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
-      List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-          new ArrayList<>();
 
       options = new Options();
       options.setCreateIfMissing(true);
@@ -273,6 +298,9 @@ public class ReadOnlyTest {
       wb.put("key".getBytes(), "value".getBytes());
       rDb.write(new WriteOptions(), wb);
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
@@ -291,13 +319,15 @@ public class ReadOnlyTest {
     RocksDB rDb = null;
     Options options = null;
     WriteBatch wb = null;
+    List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
+        new ArrayList<>();
     try {
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+
       cfDescriptors.add(
           new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY,
               new ColumnFamilyOptions()));
-      List<ColumnFamilyHandle> readOnlyColumnFamilyHandleList =
-          new ArrayList<>();
+
 
       options = new Options();
       options.setCreateIfMissing(true);
@@ -315,6 +345,9 @@ public class ReadOnlyTest {
           "key".getBytes(), "value".getBytes());
       rDb.write(new WriteOptions(), wb);
     } finally {
+      for (ColumnFamilyHandle columnFamilyHandle : readOnlyColumnFamilyHandleList) {
+        columnFamilyHandle.dispose();
+      }
       if (db != null) {
         db.close();
       }
