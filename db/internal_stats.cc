@@ -45,7 +45,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
     double w_amp, double stall_us, uint64_t stalls,
     const InternalStats::CompactionStats& stats) {
   uint64_t bytes_read = stats.bytes_readn + stats.bytes_readnp1;
-  uint64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
+  int64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
   double elapsed = (stats.micros + 1) / 1000000.0;
 
   snprintf(buf, len,
