@@ -94,7 +94,7 @@ class ThreadListTest {
   }
 };
 
-TEST(ThreadListTest, EventTables) {
+TEST(ThreadListTest, GlobalTables) {
   // verify the global tables for operations and states are properly indexed.
   for (int type = 0; type != ThreadStatus::NUM_OP_TYPES; ++type) {
     ASSERT_EQ(global_operation_table[type].type, type);
@@ -108,6 +108,13 @@ TEST(ThreadListTest, EventTables) {
     ASSERT_EQ(global_state_table[type].name,
               ThreadStatus::GetStateName(
                   ThreadStatus::StateType(type)));
+  }
+
+  for (int stage = 0; stage != ThreadStatus::NUM_OP_STAGES; ++stage) {
+    ASSERT_EQ(global_op_stage_table[stage].stage, stage);
+    ASSERT_EQ(global_op_stage_table[stage].name,
+              ThreadStatus::GetOperationStageName(
+                  ThreadStatus::OperationStage(stage)));
   }
 }
 

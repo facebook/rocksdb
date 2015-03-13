@@ -66,6 +66,17 @@ void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
   thread_updater_local_cache_->SetThreadOperation(op);
 }
 
+ThreadStatus::OperationStage ThreadStatusUtil::SetThreadOperationStage(
+    ThreadStatus::OperationStage stage) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return ThreadStatus::STAGE_UNKNOWN;
+  }
+
+  return thread_updater_local_cache_->SetThreadOperationStage(stage);
+}
+
 void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
   if (thread_updater_local_cache_ == nullptr) {
     // thread_updater_local_cache_ must be set in SetColumnFamily
@@ -118,6 +129,15 @@ bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* env) {
   return (thread_updater_local_cache_ != nullptr);
 }
 
+AutoThreadOperationStageUpdater::AutoThreadOperationStageUpdater(
+    ThreadStatus::OperationStage stage) {
+  prev_stage_ = ThreadStatusUtil::SetThreadOperationStage(stage);
+}
+
+AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {
+  ThreadStatusUtil::SetThreadOperationStage(prev_stage_);
+}
+
 #else
 
 ThreadStatusUpdater* ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
@@ -148,6 +168,13 @@ void ThreadStatusUtil::EraseDatabaseInfo(const DB* db) {
 }
 
 void ThreadStatusUtil::ResetThreadStatus() {
+}
+
+AutoThreadOperationStageUpdater::AutoThreadOperationStageUpdater(
+    ThreadStatus::OperationStage stage) {
+}
+
+AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS

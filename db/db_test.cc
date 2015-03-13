@@ -10107,8 +10107,8 @@ TEST(DBTest, ThreadStatusFlush) {
   options = CurrentOptions(options);
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"FlushJob::Run:Start", "DBTest::ThreadStatusFlush:1"},
-      {"DBTest::ThreadStatusFlush:2", "FlushJob::Run:End"},
+      {"FlushJob::FlushJob()", "DBTest::ThreadStatusFlush:1"},
+      {"DBTest::ThreadStatusFlush:2", "FlushJob::~FlushJob()"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -10151,8 +10151,10 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
   options.level0_file_num_compaction_trigger = kNumL0Files;
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"CompactionJob::Run:Start", "DBTest::ThreadStatusSingleCompaction:1"},
-      {"DBTest::ThreadStatusSingleCompaction:2", "CompactionJob::Run:End"},
+      {"CompactionJob::CompationJob()",
+       "DBTest::ThreadStatusSingleCompaction:1"},
+      {"DBTest::ThreadStatusSingleCompaction:2",
+       "CompactionJob::Run:~CompactionJob()"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -10175,6 +10177,7 @@ TEST(DBTest, ThreadStatusSingleCompaction) {
       // If thread tracking is not enabled, compaction count should be 0.
       VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 0);
     }
+    // TODO(yhchiang): adding assert to verify each compaction stage.
     TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:2");
 
     // repeat the test with disabling thread tracking.

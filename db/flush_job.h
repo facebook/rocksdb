@@ -61,7 +61,8 @@ class FlushJob {
            LogBuffer* log_buffer, Directory* db_directory,
            Directory* output_file_directory, CompressionType output_compression,
            Statistics* stats, EventLogger* event_logger);
-  ~FlushJob() {}
+
+  ~FlushJob();
 
   Status Run(uint64_t* file_number = nullptr);
 

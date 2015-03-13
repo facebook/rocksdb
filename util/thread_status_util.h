@@ -56,6 +56,9 @@ class ThreadStatusUtil {
 
   static void SetThreadOperation(ThreadStatus::OperationType type);
 
+  static ThreadStatus::OperationStage SetThreadOperationStage(
+      ThreadStatus::OperationStage stage);
+
   static void SetThreadState(ThreadStatus::StateType type);
 
   static void ResetThreadStatus();
@@ -102,6 +105,19 @@ class ThreadStatusUtil {
   static bool thread_updater_initialized_;
   static ThreadStatusUpdater* thread_updater_local_cache_;
 #endif
+};
+
+// A helper class for updating thread state.  It will set the
+// thread state according to the input parameter in its constructor
+// and set the thread state to the previous state in its destructor.
+class AutoThreadOperationStageUpdater {
+ public:
+  explicit AutoThreadOperationStageUpdater(
+      ThreadStatus::OperationStage stage);
+  ~AutoThreadOperationStageUpdater();
+
+ private:
+  ThreadStatus::OperationStage prev_stage_;
 };
 
 }  // namespace rocksdb

@@ -225,9 +225,22 @@ CompactionJob::CompactionJob(
       snapshots_(snapshots),
       is_snapshot_supported_(is_snapshot_supported),
       table_cache_(std::move(table_cache)),
-      yield_callback_(std::move(yield_callback)) {}
+      yield_callback_(std::move(yield_callback)) {
+  ThreadStatusUtil::SetColumnFamily(
+      compact_->compaction->column_family_data());
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+  TEST_SYNC_POINT("CompactionJob::CompationJob()");
+}
+
+CompactionJob::~CompactionJob() {
+  assert(compact_ == nullptr);
+  TEST_SYNC_POINT("CompactionJob::~CompactionJob()");
+  ThreadStatusUtil::ResetThreadStatus();
+}
 
 void CompactionJob::Prepare() {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_PREPARE);
   compact_->CleanupBatchBuffer();
   compact_->CleanupMergedBuffer();
 
@@ -275,11 +288,10 @@ void CompactionJob::Prepare() {
 }
 
 Status CompactionJob::Run() {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_RUN);
   log_buffer_->FlushBufferToLog();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-  ThreadStatusUtil::SetColumnFamily(cfd);
-  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
-  TEST_SYNC_POINT("CompactionJob::Run:Start");
 
   const uint64_t start_micros = env_->NowMicros();
   std::unique_ptr<Iterator> input(
@@ -469,12 +481,12 @@ Status CompactionJob::Run() {
   RecordCompactionIOStats();
 
   LogFlush(db_options_.info_log);
-  TEST_SYNC_POINT("CompactionJob::Run:End");
-  ThreadStatusUtil::ResetThreadStatus();
   return status;
 }
 
 void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_INSTALL);
   db_mutex->AssertHeld();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   cfd->internal_stats()->AddCompactionStats(
@@ -511,6 +523,8 @@ void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
 Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
                                                 Iterator* input,
                                                 bool is_compaction_v2) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
   size_t combined_idx = 0;
   Status status;
   std::string compaction_filter_value;
@@ -849,6 +863,8 @@ void CompactionJob::CallCompactionFilterV2(
   if (compact_ == nullptr || compaction_filter_v2 == nullptr) {
     return;
   }
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_FILTER_V2);
 
   // Assemble slice vectors for user keys and existing values.
   // We also keep track of our parsed internal key structs because
@@ -907,6 +923,8 @@ void CompactionJob::CallCompactionFilterV2(
 }
 
 Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_COMPACTION_SYNC_FILE);
   assert(compact_ != nullptr);
   assert(compact_->outfile);
   assert(compact_->builder != nullptr);

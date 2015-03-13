@@ -23,6 +23,11 @@ const std::string& ThreadStatus::GetOperationName(
   return global_operation_table[op_type].name;
 }
 
+const std::string& ThreadStatus::GetOperationStageName(
+    ThreadStatus::OperationStage stage) {
+  return global_op_stage_table[stage].name;
+}
+
 const std::string& ThreadStatus::GetStateName(
     ThreadStatus::StateType state_type) {
   return global_state_table[state_type].name;
@@ -46,6 +51,12 @@ const std::string& ThreadStatus::GetThreadTypeName(
 
 const std::string& ThreadStatus::GetOperationName(
     ThreadStatus::OperationType op_type) {
+  static std::string dummy_str = "";
+  return dummy_str;
+}
+
+const std::string& ThreadStatus::GetOperationStageName(
+    ThreadStatus::OperationStage stage) {
   static std::string dummy_str = "";
   return dummy_str;
 }

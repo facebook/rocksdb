@@ -87,6 +87,7 @@ struct ThreadStatusData {
   std::atomic<const void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
   std::atomic<int64_t> op_start_time;
+  std::atomic<ThreadStatus::OperationStage> operation_stage;
   std::atomic<ThreadStatus::StateType> state_type;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
@@ -126,7 +127,12 @@ class ThreadStatusUpdater {
   // Update the thread operation of the current thread.
   void SetThreadOperation(const ThreadStatus::OperationType type);
 
+  // Set the start time of an operation.
   void SetOperationStartTime(const int64_t start_time);
+
+  // Update the thread operation stage of the current thread.
+  ThreadStatus::OperationStage SetThreadOperationStage(
+      const ThreadStatus::OperationStage stage);
 
   // Clear thread operation of the current thread.
   void ClearThreadOperation();

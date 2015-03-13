@@ -79,9 +79,21 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       output_file_directory_(output_file_directory),
       output_compression_(output_compression),
       stats_(stats),
-      event_logger_(event_logger) {}
+      event_logger_(event_logger) {
+  // Update the thread status to indicate flush.
+  ThreadStatusUtil::SetColumnFamily(cfd_);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
+  TEST_SYNC_POINT("FlushJob::FlushJob()");
+}
+
+FlushJob::~FlushJob() {
+  TEST_SYNC_POINT("FlushJob::~FlushJob()");
+  ThreadStatusUtil::ResetThreadStatus();
+}
 
 Status FlushJob::Run(uint64_t* file_number) {
+  AutoThreadOperationStageUpdater stage_run(
+      ThreadStatus::STAGE_FLUSH_RUN);
   // Save the contents of the earliest memtable as a new Table
   uint64_t fn;
   autovector<MemTable*> mems;
@@ -92,10 +104,6 @@ Status FlushJob::Run(uint64_t* file_number) {
     return Status::OK();
   }
 
-  // Update the thread status to indicate flush.
-  ThreadStatusUtil::SetColumnFamily(cfd_);
-  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
-  TEST_SYNC_POINT("FlushJob::Run:Start");
 
   // entries mems are (implicitly) sorted in ascending order by their created
   // time. We will use the first memtable's `edit` to keep the meta info for
@@ -130,13 +138,13 @@ Status FlushJob::Run(uint64_t* file_number) {
     *file_number = fn;
   }
 
-  TEST_SYNC_POINT("FlushJob::Run:End");
-  ThreadStatusUtil::ResetThreadStatus();
   return s;
 }
 
 Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                                   VersionEdit* edit, uint64_t* filenumber) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
   FileMetaData meta;

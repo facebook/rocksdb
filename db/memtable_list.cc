@@ -19,6 +19,7 @@
 #include "table/merger.h"
 #include "util/coding.h"
 #include "util/log_buffer.h"
+#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -127,6 +128,8 @@ bool MemTableList::IsFlushPending() const {
 
 // Returns the memtables that need to be flushed.
 void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_PICK_MEMTABLES_TO_FLUSH);
   const auto& memlist = current_->memlist_;
   for (auto it = memlist.rbegin(); it != memlist.rend(); ++it) {
     MemTable* m = *it;
@@ -145,6 +148,8 @@ void MemTableList::PickMemtablesToFlush(autovector<MemTable*>* ret) {
 
 void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
                                          uint64_t file_number) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_MEMTABLE_ROLLBACK);
   assert(!mems.empty());
 
   // If the flush was not successful, then just reset state.
@@ -167,6 +172,8 @@ Status MemTableList::InstallMemtableFlushResults(
     const autovector<MemTable*>& mems, VersionSet* vset, InstrumentedMutex* mu,
     uint64_t file_number, autovector<MemTable*>* to_delete,
     Directory* db_directory, LogBuffer* log_buffer) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
   // flush was sucessful

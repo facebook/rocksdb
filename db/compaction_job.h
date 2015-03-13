@@ -62,7 +62,7 @@ class CompactionJob {
                 bool is_snapshot_supported, std::shared_ptr<Cache> table_cache,
                 std::function<uint64_t()> yield_callback);
 
-  ~CompactionJob() { assert(compact_ == nullptr); }
+  ~CompactionJob();
 
   // no copy/move
   CompactionJob(CompactionJob&& job) = delete;

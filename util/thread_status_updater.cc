@@ -60,6 +60,8 @@ void ThreadStatusUpdater::SetThreadOperation(
     assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
     return;
   }
+  data->operation_stage.store(ThreadStatus::STAGE_UNKNOWN,
+      std::memory_order_relaxed);
   data->operation_type.store(type, std::memory_order_relaxed);
 }
 
@@ -78,8 +80,21 @@ void ThreadStatusUpdater::ClearThreadOperation() {
     assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
     return;
   }
+  data->operation_stage.store(ThreadStatus::STAGE_UNKNOWN,
+      std::memory_order_relaxed);
   data->operation_type.store(
       ThreadStatus::OP_UNKNOWN, std::memory_order_relaxed);
+}
+
+ThreadStatus::OperationStage ThreadStatusUpdater::SetThreadOperationStage(
+    ThreadStatus::OperationStage stage) {
+  auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return ThreadStatus::STAGE_UNKNOWN;
+  }
+  return data->operation_stage.exchange(
+      stage, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetThreadState(
@@ -124,6 +139,7 @@ Status ThreadStatusUpdater::GetThreadList(
     const std::string* db_name = nullptr;
     const std::string* cf_name = nullptr;
     ThreadStatus::OperationType op_type = ThreadStatus::OP_UNKNOWN;
+    ThreadStatus::OperationStage op_stage = ThreadStatus::STAGE_UNKNOWN;
     ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
     int64_t op_start_time = 0;
     if (cf_info != nullptr) {
@@ -135,6 +151,8 @@ Status ThreadStatusUpdater::GetThreadList(
       if (op_type != ThreadStatus::OP_UNKNOWN) {
         op_start_time = thread_data->op_start_time.load(
             std::memory_order_relaxed);
+        op_stage = thread_data->operation_stage.load(
+            std::memory_order_relaxed);
         state_type = thread_data->state_type.load(
             std::memory_order_relaxed);
       }
@@ -143,7 +161,7 @@ Status ThreadStatusUpdater::GetThreadList(
         thread_data->thread_id, thread_type,
         db_name ? *db_name : "",
         cf_name ? *cf_name : "",
-        op_type, op_start_time, state_type);
+        op_type, op_start_time, op_stage, state_type);
   }
 
   return Status::OK();

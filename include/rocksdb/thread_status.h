@@ -48,6 +48,22 @@ struct ThreadStatus {
     NUM_OP_TYPES
   };
 
+  enum OperationStage : int {
+    STAGE_UNKNOWN = 0,
+    STAGE_FLUSH_RUN,
+    STAGE_FLUSH_WRITE_L0,
+    STAGE_COMPACTION_PREPARE,
+    STAGE_COMPACTION_RUN,
+    STAGE_COMPACTION_PROCESS_KV,
+    STAGE_COMPACTION_FILTER_V2,
+    STAGE_COMPACTION_INSTALL,
+    STAGE_COMPACTION_SYNC_FILE,
+    STAGE_PICK_MEMTABLES_TO_FLUSH,
+    STAGE_MEMTABLE_ROLLBACK,
+    STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS,
+    NUM_OP_STAGES
+  };
+
   // The type used to refer to a thread state.
   // A state describes lower-level action of a thread
   // such as reading / writing a file or waiting for a mutex.
@@ -63,12 +79,14 @@ struct ThreadStatus {
                const std::string& _cf_name,
                const OperationType _operation_type,
                const int64_t _op_start_time,
+               const OperationStage _operation_stage,
                const StateType _state_type) :
       thread_id(_id), thread_type(_thread_type),
       db_name(_db_name),
       cf_name(_cf_name),
       operation_type(_operation_type),
       op_start_time(_op_start_time),
+      operation_stage(_operation_stage),
       state_type(_state_type) {}
 
   // An unique ID for the thread.
@@ -95,6 +113,10 @@ struct ThreadStatus {
   // Epoch, 1970-01-01 00:00:00 (UTC).
   const int64_t op_start_time;
 
+  // An integer showing the current stage where the thread is involved
+  // in the current operation.
+  const OperationStage operation_stage;
+
   // The state (lower-level action) that the current thread is involved.
   const StateType state_type;
 
@@ -107,6 +129,10 @@ struct ThreadStatus {
   static const std::string& GetOperationName(OperationType op_type);
 
   static const std::string TimeToString(int64_t op_start_time);
+
+  // Obtain a human-readable string describing the specified operation stage.
+  static const std::string& GetOperationStageName(
+      OperationStage stage);
 
   // Obtain the name of a state given its type.
   static const std::string& GetStateName(StateType state_type);
