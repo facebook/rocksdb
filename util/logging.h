@@ -33,8 +33,14 @@ extern void AppendNumberTo(std::string* str, uint64_t num);
 // Escapes any non-printable characters found in "value".
 extern void AppendEscapedStringTo(std::string* str, const Slice& value);
 
-// Return a human-readable printout of "num"
+// Return a string printout of "num"
 extern std::string NumberToString(uint64_t num);
+
+// Return a human-readable version of num.
+// for num >= 10.000, prints "xxK"
+// for num >= 10.000.000, prints "xxM"
+// for num >= 10.000.000.000, prints "xxG"
+extern std::string NumberToHumanString(int64_t num);
 
 // Return a human-readable version of "value".
 // Escapes any non-printable characters found in "value".

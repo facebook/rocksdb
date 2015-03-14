@@ -33,9 +33,9 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
       "Level   Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
       "Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) "
       "Comp(sec) Comp(cnt) Avg(sec) "
-      "Stall(cnt)    RecordIn   RecordDrop\n"
+      "Stall(cnt)  KeyIn KeyDrop\n"
       "--------------------------------------------------------------------"
-      "--------------------------------------------------------------------"
+      "-----------------------------------------------------------"
       "--------------------------------------\n",
       cf_name.c_str());
 }
@@ -47,6 +47,9 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
   uint64_t bytes_read = stats.bytes_readn + stats.bytes_readnp1;
   int64_t bytes_new = stats.bytes_written - stats.bytes_readnp1;
   double elapsed = (stats.micros + 1) / 1000000.0;
+  std::string num_input_records = NumberToHumanString(stats.num_input_records);
+  std::string num_dropped_records =
+      NumberToHumanString(stats.num_dropped_records);
 
   snprintf(buf, len,
            "%4s %5d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
@@ -59,27 +62,24 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            "%5.1f "                    /* W-Amp */
            "%8.1f "                    /* Rd(MB/s) */
            "%8.1f "                    /* Wr(MB/s) */
-           "%9.0f "                   /* Comp(sec) */
+           "%9.0f "                    /* Comp(sec) */
            "%9d "                      /* Comp(cnt) */
            "%8.3f "                    /* Avg(sec) */
            "%10" PRIu64
            " "      /* Stall(cnt) */
-           "%12" PRIu64
-           " " /* input entries */
-           "%12" PRIu64 "\n" /* number of records reduced */,
+           "%7s "   /* KeyIn */
+           "%6s\n", /* KeyDrop */
            name.c_str(), num_files, being_compacted, total_file_size / kMB,
            score, bytes_read / kGB, stats.bytes_readn / kGB,
            stats.bytes_readnp1 / kGB, stats.bytes_written / kGB,
            bytes_new / kGB, stats.bytes_moved / kGB,
            w_amp, bytes_read / kMB / elapsed,
-           stats.bytes_written / kMB / elapsed,
-           stats.micros / 1000000.0, stats.count,
+           stats.bytes_written / kMB / elapsed, stats.micros / 1000000.0,
+           stats.count,
            stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
            stalls,
-           stats.num_input_records, stats.num_dropped_records);
+           num_input_records.c_str(), num_dropped_records.c_str());
 }
-
-
 }
 
 DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
