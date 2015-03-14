@@ -116,8 +116,10 @@ class AutoThreadOperationStageUpdater {
       ThreadStatus::OperationStage stage);
   ~AutoThreadOperationStageUpdater();
 
+#if ROCKSDB_USING_THREAD_STATUS
  private:
   ThreadStatus::OperationStage prev_stage_;
+#endif
 };
 
 }  // namespace rocksdb
