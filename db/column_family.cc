@@ -451,8 +451,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       uint64_t kHardLimitSlowdown = 1000;
       write_controller_token_ =
           write_controller->GetDelayToken(kHardLimitSlowdown);
-      internal_stats_->RecordLevelNSlowdown(max_level, kHardLimitSlowdown,
-                                            false);
+      internal_stats_->RecordLevelNSlowdown(max_level, false);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we hit hard limit on level %d. "
           "(%" PRIu64 "us)",
@@ -463,7 +462,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           mutable_cf_options.soft_rate_limit,
           mutable_cf_options.hard_rate_limit);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
-      internal_stats_->RecordLevelNSlowdown(max_level, slowdown, true);
+      internal_stats_->RecordLevelNSlowdown(max_level, true);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we hit soft limit on level %d (%" PRIu64
           "us)",
