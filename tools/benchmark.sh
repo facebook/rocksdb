@@ -198,7 +198,7 @@ function run_rangescanwhilewriting {
 function run_updaterandom {
   echo "Read/Modify/Write $num_keys random keys (not using merge).."
   cmd="./db_bench $params_w --benchmarks=updaterandom \
-       --use_existing_db=0 \
+       --use_existing_db=1 \
        --num=$num_keys \
        --sync=$syncval \
        --disable_data_sync=0 \
@@ -210,7 +210,7 @@ function run_updaterandom {
 function run_mergerandom {
   echo "Read/Modify/Write $num_keys random keys (using merge operator).."
   cmd="./db_bench $params_w --benchmarks=mergerandom \
-       --use_existing_db=0 \
+       --use_existing_db=1 \
        --num=$num_keys \
        --sync=$syncval \
        --disable_data_sync=0 \
