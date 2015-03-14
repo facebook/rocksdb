@@ -10292,12 +10292,12 @@ TEST(DBTest, PreShutdownMultipleCompaction) {
   std::vector<ThreadStatus> thread_list;
   // Delay both flush and compaction
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"FlushJob::Run:Start", "CompactionJob::Run:Start"},
-       {"CompactionJob::Run:Start",
+      {{"FlushJob::FlushJob()", "CompactionJob::Run():Start"},
+       {"CompactionJob::Run():Start",
         "DBTest::PreShutdownMultipleCompaction:Preshutdown"},
        {"DBTest::PreShutdownMultipleCompaction:Preshutdown",
-        "CompactionJob::Run:End"},
-       {"CompactionJob::Run:End",
+        "CompactionJob::Run():End"},
+       {"CompactionJob::Run():End",
         "DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown"}});
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
