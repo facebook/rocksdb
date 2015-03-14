@@ -10383,9 +10383,9 @@ TEST(DBTest, PreShutdownCompactionMiddle) {
   // Delay both flush and compaction
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"DBTest::PreShutdownMultipleCompaction:Preshutdown",
-        "CompactionJob::Run:Inprogress"},
-       {"CompactionJob::Run:Inprogress", "CompactionJob::Run:End"},
-       {"CompactionJob::Run:End",
+        "CompactionJob::Run():Inprogress"},
+       {"CompactionJob::Run():Inprogress", "CompactionJob::Run():End"},
+       {"CompactionJob::Run():End",
         "DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown"}});
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
@@ -10604,7 +10604,7 @@ TEST(DBTest, DynamicLevelMaxBytesBase2) {
   // level.
   // Hold compaction jobs to make sure
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "CompactionJob::Run:Start",
+      "CompactionJob::Run():Start",
       [&]() { env_->SleepForMicroseconds(100000); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->SetOptions({

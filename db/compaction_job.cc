@@ -550,7 +550,7 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
     compaction_filter = compaction_filter_from_factory.get();
   }
 
-  TEST_SYNC_POINT("CompactionJob::Run:Inprogress");
+  TEST_SYNC_POINT("CompactionJob::Run():Inprogress");
 
   int64_t key_drop_user = 0;
   int64_t key_drop_newer_entry = 0;
