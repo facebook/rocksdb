@@ -30,7 +30,7 @@ void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
   snprintf(
       buf, len,
       "\n** Compaction Stats [%s] **\n"
-      "Level   Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
+      "Level    Files   Size(MB) Score Read(GB)  Rn(GB) Rnp1(GB) "
       "Write(GB) Wnew(GB) Moved(GB) W-Amp Rd(MB/s) Wr(MB/s) "
       "Comp(sec) Comp(cnt) Avg(sec) "
       "Stall(cnt)  KeyIn KeyDrop\n"
@@ -52,7 +52,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       NumberToHumanString(stats.num_dropped_records);
 
   snprintf(buf, len,
-           "%4s %5d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
+           "%4s %6d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
            "%8.1f "                    /* Read(GB) */
            "%7.1f "                    /* Rn(GB) */
            "%8.1f "                    /* Rnp1(GB) */
