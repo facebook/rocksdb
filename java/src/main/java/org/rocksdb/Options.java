@@ -639,6 +639,13 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setLogger(final Logger logger) {
+    assert(isInitialized());
+    setLogger(nativeHandle_, logger.nativeHandle_);
+    return this;
+  }
+
+  @Override
   public Options setInfoLogLevel(final InfoLogLevel infoLogLevel) {
     assert(isInitialized());
     setInfoLogLevel(nativeHandle_, infoLogLevel.getValue());
@@ -1086,6 +1093,8 @@ public class Options extends RocksObject
   private native boolean paranoidChecks(long handle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
+  private native void setLogger(long handle,
+      long loggerHandle);
   private native void setInfoLogLevel(long handle, byte logLevel);
   private native byte infoLogLevel(long handle);
   private native void setMaxOpenFiles(long handle, int maxOpenFiles);
