@@ -1044,6 +1044,18 @@ public class Options extends RocksObject
     return this;
   }
 
+  @Override
+  public Options setOptimizeFiltersForHits(
+      final boolean optimizeFiltersForHits) {
+    setOptimizeFiltersForHits(nativeHandle_, optimizeFiltersForHits);
+    return this;
+  }
+
+  @Override
+  public boolean optimizeFiltersForHits() {
+    return optimizeFiltersForHits(nativeHandle_);
+  }
+
   /**
    * Release the memory allocated for the current instance
    * in the c++ side.
@@ -1268,6 +1280,9 @@ public class Options extends RocksObject
   private native void setMinPartialMergeOperands(
       long handle, int minPartialMergeOperands);
   private native int minPartialMergeOperands(long handle);
+  private native void setOptimizeFiltersForHits(long handle,
+      boolean optimizeFiltersForHits);
+  private native boolean optimizeFiltersForHits(long handle);
   // instance variables
   RocksEnv env_;
   MemTableConfig memTableConfig_;

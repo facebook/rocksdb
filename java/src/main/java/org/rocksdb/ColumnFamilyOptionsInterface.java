@@ -976,6 +976,38 @@ public interface ColumnFamilyOptionsInterface {
   int minPartialMergeOperands();
 
   /**
+   * <p>This flag specifies that the implementation should optimize the filters
+   * mainly for cases where keys are found rather than also optimize for keys
+   * missed. This would be used in cases where the application knows that
+   * there are very few misses or the performance in the case of misses is not
+   * important.</p>
+   *
+   * <p>For now, this flag allows us to not store filters for the last level i.e
+   * the largest level which contains data of the LSM store. For keys which
+   * are hits, the filters in this level are not useful because we will search
+   * for the data anyway.</p>
+   *
+   * <p><strong>NOTE</strong>: the filters in other levels are still useful
+   * even for key hit because they tell us whether to look in that level or go
+   * to the higher level.</p>
+   *
+   * <p>Default: false<p>
+   *
+   * @param optimizeFiltersForHits boolean value indicating if this flag is set.
+   * @return the reference to the current option.
+   */
+  Object setOptimizeFiltersForHits(boolean optimizeFiltersForHits);
+
+  /**
+   * <p>Returns the current state of the {@code optimize_filters_for_hits}
+   * setting.</p>
+   *
+   * @return boolean value indicating if the flag
+   *     {@code optimize_filters_for_hits} was set.
+   */
+  boolean optimizeFiltersForHits();
+
+  /**
    * Default memtable memory budget used with the following methods:
    *
    * <ol>
