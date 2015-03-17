@@ -20,7 +20,7 @@ namespace rocksdb {
 #if (ROCKSDB_XFTEST_FORCE == 1)
 #define XFUNC
 #endif
-#elif NDEBUG
+#elif defined(NDEBUG)
 #else
 #define XFUNC
 #endif
