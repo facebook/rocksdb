@@ -32,7 +32,7 @@ class FlushJobTest {
                                  &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
-    ASSERT_OK(env_->CreateDirIfMissing(dbname_));
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
     // TODO(icanadi) Remove this once we mock out VersionSet
@@ -41,7 +41,7 @@ class FlushJobTest {
     cf_options_.table_factory = mock_table_factory_;
     column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
 
-    ASSERT_OK(versions_->Recover(column_families, false));
+    EXPECT_OK(versions_->Recover(column_families, false));
   }
 
   void NewDB() {

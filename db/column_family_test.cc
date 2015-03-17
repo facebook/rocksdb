@@ -115,7 +115,7 @@ class ColumnFamilyTest {
 
   int GetProperty(int cf, std::string property) {
     std::string value;
-    ASSERT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
+    EXPECT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
     return std::stoi(value);
   }
 
@@ -274,7 +274,7 @@ class ColumnFamilyTest {
         break;
       }
     }
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     for (const auto& wal : wal_files) {
       if (wal->Type() == kAliveLogFile) {
         ++ret;

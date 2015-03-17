@@ -57,7 +57,7 @@ class DeleteFileTest {
 
     DestroyDB(dbname_, options_);
     numlevels_ = 7;
-    ASSERT_OK(ReopenDB(true));
+    EXPECT_OK(ReopenDB(true));
   }
 
   Status ReopenDB(bool create) {

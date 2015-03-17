@@ -32,7 +32,7 @@ std::shared_ptr<DB> OpenNormalDb(char delim_char) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new StringAppendOperator(delim_char));
-  ASSERT_OK(DB::Open(options, kDbName,  &db));
+  EXPECT_OK(DB::Open(options, kDbName, &db));
   return std::shared_ptr<DB>(db);
 }
 
@@ -42,7 +42,7 @@ std::shared_ptr<DB> OpenTtlDb(char delim_char) {
   Options options;
   options.create_if_missing = true;
   options.merge_operator.reset(new StringAppendTESTOperator(delim_char));
-  ASSERT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
+  EXPECT_OK(DBWithTTL::Open(options, kDbName, &db, 123456));
   return std::shared_ptr<DB>(db);
 }
 }  // namespace
@@ -589,7 +589,7 @@ int main(int argc, char** argv) {
   {
     fprintf(stderr, "Running tests with ttl db and generic operator.\n");
     StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
-    result |=rocksdb::test::RunAllTests();
+    result |= rocksdb::test::RunAllTests();
   }
 
   return result;

@@ -361,12 +361,12 @@ class TableConstructor: public Constructor {
       } else {
         builder->Add(kv.first, kv.second);
       }
-      ASSERT_TRUE(builder->status().ok());
+      EXPECT_TRUE(builder->status().ok());
     }
     Status s = builder->Finish();
-    ASSERT_TRUE(s.ok()) << s.ToString();
+    EXPECT_TRUE(s.ok()) << s.ToString();
 
-    ASSERT_EQ(sink_->contents().size(), builder->FileSize());
+    EXPECT_EQ(sink_->contents().size(), builder->FileSize());
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
@@ -502,7 +502,7 @@ class DBConstructor: public Constructor {
     for (const auto kv : kv_map) {
       WriteBatch batch;
       batch.Put(kv.first, kv.second);
-      ASSERT_TRUE(db_->Write(WriteOptions(), &batch).ok());
+      EXPECT_TRUE(db_->Write(WriteOptions(), &batch).ok());
     }
     return Status::OK();
   }
@@ -701,8 +701,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
 class HarnessTest {
  public:
   HarnessTest()
-    : ioptions_(options_), constructor_(nullptr),
-      write_buffer_(options_.db_write_buffer_size) {}
+      : ioptions_(options_),
+        constructor_(nullptr),
+        write_buffer_(options_.db_write_buffer_size) {}
 
   void Init(const TestArgs& args) {
     delete constructor_;
@@ -793,9 +794,7 @@ class HarnessTest {
     ioptions_ = ImmutableCFOptions(options_);
   }
 
-  ~HarnessTest() {
-    delete constructor_;
-  }
+  ~HarnessTest() { delete constructor_; }
 
   void Add(const std::string& key, const std::string& value) {
     constructor_->Add(key, value);

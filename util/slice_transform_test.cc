@@ -54,12 +54,12 @@ class SliceTransformDBTest {
  public:
   SliceTransformDBTest() : env_(Env::Default()), db_(nullptr) {
     dbname_ = test::TmpDir() + "/slice_transform_db_test";
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   ~SliceTransformDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   DB* db() { return db_; }

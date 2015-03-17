@@ -53,20 +53,20 @@ class DummyDB : public StackableDB {
   }
 
   virtual Status EnableFileDeletions(bool force) override {
-    ASSERT_TRUE(!deletions_enabled_);
+    EXPECT_TRUE(!deletions_enabled_);
     deletions_enabled_ = true;
     return Status::OK();
   }
 
   virtual Status DisableFileDeletions() override {
-    ASSERT_TRUE(deletions_enabled_);
+    EXPECT_TRUE(deletions_enabled_);
     deletions_enabled_ = false;
     return Status::OK();
   }
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
-    ASSERT_TRUE(!deletions_enabled_);
+    EXPECT_TRUE(!deletions_enabled_);
     vec = live_files_;
     *mfs = 100;
     return Status::OK();
@@ -88,7 +88,7 @@ class DummyDB : public StackableDB {
 
     virtual uint64_t LogNumber() const override {
       // what business do you have calling this method?
-      ASSERT_TRUE(false);
+      EXPECT_TRUE(false);
       return 0;
     }
 
@@ -98,13 +98,13 @@ class DummyDB : public StackableDB {
 
     virtual SequenceNumber StartSequence() const override {
       // backupabledb should not need this method
-      ASSERT_TRUE(false);
+      EXPECT_TRUE(false);
       return 0;
     }
 
     virtual uint64_t SizeFileBytes() const override {
       // backupabledb should not need this method
-      ASSERT_TRUE(false);
+      EXPECT_TRUE(false);
       return 0;
     }
 
@@ -114,7 +114,7 @@ class DummyDB : public StackableDB {
   }; // DummyLogFile
 
   virtual Status GetSortedWalFiles(VectorLogPtr& files) override {
-    ASSERT_TRUE(!deletions_enabled_);
+    EXPECT_TRUE(!deletions_enabled_);
     files.resize(wal_files_.size());
     for (size_t i = 0; i < files.size(); ++i) {
       files[i].reset(
@@ -183,7 +183,7 @@ class TestEnv : public EnvWrapper {
 
   virtual Status DeleteFile(const std::string& fname) override {
     MutexLock l(&mutex_);
-    ASSERT_GT(limit_delete_files_, 0U);
+    EXPECT_GT(limit_delete_files_, 0U);
     limit_delete_files_--;
     return EnvWrapper::DeleteFile(fname);
   }
@@ -327,7 +327,7 @@ static size_t FillDB(DB* db, int from, int to) {
     std::string value = "testvalue" + std::to_string(i);
     bytes_written += key.size() + value.size();
 
-    ASSERT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
+    EXPECT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
   }
   return bytes_written;
 }
@@ -382,7 +382,7 @@ class BackupableDBTest {
 
   DB* OpenDB() {
     DB* db;
-    ASSERT_OK(DB::Open(options_, dbname_, &db));
+    EXPECT_OK(DB::Open(options_, dbname_, &db));
     return db;
   }
 

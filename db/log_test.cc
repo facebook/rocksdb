@@ -57,7 +57,7 @@ class LogTest {
 
     virtual Status Close() override { return Status::OK(); }
     virtual Status Flush() override {
-      ASSERT_TRUE(reader_contents_.size() <= last_flush_);
+      EXPECT_TRUE(reader_contents_.size() <= last_flush_);
       size_t offset = last_flush_ - reader_contents_.size();
       reader_contents_ = Slice(
           contents_.data() + offset,
@@ -100,7 +100,7 @@ class LogTest {
       returned_partial_(false) { }
 
     virtual Status Read(size_t n, Slice* result, char* scratch) override {
-      ASSERT_TRUE(!returned_partial_) << "must not Read() after eof/error";
+      EXPECT_TRUE(!returned_partial_) << "must not Read() after eof/error";
 
       if (force_error_) {
         if (force_error_position_ >= n) {

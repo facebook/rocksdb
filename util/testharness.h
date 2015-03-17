@@ -170,6 +170,22 @@ class TesterHelper {
 #define ASSERT_LT(a, b) \
   TEST_EXPRESSION_(::rocksdb::test::Tester().IsLt((a), (b)))
 
+#define EXPECT_TRUE(c) TEST_EXPRESSION_(::rocksdb::test::Tester().Is((c), #c))
+#define EXPECT_OK(s) TEST_EXPRESSION_(::rocksdb::test::Tester().IsOk((s)))
+#define EXPECT_NOK(s) TEST_EXPRESSION_(::rocksdb::test::Tester().IsNotOk((s)))
+#define EXPECT_EQ(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsEq((a), (b)))
+#define EXPECT_NE(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsNe((a), (b)))
+#define EXPECT_GE(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsGe((a), (b)))
+#define EXPECT_GT(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsGt((a), (b)))
+#define EXPECT_LE(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsLe((a), (b)))
+#define EXPECT_LT(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsLt((a), (b)))
+
 #define TCONCAT(a, b) TCONCAT1(a, b)
 #define TCONCAT1(a, b) a##b
 

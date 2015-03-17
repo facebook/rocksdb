@@ -39,7 +39,7 @@ class EventListenerTest {
  public:
   EventListenerTest() {
     dbname_ = test::TmpDir() + "/listener_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
@@ -51,7 +51,7 @@ class EventListenerTest {
     options.db_paths.emplace_back(dbname_ + "_2", 0);
     options.db_paths.emplace_back(dbname_ + "_3", 0);
     options.db_paths.emplace_back(dbname_ + "_4", 0);
-    ASSERT_OK(DestroyDB(dbname_, options));
+    EXPECT_OK(DestroyDB(dbname_, options));
   }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
@@ -91,7 +91,7 @@ class EventListenerTest {
       const std::vector<std::string>& cfs,
       const std::vector<const Options*>& options) {
     Close();
-    ASSERT_EQ(cfs.size(), options.size());
+    EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
       column_families.push_back(ColumnFamilyDescriptor(cfs[i], *options[i]));

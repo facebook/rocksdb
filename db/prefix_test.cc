@@ -77,13 +77,13 @@ class TestKeyComparator : public Comparator {
       if (key_a->prefix < key_b->prefix) return -1;
       if (key_a->prefix > key_b->prefix) return 1;
     } else {
-      ASSERT_TRUE(key_a->prefix == key_b->prefix);
+      EXPECT_TRUE(key_a->prefix == key_b->prefix);
       // note, both a and b could be prefix only
       if (a.size() != b.size()) {
         // one of them is prefix
-        ASSERT_TRUE(
-          (a.size() == sizeof(uint64_t) && b.size() == sizeof(TestKey)) ||
-          (b.size() == sizeof(uint64_t) && a.size() == sizeof(TestKey)));
+        EXPECT_TRUE(
+            (a.size() == sizeof(uint64_t) && b.size() == sizeof(TestKey)) ||
+            (b.size() == sizeof(uint64_t) && a.size() == sizeof(TestKey)));
         if (a.size() < b.size()) return -1;
         if (a.size() > b.size()) return 1;
       } else {
@@ -93,7 +93,7 @@ class TestKeyComparator : public Comparator {
         }
 
         // both a and b are whole key
-        ASSERT_TRUE(a.size() == sizeof(TestKey) && b.size() == sizeof(TestKey));
+        EXPECT_TRUE(a.size() == sizeof(TestKey) && b.size() == sizeof(TestKey));
         if (key_a->sorted < key_b->sorted) return -1;
         if (key_a->sorted > key_b->sorted) return 1;
         if (key_a->sorted == key_b->sorted) return 0;
@@ -161,7 +161,7 @@ class PrefixTest {
         FLAGS_memtable_prefix_bloom_huge_page_tlb_size;
 
     Status s = DB::Open(options, kDbName,  &db);
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     return std::shared_ptr<DB>(db);
   }
 

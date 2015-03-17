@@ -86,7 +86,7 @@ class WalManagerTest {
     unique_ptr<TransactionLogIterator> iter;
     Status status = wal_manager_->GetUpdatesSince(
         seq, &iter, TransactionLogIterator::ReadOptions(), versions_.get());
-    ASSERT_OK(status);
+    EXPECT_OK(status);
     return std::move(iter);
   }
 
@@ -182,10 +182,10 @@ int CountRecords(TransactionLogIterator* iter) {
   BatchResult res;
   while (iter->Valid()) {
     res = iter->GetBatch();
-    ASSERT_TRUE(res.sequence > lastSequence);
+    EXPECT_TRUE(res.sequence > lastSequence);
     ++count;
     lastSequence = res.sequence;
-    ASSERT_OK(iter->status());
+    EXPECT_OK(iter->status());
     iter->Next();
   }
   return count;

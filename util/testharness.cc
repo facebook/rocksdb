@@ -78,7 +78,7 @@ int RunAllTests() {
 std::string TmpDir(Env* env) {
   std::string dir;
   Status s = env->GetTestDirectory(&dir);
-  ASSERT_TRUE(s.ok()) << s.ToString();
+  EXPECT_TRUE(s.ok()) << s.ToString();
   return dir;
 }
 

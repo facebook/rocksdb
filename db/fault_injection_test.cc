@@ -174,7 +174,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
                       unique_ptr<Directory>* result) override {
     unique_ptr<Directory> r;
     Status s = target()->NewDirectory(name, &r);
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     if (!s.ok()) {
       return s;
     }
@@ -206,7 +206,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
       fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
               s.ToString().c_str());
     }
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     if (s.ok()) {
       UntrackFile(f);
     }
@@ -450,7 +450,7 @@ class FaultInjectionTest {
     NewDB();
   }
 
-  ~FaultInjectionTest() { ASSERT_OK(TearDown()); }
+  ~FaultInjectionTest() { EXPECT_OK(TearDown()); }
 
   bool ChangeOptions() {
     option_config_++;
@@ -524,7 +524,7 @@ class FaultInjectionTest {
 
     dbname_ = test::TmpDir() + "/fault_test";
 
-    ASSERT_OK(DestroyDB(dbname_, options_));
+    EXPECT_OK(DestroyDB(dbname_, options_));
 
     options_.create_if_missing = true;
     Status s = OpenDB();
@@ -581,7 +581,7 @@ class FaultInjectionTest {
       Value(i, &value_space);
       s = ReadValue(i, &val);
       if (s.ok()) {
-        ASSERT_EQ(value_space, val);
+        EXPECT_EQ(value_space, val);
       }
       if (expected == kValExpectFound) {
         if (!s.ok()) {

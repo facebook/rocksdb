@@ -195,11 +195,11 @@ bool LDBCommand::ParseIntOption(const map<string, string>& options,
       value = stoi(itr->second);
       return true;
     } catch(const invalid_argument&) {
-      exec_state = LDBCommandExecuteResult::Failed(option +
-                      " has an invalid value.");
+      exec_state =
+          LDBCommandExecuteResult::Failed(option + " has an invalid value.");
     } catch(const out_of_range&) {
-      exec_state = LDBCommandExecuteResult::Failed(option +
-                      " has a value out-of-range.");
+      exec_state = LDBCommandExecuteResult::Failed(
+          option + " has a value out-of-range.");
     }
   }
   return false;
@@ -235,8 +235,8 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       use_table_options = true;
       table_options.filter_policy.reset(NewBloomFilterPolicy(bits));
     } else {
-      exec_state_ = LDBCommandExecuteResult::Failed(ARG_BLOOM_BITS +
-                      " must be > 0.");
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_BLOOM_BITS + " must be > 0.");
     }
   }
 
@@ -246,8 +246,8 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       use_table_options = true;
       table_options.block_size = block_size;
     } else {
-      exec_state_ = LDBCommandExecuteResult::Failed(ARG_BLOCK_SIZE +
-                      " must be > 0.");
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_BLOCK_SIZE + " must be > 0.");
     }
   }
 
@@ -277,8 +277,8 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       opt.compression = kLZ4HCCompression;
     } else {
       // Unknown compression.
-      exec_state_ = LDBCommandExecuteResult::Failed(
-                      "Unknown compression level: " + comp);
+      exec_state_ =
+          LDBCommandExecuteResult::Failed("Unknown compression level: " + comp);
     }
   }
 
@@ -289,7 +289,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       opt.db_write_buffer_size = db_write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_DB_WRITE_BUFFER_SIZE +
-                      " must be >= 0.");
+                                                    " must be >= 0.");
     }
   }
 
@@ -300,7 +300,7 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
       opt.write_buffer_size = write_buffer_size;
     } else {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_WRITE_BUFFER_SIZE +
-                      " must be > 0.");
+                                                    " must be > 0.");
     }
   }
 
@@ -309,8 +309,8 @@ Options LDBCommand::PrepareOptionsForOpenDB() {
     if (file_size > 0) {
       opt.target_file_size_base = file_size;
     } else {
-      exec_state_ = LDBCommandExecuteResult::Failed(ARG_FILE_SIZE +
-                      " must be > 0.");
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(ARG_FILE_SIZE + " must be > 0.");
     }
   }
 
@@ -585,8 +585,8 @@ void ManifestDumpCommand::DoCommand() {
     // containing the db for files of the form MANIFEST_[0-9]+
     DIR* d = opendir(db_path_.c_str());
     if (d == nullptr) {
-      exec_state_ = LDBCommandExecuteResult::Failed(
-        db_path_ + " is not a directory");
+      exec_state_ =
+          LDBCommandExecuteResult::Failed(db_path_ + " is not a directory");
       return;
     }
     struct dirent* entry;
@@ -603,7 +603,7 @@ void ManifestDumpCommand::DoCommand() {
           found = true;
         } else {
           exec_state_ = LDBCommandExecuteResult::Failed(
-            "Multiple MANIFEST files found; use --path to select one");
+              "Multiple MANIFEST files found; use --path to select one");
           closedir(d);
           return;
         }
@@ -792,8 +792,8 @@ void InternalDumpCommand::DoCommand() {
   ScopedArenaIterator iter(idb->TEST_NewInternalIterator(&arena));
   Status st = iter->status();
   if (!st.ok()) {
-    exec_state_ = LDBCommandExecuteResult::Failed("Iterator error:"
-                                                  + st.ToString());
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error:" + st.ToString());
   }
 
   if (has_from_) {
@@ -900,10 +900,10 @@ DBDumperCommand::DBDumperCommand(const vector<string>& params,
       max_keys_ = stoi(itr->second);
     } catch(const invalid_argument&) {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_MAX_KEYS +
-                        " has an invalid value");
+                                                    " has an invalid value");
     } catch(const out_of_range&) {
-      exec_state_ = LDBCommandExecuteResult::Failed(ARG_MAX_KEYS +
-                        " has a value out-of-range");
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_MAX_KEYS + " has a value out-of-range");
     }
   }
   itr = options.find(ARG_COUNT_DELIM);
@@ -961,8 +961,8 @@ void DBDumperCommand::DoCommand() {
   Iterator* iter = db_->NewIterator(ReadOptions());
   Status st = iter->status();
   if (!st.ok()) {
-    exec_state_ = LDBCommandExecuteResult::Failed("Iterator error."
-        + st.ToString());
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Iterator error." + st.ToString());
   }
 
   if (!null_from_) {
@@ -1095,7 +1095,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(const vector<string>& params,
 
   if(new_levels_ <= 0) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-           " Use --" + ARG_NEW_LEVELS + " to specify a new level number\n");
+        " Use --" + ARG_NEW_LEVELS + " to specify a new level number\n");
   }
 }
 
@@ -1165,8 +1165,8 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
 
 void ReduceDBLevelsCommand::DoCommand() {
   if (new_levels_ <= 1) {
-    exec_state_ = LDBCommandExecuteResult::Failed(
-        "Invalid number of levels.\n");
+    exec_state_ =
+        LDBCommandExecuteResult::Failed("Invalid number of levels.\n");
     return;
   }
 
@@ -1225,8 +1225,8 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
   if (old_compaction_style_ != kCompactionStyleLevel &&
      old_compaction_style_ != kCompactionStyleUniversal) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-      "Use --" + ARG_OLD_COMPACTION_STYLE + " to specify old compaction " +
-      "style. Check ldb help for proper compaction style value.\n");
+        "Use --" + ARG_OLD_COMPACTION_STYLE + " to specify old compaction " +
+        "style. Check ldb help for proper compaction style value.\n");
     return;
   }
 
@@ -1235,23 +1235,23 @@ ChangeCompactionStyleCommand::ChangeCompactionStyleCommand(
   if (new_compaction_style_ != kCompactionStyleLevel &&
      new_compaction_style_ != kCompactionStyleUniversal) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-      "Use --" + ARG_NEW_COMPACTION_STYLE + " to specify new compaction " +
-      "style. Check ldb help for proper compaction style value.\n");
+        "Use --" + ARG_NEW_COMPACTION_STYLE + " to specify new compaction " +
+        "style. Check ldb help for proper compaction style value.\n");
     return;
   }
 
   if (new_compaction_style_ == old_compaction_style_) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-      "Old compaction style is the same as new compaction style. "
-      "Nothing to do.\n");
+        "Old compaction style is the same as new compaction style. "
+        "Nothing to do.\n");
     return;
   }
 
   if (old_compaction_style_ == kCompactionStyleUniversal &&
       new_compaction_style_ == kCompactionStyleLevel) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-      "Convert from universal compaction to level compaction. "
-      "Nothing to do.\n");
+        "Convert from universal compaction to level compaction. "
+        "Nothing to do.\n");
     return;
   }
 }
@@ -1320,16 +1320,19 @@ void ChangeCompactionStyleCommand::DoCommand() {
 
     // level 0 should have only 1 file
     if (i == 0 && num_files != 1) {
-      exec_state_ = LDBCommandExecuteResult::Failed("Number of db files at "
-        "level 0 after compaction is " + ToString(num_files) +
-        ", not 1.\n");
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Number of db files at "
+          "level 0 after compaction is " +
+          ToString(num_files) + ", not 1.\n");
       return;
     }
     // other levels should have no file
     if (i > 0 && num_files != 0) {
-      exec_state_ = LDBCommandExecuteResult::Failed("Number of db files at "
-        "level " + ToString(i) + " after compaction is " +
-        ToString(num_files) + ", not 0.\n");
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          "Number of db files at "
+          "level " +
+          ToString(i) + " after compaction is " + ToString(num_files) +
+          ", not 0.\n");
       return;
     }
   }
@@ -1459,8 +1462,8 @@ WALDumperCommand::WALDumperCommand(const vector<string>& params,
   print_header_ = IsFlagPresent(flags, ARG_PRINT_HEADER);
   print_values_ = IsFlagPresent(flags, ARG_PRINT_VALUE);
   if (wal_file_.empty()) {
-    exec_state_ = LDBCommandExecuteResult::Failed(
-                    "Argument " + ARG_WAL_FILE + " must be specified.");
+    exec_state_ = LDBCommandExecuteResult::Failed("Argument " + ARG_WAL_FILE +
+                                                  " must be specified.");
   }
 }
 
@@ -1487,7 +1490,7 @@ GetCommand::GetCommand(const vector<string>& params,
 
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-                    "<key> must be specified for the get command");
+        "<key> must be specified for the get command");
   } else {
     key_ = params.at(0);
   }
@@ -1527,16 +1530,16 @@ ApproxSizeCommand::ApproxSizeCommand(const vector<string>& params,
   if (options.find(ARG_FROM) != options.end()) {
     start_key_ = options.find(ARG_FROM)->second;
   } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(ARG_FROM +
-                    " must be specified for approxsize command");
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        ARG_FROM + " must be specified for approxsize command");
     return;
   }
 
   if (options.find(ARG_TO) != options.end()) {
     end_key_ = options.find(ARG_TO)->second;
   } else {
-    exec_state_ = LDBCommandExecuteResult::Failed(ARG_TO +
-                    " must be specified for approxsize command");
+    exec_state_ = LDBCommandExecuteResult::Failed(
+        ARG_TO + " must be specified for approxsize command");
     return;
   }
 
@@ -1657,10 +1660,10 @@ ScanCommand::ScanCommand(const vector<string>& params,
       max_keys_scanned_ = stoi(itr->second);
     } catch(const invalid_argument&) {
       exec_state_ = LDBCommandExecuteResult::Failed(ARG_MAX_KEYS +
-                        " has an invalid value");
+                                                    " has an invalid value");
     } catch(const out_of_range&) {
-      exec_state_ = LDBCommandExecuteResult::Failed(ARG_MAX_KEYS +
-                        " has a value out-of-range");
+      exec_state_ = LDBCommandExecuteResult::Failed(
+          ARG_MAX_KEYS + " has a value out-of-range");
     }
   }
 }
@@ -1743,7 +1746,7 @@ DeleteCommand::DeleteCommand(const vector<string>& params,
 
   if (params.size() != 1) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-                    "KEY must be specified for the delete command");
+        "KEY must be specified for the delete command");
   } else {
     key_ = params.at(0);
     if (is_key_hex_) {
@@ -1776,7 +1779,7 @@ PutCommand::PutCommand(const vector<string>& params,
 
   if (params.size() != 2) {
     exec_state_ = LDBCommandExecuteResult::Failed(
-                    "<key> and <value> must be specified for the put command");
+        "<key> and <value> must be specified for the put command");
   } else {
     key_ = params.at(0);
     value_ = params.at(1);

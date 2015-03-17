@@ -23,14 +23,14 @@ class CuckooTableDBTest {
  public:
   CuckooTableDBTest() : env_(Env::Default()) {
     dbname_ = test::TmpDir() + "/cuckoo_table_db_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
 
   ~CuckooTableDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   Options CurrentOptions() {
@@ -83,9 +83,8 @@ class CuckooTableDBTest {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    ASSERT_TRUE(
-        db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                         &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(level), &property));
     return atoi(property.c_str());
   }
 

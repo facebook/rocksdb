@@ -55,7 +55,7 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
     } else {
       s = DB::OpenForReadOnly(options, kDbName, &db);
     }
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     return std::shared_ptr<DB>(db);
 }
 

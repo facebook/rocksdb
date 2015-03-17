@@ -260,12 +260,12 @@ class ComparatorDBTest {
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
     comparator = BytewiseComparator();
     dbname_ = test::TmpDir() + "/comparator_db_test";
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   ~ComparatorDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
     comparator = BytewiseComparator();
   }
 

@@ -20,7 +20,7 @@ class GeoDBTest {
 
   GeoDBTest() {
     GeoDBOptions geodb_options;
-    ASSERT_OK(DestroyDB(kDefaultDbName, options));
+    EXPECT_OK(DestroyDB(kDefaultDbName, options));
     options.create_if_missing = true;
     Status status = DB::Open(options, kDefaultDbName, &db);
     geodb =  new GeoDBImpl(db, geodb_options);

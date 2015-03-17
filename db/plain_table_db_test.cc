@@ -49,14 +49,14 @@ class PlainTableDBTest {
  public:
   PlainTableDBTest() : env_(Env::Default()) {
     dbname_ = test::TmpDir() + "/plain_table_db_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
 
   ~PlainTableDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   // Return the current option configuration.
@@ -149,9 +149,8 @@ class PlainTableDBTest {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    ASSERT_TRUE(
-        db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                         &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(level), &property));
     return atoi(property.c_str());
   }
 
@@ -206,23 +205,23 @@ class TestPlainTableReader : public PlainTableReader {
                          encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataFile();
-    ASSERT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok());
 
     s = PopulateIndex(const_cast<TableProperties*>(table_properties),
                       bloom_bits_per_key, hash_table_ratio, index_sparseness,
                       2 * 1024 * 1024);
-    ASSERT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok());
 
     TableProperties* props = const_cast<TableProperties*>(table_properties);
     if (store_index_in_file) {
       auto bloom_version_ptr = props->user_collected_properties.find(
           PlainTablePropertyNames::kBloomVersion);
-      ASSERT_TRUE(bloom_version_ptr != props->user_collected_properties.end());
-      ASSERT_EQ(bloom_version_ptr->second, std::string("1"));
+      EXPECT_TRUE(bloom_version_ptr != props->user_collected_properties.end());
+      EXPECT_EQ(bloom_version_ptr->second, std::string("1"));
       if (ioptions.bloom_locality > 0) {
         auto num_blocks_ptr = props->user_collected_properties.find(
             PlainTablePropertyNames::kNumBloomBlocks);
-        ASSERT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
+        EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
       }
     }
   }
@@ -233,9 +232,9 @@ class TestPlainTableReader : public PlainTableReader {
   virtual bool MatchBloom(uint32_t hash) const override {
     bool ret = PlainTableReader::MatchBloom(hash);
     if (*expect_bloom_not_match_) {
-      ASSERT_TRUE(!ret);
+      EXPECT_TRUE(!ret);
     } else {
-      ASSERT_TRUE(ret);
+      EXPECT_TRUE(ret);
     }
     return ret;
   }
@@ -262,20 +261,20 @@ class TestPlainTableFactory : public PlainTableFactory {
     TableProperties* props = nullptr;
     auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                  ioptions.env, ioptions.info_log, &props);
-    ASSERT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
                         ioptions.env, BloomBlockBuilder::kBloomBlock,
                         &bloom_block_handle);
-      ASSERT_TRUE(s.ok());
+      EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlock(
           file.get(), file_size, kPlainTableMagicNumber, ioptions.env,
           PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_handle);
-      ASSERT_TRUE(s.ok());
+      EXPECT_TRUE(s.ok());
     }
 
     auto& user_props = props->user_collected_properties;

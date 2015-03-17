@@ -464,7 +464,7 @@ class DBTest {
     env_->SetBackgroundThreads(1, Env::HIGH);
     dbname_ = test::TmpDir(env_) + "/db_test";
     auto options = CurrentOptions();
-    ASSERT_OK(DestroyDB(dbname_, options));
+    EXPECT_OK(DestroyDB(dbname_, options));
     db_ = nullptr;
     Reopen(options);
   }
@@ -476,7 +476,7 @@ class DBTest {
     options.db_paths.emplace_back(dbname_ + "_2", 0);
     options.db_paths.emplace_back(dbname_ + "_3", 0);
     options.db_paths.emplace_back(dbname_ + "_4", 0);
-    ASSERT_OK(DestroyDB(dbname_, options));
+    EXPECT_OK(DestroyDB(dbname_, options));
     delete env_;
   }
 
@@ -747,7 +747,7 @@ class DBTest {
       const std::vector<std::string>& cfs,
       const std::vector<Options>& options) {
     Close();
-    ASSERT_EQ(cfs.size(), options.size());
+    EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
       column_families.push_back(ColumnFamilyDescriptor(cfs[i], options[i]));
@@ -861,13 +861,13 @@ class DBTest {
 
   uint64_t GetNumSnapshots() {
     uint64_t int_num;
-    ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.num-snapshots", &int_num));
+    EXPECT_TRUE(dbfull()->GetIntProperty("rocksdb.num-snapshots", &int_num));
     return int_num;
   }
 
   uint64_t GetTimeOldestSnapshots() {
     uint64_t int_num;
-    ASSERT_TRUE(
+    EXPECT_TRUE(
         dbfull()->GetIntProperty("rocksdb.oldest-snapshot-time", &int_num));
     return int_num;
   }
@@ -890,11 +890,11 @@ class DBTest {
     // Check reverse iteration results are the reverse of forward results
     unsigned int matched = 0;
     for (iter->SeekToLast(); iter->Valid(); iter->Prev()) {
-      ASSERT_LT(matched, forward.size());
-      ASSERT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
+      EXPECT_LT(matched, forward.size());
+      EXPECT_EQ(IterStatus(iter), forward[forward.size() - matched - 1]);
       matched++;
     }
-    ASSERT_EQ(matched, forward.size());
+    EXPECT_EQ(matched, forward.size());
 
     delete iter;
     return result;
@@ -958,10 +958,10 @@ class DBTest {
     std::string property;
     if (cf == 0) {
       // default cfd
-      ASSERT_TRUE(db_->GetProperty(
+      EXPECT_TRUE(db_->GetProperty(
           "rocksdb.num-files-at-level" + NumberToString(level), &property));
     } else {
-      ASSERT_TRUE(db_->GetProperty(
+      EXPECT_TRUE(db_->GetProperty(
           handles_[cf], "rocksdb.num-files-at-level" + NumberToString(level),
           &property));
     }
@@ -1137,8 +1137,8 @@ class DBTest {
       const SequenceNumber seq) {
     unique_ptr<TransactionLogIterator> iter;
     Status status = dbfull()->GetUpdatesSince(seq, &iter);
-    ASSERT_OK(status);
-    ASSERT_TRUE(iter->Valid());
+    EXPECT_OK(status);
+    EXPECT_TRUE(iter->Valid());
     return std::move(iter);
   }
 
@@ -3762,8 +3762,8 @@ class KeepFilterFactory : public CompactionFilterFactory {
   virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
       const CompactionFilter::Context& context) override {
     if (check_context_) {
-      ASSERT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
-      ASSERT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
+      EXPECT_EQ(expect_full_compaction_.load(), context.is_full_compaction);
+      EXPECT_EQ(expect_manual_compaction_.load(), context.is_manual_compaction);
     }
     return std::unique_ptr<CompactionFilter>(new KeepFilter());
   }
@@ -6409,11 +6409,11 @@ TEST(DBTest, CustomComparator) {
    private:
     static int ToNumber(const Slice& x) {
       // Check that there are no extra characters.
-      ASSERT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size()-1] == ']')
+      EXPECT_TRUE(x.size() >= 2 && x[0] == '[' && x[x.size() - 1] == ']')
           << EscapeString(x);
       int val;
       char ignored;
-      ASSERT_TRUE(sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1)
+      EXPECT_TRUE(sscanf(x.ToString().c_str(), "[%i]%c", &val, &ignored) == 1)
           << EscapeString(x);
       return val;
     }
@@ -7652,10 +7652,10 @@ SequenceNumber ReadRecords(
   BatchResult res;
   while (iter->Valid()) {
     res = iter->GetBatch();
-    ASSERT_TRUE(res.sequence > lastSequence);
+    EXPECT_TRUE(res.sequence > lastSequence);
     ++count;
     lastSequence = res.sequence;
-    ASSERT_OK(iter->status());
+    EXPECT_OK(iter->status());
     iter->Next();
   }
   return res.sequence;
