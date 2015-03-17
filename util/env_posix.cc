@@ -1409,7 +1409,7 @@ class PosixEnv : public Env {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
-#elif __MACH__
+#elif defined(__MACH__)
     clock_serv_t cclock;
     mach_timespec_t ts;
     host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
