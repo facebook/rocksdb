@@ -92,8 +92,8 @@ DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_I
 GCC_BASE="/mnt/gvfs/third-party2/gcc/1c67a0b88f64d4d9ced0382d141c76aaa7d62fba/4.9.x/centos6-native/1317bc4"
 STDLIBS="-L $GCC_BASE/lib64"
 
-CLANG_BASE="/mnt/gvfs/third-party2/clang/ab6260de0ba0af5cb84eb2df1844e277c7d68fbd/dev"
-CLANG_BIN="$CLANG_BASE/centos6-native/165e05b/bin"
+CLANG_BASE="/mnt/gvfs/third-party2/clang/d81444dd214df3d2466734de45bb264a0486acc3/dev"
+CLANG_BIN="$CLANG_BASE/centos6-native/af4b1a0/bin"
 CLANG_ANALYZER="$CLANG_BIN/clang++"
 CLANG_SCAN_BUILD="$CLANG_BASE/src/clang/tools/scan-build/scan-build"
 
@@ -107,7 +107,7 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang 
-  CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/3ea62b1/lib/clang/dev/include/"
+  CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/74c386f/lib/clang/dev/include/"
   CC="$CLANG_BIN/clang"
   CXX="$CLANG_BIN/clang++"
 
