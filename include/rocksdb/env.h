@@ -814,7 +814,7 @@ class EnvWrapper : public Env {
     return target_->Schedule(f, a, pri, tag);
   }
 
-  int UnSchedule(void* tag, Priority pri) {
+  int UnSchedule(void* tag, Priority pri) override {
     return target_->UnSchedule(tag, pri);
   }
 
