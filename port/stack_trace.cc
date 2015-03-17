@@ -71,7 +71,7 @@ void PrintStackTraceLine(const char* symbol, void* frame) {
 
   fprintf(stderr, "\n");
 }
-#elif OS_MACOSX
+#elif defined(OS_MACOSX)
 
 void PrintStackTraceLine(const char* symbol, void* frame) {
   static int pid = getpid();
