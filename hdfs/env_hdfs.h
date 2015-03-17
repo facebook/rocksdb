@@ -107,8 +107,8 @@ class HdfsEnv : public Env {
     posixEnv->Schedule(function, arg, pri, tag);
   }
 
-  virtual int UnSchedule(void* arg, Priority pri) {
-    posixEnv->UnSchedule(arg, pri);
+  virtual int UnSchedule(void* tag, Priority pri) {
+    posixEnv->UnSchedule(tag, pri);
   }
 
   virtual void StartThread(void (*function)(void* arg), void* arg) {
@@ -328,7 +328,7 @@ class HdfsEnv : public Env {
   virtual void Schedule(void (*function)(void* arg), void* arg,
                         Priority pri = LOW, void* tag = nullptr) override {}
 
-  virtual int UnSchedule(void* arg, Priority pri) override { return 0; }
+  virtual int UnSchedule(void* tag, Priority pri) override { return 0; }
 
   virtual void StartThread(void (*function)(void* arg), void* arg) override {}
 

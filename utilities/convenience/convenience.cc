@@ -16,7 +16,7 @@
 namespace rocksdb {
 
 void CancelAllBackgroundWork(DB* db) {
-  (dynamic_cast<DBImpl*>(db))->CancelAllBackgroundWork(false);
+  (dynamic_cast<DBImpl*>(db))->CancelAllBackgroundWork();
 }
 }  // namespace rocksdb
 

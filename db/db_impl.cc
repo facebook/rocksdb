@@ -256,7 +256,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   LogFlush(db_options_.info_log);
 }
 
-void DBImpl::CancelAllBackgroundWork(bool wait) {
+void DBImpl::CancelAllBackgroundWork() {
   shutting_down_.store(true, std::memory_order_release);
 }
 
@@ -276,7 +276,7 @@ DBImpl::~DBImpl() {
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
-  CancelAllBackgroundWork(true);
+  CancelAllBackgroundWork();
   mutex_.Unlock();
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
