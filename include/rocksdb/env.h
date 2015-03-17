@@ -225,10 +225,12 @@ class Env {
   // added to the same Env may run concurrently in different threads.
   // I.e., the caller may not assume that background work items are
   // serialized.
-  virtual void Schedule(
-      void (*function)(void* arg),
-      void* arg,
-      Priority pri = LOW) = 0;
+  virtual void Schedule(void (*function)(void* arg), void* arg,
+                        Priority pri = LOW, void* tag = nullptr) = 0;
+
+  // Arrange to remove jobs for given arg from the queue_ if they are not
+  // already scheduled. Caller is expected to have exclusive lock on arg.
+  virtual int UnSchedule(void* arg, Priority pri) { return 0; }
 
   // Start a new thread, invoking "function(arg)" within the new thread.
   // When "function(arg)" returns, the thread will be destroyed.
@@ -804,10 +806,18 @@ class EnvWrapper : public Env {
   Status LockFile(const std::string& f, FileLock** l) override {
     return target_->LockFile(f, l);
   }
+
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
-  void Schedule(void (*f)(void*), void* a, Priority pri) override {
-    return target_->Schedule(f, a, pri);
+
+  void Schedule(void (*f)(void* arg), void* a, Priority pri,
+                void* tag = nullptr) override {
+    return target_->Schedule(f, a, pri, tag);
   }
+
+  int UnSchedule(void* tag, Priority pri) {
+    return target_->UnSchedule(tag, pri);
+  }
+
   void StartThread(void (*f)(void*), void* a) override {
     return target_->StartThread(f, a);
   }

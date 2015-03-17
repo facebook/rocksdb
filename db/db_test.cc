@@ -1105,13 +1105,15 @@ class DBTest {
     return sst_count;
   }
 
-  void GenerateNewFile(Random* rnd, int* key_idx) {
+  void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false) {
     for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 10) ? 1 : 10000)));
       (*key_idx)++;
     }
-    dbfull()->TEST_WaitForFlushMemTable();
-    dbfull()->TEST_WaitForCompact();
+    if (!nowait) {
+      dbfull()->TEST_WaitForFlushMemTable();
+      dbfull()->TEST_WaitForCompact();
+    }
   }
 
   std::string IterStatus(Iterator* iter) {
@@ -11699,6 +11701,59 @@ TEST(DBTest, DeleteObsoleteFilesPendingOutputs) {
   ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + file_on_L2));
 }
 
+TEST(DBTest, CloseSpeedup) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 4;
+  options.max_bytes_for_level_base = 400 * 1024;
+  options.max_write_buffer_number = 16;
+
+  // Block background threads
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+  SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
+                 Env::Priority::HIGH);
+
+  std::vector<std::string> filenames;
+  env_->GetChildren(dbname_, &filenames);
+  // Delete archival files.
+  for (size_t i = 0; i < filenames.size(); ++i) {
+    env_->DeleteFile(dbname_ + "/" + filenames[i]);
+  }
+  env_->DeleteDir(dbname_);
+  DestroyAndReopen(options);
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  Random rnd(301);
+  int key_idx = 0;
+
+  // First three 110KB files are not going to level 2
+  // After that, (100K, 200K)
+  for (int num = 0; num < 5; num++) {
+    GenerateNewFile(&rnd, &key_idx, true);
+  }
+
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  Close();
+  ASSERT_EQ(0, GetSstFileCount(dbname_));
+
+  // Unblock background threads
+  sleeping_task_high.WakeUp();
+  sleeping_task_high.WaitUntilDone();
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+
+  Destroy(options);
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

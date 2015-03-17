@@ -258,14 +258,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
 
 void DBImpl::CancelAllBackgroundWork(bool wait) {
   shutting_down_.store(true, std::memory_order_release);
-  if (!wait) {
-    return;
-  }
-
-  // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
-    bg_cv_.Wait();
-  }
 }
 
 DBImpl::~DBImpl() {
@@ -285,6 +277,17 @@ DBImpl::~DBImpl() {
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
   CancelAllBackgroundWork(true);
+  mutex_.Unlock();
+  int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
+  int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);
+  mutex_.Lock();
+  bg_compaction_scheduled_ -= compactions_unscheduled;
+  bg_flush_scheduled_ -= flushes_unscheduled;
+
+  // Wait for background work to finish
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
+    bg_cv_.Wait();
+  }
   listeners_.clear();
   flush_scheduler_.Clear();
 
@@ -1718,7 +1721,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
     } else {
       manual_compaction_ = &manual;
       bg_compaction_scheduled_++;
-      env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
+      env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW, this);
     }
   }
 
@@ -1793,7 +1796,7 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
          bg_flush_scheduled_ < db_options_.max_background_flushes) {
     unscheduled_flushes_--;
     bg_flush_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH);
+    env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
 
   if (db_options_.max_background_flushes == 0 &&
@@ -1808,14 +1811,14 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
       unscheduled_compactions_--;
     }
     bg_compaction_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
+    env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW, this);
   }
 
   while (bg_compaction_scheduled_ < db_options_.max_background_compactions &&
          unscheduled_compactions_ > 0) {
     bg_compaction_scheduled_++;
     unscheduled_compactions_--;
-    env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW);
+    env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW, this);
   }
 }
 

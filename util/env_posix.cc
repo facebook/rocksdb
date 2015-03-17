@@ -41,6 +41,7 @@
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
+#include "util/sync_point.h"
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
 
@@ -1344,8 +1345,10 @@ class PosixEnv : public Env {
     return result;
   }
 
-  virtual void Schedule(void (*function)(void*), void* arg,
-                        Priority pri = LOW) override;
+  virtual void Schedule(void (*function)(void* arg1), void* arg,
+                        Priority pri = LOW, void* tag = nullptr) override;
+
+  virtual int UnSchedule(void* arg, Priority pri) override;
 
   virtual void StartThread(void (*function)(void* arg), void* arg) override;
 
@@ -1765,7 +1768,7 @@ class PosixEnv : public Env {
       }
     }
 
-    void Schedule(void (*function)(void*), void* arg) {
+    void Schedule(void (*function)(void* arg1), void* arg, void* tag) {
       PthreadCall("lock", pthread_mutex_lock(&mu_));
 
       if (exit_all_threads_) {
@@ -1779,6 +1782,7 @@ class PosixEnv : public Env {
       queue_.push_back(BGItem());
       queue_.back().function = function;
       queue_.back().arg = arg;
+      queue_.back().tag = tag;
       queue_len_.store(static_cast<unsigned int>(queue_.size()),
                        std::memory_order_relaxed);
 
@@ -1794,13 +1798,37 @@ class PosixEnv : public Env {
       PthreadCall("unlock", pthread_mutex_unlock(&mu_));
     }
 
+    int UnSchedule(void* arg) {
+      int count = 0;
+      PthreadCall("lock", pthread_mutex_lock(&mu_));
+
+      // Remove from priority queue
+      BGQueue::iterator it = queue_.begin();
+      while (it != queue_.end()) {
+        if (arg == (*it).tag) {
+          it = queue_.erase(it);
+          count++;
+        } else {
+          it++;
+        }
+      }
+      queue_len_.store(static_cast<unsigned int>(queue_.size()),
+                       std::memory_order_relaxed);
+      PthreadCall("unlock", pthread_mutex_unlock(&mu_));
+      return count;
+    }
+
     unsigned int GetQueueLen() const {
       return queue_len_.load(std::memory_order_relaxed);
     }
 
    private:
     // Entry per Schedule() call
-    struct BGItem { void* arg; void (*function)(void*); };
+    struct BGItem {
+      void* arg;
+      void (*function)(void*);
+      void* tag;
+    };
     typedef std::deque<BGItem> BGQueue;
 
     pthread_mutex_t mu_;
@@ -1836,9 +1864,14 @@ PosixEnv::PosixEnv() : checkedDiskForMmap_(false),
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
-void PosixEnv::Schedule(void (*function)(void*), void* arg, Priority pri) {
+void PosixEnv::Schedule(void (*function)(void* arg1), void* arg, Priority pri,
+                        void* tag) {
   assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  thread_pools_[pri].Schedule(function, arg);
+  thread_pools_[pri].Schedule(function, arg, tag);
+}
+
+int PosixEnv::UnSchedule(void* arg, Priority pri) {
+  return thread_pools_[pri].UnSchedule(arg);
 }
 
 unsigned int PosixEnv::GetThreadPoolQueueLen(Priority pri) const {

@@ -49,8 +49,76 @@ static void SetBool(void* ptr) {
       ->store(true, std::memory_order_relaxed);
 }
 
+class SleepingBackgroundTask {
+ public:
+  explicit SleepingBackgroundTask()
+      : bg_cv_(&mutex_), should_sleep_(true), sleeping_(false) {}
+  void DoSleep() {
+    MutexLock l(&mutex_);
+    sleeping_ = true;
+    while (should_sleep_) {
+      bg_cv_.Wait();
+    }
+    sleeping_ = false;
+    bg_cv_.SignalAll();
+  }
+
+  void WakeUp() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    bg_cv_.SignalAll();
+
+    while (sleeping_) {
+      bg_cv_.Wait();
+    }
+  }
+
+  bool IsSleeping() {
+    MutexLock l(&mutex_);
+    return sleeping_;
+  }
+
+  static void DoSleepTask(void* arg) {
+    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+  }
+
+ private:
+  port::Mutex mutex_;
+  port::CondVar bg_cv_;  // Signalled when background work finishes
+  bool should_sleep_;
+  bool sleeping_;
+};
+
 TEST(EnvPosixTest, RunImmediately) {
   std::atomic<bool> called(false);
+  env_->Schedule(&SetBool, &called);
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_TRUE(called.load(std::memory_order_relaxed));
+}
+
+TEST(EnvPosixTest, UnSchedule) {
+  std::atomic<bool> called(false);
+  env_->SetBackgroundThreads(1, Env::LOW);
+
+  /* Block the low priority queue */
+  SleepingBackgroundTask sleeping_task, sleeping_task1;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::LOW);
+
+  /* Schedule another task */
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task1,
+                 Env::Priority::LOW, &sleeping_task1);
+
+  /* Remove it with a different tag  */
+  ASSERT_EQ(0, env_->UnSchedule(&called, Env::Priority::LOW));
+
+  /* Remove it from the queue with the right tag */
+  ASSERT_EQ(1, env_->UnSchedule(&sleeping_task1, Env::Priority::LOW));
+
+  // Unblock background thread
+  sleeping_task.WakeUp();
+
+  /* Schedule another task */
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
   ASSERT_TRUE(called.load(std::memory_order_relaxed));
@@ -240,46 +308,6 @@ TEST(EnvPosixTest, TwoPools) {
 }
 
 TEST(EnvPosixTest, DecreaseNumBgThreads) {
-  class SleepingBackgroundTask {
-   public:
-    explicit SleepingBackgroundTask()
-        : bg_cv_(&mutex_), should_sleep_(true), sleeping_(false) {}
-    void DoSleep() {
-      MutexLock l(&mutex_);
-      sleeping_ = true;
-      while (should_sleep_) {
-        bg_cv_.Wait();
-      }
-      sleeping_ = false;
-      bg_cv_.SignalAll();
-    }
-
-    void WakeUp() {
-      MutexLock l(&mutex_);
-      should_sleep_ = false;
-      bg_cv_.SignalAll();
-
-      while (sleeping_) {
-        bg_cv_.Wait();
-      }
-    }
-
-    bool IsSleeping() {
-      MutexLock l(&mutex_);
-      return sleeping_;
-    }
-
-    static void DoSleepTask(void* arg) {
-      reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
-    }
-
-   private:
-    port::Mutex mutex_;
-    port::CondVar bg_cv_;  // Signalled when background work finishes
-    bool should_sleep_;
-    bool sleeping_;
-  };
-
   std::vector<SleepingBackgroundTask> tasks(10);
 
   // Set number of thread to 1 first.
