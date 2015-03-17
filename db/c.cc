@@ -1613,7 +1613,7 @@ void rocksdb_options_set_table_cache_numshardbits(
 
 void rocksdb_options_set_table_cache_remove_scan_count_limit(
     rocksdb_options_t* opt, int v) {
-  opt->rep.table_cache_remove_scan_count_limit = v;
+  // this option is deprecated
 }
 
 void rocksdb_options_set_arena_block_size(

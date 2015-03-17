@@ -193,9 +193,6 @@ class LRUCache {
 
   // Separate from constructor so caller can easily make an array of LRUCache
   void SetCapacity(size_t capacity) { capacity_ = capacity; }
-  void SetRemoveScanCountLimit(uint32_t remove_scan_count_limit) {
-    remove_scan_count_limit_ = remove_scan_count_limit;
-  }
 
   // Like Cache methods, but with an extra "hash" parameter.
   Cache::Handle* Insert(const Slice& key, uint32_t hash,
@@ -224,7 +221,6 @@ class LRUCache {
 
   // Initialized before use.
   size_t capacity_;
-  uint32_t remove_scan_count_limit_;
 
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
@@ -426,7 +422,6 @@ void LRUCache::Erase(const Slice& key, uint32_t hash) {
 }
 
 static int kNumShardBits = 4;          // default values, can be overridden
-static int kRemoveScanCountLimit = 0; // default values, can be overridden
 
 class ShardedLRUCache : public Cache {
  private:
@@ -445,27 +440,15 @@ class ShardedLRUCache : public Cache {
     return (num_shard_bits_ > 0) ? (hash >> (32 - num_shard_bits_)) : 0;
   }
 
-  void init(size_t capacity, int numbits, int removeScanCountLimit) {
-    num_shard_bits_ = numbits;
-    capacity_ = capacity;
+ public:
+  ShardedLRUCache(size_t capacity, int num_shard_bits)
+      : last_id_(0), num_shard_bits_(num_shard_bits), capacity_(capacity) {
     int num_shards = 1 << num_shard_bits_;
     shards_ = new LRUCache[num_shards];
     const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
     for (int s = 0; s < num_shards; s++) {
       shards_[s].SetCapacity(per_shard);
-      shards_[s].SetRemoveScanCountLimit(removeScanCountLimit);
     }
-  }
-
- public:
-  explicit ShardedLRUCache(size_t capacity)
-      : last_id_(0) {
-    init(capacity, kNumShardBits, kRemoveScanCountLimit);
-  }
-  ShardedLRUCache(size_t capacity, int num_shard_bits,
-                  int removeScanCountLimit)
-     : last_id_(0) {
-    init(capacity, num_shard_bits, removeScanCountLimit);
   }
   virtual ~ShardedLRUCache() {
     delete[] shards_;
@@ -526,17 +509,10 @@ shared_ptr<Cache> NewLRUCache(size_t capacity) {
 }
 
 shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits) {
-  return NewLRUCache(capacity, num_shard_bits, kRemoveScanCountLimit);
-}
-
-shared_ptr<Cache> NewLRUCache(size_t capacity, int num_shard_bits,
-                              int removeScanCountLimit) {
   if (num_shard_bits >= 20) {
     return nullptr;  // the cache cannot be sharded into too many fine pieces
   }
-  return std::make_shared<ShardedLRUCache>(capacity,
-                                           num_shard_bits,
-                                           removeScanCountLimit);
+  return std::make_shared<ShardedLRUCache>(capacity, num_shard_bits);
 }
 
 }  // namespace rocksdb

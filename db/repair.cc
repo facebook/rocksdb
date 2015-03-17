@@ -69,8 +69,7 @@ class Repairer {
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
             // once.
-            NewLRUCache(10, options_.table_cache_numshardbits,
-                        options_.table_cache_remove_scan_count_limit)),
+            NewLRUCache(10, options_.table_cache_numshardbits)),
         next_file_number_(1) {
     table_cache_ =
         new TableCache(ioptions_, env_options_, raw_table_cache_.get());

@@ -1,7 +1,7 @@
 # Rocksdb Change Log
 
 ### Unreleased Features
-* Changed the LRU caching algorithm so that referenced blocks (by iterators) are never evicted
+* Changed the LRU caching algorithm so that referenced blocks (by iterators) are never evicted. This change made parameter removeScanCountLimit obsolete. Because of that NewLRUCache doesn't take three arguments anymore. table_cache_remove_scan_limit option is also removed
 * By default we now optimize the compilation for the compilation platform (using -march=native). If you want to build portable binary, use 'PORTABLE=1' before the make command.
 * We now allow level-compaction to place files in different paths by
   specifying them in db_paths along with the target_size.

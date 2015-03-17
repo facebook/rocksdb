@@ -238,7 +238,6 @@ DBOptions::DBOptions()
       keep_log_file_num(1000),
       max_manifest_file_size(std::numeric_limits<uint64_t>::max()),
       table_cache_numshardbits(4),
-      table_cache_remove_scan_count_limit(16),
       WAL_ttl_seconds(0),
       WAL_size_limit_MB(0),
       manifest_preallocation_size(4 * 1024 * 1024),
@@ -282,8 +281,6 @@ DBOptions::DBOptions(const Options& options)
       keep_log_file_num(options.keep_log_file_num),
       max_manifest_file_size(options.max_manifest_file_size),
       table_cache_numshardbits(options.table_cache_numshardbits),
-      table_cache_remove_scan_count_limit(
-          options.table_cache_remove_scan_count_limit),
       WAL_ttl_seconds(options.WAL_ttl_seconds),
       WAL_size_limit_MB(options.WAL_size_limit_MB),
       manifest_preallocation_size(options.manifest_preallocation_size),
@@ -330,8 +327,6 @@ void DBOptions::Dump(Logger* log) const {
         wal_dir.c_str());
     Log(log, "               Options.table_cache_numshardbits: %d",
         table_cache_numshardbits);
-    Log(log, "    Options.table_cache_remove_scan_count_limit: %d",
-        table_cache_remove_scan_count_limit);
     Log(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
         delete_obsolete_files_period_micros);
     Log(log, "             Options.max_background_compactions: %d",

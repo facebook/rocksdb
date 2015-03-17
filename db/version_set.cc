@@ -2370,9 +2370,8 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
   }
 
   ColumnFamilyOptions cf_options(*options);
-  std::shared_ptr<Cache> tc(NewLRUCache(
-      options->max_open_files - 10, options->table_cache_numshardbits,
-      options->table_cache_remove_scan_count_limit));
+  std::shared_ptr<Cache> tc(NewLRUCache(options->max_open_files - 10,
+                                        options->table_cache_numshardbits));
   WriteController wc;
   WriteBuffer wb(options->db_write_buffer_size);
   VersionSet versions(dbname, options, env_options, tc.get(), &wb, &wc);

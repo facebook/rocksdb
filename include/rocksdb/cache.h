@@ -34,20 +34,11 @@ class Cache;
 
 // Create a new cache with a fixed size capacity. The cache is sharded
 // to 2^numShardBits shards, by hash of the key. The total capacity
-// is divided and evenly assigned to each shard. Inside each shard,
-// the eviction is done in two passes: first try to free spaces by
-// evicting entries that are among the most least used removeScanCountLimit
-// entries and do not have reference other than by the cache itself, in
-// the least-used order. If not enough space is freed, further free the
-// entries in least used order.
+// is divided and evenly assigned to each shard.
 //
-// The functions without parameter numShardBits and/or removeScanCountLimit
-// use default values. removeScanCountLimit's default value is 0, which
-// means a strict LRU order inside each shard.
+// The functions without parameter numShardBits uses default value, which is 4
 extern shared_ptr<Cache> NewLRUCache(size_t capacity);
 extern shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits);
-extern shared_ptr<Cache> NewLRUCache(size_t capacity, int numShardBits,
-                                     int removeScanCountLimit);
 
 class Cache {
  public:

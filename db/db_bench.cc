@@ -307,8 +307,6 @@ DEFINE_int32(cache_numshardbits, -1, "Number of shards for the block cache"
              " is 2 ** cache_numshardbits. Negative means use default settings."
              " This is applied only if FLAGS_cache_size is non-negative.");
 
-DEFINE_int32(cache_remove_scan_count_limit, 32, "");
-
 DEFINE_bool(verify_checksum, false, "Verify checksum for every block read"
             " from storage");
 
@@ -1357,8 +1355,7 @@ class Benchmark {
       : cache_(
             FLAGS_cache_size >= 0
                 ? (FLAGS_cache_numshardbits >= 1
-                       ? NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits,
-                                     FLAGS_cache_remove_scan_count_limit)
+                       ? NewLRUCache(FLAGS_cache_size, FLAGS_cache_numshardbits)
                        : NewLRUCache(FLAGS_cache_size))
                 : nullptr),
         compressed_cache_(FLAGS_compressed_cache_size >= 0

@@ -43,11 +43,9 @@ class CacheTest : public testing::Test {
 
   static const int kCacheSize = 1000;
   static const int kNumShardBits = 4;
-  static const int kRemoveScanCountLimit = 16;
 
   static const int kCacheSize2 = 100;
   static const int kNumShardBits2 = 2;
-  static const int kRemoveScanCountLimit2 = 200;
 
   std::vector<int> deleted_keys_;
   std::vector<int> deleted_values_;
@@ -55,9 +53,8 @@ class CacheTest : public testing::Test {
   shared_ptr<Cache> cache2_;
 
   CacheTest() :
-      cache_(NewLRUCache(kCacheSize, kNumShardBits, kRemoveScanCountLimit)),
-      cache2_(NewLRUCache(kCacheSize2, kNumShardBits2,
-                          kRemoveScanCountLimit2)) {
+      cache_(NewLRUCache(kCacheSize, kNumShardBits)),
+      cache2_(NewLRUCache(kCacheSize2, kNumShardBits2)) {
     current_ = this;
   }
 
@@ -116,7 +113,7 @@ void dumbDeleter(const Slice& key, void* value) { }
 TEST_F(CacheTest, UsageTest) {
   // cache is shared_ptr and will be automatically cleaned up.
   const uint64_t kCapacity = 100000;
-  auto cache = NewLRUCache(kCapacity, 8, 200);
+  auto cache = NewLRUCache(kCapacity, 8);
 
   size_t usage = 0;
   const char* value = "abcdef";

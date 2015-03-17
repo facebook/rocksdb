@@ -509,8 +509,6 @@ bool ParseDBOption(const std::string& name, const std::string& value,
       new_options->max_manifest_file_size = ParseUint64(value);
     } else if (name == "table_cache_numshardbits") {
       new_options->table_cache_numshardbits = ParseInt(value);
-    } else if (name == "table_cache_remove_scan_count_limit") {
-      new_options->table_cache_remove_scan_count_limit = ParseInt(value);
     } else if (name == "WAL_ttl_seconds") {
       new_options->WAL_ttl_seconds = ParseUint64(value);
     } else if (name == "WAL_size_limit_MB") {

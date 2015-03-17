@@ -25,7 +25,7 @@ class FlushJobTest : public testing::Test {
   FlushJobTest()
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/flush_job_test"),
-        table_cache_(NewLRUCache(50000, 16, 8)),
+        table_cache_(NewLRUCache(50000, 16)),
         write_buffer_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_,

@@ -525,9 +525,8 @@ void DumpManifestFile(std::string file, bool verbose, bool hex) {
   Options options;
   EnvOptions sopt;
   std::string dbname("dummy");
-  std::shared_ptr<Cache> tc(
-      NewLRUCache(options.max_open_files - 10, options.table_cache_numshardbits,
-                  options.table_cache_remove_scan_count_limit));
+  std::shared_ptr<Cache> tc(NewLRUCache(options.max_open_files - 10,
+                                        options.table_cache_numshardbits));
   // Notice we are using the default options not through SanitizeOptions(),
   // if VersionSet::DumpManifest() depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
@@ -1134,8 +1133,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
     int* levels) {
   EnvOptions soptions;
   std::shared_ptr<Cache> tc(
-      NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits,
-                  opt.table_cache_remove_scan_count_limit));
+      NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits));
   const InternalKeyComparator cmp(opt.comparator);
   WriteController wc;
   WriteBuffer wb(opt.db_write_buffer_size);

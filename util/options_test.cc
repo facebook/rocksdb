@@ -159,7 +159,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
     {"keep_log_file_num", "39"},
     {"max_manifest_file_size", "40"},
     {"table_cache_numshardbits", "41"},
-    {"table_cache_remove_scan_count_limit", "42"},
     {"WAL_ttl_seconds", "43"},
     {"WAL_size_limit_MB", "44"},
     {"manifest_preallocation_size", "45"},
@@ -266,7 +265,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.keep_log_file_num, 39U);
   ASSERT_EQ(new_db_opt.max_manifest_file_size, static_cast<uint64_t>(40));
   ASSERT_EQ(new_db_opt.table_cache_numshardbits, 41);
-  ASSERT_EQ(new_db_opt.table_cache_remove_scan_count_limit, 42);
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
   ASSERT_EQ(new_db_opt.WAL_size_limit_MB, static_cast<uint64_t>(44));
   ASSERT_EQ(new_db_opt.manifest_preallocation_size, 45U);
