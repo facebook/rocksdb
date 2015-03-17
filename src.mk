@@ -140,6 +140,7 @@ MOCK_SOURCES = \
   util/mock_env.cc
 
 TEST_BENCH_SOURCES =                                                    \
+  third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
   db/column_family_test.cc                                              \
   db/compaction_job_test.cc                                             \
   db/compaction_picker_test.cc                                          \

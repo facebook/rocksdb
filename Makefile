@@ -101,6 +101,11 @@ ifndef DISABLE_JEMALLOC
 	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE) -DHAVE_JEMALLOC
 endif
 
+export GTEST_THROW_ON_FAILURE=1 GTEST_HAS_EXCEPTIONS=1
+GTEST_DIR = ./third-party/gtest-1.7.0/fused-src
+PLATFORM_CCFLAGS += -isystem $(GTEST_DIR)
+PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
+
 # This (the first rule) must depend on "all".
 default: all
 
@@ -133,7 +138,7 @@ ifndef DISABLE_WARNING_AS_ERROR
 endif
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
-CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor
+CXXFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CXXFLAGS) $(OPT) -Woverloaded-virtual -Wnon-virtual-dtor -Wno-missing-field-initializers
 
 LDFLAGS += $(PLATFORM_LDFLAGS)
 
@@ -161,8 +166,9 @@ util/build_version.cc:
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
+GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
-TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS)
+TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(GTEST)
 BENCHHARNESS = ./util/benchharness.o
 VALGRIND_ERROR = 2
 VALGRIND_DIR = build_tools/VALGRIND_LOGS
