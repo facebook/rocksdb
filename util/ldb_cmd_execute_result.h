@@ -52,11 +52,11 @@ public:
     return state_ == EXEC_FAILED;
   }
 
-  static LDBCommandExecuteResult SUCCEED(std::string msg) {
+  static LDBCommandExecuteResult Succeed(std::string msg) {
     return LDBCommandExecuteResult(EXEC_SUCCEED, msg);
   }
 
-  static LDBCommandExecuteResult FAILED(std::string msg) {
+  static LDBCommandExecuteResult Failed(std::string msg) {
     return LDBCommandExecuteResult(EXEC_FAILED, msg);
   }
 

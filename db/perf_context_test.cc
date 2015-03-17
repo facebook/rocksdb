@@ -544,6 +544,5 @@ int main(int argc, char** argv) {
 
   std::cout << kDbName << "\n";
 
-  rocksdb::test::RunAllTests();
-  return 0;
+  return rocksdb::test::RunAllTests();
 }

@@ -535,8 +535,7 @@ TEST(CuckooReaderTest, TestReadPerformance) {
 
 int main(int argc, char** argv) {
   ParseCommandLineFlags(&argc, &argv, true);
-  rocksdb::test::RunAllTests();
-  return 0;
+  return rocksdb::test::RunAllTests();
 }
 
 #endif  // GFLAGS.

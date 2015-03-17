@@ -698,9 +698,9 @@ class FixedOrLessPrefixTransform : public SliceTransform {
   }
 };
 
-class Harness {
+class HarnessTest {
  public:
-  Harness()
+  HarnessTest()
     : ioptions_(options_), constructor_(nullptr),
       write_buffer_(options_.db_write_buffer_size) {}
 
@@ -793,7 +793,7 @@ class Harness {
     ioptions_ = ImmutableCFOptions(options_);
   }
 
-  ~Harness() {
+  ~HarnessTest() {
     delete constructor_;
   }
 
@@ -1951,7 +1951,7 @@ TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
-TEST(Harness, Randomized) {
+TEST(HarnessTest, Randomized) {
   std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
@@ -1972,7 +1972,7 @@ TEST(Harness, Randomized) {
   }
 }
 
-TEST(Harness, RandomizedLongDB) {
+TEST(HarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
   TestArgs args = { DB_TEST, false, 16, kNoCompression, 0 };
   Init(args);
@@ -2031,7 +2031,7 @@ TEST(MemTableTest, Simple) {
 }
 
 // Test the empty key
-TEST(Harness, SimpleEmptyKey) {
+TEST(HarnessTest, SimpleEmptyKey) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2041,7 +2041,7 @@ TEST(Harness, SimpleEmptyKey) {
   }
 }
 
-TEST(Harness, SimpleSingle) {
+TEST(HarnessTest, SimpleSingle) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2051,7 +2051,7 @@ TEST(Harness, SimpleSingle) {
   }
 }
 
-TEST(Harness, SimpleMulti) {
+TEST(HarnessTest, SimpleMulti) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2063,7 +2063,7 @@ TEST(Harness, SimpleMulti) {
   }
 }
 
-TEST(Harness, SimpleSpecialKey) {
+TEST(HarnessTest, SimpleSpecialKey) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2073,7 +2073,7 @@ TEST(Harness, SimpleSpecialKey) {
   }
 }
 
-TEST(Harness, FooterTests) {
+TEST(HarnessTest, FooterTests) {
   {
     // upconvert legacy block based
     std::string encoded;

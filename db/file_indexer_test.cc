@@ -41,7 +41,7 @@ class IntComparator : public Comparator {
   void FindShortSuccessor(std::string* key) const override {}
 };
 
-struct FileIndexerTest {
+class FileIndexerTest {
  public:
   FileIndexerTest()
       : kNumLevels(4), files(new std::vector<FileMetaData*>[kNumLevels]) {}

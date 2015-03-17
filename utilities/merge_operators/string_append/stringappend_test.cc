@@ -576,20 +576,21 @@ TEST(StringAppendOperatorTest, SimpleTestNullDelimiter) {
 
 } // namespace rocksdb
 
-int main(int arc, char** argv) {
+int main(int argc, char** argv) {
   // Run with regular database
+  int result;
   {
     fprintf(stderr, "Running tests with regular db and operator.\n");
     StringAppendOperatorTest::SetOpenDbFunction(&OpenNormalDb);
-    rocksdb::test::RunAllTests();
+    result = rocksdb::test::RunAllTests();
   }
 
   // Run with TTL
   {
     fprintf(stderr, "Running tests with ttl db and generic operator.\n");
     StringAppendOperatorTest::SetOpenDbFunction(&OpenTtlDb);
-    rocksdb::test::RunAllTests();
+    result |=rocksdb::test::RunAllTests();
   }
 
-  return 0;
+  return result;
 }
