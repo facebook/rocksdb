@@ -10,7 +10,7 @@
 
 namespace rocksdb {
 
-class EventLoggerTest {};
+class EventLoggerTest : public testing::Test {};
 
 class StringLogger : public Logger {
  public:
@@ -24,7 +24,7 @@ class StringLogger : public Logger {
   char buffer_[1000];
 };
 
-TEST(EventLoggerTest, SimpleTest) {
+TEST_F(EventLoggerTest, SimpleTest) {
   StringLogger logger;
   EventLogger event_logger(&logger);
   event_logger.Log() << "id" << 5 << "event"
@@ -38,5 +38,6 @@ TEST(EventLoggerTest, SimpleTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

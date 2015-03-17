@@ -351,7 +351,7 @@ static void AssertEmpty(DB* db, int from, int to) {
   }
 }
 
-class BackupableDBTest {
+class BackupableDBTest : public testing::Test {
  public:
   BackupableDBTest() {
     // set up files
@@ -495,7 +495,7 @@ void AppendPath(const std::string& path, std::vector<std::string>& v) {
 }
 
 // this will make sure that backup does not copy the same file twice
-TEST(BackupableDBTest, NoDoubleCopy) {
+TEST_F(BackupableDBTest, NoDoubleCopy) {
   OpenBackupableDB(true, true);
 
   // should write 5 DB files + LATEST_BACKUP + one meta file
@@ -566,7 +566,7 @@ TEST(BackupableDBTest, NoDoubleCopy) {
 //      fine
 // 4. Corrupted checksum value - if the checksum is not a valid uint32_t,
 //      db open should fail, otherwise, it aborts during the restore process.
-TEST(BackupableDBTest, CorruptionsTest) {
+TEST_F(BackupableDBTest, CorruptionsTest) {
   const int keys_iteration = 5000;
   Random rnd(6);
   Status s;
@@ -676,7 +676,7 @@ TEST(BackupableDBTest, CorruptionsTest) {
 
 // This test verifies we don't delete the latest backup when read-only option is
 // set
-TEST(BackupableDBTest, NoDeleteWithReadOnly) {
+TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
   const int keys_iteration = 5000;
   Random rnd(6);
   Status s;
@@ -708,7 +708,7 @@ TEST(BackupableDBTest, NoDeleteWithReadOnly) {
 }
 
 // open DB, write, close DB, backup, restore, repeat
-TEST(BackupableDBTest, OfflineIntegrationTest) {
+TEST_F(BackupableDBTest, OfflineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
   const int keys_iteration = 5000;
   const int max_key = keys_iteration * 4 + 10;
@@ -755,7 +755,7 @@ TEST(BackupableDBTest, OfflineIntegrationTest) {
 }
 
 // open DB, write, backup, write, backup, close, restore
-TEST(BackupableDBTest, OnlineIntegrationTest) {
+TEST_F(BackupableDBTest, OnlineIntegrationTest) {
   // has to be a big number, so that it triggers the memtable flush
   const int keys_iteration = 5000;
   const int max_key = keys_iteration * 4 + 10;
@@ -818,7 +818,7 @@ TEST(BackupableDBTest, OnlineIntegrationTest) {
   CloseRestoreDB();
 }
 
-TEST(BackupableDBTest, FailOverwritingBackups) {
+TEST_F(BackupableDBTest, FailOverwritingBackups) {
   options_.write_buffer_size = 1024 * 1024 * 1024;  // 1GB
   // create backups 1, 2, 3, 4, 5
   OpenBackupableDB(true);
@@ -853,7 +853,7 @@ TEST(BackupableDBTest, FailOverwritingBackups) {
   CloseBackupableDB();
 }
 
-TEST(BackupableDBTest, NoShareTableFiles) {
+TEST_F(BackupableDBTest, NoShareTableFiles) {
   const int keys_iteration = 5000;
   OpenBackupableDB(true, false, false);
   for (int i = 0; i < 5; ++i) {
@@ -869,7 +869,7 @@ TEST(BackupableDBTest, NoShareTableFiles) {
 }
 
 // Verify that you can backup and restore with share_files_with_checksum on
-TEST(BackupableDBTest, ShareTableFilesWithChecksums) {
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksums) {
   const int keys_iteration = 5000;
   OpenBackupableDB(true, false, true, true);
   for (int i = 0; i < 5; ++i) {
@@ -886,7 +886,7 @@ TEST(BackupableDBTest, ShareTableFilesWithChecksums) {
 
 // Verify that you can backup and restore using share_files_with_checksum set to
 // false and then transition this option to true
-TEST(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
+TEST_F(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   const int keys_iteration = 5000;
   // set share_files_with_checksum to false
   OpenBackupableDB(true, false, true, false);
@@ -915,7 +915,7 @@ TEST(BackupableDBTest, ShareTableFilesWithChecksumsTransition) {
   }
 }
 
-TEST(BackupableDBTest, DeleteTmpFiles) {
+TEST_F(BackupableDBTest, DeleteTmpFiles) {
   OpenBackupableDB();
   CloseBackupableDB();
   std::string shared_tmp = backupdir_ + "/shared/00006.sst.tmp";
@@ -934,7 +934,7 @@ TEST(BackupableDBTest, DeleteTmpFiles) {
   ASSERT_EQ(false, file_manager_->FileExists(private_tmp_dir));
 }
 
-TEST(BackupableDBTest, KeepLogFiles) {
+TEST_F(BackupableDBTest, KeepLogFiles) {
   backupable_options_->backup_log_files = false;
   // basically infinite
   options_.WAL_ttl_seconds = 24 * 60 * 60;
@@ -955,7 +955,7 @@ TEST(BackupableDBTest, KeepLogFiles) {
   AssertBackupConsistency(0, 0, 500, 600, true);
 }
 
-TEST(BackupableDBTest, RateLimiting) {
+TEST_F(BackupableDBTest, RateLimiting) {
   uint64_t const KB = 1024 * 1024;
   size_t const kMicrosPerSec = 1000 * 1000LL;
 
@@ -994,7 +994,7 @@ TEST(BackupableDBTest, RateLimiting) {
   }
 }
 
-TEST(BackupableDBTest, ReadOnlyBackupEngine) {
+TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
   DestroyDB(dbname_, Options());
   OpenBackupableDB(true);
   FillDB(db_.get(), 0, 100);
@@ -1031,5 +1031,6 @@ TEST(BackupableDBTest, ReadOnlyBackupEngine) {
 } //  namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

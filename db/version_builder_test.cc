@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-class VersionBuilderTest {
+class VersionBuilderTest : public testing::Test {
  public:
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
@@ -95,7 +95,7 @@ void UnrefFilesInVersion(VersionStorageInfo* new_vstorage) {
   }
 }
 
-TEST(VersionBuilderTest, ApplyAndSaveTo) {
+TEST_F(VersionBuilderTest, ApplyAndSaveTo) {
   Add(0, 1U, "150", "200", 100U);
 
   Add(1, 66U, "150", "200", 100U);
@@ -131,7 +131,7 @@ TEST(VersionBuilderTest, ApplyAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST(VersionBuilderTest, ApplyAndSaveToDynamic) {
+TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
 
   Add(0, 1U, "150", "200", 100U, 0, 200U, 200U, 0, 0, false, 200U, 200U);
@@ -168,7 +168,7 @@ TEST(VersionBuilderTest, ApplyAndSaveToDynamic) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST(VersionBuilderTest, ApplyAndSaveToDynamic2) {
+TEST_F(VersionBuilderTest, ApplyAndSaveToDynamic2) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
 
   Add(0, 1U, "150", "200", 100U, 0, 200U, 200U, 0, 0, false, 200U, 200U);
@@ -207,7 +207,7 @@ TEST(VersionBuilderTest, ApplyAndSaveToDynamic2) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST(VersionBuilderTest, ApplyMultipleAndSaveTo) {
+TEST_F(VersionBuilderTest, ApplyMultipleAndSaveTo) {
   UpdateVersionStorageInfo();
 
   VersionEdit version_edit;
@@ -236,7 +236,7 @@ TEST(VersionBuilderTest, ApplyMultipleAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST(VersionBuilderTest, ApplyDeleteAndSaveTo) {
+TEST_F(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   UpdateVersionStorageInfo();
 
   EnvOptions env_options;
@@ -273,7 +273,7 @@ TEST(VersionBuilderTest, ApplyDeleteAndSaveTo) {
   UnrefFilesInVersion(&new_vstorage);
 }
 
-TEST(VersionBuilderTest, EstimatedActiveKeys) {
+TEST_F(VersionBuilderTest, EstimatedActiveKeys) {
   const uint32_t kTotalSamples = 20;
   const uint32_t kNumLevels = 5;
   const uint32_t kFilesPerLevel = 8;
@@ -297,4 +297,7 @@ TEST(VersionBuilderTest, EstimatedActiveKeys) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

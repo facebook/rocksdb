@@ -37,7 +37,7 @@ using std::unique_ptr;
 
 namespace rocksdb {
 
-class PlainTableDBTest {
+class PlainTableDBTest : public testing::Test {
  protected:
  private:
   std::string dbname_;
@@ -182,7 +182,7 @@ class PlainTableDBTest {
   }
 };
 
-TEST(PlainTableDBTest, Empty) {
+TEST_F(PlainTableDBTest, Empty) {
   ASSERT_TRUE(dbfull() != nullptr);
   ASSERT_EQ("NOT_FOUND", Get("0000000000000foo"));
 }
@@ -302,7 +302,7 @@ class TestPlainTableFactory : public PlainTableFactory {
   bool* expect_bloom_not_match_;
 };
 
-TEST(PlainTableDBTest, Flush) {
+TEST_F(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
@@ -389,7 +389,7 @@ TEST(PlainTableDBTest, Flush) {
   }
 }
 
-TEST(PlainTableDBTest, Flush2) {
+TEST_F(PlainTableDBTest, Flush2) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
@@ -469,7 +469,7 @@ TEST(PlainTableDBTest, Flush2) {
   }
 }
 
-TEST(PlainTableDBTest, Iterator) {
+TEST_F(PlainTableDBTest, Iterator) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
@@ -603,7 +603,7 @@ std::string MakeLongKey(size_t length, char c) {
 }
 }  // namespace
 
-TEST(PlainTableDBTest, IteratorLargeKeys) {
+TEST_F(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
 
   PlainTableOptions plain_table_options;
@@ -653,7 +653,7 @@ std::string MakeLongKeyWithPrefix(size_t length, char c) {
 }
 }  // namespace
 
-TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
+TEST_F(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   Options options = CurrentOptions();
 
   PlainTableOptions plain_table_options;
@@ -695,7 +695,7 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   delete iter;
 }
 
-TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
+TEST_F(PlainTableDBTest, IteratorReverseSuffixComparator) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
@@ -764,7 +764,7 @@ TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
   delete iter;
 }
 
-TEST(PlainTableDBTest, HashBucketConflict) {
+TEST_F(PlainTableDBTest, HashBucketConflict) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (unsigned char i = 1; i <= 3; i++) {
@@ -857,7 +857,7 @@ TEST(PlainTableDBTest, HashBucketConflict) {
   }
 }
 
-TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
+TEST_F(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (unsigned char i = 1; i <= 3; i++) {
@@ -950,7 +950,7 @@ TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
   }
 }
 
-TEST(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
+TEST_F(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
@@ -1006,7 +1006,7 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
-TEST(PlainTableDBTest, CompactionTrigger) {
+TEST_F(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100 << 10; //100KB
   options.num_levels = 3;
@@ -1040,7 +1040,7 @@ TEST(PlainTableDBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 }
 
-TEST(PlainTableDBTest, AdaptiveTable) {
+TEST_F(PlainTableDBTest, AdaptiveTable) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
 
@@ -1086,5 +1086,6 @@ TEST(PlainTableDBTest, AdaptiveTable) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

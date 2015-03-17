@@ -69,9 +69,9 @@ struct TestHandler : public WriteBatch::Handler {
 };
 }  // namespace anonymous
 
-class WriteBatchWithIndexTest {};
+class WriteBatchWithIndexTest : public testing::Test {};
 
-TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
+TEST_F(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   Entry entries[] = {{"aaa", "0005", kPutRecord},
                      {"b", "0002", kPutRecord},
                      {"cdd", "0002", kMergeRecord},
@@ -278,7 +278,7 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
+TEST_F(WriteBatchWithIndexTest, TestComparatorForCF) {
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
   ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
@@ -361,7 +361,7 @@ TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
+TEST_F(WriteBatchWithIndexTest, TestOverwriteKey) {
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
   ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
@@ -515,7 +515,7 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
 }
 }  // namespace
 
-TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
+TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   std::vector<std::string> source_strings = {"a", "b", "c", "d", "e",
                                              "f", "g", "h", "i", "j"};
   for (int rand_seed = 301; rand_seed < 366; rand_seed++) {
@@ -628,7 +628,7 @@ TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
@@ -791,7 +791,7 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
@@ -879,4 +879,7 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
 
 }  // namespace
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

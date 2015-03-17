@@ -22,8 +22,7 @@
 
 namespace rocksdb {
 
-class TablePropertiesTest {
-};
+class TablePropertiesTest : public testing::Test {};
 
 // TODO(kailiu) the following classes should be moved to some more general
 // places, so that other tests can also make use of them.
@@ -195,7 +194,7 @@ void TestCustomizedTablePropertiesCollector(
 }
 }  // namespace
 
-TEST(TablePropertiesTest, CustomizedTablePropertiesCollector) {
+TEST_F(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
   // for block based table
   for (bool encode_as_internal : { true, false }) {
@@ -301,7 +300,7 @@ void TestInternalKeyPropertiesCollector(
 }
 }  // namespace
 
-TEST(TablePropertiesTest, InternalKeyPropertiesCollector) {
+TEST_F(TablePropertiesTest, InternalKeyPropertiesCollector) {
   TestInternalKeyPropertiesCollector(
       kBlockBasedTableMagicNumber,
       true /* sanitize */,
@@ -326,5 +325,6 @@ TEST(TablePropertiesTest, InternalKeyPropertiesCollector) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

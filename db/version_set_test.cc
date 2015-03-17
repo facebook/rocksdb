@@ -14,7 +14,7 @@
 
 namespace rocksdb {
 
-class GenerateLevelFilesBriefTest {
+class GenerateLevelFilesBriefTest : public testing::Test {
  public:
   std::vector<FileMetaData*> files_;
   LevelFilesBrief file_level_;
@@ -49,21 +49,20 @@ class GenerateLevelFilesBriefTest {
   }
 };
 
-TEST(GenerateLevelFilesBriefTest, Empty) {
+TEST_F(GenerateLevelFilesBriefTest, Empty) {
   DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(0u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
-TEST(GenerateLevelFilesBriefTest, Single) {
+TEST_F(GenerateLevelFilesBriefTest, Single) {
   Add("p", "q");
   DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(1u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
-
-TEST(GenerateLevelFilesBriefTest, Multiple) {
+TEST_F(GenerateLevelFilesBriefTest, Multiple) {
   Add("150", "200");
   Add("200", "250");
   Add("300", "350");
@@ -89,7 +88,7 @@ Options GetOptionsWithNumLevels(int num_levels,
   return opt;
 }
 
-class VersionStorageInfoTest {
+class VersionStorageInfoTest : public testing::Test {
  public:
   const Comparator* ucmp_;
   InternalKeyComparator icmp_;
@@ -138,7 +137,7 @@ class VersionStorageInfoTest {
   }
 };
 
-TEST(VersionStorageInfoTest, MaxBytesForLevelStatic) {
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelStatic) {
   ioptions_.level_compaction_dynamic_level_bytes = false;
   mutable_cf_options_.max_bytes_for_level_base = 10;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
@@ -154,7 +153,7 @@ TEST(VersionStorageInfoTest, MaxBytesForLevelStatic) {
   ASSERT_EQ(0, logger_->log_count);
 }
 
-TEST(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.max_bytes_for_level_base = 1000;
   mutable_cf_options_.max_bytes_for_level_multiplier = 5;
@@ -196,7 +195,7 @@ TEST(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
   ASSERT_EQ(vstorage_.base_level(), 1);
 }
 
-TEST(VersionStorageInfoTest, MaxBytesForLevelDynamicLotsOfData) {
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLotsOfData) {
   ioptions_.level_compaction_dynamic_level_bytes = true;
   mutable_cf_options_.max_bytes_for_level_base = 100;
   mutable_cf_options_.max_bytes_for_level_multiplier = 2;
@@ -216,7 +215,7 @@ TEST(VersionStorageInfoTest, MaxBytesForLevelDynamicLotsOfData) {
   ASSERT_EQ(0, logger_->log_count);
 }
 
-class FindLevelFileTest {
+class FindLevelFileTest : public testing::Test {
  public:
   LevelFilesBrief file_level_;
   bool disjoint_sorted_files_;
@@ -274,7 +273,7 @@ class FindLevelFileTest {
   }
 };
 
-TEST(FindLevelFileTest, LevelEmpty) {
+TEST_F(FindLevelFileTest, LevelEmpty) {
   LevelFileInit(0);
 
   ASSERT_EQ(0, Find("foo"));
@@ -284,7 +283,7 @@ TEST(FindLevelFileTest, LevelEmpty) {
   ASSERT_TRUE(! Overlaps(nullptr, nullptr));
 }
 
-TEST(FindLevelFileTest, LevelSingle) {
+TEST_F(FindLevelFileTest, LevelSingle) {
   LevelFileInit(1);
 
   Add("p", "q");
@@ -316,7 +315,7 @@ TEST(FindLevelFileTest, LevelSingle) {
   ASSERT_TRUE(Overlaps(nullptr, nullptr));
 }
 
-TEST(FindLevelFileTest, LevelMultiple) {
+TEST_F(FindLevelFileTest, LevelMultiple) {
   LevelFileInit(4);
 
   Add("150", "200");
@@ -356,7 +355,7 @@ TEST(FindLevelFileTest, LevelMultiple) {
   ASSERT_TRUE(Overlaps("450", "500"));
 }
 
-TEST(FindLevelFileTest, LevelMultipleNullBoundaries) {
+TEST_F(FindLevelFileTest, LevelMultipleNullBoundaries) {
   LevelFileInit(4);
 
   Add("150", "200");
@@ -378,7 +377,7 @@ TEST(FindLevelFileTest, LevelMultipleNullBoundaries) {
   ASSERT_TRUE(Overlaps("450", nullptr));
 }
 
-TEST(FindLevelFileTest, LevelOverlapSequenceChecks) {
+TEST_F(FindLevelFileTest, LevelOverlapSequenceChecks) {
   LevelFileInit(1);
 
   Add("200", "200", 5000, 3000);
@@ -389,7 +388,7 @@ TEST(FindLevelFileTest, LevelOverlapSequenceChecks) {
   ASSERT_TRUE(Overlaps("200", "210"));
 }
 
-TEST(FindLevelFileTest, LevelOverlappingFiles) {
+TEST_F(FindLevelFileTest, LevelOverlappingFiles) {
   LevelFileInit(2);
 
   Add("150", "600");
@@ -412,5 +411,6 @@ TEST(FindLevelFileTest, LevelOverlappingFiles) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

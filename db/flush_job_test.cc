@@ -20,7 +20,7 @@ namespace rocksdb {
 // TODO(icanadi) Mock out everything else:
 // 1. VersionSet
 // 2. Memtable
-class FlushJobTest {
+class FlushJobTest : public testing::Test {
  public:
   FlushJobTest()
       : env_(Env::Default()),
@@ -80,7 +80,7 @@ class FlushJobTest {
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 };
 
-TEST(FlushJobTest, Empty) {
+TEST_F(FlushJobTest, Empty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   EventLogger event_logger(db_options_.info_log.get());
@@ -93,7 +93,7 @@ TEST(FlushJobTest, Empty) {
   job_context.Clean();
 }
 
-TEST(FlushJobTest, NonEmpty) {
+TEST_F(FlushJobTest, NonEmpty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions());
@@ -123,4 +123,7 @@ TEST(FlushJobTest, NonEmpty) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

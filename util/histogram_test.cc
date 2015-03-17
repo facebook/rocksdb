@@ -9,10 +9,9 @@
 
 namespace rocksdb {
 
-class HistogramTest { };
+class HistogramTest : public testing::Test {};
 
-TEST(HistogramTest, BasicOperation) {
-
+TEST_F(HistogramTest, BasicOperation) {
   HistogramImpl histogram;
   for (uint64_t i = 1; i <= 100; i++) {
     histogram.Add(i);
@@ -37,14 +36,14 @@ TEST(HistogramTest, BasicOperation) {
   ASSERT_EQ(histogram.Average(), 50.5); // avg is acurately caluclated.
 }
 
-TEST(HistogramTest, EmptyHistogram) {
+TEST_F(HistogramTest, EmptyHistogram) {
   HistogramImpl histogram;
   ASSERT_EQ(histogram.Median(), 0.0);
   ASSERT_EQ(histogram.Percentile(85.0), 0.0);
   ASSERT_EQ(histogram.Average(), 0.0);
 }
 
-TEST(HistogramTest, ClearHistogram) {
+TEST_F(HistogramTest, ClearHistogram) {
   HistogramImpl histogram;
   for (uint64_t i = 1; i <= 100; i++) {
     histogram.Add(i);
@@ -58,5 +57,6 @@ TEST(HistogramTest, ClearHistogram) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

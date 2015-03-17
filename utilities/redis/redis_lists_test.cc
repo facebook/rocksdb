@@ -28,7 +28,7 @@ using namespace std;
 
 namespace rocksdb {
 
-class RedisListsTest {
+class RedisListsTest : public testing::Test {
  public:
   static const string kDefaultDbName;
   static Options options;
@@ -55,7 +55,7 @@ void AssertListEq(const std::vector<std::string>& result,
 }  // namespace
 
 // PushRight, Length, Index, Range
-TEST(RedisListsTest, SimpleTest) {
+TEST_F(RedisListsTest, SimpleTest) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -84,7 +84,7 @@ TEST(RedisListsTest, SimpleTest) {
 }
 
 // PushLeft, Length, Index, Range
-TEST(RedisListsTest, SimpleTest2) {
+TEST_F(RedisListsTest, SimpleTest2) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -113,7 +113,7 @@ TEST(RedisListsTest, SimpleTest2) {
 }
 
 // Exhaustive test of the Index() function
-TEST(RedisListsTest, IndexTest) {
+TEST_F(RedisListsTest, IndexTest) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -172,7 +172,7 @@ TEST(RedisListsTest, IndexTest) {
 
 
 // Exhaustive test of the Range() function
-TEST(RedisListsTest, RangeTest) {
+TEST_F(RedisListsTest, RangeTest) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -255,7 +255,7 @@ TEST(RedisListsTest, RangeTest) {
 }
 
 // Exhaustive test for InsertBefore(), and InsertAfter()
-TEST(RedisListsTest, InsertTest) {
+TEST_F(RedisListsTest, InsertTest) {
   RedisLists redis(kDefaultDbName, options, true);
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -339,7 +339,7 @@ TEST(RedisListsTest, InsertTest) {
 }
 
 // Exhaustive test of Set function
-TEST(RedisListsTest, SetTest) {
+TEST_F(RedisListsTest, SetTest) {
   RedisLists redis(kDefaultDbName, options, true);
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -435,7 +435,7 @@ TEST(RedisListsTest, SetTest) {
 }
 
 // Testing Insert, Push, and Set, in a mixed environment
-TEST(RedisListsTest, InsertPushSetTest) {
+TEST_F(RedisListsTest, InsertPushSetTest) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -527,7 +527,7 @@ TEST(RedisListsTest, InsertPushSetTest) {
 }
 
 // Testing Trim, Pop
-TEST(RedisListsTest, TrimPopTest) {
+TEST_F(RedisListsTest, TrimPopTest) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -597,7 +597,7 @@ TEST(RedisListsTest, TrimPopTest) {
 }
 
 // Testing Remove, RemoveFirst, RemoveLast
-TEST(RedisListsTest, RemoveTest) {
+TEST_F(RedisListsTest, RemoveTest) {
   RedisLists redis(kDefaultDbName, options, true);   // Destructive
 
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
@@ -688,8 +688,7 @@ TEST(RedisListsTest, RemoveTest) {
 
 
 // Test Multiple keys and Persistence
-TEST(RedisListsTest, PersistenceMultiKeyTest) {
-
+TEST_F(RedisListsTest, PersistenceMultiKeyTest) {
   string tempv; // Used below for all Index(), PopRight(), PopLeft()
 
   // Block one: populate a single key in the database
@@ -874,11 +873,12 @@ bool found_arg(int argc, char* argv[], const char* want){
 // However, if -m is specified, it will do user manual/interactive testing
 // -m -d is manual and destructive (will clear the database before use)
 int main(int argc, char* argv[]) {
+  ::testing::InitGoogleTest(&argc, argv);
   if (found_arg(argc, argv, "-m")) {
     bool destructive = found_arg(argc, argv, "-d");
     return rocksdb::manual_redis_test(destructive);
   } else {
-    return rocksdb::test::RunAllTests();
+    return RUN_ALL_TESTS();
   }
 }
 

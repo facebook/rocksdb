@@ -32,7 +32,7 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 namespace rocksdb {
 
-class OptionsTest {};
+class OptionsTest : public testing::Test {};
 
 class StderrLogger : public Logger {
  public:
@@ -68,7 +68,7 @@ Options PrintAndGetOptions(size_t total_write_buffer_limit,
   return options;
 }
 
-TEST(OptionsTest, LooseCondition) {
+TEST_F(OptionsTest, LooseCondition) {
   Options options;
   PrintAndGetOptions(static_cast<size_t>(10) * 1024 * 1024 * 1024, 100, 100);
 
@@ -90,7 +90,7 @@ TEST(OptionsTest, LooseCondition) {
 }
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
-TEST(OptionsTest, GetOptionsFromMapTest) {
+TEST_F(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
       {"write_buffer_size", "1"},
       {"max_write_buffer_number", "2"},
@@ -284,7 +284,7 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
 
 #ifndef ROCKSDB_LITE  // GetColumnFamilyOptionsFromString is not supported in
                       // ROCKSDB_LITE
-TEST(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
+TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
   base_cf_opt.table_factory.reset();
@@ -413,7 +413,7 @@ TEST(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetBlockBasedTableOptionsFromString is not supported
-TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
+TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
   // make sure default values are overwritten by something else
@@ -468,7 +468,7 @@ TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in RocksDB Lite
-TEST(OptionsTest, GetOptionsFromStringTest) {
+TEST_F(OptionsTest, GetOptionsFromStringTest) {
   Options base_options, new_options;
   base_options.write_buffer_size = 20;
   base_options.min_write_buffer_number_to_merge = 15;
@@ -505,7 +505,7 @@ Status StringToMap(
     std::unordered_map<std::string, std::string>* opts_map);
 
 #ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
-TEST(OptionsTest, StringToMapTest) {
+TEST_F(OptionsTest, StringToMapTest) {
   std::unordered_map<std::string, std::string> opts_map;
   // Regular options
   ASSERT_OK(StringToMap("k1=v1;k2=v2;k3=v3", &opts_map));
@@ -624,7 +624,7 @@ TEST(OptionsTest, StringToMapTest) {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
-TEST(OptionsTest, StringToMapRandomTest) {
+TEST_F(OptionsTest, StringToMapRandomTest) {
   std::unordered_map<std::string, std::string> opts_map;
   // Make sure segfault is not hit by semi-random strings
 
@@ -670,7 +670,7 @@ TEST(OptionsTest, StringToMapRandomTest) {
 }
 #endif  // !ROCKSDB_LITE
 
-TEST(OptionsTest, ConvertOptionsTest) {
+TEST_F(OptionsTest, ConvertOptionsTest) {
   LevelDBOptions leveldb_opt;
   Options converted_opt = ConvertOptions(leveldb_opt);
 
@@ -701,8 +701,9 @@ TEST(OptionsTest, ConvertOptionsTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);
 #endif  // GFLAGS
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }

@@ -20,14 +20,13 @@
 
 namespace rocksdb {
 
-class RateLimiterTest {
-};
+class RateLimiterTest : public testing::Test {};
 
-TEST(RateLimiterTest, StartStop) {
+TEST_F(RateLimiterTest, StartStop) {
   std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(100, 100, 10));
 }
 
-TEST(RateLimiterTest, Rate) {
+TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
@@ -80,5 +79,6 @@ TEST(RateLimiterTest, Rate) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

@@ -50,9 +50,9 @@ class MapIterator : public Iterator {
   Data::const_iterator pos_;
 };
 
-class BlockTest {};
+class BlockTest : public testing::Test {};
 
-TEST(BlockTest, BasicTest) {
+TEST_F(BlockTest, BasicTest) {
   const size_t keys_per_block = 4;
   const size_t prefix_size = 2;
   std::vector<std::string> keys = {/* block 1 */
@@ -114,4 +114,7 @@ TEST(BlockTest, BasicTest) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

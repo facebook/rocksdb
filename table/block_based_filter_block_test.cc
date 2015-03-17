@@ -43,7 +43,7 @@ class TestHashFilter : public FilterPolicy {
   }
 };
 
-class FilterBlockTest {
+class FilterBlockTest : public testing::Test {
  public:
   TestHashFilter policy_;
   BlockBasedTableOptions table_options_;
@@ -53,7 +53,7 @@ class FilterBlockTest {
   }
 };
 
-TEST(FilterBlockTest, EmptyBuilder) {
+TEST_F(FilterBlockTest, EmptyBuilder) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
   BlockContents block(builder.Finish(), false, kNoCompression);
   ASSERT_EQ("\\x00\\x00\\x00\\x00\\x0b", EscapeString(block.data));
@@ -63,7 +63,7 @@ TEST(FilterBlockTest, EmptyBuilder) {
   ASSERT_TRUE(reader.KeyMayMatch("foo", 100000));
 }
 
-TEST(FilterBlockTest, SingleChunk) {
+TEST_F(FilterBlockTest, SingleChunk) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
   builder.StartBlock(100);
   builder.Add("foo");
@@ -85,7 +85,7 @@ TEST(FilterBlockTest, SingleChunk) {
   ASSERT_TRUE(!reader.KeyMayMatch("other", 100));
 }
 
-TEST(FilterBlockTest, MultiChunk) {
+TEST_F(FilterBlockTest, MultiChunk) {
   BlockBasedFilterBlockBuilder builder(nullptr, table_options_);
 
   // First filter
@@ -136,7 +136,7 @@ TEST(FilterBlockTest, MultiChunk) {
 
 // Test for block based filter block
 // use new interface in FilterPolicy to create filter builder/reader
-class BlockBasedFilterBlockTest {
+class BlockBasedFilterBlockTest : public testing::Test {
  public:
   BlockBasedTableOptions table_options_;
 
@@ -147,7 +147,7 @@ class BlockBasedFilterBlockTest {
   ~BlockBasedFilterBlockTest() {}
 };
 
-TEST(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
+TEST_F(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
   FilterBlockBuilder* builder = new BlockBasedFilterBlockBuilder(
       nullptr, table_options_);
   BlockContents block(builder->Finish(), false, kNoCompression);
@@ -161,7 +161,7 @@ TEST(BlockBasedFilterBlockTest, BlockBasedEmptyBuilder) {
   delete reader;
 }
 
-TEST(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
+TEST_F(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
   FilterBlockBuilder* builder = new BlockBasedFilterBlockBuilder(
       nullptr, table_options_);
   builder->StartBlock(100);
@@ -187,7 +187,7 @@ TEST(BlockBasedFilterBlockTest, BlockBasedSingleChunk) {
   delete reader;
 }
 
-TEST(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
+TEST_F(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
   FilterBlockBuilder* builder = new BlockBasedFilterBlockBuilder(
       nullptr, table_options_);
 
@@ -242,4 +242,7 @@ TEST(BlockBasedFilterBlockTest, BlockBasedMultiChunk) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

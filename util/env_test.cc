@@ -34,7 +34,7 @@ namespace rocksdb {
 
 static const int kDelayMicros = 100000;
 
-class EnvPosixTest {
+class EnvPosixTest : public testing::Test {
  private:
   port::Mutex mu_;
   std::string events_;
@@ -89,14 +89,14 @@ class SleepingBackgroundTask {
   bool sleeping_;
 };
 
-TEST(EnvPosixTest, RunImmediately) {
+TEST_F(EnvPosixTest, RunImmediately) {
   std::atomic<bool> called(false);
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
   ASSERT_TRUE(called.load(std::memory_order_relaxed));
 }
 
-TEST(EnvPosixTest, UnSchedule) {
+TEST_F(EnvPosixTest, UnSchedule) {
   std::atomic<bool> called(false);
   env_->SetBackgroundThreads(1, Env::LOW);
 
@@ -124,7 +124,7 @@ TEST(EnvPosixTest, UnSchedule) {
   ASSERT_TRUE(called.load(std::memory_order_relaxed));
 }
 
-TEST(EnvPosixTest, RunMany) {
+TEST_F(EnvPosixTest, RunMany) {
   std::atomic<int> last_id(0);
 
   struct CB {
@@ -170,7 +170,7 @@ static void ThreadBody(void* arg) {
   s->mu.Unlock();
 }
 
-TEST(EnvPosixTest, StartThread) {
+TEST_F(EnvPosixTest, StartThread) {
   State state;
   state.val = 0;
   state.num_running = 3;
@@ -189,8 +189,7 @@ TEST(EnvPosixTest, StartThread) {
   ASSERT_EQ(state.val, 3);
 }
 
-TEST(EnvPosixTest, TwoPools) {
-
+TEST_F(EnvPosixTest, TwoPools) {
   class CB {
    public:
     CB(const std::string& pool_name, int pool_size)
@@ -307,7 +306,7 @@ TEST(EnvPosixTest, TwoPools) {
   env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 }
 
-TEST(EnvPosixTest, DecreaseNumBgThreads) {
+TEST_F(EnvPosixTest, DecreaseNumBgThreads) {
   std::vector<SleepingBackgroundTask> tasks(10);
 
   // Set number of thread to 1 first.
@@ -502,7 +501,7 @@ std::string GetOnDiskTestDir() {
 }  // namespace
 
 // Only works in linux platforms
-TEST(EnvPosixTest, RandomAccessUniqueID) {
+TEST_F(EnvPosixTest, RandomAccessUniqueID) {
   // Create file.
   const EnvOptions soptions;
   std::string fname = GetOnDiskTestDir() + "/" + "testfile";
@@ -543,7 +542,7 @@ TEST(EnvPosixTest, RandomAccessUniqueID) {
 
 // only works in linux platforms
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-TEST(EnvPosixTest, AllocateTest) {
+TEST_F(EnvPosixTest, AllocateTest) {
   std::string fname = GetOnDiskTestDir() + "/preallocate_testfile";
 
   // Try fallocate in a file to see whether the target file system supports it.
@@ -622,7 +621,7 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 }
 
 // Only works in linux platforms
-TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
+TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Check whether a bunch of concurrently existing files have unique IDs.
   const EnvOptions soptions;
 
@@ -661,7 +660,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 }
 
 // Only works in linux platforms
-TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
+TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   const EnvOptions soptions;
 
   std::string fname = GetOnDiskTestDir() + "/" + "testfile";
@@ -697,7 +696,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
 }
 
 // Only works in linux platforms
-TEST(EnvPosixTest, InvalidateCache) {
+TEST_F(EnvPosixTest, InvalidateCache) {
   const EnvOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
 
@@ -739,7 +738,7 @@ TEST(EnvPosixTest, InvalidateCache) {
 #endif  // not TRAVIS
 #endif  // OS_LINUX
 
-TEST(EnvPosixTest, PosixRandomRWFileTest) {
+TEST_F(EnvPosixTest, PosixRandomRWFileTest) {
   EnvOptions soptions;
   soptions.use_mmap_writes = soptions.use_mmap_reads = false;
   std::string fname = test::TmpDir() + "/" + "testfile";
@@ -797,7 +796,7 @@ class TestLogger : public Logger {
   int char_0_count;
 };
 
-TEST(EnvPosixTest, LogBufferTest) {
+TEST_F(EnvPosixTest, LogBufferTest) {
   TestLogger test_logger;
   test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   test_logger.log_count = 0;
@@ -855,7 +854,7 @@ class TestLogger2 : public Logger {
   size_t max_log_size_;
 };
 
-TEST(EnvPosixTest, LogBufferMaxSizeTest) {
+TEST_F(EnvPosixTest, LogBufferMaxSizeTest) {
   char bytes9000[9000];
   std::fill_n(bytes9000, sizeof(bytes9000), '1');
   bytes9000[sizeof(bytes9000) - 1] = '\0';
@@ -870,7 +869,7 @@ TEST(EnvPosixTest, LogBufferMaxSizeTest) {
   }
 }
 
-TEST(EnvPosixTest, Preallocation) {
+TEST_F(EnvPosixTest, Preallocation) {
   const std::string src = test::TmpDir() + "/" + "testfile";
   unique_ptr<WritableFile> srcfile;
   const EnvOptions soptions;
@@ -903,5 +902,6 @@ TEST(EnvPosixTest, Preallocation) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

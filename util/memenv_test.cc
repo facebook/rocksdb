@@ -12,7 +12,7 @@
 
 namespace rocksdb {
 
-class MemEnvTest {
+class MemEnvTest : public testing::Test {
  public:
   Env* env_;
   const EnvOptions soptions_;
@@ -25,7 +25,7 @@ class MemEnvTest {
   }
 };
 
-TEST(MemEnvTest, Basics) {
+TEST_F(MemEnvTest, Basics) {
   uint64_t file_size;
   unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
@@ -86,7 +86,7 @@ TEST(MemEnvTest, Basics) {
   ASSERT_OK(env_->DeleteDir("/dir"));
 }
 
-TEST(MemEnvTest, ReadWrite) {
+TEST_F(MemEnvTest, ReadWrite) {
   unique_ptr<WritableFile> writable_file;
   unique_ptr<SequentialFile> seq_file;
   unique_ptr<RandomAccessFile> rand_file;
@@ -126,7 +126,7 @@ TEST(MemEnvTest, ReadWrite) {
   ASSERT_TRUE(!rand_file->Read(1000, 5, &result, scratch).ok());
 }
 
-TEST(MemEnvTest, Locks) {
+TEST_F(MemEnvTest, Locks) {
   FileLock* lock;
 
   // These are no-ops, but we test they return success.
@@ -134,7 +134,7 @@ TEST(MemEnvTest, Locks) {
   ASSERT_OK(env_->UnlockFile(lock));
 }
 
-TEST(MemEnvTest, Misc) {
+TEST_F(MemEnvTest, Misc) {
   std::string test_dir;
   ASSERT_OK(env_->GetTestDirectory(&test_dir));
   ASSERT_TRUE(!test_dir.empty());
@@ -149,7 +149,7 @@ TEST(MemEnvTest, Misc) {
   writable_file.reset();
 }
 
-TEST(MemEnvTest, LargeWrite) {
+TEST_F(MemEnvTest, LargeWrite) {
   const size_t kWriteSize = 300 * 1024;
   char* scratch = new char[kWriteSize * 2];
 
@@ -181,7 +181,7 @@ TEST(MemEnvTest, LargeWrite) {
   delete [] scratch;
 }
 
-TEST(MemEnvTest, DBTest) {
+TEST_F(MemEnvTest, DBTest) {
   Options options;
   options.create_if_missing = true;
   options.env = env_;
@@ -236,5 +236,6 @@ TEST(MemEnvTest, DBTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

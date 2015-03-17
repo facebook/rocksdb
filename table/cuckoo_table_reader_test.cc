@@ -64,8 +64,10 @@ uint64_t GetSliceHash(const Slice& s, uint32_t index,
 
 }  // namespace
 
-class CuckooReaderTest {
+class CuckooReaderTest : public testing::Test {
  public:
+  using testing::Test::SetUp;
+
   CuckooReaderTest() {
     options.allow_mmap_reads = true;
     env = options.env;
@@ -208,7 +210,7 @@ class CuckooReaderTest {
   EnvOptions env_options;
 };
 
-TEST(CuckooReaderTest, WhenKeyExists) {
+TEST_F(CuckooReaderTest, WhenKeyExists) {
   SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyExists";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -235,7 +237,7 @@ TEST(CuckooReaderTest, WhenKeyExists) {
   CreateCuckooFileAndCheckReader();
 }
 
-TEST(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
+TEST_F(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
   SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReaderUint64_WhenKeyExists";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -263,7 +265,7 @@ TEST(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
   CreateCuckooFileAndCheckReader(test::Uint64Comparator());
 }
 
-TEST(CuckooReaderTest, CheckIterator) {
+TEST_F(CuckooReaderTest, CheckIterator) {
   SetUp(2*kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_CheckIterator";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -282,7 +284,7 @@ TEST(CuckooReaderTest, CheckIterator) {
   CheckIterator();
 }
 
-TEST(CuckooReaderTest, CheckIteratorUint64) {
+TEST_F(CuckooReaderTest, CheckIteratorUint64) {
   SetUp(2*kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_CheckIterator";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -302,7 +304,7 @@ TEST(CuckooReaderTest, CheckIteratorUint64) {
   CheckIterator(test::Uint64Comparator());
 }
 
-TEST(CuckooReaderTest, WhenKeyNotFound) {
+TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   // Add keys with colliding hash values.
   SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyNotFound";
@@ -503,7 +505,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
 }
 }  // namespace.
 
-TEST(CuckooReaderTest, TestReadPerformance) {
+TEST_F(CuckooReaderTest, TestReadPerformance) {
   if (!FLAGS_enable_perf) {
     return;
   }
@@ -534,8 +536,9 @@ TEST(CuckooReaderTest, TestReadPerformance) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }
 
 #endif  // GFLAGS.

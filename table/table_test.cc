@@ -698,7 +698,7 @@ class FixedOrLessPrefixTransform : public SliceTransform {
   }
 };
 
-class HarnessTest {
+class HarnessTest : public testing::Test {
  public:
   HarnessTest()
       : ioptions_(options_),
@@ -1006,7 +1006,7 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
 }
 
 // Tests against all kinds of tables
-class TableTest {
+class TableTest : public testing::Test {
  public:
   const InternalKeyComparator& GetPlainInternalComparator(
       const Comparator* comp) {
@@ -1024,11 +1024,11 @@ class TableTest {
 class GeneralTableTest : public TableTest {};
 class BlockBasedTableTest : public TableTest {};
 class PlainTableTest : public TableTest {};
-class TablePropertyTest {};
+class TablePropertyTest : public testing::Test {};
 
 // This test serves as the living tutorial for the prefix scan of user collected
 // properties.
-TEST(TablePropertyTest, PrefixScanTest) {
+TEST_F(TablePropertyTest, PrefixScanTest) {
   UserCollectedProperties props{{"num.111.1", "1"},
                                 {"num.111.2", "2"},
                                 {"num.111.3", "3"},
@@ -1065,7 +1065,7 @@ TEST(TablePropertyTest, PrefixScanTest) {
 
 // This test include all the basic checks except those for index size and block
 // size, which will be conducted in separated unit tests.
-TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
+TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   TableConstructor c(BytewiseComparator());
 
   c.Add("a1", "val1");
@@ -1110,7 +1110,7 @@ TEST(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   ASSERT_EQ(content.size() + kBlockTrailerSize, props.data_size);
 }
 
-TEST(BlockBasedTableTest, FilterPolicyNameProperties) {
+TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
   TableConstructor c(BytewiseComparator(), true);
   c.Add("a1", "val1");
   std::vector<std::string> keys;
@@ -1168,8 +1168,7 @@ void PrefetchRange(TableConstructor* c, Options* opt,
   AssertKeysInCache(table_reader, keys_in_cache, keys_not_in_cache);
 }
 
-
-TEST(BlockBasedTableTest, PrefetchTest) {
+TEST_F(BlockBasedTableTest, PrefetchTest) {
   // The purpose of this test is to test the prefetching operation built into
   // BlockBasedTable.
   Options opt;
@@ -1251,8 +1250,7 @@ TEST(BlockBasedTableTest, PrefetchTest) {
                 Status::InvalidArgument(Slice("k06 "), Slice("k07")));
 }
 
-
-TEST(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
+TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
   BlockBasedTableOptions table_options;
   for (int i = 0; i < 4; ++i) {
     Options options;
@@ -1349,7 +1347,7 @@ void AddInternalKey(TableConstructor* c, const std::string& prefix,
   c->Add(k.Encode().ToString(), "v");
 }
 
-TEST(TableTest, HashIndexTest) {
+TEST_F(TableTest, HashIndexTest) {
   TableConstructor c(BytewiseComparator());
 
   // keys with prefix length 3, make sure the key/value is big enough to fill
@@ -1462,7 +1460,7 @@ TEST(TableTest, HashIndexTest) {
 // It's very hard to figure out the index block size of a block accurately.
 // To make sure we get the index size, we just make sure as key number
 // grows, the filter block size also grows.
-TEST(BlockBasedTableTest, IndexSizeStat) {
+TEST_F(BlockBasedTableTest, IndexSizeStat) {
   uint64_t last_index_size = 0;
 
   // we need to use random keys since the pure human readable texts
@@ -1500,7 +1498,7 @@ TEST(BlockBasedTableTest, IndexSizeStat) {
   }
 }
 
-TEST(BlockBasedTableTest, NumBlockStat) {
+TEST_F(BlockBasedTableTest, NumBlockStat) {
   Random rnd(test::RandomSeed());
   TableConstructor c(BytewiseComparator());
   Options options;
@@ -1581,7 +1579,7 @@ class BlockCachePropertiesSnapshot {
 
 // Make sure, by default, index/filter blocks were pre-loaded (meaning we won't
 // use block cache to store them).
-TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
+TEST_F(BlockBasedTableTest, BlockCacheDisabledTest) {
   Options options;
   options.create_if_missing = true;
   options.statistics = CreateDBStatistics();
@@ -1624,7 +1622,7 @@ TEST(BlockBasedTableTest, BlockCacheDisabledTest) {
 
 // Due to the difficulities of the intersaction between statistics, this test
 // only tests the case when "index block is put to block cache"
-TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
+TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   // -- Table construction
   Options options;
   options.create_if_missing = true;
@@ -1756,7 +1754,7 @@ TEST(BlockBasedTableTest, FilterBlockInBlockCache) {
   props.AssertFilterBlockStat(0, 0);
 }
 
-TEST(BlockBasedTableTest, BlockCacheLeak) {
+TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   // Check that when we reopen a table we don't lose access to blocks already
   // in the cache. This test checks whether the Table actually makes use of the
   // unique ID from the file.
@@ -1811,7 +1809,7 @@ TEST(BlockBasedTableTest, BlockCacheLeak) {
   }
 }
 
-TEST(PlainTableTest, BasicPlainTableProperties) {
+TEST_F(PlainTableTest, BasicPlainTableProperties) {
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
   plain_table_options.bloom_bits_per_key = 8;
@@ -1851,7 +1849,7 @@ TEST(PlainTableTest, BasicPlainTableProperties) {
   ASSERT_EQ(1ul, props->num_data_blocks);
 }
 
-TEST(GeneralTableTest, ApproximateOffsetOfPlain) {
+TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   TableConstructor c(BytewiseComparator());
   c.Add("k01", "hello");
   c.Add("k02", "hello2");
@@ -1910,7 +1908,7 @@ static void DoCompressionTest(CompressionType comp) {
   ASSERT_TRUE(Between(c.ApproximateOffsetOf("xyz"),    4000,   6100));
 }
 
-TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
+TEST_F(GeneralTableTest, ApproximateOffsetOfCompressed) {
   std::vector<CompressionType> compression_state;
   if (!SnappyCompressionSupported()) {
     fprintf(stderr, "skipping snappy compression tests\n");
@@ -1950,7 +1948,7 @@ TEST(GeneralTableTest, ApproximateOffsetOfCompressed) {
   }
 }
 
-TEST(HarnessTest, Randomized) {
+TEST_F(HarnessTest, Randomized) {
   std::vector<TestArgs> args = GenerateArgList();
   for (unsigned int i = 0; i < args.size(); i++) {
     Init(args[i]);
@@ -1971,7 +1969,7 @@ TEST(HarnessTest, Randomized) {
   }
 }
 
-TEST(HarnessTest, RandomizedLongDB) {
+TEST_F(HarnessTest, RandomizedLongDB) {
   Random rnd(test::RandomSeed());
   TestArgs args = { DB_TEST, false, 16, kNoCompression, 0 };
   Init(args);
@@ -1995,9 +1993,9 @@ TEST(HarnessTest, RandomizedLongDB) {
   ASSERT_GT(files, 0);
 }
 
-class MemTableTest { };
+class MemTableTest : public testing::Test {};
 
-TEST(MemTableTest, Simple) {
+TEST_F(MemTableTest, Simple) {
   InternalKeyComparator cmp(BytewiseComparator());
   auto table_factory = std::make_shared<SkipListFactory>();
   Options options;
@@ -2030,7 +2028,7 @@ TEST(MemTableTest, Simple) {
 }
 
 // Test the empty key
-TEST(HarnessTest, SimpleEmptyKey) {
+TEST_F(HarnessTest, SimpleEmptyKey) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2040,7 +2038,7 @@ TEST(HarnessTest, SimpleEmptyKey) {
   }
 }
 
-TEST(HarnessTest, SimpleSingle) {
+TEST_F(HarnessTest, SimpleSingle) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2050,7 +2048,7 @@ TEST(HarnessTest, SimpleSingle) {
   }
 }
 
-TEST(HarnessTest, SimpleMulti) {
+TEST_F(HarnessTest, SimpleMulti) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2062,7 +2060,7 @@ TEST(HarnessTest, SimpleMulti) {
   }
 }
 
-TEST(HarnessTest, SimpleSpecialKey) {
+TEST_F(HarnessTest, SimpleSpecialKey) {
   auto args = GenerateArgList();
   for (const auto& arg : args) {
     Init(arg);
@@ -2072,7 +2070,7 @@ TEST(HarnessTest, SimpleSpecialKey) {
   }
 }
 
-TEST(HarnessTest, FooterTests) {
+TEST_F(HarnessTest, FooterTests) {
   {
     // upconvert legacy block based
     std::string encoded;
@@ -2175,5 +2173,6 @@ TEST(HarnessTest, FooterTests) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

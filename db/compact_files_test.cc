@@ -13,7 +13,7 @@
 
 namespace rocksdb {
 
-class CompactFilesTest {
+class CompactFilesTest : public testing::Test {
  public:
   CompactFilesTest() {
     env_ = Env::Default();
@@ -53,7 +53,7 @@ class FlushedFileCollector : public EventListener {
   std::mutex mutex_;
 };
 
-TEST(CompactFilesTest, ObsoleteFiles) {
+TEST_F(CompactFilesTest, ObsoleteFiles) {
   Options options;
   // to trigger compaction more easily
   const int kWriteBufferSize = 10000;
@@ -100,5 +100,6 @@ TEST(CompactFilesTest, ObsoleteFiles) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

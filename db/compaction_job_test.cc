@@ -20,7 +20,7 @@
 namespace rocksdb {
 
 // TODO(icanadi) Make it simpler once we mock out VersionSet
-class CompactionJobTest {
+class CompactionJobTest : public testing::Test {
  public:
   CompactionJobTest()
       : env_(Env::Default()),
@@ -134,7 +134,7 @@ class CompactionJobTest {
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 };
 
-TEST(CompactionJobTest, Simple) {
+TEST_F(CompactionJobTest, Simple) {
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
   auto expected_results = CreateTwoFiles();
@@ -179,4 +179,7 @@ TEST(CompactionJobTest, Simple) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

@@ -47,7 +47,7 @@ class EnvCounter : public EnvWrapper {
   int num_new_writable_file_;
 };
 
-class ColumnFamilyTest {
+class ColumnFamilyTest : public testing::Test {
  public:
   ColumnFamilyTest() : rnd_(139) {
     env_ = new EnvCounter(Env::Default());
@@ -333,7 +333,7 @@ class DumbLogger : public Logger {
   virtual size_t GetLogFileSize() const override { return 0; }
 };
 
-TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
+TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
     Open();
     CreateColumnFamilies({"one", "two", "three"});
@@ -360,8 +360,7 @@ TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
   }
 }
 
-
-TEST(ColumnFamilyTest, AddDrop) {
+TEST_F(ColumnFamilyTest, AddDrop) {
   Open();
   CreateColumnFamilies({"one", "two", "three"});
   ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
@@ -387,7 +386,7 @@ TEST(ColumnFamilyTest, AddDrop) {
               std::vector<std::string>({"default", "four", "three"}));
 }
 
-TEST(ColumnFamilyTest, DropTest) {
+TEST_F(ColumnFamilyTest, DropTest) {
   // first iteration - dont reopen DB before dropping
   // second iteration - reopen DB before dropping
   for (int iter = 0; iter < 2; ++iter) {
@@ -411,7 +410,7 @@ TEST(ColumnFamilyTest, DropTest) {
   }
 }
 
-TEST(ColumnFamilyTest, WriteBatchFailure) {
+TEST_F(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   WriteBatch batch;
@@ -429,7 +428,7 @@ TEST(ColumnFamilyTest, WriteBatchFailure) {
   Close();
 }
 
-TEST(ColumnFamilyTest, ReadWrite) {
+TEST_F(ColumnFamilyTest, ReadWrite) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   ASSERT_OK(Put(0, "foo", "v1"));
@@ -453,7 +452,7 @@ TEST(ColumnFamilyTest, ReadWrite) {
   Close();
 }
 
-TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
+TEST_F(ColumnFamilyTest, IgnoreRecoveredLog) {
   std::string backup_logs = dbname_ + "/backup_logs";
 
   // delete old files in backup_logs directory
@@ -528,7 +527,7 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
   }
 }
 
-TEST(ColumnFamilyTest, FlushTest) {
+TEST_F(ColumnFamilyTest, FlushTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   ASSERT_OK(Put(0, "foo", "v1"));
@@ -577,7 +576,7 @@ TEST(ColumnFamilyTest, FlushTest) {
 }
 
 // Makes sure that obsolete log files get deleted
-TEST(ColumnFamilyTest, LogDeletionTest) {
+TEST_F(ColumnFamilyTest, LogDeletionTest) {
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   column_family_options_.write_buffer_size = 100000;  // 100KB
   Open();
@@ -644,7 +643,7 @@ TEST(ColumnFamilyTest, LogDeletionTest) {
 }
 
 // Makes sure that obsolete log files get deleted
-TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
+TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   // disable flushing stale column families
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   Open();
@@ -738,7 +737,7 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   Close();
 }
 
-TEST(ColumnFamilyTest, MemtableNotSupportSnapshot) {
+TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
   Open();
   auto* s1 = dbfull()->GetSnapshot();
   ASSERT_TRUE(s1 != nullptr);
@@ -759,7 +758,7 @@ TEST(ColumnFamilyTest, MemtableNotSupportSnapshot) {
   Close();
 }
 
-TEST(ColumnFamilyTest, DifferentMergeOperators) {
+TEST_F(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
   ColumnFamilyOptions default_cf, first, second;
@@ -789,7 +788,7 @@ TEST(ColumnFamilyTest, DifferentMergeOperators) {
   Close();
 }
 
-TEST(ColumnFamilyTest, DifferentCompactionStyles) {
+TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
@@ -864,7 +863,7 @@ std::string IterStatus(Iterator* iter) {
 }
 }  // anonymous namespace
 
-TEST(ColumnFamilyTest, NewIteratorsTest) {
+TEST_F(ColumnFamilyTest, NewIteratorsTest) {
   // iter == 0 -- no tailing
   // iter == 2 -- tailing
   for (int iter = 0; iter < 2; ++iter) {
@@ -909,7 +908,7 @@ TEST(ColumnFamilyTest, NewIteratorsTest) {
   }
 }
 
-TEST(ColumnFamilyTest, ReadOnlyDBTest) {
+TEST_F(ColumnFamilyTest, ReadOnlyDBTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
   ASSERT_OK(Put(0, "a", "b"));
@@ -959,7 +958,7 @@ TEST(ColumnFamilyTest, ReadOnlyDBTest) {
   ASSERT_TRUE(!s.ok());
 }
 
-TEST(ColumnFamilyTest, DontRollEmptyLogs) {
+TEST_F(ColumnFamilyTest, DontRollEmptyLogs) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
 
@@ -981,7 +980,7 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   Close();
 }
 
-TEST(ColumnFamilyTest, FlushStaleColumnFamilies) {
+TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
@@ -1010,7 +1009,7 @@ TEST(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Close();
 }
 
-TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
+TEST_F(ColumnFamilyTest, CreateMissingColumnFamilies) {
   Status s = TryOpen({"one", "two"});
   ASSERT_TRUE(!s.ok());
   db_options_.create_missing_column_families = true;
@@ -1019,7 +1018,7 @@ TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
   Close();
 }
 
-TEST(ColumnFamilyTest, SanitizeOptions) {
+TEST_F(ColumnFamilyTest, SanitizeOptions) {
   DBOptions db_options;
   for (int i = 1; i <= 3; i++) {
     for (int j = 1; j <= 3; j++) {
@@ -1044,5 +1043,6 @@ TEST(ColumnFamilyTest, SanitizeOptions) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

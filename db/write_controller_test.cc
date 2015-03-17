@@ -9,9 +9,9 @@
 
 namespace rocksdb {
 
-class WriteControllerTest {};
+class WriteControllerTest : public testing::Test {};
 
-TEST(WriteControllerTest, SanityTest) {
+TEST_F(WriteControllerTest, SanityTest) {
   WriteController controller;
   auto stop_token_1 = controller.GetStopToken();
   auto stop_token_2 = controller.GetStopToken();
@@ -37,4 +37,7 @@ TEST(WriteControllerTest, SanityTest) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

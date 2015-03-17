@@ -13,7 +13,7 @@
 
 namespace rocksdb {
 
-class MockEnvTest {
+class MockEnvTest : public testing::Test {
  public:
   Env* env_;
   const EnvOptions soptions_;
@@ -26,7 +26,7 @@ class MockEnvTest {
   }
 };
 
-TEST(MockEnvTest, Basics) {
+TEST_F(MockEnvTest, Basics) {
   uint64_t file_size;
   unique_ptr<WritableFile> writable_file;
   std::vector<std::string> children;
@@ -87,7 +87,7 @@ TEST(MockEnvTest, Basics) {
   ASSERT_OK(env_->DeleteDir("/dir"));
 }
 
-TEST(MockEnvTest, ReadWrite) {
+TEST_F(MockEnvTest, ReadWrite) {
   unique_ptr<WritableFile> writable_file;
   unique_ptr<SequentialFile> seq_file;
   unique_ptr<RandomAccessFile> rand_file;
@@ -127,7 +127,7 @@ TEST(MockEnvTest, ReadWrite) {
   ASSERT_TRUE(!rand_file->Read(1000, 5, &result, scratch).ok());
 }
 
-TEST(MockEnvTest, Locks) {
+TEST_F(MockEnvTest, Locks) {
   FileLock* lock;
 
   // These are no-ops, but we test they return success.
@@ -135,7 +135,7 @@ TEST(MockEnvTest, Locks) {
   ASSERT_OK(env_->UnlockFile(lock));
 }
 
-TEST(MockEnvTest, Misc) {
+TEST_F(MockEnvTest, Misc) {
   std::string test_dir;
   ASSERT_OK(env_->GetTestDirectory(&test_dir));
   ASSERT_TRUE(!test_dir.empty());
@@ -150,7 +150,7 @@ TEST(MockEnvTest, Misc) {
   writable_file.reset();
 }
 
-TEST(MockEnvTest, LargeWrite) {
+TEST_F(MockEnvTest, LargeWrite) {
   const size_t kWriteSize = 300 * 1024;
   char* scratch = new char[kWriteSize * 2];
 
@@ -182,7 +182,7 @@ TEST(MockEnvTest, LargeWrite) {
   delete [] scratch;
 }
 
-TEST(MockEnvTest, Corrupt) {
+TEST_F(MockEnvTest, Corrupt) {
   const std::string kGood = "this is a good string, synced to disk";
   const std::string kCorrupted = "this part may be corrupted";
   const std::string kFileName = "/dir/f";
@@ -221,7 +221,7 @@ TEST(MockEnvTest, Corrupt) {
   ASSERT_NE(result.compare(kCorrupted), 0);
 }
 
-TEST(MockEnvTest, DBTest) {
+TEST_F(MockEnvTest, DBTest) {
   Options options;
   options.create_if_missing = true;
   options.env = env_;
@@ -267,5 +267,6 @@ TEST(MockEnvTest, DBTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

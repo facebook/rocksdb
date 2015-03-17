@@ -40,10 +40,9 @@ static Slice Key(uint64_t i, char* buffer) {
   return Slice(buffer, sizeof(i));
 }
 
-class DynamicBloomTest {
-};
+class DynamicBloomTest : public testing::Test {};
 
-TEST(DynamicBloomTest, EmptyFilter) {
+TEST_F(DynamicBloomTest, EmptyFilter) {
   Arena arena;
   DynamicBloom bloom1(&arena, 100, 0, 2);
   ASSERT_TRUE(!bloom1.MayContain("hello"));
@@ -54,7 +53,7 @@ TEST(DynamicBloomTest, EmptyFilter) {
   ASSERT_TRUE(!bloom2.MayContain("world"));
 }
 
-TEST(DynamicBloomTest, Small) {
+TEST_F(DynamicBloomTest, Small) {
   Arena arena;
   DynamicBloom bloom1(&arena, 100, 0, 2);
   bloom1.Add("hello");
@@ -86,7 +85,7 @@ static uint32_t NextNum(uint32_t num) {
   return num;
 }
 
-TEST(DynamicBloomTest, VaryingLengths) {
+TEST_F(DynamicBloomTest, VaryingLengths) {
   char buffer[sizeof(uint64_t)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -146,7 +145,7 @@ TEST(DynamicBloomTest, VaryingLengths) {
   }
 }
 
-TEST(DynamicBloomTest, perf) {
+TEST_F(DynamicBloomTest, perf) {
   StopWatchNano timer(Env::Default());
   uint32_t num_probes = static_cast<uint32_t>(FLAGS_num_probes);
 
@@ -215,9 +214,10 @@ TEST(DynamicBloomTest, perf) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
 
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }
 
 #endif  // GFLAGS

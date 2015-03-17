@@ -23,7 +23,7 @@ namespace rocksdb {
 
 // TODO(icanadi) mock out VersionSet
 // TODO(icanadi) move other WalManager-specific tests from db_test here
-class WalManagerTest {
+class WalManagerTest : public testing::Test {
  public:
   WalManagerTest()
       : env_(Env::Default()),
@@ -104,7 +104,7 @@ class WalManagerTest {
   uint64_t current_log_number_;
 };
 
-TEST(WalManagerTest, ReadFirstRecordCache) {
+TEST_F(WalManagerTest, ReadFirstRecordCache) {
   Init();
   std::string path = dbname_ + "/000001.log";
   unique_ptr<WritableFile> file;
@@ -192,7 +192,7 @@ int CountRecords(TransactionLogIterator* iter) {
 }
 }  // namespace
 
-TEST(WalManagerTest, WALArchivalSizeLimit) {
+TEST_F(WalManagerTest, WALArchivalSizeLimit) {
   db_options_.WAL_ttl_seconds = 0;
   db_options_.WAL_size_limit_MB = 1000;
   Init();
@@ -230,7 +230,7 @@ TEST(WalManagerTest, WALArchivalSizeLimit) {
   ASSERT_TRUE(log_files.empty());
 }
 
-TEST(WalManagerTest, WALArchivalTtl) {
+TEST_F(WalManagerTest, WALArchivalTtl) {
   db_options_.WAL_ttl_seconds = 1000;
   Init();
 
@@ -256,7 +256,7 @@ TEST(WalManagerTest, WALArchivalTtl) {
   ASSERT_TRUE(log_files.empty());
 }
 
-TEST(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
+TEST_F(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
   Init();
   RollTheLog(false);
   Put("key1", std::string(1024, 'a'));
@@ -270,7 +270,7 @@ TEST(WalManagerTest, TransactionLogIteratorMoveOverZeroFiles) {
   ASSERT_EQ(2, CountRecords(iter.get()));
 }
 
-TEST(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
+TEST_F(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
   Init();
   RollTheLog(false);
   auto iter = OpenTransactionLogIter(0);
@@ -280,4 +280,7 @@ TEST(WalManagerTest, TransactionLogIteratorJustEmptyFile) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

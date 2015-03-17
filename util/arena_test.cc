@@ -16,9 +16,9 @@ namespace rocksdb {
 namespace {
 const size_t kHugePageSize = 2 * 1024 * 1024;
 }  // namespace
-class ArenaTest {};
+class ArenaTest : public testing::Test {};
 
-TEST(ArenaTest, Empty) { Arena arena0; }
+TEST_F(ArenaTest, Empty) { Arena arena0; }
 
 namespace {
 void MemoryAllocatedBytesTest(size_t huge_page_size) {
@@ -166,20 +166,23 @@ static void SimpleTest(size_t huge_page_size) {
 }
 }  // namespace
 
-TEST(ArenaTest, MemoryAllocatedBytes) {
+TEST_F(ArenaTest, MemoryAllocatedBytes) {
   MemoryAllocatedBytesTest(0);
   MemoryAllocatedBytesTest(kHugePageSize);
 }
 
-TEST(ArenaTest, ApproximateMemoryUsage) {
+TEST_F(ArenaTest, ApproximateMemoryUsage) {
   ApproximateMemoryUsageTest(0);
   ApproximateMemoryUsageTest(kHugePageSize);
 }
 
-TEST(ArenaTest, Simple) {
+TEST_F(ArenaTest, Simple) {
   SimpleTest(0);
   SimpleTest(kHugePageSize);
 }
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

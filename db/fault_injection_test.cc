@@ -406,7 +406,7 @@ Status TestWritableFile::Sync() {
   return Status::OK();
 }
 
-class FaultInjectionTest {
+class FaultInjectionTest : public testing::Test {
  protected:
   enum OptionConfig {
     kDefault,
@@ -447,10 +447,7 @@ class FaultInjectionTest {
         base_env_(nullptr),
         env_(NULL),
         db_(NULL) {
-    NewDB();
   }
-
-  ~FaultInjectionTest() { EXPECT_OK(TearDown()); }
 
   bool ChangeOptions() {
     option_config_++;
@@ -532,15 +529,9 @@ class FaultInjectionTest {
     return s;
   }
 
-  Status SetUp() {
-    Status s = TearDown();
-    if (s.ok()) {
-      s = NewDB();
-    }
-    return s;
-  }
+  void SetUp() override { ASSERT_OK(NewDB()); }
 
-  Status TearDown() {
+  void TearDown() override {
     CloseDB();
 
     Status s = DestroyDB(dbname_, options_);
@@ -550,7 +541,7 @@ class FaultInjectionTest {
 
     tiny_cache_.reset();
 
-    return s;
+    ASSERT_OK(s);
   }
 
   void Build(const WriteOptions& write_options, int start_idx, int num_vals) {
@@ -696,10 +687,9 @@ class FaultInjectionTest {
   }
 };
 
-TEST(FaultInjectionTest, FaultTest) {
+TEST_F(FaultInjectionTest, FaultTest) {
   do {
     Random rnd(301);
-    ASSERT_OK(SetUp());
 
     for (size_t idx = 0; idx < kNumIterations; idx++) {
       int num_pre_sync = rnd.Uniform(kMaxNumValues);
@@ -739,5 +729,6 @@ TEST(FaultInjectionTest, FaultTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

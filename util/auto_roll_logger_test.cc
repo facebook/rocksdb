@@ -20,7 +20,7 @@ using namespace std;
 
 namespace rocksdb {
 
-class AutoRollLoggerTest {
+class AutoRollLoggerTest : public testing::Test {
  public:
   static void InitTestDb() {
     string deleteCmd = "rm -rf " + kTestDir;
@@ -135,7 +135,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   return expected_create_time;
 }
 
-TEST(AutoRollLoggerTest, RollLogFileBySize) {
+TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
     InitTestDb();
     size_t log_max_size = 1024 * 5;
 
@@ -145,7 +145,7 @@ TEST(AutoRollLoggerTest, RollLogFileBySize) {
                           kSampleMessage + ":RollLogFileBySize");
 }
 
-TEST(AutoRollLoggerTest, RollLogFileByTime) {
+TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
     size_t time = 2;
     size_t log_size = 1024 * 5;
 
@@ -158,8 +158,7 @@ TEST(AutoRollLoggerTest, RollLogFileByTime) {
     RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
 }
 
-TEST(AutoRollLoggerTest,
-     OpenLogFilesMultipleTimesWithOptionLog_max_size) {
+TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
   // If only 'log_max_size' options is specified, then every time
   // when rocksdb is restarted, a new empty log file will be created.
   InitTestDb();
@@ -184,7 +183,7 @@ TEST(AutoRollLoggerTest,
   delete logger;
 }
 
-TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
+TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
   size_t time = 2, log_max_size = 1024 * 5;
 
   InitTestDb();
@@ -201,7 +200,7 @@ TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
       kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 }
 
-TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
+TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   shared_ptr<Logger> logger;
 
@@ -246,7 +245,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
       kSampleMessage + ":CreateLoggerFromOptions - both");
 }
 
-TEST(AutoRollLoggerTest, InfoLogLevel) {
+TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();
 
   size_t log_size = 8192;
@@ -325,7 +324,7 @@ static size_t GetLinesCount(const string& fname, const string& pattern) {
   return count;
 }
 
-TEST(AutoRollLoggerTest, LogHeaderTest) {
+TEST_F(AutoRollLoggerTest, LogHeaderTest) {
   static const size_t MAX_HEADERS = 10;
   static const size_t LOG_MAX_SIZE = 1024 * 5;
   static const std::string HEADER_STR = "Log header line";
@@ -368,7 +367,7 @@ TEST(AutoRollLoggerTest, LogHeaderTest) {
   }
 }
 
-TEST(AutoRollLoggerTest, LogFileExistence) {
+TEST_F(AutoRollLoggerTest, LogFileExistence) {
   rocksdb::DB* db;
   rocksdb::Options options;
   string deleteCmd = "rm -rf " + kTestDir;
@@ -383,5 +382,6 @@ TEST(AutoRollLoggerTest, LogFileExistence) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

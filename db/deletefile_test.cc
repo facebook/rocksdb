@@ -23,7 +23,7 @@
 
 namespace rocksdb {
 
-class DeleteFileTest {
+class DeleteFileTest : public testing::Test {
  public:
   std::string dbname_;
   Options options_;
@@ -146,7 +146,7 @@ class DeleteFileTest {
 
 };
 
-TEST(DeleteFileTest, AddKeysAndQueryLevels) {
+TEST_F(DeleteFileTest, AddKeysAndQueryLevels) {
   CreateTwoLevels();
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
@@ -192,7 +192,7 @@ TEST(DeleteFileTest, AddKeysAndQueryLevels) {
   CloseDB();
 }
 
-TEST(DeleteFileTest, PurgeObsoleteFilesTest) {
+TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   CreateTwoLevels();
   // there should be only one (empty) log file because CreateTwoLevels()
   // flushes the memtables to disk
@@ -220,7 +220,7 @@ TEST(DeleteFileTest, PurgeObsoleteFilesTest) {
   CloseDB();
 }
 
-TEST(DeleteFileTest, DeleteFileWithIterator) {
+TEST_F(DeleteFileTest, DeleteFileWithIterator) {
   CreateTwoLevels();
   ReadOptions options;
   Iterator* it = db_->NewIterator(options);
@@ -251,7 +251,7 @@ TEST(DeleteFileTest, DeleteFileWithIterator) {
   CloseDB();
 }
 
-TEST(DeleteFileTest, DeleteLogFiles) {
+TEST_F(DeleteFileTest, DeleteLogFiles) {
   AddKeys(10, 0);
   VectorLogPtr logfiles;
   db_->GetSortedWalFiles(logfiles);
@@ -288,7 +288,7 @@ TEST(DeleteFileTest, DeleteLogFiles) {
   CloseDB();
 }
 
-TEST(DeleteFileTest, DeleteNonDefaultColumnFamily) {
+TEST_F(DeleteFileTest, DeleteNonDefaultColumnFamily) {
   CloseDB();
   DBOptions db_options;
   db_options.create_if_missing = true;
@@ -360,6 +360,7 @@ TEST(DeleteFileTest, DeleteNonDefaultColumnFamily) {
 } //namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
 

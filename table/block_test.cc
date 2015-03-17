@@ -65,10 +65,10 @@ void GenerateRandomKVs(std::vector<std::string> *keys,
   }
 }
 
-class BlockTest {};
+class BlockTest : public testing::Test {};
 
 // block test
-TEST(BlockTest, SimpleTest) {
+TEST_F(BlockTest, SimpleTest) {
   Random rnd(301);
   Options options = Options();
   std::unique_ptr<InternalKeyComparator> ic;
@@ -201,7 +201,7 @@ void CheckBlockContents(BlockContents contents, const int max_key,
 }
 
 // In this test case, no two key share same prefix.
-TEST(BlockTest, SimpleIndexHash) {
+TEST_F(BlockTest, SimpleIndexHash) {
   const int kMaxKey = 100000;
   std::vector<std::string> keys;
   std::vector<std::string> values;
@@ -215,7 +215,7 @@ TEST(BlockTest, SimpleIndexHash) {
   CheckBlockContents(std::move(contents), kMaxKey, keys, values);
 }
 
-TEST(BlockTest, IndexHashWithSharedPrefix) {
+TEST_F(BlockTest, IndexHashWithSharedPrefix) {
   const int kMaxKey = 100000;
   // for each prefix, there will be 5 keys starts with it.
   const int kPrefixGroup = 5;
@@ -236,6 +236,7 @@ TEST(BlockTest, IndexHashWithSharedPrefix) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

@@ -144,7 +144,7 @@ std::string Get(DB* db, const ReadOptions& read_options, uint64_t prefix,
 }
 }  // namespace
 
-class PrefixTest {
+class PrefixTest : public testing::Test {
  public:
   std::shared_ptr<DB> OpenDb() {
     DB* db;
@@ -217,7 +217,7 @@ class PrefixTest {
   Options options;
 };
 
-TEST(PrefixTest, TestResult) {
+TEST_F(PrefixTest, TestResult) {
   for (int num_buckets = 1; num_buckets <= 2; num_buckets++) {
     FirstOption();
     while (NextOptions(num_buckets)) {
@@ -390,7 +390,7 @@ TEST(PrefixTest, TestResult) {
   }
 }
 
-TEST(PrefixTest, DynamicPrefixIterator) {
+TEST_F(PrefixTest, DynamicPrefixIterator) {
   while (NextOptions(FLAGS_bucket_count)) {
     std::cout << "*** Mem table: " << options.memtable_factory->Name()
         << std::endl;
@@ -492,10 +492,11 @@ TEST(PrefixTest, DynamicPrefixIterator) {
 }
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
   std::cout << kDbName << "\n";
 
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }
 
 #endif  // GFLAGS

@@ -35,7 +35,7 @@
 
 namespace rocksdb {
 
-class EventListenerTest {
+class EventListenerTest : public testing::Test {
  public:
   EventListenerTest() {
     dbname_ = test::TmpDir() + "/listener_test";
@@ -157,7 +157,7 @@ class TestCompactionListener : public EventListener {
   std::vector<DB*> compacted_dbs_;
 };
 
-TEST(EventListenerTest, OnSingleDBCompactionTest) {
+TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
@@ -226,7 +226,7 @@ class TestFlushListener : public EventListener {
   int stop_count;
 };
 
-TEST(EventListenerTest, OnSingleDBFlushTest) {
+TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
   options.write_buffer_size = 100000;
   TestFlushListener* listener = new TestFlushListener();
@@ -257,7 +257,7 @@ TEST(EventListenerTest, OnSingleDBFlushTest) {
   }
 }
 
-TEST(EventListenerTest, MultiCF) {
+TEST_F(EventListenerTest, MultiCF) {
   Options options;
   options.write_buffer_size = 100000;
   TestFlushListener* listener = new TestFlushListener();
@@ -287,7 +287,7 @@ TEST(EventListenerTest, MultiCF) {
   }
 }
 
-TEST(EventListenerTest, MultiDBMultiListeners) {
+TEST_F(EventListenerTest, MultiDBMultiListeners) {
   std::vector<TestFlushListener*> listeners;
   const int kNumDBs = 5;
   const int kNumListeners = 10;
@@ -363,7 +363,7 @@ TEST(EventListenerTest, MultiDBMultiListeners) {
   }
 }
 
-TEST(EventListenerTest, DisableBGCompaction) {
+TEST_F(EventListenerTest, DisableBGCompaction) {
   Options options;
   TestFlushListener* listener = new TestFlushListener();
   const int kSlowdownTrigger = 5;
@@ -396,6 +396,7 @@ TEST(EventListenerTest, DisableBGCompaction) {
 #endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
 

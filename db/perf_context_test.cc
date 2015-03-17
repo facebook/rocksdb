@@ -59,9 +59,9 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
     return std::shared_ptr<DB>(db);
 }
 
-class PerfContextTest { };
+class PerfContextTest : public testing::Test {};
 
-TEST(PerfContextTest, SeekIntoDeletion) {
+TEST_F(PerfContextTest, SeekIntoDeletion) {
   DestroyDB(kDbName, Options());
   auto db = OpenDb();
   WriteOptions write_options;
@@ -144,7 +144,7 @@ TEST(PerfContextTest, SeekIntoDeletion) {
   std::cout << "Seek uesr key comparison: \n" << hist_seek.ToString();
 }
 
-TEST(PerfContextTest, StopWatchNanoOverhead) {
+TEST_F(PerfContextTest, StopWatchNanoOverhead) {
   // profile the timer cost by itself!
   const int kTotalIterations = 1000000;
   std::vector<uint64_t> timings(kTotalIterations);
@@ -162,7 +162,7 @@ TEST(PerfContextTest, StopWatchNanoOverhead) {
   std::cout << histogram.ToString();
 }
 
-TEST(PerfContextTest, StopWatchOverhead) {
+TEST_F(PerfContextTest, StopWatchOverhead) {
   // profile the timer cost by itself!
   const int kTotalIterations = 1000000;
   uint64_t elapsed = 0;
@@ -425,7 +425,7 @@ void ProfileQueries(bool enabled_time = false) {
   }
 }
 
-TEST(PerfContextTest, KeyComparisonCount) {
+TEST_F(PerfContextTest, KeyComparisonCount) {
   SetPerfLevel(kEnableCount);
   ProfileQueries();
 
@@ -448,7 +448,7 @@ TEST(PerfContextTest, KeyComparisonCount) {
 // memtable. When there are two memtables, even the avg Seek Key comparison
 // starts to become linear to the input size.
 
-TEST(PerfContextTest, SeekKeyComparison) {
+TEST_F(PerfContextTest, SeekKeyComparison) {
   DestroyDB(kDbName, Options());
   auto db = OpenDb();
   WriteOptions write_options;
@@ -517,6 +517,7 @@ TEST(PerfContextTest, SeekKeyComparison) {
 }
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
 
   for (int i = 1; i < argc; i++) {
     int n;
@@ -544,5 +545,5 @@ int main(int argc, char** argv) {
 
   std::cout << kDbName << "\n";
 
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }
