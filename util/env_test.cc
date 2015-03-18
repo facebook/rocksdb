@@ -120,8 +120,15 @@ TEST_F(EnvPosixTest, UnSchedule) {
 
   /* Schedule another task */
   env_->Schedule(&SetBool, &called);
-  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  for (int i = 0; i < kDelayMicros; i++) {
+    if (called.load(std::memory_order_relaxed)) {
+      break;
+    }
+    Env::Default()->SleepForMicroseconds(1);
+  }
   ASSERT_TRUE(called.load(std::memory_order_relaxed));
+
+  ASSERT_TRUE(!sleeping_task.IsSleeping() && !sleeping_task1.IsSleeping());
 }
 
 TEST_F(EnvPosixTest, RunMany) {
