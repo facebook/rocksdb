@@ -45,10 +45,13 @@
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
 
-// Get nano time for mach systems
-#ifdef __MACH__
+// Get nano time includes
+#if defined(OS_LINUX) || defined(OS_FREEBSD)
+#elif defined(__MACH__)
 #include <mach/clock.h>
 #include <mach/mach.h>
+#else
+#include <chrono>
 #endif
 
 #if !defined(TMPFS_MAGIC)
@@ -1408,7 +1411,7 @@ class PosixEnv : public Env {
   }
 
   virtual uint64_t NowNanos() override {
-#ifdef OS_LINUX
+#if defined(OS_LINUX) || defined(OS_FREEBSD)
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
@@ -1418,8 +1421,11 @@ class PosixEnv : public Env {
     host_get_clock_service(mach_host_self(), CALENDAR_CLOCK, &cclock);
     clock_get_time(cclock, &ts);
     mach_port_deallocate(mach_task_self(), cclock);
-#endif
     return static_cast<uint64_t>(ts.tv_sec) * 1000000000 + ts.tv_nsec;
+#else
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
+       std::chrono::steady_clock::now().time_since_epoch()).count();
+#endif
   }
 
   virtual void SleepForMicroseconds(int micros) override { usleep(micros); }
