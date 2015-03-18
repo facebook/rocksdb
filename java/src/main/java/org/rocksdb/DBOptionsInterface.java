@@ -519,7 +519,10 @@ public interface DBOptionsInterface {
    *
    * @param limit scan count limit
    * @return the instance of the current Object.
+   *
+   * @deprecated This function is depreciated.
    */
+  @Deprecated
   Object setTableCacheRemoveScanCountLimit(int limit);
 
   /**
@@ -532,7 +535,10 @@ public interface DBOptionsInterface {
    * order.
    *
    * @return scan count limit
+   *
+   * @deprecated This function is depreciated.
    */
+  @Deprecated
   int tableCacheRemoveScanCountLimit();
 
   /**

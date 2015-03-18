@@ -368,22 +368,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void tableCacheRemoveScanCountLimit() {
-    DBOptions opt = null;
-    try {
-      opt = new DBOptions();
-      int intValue = rand.nextInt();
-      opt.setTableCacheRemoveScanCountLimit(intValue);
-      assertThat(opt.tableCacheRemoveScanCountLimit()).
-          isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void walSizeLimitMB() {
     DBOptions opt = null;
     try {

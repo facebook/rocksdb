@@ -797,22 +797,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void tableCacheRemoveScanCountLimit() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setTableCacheRemoveScanCountLimit(intValue);
-      assertThat(opt.tableCacheRemoveScanCountLimit()).
-          isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void walSizeLimitMB() {
     Options opt = null;
     try {
