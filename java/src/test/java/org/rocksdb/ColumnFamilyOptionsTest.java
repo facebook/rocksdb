@@ -243,7 +243,7 @@ public class ColumnFamilyOptionsTest {
     ColumnFamilyOptions opt = null;
     try {
       opt = new ColumnFamilyOptions();
-      boolean boolValue = rand.nextBoolean();
+      final boolean boolValue = rand.nextBoolean();
       opt.setLevelCompactionDynamicLevelBytes(boolValue);
       assertThat(opt.levelCompactionDynamicLevelBytes())
           .isEqualTo(boolValue);

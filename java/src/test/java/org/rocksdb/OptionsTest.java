@@ -205,7 +205,7 @@ public class OptionsTest {
     Options opt = null;
     try {
       opt = new Options();
-      boolean boolValue = rand.nextBoolean();
+      final boolean boolValue = rand.nextBoolean();
       opt.setLevelCompactionDynamicLevelBytes(boolValue);
       assertThat(opt.levelCompactionDynamicLevelBytes())
           .isEqualTo(boolValue);
