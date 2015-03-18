@@ -60,7 +60,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
     memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
-    ASSERT_TRUE(rocksdb::ParseInternalKey(iter->key(), &ikey));
+    assert(rocksdb::ParseInternalKey(iter->key(), &ikey));
     switch (ikey.type) {
       case rocksdb::kTypeValue:
         state.append("Put(");
