@@ -319,6 +319,8 @@ class DB {
   //  "rocksdb.cur-size-all-mem-tables"
   //  "rocksdb.num-entries-active-mem-table"
   //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.num-deletes-active-mem-table"
+  //  "rocksdb.num-deletes-imm-mem-tables"
   //  "rocksdb.estimate-num-keys" - estimated keys in the column family
   //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
   //      SST tables, that is not counted as a part of block cache.
@@ -346,6 +348,8 @@ class DB {
   //  "rocksdb.cur-size-all-mem-tables"
   //  "rocksdb.num-entries-active-mem-table"
   //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.num-deletes-active-mem-table"
+  //  "rocksdb.num-deletes-imm-mem-tables"
   //  "rocksdb.estimate-num-keys"
   //  "rocksdb.estimate-table-readers-mem"
   //  "rocksdb.is-file-deletions-enabled"

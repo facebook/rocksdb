@@ -126,6 +126,10 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kNumEntriesInMutableMemtable;
   } else if (in == "num-entries-imm-mem-tables") {
     return kNumEntriesInImmutableMemtable;
+  } else if (in == "num-deletes-active-mem-table") {
+    return kNumDeletesInMutableMemtable;
+  } else if (in == "num-deletes-imm-mem-tables") {
+    return kNumDeletesInImmutableMemtable;
   } else if (in == "estimate-num-keys") {
     return kEstimatedNumKeys;
   } else if (in == "estimate-table-readers-mem") {
@@ -256,17 +260,28 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       return true;
     case kNumEntriesInMutableMemtable:
       // Current number of entires in the active memtable
-      *value = cfd_->mem()->GetNumEntries();
+      *value = cfd_->mem()->num_entries();
       return true;
     case kNumEntriesInImmutableMemtable:
       // Current number of entries in the immutable memtables
       *value = cfd_->imm()->current()->GetTotalNumEntries();
       return true;
+    case kNumDeletesInMutableMemtable:
+      // Current number of entires in the active memtable
+      *value = cfd_->mem()->num_deletes();
+      return true;
+    case kNumDeletesInImmutableMemtable:
+      // Current number of entries in the immutable memtables
+      *value = cfd_->imm()->current()->GetTotalNumDeletes();
+      return true;
     case kEstimatedNumKeys:
       // Estimate number of entries in the column family:
       // Use estimated entries in tables + total entries in memtables.
-      *value = cfd_->mem()->GetNumEntries() +
-               cfd_->imm()->current()->GetTotalNumEntries() +
+      *value = cfd_->mem()->num_entries() +
+               cfd_->imm()->current()->GetTotalNumEntries() -
+               (cfd_->mem()->num_deletes() +
+                cfd_->imm()->current()->GetTotalNumDeletes()) *
+                   2 +
                vstorage->GetEstimatedActiveKeys();
       return true;
     case kNumSnapshots:

@@ -96,7 +96,15 @@ void MemTableListVersion::AddIterators(
 uint64_t MemTableListVersion::GetTotalNumEntries() const {
   uint64_t total_num = 0;
   for (auto& m : memlist_) {
-    total_num += m->GetNumEntries();
+    total_num += m->num_entries();
+  }
+  return total_num;
+}
+
+uint64_t MemTableListVersion::GetTotalNumDeletes() const {
+  uint64_t total_num = 0;
+  for (auto& m : memlist_) {
+    total_num += m->num_deletes();
   }
   return total_num;
 }

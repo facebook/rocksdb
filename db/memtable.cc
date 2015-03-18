@@ -65,13 +65,15 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           comparator_, &allocator_, ioptions.prefix_extractor,
           ioptions.info_log)),
       num_entries_(0),
+      num_deletes_(0),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
       mem_next_logfile_number_(0),
-      locks_(moptions_.inplace_update_support ?
-             moptions_.inplace_update_num_locks : 0),
+      locks_(moptions_.inplace_update_support
+                 ? moptions_.inplace_update_num_locks
+                 : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       should_flush_(ShouldFlushNow()),
       flush_scheduled_(false) {
@@ -313,6 +315,9 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(handle);
   num_entries_++;
+  if (type == kTypeDeletion) {
+    num_deletes_++;
+  }
 
   if (prefix_bloom_) {
     assert(prefix_extractor_);

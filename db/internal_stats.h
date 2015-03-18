@@ -40,9 +40,13 @@ enum DBPropertyType : uint32_t {
   kCurSizeActiveMemTable,  // Return current size of the active memtable
   kCurSizeAllMemTables,    // Return current size of all (active + immutable)
                            // memtables
-  kNumEntriesInMutableMemtable,    // Return number of entries in the mutable
+  kNumEntriesInMutableMemtable,    // Return number of deletes in the mutable
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
+                                   // the immutable mem tables.
+  kNumDeletesInMutableMemtable,    // Return number of entries in the mutable
+                                   // memtable.
+  kNumDeletesInImmutableMemtable,  // Return sum of number of deletes in all
                                    // the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.

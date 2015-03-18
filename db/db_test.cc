@@ -3059,6 +3059,35 @@ TEST_F(DBTest, NumImmutableMemTable) {
     // "200" is the size of the metadata of an empty skiplist, this would
     // break if we change the default skiplist implementation
     ASSERT_EQ(num, "200");
+
+    uint64_t int_num;
+    uint64_t base_total_size;
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.estimate-num-keys", &base_total_size));
+
+    ASSERT_OK(dbfull()->Delete(writeOpt, handles_[1], "k2"));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k3", ""));
+    ASSERT_OK(dbfull()->Delete(writeOpt, handles_[1], "k3"));
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.num-deletes-active-mem-table", &int_num));
+    ASSERT_EQ(int_num, 2U);
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.num-entries-active-mem-table", &int_num));
+    ASSERT_EQ(int_num, 3U);
+
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k2", big_value));
+    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "k2", big_value));
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.num-entries-imm-mem-tables", &int_num));
+    ASSERT_EQ(int_num, 4U);
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.num-deletes-imm-mem-tables", &int_num));
+    ASSERT_EQ(int_num, 2U);
+
+    ASSERT_TRUE(dbfull()->GetIntProperty(
+        handles_[1], "rocksdb.estimate-num-keys", &int_num));
+    ASSERT_EQ(int_num, base_total_size + 1);
+
     SetPerfLevel(kDisable);
     ASSERT_TRUE(GetPerfLevel() == kDisable);
   } while (ChangeCompactOptions());
@@ -3198,7 +3227,7 @@ TEST_F(DBTest, GetProperty) {
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.compaction-pending", &num));
   ASSERT_EQ(num, "0");
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.estimate-num-keys", &num));
-  ASSERT_EQ(num, "4");
+  ASSERT_EQ(num, "2");
   // Verify the same set of properties through GetIntProperty
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.num-immutable-mem-table", &int_num));
@@ -3209,7 +3238,7 @@ TEST_F(DBTest, GetProperty) {
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.compaction-pending", &int_num));
   ASSERT_EQ(int_num, 0U);
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &int_num));
-  ASSERT_EQ(int_num, 4U);
+  ASSERT_EQ(int_num, 2U);
 
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));

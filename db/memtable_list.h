@@ -57,6 +57,8 @@ class MemTableListVersion {
 
   uint64_t GetTotalNumEntries() const;
 
+  uint64_t GetTotalNumDeletes() const;
+
  private:
   // REQUIRE: m is mutable memtable
   void Add(MemTable* m);
