@@ -22,24 +22,23 @@ struct GenericRateLimiter::Req {
   bool granted;
 };
 
-
-GenericRateLimiter::GenericRateLimiter(
-    int64_t rate_bytes_per_sec,
-    int64_t refill_period_us,
-    int32_t fairness)
-  : refill_period_us_(refill_period_us),
-    refill_bytes_per_period_(rate_bytes_per_sec * refill_period_us / 1000000.0),
-    env_(Env::Default()),
-    stop_(false),
-    exit_cv_(&request_mutex_),
-    requests_to_wait_(0),
-    total_requests_{0, 0},
-    total_bytes_through_{0, 0},
-    available_bytes_(0),
-    next_refill_us_(env_->NowMicros()),
-    fairness_(fairness > 100 ? 100 : fairness),
-    rnd_((uint32_t)time(nullptr)),
-    leader_(nullptr) {
+GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
+                                       int64_t refill_period_us,
+                                       int32_t fairness)
+    : refill_period_us_(refill_period_us),
+      refill_bytes_per_period_(
+          CalculateRefillBytesPerPeriod(rate_bytes_per_sec)),
+      env_(Env::Default()),
+      stop_(false),
+      exit_cv_(&request_mutex_),
+      requests_to_wait_(0),
+      total_requests_{0, 0},
+      total_bytes_through_{0, 0},
+      available_bytes_(0),
+      next_refill_us_(env_->NowMicros()),
+      fairness_(fairness > 100 ? 100 : fairness),
+      rnd_((uint32_t)time(nullptr)),
+      leader_(nullptr) {
   total_bytes_through_[0] = 0;
   total_bytes_through_[1] = 0;
 }
@@ -60,8 +59,16 @@ GenericRateLimiter::~GenericRateLimiter() {
   }
 }
 
+// This API allows user to dynamically change rate limiter's bytes per second.
+void GenericRateLimiter::SetBytesPerSecond(int64_t bytes_per_second) {
+  assert(bytes_per_second > 0);
+  refill_bytes_per_period_.store(
+      CalculateRefillBytesPerPeriod(bytes_per_second),
+      std::memory_order_relaxed);
+}
+
 void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
-  assert(bytes <= refill_bytes_per_period_);
+  assert(bytes <= refill_bytes_per_period_.load(std::memory_order_relaxed));
 
   MutexLock g(&request_mutex_);
   if (stop_) {
@@ -169,8 +176,10 @@ void GenericRateLimiter::Request(int64_t bytes, const Env::IOPriority pri) {
 void GenericRateLimiter::Refill() {
   next_refill_us_ = env_->NowMicros() + refill_period_us_;
   // Carry over the left over quota from the last period
-  if (available_bytes_ < refill_bytes_per_period_) {
-    available_bytes_ += refill_bytes_per_period_;
+  auto refill_bytes_per_period =
+      refill_bytes_per_period_.load(std::memory_order_relaxed);
+  if (available_bytes_ < refill_bytes_per_period) {
+    available_bytes_ += refill_bytes_per_period;
   }
 
   int use_low_pri_first = rnd_.OneIn(fairness_) ? 0 : 1;
@@ -197,6 +206,9 @@ void GenericRateLimiter::Refill() {
 
 RateLimiter* NewGenericRateLimiter(
     int64_t rate_bytes_per_sec, int64_t refill_period_us, int32_t fairness) {
+  assert(rate_bytes_per_sec > 0);
+  assert(refill_period_us > 0);
+  assert(fairness > 0);
   return new GenericRateLimiter(
       rate_bytes_per_sec, refill_period_us, fairness);
 }

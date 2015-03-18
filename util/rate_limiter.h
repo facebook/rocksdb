@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <deque>
 #include "port/port_posix.h"
 #include "util/mutexlock.h"
@@ -25,14 +26,16 @@ class GenericRateLimiter : public RateLimiter {
 
   virtual ~GenericRateLimiter();
 
+  // This API allows user to dynamically change rate limiter's bytes per second.
+  virtual void SetBytesPerSecond(int64_t bytes_per_second) override;
+
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
   // bytes < GetSingleBurstBytes()
   virtual void Request(const int64_t bytes, const Env::IOPriority pri) override;
 
   virtual int64_t GetSingleBurstBytes() const override {
-    // const var
-    return refill_bytes_per_period_;
+    return refill_bytes_per_period_.load(std::memory_order_relaxed);
   }
 
   virtual int64_t GetTotalBytesThrough(
@@ -56,12 +59,16 @@ class GenericRateLimiter : public RateLimiter {
 
  private:
   void Refill();
+  int64_t CalculateRefillBytesPerPeriod(int64_t rate_bytes_per_sec) {
+    return rate_bytes_per_sec * refill_period_us_ / 1000000.0;
+  }
 
   // This mutex guard all internal states
   mutable port::Mutex request_mutex_;
 
   const int64_t refill_period_us_;
-  const int64_t refill_bytes_per_period_;
+  // This variable can be changed dynamically.
+  std::atomic<int64_t> refill_bytes_per_period_;
   Env* const env_;
 
   bool stop_;
