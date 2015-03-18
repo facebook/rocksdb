@@ -3,7 +3,7 @@
 
 if [ $# -ne 1 ]; then
   echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
-  echo    "readrandom/readwhilewriting/updaterandom/mergerandom]"
+  echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/mergerandom]"
   exit 0
 fi
 
@@ -36,7 +36,8 @@ if [ ! -z $DB_BENCH_NO_SYNC ]; then
 fi
 
 num_read_threads=${NUM_READ_THREADS:-16}
-writes_per_second=${WRITES_PER_SEC:-$((80 * K))}  # (only for readwhilewriting)
+# Only for readwhilewriting, readwhilemerging
+writes_per_second=${WRITES_PER_SEC:-$((80 * K))}
 num_nexts_per_seek=${NUM_NEXTS_PER_SEEK:-10}      # (only for rangescanwhilewriting)
 cache_size=$((1 * G))
 duration=${DURATION:-0}
@@ -167,7 +168,7 @@ function run_readrandom {
 }
 
 function run_readwhilewriting {
-  echo "Reading $num_keys random keys from database whiling writing.."
+  echo "Reading $num_keys random keys from database while writing.."
   cmd="./db_bench $params_r --benchmarks=readwhilewriting \
        --use_existing_db=1 \
        --num=$num_keys \
@@ -180,8 +181,23 @@ function run_readwhilewriting {
   eval $cmd
 }
 
+function run_readwhilemerging {
+  echo "Reading $num_keys random keys from database while merging.."
+  cmd="./db_bench $params_r --benchmarks=readwhilemerging \
+       --use_existing_db=1 \
+       --num=$num_keys \
+       --sync=$syncval \
+       --disable_data_sync=0 \
+       --threads=$num_read_threads \
+       --writes_per_second=$writes_per_second \
+       --merge_operator=\"put\" \
+       2>&1 | tee -a $output_dir/benchmark_readwhilemerging.log"
+  echo $cmd | tee $output_dir/benchmark_readwhilemerging.log
+  eval $cmd
+}
+
 function run_rangescanwhilewriting {
-  echo "Range scan $num_keys random keys from database whiling writing.."
+  echo "Range scan $num_keys random keys from database while writing.."
   cmd="./db_bench $params_r --benchmarks=seekrandomwhilewriting \
        --use_existing_db=1 \
        --num=$num_keys \
@@ -249,6 +265,8 @@ for job in ${jobs[@]}; do
     run_readrandom
   elif [ $job = readwhilewriting ]; then
     run_readwhilewriting
+  elif [ $job = readwhilemerging ]; then
+    run_readwhilemerging
   elif [ $job = rangescanwhilewriting ]; then
     run_rangescanwhilewriting
   elif [ $job = updaterandom ]; then
@@ -270,7 +288,7 @@ for job in ${jobs[@]}; do
 
   if [[ $job == readrandom || $job == readwhilewriting \
      || $job == rangescanwhilewriting || $job == updaterandom \
-     || $job == mergerandom ]]; then
+     || $job == mergerandom || $job == readwhilemerging ]]; then
     lat=$(grep "micros\/op" "$output_dir/benchmark_$job.log" \
         | grep "ops\/sec" | awk '{print $3}')
     qps=$(grep "micros\/op" "$output_dir/benchmark_$job.log" \
