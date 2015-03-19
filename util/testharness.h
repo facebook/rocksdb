@@ -11,13 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <sstream>
 #include <string>
-#include "port/stack_trace.h"
 #include "rocksdb/env.h"
-#include "rocksdb/slice.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -25,12 +20,12 @@ namespace rocksdb {
 namespace test {
 
 // Return the directory to use for temporary storage.
-extern std::string TmpDir(Env* env = Env::Default());
+std::string TmpDir(Env* env = Env::Default());
 
 // Return a randomization seed for this run.  Typically returns the
 // same number on repeated invocations of this binary, but automated
 // runs may be able to vary the seed.
-extern int RandomSeed();
+int RandomSeed();
 
 #define ASSERT_OK(s) ASSERT_TRUE(((s).ok()))
 #define ASSERT_NOK(s) ASSERT_FALSE(((s).ok()))
