@@ -158,8 +158,9 @@ class CompactionPicker {
       const int output_level) const;
 #endif  // ROCKSDB_LITE
 
-  // record all the ongoing compactions for all levels
-  std::vector<std::set<Compaction*>> compactions_in_progress_;
+  // Keeps track of all compactions that are running on Level0.
+  // It is protected by DB mutex
+  std::set<Compaction*> level0_compactions_in_progress_;
 
   const InternalKeyComparator* const icmp_;
 };

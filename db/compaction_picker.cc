@@ -67,10 +67,7 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
 
 CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
                                    const InternalKeyComparator* icmp)
-    : ioptions_(ioptions),
-      compactions_in_progress_(ioptions_.num_levels),
-      icmp_(icmp) {
-}
+    : ioptions_(ioptions), icmp_(icmp) {}
 
 CompactionPicker::~CompactionPicker() {}
 
@@ -78,7 +75,9 @@ CompactionPicker::~CompactionPicker() {}
 // Delete this compaction from the list of running compactions.
 void CompactionPicker::ReleaseCompactionFiles(Compaction* c, Status status) {
   c->MarkFilesBeingCompacted(false);
-  compactions_in_progress_[c->level()].erase(c);
+  if (c->level() == 0) {
+    level0_compactions_in_progress_.erase(c);
+  }
   if (!status.ok()) {
     c->ResetNextCompactionIndex();
   }
@@ -723,7 +722,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
   // Two level 0 compaction won't run at the same time, so don't need to worry
   // about files on level 0 being compacted.
   if (level == 0) {
-    assert(compactions_in_progress_[0].empty());
+    assert(level0_compactions_in_progress_.empty());
     InternalKey smallest, largest;
     GetRange(c->inputs_[0].files, &smallest, &largest);
     // Note that the next call will discard the file we placed in
@@ -754,8 +753,11 @@ Compaction* LevelCompactionPicker::PickCompaction(
   // Is this compaction creating a file at the bottommost level
   c->SetupBottomMostLevel(vstorage, false, false);
 
-  // remember this currently undergoing compaction
-  compactions_in_progress_[level].insert(c);
+  // If it's level 0 compaction, make sure we don't execute any other level 0
+  // compactions in parallel
+  if (level == 0) {
+    level0_compactions_in_progress_.insert(c);
+  }
 
   c->mutable_cf_options_ = mutable_cf_options;
 
@@ -819,7 +821,7 @@ Compaction* LevelCompactionPicker::PickCompactionBySize(
   // than one concurrent compactions at this level. This
   // could be made better by looking at key-ranges that are
   // being compacted at level 0.
-  if (level == 0 && compactions_in_progress_[level].size() == 1) {
+  if (level == 0 && !level0_compactions_in_progress_.empty()) {
     return nullptr;
   }
 
@@ -979,8 +981,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   // mark all the files that are being compacted
   c->MarkFilesBeingCompacted(true);
 
-  // remember this currently undergoing compaction
-  compactions_in_progress_[kLevel0].insert(c);
+  level0_compactions_in_progress_.insert(c);
 
   // Record whether this compaction includes all sst files.
   // For now, it is only relevant in universal compaction mode.
@@ -1328,7 +1329,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
     return nullptr;
   }
 
-  if (compactions_in_progress_[0].size() > 0) {
+  if (!level0_compactions_in_progress_.empty()) {
     LogToBuffer(log_buffer,
                 "[%s] FIFO compaction: Already executing compaction. No need "
                 "to run parallel compactions since compactions are very fast",
@@ -1354,7 +1355,7 @@ Compaction* FIFOCompactionPicker::PickCompaction(
   }
 
   c->MarkFilesBeingCompacted(true);
-  compactions_in_progress_[0].insert(c);
+  level0_compactions_in_progress_.insert(c);
   c->mutable_cf_options_ = mutable_cf_options;
   return c;
 }
