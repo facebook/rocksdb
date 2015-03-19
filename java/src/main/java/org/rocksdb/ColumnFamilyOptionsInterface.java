@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.List;
+
 public interface ColumnFamilyOptionsInterface {
 
   /**
@@ -247,6 +249,62 @@ public interface ColumnFamilyOptionsInterface {
    * @return Compression type.
    */
   CompressionType compressionType();
+
+  /**
+   * <p>Different levels can have different compression
+   * policies. There are cases where most lower levels
+   * would like to use quick compression algorithms while
+   * the higher levels (which have more data) use
+   * compression algorithms that have better compression
+   * but could be slower. This array, if non-empty, should
+   * have an entry for each level of the database;
+   * these override the value specified in the previous
+   * field 'compression'.</p>
+   *
+   * <strong>NOTICE</strong>
+   * <p>If {@code level_compaction_dynamic_level_bytes=true},
+   * {@code compression_per_level[0]} still determines {@code L0},
+   * but other elements of the array are based on base level
+   * (the level {@code L0} files are merged to), and may not
+   * match the level users see from info log for metadata.
+   * </p>
+   * <p>If {@code L0} files are merged to {@code level - n},
+   * then, for {@code i&gt;0}, {@code compression_per_level[i]}
+   * determines compaction type for level {@code n+i-1}.</p>
+   *
+   * <strong>Example</strong>
+   * <p>For example, if we have 5 levels, and we determine to
+   * merge {@code L0} data to {@code L4} (which means {@code L1..L3}
+   * will be empty), then the new files go to {@code L4} uses
+   * compression type {@code compression_per_level[1]}.</p>
+   *
+   * <p>If now {@code L0} is merged to {@code L2}. Data goes to
+   * {@code L2} will be compressed according to
+   * {@code compression_per_level[1]}, {@code L3} using
+   * {@code compression_per_level[2]}and {@code L4} using
+   * {@code compression_per_level[3]}. Compaction for each
+   * level can change when data grows.</p>
+   *
+   * <p><strong>Default:</strong> empty</p>
+   *
+   * @param compressionLevels list of
+   *     {@link org.rocksdb.CompressionType} instances.
+   *
+   * @return the reference to the current option.
+   */
+  Object setCompressionPerLevel(
+      List<CompressionType> compressionLevels);
+
+  /**
+   * <p>Return the currently set {@link org.rocksdb.CompressionType}
+   * per instances.</p>
+   *
+   * <p>See: {@link #setCompressionPerLevel(java.util.List)}</p>
+   *
+   * @return list of {@link org.rocksdb.CompressionType}
+   *     instances.
+   */
+  List<CompressionType> compressionPerLevel();
 
   /**
    * Set the number of levels for this database

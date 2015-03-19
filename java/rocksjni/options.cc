@@ -1059,6 +1059,80 @@ jbyte Java_org_rocksdb_Options_compressionType(
 }
 
 /*
+ * Helper method to convert a Java list to a CompressionType
+ * vector.
+ */
+std::vector<rocksdb::CompressionType> rocksdb_compression_vector_helper(
+    JNIEnv* env, jobject jcompressionLevels) {
+  std::vector<rocksdb::CompressionType> compressionLevels;
+  // iterate over compressionLevels
+  jobject iteratorObj = env->CallObjectMethod(
+        jcompressionLevels, rocksdb::ListJni::getIteratorMethod(env));
+  while (env->CallBooleanMethod(
+    iteratorObj, rocksdb::ListJni::getHasNextMethod(env)) == JNI_TRUE) {
+    // get compression
+    jobject jcompression_obj = env->CallObjectMethod(iteratorObj,
+        rocksdb::ListJni::getNextMethod(env));
+    jbyte jcompression = env->CallByteMethod(jcompression_obj,
+        rocksdb::ByteJni::getByteValueMethod(env));
+    compressionLevels.push_back(static_cast<rocksdb::CompressionType>(
+        jcompression));
+  }
+  return compressionLevels;
+}
+
+/*
+ * Helper method to convert a CompressionType vector to a Java
+ * List.
+ */
+jobject rocksdb_compression_list_helper(JNIEnv* env,
+    std::vector<rocksdb::CompressionType> compressionLevels) {
+  jclass jListClazz = env->FindClass("java/util/ArrayList");
+  jmethodID midList = rocksdb::ListJni::getArrayListConstructorMethodId(
+      env, jListClazz);
+  jobject jcompressionLevels = env->NewObject(jListClazz,
+    midList, compressionLevels.size());
+  // insert in java list
+  for (std::vector<rocksdb::CompressionType>::size_type i = 0;
+        i != compressionLevels.size(); i++) {
+    jclass jByteClazz = env->FindClass("java/lang/Byte");
+    jmethodID midByte = env->GetMethodID(jByteClazz, "<init>", "(B)V");
+    jobject obj = env->NewObject(jByteClazz, midByte,
+        compressionLevels[i]);
+    env->CallBooleanMethod(jcompressionLevels,
+        rocksdb::ListJni::getListAddMethodId(env), obj);
+  }
+  return jcompressionLevels;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setCompressionPerLevel
+ * Signature: (JLjava/util/List;)V
+ */
+void Java_org_rocksdb_Options_setCompressionPerLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jobject jcompressionLevels) {
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  std::vector<rocksdb::CompressionType> compressionLevels =
+      rocksdb_compression_vector_helper(env, jcompressionLevels);
+  options->compression_per_level = compressionLevels;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    compressionPerLevel
+ * Signature: (J)Ljava/util/List;
+ */
+jobject Java_org_rocksdb_Options_compressionPerLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* options = reinterpret_cast<rocksdb::Options*>(jhandle);
+  return rocksdb_compression_list_helper(env,
+      options->compression_per_level);
+}
+
+
+/*
  * Class:     org_rocksdb_Options
  * Method:    setCompactionStyle
  * Signature: (JB)V
@@ -2142,6 +2216,32 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_compressionType(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
       compression;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setCompressionPerLevel
+ * Signature: (JLjava/util/List;)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setCompressionPerLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jobject jcompressionLevels) {
+  auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  std::vector<rocksdb::CompressionType> compressionLevels =
+      rocksdb_compression_vector_helper(env, jcompressionLevels);
+  options->compression_per_level = compressionLevels;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    compressionPerLevel
+ * Signature: (J)Ljava/util/List;
+ */
+jobject Java_org_rocksdb_ColumnFamilyOptions_compressionPerLevel(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  auto* options = reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle);
+  return rocksdb_compression_list_helper(env,
+      options->compression_per_level);
 }
 
 /*

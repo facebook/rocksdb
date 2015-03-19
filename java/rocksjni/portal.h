@@ -498,6 +498,24 @@ class ListJni {
   }
 };
 
+class ByteJni {
+ public:
+  // Get the java class id of java.lang.Byte.
+  static jclass getByteClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("java/lang/Byte");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the java method id of java.lang.Byte.byteValue.
+  static jmethodID getByteValueMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getByteClass(env), "byteValue", "()B");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
 class BackupInfoJni {
  public:
   // Get the java class id of org.rocksdb.BackupInfo.
