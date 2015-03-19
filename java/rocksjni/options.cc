@@ -1266,6 +1266,30 @@ void Java_org_rocksdb_Options_setMaxBytesForLevelBase(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    levelCompactionDynamicLevelBytes
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_Options_levelCompactionDynamicLevelBytes(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(
+      jhandle)->level_compaction_dynamic_level_bytes;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setLevelCompactionDynamicLevelBytes
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_Options_setLevelCompactionDynamicLevelBytes(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jenable_dynamic_level_bytes) {
+  reinterpret_cast<rocksdb::Options*>(
+      jhandle)->level_compaction_dynamic_level_bytes =
+          (jenable_dynamic_level_bytes);
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    maxBytesForLevelMultiplier
  * Signature: (J)I
  */
@@ -2327,6 +2351,30 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxBytesForLevelBase(
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
       jhandle)->max_bytes_for_level_base =
           static_cast<int64_t>(jmax_bytes_for_level_base);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    levelCompactionDynamicLevelBytes
+ * Signature: (J)Z
+ */
+jboolean Java_org_rocksdb_ColumnFamilyOptions_levelCompactionDynamicLevelBytes(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->level_compaction_dynamic_level_bytes;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setLevelCompactionDynamicLevelBytes
+ * Signature: (JZ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setLevelCompactionDynamicLevelBytes(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jboolean jenable_dynamic_level_bytes) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
+      jhandle)->level_compaction_dynamic_level_bytes =
+          (jenable_dynamic_level_bytes);
 }
 
 /*

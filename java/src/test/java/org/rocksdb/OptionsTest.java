@@ -201,6 +201,22 @@ public class OptionsTest {
   }
 
   @Test
+  public void levelCompactionDynamicLevelBytes() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      final boolean boolValue = rand.nextBoolean();
+      opt.setLevelCompactionDynamicLevelBytes(boolValue);
+      assertThat(opt.levelCompactionDynamicLevelBytes())
+          .isEqualTo(boolValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void maxBytesForLevelMultiplier() {
     Options opt = null;
     try {

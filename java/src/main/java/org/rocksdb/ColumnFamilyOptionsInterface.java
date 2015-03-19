@@ -435,10 +435,93 @@ public interface ColumnFamilyOptionsInterface {
    * and total file size for level-3 will be 2GB.
    * by default 'maxBytesForLevelBase' is 10MB.
    *
-   * @return the upper-bound of the total size of leve-1 files in bytes.
+   * @return the upper-bound of the total size of level-1 files
+   *     in bytes.
    * @see #maxBytesForLevelMultiplier()
    */
   long maxBytesForLevelBase();
+
+  /**
+   * <p>If {@code true}, RocksDB will pick target size of each level
+   * dynamically. We will pick a base level b &gt;= 1. L0 will be
+   * directly merged into level b, instead of always into level 1.
+   * Level 1 to b-1 need to be empty. We try to pick b and its target
+   * size so that</p>
+   *
+   * <ol>
+   * <li>target size is in the range of
+   *   (max_bytes_for_level_base / max_bytes_for_level_multiplier,
+   *    max_bytes_for_level_base]</li>
+   * <li>target size of the last level (level num_levels-1) equals to extra size
+   *    of the level.</li>
+   * </ol>
+   *
+   * <p>At the same time max_bytes_for_level_multiplier and
+   * max_bytes_for_level_multiplier_additional are still satisfied.</p>
+   *
+   * <p>With this option on, from an empty DB, we make last level the base
+   * level, which means merging L0 data into the last level, until it exceeds
+   * max_bytes_for_level_base. And then we make the second last level to be
+   * base level, to start to merge L0 data to second last level, with its
+   * target size to be {@code 1/max_bytes_for_level_multiplier} of the last
+   * levels extra size. After the data accumulates more so that we need to
+   * move the base level to the third last one, and so on.</p>
+   *
+   * <h2>Example</h2>
+   * <p>For example, assume {@code max_bytes_for_level_multiplier=10},
+   * {@code num_levels=6}, and {@code max_bytes_for_level_base=10MB}.</p>
+   *
+   * <p>Target sizes of level 1 to 5 starts with:</p>
+   * {@code [- - - - 10MB]}
+   * <p>with base level is level. Target sizes of level 1 to 4 are not applicable
+   * because they will not be used.
+   * Until the size of Level 5 grows to more than 10MB, say 11MB, we make
+   * base target to level 4 and now the targets looks like:</p>
+   * {@code [- - - 1.1MB 11MB]}
+   * <p>While data are accumulated, size targets are tuned based on actual data
+   * of level 5. When level 5 has 50MB of data, the target is like:</p>
+   * {@code [- - - 5MB 50MB]}
+   * <p>Until level 5's actual size is more than 100MB, say 101MB. Now if we
+   * keep level 4 to be the base level, its target size needs to be 10.1MB,
+   * which doesn't satisfy the target size range. So now we make level 3
+   * the target size and the target sizes of the levels look like:</p>
+   * {@code [- - 1.01MB 10.1MB 101MB]}
+   * <p>In the same way, while level 5 further grows, all levels' targets grow,
+   * like</p>
+   * {@code [- - 5MB 50MB 500MB]}
+   * <p>Until level 5 exceeds 1000MB and becomes 1001MB, we make level 2 the
+   * base level and make levels' target sizes like this:</p>
+   * {@code [- 1.001MB 10.01MB 100.1MB 1001MB]}
+   * <p>and go on...</p>
+   *
+   * <p>By doing it, we give {@code max_bytes_for_level_multiplier} a priority
+   * against {@code max_bytes_for_level_base}, for a more predictable LSM tree
+   * shape. It is useful to limit worse case space amplification.</p>
+   *
+   * <p>{@code max_bytes_for_level_multiplier_additional} is ignored with
+   * this flag on.</p>
+   *
+   * <p>Turning this feature on or off for an existing DB can cause unexpected
+   * LSM tree structure so it's not recommended.</p>
+   *
+   * <p><strong>Caution</strong>: this option is experimental</p>
+   *
+   * <p>Default: false</p>
+   */
+  Object setLevelCompactionDynamicLevelBytes(
+      boolean enableLevelCompactionDynamicLevelBytes);
+
+  /**
+   * <p>Return if {@code LevelCompactionDynamicLevelBytes} is enabled.
+   * </p>
+   *
+   * <p>For further information see
+   * {@link #setLevelCompactionDynamicLevelBytes(boolean)}</p>
+   *
+   * @return boolean value indicating if
+   *    {@code levelCompactionDynamicLevelBytes} is enabled.
+   */
+  boolean levelCompactionDynamicLevelBytes();
 
   /**
    * The ratio between the total size of level-(L+1) files and the total
