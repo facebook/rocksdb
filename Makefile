@@ -378,7 +378,13 @@ analyze: clean
 		$(MAKE) dbg
 
 unity.cc:
-	$(shell (export ROCKSDB_ROOT="$(CURDIR)"; "$(CURDIR)/build_tools/unity" "$(CURDIR)/unity.cc"))
+	rm -f $@ $@-t
+	for source_file in $(LIB_SOURCES); do \
+		echo "#include <$$source_file>" >> $@-t; \
+	done
+	echo 'int main(int argc, char** argv){ return 0; }' >> $@-t
+	chmod a=r $@-t
+	mv $@-t $@
 
 unity: unity.o
 	$(AM_LINK)
