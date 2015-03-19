@@ -8023,45 +8023,63 @@ static void MTThreadBody(void* arg) {
 
 }  // namespace
 
-TEST_F(DBTest, MultiThreaded) {
-  anon::OptionsOverride options_override;
-  options_override.skip_policy = kSkipNoSnapshot;
-  do {
-    std::vector<std::string> cfs;
-    for (int i = 1; i < kColumnFamilies; ++i) {
-      cfs.push_back(ToString(i));
-    }
-    CreateAndReopenWithCF(cfs, CurrentOptions(options_override));
-    // Initialize state
-    MTState mt;
-    mt.test = this;
-    mt.stop.store(false, std::memory_order_release);
-    for (int id = 0; id < kNumThreads; id++) {
-      mt.counter[id].store(0, std::memory_order_release);
-      mt.thread_done[id].store(false, std::memory_order_release);
-    }
+class MultiThreadedDBTest : public DBTest,
+                            public ::testing::WithParamInterface<int> {
+ public:
+  virtual void SetUp() override { option_config_ = GetParam(); }
 
-    // Start threads
-    MTThread thread[kNumThreads];
-    for (int id = 0; id < kNumThreads; id++) {
-      thread[id].state = &mt;
-      thread[id].id = id;
-      env_->StartThread(MTThreadBody, &thread[id]);
-    }
-
-    // Let them run for a while
-    env_->SleepForMicroseconds(kTestSeconds * 1000000);
-
-    // Stop the threads and wait for them to finish
-    mt.stop.store(true, std::memory_order_release);
-    for (int id = 0; id < kNumThreads; id++) {
-      while (mt.thread_done[id].load(std::memory_order_acquire) == false) {
-        env_->SleepForMicroseconds(100000);
+  static std::vector<int> GenerateOptionConfigs() {
+    std::vector<int> optionConfigs;
+    for (int optionConfig = kDefault; optionConfig < kEnd; ++optionConfig) {
+      // skip as HashCuckooRep does not support snapshot
+      if (optionConfig != kHashCuckoo) {
+        optionConfigs.push_back(optionConfig);
       }
     }
-    // skip as HashCuckooRep does not support snapshot
-  } while (ChangeOptions(kSkipHashCuckoo));
+    return optionConfigs;
+  }
+};
+
+TEST_P(MultiThreadedDBTest, MultiThreaded) {
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
+  std::vector<std::string> cfs;
+  for (int i = 1; i < kColumnFamilies; ++i) {
+    cfs.push_back(ToString(i));
+  }
+  CreateAndReopenWithCF(cfs, CurrentOptions(options_override));
+  // Initialize state
+  MTState mt;
+  mt.test = this;
+  mt.stop.store(false, std::memory_order_release);
+  for (int id = 0; id < kNumThreads; id++) {
+    mt.counter[id].store(0, std::memory_order_release);
+    mt.thread_done[id].store(false, std::memory_order_release);
+  }
+
+  // Start threads
+  MTThread thread[kNumThreads];
+  for (int id = 0; id < kNumThreads; id++) {
+    thread[id].state = &mt;
+    thread[id].id = id;
+    env_->StartThread(MTThreadBody, &thread[id]);
+  }
+
+  // Let them run for a while
+  env_->SleepForMicroseconds(kTestSeconds * 1000000);
+
+  // Stop the threads and wait for them to finish
+  mt.stop.store(true, std::memory_order_release);
+  for (int id = 0; id < kNumThreads; id++) {
+    while (mt.thread_done[id].load(std::memory_order_acquire) == false) {
+      env_->SleepForMicroseconds(100000);
+    }
+  }
 }
+
+INSTANTIATE_TEST_CASE_P(
+    MultiThreaded, MultiThreadedDBTest,
+    ::testing::ValuesIn(MultiThreadedDBTest::GenerateOptionConfigs()));
 
 // Group commit test:
 namespace {
