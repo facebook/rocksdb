@@ -13,6 +13,15 @@
 namespace rocksdb {
 namespace test {
 
+::testing::AssertionResult AssertStatus(const char* s_expr, const Status& s) {
+  if (s.ok()) {
+    return ::testing::AssertionSuccess();
+  } else {
+    return ::testing::AssertionFailure() << s_expr << std::endl
+                                         << s.ToString();
+  }
+}
+
 std::string TmpDir(Env* env) {
   std::string dir;
   Status s = env->GetTestDirectory(&dir);
