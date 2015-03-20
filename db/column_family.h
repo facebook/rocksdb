@@ -162,11 +162,11 @@ class ColumnFamilyData {
   // until client drops the column family handle. That way, client can still
   // access data from dropped column family.
   // Column family can be dropped and still alive. In that state:
-  // *) Column family is not included in the iteration.
   // *) Compaction and flush is not executed on the dropped column family.
   // *) Client can continue reading from column family. Writes will fail unless
   // WriteOptions::ignore_missing_column_families is true
   // When the dropped column family is unreferenced, then we:
+  // *) Remove column family from the linked list maintained by ColumnFamilySet
   // *) delete all memory associated with that column family
   // *) delete all the files associated with that column family
   void SetDropped();
@@ -331,8 +331,9 @@ class ColumnFamilyData {
   // This needs to be destructed before mutex_
   std::unique_ptr<ThreadLocalPtr> local_sv_;
 
-  // pointers for a circular linked list. we use it to support iterations
-  // that can be concurrent with writes
+  // pointers for a circular linked list. we use it to support iterations over
+  // all column families that are alive (note: dropped column families can also
+  // be alive as long as client holds a reference)
   ColumnFamilyData* next_;
   ColumnFamilyData* prev_;
 
@@ -383,11 +384,13 @@ class ColumnFamilySet {
     explicit iterator(ColumnFamilyData* cfd)
         : current_(cfd) {}
     iterator& operator++() {
-      // dummy is never dead or dropped, so this will never be infinite
+      // dropped column families might still be included in this iteration
+      // (we're only removing them when client drops the last reference to the
+      // column family).
+      // dummy is never dead, so this will never be infinite
       do {
         current_ = current_->next_;
-      } while (current_->refs_.load(std::memory_order_relaxed) == 0 ||
-               current_->IsDropped());
+      } while (current_->refs_.load(std::memory_order_relaxed) == 0);
       return *this;
     }
     bool operator!=(const iterator& other) {

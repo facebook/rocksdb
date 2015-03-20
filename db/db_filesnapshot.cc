@@ -92,6 +92,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
     // flush all dirty data to disk.
     Status status;
     for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
       cfd->Ref();
       mutex_.Unlock();
       status = FlushMemTable(cfd, FlushOptions());
@@ -114,6 +117,9 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
   // Make a set of all of the live *.sst files
   std::vector<FileDescriptor> live;
   for (auto cfd : *versions_->GetColumnFamilySet()) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
     cfd->current()->AddLiveFiles(&live);
   }
 

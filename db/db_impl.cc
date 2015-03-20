@@ -265,7 +265,7 @@ DBImpl::~DBImpl() {
 
   if (flush_on_destroy_) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
-      if (!cfd->mem()->IsEmpty()) {
+      if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
         mutex_.Unlock();
         FlushMemTable(cfd, FlushOptions());
@@ -1944,8 +1944,7 @@ void DBImpl::BackgroundCallFlush() {
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
 
-    Status s;
-    s = BackgroundFlush(&madeProgress, &job_context, &log_buffer);
+    Status s = BackgroundFlush(&madeProgress, &job_context, &log_buffer);
     if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background flush in
       // case this is an environmental problem and we do not want to
@@ -1967,9 +1966,9 @@ void DBImpl::BackgroundCallFlush() {
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
-    // If !s.ok(), this means that Flush failed. In that case, we want
-    // to delete all obsolete files and we force FindObsoleteFiles()
-    FindObsoleteFiles(&job_context, !s.ok());
+    // If flush failed, we want to delete all temporary files that we might have
+    // created. Thus, we force full scan in FindObsoleteFiles()
+    FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
       mutex_.Unlock();
@@ -2011,8 +2010,7 @@ void DBImpl::BackgroundCallCompaction() {
         CaptureCurrentFileNumberInPendingOutputs();
 
     assert(bg_compaction_scheduled_);
-    Status s;
-    s = BackgroundCompaction(&madeProgress, &job_context, &log_buffer);
+    Status s = BackgroundCompaction(&madeProgress, &job_context, &log_buffer);
     if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -2034,11 +2032,10 @@ void DBImpl::BackgroundCallCompaction() {
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
-    // If !s.ok(), this means that Compaction failed. In that case, we want
-    // to delete all obsolete files we might have created and we force
-    // FindObsoleteFiles(). This is because job_context does not
-    // catch all created files if compaction failed.
-    FindObsoleteFiles(&job_context, !s.ok());
+    // If compaction failed, we want to delete all temporary files that we might
+    // have created (they might not be all recorded in job_context in case of a
+    // failure). Thus, we force full scan in FindObsoleteFiles()
+    FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
 
     // delete unnecessary files if any, this is done outside the mutex
     if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
@@ -2124,7 +2121,10 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
           db_options_.max_background_compactions - bg_compaction_scheduled_);
       auto flush_status =
           BackgroundFlush(madeProgress, job_context, log_buffer);
-      if (!flush_status.ok()) {
+      // the second condition will be false when a column family is dropped. we
+      // don't want to fail compaction because of that (because it might be a
+      // different column family)
+      if (!flush_status.ok() && !flush_status.IsShutdownInProgress()) {
         if (is_manual) {
           manual_compaction_->status = flush_status;
           manual_compaction_->done = true;
@@ -2756,7 +2756,7 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
       // is_snapshot_supported_.
       bool new_is_snapshot_supported = true;
       for (auto c : *versions_->GetColumnFamilySet()) {
-        if (!c->mem()->IsSnapshotSupported()) {
+        if (!c->IsDropped() && !c->mem()->IsSnapshotSupported()) {
           new_is_snapshot_supported = false;
           break;
         }
@@ -3080,6 +3080,9 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
     // no need to refcount because drop is happening in write thread, so can't
     // happen while we're in the write thread
     for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
       if (cfd->GetLogNumber() <= flush_column_family_if_log_file) {
         status = SetNewMemtableAndNewLogFile(cfd, &context);
         if (!status.ok()) {
@@ -3098,6 +3101,9 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
     // no need to refcount because drop is happening in write thread, so can't
     // happen while we're in the write thread
     for (auto cfd : *versions_->GetColumnFamilySet()) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
       if (!cfd->mem()->IsEmpty()) {
         status = SetNewMemtableAndNewLogFile(cfd, &context);
         if (!status.ok()) {

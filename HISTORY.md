@@ -18,6 +18,7 @@
 * Fixed a bug in ReadOnlyBackupEngine that deleted corrupted backups in some cases, even though the engine was ReadOnly
 * options.level_compaction_dynamic_level_bytes, a feature to allow RocksDB to pick dynamic base of bytes for levels. With this feature turned on, we will automatically adjust max bytes for each level. The goal of this feature is to have lower bound on size amplification. For more details, see comments in options.h.
 * Added an abstract base class WriteBatchBase for write batches
+* Fixed a bug where we start deleting files of a dropped column families even if there are still live references to it
 
 ### Public API changes
 * Deprecated skip_log_error_on_recovery option

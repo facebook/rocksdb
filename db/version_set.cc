@@ -2244,6 +2244,9 @@ Status VersionSet::Recover(
 
   if (s.ok()) {
     for (auto cfd : *column_family_set_) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
       auto builders_iter = builders.find(cfd->GetID());
       assert(builders_iter != builders.end());
       auto* builder = builders_iter->second->version_builder();
@@ -2279,6 +2282,9 @@ Status VersionSet::Recover(
         column_family_set_->GetMaxColumnFamily());
 
     for (auto cfd : *column_family_set_) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
           "Column family [%s] (ID %u), log number is %" PRIu64 "\n",
           cfd->GetName().c_str(), cfd->GetID(), cfd->GetLogNumber());
@@ -2585,6 +2591,9 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
   if (s.ok()) {
     for (auto cfd : *column_family_set_) {
+      if (cfd->IsDropped()) {
+        continue;
+      }
       auto builders_iter = builders.find(cfd->GetID());
       assert(builders_iter != builders.end());
       auto builder = builders_iter->second->version_builder();
@@ -2644,6 +2653,9 @@ Status VersionSet::WriteSnapshot(log::Writer* log) {
   // LogAndApply. Column family manipulations can only happen within LogAndApply
   // (the same single thread), so we're safe to iterate.
   for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
     {
       // Store column family info
       VersionEdit edit;
@@ -2912,6 +2924,9 @@ Status VersionSet::GetMetadataForFile(uint64_t number, int* filelevel,
 
 void VersionSet::GetLiveFilesMetaData(std::vector<LiveFileMetaData>* metadata) {
   for (auto cfd : *column_family_set_) {
+    if (cfd->IsDropped()) {
+      continue;
+    }
     for (int level = 0; level < cfd->NumberLevels(); level++) {
       for (const auto& file :
            cfd->current()->storage_info()->LevelFiles(level)) {
