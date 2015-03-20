@@ -9,6 +9,7 @@
 
 #include "rocksdb/env.h"
 #include "util/autovector.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

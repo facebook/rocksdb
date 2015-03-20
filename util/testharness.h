@@ -13,7 +13,6 @@
 
 #include <string>
 #include "rocksdb/env.h"
-#include "util/string_util.h"
 
 namespace rocksdb {
 namespace test {

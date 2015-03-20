@@ -12,6 +12,7 @@
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "rocksdb/env.h"

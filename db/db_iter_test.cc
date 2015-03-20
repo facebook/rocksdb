@@ -14,6 +14,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
 #include "db/db_iter.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"
 

@@ -43,6 +43,7 @@
 #include "util/compression.h"
 #include "util/random.h"
 #include "util/statistics.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/scoped_arena_iterator.h"

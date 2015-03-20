@@ -10,6 +10,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/hash.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"

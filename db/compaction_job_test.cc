@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/db.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "table/mock_table.h"

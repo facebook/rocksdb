@@ -28,6 +28,7 @@
 #include "util/coding.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {

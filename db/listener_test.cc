@@ -27,6 +27,7 @@
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"

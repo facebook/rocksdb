@@ -18,6 +18,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/scoped_arena_iterator.h"
 

@@ -13,6 +13,7 @@
 #include <string>
 #include <iostream>
 #include "util/coding.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {

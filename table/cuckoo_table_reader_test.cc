@@ -28,6 +28,7 @@ int main() {
 #include "table/get_context.h"
 #include "util/arena.h"
 #include "util/random.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 

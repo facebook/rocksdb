@@ -14,6 +14,7 @@
 #include "db/column_family.h"
 #include "db/version_set.h"
 #include "db/writebuffer.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "table/mock_table.h"

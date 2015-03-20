@@ -23,6 +23,7 @@ int main() {
 #include "rocksdb/memtablerep.h"
 #include "util/histogram.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 using GFLAGS::ParseCommandLineFlags;

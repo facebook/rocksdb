@@ -29,6 +29,7 @@
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"

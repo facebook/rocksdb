@@ -7,6 +7,7 @@
 #include <limits>
 #include <string>
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
