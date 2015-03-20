@@ -433,6 +433,7 @@ class DBTest : public testing::Test {
 
  public:
   std::string dbname_;
+  std::string alternative_wal_dir_;
   MockEnv* mem_env_;
   SpecialEnv* env_;
   DB* db_;
@@ -463,7 +464,12 @@ class DBTest : public testing::Test {
     env_->SetBackgroundThreads(1, Env::LOW);
     env_->SetBackgroundThreads(1, Env::HIGH);
     dbname_ = test::TmpDir(env_) + "/db_test";
+    alternative_wal_dir_ = dbname_ + "/wal";
     auto options = CurrentOptions();
+    auto delete_options = options;
+    delete_options.wal_dir = alternative_wal_dir_;
+    EXPECT_OK(DestroyDB(dbname_, delete_options));
+    // Destroy it for not alternative WAL dir is used.
     EXPECT_OK(DestroyDB(dbname_, options));
     db_ = nullptr;
     Reopen(options);
@@ -631,7 +637,7 @@ class DBTest : public testing::Test {
         options.db_log_dir = test::TmpDir(env_);
         break;
       case kWalDirAndMmapReads:
-        options.wal_dir = dbname_ + "/wal";
+        options.wal_dir = alternative_wal_dir_;
         // mmap reads should be orthogonal to WalDir setting, so we piggyback to
         // this option config to test mmap reads as well
         options.allow_mmap_reads = true;
