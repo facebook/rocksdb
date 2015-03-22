@@ -415,11 +415,10 @@ public interface DBOptionsInterface {
    *
    * @param maxLogFileSize the maximum size of a info log file.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setMaxLogFileSize(long maxLogFileSize)
-      throws RocksDBException;
+  Object setMaxLogFileSize(long maxLogFileSize);
 
   /**
    * Returns the maximum size of a info log file. If the current log file
@@ -438,11 +437,10 @@ public interface DBOptionsInterface {
    *
    * @param logFileTimeToRoll the time interval in seconds.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setLogFileTimeToRoll(long logFileTimeToRoll)
-      throws RocksDBException;
+  Object setLogFileTimeToRoll(long logFileTimeToRoll);
 
   /**
    * Returns the time interval for the info log file to roll (in seconds).
@@ -460,11 +458,10 @@ public interface DBOptionsInterface {
    *
    * @param keepLogFileNum the maximum number of info log files to be kept.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setKeepLogFileNum(long keepLogFileNum)
-      throws RocksDBException;
+  Object setKeepLogFileNum(long keepLogFileNum);
 
   /**
    * Returns the maximum number of info log files to be kept.
@@ -638,11 +635,10 @@ public interface DBOptionsInterface {
    *
    * @param size the size in byte
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setManifestPreallocationSize(long size)
-      throws RocksDBException;
+  Object setManifestPreallocationSize(long size);
 
   /**
    * Number of bytes to preallocate (via fallocate) the manifest

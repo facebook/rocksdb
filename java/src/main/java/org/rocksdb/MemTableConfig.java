@@ -24,10 +24,6 @@ public abstract class MemTableConfig {
    * @see Options#setMemTableConfig(MemTableConfig)
    *
    * @return native handle address to native memory table instance.
-   *
-   * @throws RocksDBException thrown if error happens in underlying
-   *    native library.
    */
-  abstract protected long newMemTableFactoryHandle()
-      throws RocksDBException;
+  abstract protected long newMemTableFactoryHandle();
 }

@@ -314,7 +314,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   @Override
   public DBOptions setMaxLogFileSize(
-      final long maxLogFileSize) throws RocksDBException {
+      final long maxLogFileSize) {
     assert(isInitialized());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
@@ -328,7 +328,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   @Override
   public DBOptions setLogFileTimeToRoll(
-      final long logFileTimeToRoll) throws RocksDBException{
+      final long logFileTimeToRoll) {
     assert(isInitialized());
     setLogFileTimeToRoll(nativeHandle_, logFileTimeToRoll);
     return this;
@@ -342,7 +342,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   @Override
   public DBOptions setKeepLogFileNum(
-      final long keepLogFileNum) throws RocksDBException{
+      final long keepLogFileNum) {
     assert(isInitialized());
     setKeepLogFileNum(nativeHandle_, keepLogFileNum);
     return this;
@@ -426,7 +426,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   @Override
   public DBOptions setManifestPreallocationSize(
-      final long size) throws RocksDBException {
+      final long size) {
     assert(isInitialized());
     setManifestPreallocationSize(nativeHandle_, size);
     return this;
@@ -634,13 +634,13 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long maxLogFileSize(long handle);
   private native void setLogFileTimeToRoll(
-      long handle, long logFileTimeToRoll) throws RocksDBException;
+      long handle, long logFileTimeToRoll) throws IllegalArgumentException;
   private native long logFileTimeToRoll(long handle);
   private native void setKeepLogFileNum(long handle, long keepLogFileNum)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long keepLogFileNum(long handle);
   private native void setMaxManifestFileSize(
       long handle, long maxManifestFileSize);
@@ -656,7 +656,7 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
   private native long walSizeLimitMB(long handle);
   private native void setManifestPreallocationSize(
-      long handle, long size) throws RocksDBException;
+      long handle, long size) throws IllegalArgumentException;
   private native long manifestPreallocationSize(long handle);
   private native void setAllowOsBuffer(
       long handle, boolean allowOsBuffer);

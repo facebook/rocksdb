@@ -3,6 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+import java.lang.IllegalArgumentException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ public class RocksDBSample {
           .setMaxBackgroundCompactions(10)
           .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
           .setCompactionStyle(CompactionStyle.UNIVERSAL);
-    } catch (RocksDBException e) {
+    } catch (IllegalArgumentException e) {
       assert(false);
     }
 

@@ -189,7 +189,7 @@ void Java_org_rocksdb_Options_setWriteBufferSize(
     reinterpret_cast<rocksdb::Options*>(jhandle)->write_buffer_size =
         jwrite_buffer_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -519,7 +519,7 @@ void Java_org_rocksdb_Options_setMaxLogFileSize(
     reinterpret_cast<rocksdb::Options*>(jhandle)->max_log_file_size =
         max_log_file_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -546,7 +546,7 @@ void Java_org_rocksdb_Options_setLogFileTimeToRoll(
     reinterpret_cast<rocksdb::Options*>(jhandle)->log_file_time_to_roll =
         log_file_time_to_roll;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -572,7 +572,7 @@ void Java_org_rocksdb_Options_setKeepLogFileNum(
     reinterpret_cast<rocksdb::Options*>(jhandle)->keep_log_file_num =
         keep_log_file_num;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -792,7 +792,7 @@ void Java_org_rocksdb_Options_setManifestPreallocationSize(
     reinterpret_cast<rocksdb::Options*>(jhandle)->manifest_preallocation_size =
         preallocation_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -1472,7 +1472,7 @@ void Java_org_rocksdb_Options_setArenaBlockSize(
     reinterpret_cast<rocksdb::Options*>(jhandle)->arena_block_size =
         jarena_block_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -1642,7 +1642,7 @@ void Java_org_rocksdb_Options_setInplaceUpdateNumLocks(
     reinterpret_cast<rocksdb::Options*>(jhandle)->inplace_update_num_locks =
         jinplace_update_num_locks;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -1739,7 +1739,7 @@ void Java_org_rocksdb_Options_setMaxSuccessiveMerges(
     reinterpret_cast<rocksdb::Options*>(jhandle)->max_successive_merges =
         jmax_successive_merges;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -1989,7 +1989,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setWriteBufferSize(
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
         write_buffer_size = jwrite_buffer_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -2564,7 +2564,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setArenaBlockSize(
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
         arena_block_size = jarena_block_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -2735,7 +2735,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setInplaceUpdateNumLocks(
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
         inplace_update_num_locks = jinplace_update_num_locks;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -2834,7 +2834,7 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMaxSuccessiveMerges(
     reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
         max_successive_merges = jmax_successive_merges;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -3312,7 +3312,7 @@ void Java_org_rocksdb_DBOptions_setMaxLogFileSize(
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->max_log_file_size =
         max_log_file_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -3339,7 +3339,7 @@ void Java_org_rocksdb_DBOptions_setLogFileTimeToRoll(
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->log_file_time_to_roll =
         log_file_time_to_roll;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -3365,7 +3365,7 @@ void Java_org_rocksdb_DBOptions_setKeepLogFileNum(
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->keep_log_file_num =
         keep_log_file_num;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 
@@ -3498,7 +3498,7 @@ void Java_org_rocksdb_DBOptions_setManifestPreallocationSize(
     reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
         manifest_preallocation_size = preallocation_size;
   } else {
-    rocksdb::RocksDBExceptionJni::ThrowNew(env, s);
+    rocksdb::IllegalArgumentExceptionJni::ThrowNew(env, s);
   }
 }
 

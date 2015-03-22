@@ -154,8 +154,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
     return thresholdUseSkiplist_;
   }
 
-  @Override protected long newMemTableFactoryHandle()
-       throws RocksDBException {
+  @Override protected long newMemTableFactoryHandle() {
     return newMemTableFactoryHandle(bucketCount_, hugePageTlbSize_,
         bucketEntriesLoggingThreshold_, ifLogBucketDistWhenFlush_,
         thresholdUseSkiplist_);
@@ -164,7 +163,7 @@ public class HashLinkedListMemTableConfig extends MemTableConfig {
   private native long newMemTableFactoryHandle(long bucketCount,
       long hugePageTlbSize, int bucketEntriesLoggingThreshold,
       boolean ifLogBucketDistWhenFlush, int thresholdUseSkiplist)
-      throws RocksDBException;
+      throws IllegalArgumentException;
 
   private long bucketCount_;
   private long hugePageTlbSize_;

@@ -190,8 +190,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setWriteBufferSize(final long writeBufferSize)
-      throws RocksDBException {
+  public Options setWriteBufferSize(final long writeBufferSize) {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
@@ -389,8 +388,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxLogFileSize(final long maxLogFileSize)
-      throws RocksDBException {
+  public Options setMaxLogFileSize(final long maxLogFileSize) {
     assert(isInitialized());
     setMaxLogFileSize(nativeHandle_, maxLogFileSize);
     return this;
@@ -403,8 +401,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setLogFileTimeToRoll(final long logFileTimeToRoll)
-      throws RocksDBException{
+  public Options setLogFileTimeToRoll(final long logFileTimeToRoll) {
     assert(isInitialized());
     setLogFileTimeToRoll(nativeHandle_, logFileTimeToRoll);
     return this;
@@ -417,8 +414,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setKeepLogFileNum(final long keepLogFileNum)
-      throws RocksDBException{
+  public Options setKeepLogFileNum(final long keepLogFileNum) {
     assert(isInitialized());
     setKeepLogFileNum(nativeHandle_, keepLogFileNum);
     return this;
@@ -499,8 +495,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setManifestPreallocationSize(final long size)
-      throws RocksDBException {
+  public Options setManifestPreallocationSize(final long size) {
     assert(isInitialized());
     setManifestPreallocationSize(nativeHandle_, size);
     return this;
@@ -624,8 +619,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMemTableConfig(final MemTableConfig config)
-      throws RocksDBException {
+  public Options setMemTableConfig(final MemTableConfig config) {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
@@ -901,8 +895,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setArenaBlockSize(final long arenaBlockSize)
-      throws RocksDBException {
+  public Options setArenaBlockSize(final long arenaBlockSize) {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
     return this;
   }
@@ -988,7 +981,7 @@ public class Options extends RocksObject
 
   @Override
   public Options setInplaceUpdateNumLocks(
-      final long inplaceUpdateNumLocks) throws RocksDBException {
+      final long inplaceUpdateNumLocks) {
     setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
     return this;
   }
@@ -1034,8 +1027,7 @@ public class Options extends RocksObject
   }
 
   @Override
-  public Options setMaxSuccessiveMerges(long maxSuccessiveMerges)
-      throws RocksDBException {
+  public Options setMaxSuccessiveMerges(long maxSuccessiveMerges) {
     setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
     return this;
   }
@@ -1135,13 +1127,13 @@ public class Options extends RocksObject
       long handle, int maxBackgroundFlushes);
   private native int maxBackgroundFlushes(long handle);
   private native void setMaxLogFileSize(long handle, long maxLogFileSize)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long maxLogFileSize(long handle);
   private native void setLogFileTimeToRoll(
-      long handle, long logFileTimeToRoll) throws RocksDBException;
+      long handle, long logFileTimeToRoll) throws IllegalArgumentException;
   private native long logFileTimeToRoll(long handle);
   private native void setKeepLogFileNum(long handle, long keepLogFileNum)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long keepLogFileNum(long handle);
   private native void setMaxManifestFileSize(
       long handle, long maxManifestFileSize);
@@ -1157,7 +1149,7 @@ public class Options extends RocksObject
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
   private native long walSizeLimitMB(long handle);
   private native void setManifestPreallocationSize(
-      long handle, long size) throws RocksDBException;
+      long handle, long size) throws IllegalArgumentException;
   private native long manifestPreallocationSize(long handle);
   private native void setAllowOsBuffer(
       long handle, boolean allowOsBuffer);
@@ -1200,7 +1192,7 @@ public class Options extends RocksObject
   private native void setMergeOperator(
       long handle, long mergeOperatorHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
@@ -1262,7 +1254,7 @@ public class Options extends RocksObject
       long handle, int rateLimitDelayMaxMilliseconds);
   private native int rateLimitDelayMaxMilliseconds(long handle);
   private native void setArenaBlockSize(
-      long handle, long arenaBlockSize) throws RocksDBException;
+      long handle, long arenaBlockSize) throws IllegalArgumentException;
   private native long arenaBlockSize(long handle);
   private native void setDisableAutoCompactions(
       long handle, boolean disableAutoCompactions);
@@ -1289,7 +1281,8 @@ public class Options extends RocksObject
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);
   private native void setInplaceUpdateNumLocks(
-      long handle, long inplaceUpdateNumLocks) throws RocksDBException;
+      long handle, long inplaceUpdateNumLocks)
+      throws IllegalArgumentException;
   private native long inplaceUpdateNumLocks(long handle);
   private native void setMemtablePrefixBloomBits(
       long handle, int memtablePrefixBloomBits);
@@ -1301,7 +1294,8 @@ public class Options extends RocksObject
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);
   private native void setMaxSuccessiveMerges(
-      long handle, long maxSuccessiveMerges) throws RocksDBException;
+      long handle, long maxSuccessiveMerges)
+      throws IllegalArgumentException;
   private native long maxSuccessiveMerges(long handle);
   private native void setMinPartialMergeOperands(
       long handle, int minPartialMergeOperands);
