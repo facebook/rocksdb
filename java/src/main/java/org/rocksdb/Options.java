@@ -26,7 +26,7 @@ public class Options extends RocksObject
   public Options() {
     super();
     newOptions();
-    env_ = RocksEnv.getDefault();
+    env_ = Env.getDefault();
   }
 
   /**
@@ -41,7 +41,7 @@ public class Options extends RocksObject
       final ColumnFamilyOptions columnFamilyOptions) {
     super();
     newOptions(dbOptions.nativeHandle_, columnFamilyOptions.nativeHandle_);
-    env_ = RocksEnv.getDefault();
+    env_ = Env.getDefault();
   }
 
   @Override
@@ -68,12 +68,12 @@ public class Options extends RocksObject
   /**
    * Use the specified object to interact with the environment,
    * e.g. to read/write files, schedule background work, etc.
-   * Default: {@link RocksEnv#getDefault()}
+   * Default: {@link Env#getDefault()}
    *
-   * @param env {@link RocksEnv} instance.
+   * @param env {@link Env} instance.
    * @return the instance of the current Options.
    */
-  public Options setEnv(final RocksEnv env) {
+  public Options setEnv(final Env env) {
     assert(isInitialized());
     setEnv(nativeHandle_, env.nativeHandle_);
     env_ = env;
@@ -85,7 +85,7 @@ public class Options extends RocksObject
    *
    * @return {@link RocksEnv} instance set in the Options.
    */
-  public RocksEnv getEnv() {
+  public Env getEnv() {
     return env_;
   }
 
@@ -1304,7 +1304,7 @@ public class Options extends RocksObject
       boolean optimizeFiltersForHits);
   private native boolean optimizeFiltersForHits(long handle);
   // instance variables
-  RocksEnv env_;
+  Env env_;
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
   RateLimiterConfig rateLimiterConfig_;

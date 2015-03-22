@@ -18,7 +18,7 @@ public class RocksEnvTest {
 
   @Test
   public void rocksEnv(){
-    RocksEnv rocksEnv = RocksEnv.getDefault();
+    Env rocksEnv = RocksEnv.getDefault();
     rocksEnv.setBackgroundThreads(5);
     // default rocksenv will always return zero for flush pool
     // no matter what was set via setBackgroundThreads
