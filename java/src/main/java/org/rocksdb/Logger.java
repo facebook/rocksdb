@@ -13,6 +13,27 @@ package org.rocksdb;
  * <p>Using this class RocksDB can log with common
  * Java logging APIs like Log4j or Slf4j without keeping
  * database logs in the filesystem.</p>
+ *
+ * <strong>Performance</strong>
+ * <p>There are certain performance penalties using a Java
+ * {@code Logger} implementation within production code.
+ * </p>
+ *
+ * <p>
+ * A log level can be set using {@link org.rocksdb.Options} or
+ * {@link Logger#setInfoLogLevel(InfoLogLevel)}. The set log level
+ * influences the underlying native code. Each log message is
+ * checked against the set log level and if the log level is more
+ * verbose as the set log level, native allocations will be made
+ * and data structures are allocated.
+ * </p>
+ *
+ * <p>Every log message which will be emitted by native code will
+ * trigger expensive native to Java transitions. So the preferred
+ * setting for production use is either
+ * {@link org.rocksdb.InfoLogLevel#ERROR_LEVEL} or
+ * {@link org.rocksdb.InfoLogLevel#FATAL_LEVEL}.
+ * </p>
  */
 public abstract class Logger extends RocksObject {
 
