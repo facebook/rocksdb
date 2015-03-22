@@ -40,6 +40,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.rocksdb.*;
+import org.rocksdb.RocksMemEnv;
 import org.rocksdb.util.SizeUnit;
 
 class Stats {
@@ -445,6 +446,7 @@ public class DbBenchmark {
     keysPerPrefix_ = (Integer) flags.get(Flag.keys_per_prefix);
     hashBucketCount_ = (Long) flags.get(Flag.hash_bucket_count);
     usePlainTable_ = (Boolean) flags.get(Flag.use_plain_table);
+    useMemenv_ = (Boolean) flags.get(Flag.use_mem_env);
     flags_ = flags;
     finishLock_ = new Object();
     // options.setPrefixSize((Integer)flags_.get(Flag.prefix_size));
@@ -485,6 +487,9 @@ public class DbBenchmark {
       options.setCreateIfMissing(true);
     } else {
       options.setCreateIfMissing(false);
+    }
+    if (useMemenv_) {
+      options.setEnv(new RocksMemEnv());
     }
     switch (memtable_) {
       case "skip_list":
@@ -1482,6 +1487,12 @@ public class DbBenchmark {
       @Override public Object parseValue(String value) {
         return value;
       }
+    },
+    use_mem_env(false, "Use RocksMemEnv instead of default filesystem based\n" +
+        "environment.") {
+      @Override public Object parseValue(String value) {
+        return parseBoolean(value);
+      }
     };
 
     private Flag(Object defaultValue, String desc) {
@@ -1593,6 +1604,9 @@ public class DbBenchmark {
   double compressionRatio_;
   RandomGenerator gen_;
   long startTime_;
+
+  // env
+  boolean useMemenv_;
 
   // memtable related
   final int maxWriteBufferNumber_;
