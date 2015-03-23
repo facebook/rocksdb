@@ -557,6 +557,32 @@ public class DBOptionsTest {
   }
 
   @Test
+  public void rateLimiter() {
+    DBOptions options = null;
+    DBOptions anotherOptions = null;
+    RateLimiter rateLimiter = null;
+    try {
+      options = new DBOptions();
+      rateLimiter = new RateLimiter(1000, 0, 1);
+      options.setRateLimiter(rateLimiter);
+      // Test with parameter initialization
+      anotherOptions = new DBOptions();
+      anotherOptions.setRateLimiter(
+          new RateLimiter(1000));
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+      if (anotherOptions != null) {
+        anotherOptions.dispose();
+      }
+      if (rateLimiter != null) {
+        rateLimiter.dispose();
+      }
+    }
+  }
+
+  @Test
   public void statistics() {
     DBOptions options = new DBOptions();
     Statistics statistics = options.createStatistics().

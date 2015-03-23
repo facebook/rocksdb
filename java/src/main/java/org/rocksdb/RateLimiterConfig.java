@@ -7,7 +7,10 @@ package org.rocksdb;
 /**
  * Config for rate limiter, which is used to control write rate of flush and
  * compaction.
+ *
+ * @deprecated obsolete. See: {@link org.rocksdb.RateLimiter}.
  */
+@Deprecated
 public abstract class RateLimiterConfig {
   /**
    * This function should only be called by

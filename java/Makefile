@@ -22,6 +22,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.MergeOperator\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
+	org.rocksdb.RateLimiter\
 	org.rocksdb.ReadOptions\
 	org.rocksdb.RestoreBackupableDB\
 	org.rocksdb.RestoreOptions\
