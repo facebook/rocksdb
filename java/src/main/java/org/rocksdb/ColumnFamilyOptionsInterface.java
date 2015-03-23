@@ -506,6 +506,10 @@ public interface ColumnFamilyOptionsInterface {
    * <p><strong>Caution</strong>: this option is experimental</p>
    *
    * <p>Default: false</p>
+   *
+   * @param enableLevelCompactionDynamicLevelBytes boolean value indicating
+   *     if {@code LevelCompactionDynamicLevelBytes} shall be enabled.
+   * @return the reference to the current option.
    */
   Object setLevelCompactionDynamicLevelBytes(
       boolean enableLevelCompactionDynamicLevelBytes);
