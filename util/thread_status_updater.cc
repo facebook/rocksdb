@@ -4,6 +4,7 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 
 #include <memory>
+#include "rocksdb/env.h"
 #include "port/likely.h"
 #include "util/mutexlock.h"
 #include "util/thread_status_updater.h"
@@ -65,7 +66,7 @@ void ThreadStatusUpdater::SetThreadOperation(
   data->operation_type.store(type, std::memory_order_relaxed);
 }
 
-void ThreadStatusUpdater::SetOperationStartTime(const int64_t start_time) {
+void ThreadStatusUpdater::SetOperationStartTime(const uint64_t start_time) {
   auto* data = InitAndGet();
   if (!data->enable_tracking) {
     assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
@@ -121,6 +122,7 @@ Status ThreadStatusUpdater::GetThreadList(
     std::vector<ThreadStatus>* thread_list) {
   thread_list->clear();
   std::vector<std::shared_ptr<ThreadStatusData>> valid_list;
+  uint64_t now_micros = Env::Default()->NowMicros();
 
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   for (auto* thread_data : thread_data_set_) {
@@ -141,7 +143,7 @@ Status ThreadStatusUpdater::GetThreadList(
     ThreadStatus::OperationType op_type = ThreadStatus::OP_UNKNOWN;
     ThreadStatus::OperationStage op_stage = ThreadStatus::STAGE_UNKNOWN;
     ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
-    int64_t op_start_time = 0;
+    uint64_t op_elapsed_micros = 0;
     if (cf_info != nullptr) {
       db_name = &cf_info->db_name;
       cf_name = &cf_info->cf_name;
@@ -149,7 +151,7 @@ Status ThreadStatusUpdater::GetThreadList(
           std::memory_order_relaxed);
       // display lower-level info only when higher-level info is available.
       if (op_type != ThreadStatus::OP_UNKNOWN) {
-        op_start_time = thread_data->op_start_time.load(
+        op_elapsed_micros = now_micros - thread_data->op_start_time.load(
             std::memory_order_relaxed);
         op_stage = thread_data->operation_stage.load(
             std::memory_order_relaxed);
@@ -161,7 +163,7 @@ Status ThreadStatusUpdater::GetThreadList(
         thread_data->thread_id, thread_type,
         db_name ? *db_name : "",
         cf_name ? *cf_name : "",
-        op_type, op_start_time, op_stage, state_type);
+        op_type, op_elapsed_micros, op_stage, state_type);
   }
 
   return Status::OK();

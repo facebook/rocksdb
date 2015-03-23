@@ -78,14 +78,14 @@ struct ThreadStatus {
                const std::string& _db_name,
                const std::string& _cf_name,
                const OperationType _operation_type,
-               const int64_t _op_start_time,
+               const uint64_t _op_elapsed_micros,
                const OperationStage _operation_stage,
                const StateType _state_type) :
       thread_id(_id), thread_type(_thread_type),
       db_name(_db_name),
       cf_name(_cf_name),
       operation_type(_operation_type),
-      op_start_time(_op_start_time),
+      op_elapsed_micros(_op_elapsed_micros),
       operation_stage(_operation_stage),
       state_type(_state_type) {}
 
@@ -109,9 +109,8 @@ struct ThreadStatus {
   // The operation (high-level action) that the current thread is involved.
   const OperationType operation_type;
 
-  // The start time of the current status in the form of seconds since the
-  // Epoch, 1970-01-01 00:00:00 (UTC).
-  const int64_t op_start_time;
+  // The elapsed time in micros of the current thread operation.
+  const uint64_t op_elapsed_micros;
 
   // An integer showing the current stage where the thread is involved
   // in the current operation.
@@ -128,7 +127,7 @@ struct ThreadStatus {
   // Obtain the name of an operation given its type.
   static const std::string& GetOperationName(OperationType op_type);
 
-  static const std::string TimeToString(int64_t op_start_time);
+  static const std::string MicrosToString(uint64_t op_elapsed_time);
 
   // Obtain a human-readable string describing the specified operation stage.
   static const std::string& GetOperationStageName(

@@ -55,8 +55,7 @@ void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
   }
 
   if (op != ThreadStatus::OP_UNKNOWN) {
-    int64_t current_time = 0;
-    Env::Default()->GetCurrentTime(&current_time);
+    uint64_t current_time = Env::Default()->NowMicros();
     thread_updater_local_cache_->SetOperationStartTime(current_time);
   } else {
     // TDOO(yhchiang): we could report the time when we set operation to

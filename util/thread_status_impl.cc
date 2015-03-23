@@ -6,6 +6,7 @@
 
 #include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
+#include "util/logging.h"
 #include "util/thread_operation.h"
 
 namespace rocksdb {
@@ -33,12 +34,14 @@ const std::string& ThreadStatus::GetStateName(
   return global_state_table[state_type].name;
 }
 
-const std::string ThreadStatus::TimeToString(
-    int64_t time) {
-  if (time == 0) {
+const std::string ThreadStatus::MicrosToString(uint64_t micros) {
+  if (micros == 0) {
     return "";
   }
-  return Env::Default()->TimeToString(time);
+  const int kBufferLen = 100;
+  char buffer[kBufferLen];
+  AppendHumanMicros(micros, buffer, kBufferLen);
+  return std::string(buffer);
 }
 
 #else
