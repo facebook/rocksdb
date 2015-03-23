@@ -801,6 +801,19 @@ public class OptionsTest {
   }
 
   @Test
+  public void rateLimiter() {
+    try (final Options options = new Options();
+         final Options anotherOptions = new Options()) {
+      final RateLimiter rateLimiter =
+          new RateLimiter(1000, 100 * 1000, 1);
+      options.setRateLimiter(rateLimiter);
+      // Test with parameter initialization
+      anotherOptions.setRateLimiter(
+          new RateLimiter(1000));
+    }
+  }
+
+  @Test
   public void shouldSetTestPrefixExtractor() {
     try (final Options options = new Options()) {
       options.useFixedLengthPrefixExtractor(100);
