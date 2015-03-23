@@ -377,7 +377,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
 
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
-      st = reader.ReadSequential(command != "check",
+      st = reader.ReadSequential(command == "scan",
                                  read_num > 0 ? (read_num - total_read) :
                                                 read_num,
                                  has_from, from_key, has_to, to_key);
