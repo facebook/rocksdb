@@ -1879,6 +1879,7 @@ void DBImpl::BGWorkFlush(void* db) {
 
 void DBImpl::BGWorkCompaction(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::LOW);
+  TEST_SYNC_POINT("DBImpl::BGWorkCompaction");
   reinterpret_cast<DBImpl*>(db)->BackgroundCallCompaction();
 }
 

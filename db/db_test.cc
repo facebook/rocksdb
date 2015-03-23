@@ -10216,7 +10216,10 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
   const int kNumL0Files = 4;
   options.level0_file_num_compaction_trigger = kNumL0Files;
 
+
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBTest::ThreadStatusSingleCompaction:0",
+       "DBImpl::BGWorkCompaction"},
       {"CompactionJob::Run():Start",
        "DBTest::ThreadStatusSingleCompaction:1"},
       {"DBTest::ThreadStatusSingleCompaction:2",
@@ -10228,6 +10231,7 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
     DestroyAndReopen(options);
 
     Random rnd(301);
+    // The Put Phase.
     for (int file = 0; file < kNumL0Files; ++file) {
       for (int key = 0; key < kEntriesPerBuffer; ++key) {
         ASSERT_OK(Put(ToString(key + file * kEntriesPerBuffer),
@@ -10235,13 +10239,15 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
       }
       Flush();
     }
+    // This makes sure a compaction won't be scheduled until
+    // we have done with the above Put Phase.
+    TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:0");
     ASSERT_GE(NumTableFilesAtLevel(0),
               options.level0_file_num_compaction_trigger);
 
-    // wait for compaction to be scheduled
-    env_->SleepForMicroseconds(250000);
-
+    // This makes sure at least one compaction is running.
     TEST_SYNC_POINT("DBTest::ThreadStatusSingleCompaction:1");
+
     if (options.enable_thread_tracking) {
       // expecting one single L0 to L1 compaction
       VerifyOperationCount(env_, ThreadStatus::OP_COMPACTION, 1);
