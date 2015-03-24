@@ -1,5 +1,16 @@
 # RocksJava Change Log
 
+## 3.10.0 (3/24/2015)
+### New Features
+* Added compression per level API.
+* MemEnv is now available in RocksJava via RocksMemEnv class.
+* lz4 compression is now included in rocksjava static library when running `make rocksdbjavastatic`.
+
+### Public API Changes
+* Overflowing a size_t when setting rocksdb options now throws an IllegalArgumentException, which removes the necessity for a developer to catch these Exceptions explicitly.
+* The set and get functions for tableCacheRemoveScanCountLimit are deprecated.
+
+
 ## By 01/31/2015
 ### New Features
 * WriteBatchWithIndex support.
