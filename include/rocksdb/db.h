@@ -496,8 +496,6 @@ class DB {
 
   // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
 
-  // THIS METHOD IS DEPRECATED. Use the GetLiveFilesMetaData to get more
-  // detailed information on the live files.
   // Retrieve the list of all files in the database. The files are
   // relative to the dbname and are not absolute paths. The valid size of the
   // manifest file is returned in manifest_file_size. The manifest file is an
