@@ -146,7 +146,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
             GetContext get_context(ioptions.comparator, ioptions.merge_operator,
                                    ioptions.info_log, ioptions.statistics,
                                    GetContext::kNotFound, Slice(key), &value,
-                                   nullptr, &merge_context);
+                                   nullptr, &merge_context, env);
             s = table_reader->Get(read_options, key, &get_context);
           } else {
             s = db->Get(read_options, key, &result);
