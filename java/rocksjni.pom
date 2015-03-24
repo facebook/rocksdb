@@ -61,6 +61,11 @@
                 <version>2.18.1</version>
                 <configuration>
                     <argLine>${argLine} -ea -Xcheck:jni -Djava.library.path=${project.build.directory}</argLine>
+                    <useManifestOnlyJar>false</useManifestOnlyJar>  
+                    <useSystemClassLoader>false</useSystemClassLoader>
+                    <additionalClasspathElements>
+                        <additionalClasspathElement>${project.build.directory}/*</additionalClasspathElement>
+                    </additionalClasspathElements>
                 </configuration>
             </plugin>
             <plugin>
