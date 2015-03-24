@@ -70,8 +70,8 @@ const std::string& ThreadStatus::GetStateName(
   return dummy_str;
 }
 
-const std::string ThreadStatus::TimeToString(
-    int64_t time) {
+const std::string ThreadStatus::MicrosToString(
+    uint64_t op_elapsed_time) {
   static std::string dummy_str = "";
   return dummy_str;
 }
