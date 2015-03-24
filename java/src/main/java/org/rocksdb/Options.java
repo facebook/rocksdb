@@ -5,6 +5,9 @@
 
 package org.rocksdb;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Options to control the behavior of a database.  It will be used
  * during the creation of a {@link org.rocksdb.RocksDB} (i.e., RocksDB.open()).
@@ -685,6 +688,29 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setCompressionPerLevel(final List<CompressionType> compressionLevels) {
+    final List<Byte> byteCompressionTypes = new ArrayList<>(
+        compressionLevels.size());
+    for (final CompressionType compressionLevel : compressionLevels) {
+      byteCompressionTypes.add(compressionLevel.getValue());
+    }
+    setCompressionPerLevel(nativeHandle_, byteCompressionTypes);
+    return this;
+  }
+
+  @Override
+  public List<CompressionType> compressionPerLevel() {
+    final List<Byte> byteCompressionTypes =
+        compressionPerLevel(nativeHandle_);
+    final List<CompressionType> compressionLevels = new ArrayList<>();
+    for (final Byte byteCompressionType : byteCompressionTypes) {
+      compressionLevels.add(CompressionType.getCompressionType(
+          byteCompressionType));
+    }
+    return compressionLevels;
+  }
+
+  @Override
   public Options setCompressionType(CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
@@ -1202,6 +1228,9 @@ public class Options extends RocksObject
   private native int minWriteBufferNumberToMerge(long handle);
   private native void setCompressionType(long handle, byte compressionType);
   private native byte compressionType(long handle);
+  private native void setCompressionPerLevel(long handle,
+      List<Byte> compressionLevels);
+  private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void setNumLevels(

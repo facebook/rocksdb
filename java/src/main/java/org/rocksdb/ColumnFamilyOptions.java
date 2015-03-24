@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 /**
@@ -198,6 +200,30 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
+  }
+
+  @Override
+  public ColumnFamilyOptions setCompressionPerLevel(
+      final List<CompressionType> compressionLevels) {
+    final List<Byte> byteCompressionTypes = new ArrayList<>(
+        compressionLevels.size());
+    for (final CompressionType compressionLevel : compressionLevels) {
+      byteCompressionTypes.add(compressionLevel.getValue());
+    }
+    setCompressionPerLevel(nativeHandle_, byteCompressionTypes);
+    return this;
+  }
+
+  @Override
+  public List<CompressionType> compressionPerLevel() {
+    final List<Byte> byteCompressionTypes =
+        compressionPerLevel(nativeHandle_);
+    final List<CompressionType> compressionLevels = new ArrayList<>();
+    for (final Byte byteCompressionType : byteCompressionTypes) {
+      compressionLevels.add(CompressionType.getCompressionType(
+          byteCompressionType));
+    }
+    return compressionLevels;
   }
 
   @Override
@@ -651,6 +677,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native int minWriteBufferNumberToMerge(long handle);
   private native void setCompressionType(long handle, byte compressionType);
   private native byte compressionType(long handle);
+  private native void setCompressionPerLevel(long handle,
+      List<Byte> compressionLevels);
+  private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void setNumLevels(
