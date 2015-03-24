@@ -996,13 +996,13 @@ public class OptionsTest {
   }
 
   @Test
-  public void rocksEnv() {
+  public void env() {
     Options options = null;
     try {
       options = new Options();
-      RocksEnv rocksEnv = RocksEnv.getDefault();
-      options.setEnv(rocksEnv);
-      assertThat(options.getEnv()).isSameAs(rocksEnv);
+      Env env = Env.getDefault();
+      options.setEnv(env);
+      assertThat(options.getEnv()).isSameAs(env);
     } finally {
       if (options != null) {
         options.dispose();
