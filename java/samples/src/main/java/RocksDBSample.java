@@ -112,7 +112,7 @@ public class RocksDBSample {
     assert(options.tableFactoryName().equals("BlockBasedTable"));
 
     try {
-      db = RocksDB.open(options, db_path_not_found);
+      db = RocksDB.open(options, db_path);
       db.put("hello".getBytes(), "world".getBytes());
       byte[] value = db.get("hello".getBytes());
       assert("world".equals(new String(value)));
