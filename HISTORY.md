@@ -1,6 +1,7 @@
 # Rocksdb Change Log
 
 ## 3.10.0 (3/24/2015)
+### New Features
 * GetThreadStatus() is now able to report detailed thread status, including:
  - Thread Operation including flush and compaction.
  - The stage of the current thread operation.
