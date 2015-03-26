@@ -1431,7 +1431,9 @@ class Benchmark {
   }
 
   Slice AllocateKey(std::unique_ptr<const char[]>* key_guard) {
-    key_guard->reset(new char[key_size_]);
+    char* data = new char[key_size_];
+    const char* const_data = data;
+    key_guard->reset(const_data);
     return Slice(key_guard->get(), key_size_);
   }
 
