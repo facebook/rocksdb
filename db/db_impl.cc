@@ -191,6 +191,30 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
     return kNoCompression;
   }
 }
+
+void DumpCompressionInfo(Logger* logger) {
+  Log(InfoLogLevel::INFO_LEVEL, logger, "Snappy "
+#ifndef SNAPPY
+      "NOT "
+#endif
+      "supported");
+  Log(InfoLogLevel::INFO_LEVEL, logger, "Zlib "
+#ifndef ZLIB
+      "NOT "
+#endif
+      "supported");
+  Log(InfoLogLevel::INFO_LEVEL, logger, "Bzip "
+#ifndef BZIP2
+      "NOT "
+#endif
+      "supported");
+  Log(InfoLogLevel::INFO_LEVEL, logger, "LZ4 "
+#ifndef LZ4
+      "NOT "
+#endif
+      "supported");
+}
+
 }  // namespace
 
 DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
@@ -251,6 +275,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   DumpRocksDBBuildVersion(db_options_.info_log.get());
   DumpDBFileSummary(db_options_, dbname_);
   db_options_.Dump(db_options_.info_log.get());
+  DumpCompressionInfo(db_options_.info_log.get());
 
   LogFlush(db_options_.info_log);
 }
