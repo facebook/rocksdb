@@ -38,7 +38,7 @@ int AppendHumanMicros(uint64_t micros, char* output, int len) {
   } else if (micros < 1000000l * 60) {
     return snprintf(output, len, "%.3lf sec",
                     static_cast<double>(micros) / 1000000);
-  } else if (micros < 1000000l * 60 * 60) {
+  } else if (micros < 1000000ll * 60 * 60) {
     return snprintf(output, len, "%02" PRIu64 ":%05.3f M:S",
         micros / 1000000 / 60,
         static_cast<double>(micros % 60000000) / 1000000);
