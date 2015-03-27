@@ -142,7 +142,9 @@ class SanityTestZlibCompressionVersion2 : public SanityTest {
       : SanityTest(path) {
     options_.compression = kZlibCompression;
     BlockBasedTableOptions table_options;
+#if ROCKSDB_MAJOR > 3 || (ROCKSDB_MAJOR == 3 && ROCKSDB_MINOR >= 10)
     table_options.format_version = 2;
+#endif
     options_.table_factory.reset(NewBlockBasedTableFactory(table_options));
   }
   virtual Options GetOptions() const override { return options_; }
