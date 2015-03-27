@@ -82,12 +82,84 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
 }
 }
 
+static const std::string rocksdb_prefix = "rocksdb.";
+
+static const std::string num_files_at_level_prefix = "num-files-at-level";
+static const std::string stats = "stats";
+static const std::string sstables = "sstables";
+static const std::string cfstats = "cfstats";
+static const std::string dbstats = "dbstats";
+static const std::string levelstats = "levelstats";
+static const std::string num_immutable_mem_table = "num-immutable-mem-table";
+static const std::string mem_table_flush_pending = "mem-table-flush-pending";
+static const std::string compaction_pending = "compaction-pending";
+static const std::string background_errors = "background-errors";
+static const std::string cur_size_active_mem_table =
+                          "cur-size-active-mem-table";
+static const std::string cur_size_all_mem_tables = "cur-size-all-mem-tables";
+static const std::string num_entries_active_mem_table =
+                          "num-entries-active-mem-table";
+static const std::string num_entries_imm_mem_tables =
+                          "num-entries-imm-mem-tables";
+static const std::string num_deletes_active_mem_table =
+                          "num-deletes-active-mem-table";
+static const std::string num_deletes_imm_mem_tables =
+                          "num-deletes-imm-mem-tables";
+static const std::string estimate_num_keys = "estimate-num-keys";
+static const std::string estimate_table_readers_mem =
+                          "estimate-table-readers-mem";
+static const std::string is_file_deletions_enabled =
+                          "is-file-deletions-enabled";
+static const std::string num_snapshots = "num-snapshots";
+static const std::string oldest_snapshot_time = "oldest-snapshot-time";
+static const std::string num_live_versions = "num-live-versions";
+static const std::string base_level = "base-level";
+
+const std::string DB::Properties::kNumFilesAtLevelPrefix =
+                      rocksdb_prefix + num_files_at_level_prefix;
+const std::string DB::Properties::kStats = rocksdb_prefix + stats;
+const std::string DB::Properties::kSSTables = rocksdb_prefix + sstables;
+const std::string DB::Properties::kCFStats = rocksdb_prefix + cfstats;
+const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
+const std::string DB::Properties::kNumImmutableMemTable =
+                      rocksdb_prefix + num_immutable_mem_table;
+const std::string DB::Properties::kMemTableFlushPending =
+                      rocksdb_prefix + mem_table_flush_pending;
+const std::string DB::Properties::kCompactionPending =
+                      rocksdb_prefix + compaction_pending;
+const std::string DB::Properties::kBackgroundErrors =
+                      rocksdb_prefix + background_errors;
+const std::string DB::Properties::kCurSizeActiveMemTable =
+                      rocksdb_prefix + cur_size_active_mem_table;
+const std::string DB::Properties::kCurSizeAllMemTables =
+                      rocksdb_prefix + cur_size_all_mem_tables;
+const std::string DB::Properties::kNumEntriesActiveMemTable =
+                      rocksdb_prefix + num_entries_active_mem_table;
+const std::string DB::Properties::kNumEntriesImmMemTables =
+                      rocksdb_prefix + num_entries_imm_mem_tables;
+const std::string DB::Properties::kNumDeletesActiveMemTable =
+                      rocksdb_prefix + num_deletes_active_mem_table;
+const std::string DB::Properties::kNumDeletesImmMemTables =
+                      rocksdb_prefix + num_deletes_imm_mem_tables;
+const std::string DB::Properties::kEstimateNumKeys =
+                      rocksdb_prefix + estimate_num_keys;
+const std::string DB::Properties::kEstimateTableReadersMem =
+                      rocksdb_prefix + estimate_table_readers_mem;
+const std::string DB::Properties::kIsFileDeletionsEnabled =
+                      rocksdb_prefix + is_file_deletions_enabled;
+const std::string DB::Properties::kNumSnapshots =
+                      rocksdb_prefix + num_snapshots;
+const std::string DB::Properties::kOldestSnapshotTime =
+                      rocksdb_prefix + oldest_snapshot_time;
+const std::string DB::Properties::kNumLiveVersions =
+                      rocksdb_prefix + num_live_versions;
+
 DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
                                bool* need_out_of_mutex) {
   assert(is_int_property != nullptr);
   assert(need_out_of_mutex != nullptr);
   Slice in = property;
-  Slice prefix("rocksdb.");
+  Slice prefix(rocksdb_prefix);
   *need_out_of_mutex = false;
   *is_int_property = false;
   if (!in.starts_with(prefix)) {
@@ -95,55 +167,55 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
   }
   in.remove_prefix(prefix.size());
 
-  if (in.starts_with("num-files-at-level")) {
+  if (in.starts_with(num_files_at_level_prefix)) {
     return kNumFilesAtLevel;
-  } else if (in == "levelstats") {
+  } else if (in == levelstats) {
     return kLevelStats;
-  } else if (in == "stats") {
+  } else if (in == stats) {
     return kStats;
-  } else if (in == "cfstats") {
+  } else if (in == cfstats) {
     return kCFStats;
-  } else if (in == "dbstats") {
+  } else if (in == dbstats) {
     return kDBStats;
-  } else if (in == "sstables") {
+  } else if (in == sstables) {
     return kSsTables;
   }
 
   *is_int_property = true;
-  if (in == "num-immutable-mem-table") {
+  if (in == num_immutable_mem_table) {
     return kNumImmutableMemTable;
-  } else if (in == "mem-table-flush-pending") {
+  } else if (in == mem_table_flush_pending) {
     return kMemtableFlushPending;
-  } else if (in == "compaction-pending") {
+  } else if (in == compaction_pending) {
     return kCompactionPending;
-  } else if (in == "background-errors") {
+  } else if (in == background_errors) {
     return kBackgroundErrors;
-  } else if (in == "cur-size-active-mem-table") {
+  } else if (in == cur_size_active_mem_table) {
     return kCurSizeActiveMemTable;
-  } else if (in == "cur-size-all-mem-tables") {
+  } else if (in == cur_size_all_mem_tables) {
     return kCurSizeAllMemTables;
-  } else if (in == "num-entries-active-mem-table") {
+  } else if (in == num_entries_active_mem_table) {
     return kNumEntriesInMutableMemtable;
-  } else if (in == "num-entries-imm-mem-tables") {
+  } else if (in == num_entries_imm_mem_tables) {
     return kNumEntriesInImmutableMemtable;
-  } else if (in == "num-deletes-active-mem-table") {
+  } else if (in == num_deletes_active_mem_table) {
     return kNumDeletesInMutableMemtable;
-  } else if (in == "num-deletes-imm-mem-tables") {
+  } else if (in == num_deletes_imm_mem_tables) {
     return kNumDeletesInImmutableMemtable;
-  } else if (in == "estimate-num-keys") {
+  } else if (in == estimate_num_keys) {
     return kEstimatedNumKeys;
-  } else if (in == "estimate-table-readers-mem") {
+  } else if (in == estimate_table_readers_mem) {
     *need_out_of_mutex = true;
     return kEstimatedUsageByTableReaders;
-  } else if (in == "is-file-deletions-enabled") {
+  } else if (in == is_file_deletions_enabled) {
     return kIsFileDeletionEnabled;
-  } else if (in == "num-snapshots") {
+  } else if (in == num_snapshots) {
     return kNumSnapshots;
-  } else if (in == "oldest-snapshot-time") {
+  } else if (in == oldest_snapshot_time) {
     return kOldestSnapshotTime;
-  } else if (in == "num-live-versions") {
+  } else if (in == num_live_versions) {
     return kNumLiveVersions;
-  } else if (in == "base-level") {
+  } else if (in == base_level) {
     return kBaseLevel;
   }
   return kUnknown;
@@ -203,10 +275,10 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
       return true;
     }
     case kStats: {
-      if (!GetStringProperty(kCFStats, "rocksdb.cfstats", value)) {
+      if (!GetStringProperty(kCFStats, DB::Properties::kCFStats, value)) {
         return false;
       }
-      if (!GetStringProperty(kDBStats, "rocksdb.dbstats", value)) {
+      if (!GetStringProperty(kDBStats, DB::Properties::kDBStats, value)) {
         return false;
       }
       return true;

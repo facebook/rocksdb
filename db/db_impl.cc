@@ -444,18 +444,20 @@ void DBImpl::MaybeDumpStats() {
     bool tmp1 = false;
     bool tmp2 = false;
     DBPropertyType cf_property_type =
-        GetPropertyType("rocksdb.cfstats", &tmp1, &tmp2);
+        GetPropertyType(DB::Properties::kCFStats, &tmp1, &tmp2);
     DBPropertyType db_property_type =
-        GetPropertyType("rocksdb.dbstats", &tmp1, &tmp2);
+        GetPropertyType(DB::Properties::kDBStats, &tmp1, &tmp2);
     std::string stats;
     {
       InstrumentedMutexLock l(&mutex_);
       for (auto cfd : *versions_->GetColumnFamilySet()) {
         cfd->internal_stats()->GetStringProperty(cf_property_type,
-                                                 "rocksdb.cfstats", &stats);
+                                                 DB::Properties::kCFStats,
+                                                 &stats);
       }
       default_cf_internal_stats_->GetStringProperty(db_property_type,
-                                                    "rocksdb.dbstats", &stats);
+                                                    DB::Properties::kDBStats,
+                                                    &stats);
     }
     Log(InfoLogLevel::INFO_LEVEL,
         db_options_.info_log, "------- DUMPING STATS -------");

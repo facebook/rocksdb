@@ -331,6 +331,32 @@ class DB {
   //      See version_set.h for details. More live versions often mean more SST
   //      files are held from being deleted, by iterators or unfinished
   //      compactions.
+#ifndef ROCKSDB_LITE
+  struct Properties {
+    static const std::string kNumFilesAtLevelPrefix;
+    static const std::string kStats;
+    static const std::string kSSTables;
+    static const std::string kCFStats;
+    static const std::string kDBStats;
+    static const std::string kNumImmutableMemTable;
+    static const std::string kMemTableFlushPending;
+    static const std::string kCompactionPending;
+    static const std::string kBackgroundErrors;
+    static const std::string kCurSizeActiveMemTable;
+    static const std::string kCurSizeAllMemTables;
+    static const std::string kNumEntriesActiveMemTable;
+    static const std::string kNumEntriesImmMemTables;
+    static const std::string kNumDeletesActiveMemTable;
+    static const std::string kNumDeletesImmMemTables;
+    static const std::string kEstimateNumKeys;
+    static const std::string kEstimateTableReadersMem;
+    static const std::string kIsFileDeletionsEnabled;
+    static const std::string kNumSnapshots;
+    static const std::string kOldestSnapshotTime;
+    static const std::string kNumLiveVersions;
+  };
+#endif /* ROCKSDB_LITE */
+
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
