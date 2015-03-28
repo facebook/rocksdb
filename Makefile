@@ -163,10 +163,13 @@ gen_build_version =							\
 # as a regular source file as part of the compilation process.
 # One can run "strings executable_filename | grep _build_" to find
 # the version of the source that we used to build the executable file.
-util/build_version.cc:
-	$(AM_V_GEN)$(gen_build_version) > $@.tmp
-	$(AM_V_at)if test -f $@; then \
-	  cmp -s $@.tmp $@ && : || mv -f $@.tmp $@; else mv -f $@.tmp $@; fi
+FORCE:
+util/build_version.cc: FORCE
+	$(AM_V_GEN)rm -f $@-t
+	$(AM_V_at)$(gen_build_version) > $@-t
+	$(AM_V_at)if test -f $@; then					\
+	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
+	else mv -f $@-t $@; fi
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
@@ -396,6 +399,7 @@ unity: unity.o
 
 clean:
 	rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) make_config.mk unity.cc
+	rm -f util/build_version.cc
 	rm -rf ios-x86 ios-arm scan_build_report
 	find . -name "*.[oda]" -exec rm {} \;
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
