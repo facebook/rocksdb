@@ -11458,7 +11458,9 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   // we should start to see put delay (1000 us) and timeout as a result
   // (L0 score is not regulated by this limit).
   ASSERT_OK(dbfull()->SetOptions({
-    {"hard_rate_limit", "2"}
+    {"hard_rate_limit", "2"},
+    {"level0_slowdown_writes_trigger", "18"},
+    {"level0_stop_writes_trigger", "20"}
   }));
   ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024)));
   dbfull()->TEST_FlushMemTable(true);
@@ -11477,7 +11479,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   // Lift the limit and no timeout
   ASSERT_OK(dbfull()->SetOptions({
-    {"hard_rate_limit", "100"}
+    {"hard_rate_limit", "200"},
   }));
   dbfull()->TEST_FlushMemTable(true);
   sleep_count.store(0);
