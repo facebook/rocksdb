@@ -77,7 +77,7 @@ const_params="
   \
   --statistics=1 \
   --stats_per_interval=1 \
-  --stats_interval=$((1 * M)) \
+  --stats_interval_seconds=60 \
   --histogram=1 \
   \
   --memtablerep=skip_list \

@@ -476,6 +476,9 @@ static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
 DEFINE_int64(stats_interval, 0, "Stats are reported every N operations when "
              "this is greater than zero. When 0 the interval grows over time.");
 
+DEFINE_int64(stats_interval_seconds, 0, "Report stats every N seconds. This "
+             "overrides stats_interval when both are > 0.");
+
 DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
              " this is greater than 0.");
 
@@ -992,36 +995,49 @@ class Stats {
         fprintf(stderr, "... finished %" PRIu64 " ops%30s\r", done_, "");
       } else {
         double now = FLAGS_env->NowMicros();
-        fprintf(stderr,
-                "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
-                "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
-                FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
-                id_,
-                done_ - last_report_done_, done_,
-                (done_ - last_report_done_) /
-                ((now - last_report_finish_) / 1000000.0),
-                done_ / ((now - start_) / 1000000.0),
-                (now - last_report_finish_) / 1000000.0,
-                (now - start_) / 1000000.0);
+        int64_t usecs_since_last = now - last_report_finish_;
 
-        if (FLAGS_stats_per_interval) {
-          std::string stats;
+        // Determine whether to print status where interval is either
+        // each N operations or each N seconds.
 
-          if (db_with_cfh && db_with_cfh->num_created.load()) {
-            for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
-              if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
-                                  &stats))
-                fprintf(stderr, "%s\n", stats.c_str());
+        if (FLAGS_stats_interval_seconds &&
+            usecs_since_last < (FLAGS_stats_interval_seconds * 1000000)) {
+          // Don't check again for this many operations
+          next_report_ += FLAGS_stats_interval;
+
+        } else {
+
+          fprintf(stderr,
+                  "%s ... thread %d: (%" PRIu64 ",%" PRIu64 ") ops and "
+                  "(%.1f,%.1f) ops/second in (%.6f,%.6f) seconds\n",
+                  FLAGS_env->TimeToString((uint64_t) now/1000000).c_str(),
+                  id_,
+                  done_ - last_report_done_, done_,
+                  (done_ - last_report_done_) /
+                  (usecs_since_last / 1000000.0),
+                  done_ / ((now - start_) / 1000000.0),
+                  (now - last_report_finish_) / 1000000.0,
+                  (now - start_) / 1000000.0);
+
+          if (FLAGS_stats_per_interval) {
+            std::string stats;
+
+            if (db_with_cfh && db_with_cfh->num_created.load()) {
+              for (size_t i = 0; i < db_with_cfh->num_created.load(); ++i) {
+                if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
+                                    &stats))
+                  fprintf(stderr, "%s\n", stats.c_str());
+              }
+
+            } else if (db && db->GetProperty("rocksdb.stats", &stats)) {
+              fprintf(stderr, "%s\n", stats.c_str());
             }
-
-          } else if (db && db->GetProperty("rocksdb.stats", &stats)) {
-            fprintf(stderr, "%s\n", stats.c_str());
           }
-        }
 
-        next_report_ += FLAGS_stats_interval;
-        last_report_finish_ = now;
-        last_report_done_ = done_;
+          next_report_ += FLAGS_stats_interval;
+          last_report_finish_ = now;
+          last_report_done_ = done_;
+        }
       }
       if (id_ == 0 && FLAGS_thread_status_per_interval) {
         PrintThreadStatus();
@@ -3387,6 +3403,12 @@ int main(int argc, char** argv) {
     rocksdb::Env::Default()->GetTestDirectory(&default_db_path);
     default_db_path += "/dbbench";
     FLAGS_db = default_db_path;
+  }
+
+  if (FLAGS_stats_interval_seconds > 0) {
+    // When both are set then FLAGS_stats_interval determines the frequency
+    // at which the timer is checked for FLAGS_stats_interval_seconds
+    FLAGS_stats_interval = 1000;
   }
 
   rocksdb::Benchmark benchmark;
