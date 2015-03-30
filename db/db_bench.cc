@@ -42,6 +42,7 @@ int main() {
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/perf_context.h"
+#include "rocksdb/utilities/flashcache.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/crc32c.h"
@@ -530,6 +531,11 @@ DEFINE_string(compaction_fadvice, "NORMAL",
               "Access pattern advice when a file is compacted");
 static auto FLAGS_compaction_fadvice_e =
   rocksdb::Options().access_hint_on_compaction_start;
+
+DEFINE_bool(disable_flashcache_for_background_threads, false,
+            "Disable flashcache for background threads");
+
+DEFINE_string(flashcache_dev, "", "Path to flashcache device");
 
 DEFINE_bool(use_tailing_iterator, false,
             "Use tailing iterator to access a series of keys instead of get");
@@ -1680,6 +1686,8 @@ class Benchmark {
   }
 
  private:
+  std::unique_ptr<Env> flashcache_aware_env_;
+
   struct ThreadArg {
     Benchmark* bm;
     SharedState* shared;
@@ -1992,7 +2000,18 @@ class Benchmark {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
     }
-    options.env = FLAGS_env;
+    if (FLAGS_disable_flashcache_for_background_threads) {
+      flashcache_aware_env_ =
+          std::move(NewFlashcacheAwareEnv(FLAGS_env, FLAGS_flashcache_dev));
+      if (flashcache_aware_env_.get() == nullptr) {
+        fprintf(stderr, "Failed to open flashcahce device at %s\n",
+                FLAGS_flashcache_dev.c_str());
+        std::abort();
+      }
+      options.env = flashcache_aware_env_.get();
+    } else {
+      options.env = FLAGS_env;
+    }
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
     options.wal_dir = FLAGS_wal_dir;

@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## Unreleased
+
+### New Features
+* Added an experimental API for handling flashcache devices (blacklists background threads from caching their reads) -- NewFlashcacheAwareEnv
+
 ## 3.10.0 (3/24/2015)
 ### New Features
 * GetThreadStatus() is now able to report detailed thread status, including:
