@@ -243,9 +243,11 @@ class DBImpl : public DB {
   // pass the pointer that you got from TEST_BeginWrite()
   void TEST_EndWrite(void* w);
 
-  uint64_t TEST_max_total_in_memory_state() {
+  uint64_t TEST_MaxTotalInMemoryState() const {
     return max_total_in_memory_state_;
   }
+
+  size_t TEST_LogsToFreeSize();
 
 #endif  // ROCKSDB_LITE
 
@@ -461,6 +463,9 @@ class DBImpl : public DB {
   // If true, we have only one (default) column family. We use this to optimize
   // some code-paths
   bool single_column_family_mode_;
+  // If this is non-empty, we need to delete these log files in background
+  // threads. Protected by db mutex.
+  autovector<log::Writer*> logs_to_free_;
 
   bool is_snapshot_supported_;
 

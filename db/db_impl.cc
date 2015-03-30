@@ -91,15 +91,11 @@ void DumpRocksDBBuildVersion(Logger * log);
 
 struct DBImpl::WriteContext {
   autovector<SuperVersion*> superversions_to_free_;
-  autovector<log::Writer*> logs_to_free_;
   bool schedule_bg_work_ = false;
 
   ~WriteContext() {
     for (auto& sv : superversions_to_free_) {
       delete sv;
-    }
-    for (auto& log : logs_to_free_) {
-      delete log;
     }
   }
 };
@@ -353,6 +349,10 @@ DBImpl::~DBImpl() {
       PurgeObsoleteFiles(job_context);
     }
     job_context.Clean();
+  }
+
+  for (auto l : logs_to_free_) {
+    delete l;
   }
 
   // versions need to be destroyed before table_cache since it can hold
@@ -1994,6 +1994,10 @@ void DBImpl::BackgroundCallFlush() {
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
+    // We're just cleaning up for DB::Write()
+    job_context.logs_to_free = logs_to_free_;
+    logs_to_free_.clear();
+
     // If flush failed, we want to delete all temporary files that we might have
     // created. Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
@@ -2059,6 +2063,10 @@ void DBImpl::BackgroundCallCompaction() {
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
+
+    // We're just cleaning up for DB::Write()
+    job_context.logs_to_free = logs_to_free_;
+    logs_to_free_.clear();
 
     // If compaction failed, we want to delete all temporary files that we might
     // have created (they might not be all recorded in job_context in case of a
@@ -3394,7 +3402,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   if (creating_new_log) {
     logfile_number_ = new_log_number;
     assert(new_log != nullptr);
-    context->logs_to_free_.push_back(log_.release());
+    logs_to_free_.push_back(log_.release());
     log_.reset(new_log);
     log_empty_ = true;
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));

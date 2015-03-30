@@ -11952,6 +11952,21 @@ TEST_F(DBTest, FilterCompactionTimeTest) {
   delete itr;
 }
 
+TEST_F(DBTest, TestLogCleanup) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 64 * 1024;  // very small
+  // only two memtables allowed ==> only two log files
+  options.max_write_buffer_number = 2;
+  Reopen(options);
+
+  for (int i = 0; i < 100000; ++i) {
+    Put(Key(i), "val");
+    // only 2 memtables will be alive, so logs_to_free needs to always be below
+    // 2
+    ASSERT_LT(dbfull()->TEST_LogsToFreeSize(), static_cast<size_t>(3));
+  }
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

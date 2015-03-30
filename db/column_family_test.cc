@@ -548,9 +548,9 @@ TEST_F(ColumnFamilyTest, FlushTest) {
 
     for (int i = 0; i < 3; ++i) {
       uint64_t max_total_in_memory_state =
-          dbfull()->TEST_max_total_in_memory_state();
+          dbfull()->TEST_MaxTotalInMemoryState();
       Flush(i);
-      ASSERT_EQ(dbfull()->TEST_max_total_in_memory_state(),
+      ASSERT_EQ(dbfull()->TEST_MaxTotalInMemoryState(),
                 max_total_in_memory_state);
     }
     ASSERT_OK(Put(1, "foofoo", "bar"));
