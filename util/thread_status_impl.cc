@@ -40,7 +40,7 @@ const std::string ThreadStatus::MicrosToString(uint64_t micros) {
   }
   const int kBufferLen = 100;
   char buffer[kBufferLen];
-  AppendHumanMicros(micros, buffer, kBufferLen);
+  AppendHumanMicros(micros, buffer, kBufferLen, false);
   return std::string(buffer);
 }
 

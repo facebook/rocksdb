@@ -71,6 +71,7 @@ DEFINE_string(benchmarks,
               "newiteratorwhilewriting,"
               "seekrandom,"
               "seekrandomwhilewriting,"
+              "seekrandomwhilemerging,"
               "readseq,"
               "readreverse,"
               "compact,"
@@ -130,8 +131,12 @@ DEFINE_string(benchmarks,
               "\treadrandommergerandom -- perform N random read-or-merge "
               "operations. Must be used with merge_operator\n"
               "\tnewiterator   -- repeated iterator creation\n"
-              "\tseekrandom    -- N random seeks\n"
-              "\tseekrandom    -- 1 writer, N threads doing random seeks\n"
+              "\tseekrandom    -- N random seeks, call Next seek_nexts times "
+              "per seek\n"
+              "\tseekrandomwhilewriting -- seekrandom and 1 thread doing "
+              "overwrite\n"
+              "\tseekrandomwhilemerging -- seekrandom and 1 thread doing "
+              "merge\n"
               "\tcrc32c        -- repeated crc32c of 4K of data\n"
               "\txxhash        -- repeated xxHash of 4K of data\n"
               "\tacquireload   -- load N*1000 times\n"
@@ -182,7 +187,8 @@ DEFINE_int32(value_size, 100, "Size of each value");
 
 DEFINE_int32(seek_nexts, 0,
              "How many times to call Next() after Seek() in "
-             "fillseekseq and seekrandom");
+             "fillseekseq, seekrandom, seekrandomwhilewriting and "
+             "seekrandomwhilemerging");
 
 DEFINE_bool(reverse_iterator, false,
             "When true use Prev rather than Next for iterators that do "
@@ -1590,6 +1596,9 @@ class Benchmark {
       } else if (name == Slice("seekrandomwhilewriting")) {
         num_threads++;  // Add extra thread for writing
         method = &Benchmark::SeekRandomWhileWriting;
+      } else if (name == Slice("seekrandomwhilemerging")) {
+        num_threads++;  // Add extra thread for merging
+        method = &Benchmark::SeekRandomWhileMerging;
       } else if (name == Slice("readrandomsmall")) {
         reads_ /= 1000;
         method = &Benchmark::ReadRandom;
@@ -2535,6 +2544,7 @@ class Benchmark {
   void ReadRandom(ThreadState* thread) {
     int64_t read = 0;
     int64_t found = 0;
+    int64_t bytes = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -2558,6 +2568,7 @@ class Benchmark {
       }
       if (s.ok()) {
         found++;
+        bytes += key.size() + value.size();
       } else if (!s.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
         abort();
@@ -2569,6 +2580,7 @@ class Benchmark {
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
              found, read);
 
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
 
     if (FLAGS_perf_level > 0) {
@@ -2640,6 +2652,7 @@ class Benchmark {
   void SeekRandom(ThreadState* thread) {
     int64_t read = 0;
     int64_t found = 0;
+    int64_t bytes = 0;
     ReadOptions options(FLAGS_verify_checksum, true);
     options.tailing = FLAGS_use_tailing_iterator;
 
@@ -2696,6 +2709,7 @@ class Benchmark {
         Slice value = iter_to_use->value();
         memcpy(value_buffer, value.data(),
                std::min(value.size(), sizeof(value_buffer)));
+        bytes += iter_to_use->key().size() + iter_to_use->value().size();
 
         if (!FLAGS_reverse_iterator) {
           iter_to_use->Next();
@@ -2715,6 +2729,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg), "(%" PRIu64 " of %" PRIu64 " found)\n",
              found, read);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
     if (FLAGS_perf_level > 0) {
       thread->stats.AddMessage(perf_context.ToString());
@@ -2726,6 +2741,14 @@ class Benchmark {
       SeekRandom(thread);
     } else {
       BGWriter(thread, kPut);
+    }
+  }
+
+  void SeekRandomWhileMerging(ThreadState* thread) {
+    if (thread->tid > 0) {
+      SeekRandom(thread);
+    } else {
+      BGWriter(thread, kMerge);
     }
   }
 
@@ -2784,6 +2807,7 @@ class Benchmark {
     double last = FLAGS_env->NowMicros();
     int writes_per_second_by_10 = 0;
     int num_writes = 0;
+    int64_t bytes = 0;
 
     // --writes_per_second rate limit is enforced per 100 milliseconds
     // intervals to avoid a burst of writes at the start of each second.
@@ -2820,6 +2844,7 @@ class Benchmark {
         fprintf(stderr, "put or merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
+      bytes += key.size() + value_size_;
       thread->stats.FinishedOps(&db_, db_.db, 1);
 
       ++num_writes;
@@ -2836,6 +2861,7 @@ class Benchmark {
         }
       }
     }
+    thread->stats.AddBytes(bytes);
   }
 
   // Given a key K and value V, this puts (K+"0", V), (K+"1", V), (K+"2", V)
@@ -3054,6 +3080,7 @@ class Benchmark {
     RandomGenerator gen;
     std::string value;
     int64_t found = 0;
+    int64_t bytes = 0;
     Duration duration(FLAGS_duration, readwrites_);
 
     std::unique_ptr<const char[]> key_guard;
@@ -3066,6 +3093,7 @@ class Benchmark {
       auto status = db->Get(options, key, &value);
       if (status.ok()) {
         ++found;
+        bytes += key.size() + value.size();
       } else if (!status.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n",
                 status.ToString().c_str());
@@ -3077,11 +3105,13 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
+      bytes += key.size() + value_size_;
       thread->stats.FinishedOps(nullptr, db, 1);
     }
     char msg[100];
     snprintf(msg, sizeof(msg),
              "( updates:%" PRIu64 " found:%" PRIu64 ")", readwrites_, found);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
   }
 
@@ -3093,6 +3123,7 @@ class Benchmark {
     RandomGenerator gen;
     std::string value;
     int64_t found = 0;
+    int64_t bytes = 0;
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -3105,6 +3136,7 @@ class Benchmark {
       auto status = db->Get(options, key, &value);
       if (status.ok()) {
         ++found;
+        bytes += key.size() + value.size();
       } else if (!status.IsNotFound()) {
         fprintf(stderr, "Get returned an error: %s\n",
                 status.ToString().c_str());
@@ -3128,12 +3160,14 @@ class Benchmark {
         fprintf(stderr, "put error: %s\n", s.ToString().c_str());
         exit(1);
       }
+      bytes += key.size() + value.size();
       thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     char msg[100];
     snprintf(msg, sizeof(msg), "( updates:%" PRIu64 " found:%" PRIu64 ")",
             readwrites_, found);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
   }
 
@@ -3149,7 +3183,7 @@ class Benchmark {
   // FLAGS_merge_keys.
   void MergeRandom(ThreadState* thread) {
     RandomGenerator gen;
-
+    int64_t bytes = 0;
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
     // The number of iterations is the larger of read_ or write_
@@ -3164,12 +3198,14 @@ class Benchmark {
         fprintf(stderr, "merge error: %s\n", s.ToString().c_str());
         exit(1);
       }
+      bytes += key.size() + value_size_;
       thread->stats.FinishedOps(nullptr, db, 1);
     }
 
     // Print some statistics
     char msg[100];
     snprintf(msg, sizeof(msg), "( updates:%" PRIu64 ")", readwrites_);
+    thread->stats.AddBytes(bytes);
     thread->stats.AddMessage(msg);
   }
 

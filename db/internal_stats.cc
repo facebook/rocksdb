@@ -13,6 +13,7 @@
 #endif
 
 #include <inttypes.h>
+#include <algorithm>
 #include <vector>
 #include "db/column_family.h"
 
@@ -408,22 +409,31 @@ void InternalStats::DumpDBStats(std::string* value) {
   // writes/batches is the average group commit size.
   //
   // The format is the same for interval stats.
-  AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen);
   snprintf(buf, sizeof(buf),
-           "Cumulative writes: %" PRIu64 " writes, %" PRIu64 " keys, %" PRIu64
-           " batches, %.1f writes per batch, %.2f GB user ingest, "
-           "stall time: %s\n",
-           write_other + write_self, num_keys_written, write_self,
+           "Cumulative writes: %s writes, %s keys, %s batches, "
+           "%.1f writes per batch, ingest: %.2f GB, %.2f MB/s\n",
+           NumberToHumanString(write_other + write_self).c_str(),
+           NumberToHumanString(num_keys_written).c_str(),
+           NumberToHumanString(write_self).c_str(),
            (write_other + write_self) / static_cast<double>(write_self + 1),
-           user_bytes_written / kGB, human_micros);
+           user_bytes_written / kGB, user_bytes_written / kMB / seconds_up);
   value->append(buf);
   // WAL
   snprintf(buf, sizeof(buf),
-           "Cumulative WAL: %" PRIu64 " writes, %" PRIu64 " syncs, "
-           "%.2f writes per sync, %.2f GB written\n",
-           write_with_wal, wal_synced,
+           "Cumulative WAL: %s writes, %s syncs, "
+           "%.2f writes per sync, written: %.2f GB, %.2f MB/s\n",
+           NumberToHumanString(write_with_wal).c_str(),
+           NumberToHumanString(wal_synced).c_str(),
            write_with_wal / static_cast<double>(wal_synced + 1),
-           wal_bytes / kGB);
+           wal_bytes / kGB, wal_bytes / kMB / seconds_up);
+  value->append(buf);
+  // Stall
+  AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen, true);
+  snprintf(buf, sizeof(buf),
+           "Cumulative stall: %s, %.1f percent\n",
+           human_micros,
+           // 10000 = divide by 1M to get secs, then multiply by 100 for pct
+           write_stall_micros / 10000.0 / std::max(seconds_up, 0.001));
   value->append(buf);
 
   // Interval
@@ -431,19 +441,18 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_write_self = write_self - db_stats_snapshot_.write_self;
   uint64_t interval_num_keys_written =
       num_keys_written - db_stats_snapshot_.num_keys_written;
-  AppendHumanMicros(
-      write_stall_micros - db_stats_snapshot_.write_stall_micros,
-      human_micros, kHumanMicrosLen);
   snprintf(buf, sizeof(buf),
-           "Interval writes: %" PRIu64 " writes, %" PRIu64 " keys, %" PRIu64
-           " batches, %.1f writes per batch, %.1f MB user ingest, "
-           "stall time: %s\n",
-           interval_write_other + interval_write_self,
-           interval_num_keys_written, interval_write_self,
+           "Interval writes: %s writes, %s keys, %s batches, "
+           "%.1f writes per batch, ingest: %.2f MB, %.2f MB/s\n",
+           NumberToHumanString(
+               interval_write_other + interval_write_self).c_str(),
+           NumberToHumanString(interval_num_keys_written).c_str(),
+           NumberToHumanString(interval_write_self).c_str(),
            static_cast<double>(interval_write_other + interval_write_self) /
                (interval_write_self + 1),
            (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB,
-           human_micros);
+           (user_bytes_written - db_stats_snapshot_.ingest_bytes) / kMB /
+               std::max(interval_seconds_up, 0.001)),
   value->append(buf);
 
   uint64_t interval_write_with_wal =
@@ -452,13 +461,26 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_wal_bytes = wal_bytes - db_stats_snapshot_.wal_bytes;
 
   snprintf(buf, sizeof(buf),
-           "Interval WAL: %" PRIu64 " writes, %" PRIu64 " syncs, "
-           "%.2f writes per sync, %.2f MB written\n",
-           interval_write_with_wal,
-           interval_wal_synced,
+           "Interval WAL: %s writes, %s syncs, "
+           "%.2f writes per sync, written: %.2f MB, %.2f MB/s\n",
+           NumberToHumanString(interval_write_with_wal).c_str(),
+           NumberToHumanString(interval_wal_synced).c_str(),
            interval_write_with_wal /
               static_cast<double>(interval_wal_synced + 1),
-           interval_wal_bytes / kGB);
+           interval_wal_bytes / kGB,
+           interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001));
+  value->append(buf);
+
+  // Stall
+  AppendHumanMicros(
+      write_stall_micros - db_stats_snapshot_.write_stall_micros,
+      human_micros, kHumanMicrosLen, true);
+  snprintf(buf, sizeof(buf),
+           "Interval stall: %s, %.1f percent\n",
+           human_micros,
+           // 10000 = divide by 1M to get secs, then multiply by 100 for pct
+           (write_stall_micros - db_stats_snapshot_.write_stall_micros) /
+               10000.0 / std::max(interval_seconds_up, 0.001));
   value->append(buf);
 
   db_stats_snapshot_.seconds_up = seconds_up;
@@ -557,7 +579,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   value->append(buf);
 
   snprintf(buf, sizeof(buf),
-           "Flush(GB): accumulative %.3f, interval %.3f\n",
+           "Flush(GB): cumulative %.3f, interval %.3f\n",
            curr_ingest / kGB, interval_ingest / kGB);
   value->append(buf);
 
