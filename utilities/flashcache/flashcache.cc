@@ -51,12 +51,12 @@ class FlashcacheAwareEnv : public EnvWrapper {
   }
 
   static int BlacklistCurrentThread(int cachedev_fd) {
-    pid_t pid = syscall(SYS_gettid);
+    pid_t pid = static_cast<pid_t>(syscall(SYS_gettid));
     return ioctl(cachedev_fd, FLASHCACHEADDNCPID, &pid);
   }
 
   static int WhitelistCurrentThread(int cachedev_fd) {
-    pid_t pid = syscall(SYS_gettid);
+    pid_t pid = static_cast<pid_t>(syscall(SYS_gettid));
     return ioctl(cachedev_fd, FLASHCACHEDELNCPID, &pid);
   }
 
