@@ -216,7 +216,6 @@ TEST_BENCH_SOURCES =                                                    \
   util/options_test.cc                                                  \
   util/event_logger_test.cc                                             \
   util/rate_limiter_test.cc                                             \
-  util/signal_test.cc                                                   \
   util/slice_transform_test.cc                                          \
   util/sst_dump_test.cc                                                 \
   util/testharness.cc                                                   \

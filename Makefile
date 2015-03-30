@@ -252,19 +252,19 @@ TESTS = \
 	compaction_job_test \
 	thread_list_test \
 	sst_dump_test \
-	compact_files_test
+	compact_files_test \
+	perf_context_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
 TOOLS = \
-        sst_dump \
+	sst_dump \
 	db_sanity_test \
-        db_stress \
-        ldb \
-	db_repl_stress \
-	options_test \
+	db_stress \
+	ldb \
+	db_repl_stress
 
-PROGRAMS = db_bench signal_test table_reader_bench log_and_apply_bench cache_bench perf_context_test memtablerep_bench $(TOOLS)
+BENCHMARKS = db_bench table_reader_bench log_and_apply_bench cache_bench memtablerep_bench
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -316,18 +316,18 @@ endif  # PLATFORM_SHARED_EXT
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install uninstall analyze
 
-all: $(LIBRARY) $(PROGRAMS) $(TESTS)
+all: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
-dbg: $(LIBRARY) $(PROGRAMS) $(TESTS)
+dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(PROGRAMS) -j32
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench -j32
 
 coverage:
 	$(MAKE) clean
@@ -336,7 +336,7 @@ coverage:
 	# Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
-check: $(TESTS) $(PROGRAMS)
+check: all
 	for t in $(TESTS); do echo "***** Running $$t"; ./$$t || exit 1; done
 	python tools/ldb_test.py
 
@@ -365,7 +365,7 @@ asan_crash_test:
 	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
 	$(MAKE) clean
 
-valgrind_check: all $(PROGRAMS) $(TESTS)
+valgrind_check: $(TESTS)
 	mkdir -p $(VALGRIND_DIR)
 	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
 	echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
@@ -398,7 +398,7 @@ unity: unity.o
 	$(AM_LINK)
 
 clean:
-	rm -f $(PROGRAMS) $(TESTS) $(LIBRARY) $(SHARED) make_config.mk unity.cc
+	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED) make_config.mk unity.cc
 	rm -f util/build_version.cc
 	rm -rf ios-x86 ios-arm scan_build_report
 	find . -name "*.[oda]" -exec rm {} \;
@@ -441,9 +441,6 @@ db_sanity_test: tools/db_sanity_test.o $(LIBOBJECTS) $(TESTUTIL)
 	$(AM_LINK)
 
 db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
-
-signal_test: util/signal_test.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 arena_test: util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
