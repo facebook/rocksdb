@@ -189,6 +189,14 @@ class VersionStorageInfo {
     return num_non_empty_levels_;
   }
 
+  // REQUIRES: This version has been finalized.
+  // (CalculateBaseBytes() is called)
+  // This may or may not return number of level files. It is to keep backward
+  // compatible behavior in universal compaction.
+  int l0_delay_trigger_count() const { return l0_delay_trigger_count_; }
+
+  void set_l0_delay_trigger_count(int v) { l0_delay_trigger_count_ = v; }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   int NumLevelFiles(int level) const {
     assert(finalized_);
@@ -312,7 +320,7 @@ class VersionStorageInfo {
   std::vector<FileMetaData*>* files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
-  // be empty.
+  // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
 
   // A list for the same set of files that are stored in files_,
@@ -341,6 +349,8 @@ class VersionStorageInfo {
   std::vector<int> compaction_level_;
   double max_compaction_score_ = 0.0;   // max score in l1 to ln-1
   int max_compaction_score_level_ = 0;  // level on which max score occurs
+  int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
+                                    // for number of L0 files.
 
   // the following are the sampled temporary stats.
   // the current accumulated size of sampled files.

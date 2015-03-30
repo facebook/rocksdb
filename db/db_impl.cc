@@ -1284,6 +1284,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
         (level == max_level_with_files && level > 0)) {
       s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
     } else {
+      // TODO(sdong) Skip empty levels if possible.
       s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
                               end);
     }
@@ -2370,7 +2371,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
       // We only compacted part of the requested range.  Update *m
       // to the range that is left to be compacted.
       // Universal and FIFO compactions should always compact the whole range
-      assert(m->cfd->ioptions()->compaction_style != kCompactionStyleUniversal);
+      assert(m->cfd->ioptions()->compaction_style !=
+                 kCompactionStyleUniversal ||
+             m->cfd->ioptions()->num_levels > 1);
       assert(m->cfd->ioptions()->compaction_style != kCompactionStyleFIFO);
       m->tmp_storage = *manual_end;
       m->begin = &m->tmp_storage;
@@ -3303,6 +3306,7 @@ Status DBImpl::DelayWrite(uint64_t expiration_time) {
       mutex_.Unlock();
       delayed = true;
       // hopefully we don't have to sleep more than 2 billion microseconds
+      TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
       env_->SleepForMicroseconds(static_cast<int>(delay));
       mutex_.Lock();
     }
@@ -3310,6 +3314,7 @@ Status DBImpl::DelayWrite(uint64_t expiration_time) {
     while (bg_error_.ok() && write_controller_.IsStopped()) {
       delayed = true;
       if (has_timeout) {
+        TEST_SYNC_POINT("DBImpl::DelayWrite:TimedWait");
         bg_cv_.TimedWait(expiration_time);
         if (env_->NowMicros() > expiration_time) {
           timed_out = true;
@@ -3930,15 +3935,14 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
   if (s.ok()) {
     for (auto cfd : *impl->versions_->GetColumnFamilySet()) {
-      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+      if (cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
         auto* vstorage = cfd->current()->storage_info();
         for (int i = 1; i < vstorage->num_levels(); ++i) {
           int num_files = vstorage->NumLevelFiles(i);
           if (num_files > 0) {
             s = Status::InvalidArgument(
                 "Not all files are at level 0. Cannot "
-                "open with universal or FIFO compaction style.");
+                "open with FIFO compaction style.");
             break;
           }
         }

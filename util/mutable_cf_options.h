@@ -84,6 +84,13 @@ struct MutableCFOptions {
   // file in level->level+1 compaction.
   uint64_t MaxGrandParentOverlapBytes(int level) const;
   uint64_t ExpandedCompactionByteSizeLimit(int level) const;
+  int MaxBytesMultiplerAdditional(int level) const {
+    if (level >=
+        static_cast<int>(max_bytes_for_level_multiplier_additional.size())) {
+      return 1;
+    }
+    return max_bytes_for_level_multiplier_additional[level];
+  }
 
   void Dump(Logger* log) const;
 

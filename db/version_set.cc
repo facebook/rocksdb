@@ -726,11 +726,12 @@ VersionStorageInfo::VersionStorageInfo(
       file_indexer_(user_comparator),
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
-      base_level_(1),
+      base_level_(num_levels_ == 1 ? -1 : 1),
       files_by_size_(num_levels_),
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
+      l0_delay_trigger_count_(0),
       accumulated_file_size_(0),
       accumulated_raw_key_size_(0),
       accumulated_raw_value_size_(0),
@@ -991,25 +992,37 @@ void VersionStorageInfo::ComputeCompactionScore(
       // file size is small (perhaps because of a small write-buffer
       // setting, or very high compression ratios, or lots of
       // overwrites/deletions).
-      int numfiles = 0;
+      int num_sorted_runs = 0;
       uint64_t total_size = 0;
       for (unsigned int i = 0; i < files_[level].size(); i++) {
         if (!files_[level][i]->being_compacted) {
           total_size += files_[level][i]->compensated_file_size;
-          numfiles++;
+          num_sorted_runs++;
         }
       }
+      if (compaction_style_ == kCompactionStyleUniversal) {
+        // For universal compaction, we use level0 score to indicate
+        // compaction score for the whole DB. Adding other levels as if
+        // they are L0 files.
+        for (int i = 1; i < num_levels(); i++) {
+          if (!files_[i].empty() && !files_[i][0]->being_compacted) {
+            num_sorted_runs++;
+          }
+        }
+      }
+
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 compaction_options_fifo.max_table_files_size;
-      } else if (numfiles >= mutable_cf_options.level0_stop_writes_trigger) {
+      } else if (num_sorted_runs >=
+                 mutable_cf_options.level0_stop_writes_trigger) {
         // If we are slowing down writes, then we better compact that first
         score = 1000000;
-      } else if (numfiles >=
-          mutable_cf_options.level0_slowdown_writes_trigger) {
+      } else if (num_sorted_runs >=
+                 mutable_cf_options.level0_slowdown_writes_trigger) {
         score = 10000;
       } else {
-        score = static_cast<double>(numfiles) /
+        score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
       }
     } else {
@@ -1090,7 +1103,12 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 #ifndef NDEBUG
-  assert(base_level_ >= 1 && (num_levels() <= 1 || base_level_ < num_levels()));
+  if (compaction_style_ != kCompactionStyleLevel) {
+    // Not level based compaction.
+    return;
+  }
+  assert(base_level_ < 0 || num_levels() == 1 ||
+         (base_level_ >= 1 && base_level_ < num_levels()));
   // Verify all levels newer than base_level are empty except L0
   for (int level = 1; level < base_level(); level++) {
     assert(NumLevelBytes(level) == 0);
@@ -1442,14 +1460,14 @@ uint64_t VersionStorageInfo::NumLevelBytes(int level) const {
 const char* VersionStorageInfo::LevelSummary(
     LevelSummaryStorage* scratch) const {
   int len = 0;
-  if (num_levels() > 1) {
+  if (compaction_style_ == kCompactionStyleLevel && num_levels() > 1) {
     assert(base_level_ < static_cast<int>(level_max_bytes_.size()));
     len = snprintf(scratch->buffer, sizeof(scratch->buffer),
-                   "base level %d max bytes base %" PRIu64, base_level_,
+                   "base level %d max bytes base %" PRIu64 " ", base_level_,
                    level_max_bytes_[base_level_]);
   }
   len +=
-      snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, " files[");
+      snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "files[");
   for (int i = 0; i < num_levels(); i++) {
     int sz = sizeof(scratch->buffer) - len;
     int ret = snprintf(scratch->buffer + len, sz, "%d ", int(files_[i].size()));
@@ -1512,9 +1530,24 @@ uint64_t VersionStorageInfo::MaxBytesForLevel(int level) const {
 
 void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
                                             const MutableCFOptions& options) {
+  // Special logic to set number of sorted runs.
+  // It is to match the previous behavior when all files are in L0.
+  int num_l0_count = static_cast<int>(files_[0].size());
+  if (compaction_style_ == kCompactionStyleUniversal) {
+    // For universal compaction, we use level0 score to indicate
+    // compaction score for the whole DB. Adding other levels as if
+    // they are L0 files.
+    for (int i = 1; i < num_levels(); i++) {
+      if (!files_[i].empty()) {
+        num_l0_count++;
+      }
+    }
+  }
+  set_l0_delay_trigger_count(num_l0_count);
+
   level_max_bytes_.resize(ioptions.num_levels);
   if (!ioptions.level_compaction_dynamic_level_bytes) {
-    base_level_ = 1;
+    base_level_ = (ioptions.compaction_style == kCompactionStyleLevel) ? 1 : -1;
 
     // Calculate for static bytes base case
     for (int i = 0; i < ioptions.num_levels; ++i) {
@@ -1524,7 +1557,7 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         level_max_bytes_[i] = MultiplyCheckOverflow(
             MultiplyCheckOverflow(level_max_bytes_[i - 1],
                                   options.max_bytes_for_level_multiplier),
-            options.max_bytes_for_level_multiplier_additional[i - 1]);
+            options.MaxBytesMultiplerAdditional(i - 1));
       } else {
         level_max_bytes_[i] = options.max_bytes_for_level_base;
       }
@@ -2868,7 +2901,9 @@ bool VersionSet::VerifyCompactionFileConsistency(Compaction* c) {
         "[%s] compaction output being applied to a different base version from"
         " input version",
         c->column_family_data()->GetName().c_str());
-    if (c->start_level() == 0 && c->num_input_levels() > 2U) {
+
+    if (vstorage->compaction_style_ == kCompactionStyleLevel &&
+        c->start_level() == 0 && c->num_input_levels() > 2U) {
       // We are doing a L0->base_level compaction. The assumption is if
       // base level is not L1, levels from L1 to base_level - 1 is empty.
       // This is ensured by having one compaction from L0 going on at the

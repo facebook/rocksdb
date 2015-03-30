@@ -426,18 +426,18 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
           "(waiting for flush), max_write_buffer_number is set to %d",
           name_.c_str(), imm()->size(),
           mutable_cf_options.max_write_buffer_number);
-    } else if (vstorage->NumLevelFiles(0) >=
+    } else if (vstorage->l0_delay_trigger_count() >=
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
-          name_.c_str(), vstorage->NumLevelFiles(0));
+          name_.c_str(), vstorage->l0_delay_trigger_count());
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
-               vstorage->NumLevelFiles(0) >=
+               vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
       uint64_t slowdown =
-          SlowdownAmount(vstorage->NumLevelFiles(0),
+          SlowdownAmount(vstorage->l0_delay_trigger_count(),
                          mutable_cf_options.level0_slowdown_writes_trigger,
                          mutable_cf_options.level0_stop_writes_trigger);
       write_controller_token_ = write_controller->GetDelayToken(slowdown);
@@ -445,7 +445,7 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
           "us)",
-          name_.c_str(), vstorage->NumLevelFiles(0), slowdown);
+          name_.c_str(), vstorage->l0_delay_trigger_count(), slowdown);
     } else if (mutable_cf_options.hard_rate_limit > 1.0 &&
                score > mutable_cf_options.hard_rate_limit) {
       uint64_t kHardLimitSlowdown = 1000;

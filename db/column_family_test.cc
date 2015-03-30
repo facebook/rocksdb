@@ -807,6 +807,7 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   one.compaction_style = kCompactionStyleUniversal;
+  one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 100000;

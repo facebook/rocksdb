@@ -420,9 +420,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         level_compaction_dynamic_level_bytes);
     Log(log,"         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
-    for (int i = 0; i < num_levels; i++) {
-      Log(log,"Options.max_bytes_for_level_multiplier_addtl[%d]: %d",
-          i, max_bytes_for_level_multiplier_additional[i]);
+    for (size_t i = 0; i < max_bytes_for_level_multiplier_additional.size();
+         i++) {
+      Log(log, "Options.max_bytes_for_level_multiplier_addtl[%zu]: %d", i,
+          max_bytes_for_level_multiplier_additional[i]);
     }
     Log(log,"      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
