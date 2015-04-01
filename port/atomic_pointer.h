@@ -48,7 +48,7 @@ namespace port {
 
 // Define MemoryBarrier() if available
 // Windows on x86
-#if defined(OS_WIN) && defined(COMPILER_MSVC) && defined(ARCH_CPU_X86_FAMILY)
+#if defined(OS_WIN) && defined(_MSC_VER) && defined(ARCH_CPU_X86_FAMILY)
 // windows.h already provides a MemoryBarrier(void) macro
 // http://msdn.microsoft.com/en-us/library/ms684208(v=vs.85).aspx
 #define ROCKSDB_HAVE_MEMORY_BARRIER

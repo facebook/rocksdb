@@ -132,9 +132,9 @@ bool BlockHashIndex::Add(const Slice& prefix, uint32_t restart_index,
   auto prefix_to_insert = prefix;
   if (kOwnPrefixes) {
     auto prefix_ptr = arena_.Allocate(prefix.size());
-    std::copy(prefix.data() /* begin */,
-              prefix.data() + prefix.size() /* end */,
-              prefix_ptr /* destination */);
+    // MSVC reports C4996 Function call with parameters that may be
+    // unsafe when using std::copy with a output iterator - pointer
+    memcpy(prefix_ptr, prefix.data(), prefix.size());
     prefix_to_insert = Slice(prefix_ptr, prefix.size());
   }
   auto result = restart_indices_.insert(

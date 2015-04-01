@@ -23,6 +23,12 @@
 #include <stddef.h>
 #include <string.h>
 #include <string>
+#include <stdio.h>
+
+// Do not want to include the whole /port/port.h here for one define
+#ifdef OS_WIN
+#  define snprintf _snprintf
+#endif
 
 namespace rocksdb {
 

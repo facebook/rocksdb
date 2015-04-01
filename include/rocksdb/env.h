@@ -23,6 +23,11 @@
 #include <vector>
 #include <stdint.h>
 #include "rocksdb/status.h"
+#include "port/port.h"
+
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
 
 namespace rocksdb {
 

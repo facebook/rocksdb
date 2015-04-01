@@ -5,7 +5,8 @@
 
 #include "util/log_buffer.h"
 
-#include <sys/time.h>
+#include <port/sys_time.h>
+#include <port/port.h>
 
 namespace rocksdb {
 

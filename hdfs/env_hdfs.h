@@ -7,7 +7,6 @@
 #pragma once
 #include <algorithm>
 #include <stdio.h>
-#include <sys/time.h>
 #include <time.h>
 #include <iostream>
 #include "rocksdb/env.h"

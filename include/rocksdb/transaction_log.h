@@ -55,10 +55,29 @@ class LogFile {
   virtual uint64_t SizeFileBytes() const = 0;
 };
 
-struct BatchResult {
-  SequenceNumber sequence = 0;
-  std::unique_ptr<WriteBatch> writeBatchPtr;
+struct BatchResult
+{
+    SequenceNumber sequence = 0;
+    std::unique_ptr<WriteBatch> writeBatchPtr;
+
+    BatchResult() {
+    }
+
+    BatchResult(const BatchResult&) = delete;
+
+    BatchResult& operator=(const BatchResult&) = delete;
+
+    BatchResult(BatchResult && bResult) : 
+        sequence(std::move(bResult.sequence)), writeBatchPtr(std::move(bResult.writeBatchPtr)) {
+    }
+
+    BatchResult& operator=(BatchResult && bResult) {
+        sequence = std::move(bResult.sequence);
+        writeBatchPtr = std::move(bResult.writeBatchPtr);
+        return *this;
+    }
 };
+
 
 // A TransactionLogIterator is used to iterate over the transactions in a db.
 // One run of the iterator is continuous, i.e. the iterator will stop at the

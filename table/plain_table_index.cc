@@ -147,7 +147,7 @@ void PlainTableIndexBuilder::BucketizeIndexes(
 Slice PlainTableIndexBuilder::FillIndexes(
     const std::vector<IndexRecord*>& hash_to_offsets,
     const std::vector<uint32_t>& entries_per_bucket) {
-  Log(ioptions_.info_log, "Reserving %zu bytes for plain table's sub_index",
+  Log(ioptions_.info_log, "Reserving %" ROCKSDB_PRIszt " bytes for plain table's sub_index",
       sub_index_size_);
   auto total_allocate_size = GetTotalSize();
   char* allocated = arena_->AllocateAligned(

@@ -18,6 +18,7 @@
 #include "db/filename.h"
 #include "util/log_buffer.h"
 #include "util/statistics.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -252,9 +253,9 @@ void CompactionPicker::SetupOtherInputs(
                                               &c->parent_index_);
       if (expanded1.size() == c->inputs_[1].size() &&
           !FilesInCompaction(expanded1)) {
-        Log(ioptions_.info_log,
-            "[%s] Expanding@%d %zu+%zu (%" PRIu64 "+%" PRIu64
-            " bytes) to %zu+%zu (%" PRIu64 "+%" PRIu64 "bytes)\n",
+        Log(options_->info_log,
+            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64 "+%" PRIu64
+            " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 "bytes)\n",
             c->column_family_data()->GetName().c_str(), level,
             c->inputs_[0].size(), c->inputs_[1].size(), inputs0_size,
             inputs1_size, expanded0.size(), expanded1.size(), expanded0_size,
@@ -523,7 +524,7 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
   Version::FileSummaryStorage tmp;
-  LogToBuffer(log_buffer, 3072, "[%s] Universal: candidate files(%zu): %s\n",
+  LogToBuffer(log_buffer,3072, "[%s] Universal: candidate files(%" ROCKSDB_PRIszt "): %s\n",
               version->cfd_->GetName().c_str(), version->files_[level].size(),
               version->LevelFileSummary(&tmp, 0));
 

@@ -9,7 +9,7 @@
 
 #include "rocksdb/env.h"
 
-#include <sys/time.h>
+#include <port/sys_time.h>
 #include "rocksdb/options.h"
 #include "util/arena.h"
 #include "util/autovector.h"

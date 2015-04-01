@@ -273,11 +273,11 @@ void DBOptions::Dump(Logger* log) const {
     Log(log,"      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Log(log, "       Options.disableDataSync: %d", disableDataSync);
     Log(log, "             Options.use_fsync: %d", use_fsync);
-    Log(log, "     Options.max_log_file_size: %zu", max_log_file_size);
-    Log(log, "Options.max_manifest_file_size: %" PRIu64,
-        max_manifest_file_size);
-    Log(log, "     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
-    Log(log, "     Options.keep_log_file_num: %zu", keep_log_file_num);
+    Log(log, "     Options.max_log_file_size: %" ROCKSDB_PRIszt, max_log_file_size);
+    Log(log, "Options.max_manifest_file_size: %lu",
+        (unsigned long)max_manifest_file_size);
+    Log(log, "     Options.log_file_time_to_roll: %" ROCKSDB_PRIszt, log_file_time_to_roll);
+    Log(log, "     Options.keep_log_file_num: %" ROCKSDB_PRIszt, keep_log_file_num);
     Log(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Log(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Log(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
@@ -297,11 +297,11 @@ void DBOptions::Dump(Logger* log) const {
         max_background_compactions);
     Log(log, "                 Options.max_background_flushes: %d",
         max_background_flushes);
-    Log(log, "                        Options.WAL_ttl_seconds: %" PRIu64,
-        WAL_ttl_seconds);
-    Log(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
-        WAL_size_limit_MB);
-    Log(log, "            Options.manifest_preallocation_size: %zu",
+    Log(log, "                        Options.WAL_ttl_seconds: %lu",
+        (unsigned long)WAL_ttl_seconds);
+    Log(log, "                      Options.WAL_size_limit_MB: %lu",
+        (unsigned long)WAL_size_limit_MB);
+    Log(log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
         manifest_preallocation_size);
     Log(log, "                         Options.allow_os_buffer: %d",
         allow_os_buffer);
@@ -341,7 +341,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   Log(log, "           Options.table_factory: %s", table_factory->Name());
   Log(log, "           table_factory options: %s",
       table_factory->GetPrintableTableOptions().c_str());
-  Log(log, "       Options.write_buffer_size: %zd", write_buffer_size);
+  Log(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt, write_buffer_size);
   Log(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
@@ -392,7 +392,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         source_compaction_factor);
     Log(log,"         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"                       Options.arena_block_size: %zu",
+    Log(log,"                       Options.arena_block_size: %" ROCKSDB_PRIszt,
         arena_block_size);
     Log(log,"                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
@@ -433,7 +433,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         collector_names.c_str());
     Log(log, "                  Options.inplace_update_support: %d",
         inplace_update_support);
-    Log(log, "                Options.inplace_update_num_locks: %zd",
+    Log(log, "                Options.inplace_update_num_locks: %" ROCKSDB_PRIszt,
         inplace_update_num_locks);
     Log(log, "              Options.min_partial_merge_operands: %u",
         min_partial_merge_operands);
@@ -442,11 +442,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         memtable_prefix_bloom_bits);
     Log(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
-    Log(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %zu",
+    Log(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
         memtable_prefix_bloom_huge_page_tlb_size);
     Log(log, "                          Options.bloom_locality: %d",
         bloom_locality);
-    Log(log, "                   Options.max_successive_merges: %zd",
+    Log(log, "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
         max_successive_merges);
 }  // ColumnFamilyOptions::Dump
 

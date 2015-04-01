@@ -438,7 +438,7 @@ DEFINE_int32(stats_per_interval, 0, "Reports additional stats per interval when"
 DEFINE_int32(perf_level, 0, "Level of perf collection");
 
 static bool ValidateRateLimit(const char* flagname, double value) {
-  static constexpr double EPSILON = 1e-10;
+  const double EPSILON = 1e-10;
   if ( value < -EPSILON ) {
     fprintf(stderr, "Invalid value for --%s: %12.6f, must be >= 0.0\n",
             flagname, value);
@@ -2798,7 +2798,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg),
              "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
-             PRIu64 " maxlength:%zu)",
+             PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }
@@ -2860,6 +2860,10 @@ class Benchmark {
 };
 
 }  // namespace rocksdb
+
+
+WINDOWSENTRYPOINT;
+
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();

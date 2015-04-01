@@ -96,7 +96,7 @@ class Repairer {
       }
       Log(options_.info_log,
           "**** Repaired rocksdb %s; "
-          "recovered %zu files; %" PRIu64
+          "recovered %" ROCKSDB_PRIszt " files; %" PRIu64
           "bytes. "
           "Some data may have been lost. "
           "****",

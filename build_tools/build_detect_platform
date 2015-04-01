@@ -43,7 +43,9 @@ fi
 # we depend on C++11
 PLATFORM_CXXFLAGS="-std=c++11"
 # we currently depend on POSIX platform
-COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
+
+#COMMON_FLAGS="-DROCKSDB_PLATFORM_POSIX"
+COMMON_FLAGS=
 
 # Default to fbcode gcc on internal fb machines
 if [ -z "$ROCKSDB_NO_FBCODE" -a -d /mnt/gvfs/third-party ]; then
@@ -88,9 +90,6 @@ PLATFORM_SHARED_LDFLAGS="-shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=false
 
-# generic port files (working on all platform by #ifdef) go directly in /port
-GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | tr "\n" " "`
-
 # On GCC, we pick libc's memcmp over GCC's memcmp via -fno-builtin-memcmp
 case "$TARGET_OS" in
     Darwin)
@@ -115,6 +114,16 @@ case "$TARGET_OS" in
         fi
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
         # PORT_FILES=port/linux/linux_specific.cc
+        ;;
+    MINGW32_NT-6.2)
+        PLATFORM=OS_WIN
+        PLATFORM_SHARED_CFLAGS=
+        COMMON_FLAGS="$COMMON_FLAGS -DMINGW32_NT -DOS_WIN"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lrt"
+        # PORT_FILES=port/win/env_win.cc port/win/port_win.cc
         ;;
     SunOS)
         PLATFORM=OS_SOLARIS
@@ -164,6 +173,16 @@ if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
   "$PWD/build_tools/build_detect_version"
 fi
 
+# Filter out other platform files
+if [ "$PLATFORM" = "OS_WIN" ]; then
+  FILTER_OUT="_posix."
+else
+  FILTER_OUT="_win."
+fi
+
+# generic port files (working on all platform by #ifdef) go directly in /port
+GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | grep -v $FILTER_OUT | tr "\n" " "`
+
 # We want to make a list of all cc files within util, db, table, and helpers
 # except for the test and benchmark files. By default, find will output a list
 # of all files matching either rule, so we need to append -print to make the
@@ -173,8 +192,10 @@ DIRS="util db table utilities"
 set -f # temporarily disable globbing so that our patterns arent expanded
 PRUNE_TEST="-name *test*.cc -prune"
 PRUNE_BENCH="-name *bench*.cc -prune"
-PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | sort | tr "\n" " "`
-PORTABLE_CPP=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | sort | tr "\n" " "`
+
+#### Despite being called portable the thread local storage file is posix specific
+PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | grep -v $FILTER_OUT | sort | tr "\n" " "`
+PORTABLE_CPP=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | grep -v $FILTER_OUT | sort | tr "\n" " "`
 set +f # re-enable globbing
 
 # The sources consist of the portable files, plus the platform-specific port

@@ -575,7 +575,7 @@ void HashLinkListRep::Insert(KeyHandle handle) {
       header->num_entries ==
           static_cast<uint32_t>(bucket_entries_logging_threshold_)) {
     Info(logger_,
-         "HashLinkedList bucket %zu has more than %d "
+         "HashLinkedList bucket %" ROCKSDB_PRIszt " has more than %d "
          "entries. Key to insert: %s",
          GetHash(transformed), header->num_entries,
          GetLengthPrefixedSlice(x->key).ToString(true).c_str());

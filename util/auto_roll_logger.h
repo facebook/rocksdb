@@ -9,7 +9,7 @@
 #pragma once
 #include "db/filename.h"
 #include "port/port.h"
-#include "util/posix_logger.h"
+#include "port/util_logger.h"
 
 namespace rocksdb {
 

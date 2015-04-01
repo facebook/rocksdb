@@ -4573,7 +4573,7 @@ Status DBImpl::GetDbIdentity(std::string& identity) {
   if (!s.ok()) {
     return s;
   }
-  char buffer[file_size];
+  char* buffer = reinterpret_cast<char*>(alloca(file_size));
   Slice id;
   s = idfile->Read(file_size, &id, buffer);
   if (!s.ok()) {

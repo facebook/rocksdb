@@ -77,6 +77,7 @@ LDFLAGS += $(PLATFORM_LDFLAGS)
 
 LIBOBJECTS = $(SOURCES:.cc=.o)
 LIBOBJECTS += $(SOURCESCPP:.cpp=.o)
+
 MEMENVOBJECTS = $(MEMENV_SOURCES:.cc=.o)
 
 TESTUTIL = ./util/testutil.o
@@ -518,7 +519,8 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 
 JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
-ARCH := $(shell getconf LONG_BIT)
+#ARCH := $(shell getconf LONG_BIT)
+ARCH := 64
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so
 ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-linux$(ARCH).jar
 ROCKSDB_JAR_ALL = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar

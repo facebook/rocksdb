@@ -45,7 +45,7 @@ class UInt64AddOperator : public AssociativeMergeOperator {
       result = DecodeFixed64(value.data());
     } else if (logger != nullptr) {
       // If value is corrupted, treat it as 0
-      Log(logger, "uint64 value corruption, size: %zu > %zu",
+      Log(logger, "uint64 value corruption, size: %" ROCKSDB_PRIszt " > %" ROCKSDB_PRIszt,
           value.size(), sizeof(uint64_t));
     }
 

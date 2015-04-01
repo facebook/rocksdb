@@ -9,41 +9,45 @@
 //
 // See port_example.h for documentation for the following types/functions.
 
-#ifndef STORAGE_LEVELDB_PORT_PORT_POSIX_H_
-#define STORAGE_LEVELDB_PORT_PORT_POSIX_H_
+#ifndef STORAGE_LEVELDB_PORT_PORT_WIN_H_
+#define STORAGE_LEVELDB_PORT_PORT_WIN_H_
 
-// Expand to nothing
-#define WINDOWSENTRYPOINT
+// Always want minimum headers
+#ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+#endif
+
+#ifndef ROCKSDB_ATOMIC_PRESENT
+#define ROCKSDB_ATOMIC_PRESENT
+#endif
+
+// Assume that for everywhere
+#undef PLATFORM_IS_LITTLE_ENDIAN
+#define PLATFORM_IS_LITTLE_ENDIAN true
+
+#include <windows.h>
+#include <string>
+#include <string.h>
+#include <mutex>
+#include <condition_variable>
+
+#include "rocksdb/options.h"
+#include "port/atomic_pointer.h"
+
+#ifndef strcasecmp
+#define strcasecmp _stricmp
+#endif
+
+// defined in stdio.h
+#ifndef snprintf
+#define snprintf _snprintf
+#endif
 
 // size_t printf formatting named in the manner of C99 standard formatting strings such as PRIu64
 // in fact, we could use that one
-#define ROCKSDB_PRIszt "zu"
+#define ROCKSDB_PRIszt "Iu"
 
-#undef PLATFORM_IS_LITTLE_ENDIAN
-#if defined(OS_MACOSX)
-  #include <machine/endian.h>
-  #if defined(__DARWIN_LITTLE_ENDIAN) && defined(__DARWIN_BYTE_ORDER)
-    #define PLATFORM_IS_LITTLE_ENDIAN \
-        (__DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN)
-  #endif
-#elif defined(OS_SOLARIS)
-  #include <sys/isa_defs.h>
-  #ifdef _LITTLE_ENDIAN
-    #define PLATFORM_IS_LITTLE_ENDIAN true
-  #else
-    #define PLATFORM_IS_LITTLE_ENDIAN false
-  #endif
-#elif defined(OS_FREEBSD) || defined(OS_OPENBSD) || defined(OS_NETBSD) ||\
-      defined(OS_DRAGONFLYBSD) || defined(OS_ANDROID)
-  #include <sys/types.h>
-  #include <sys/endian.h>
-#else
-  #include <endian.h>
-#endif
-#include <pthread.h>
-#ifdef SNAPPY
-#include <snappy.h>
-#endif
+#define __attribute__(A)
 
 #ifdef ZLIB
 #include <zlib.h>
@@ -58,116 +62,168 @@
 #include <lz4hc.h>
 #endif
 
-#include <stdint.h>
-#include <string>
-#include <string.h>
-#include "rocksdb/options.h"
-#include "port/atomic_pointer.h"
+#ifdef SNAPPY
+#include "snappy.h"
+#endif
+
+#ifdef JEMALLOC
+
+#include "jemalloc/jemalloc.h"
+#include "jemalloc/internal/jemalloc_internal.h"
+
+/*
+class JemallocInitializer
+{
+    public:
+        static JemallocInitializer& GetInstance() { static JemallocInitializer instance; return instance; }
+
+    private:
+        JemallocInitializer() { je_init(); }
+        ~JemallocInitializer() { je_uninit(); }
+        JemallocInitializer(const JemallocInitializer&);
+        JemallocInitializer& operator=(const JemallocInitializer&);
+};
+
+inline void* operator new(size_t size){ static JemallocInitializer& inst = JemallocInitializer::GetInstance(); return je_malloc(size); }
+inline void* operator new[](size_t size) { static JemallocInitializer& inst = JemallocInitializer::GetInstance();  return je_malloc(size); }
+inline void  operator delete  (void* ptr) { static JemallocInitializer& inst = JemallocInitializer::GetInstance();  je_free(ptr); }
+inline void  operator delete[](void* ptr) { static JemallocInitializer& inst = JemallocInitializer::GetInstance();  je_free(ptr); }
+*/
+
+#define WINDOWSENTRYPOINT \
+extern "C" \
+{ \
+    extern  __declspec(noinline) int __cdecl mainCRTStartup(void); \
+} \
+__declspec(noinline) int mainMain(void) \
+{ \
+    je_init(); \
+    int ret = mainCRTStartup(); \
+    je_uninit(); \
+    return ret; \
+}
+
+#else
+#  define WINDOWSENTRYPOINT
+#endif
+
+// Thread local storage on Linux
+// There is thread_local in C++11
+#define __thread __declspec(thread)
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN
 #define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
 #endif
 
-#if defined(OS_MACOSX) || defined(OS_SOLARIS) || defined(OS_FREEBSD) ||\
-    defined(OS_NETBSD) || defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD) ||\
-    defined(OS_ANDROID)
-// Use fread/fwrite/fflush on platforms without _unlocked variants
-#define fread_unlocked fread
-#define fwrite_unlocked fwrite
-#define fflush_unlocked fflush
-#endif
-
-#if defined(OS_MACOSX) || defined(OS_FREEBSD) ||\
-    defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD)
-// Use fsync() on platforms without fdatasync()
-#define fdatasync fsync
-#endif
-
-#if defined(OS_ANDROID) && __ANDROID_API__ < 9
-// fdatasync() was only introduced in API level 9 on Android. Use fsync()
-// when targetting older platforms.
-#define fdatasync fsync
-#endif
-
 namespace rocksdb {
-namespace port {
+    
+// For Thread Local Storage abstraction
+typedef DWORD pthread_key_t;
+#define PREFETCH(addr, rw, locality)
 
-static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
-#undef PLATFORM_IS_LITTLE_ENDIAN
+namespace port 
+{
+
+const bool kLittleEndian = true;
 
 class CondVar;
 
-class Mutex {
- public:
-  /* implicit */ Mutex(bool adaptive = false);
-  ~Mutex();
+class Mutex 
+{
+public:
+    /* implicit */ 
+    Mutex(bool adaptive = false);
+    ~Mutex();
 
-  void Lock();
-  void Unlock();
-  // this will assert if the mutex is not locked
-  // it does NOT verify that mutex is held by a calling thread
-  void AssertHeld();
+    void Lock();
+    void Unlock();
+  
+    // this will assert if the mutex is not locked
+    // it does NOT verify that mutex is held by a calling thread
+    void AssertHeld();
+    std::unique_lock<std::mutex>& getLock()
+    {
+        return lock;
+    }
 
- private:
-  friend class CondVar;
-  pthread_mutex_t mu_;
+private:
+    friend class CondVar;
+    std::mutex m_mutex;
+    std::unique_lock<std::mutex> lock;
 #ifndef NDEBUG
-  bool locked_;
+    bool locked_;
 #endif
 
-  // No copying
-  Mutex(const Mutex&);
-  void operator=(const Mutex&);
+    // No copying
+    Mutex(const Mutex&);
+    void operator=(const Mutex&);
 };
 
-class RWMutex {
- public:
-  RWMutex();
-  ~RWMutex();
+class RWMutex 
+{
+private:
+    SRWLOCK srwLock_;
+public:
+    RWMutex(){
+        InitializeSRWLock(&srwLock_);
+    }
 
-  void ReadLock();
-  void WriteLock();
-  void ReadUnlock();
-  void WriteUnlock();
-  void AssertHeld() { }
+    void ReadLock() {
+        AcquireSRWLockShared(&srwLock_);
+    }
 
- private:
-  pthread_rwlock_t mu_; // the underlying platform mutex
+    void WriteLock() {
+        AcquireSRWLockExclusive(&srwLock_);
+    }
 
-  // No copying allowed
-  RWMutex(const RWMutex&);
-  void operator=(const RWMutex&);
+    void ReadUnlock() {
+        ReleaseSRWLockShared(&srwLock_);
+    }
+
+    void WriteUnlock() {
+        ReleaseSRWLockExclusive(&srwLock_);
+    }
+
+    void AssertHeld() {
+        //TODO: psrao - should be implemented
+    }
+
+private:
+
+    // No copying allowed
+    RWMutex(const RWMutex&);
+    void operator=(const RWMutex&);
 };
 
-class CondVar {
- public:
-  explicit CondVar(Mutex* mu);
-  ~CondVar();
-  void Wait();
-  // Timed condition wait.  Returns true if timeout occurred.
-  bool TimedWait(uint64_t abs_time_us);
-  void Signal();
-  void SignalAll();
- private:
-  pthread_cond_t cv_;
-  Mutex* mu_;
+class CondVar 
+{
+public:
+    explicit CondVar(Mutex* mu);
+    ~CondVar();
+    void Wait();
+    bool TimedWait(uint64_t expiration_time);
+    void Signal();
+    void SignalAll();
+private:
+    std::condition_variable cv_;
+    Mutex * mu_;
 };
 
-typedef pthread_once_t OnceType;
-#define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
+typedef std::once_flag OnceType;
+#define LEVELDB_ONCE_INIT std::once_flag::once_flag();
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
-                            size_t length, ::std::string* output) {
+                            size_t length, ::std::string* output) 
+{
 #ifdef SNAPPY
-  output->resize(snappy::MaxCompressedLength(length));
-  size_t outlen;
-  snappy::RawCompress(input, length, &(*output)[0], &outlen);
-  output->resize(outlen);
-  return true;
+    output->resize(snappy::MaxCompressedLength(length));
+    size_t outlen;
+    snappy::RawCompress(input, length, &(*output)[0], &outlen);
+    output->resize(outlen);
+    return true;
 #endif
-
-  return false;
+    return false;
 }
 
 inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
@@ -492,7 +548,14 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 
 #define CACHE_LINE_SIZE 64U
 
-#define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
+
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 
 } // namespace port
 } // namespace rocksdb

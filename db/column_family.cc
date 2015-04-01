@@ -557,8 +557,8 @@ ColumnFamilySet::ColumnFamilySet(const std::string& dbname,
       db_options_(db_options),
       env_options_(env_options),
       table_cache_(table_cache),
-      write_controller_(write_controller),
-      spin_lock_(ATOMIC_FLAG_INIT) {
+      write_controller_(write_controller){
+  spin_lock_.clear();
   // initialize linked list
   dummy_cfd_->prev_ = dummy_cfd_;
   dummy_cfd_->next_ = dummy_cfd_;

@@ -11,6 +11,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
+#include "port/port.h"
 #include "db/db_impl.h"
 #include "db/log_reader.h"
 #include "db/filename.h"
@@ -21,7 +22,7 @@ struct LogReporter : public log::Reader::Reporter {
   Env* env;
   Logger* info_log;
   virtual void Corruption(size_t bytes, const Status& s) {
-    Log(info_log, "dropping %zu bytes; %s", bytes, s.ToString().c_str());
+          Log(info_log, "dropping %" ROCKSDB_PRIszt " bytes; %s", bytes, s.ToString().c_str());
   }
   virtual void Info(const char* s) {
     Log(info_log, "%s", s);

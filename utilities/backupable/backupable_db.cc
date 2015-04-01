@@ -1223,7 +1223,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
                   sequence_number_);
-  len += snprintf(buf.get() + len, buf_size - len, "%zu\n", files_.size());
+  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n", files_.size());
   for (const auto& file : files_) {
     const auto& iter = file_infos_->find(file);
 
