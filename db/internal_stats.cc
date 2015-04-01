@@ -86,7 +86,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
 static const std::string rocksdb_prefix = "rocksdb.";
 
 static const std::string num_files_at_level_prefix = "num-files-at-level";
-static const std::string stats = "stats";
+static const std::string allstats = "stats";
 static const std::string sstables = "sstables";
 static const std::string cfstats = "cfstats";
 static const std::string dbstats = "dbstats";
@@ -118,7 +118,7 @@ static const std::string base_level = "base-level";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
-const std::string DB::Properties::kStats = rocksdb_prefix + stats;
+const std::string DB::Properties::kStats = rocksdb_prefix + allstats;
 const std::string DB::Properties::kSSTables = rocksdb_prefix + sstables;
 const std::string DB::Properties::kCFStats = rocksdb_prefix + cfstats;
 const std::string DB::Properties::kDBStats = rocksdb_prefix + dbstats;
@@ -172,7 +172,7 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kNumFilesAtLevel;
   } else if (in == levelstats) {
     return kLevelStats;
-  } else if (in == stats) {
+  } else if (in == allstats) {
     return kStats;
   } else if (in == cfstats) {
     return kCFStats;
