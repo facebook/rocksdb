@@ -12270,6 +12270,17 @@ TEST_F(DBTest, TestLogCleanup) {
   }
 }
 
+TEST_F(DBTest, EmptyCompactedDB) {
+  Options options;
+  options.max_open_files = -1;
+  options = CurrentOptions(options);
+  Close();
+  ASSERT_OK(ReadOnlyReopen(options));
+  Status s = Put("new", "value");
+  ASSERT_TRUE(s.IsNotSupported());
+  Close();
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

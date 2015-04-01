@@ -107,6 +107,9 @@ Status CompactedDBImpl::Init(const Options& options) {
   version_ = cfd_->GetSuperVersion()->current;
   user_comparator_ = cfd_->user_comparator();
   auto* vstorage = version_->storage_info();
+  if (vstorage->num_non_empty_levels() == 0) {
+    return Status::NotSupported("no file exists");
+  }
   const LevelFilesBrief& l0 = vstorage->LevelFilesBrief(0);
   // L0 should not have files
   if (l0.num_files > 1) {
