@@ -18,6 +18,7 @@
 
 #include "db/column_family.h"
 #include "util/logging.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -130,17 +131,28 @@ void Compaction::GenerateFileLevels() {
   }
 }
 
+bool Compaction::InputCompressionMatchesOutput() const {
+  int base_level = input_version_->storage_info()->base_level();
+  bool matches = (GetCompressionType(*cfd_->ioptions(), start_level_,
+                                     base_level) == output_compression_);
+  if (matches) {
+    TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:Matches");
+    return true;
+  }
+  TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:DidntMatch");
+  return false;
+}
+
 bool Compaction::IsTrivialMove() const {
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require
   // a very expensive merge later on.
   // If start_level_== output_level_, the purpose is to force compaction
   // filter to be applied to that level, and thus cannot be a trivia move.
-  return (start_level_ != output_level_ &&
-          num_input_levels() == 2 &&
-          num_input_files(0) == 1 &&
-          num_input_files(1) == 0 &&
+  return (start_level_ != output_level_ && num_input_levels() == 2 &&
+          num_input_files(0) == 1 && num_input_files(1) == 0 &&
           input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
+          InputCompressionMatchesOutput() &&
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 

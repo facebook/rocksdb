@@ -32,6 +32,8 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
+}  // anonymous namespace
+
 // Determine compression type, based on user options, level of the output
 // file and whether compression is disabled.
 // If enable_compression is false, then compression is always disabled no
@@ -39,7 +41,7 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
 // Otherwise, the compression type is determined based on options and level.
 CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
                                    int level, int base_level,
-                                   const bool enable_compression = true) {
+                                   const bool enable_compression) {
   if (!enable_compression) {
     // disable compression
     return kNoCompression;
@@ -61,9 +63,6 @@ CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
     return ioptions.compression;
   }
 }
-
-
-}  // anonymous namespace
 
 CompactionPicker::CompactionPicker(const ImmutableCFOptions& ioptions,
                                    const InternalKeyComparator* icmp)

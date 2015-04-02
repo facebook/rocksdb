@@ -12281,6 +12281,107 @@ TEST_F(DBTest, EmptyCompactedDB) {
   Close();
 }
 
+TEST_F(DBTest, CompressLevelCompaction) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 4;
+  options.max_bytes_for_level_base = 400 * 1024;
+  // First two levels have no compression, so that a trivial move between
+  // them will be allowed. Level 2 has Zlib compression so that a trivial
+  // move to level 3 will not be allowed
+  options.compression_per_level = {kNoCompression, kNoCompression,
+                                   kZlibCompression};
+  int matches = 0, didnt_match = 0, trivial_move = 0, non_trivial = 0;
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "Compaction::InputCompressionMatchesOutput:Matches",
+      [&]() { matches++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "Compaction::InputCompressionMatchesOutput:DidntMatch",
+      [&]() { didnt_match++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial", [&]() { non_trivial++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove", [&]() { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Reopen(options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // First three 110KB files are going to level 0
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  // Another 110KB triggers a compaction to 400K file to fill up level 0
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(4, GetSstFileCount(dbname_));
+
+  // (1, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4", FilesPerLevel(0));
+
+  // (1, 4, 1)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,1", FilesPerLevel(0));
+
+  // (1, 4, 2)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,2", FilesPerLevel(0));
+
+  // (1, 4, 3)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,3", FilesPerLevel(0));
+
+  // (1, 4, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,4", FilesPerLevel(0));
+
+  // (1, 4, 5)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,5", FilesPerLevel(0));
+
+  // (1, 4, 6)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,6", FilesPerLevel(0));
+
+  // (1, 4, 7)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,7", FilesPerLevel(0));
+
+  // (1, 4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+
+  ASSERT_EQ(matches, 12);
+  ASSERT_EQ(didnt_match, 8);
+  ASSERT_EQ(trivial_move, 12);
+  ASSERT_EQ(non_trivial, 8);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Reopen(options);
+
+  for (int i = 0; i < key_idx; i++) {
+    auto v = Get(Key(i));
+    ASSERT_NE(v, "NOT_FOUND");
+    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+  }
+
+  Destroy(options);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

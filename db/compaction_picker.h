@@ -342,4 +342,8 @@ class NullCompactionPicker : public CompactionPicker {
 };
 #endif  // !ROCKSDB_LITE
 
+CompressionType GetCompressionType(const ImmutableCFOptions& ioptions,
+                                   int level, int base_level,
+                                   const bool enable_compression = true);
+
 }  // namespace rocksdb

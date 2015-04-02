@@ -262,6 +262,9 @@ class Compaction {
   // In case of compaction error, reset the nextIndex that is used
   // to pick up the next file to be compacted from files_by_size_
   void ResetNextCompactionIndex();
+
+  // Does input compression match the output compression?
+  bool InputCompressionMatchesOutput() const;
 };
 
 // Utility function

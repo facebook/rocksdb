@@ -2269,6 +2269,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                 c->num_input_files(0));
     *madeProgress = true;
   } else if (!is_manual && c->IsTrivialMove()) {
+    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:TrivialMove");
     // Instrument for event update
     // TODO(yhchiang): add op details for showing trivial-move.
     ThreadStatusUtil::SetColumnFamily(c->column_family_data());
@@ -2302,6 +2303,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
   } else {
+    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial");
     auto yield_callback = [&]() {
       return CallFlushDuringCompaction(c->column_family_data(),
                                        *c->mutable_cf_options(), job_context,
