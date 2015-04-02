@@ -32,10 +32,10 @@
 
 #pragma once
 #include <assert.h>
+#include <atomic>
 #include <stdlib.h>
-#include "util/arena.h"
 #include "port/port.h"
-#include "util/arena.h"
+#include "util/allocator.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -47,9 +47,9 @@ class SkipList {
 
  public:
   // Create a new SkipList object that will use "cmp" for comparing keys,
-  // and will allocate memory using "*arena".  Objects allocated in the arena
-  // must remain allocated for the lifetime of the skiplist object.
-  explicit SkipList(Comparator cmp, Arena* arena,
+  // and will allocate memory using "*allocator".  Objects allocated in the
+  // allocator must remain allocated for the lifetime of the skiplist object.
+  explicit SkipList(Comparator cmp, Allocator* allocator,
                     int32_t max_height = 12, int32_t branching_factor = 4);
 
   // Insert key into the list.
@@ -109,21 +109,20 @@ class SkipList {
 
   // Immutable after construction
   Comparator const compare_;
-  Arena* const arena_;    // Arena used for allocations of nodes
+  Allocator* const allocator_;    // Allocator used for allocations of nodes
 
   Node* const head_;
 
   // Modified only by Insert().  Read racily by readers, but stale
   // values are ok.
-  port::AtomicPointer max_height_;   // Height of the entire list
+  std::atomic<int> max_height_;  // Height of the entire list
 
   // Used for optimizing sequential insert patterns
   Node** prev_;
   int32_t prev_height_;
 
   inline int GetMaxHeight() const {
-    return static_cast<int>(
-        reinterpret_cast<intptr_t>(max_height_.NoBarrier_Load()));
+    return max_height_.load(std::memory_order_relaxed);
   }
 
   // Read/written only by Insert().
@@ -169,35 +168,35 @@ struct SkipList<Key, Comparator>::Node {
     assert(n >= 0);
     // Use an 'acquire load' so that we observe a fully initialized
     // version of the returned Node.
-    return reinterpret_cast<Node*>(next_[n].Acquire_Load());
+    return (next_[n].load(std::memory_order_acquire));
   }
   void SetNext(int n, Node* x) {
     assert(n >= 0);
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
-    next_[n].Release_Store(x);
+    next_[n].store(x, std::memory_order_release);
   }
 
   // No-barrier variants that can be safely used in a few locations.
   Node* NoBarrier_Next(int n) {
     assert(n >= 0);
-    return reinterpret_cast<Node*>(next_[n].NoBarrier_Load());
+    return next_[n].load(std::memory_order_relaxed);
   }
   void NoBarrier_SetNext(int n, Node* x) {
     assert(n >= 0);
-    next_[n].NoBarrier_Store(x);
+    next_[n].store(x, std::memory_order_relaxed);
   }
 
  private:
   // Array of length equal to the node height.  next_[0] is lowest level link.
-  port::AtomicPointer next_[1];
+  std::atomic<Node*> next_[1];
 };
 
 template<typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node*
 SkipList<Key, Comparator>::NewNode(const Key& key, int height) {
-  char* mem = arena_->AllocateAligned(
-      sizeof(Node) + sizeof(port::AtomicPointer) * (height - 1));
+  char* mem = allocator_->AllocateAligned(
+      sizeof(Node) + sizeof(std::atomic<Node*>) * (height - 1));
   return new (mem) Node(key);
 }
 
@@ -356,23 +355,24 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
 }
 
 template<typename Key, class Comparator>
-SkipList<Key, Comparator>::SkipList(const Comparator cmp, Arena* arena,
+SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
                                    int32_t max_height,
                                    int32_t branching_factor)
     : kMaxHeight_(max_height),
       kBranching_(branching_factor),
       compare_(cmp),
-      arena_(arena),
+      allocator_(allocator),
       head_(NewNode(0 /* any key will do */, max_height)),
-      max_height_(reinterpret_cast<void*>(1)),
+      max_height_(1),
       prev_height_(1),
       rnd_(0xdeadbeef) {
   assert(kMaxHeight_ > 0);
   assert(kBranching_ > 0);
-  // Allocate the prev_ Node* array, directly from the passed-in arena.
+  // Allocate the prev_ Node* array, directly from the passed-in allocator.
   // prev_ does not need to be freed, as its life cycle is tied up with
-  // the arena as a whole.
-  prev_ = (Node**) arena_->AllocateAligned(sizeof(Node*) * kMaxHeight_);
+  // the allocator as a whole.
+  prev_ = reinterpret_cast<Node**>(
+            allocator_->AllocateAligned(sizeof(Node*) * kMaxHeight_));
   for (int i = 0; i < kMaxHeight_; i++) {
     head_->SetNext(i, nullptr);
     prev_[i] = head_;
@@ -402,7 +402,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
     // the loop below.  In the former case the reader will
     // immediately drop to the next level since nullptr sorts after all
     // keys.  In the latter case the reader will use the new node.
-    max_height_.NoBarrier_Store(reinterpret_cast<void*>(height));
+    max_height_.store(height, std::memory_order_relaxed);
   }
 
   x = NewNode(key, height);

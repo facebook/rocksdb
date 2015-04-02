@@ -33,24 +33,39 @@ class BlockBasedTableFactory : public TableFactory {
 
   const char* Name() const override { return "BlockBasedTable"; }
 
-  Status NewTableReader(
-      const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
-      const InternalKeyComparator& internal_comparator,
-      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table_reader) const override;
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<TableReader>* table_reader) const override {
+    return NewTableReader(ioptions, soptions, internal_comparator,
+                          std::move(file), file_size, table_reader,
+                          /*prefetch_index_and_filter=*/true);
+  }
+
+  // This is a variant of virtual member function NewTableReader function with
+  // added capability to disable pre-fetching of blocks on BlockBasedTable::Open
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& soptions,
+                        const InternalKeyComparator& internal_comparator,
+                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<TableReader>* table_reader,
+                        bool prefetch_index_and_filter) const;
 
   TableBuilder* NewTableBuilder(
       const ImmutableCFOptions& ioptions,
-      const InternalKeyComparator& internal_comparator,
-      WritableFile* file, const CompressionType compression_type,
-      const CompressionOptions& compression_opts) const override;
+      const InternalKeyComparator& internal_comparator, WritableFile* file,
+      const CompressionType compression_type,
+      const CompressionOptions& compression_opts,
+      const bool skip_filters = false) const override;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
-    return Status::OK();
-  }
+  Status SanitizeOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override;
 
   std::string GetPrintableTableOptions() const override;
+
+  const BlockBasedTableOptions& GetTableOptions() const;
 
  private:
   BlockBasedTableOptions table_options_;
@@ -58,5 +73,7 @@ class BlockBasedTableFactory : public TableFactory {
 
 extern const std::string kHashIndexPrefixesBlock;
 extern const std::string kHashIndexPrefixesMetadataBlock;
+extern const std::string kPropTrue;
+extern const std::string kPropFalse;
 
 }  // namespace rocksdb

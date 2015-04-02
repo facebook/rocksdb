@@ -304,7 +304,8 @@ Block::Block(BlockContents&& contents)
   if (size_ < sizeof(uint32_t)) {
     size_ = 0;  // Error marker
   } else {
-    restart_offset_ = size_ - (1 + NumRestarts()) * sizeof(uint32_t);
+    restart_offset_ =
+        static_cast<uint32_t>(size_) - (1 + NumRestarts()) * sizeof(uint32_t);
     if (restart_offset_ > size_ - sizeof(uint32_t)) {
       // The size is too small for NumRestarts() and therefore
       // restart_offset_ wrapped around.

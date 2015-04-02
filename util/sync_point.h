@@ -38,6 +38,11 @@ class SyncPoint {
   // sync points
   void LoadDependency(const std::vector<Dependency>& dependencies);
 
+  // Set up a call back function in sync point.
+  void SetCallBack(const std::string point, std::function<void()> callback);
+  // Clear all call back functions.
+  void ClearAllCallBacks();
+
   // enable sync point processing (disabled on startup)
   void EnableProcessing();
 
@@ -60,12 +65,14 @@ class SyncPoint {
   // successor/predecessor map loaded from LoadDependency
   std::unordered_map<std::string, std::vector<std::string>> successors_;
   std::unordered_map<std::string, std::vector<std::string>> predecessors_;
+  std::unordered_map<std::string, std::function<void()> > callbacks_;
 
   std::mutex mutex_;
   std::condition_variable cv_;
   // sync points that have been passed through
   std::unordered_set<std::string> cleared_points_;
   bool enabled_ = false;
+  int num_callbacks_running_ = 0;
 };
 
 }  // namespace rocksdb

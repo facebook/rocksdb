@@ -3,6 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <string>
 #include "rocksdb/db.h"
 
 namespace rocksdb {
@@ -23,11 +24,11 @@ class StackableDB : public DB {
 
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
-                                    ColumnFamilyHandle** handle) {
+                                    ColumnFamilyHandle** handle) override {
     return db_->CreateColumnFamily(options, column_family_name, handle);
   }
 
-  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) {
+  virtual Status DropColumnFamily(ColumnFamilyHandle* column_family) override {
     return db_->DropColumnFamily(column_family);
   }
 
@@ -91,7 +92,7 @@ class StackableDB : public DB {
   virtual Status NewIterators(
       const ReadOptions& options,
       const std::vector<ColumnFamilyHandle*>& column_families,
-      std::vector<Iterator*>* iterators) {
+      std::vector<Iterator*>* iterators) override {
     return db_->NewIterators(options, column_families, iterators);
   }
 
@@ -132,6 +133,17 @@ class StackableDB : public DB {
                              target_level, target_path_id);
   }
 
+  using DB::CompactFiles;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names,
+      const int output_level, const int output_path_id = -1) override {
+    return db_->CompactFiles(
+        compact_options, column_family, input_file_names,
+        output_level, output_path_id);
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);
@@ -169,6 +181,8 @@ class StackableDB : public DB {
     return db_->Flush(fopts, column_family);
   }
 
+#ifndef ROCKSDB_LITE
+
   virtual Status DisableFileDeletions() override {
     return db_->DisableFileDeletions();
   }
@@ -181,6 +195,14 @@ class StackableDB : public DB {
       std::vector<LiveFileMetaData>* metadata) override {
     db_->GetLiveFilesMetaData(metadata);
   }
+
+  virtual void GetColumnFamilyMetaData(
+      ColumnFamilyHandle *column_family,
+      ColumnFamilyMetaData* cf_meta) override {
+    db_->GetColumnFamilyMetaData(column_family, cf_meta);
+  }
+
+#endif  // ROCKSDB_LITE
 
   virtual Status GetLiveFiles(std::vector<std::string>& vec, uint64_t* mfs,
                               bool flush_memtable = true) override {
@@ -199,13 +221,20 @@ class StackableDB : public DB {
     return db_->DeleteFile(name);
   }
 
-  virtual Status GetDbIdentity(std::string& identity) {
+  virtual Status GetDbIdentity(std::string& identity) override {
     return db_->GetDbIdentity(identity);
   }
 
+  using DB::SetOptions;
+  virtual Status SetOptions(
+    const std::unordered_map<std::string, std::string>& new_options) override {
+    return db_->SetOptions(new_options);
+  }
+
   using DB::GetPropertiesOfAllTables;
-  virtual Status GetPropertiesOfAllTables(ColumnFamilyHandle* column_family,
-                                          TablePropertiesCollection* props) {
+  virtual Status GetPropertiesOfAllTables(
+      ColumnFamilyHandle* column_family,
+      TablePropertiesCollection* props) override {
     return db_->GetPropertiesOfAllTables(column_family, props);
   }
 

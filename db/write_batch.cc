@@ -48,20 +48,6 @@ WriteBatch::~WriteBatch() { }
 
 WriteBatch::Handler::~Handler() { }
 
-void WriteBatch::Handler::Put(const Slice& key, const Slice& value) {
-  // you need to either implement Put or PutCF
-  throw std::runtime_error("Handler::Put not implemented!");
-}
-
-void WriteBatch::Handler::Merge(const Slice& key, const Slice& value) {
-  throw std::runtime_error("Handler::Merge not implemented!");
-}
-
-void WriteBatch::Handler::Delete(const Slice& key) {
-  // you need to either implement Delete or DeleteCF
-  throw std::runtime_error("Handler::Delete not implemented!");
-}
-
 void WriteBatch::Handler::LogData(const Slice& blob) {
   // If the user has not specified something to do with blobs, then we ignore
   // them.
@@ -294,6 +280,8 @@ void WriteBatch::PutLogData(const Slice& blob) {
 }
 
 namespace {
+// This class can *only* be used from a single-threaded write thread, because it
+// calls ColumnFamilyMemTablesImpl::Seek()
 class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
@@ -319,6 +307,8 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   bool SeekToColumnFamily(uint32_t column_family_id, Status* s) {
+    // We are only allowed to call this from a single-threaded write thread
+    // (or while holding DB mutex)
     bool found = cf_mems_->Seek(column_family_id);
     if (!found) {
       if (ignore_missing_column_families_) {
@@ -342,20 +332,19 @@ class MemTableInserter : public WriteBatch::Handler {
     return true;
   }
   virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+                       const Slice& value) override {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* ioptions = mem->GetImmutableOptions();
     auto* moptions = mem->GetMemTableOptions();
     if (!moptions->inplace_update_support) {
       mem->Add(sequence_, kTypeValue, key, value);
     } else if (moptions->inplace_callback == nullptr) {
       mem->Update(sequence_, key, value);
-      RecordTick(ioptions->statistics, NUMBER_KEYS_UPDATED);
+      RecordTick(moptions->statistics, NUMBER_KEYS_UPDATED);
     } else {
       if (mem->UpdateCallback(sequence_, key, value)) {
       } else {
@@ -375,18 +364,18 @@ class MemTableInserter : public WriteBatch::Handler {
         Status s = db_->Get(ropts, cf_handle, key, &prev_value);
 
         char* prev_buffer = const_cast<char*>(prev_value.c_str());
-        uint32_t prev_size = prev_value.size();
+        uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
         auto status = moptions->inplace_callback(s.ok() ? prev_buffer : nullptr,
                                                  s.ok() ? &prev_size : nullptr,
                                                  value, &merged_value);
         if (status == UpdateStatus::UPDATED_INPLACE) {
           // prev_value is updated in-place with final value.
           mem->Add(sequence_, kTypeValue, key, Slice(prev_buffer, prev_size));
-          RecordTick(ioptions->statistics, NUMBER_KEYS_WRITTEN);
+          RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         } else if (status == UpdateStatus::UPDATED) {
           // merged_value contains the final value.
           mem->Add(sequence_, kTypeValue, key, Slice(merged_value));
-          RecordTick(ioptions->statistics, NUMBER_KEYS_WRITTEN);
+          RecordTick(moptions->statistics, NUMBER_KEYS_WRITTEN);
         }
       }
     }
@@ -399,14 +388,13 @@ class MemTableInserter : public WriteBatch::Handler {
   }
 
   virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                         const Slice& value) override {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* ioptions = mem->GetImmutableOptions();
     auto* moptions = mem->GetMemTableOptions();
     bool perform_merge = false;
 
@@ -441,16 +429,16 @@ class MemTableInserter : public WriteBatch::Handler {
       Slice get_value_slice = Slice(get_value);
 
       // 2) Apply this merge
-      auto merge_operator = ioptions->merge_operator;
+      auto merge_operator = moptions->merge_operator;
       assert(merge_operator);
 
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
       if (!merge_operator->FullMerge(key, &get_value_slice, operands,
-                                     &new_value, ioptions->info_log)) {
+                                     &new_value, moptions->info_log)) {
           // Failed to merge!
-        RecordTick(ioptions->statistics, NUMBER_MERGE_FAILURES);
+        RecordTick(moptions->statistics, NUMBER_MERGE_FAILURES);
 
         // Store the delta in memtable
         perform_merge = false;
@@ -470,14 +458,14 @@ class MemTableInserter : public WriteBatch::Handler {
     return Status::OK();
   }
 
-  virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+  virtual Status DeleteCF(uint32_t column_family_id,
+                          const Slice& key) override {
     Status seek_status;
     if (!SeekToColumnFamily(column_family_id, &seek_status)) {
       ++sequence_;
       return seek_status;
     }
     MemTable* mem = cf_mems_->GetMemTable();
-    auto* ioptions = mem->GetImmutableOptions();
     auto* moptions = mem->GetMemTableOptions();
     if (!dont_filter_deletes_ && moptions->filter_deletes) {
       SnapshotImpl read_from_snapshot;
@@ -490,7 +478,7 @@ class MemTableInserter : public WriteBatch::Handler {
         cf_handle = db_->DefaultColumnFamily();
       }
       if (!db_->KeyMayExist(ropts, cf_handle, key, &value)) {
-        RecordTick(ioptions->statistics, NUMBER_FILTERED_DELETES);
+        RecordTick(moptions->statistics, NUMBER_FILTERED_DELETES);
         return Status::OK();
       }
     }
@@ -502,6 +490,11 @@ class MemTableInserter : public WriteBatch::Handler {
 };
 }  // namespace
 
+// This function can only be called in these conditions:
+// 1) During Recovery()
+// 2) during Write(), in a single-threaded write thread
+// The reason is that it calles ColumnFamilyMemTablesImpl::Seek(), which needs
+// to be called from a single-threaded write thread (or while holding DB mutex)
 Status WriteBatchInternal::InsertInto(const WriteBatch* b,
                                       ColumnFamilyMemTables* memtables,
                                       bool ignore_missing_column_families,

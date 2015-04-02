@@ -11,6 +11,7 @@
 #include "rocksdb/table_properties.h"
 #include "table/block.h"
 #include "table/format.h"
+#include "table/table_properties_internal.h"
 #include "util/coding.h"
 
 namespace rocksdb {
@@ -86,9 +87,9 @@ void LogPropertiesCollectionError(
   assert(method == "Add" || method == "Finish");
 
   std::string msg =
-    "[Warning] encountered error when calling TablePropertiesCollector::" +
+    "Encountered error when calling TablePropertiesCollector::" +
     method + "() with collector name: " + name;
-  Log(info_log, "%s", msg.c_str());
+  Log(InfoLogLevel::ERROR_LEVEL, info_log, "%s", msg.c_str());
 }
 
 bool NotifyCollectTableCollectorsOnAdd(
@@ -192,9 +193,9 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
       if (!GetVarint64(&raw_val, &val)) {
         // skip malformed value
         auto error_msg =
-          "[Warning] detect malformed value in properties meta-block:"
+          "Detect malformed value in properties meta-block:"
           "\tkey: " + key + "\tval: " + raw_val.ToString();
-        Log(logger, "%s", error_msg.c_str());
+        Log(InfoLogLevel::ERROR_LEVEL, logger, "%s", error_msg.c_str());
         continue;
       }
       *(pos->second) = val;
@@ -219,8 +220,8 @@ Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
                            uint64_t table_magic_number, Env* env,
                            Logger* info_log, TableProperties** properties) {
   // -- Read metaindex block
-  Footer footer(table_magic_number);
-  auto s = ReadFooterFromFile(file, file_size, &footer);
+  Footer footer;
+  auto s = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -273,8 +274,8 @@ Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
                      uint64_t table_magic_number, Env* env,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle) {
-  Footer footer(table_magic_number);
-  auto s = ReadFooterFromFile(file, file_size, &footer);
+  Footer footer;
+  auto s = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
   if (!s.ok()) {
     return s;
   }
@@ -301,8 +302,8 @@ Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
                      const std::string& meta_block_name,
                      BlockContents* contents) {
   Status status;
-  Footer footer(table_magic_number);
-  status = ReadFooterFromFile(file, file_size, &footer);
+  Footer footer;
+  status = ReadFooterFromFile(file, file_size, &footer, table_magic_number);
   if (!status.ok()) {
     return status;
   }

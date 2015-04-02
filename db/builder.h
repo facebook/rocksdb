@@ -26,11 +26,12 @@ class VersionEdit;
 class TableBuilder;
 class WritableFile;
 
-extern TableBuilder* NewTableBuilder(
-    const ImmutableCFOptions& options,
-    const InternalKeyComparator& internal_comparator,
-    WritableFile* file, const CompressionType compression_type,
-    const CompressionOptions& compression_opts);
+TableBuilder* NewTableBuilder(const ImmutableCFOptions& options,
+                              const InternalKeyComparator& internal_comparator,
+                              WritableFile* file,
+                              const CompressionType compression_type,
+                              const CompressionOptions& compression_opts,
+                              const bool skip_filters = false);
 
 // Build a Table file from the contents of *iter.  The generated file
 // will be named according to number specified in meta. On success, the rest of

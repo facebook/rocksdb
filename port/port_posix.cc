@@ -88,8 +88,8 @@ void CondVar::Wait() {
 
 bool CondVar::TimedWait(uint64_t abs_time_us) {
   struct timespec ts;
-  ts.tv_sec = abs_time_us / 1000000;
-  ts.tv_nsec = (abs_time_us % 1000000) * 1000;
+  ts.tv_sec = static_cast<time_t>(abs_time_us / 1000000);
+  ts.tv_nsec = static_cast<suseconds_t>((abs_time_us % 1000000) * 1000);
 
 #ifndef NDEBUG
   mu_->locked_ = false;

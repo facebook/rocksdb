@@ -7,10 +7,9 @@
 #if !defined(IOS_CROSS_COMPILE)
 // if we compile with Xcode, we don't run build_detect_vesion, so we don't
 // generate these variables
-// these variables tell us about the git config and time
+// this variable tells us about the git revision
 extern const char* rocksdb_build_git_sha;
 
-// these variables tell us when the compilation occurred
-extern const char* rocksdb_build_compile_time;
+// Date on which the code was compiled:
 extern const char* rocksdb_build_compile_date;
 #endif

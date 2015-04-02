@@ -47,11 +47,14 @@ public:
         " with 'put','get','scan','dump','query','batchput'"
         " : DB supports ttl and value is internally timestamp-suffixed\n");
     ret.append("  --" + LDBCommand::ARG_BLOOM_BITS + "=<int,e.g.:14>\n");
+    ret.append("  --" + LDBCommand::ARG_FIX_PREFIX_LEN + "=<int,e.g.:14>\n");
     ret.append("  --" + LDBCommand::ARG_COMPRESSION_TYPE +
         "=<no|snappy|zlib|bzip2>\n");
     ret.append("  --" + LDBCommand::ARG_BLOCK_SIZE +
         "=<block_size_in_bytes>\n");
     ret.append("  --" + LDBCommand::ARG_AUTO_COMPACTION + "=<true|false>\n");
+    ret.append("  --" + LDBCommand::ARG_DB_WRITE_BUFFER_SIZE +
+        "=<int,e.g.:16777216>\n");
     ret.append("  --" + LDBCommand::ARG_WRITE_BUFFER_SIZE +
         "=<int,e.g.:4194304>\n");
     ret.append("  --" + LDBCommand::ARG_FILE_SIZE + "=<int,e.g.:2097152>\n");
@@ -77,6 +80,7 @@ public:
     DBLoaderCommand::Help(ret);
     ManifestDumpCommand::Help(ret);
     ListColumnFamiliesCommand::Help(ret);
+    DBFileDumperCommand::Help(ret);
     InternalDumpCommand::Help(ret);
 
     fprintf(stderr, "%s\n", ret.c_str());

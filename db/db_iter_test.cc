@@ -19,7 +19,7 @@
 
 namespace rocksdb {
 
-static uint32_t TestGetTickerCount(const Options& options,
+static uint64_t TestGetTickerCount(const Options& options,
                                    Tickers ticker_type) {
   return options.statistics->getTickerCount(ticker_type);
 }
@@ -33,20 +33,23 @@ class TestIterator : public Iterator {
         iter_(0),
         cmp(comparator) {}
 
-  void AddMerge(std::string key, std::string value) {
-    Add(key, kTypeMerge, value);
+  void AddMerge(std::string argkey, std::string argvalue) {
+    Add(argkey, kTypeMerge, argvalue);
   }
 
-  void AddDeletion(std::string key) { Add(key, kTypeDeletion, std::string()); }
-
-  void AddPut(std::string key, std::string value) {
-    Add(key, kTypeValue, value);
+  void AddDeletion(std::string argkey) {
+    Add(argkey, kTypeDeletion, std::string());
   }
 
-  void Add(std::string key, ValueType type, std::string value) {
+  void AddPut(std::string argkey, std::string argvalue) {
+    Add(argkey, kTypeValue, argvalue);
+  }
+
+  void Add(std::string argkey, ValueType type, std::string argvalue) {
     valid_ = true;
-    ParsedInternalKey internal_key(key, sequence_number_++, type);
-    data_.push_back(std::pair<std::string, std::string>(std::string(), value));
+    ParsedInternalKey internal_key(argkey, sequence_number_++, type);
+    data_.push_back(
+        std::pair<std::string, std::string>(std::string(), argvalue));
     AppendInternalKey(&data_.back().first, internal_key);
   }
 
@@ -217,7 +220,6 @@ TEST(DBIteratorTest, DBIteratorPrevNext) {
   }
 
   {
-    Options options;
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     internal_iter->AddPut("a", "val_a");
     internal_iter->AddPut("b", "val_b");
@@ -254,7 +256,6 @@ TEST(DBIteratorTest, DBIteratorPrevNext) {
   }
 
   {
-    Options options;
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
     internal_iter->AddPut("a", "val_a");
     internal_iter->AddPut("a", "val_a");
@@ -364,8 +365,8 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddPut("c", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddPut("c", ToString(k));
       }
       internal_iter->Finish();
 
@@ -378,7 +379,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_TRUE(db_iter->Valid());
 
       ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), std::to_string(i));
+      ASSERT_EQ(db_iter->value().ToString(), ToString(i));
       db_iter->Prev();
       ASSERT_TRUE(db_iter->Valid());
 
@@ -400,7 +401,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
-      for (size_t i = 0; i < 200; ++i) {
+      for (size_t k = 0; k < 200; ++k) {
         internal_iter->AddDeletion("c");
       }
       internal_iter->AddPut("c", "200");
@@ -463,7 +464,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
   {
     for (size_t i = 0; i < 200; ++i) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      for (size_t i = 0; i < 200; ++i) {
+      for (size_t k = 0; k < 200; ++k) {
         internal_iter->AddDeletion("c");
       }
       internal_iter->AddPut("c", "200");
@@ -511,12 +512,12 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "merge_1");
       internal_iter->AddMerge("a", "merge_2");
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddPut("d", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddPut("d", ToString(k));
       }
 
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddPut("c", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddPut("c", ToString(k));
       }
       internal_iter->Finish();
 
@@ -528,7 +529,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_TRUE(db_iter->Valid());
 
       ASSERT_EQ(db_iter->key().ToString(), "d");
-      ASSERT_EQ(db_iter->value().ToString(), std::to_string(i));
+      ASSERT_EQ(db_iter->value().ToString(), ToString(i));
       db_iter->Prev();
       ASSERT_TRUE(db_iter->Valid());
 
@@ -550,8 +551,8 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       TestIterator* internal_iter = new TestIterator(BytewiseComparator());
       internal_iter->AddMerge("b", "b");
       internal_iter->AddMerge("a", "a");
-      for (size_t i = 0; i < 200; ++i) {
-        internal_iter->AddMerge("c", std::to_string(i));
+      for (size_t k = 0; k < 200; ++k) {
+        internal_iter->AddMerge("c", ToString(k));
       }
       internal_iter->Finish();
 
@@ -565,7 +566,7 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
       ASSERT_EQ(db_iter->key().ToString(), "c");
       std::string merge_result = "0";
       for (size_t j = 1; j <= i; ++j) {
-        merge_result += "," + std::to_string(j);
+        merge_result += "," + ToString(j);
       }
       ASSERT_EQ(db_iter->value().ToString(), merge_result);
 
@@ -585,832 +586,818 @@ TEST(DBIteratorTest, DBIteratorUseSkip) {
   }
 }
 
-TEST(DBIteratorTest, DBIterator) {
+TEST(DBIteratorTest, DBIterator1) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "0");
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddDeletion("b");
+  internal_iter->AddMerge("a", "1");
+  internal_iter->AddMerge("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter, 1,
+      options.max_sequential_skip_in_iterations));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "0");
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+}
+
+TEST(DBIteratorTest, DBIterator2) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "0");
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddDeletion("b");
+  internal_iter->AddMerge("a", "1");
+  internal_iter->AddMerge("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter, 0,
+      options.max_sequential_skip_in_iterations));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "0");
+  db_iter->Next();
+  ASSERT_TRUE(!db_iter->Valid());
+}
+
+TEST(DBIteratorTest, DBIterator3) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "0");
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddDeletion("b");
+  internal_iter->AddMerge("a", "1");
+  internal_iter->AddMerge("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter, 2,
+      options.max_sequential_skip_in_iterations));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "0");
+  db_iter->Next();
+  ASSERT_TRUE(!db_iter->Valid());
+}
+TEST(DBIteratorTest, DBIterator4) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "0");
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddDeletion("b");
+  internal_iter->AddMerge("a", "1");
+  internal_iter->AddMerge("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter, 4,
+      options.max_sequential_skip_in_iterations));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "0,1");
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+  db_iter->Next();
+  ASSERT_TRUE(!db_iter->Valid());
+}
+
+TEST(DBIteratorTest, DBIterator5) {
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
   {
     TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "0");
-    internal_iter->AddPut("b", "0");
-    internal_iter->AddDeletion("b");
-    internal_iter->AddMerge("a", "1");
-    internal_iter->AddMerge("b", "2");
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
     internal_iter->Finish();
 
-    std::unique_ptr<Iterator> db_iter(
-        NewDBIterator(env_, ImmutableCFOptions(options),
-                      BytewiseComparator(), internal_iter, 1,
-                      options.max_sequential_skip_in_iterations));
-    db_iter->SeekToFirst();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "0");
-    db_iter->Next();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-  }
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "0");
-    internal_iter->AddPut("b", "0");
-    internal_iter->AddDeletion("b");
-    internal_iter->AddMerge("a", "1");
-    internal_iter->AddMerge("b", "2");
-    internal_iter->Finish();
-
-    std::unique_ptr<Iterator> db_iter(
-        NewDBIterator(env_, ImmutableCFOptions(options),
-                      BytewiseComparator(), internal_iter, 0,
-                      options.max_sequential_skip_in_iterations));
-    db_iter->SeekToFirst();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "0");
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "0");
-    internal_iter->AddPut("b", "0");
-    internal_iter->AddDeletion("b");
-    internal_iter->AddMerge("a", "1");
-    internal_iter->AddMerge("b", "2");
-    internal_iter->Finish();
-
-    std::unique_ptr<Iterator> db_iter(
-        NewDBIterator(env_, ImmutableCFOptions(options),
-                      BytewiseComparator(), internal_iter, 2,
-                      options.max_sequential_skip_in_iterations));
-    db_iter->SeekToFirst();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "0");
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-
-  {
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddPut("a", "0");
-    internal_iter->AddPut("b", "0");
-    internal_iter->AddDeletion("b");
-    internal_iter->AddMerge("a", "1");
-    internal_iter->AddMerge("b", "2");
-    internal_iter->Finish();
-
-    std::unique_ptr<Iterator> db_iter(
-        NewDBIterator(env_, ImmutableCFOptions(options),
-                      BytewiseComparator(), internal_iter, 4,
-                      options.max_sequential_skip_in_iterations));
-    db_iter->SeekToFirst();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "0,1");
-    db_iter->Next();
-    ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "2");
-    db_iter->Next();
-    ASSERT_TRUE(!db_iter->Valid());
-  }
-
-  {
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 0,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 1,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 2,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 3,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "put_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 4,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 5,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddPut("a", "put_1");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 6,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5,merge_6");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-  }
-
-  {
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 0,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 1,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 2,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 3,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 4,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 5,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddMerge("a", "merge_2");
-      internal_iter->AddMerge("a", "merge_3");
-      internal_iter->AddDeletion("a");
-      internal_iter->AddMerge("a", "merge_4");
-      internal_iter->AddMerge("a", "merge_5");
-      internal_iter->AddMerge("a", "merge_6");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 6,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5,merge_6");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-  }
-
-  {
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 0,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 2,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(), "val,merge_2");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 4,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_3");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 5,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4");
-      db_iter->Prev();
-
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_3");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 6,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_3");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 7,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(
-          NewDBIterator(env_, ImmutableCFOptions(options),
-                        BytewiseComparator(), internal_iter, 9,
-                        options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_6,merge_7");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ImmutableCFOptions(options),
-          BytewiseComparator(), internal_iter, 13,
-          options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "c");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_TRUE(db_iter->Valid());
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(),
-                "merge_6,merge_7,merge_8,merge_9,merge_10,merge_11");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-
-    {
-      TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-      internal_iter->AddMerge("a", "merge_1");
-      internal_iter->AddPut("b", "val");
-      internal_iter->AddMerge("b", "merge_2");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_3");
-
-      internal_iter->AddMerge("c", "merge_4");
-      internal_iter->AddMerge("c", "merge_5");
-
-      internal_iter->AddDeletion("b");
-      internal_iter->AddMerge("b", "merge_6");
-      internal_iter->AddMerge("b", "merge_7");
-      internal_iter->AddMerge("b", "merge_8");
-      internal_iter->AddMerge("b", "merge_9");
-      internal_iter->AddMerge("b", "merge_10");
-      internal_iter->AddMerge("b", "merge_11");
-
-      internal_iter->AddDeletion("c");
-      internal_iter->Finish();
-
-      std::unique_ptr<Iterator> db_iter(NewDBIterator(
-          env_, ImmutableCFOptions(options),
-          BytewiseComparator(), internal_iter, 14,
-          options.max_sequential_skip_in_iterations));
-      db_iter->SeekToLast();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "b");
-      ASSERT_EQ(db_iter->value().ToString(),
-                "merge_6,merge_7,merge_8,merge_9,merge_10,merge_11");
-      db_iter->Prev();
-      ASSERT_TRUE(db_iter->Valid());
-
-      ASSERT_EQ(db_iter->key().ToString(), "a");
-      ASSERT_EQ(db_iter->value().ToString(), "merge_1");
-      db_iter->Prev();
-      ASSERT_TRUE(!db_iter->Valid());
-    }
-  }
-
-  {
-    Options options;
-    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
-    internal_iter->AddDeletion("a");
-    internal_iter->AddPut("a", "0");
-    internal_iter->AddPut("b", "0");
-    internal_iter->Finish();
-
-    std::unique_ptr<Iterator> db_iter(
-        NewDBIterator(env_, ImmutableCFOptions(options),
-                      BytewiseComparator(), internal_iter, 10,
-                      options.max_sequential_skip_in_iterations));
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        0, options.max_sequential_skip_in_iterations));
     db_iter->SeekToLast();
     ASSERT_TRUE(db_iter->Valid());
-    ASSERT_EQ(db_iter->key().ToString(), "b");
-    ASSERT_EQ(db_iter->value().ToString(), "0");
-
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
     db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        1, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
     ASSERT_TRUE(db_iter->Valid());
     ASSERT_EQ(db_iter->key().ToString(), "a");
-    ASSERT_EQ(db_iter->value().ToString(), "0");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
   }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        2, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        3, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "put_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        4, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        5, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddPut("a", "put_1");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        6, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "put_1,merge_4,merge_5,merge_6");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+}
+
+TEST(DBIteratorTest, DBIterator6) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        0, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        1, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        2, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2,merge_3");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        3, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        4, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        5, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("a", "merge_3");
+    internal_iter->AddDeletion("a");
+    internal_iter->AddMerge("a", "merge_4");
+    internal_iter->AddMerge("a", "merge_5");
+    internal_iter->AddMerge("a", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        6, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5,merge_6");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+}
+
+TEST(DBIteratorTest, DBIterator7) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        0, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        2, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "val,merge_2");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        4, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        5, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4");
+    db_iter->Prev();
+
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        6, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        7, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        9, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_6,merge_7");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        13, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "c");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_4,merge_5");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(),
+              "merge_6,merge_7,merge_8,merge_9,merge_10,merge_11");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddPut("b", "val");
+    internal_iter->AddMerge("b", "merge_2");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_3");
+
+    internal_iter->AddMerge("c", "merge_4");
+    internal_iter->AddMerge("c", "merge_5");
+
+    internal_iter->AddDeletion("b");
+    internal_iter->AddMerge("b", "merge_6");
+    internal_iter->AddMerge("b", "merge_7");
+    internal_iter->AddMerge("b", "merge_8");
+    internal_iter->AddMerge("b", "merge_9");
+    internal_iter->AddMerge("b", "merge_10");
+    internal_iter->AddMerge("b", "merge_11");
+
+    internal_iter->AddDeletion("c");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        14, options.max_sequential_skip_in_iterations));
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(),
+              "merge_6,merge_7,merge_8,merge_9,merge_10,merge_11");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1");
+    db_iter->Prev();
+    ASSERT_TRUE(!db_iter->Valid());
+  }
+}
+TEST(DBIteratorTest, DBIterator8) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddDeletion("a");
+  internal_iter->AddPut("a", "0");
+  internal_iter->AddPut("b", "0");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+      10, options.max_sequential_skip_in_iterations));
+  db_iter->SeekToLast();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "0");
+
+  db_iter->Prev();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "0");
 }
 
 }  // namespace rocksdb

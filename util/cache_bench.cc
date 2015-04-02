@@ -122,10 +122,8 @@ struct ThreadState {
   Random rnd;
   SharedState* shared;
 
-  ThreadState(uint32_t index, SharedState *shared)
-      : tid(index),
-        rnd(1000 + index),
-        shared(shared) {}
+  ThreadState(uint32_t index, SharedState* _shared)
+      : tid(index), rnd(1000 + index), shared(_shared) {}
 };
 }  // namespace
 

@@ -20,17 +20,15 @@ namespace rocksdb {
 class IteratorWrapper {
  public:
   IteratorWrapper(): iter_(nullptr), valid_(false) { }
-  explicit IteratorWrapper(Iterator* iter): iter_(nullptr) {
-    Set(iter);
-  }
+  explicit IteratorWrapper(Iterator* _iter) : iter_(nullptr) { Set(_iter); }
   ~IteratorWrapper() {}
   Iterator* iter() const { return iter_; }
 
   // Takes ownership of "iter" and will delete it when destroyed, or
   // when Set() is invoked again.
-  void Set(Iterator* iter) {
+  void Set(Iterator* _iter) {
     delete iter_;
-    iter_ = iter;
+    iter_ = _iter;
     if (iter_ == nullptr) {
       valid_ = false;
     } else {

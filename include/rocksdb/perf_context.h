@@ -52,6 +52,10 @@ struct PerfContext {
   // total time spent after Get() finds a key
   uint64_t get_post_process_time;
   uint64_t get_from_output_files_time; // total time reading from output files
+  // total time spent on seeking memtable
+  uint64_t seek_on_memtable_time;
+  // number of seeks issued on memtable
+  uint64_t seek_on_memtable_count;
   // total time spent on seeking child iters
   uint64_t seek_child_seek_time;
   // number of seek issued in child iterators
@@ -66,6 +70,9 @@ struct PerfContext {
   uint64_t write_wal_time;            // total time spent on writing to WAL
   // total time spent on writing to mem tables
   uint64_t write_memtable_time;
+  uint64_t db_mutex_lock_nanos;      // time spent on acquiring DB mutex.
+  // Time spent on waiting with a condition variable created with DB mutex.
+  uint64_t db_condition_wait_nanos;
 };
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)

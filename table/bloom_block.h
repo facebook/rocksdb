@@ -18,9 +18,10 @@ class BloomBlockBuilder {
   explicit BloomBlockBuilder(uint32_t num_probes = 6)
       : bloom_(num_probes, nullptr) {}
 
-  void SetTotalBits(Arena* arena, uint32_t total_bits, uint32_t locality,
-                    size_t huge_page_tlb_size, Logger* logger) {
-    bloom_.SetTotalBits(arena, total_bits, locality, huge_page_tlb_size,
+  void SetTotalBits(Allocator* allocator, uint32_t total_bits,
+                    uint32_t locality, size_t huge_page_tlb_size,
+                    Logger* logger) {
+    bloom_.SetTotalBits(allocator, total_bits, locality, huge_page_tlb_size,
                         logger);
   }
 

@@ -202,8 +202,18 @@ std::vector<Status> DBWithTTLImpl::MultiGet(
     const ReadOptions& options,
     const std::vector<ColumnFamilyHandle*>& column_family,
     const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  return std::vector<Status>(
-      keys.size(), Status::NotSupported("MultiGet not supported with TTL"));
+  auto statuses = db_->MultiGet(options, column_family, keys, values);
+  for (size_t i = 0; i < keys.size(); ++i) {
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    statuses[i] = SanityCheckTimestamp((*values)[i]);
+    if (!statuses[i].ok()) {
+      continue;
+    }
+    statuses[i] = StripTS(&(*values)[i]);
+  }
+  return statuses;
 }
 
 bool DBWithTTLImpl::KeyMayExist(const ReadOptions& options,
@@ -234,7 +244,7 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
     WriteBatch updates_ttl;
     Status batch_rewrite_status;
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                         const Slice& value) override {
       std::string value_with_ts;
       Status st = AppendTS(value, &value_with_ts, env_);
       if (!st.ok()) {
@@ -246,7 +256,7 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                           const Slice& value) {
+                           const Slice& value) override {
       std::string value_with_ts;
       Status st = AppendTS(value, &value_with_ts, env_);
       if (!st.ok()) {
@@ -257,11 +267,14 @@ Status DBWithTTLImpl::Write(const WriteOptions& opts, WriteBatch* updates) {
       }
       return Status::OK();
     }
-    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
       WriteBatchInternal::Delete(&updates_ttl, column_family_id, key);
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) { updates_ttl.PutLogData(blob); }
+    virtual void LogData(const Slice& blob) override {
+      updates_ttl.PutLogData(blob);
+    }
 
    private:
     Env* env_;

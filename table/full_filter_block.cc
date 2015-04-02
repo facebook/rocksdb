@@ -12,11 +12,10 @@
 namespace rocksdb {
 
 FullFilterBlockBuilder::FullFilterBlockBuilder(
-    const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt,
+    const SliceTransform* prefix_extractor, bool whole_key_filtering,
     FilterBitsBuilder* filter_bits_builder)
     : prefix_extractor_(prefix_extractor),
-      whole_key_filtering_(table_opt.whole_key_filtering),
+      whole_key_filtering_(whole_key_filtering),
       num_added_(0) {
   assert(filter_bits_builder != nullptr);
   filter_bits_builder_.reset(filter_bits_builder);
@@ -53,22 +52,20 @@ Slice FullFilterBlockBuilder::Finish() {
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
-    const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, const Slice& contents,
-    FilterBitsReader* filter_bits_reader)
+    const SliceTransform* prefix_extractor, bool whole_key_filtering,
+    const Slice& contents, FilterBitsReader* filter_bits_reader)
     : prefix_extractor_(prefix_extractor),
-      whole_key_filtering_(table_opt.whole_key_filtering),
+      whole_key_filtering_(whole_key_filtering),
       contents_(contents) {
   assert(filter_bits_reader != nullptr);
   filter_bits_reader_.reset(filter_bits_reader);
 }
 
 FullFilterBlockReader::FullFilterBlockReader(
-    const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, BlockContents&& contents,
-    FilterBitsReader* filter_bits_reader)
-    : FullFilterBlockReader(prefix_extractor, table_opt, contents.data,
-                            filter_bits_reader) {
+    const SliceTransform* prefix_extractor, bool whole_key_filtering,
+    BlockContents&& contents, FilterBitsReader* filter_bits_reader)
+    : FullFilterBlockReader(prefix_extractor, whole_key_filtering,
+                            contents.data, filter_bits_reader) {
   block_contents_ = std::move(contents);
 }
 

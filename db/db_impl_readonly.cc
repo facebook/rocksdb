@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+
 #include "db/db_impl_readonly.h"
 #include "utilities/compacted_db/compacted_db_impl.h"
 #include "db/db_impl.h"
@@ -11,6 +12,8 @@
 #include "util/perf_context_imp.h"
 
 namespace rocksdb {
+
+#ifndef ROCKSDB_LITE
 
 DBImplReadOnly::DBImplReadOnly(const DBOptions& db_options,
                                const std::string& dbname)
@@ -53,7 +56,7 @@ Iterator* DBImplReadOnly::NewIterator(const ReadOptions& read_options,
            ? reinterpret_cast<const SnapshotImpl*>(
                 read_options.snapshot)->number_
            : latest_snapshot),
-      cfd->options()->max_sequential_skip_in_iterations);
+      super_version->mutable_cf_options.max_sequential_skip_in_iterations);
   auto internal_iter = NewInternalIterator(
       read_options, cfd, super_version, db_iter->GetArena());
   db_iter->SetIterUnderDBIter(internal_iter);
@@ -72,16 +75,17 @@ Status DBImplReadOnly::NewIterators(
   SequenceNumber latest_snapshot = versions_->LastSequence();
 
   for (auto cfh : column_families) {
-    auto cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
-    auto db_iter = NewArenaWrappedDbIterator(
+    auto* cfd = reinterpret_cast<ColumnFamilyHandleImpl*>(cfh)->cfd();
+    auto* sv = cfd->GetSuperVersion()->Ref();
+    auto* db_iter = NewArenaWrappedDbIterator(
         env_, *cfd->ioptions(), cfd->user_comparator(),
         (read_options.snapshot != nullptr
             ? reinterpret_cast<const SnapshotImpl*>(
                   read_options.snapshot)->number_
             : latest_snapshot),
-        cfd->options()->max_sequential_skip_in_iterations);
-    auto internal_iter = NewInternalIterator(
-        read_options, cfd, cfd->GetSuperVersion()->Ref(), db_iter->GetArena());
+        sv->mutable_cf_options.max_sequential_skip_in_iterations);
+    auto* internal_iter = NewInternalIterator(
+        read_options, cfd, sv, db_iter->GetArena());
     db_iter->SetIterUnderDBIter(internal_iter);
     iterators->push_back(db_iter);
   }
@@ -95,12 +99,10 @@ Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
 
   // Try to first open DB as fully compacted DB
   Status s;
-#ifndef ROCKSDB_LITE
   s = CompactedDBImpl::Open(options, dbname, dbptr);
   if (s.ok()) {
     return s;
   }
-#endif
 
   DBOptions db_options(options);
   ColumnFamilyOptions cf_options(options);
@@ -151,6 +153,10 @@ Status DB::OpenForReadOnly(
   impl->mutex_.Unlock();
   if (s.ok()) {
     *dbptr = impl;
+    for (auto* h : *handles) {
+      impl->NewThreadStatusCfInfo(
+          reinterpret_cast<ColumnFamilyHandleImpl*>(h)->cfd());
+    }
   } else {
     for (auto h : *handles) {
       delete h;
@@ -161,5 +167,20 @@ Status DB::OpenForReadOnly(
   return s;
 }
 
+#else  // !ROCKSDB_LITE
+
+Status DB::OpenForReadOnly(const Options& options, const std::string& dbname,
+                           DB** dbptr, bool error_if_log_file_exist) {
+  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
+}
+
+Status DB::OpenForReadOnly(
+    const DBOptions& db_options, const std::string& dbname,
+    const std::vector<ColumnFamilyDescriptor>& column_families,
+    std::vector<ColumnFamilyHandle*>* handles, DB** dbptr,
+    bool error_if_log_file_exist) {
+  return Status::NotSupported("Not supported in ROCKSDB_LITE.");
+}
+#endif  // !ROCKSDB_LITE
 
 }   // namespace rocksdb

@@ -158,20 +158,20 @@ class PlainTableFactory : public TableFactory {
       const InternalKeyComparator& internal_comparator,
       unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table) const override;
-  TableBuilder* NewTableBuilder(
-      const ImmutableCFOptions& options,
-      const InternalKeyComparator& icomparator,
-      WritableFile* file,
-      const CompressionType,
-      const CompressionOptions&) const override;
+  TableBuilder* NewTableBuilder(const ImmutableCFOptions& options,
+                                const InternalKeyComparator& icomparator,
+                                WritableFile* file, const CompressionType,
+                                const CompressionOptions&,
+                                const bool skip_filters = false) const override;
 
   std::string GetPrintableTableOptions() const override;
 
   static const char kValueTypeSeqId0 = 0xFF;
 
   // Sanitizes the specified DB Options.
-  Status SanitizeDBOptions(const DBOptions* db_opts) const override {
-    if (db_opts->allow_mmap_reads == false) {
+  Status SanitizeOptions(const DBOptions& db_opts,
+                         const ColumnFamilyOptions& cf_opts) const override {
+    if (db_opts.allow_mmap_reads == false) {
       return Status::NotSupported(
           "PlainTable with allow_mmap_reads == false is not supported.");
     }

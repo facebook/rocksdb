@@ -44,8 +44,8 @@ void StatisticsImpl::histogramData(uint32_t histogramType,
                                    HistogramData* const data) const {
   assert(
     enable_internal_stats_ ?
-      histogramType < INTERNAL_TICKER_ENUM_MAX :
-      histogramType < TICKER_ENUM_MAX);
+      histogramType < INTERNAL_HISTOGRAM_ENUM_MAX :
+      histogramType < HISTOGRAM_ENUM_MAX);
   // Return its own ticker version
   histograms_[histogramType].Data(data);
 }

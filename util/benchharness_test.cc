@@ -10,35 +10,35 @@
 namespace rocksdb {
 
 BENCHMARK(insertFrontVector) {
-  std::vector<int> v;
-  for (int i = 0; i < 100; i++) {
+  std::vector<size_t> v;
+  for (size_t i = 0; i < 100; i++) {
     v.insert(v.begin(), i);
   }
 }
 
 BENCHMARK_RELATIVE(insertBackVector) {
-  std::vector<int> v;
+  std::vector<size_t> v;
   for (size_t i = 0; i < 100; i++) {
     v.insert(v.end(), i);
   }
 }
 
 BENCHMARK_N(insertFrontVector_n, n) {
-  std::vector<int> v;
+  std::vector<size_t> v;
   for (size_t i = 0; i < n; i++) {
     v.insert(v.begin(), i);
   }
 }
 
 BENCHMARK_RELATIVE_N(insertBackVector_n, n) {
-  std::vector<int> v;
+  std::vector<size_t> v;
   for (size_t i = 0; i < n; i++) {
     v.insert(v.end(), i);
   }
 }
 
 BENCHMARK_N(insertFrontEnd_n, n) {
-  std::vector<int> v;
+  std::vector<size_t> v;
   for (size_t i = 0; i < n; i++) {
     v.insert(v.begin(), i);
   }
@@ -48,7 +48,7 @@ BENCHMARK_N(insertFrontEnd_n, n) {
 }
 
 BENCHMARK_RELATIVE_N(insertFrontEndSuspend_n, n) {
-  std::vector<int> v;
+  std::vector<size_t> v;
   for (size_t i = 0; i < n; i++) {
     v.insert(v.begin(), i);
   }

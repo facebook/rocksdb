@@ -26,15 +26,14 @@ class ColumnFamilyMemTables {
   // been processed)
   virtual uint64_t GetLogNumber() const = 0;
   virtual MemTable* GetMemTable() const = 0;
-  virtual const Options* GetOptions() const = 0;
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
   virtual void CheckMemtableFull() = 0;
 };
 
 class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
  public:
-  ColumnFamilyMemTablesDefault(MemTable* mem, const Options* options)
-      : ok_(false), mem_(mem), options_(options) {}
+  explicit ColumnFamilyMemTablesDefault(MemTable* mem)
+      : ok_(false), mem_(mem) {}
 
   bool Seek(uint32_t column_family_id) override {
     ok_ = (column_family_id == 0);
@@ -48,11 +47,6 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
     return mem_;
   }
 
-  const Options* GetOptions() const override {
-    assert(ok_);
-    return options_;
-  }
-
   ColumnFamilyHandle* GetColumnFamilyHandle() override { return nullptr; }
 
   void CheckMemtableFull() override {}
@@ -60,7 +54,6 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
  private:
   bool ok_;
   MemTable* mem_;
-  const Options* const options_;
 };
 
 // WriteBatchInternal provides static methods for manipulating a

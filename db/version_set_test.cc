@@ -14,15 +14,15 @@
 
 namespace rocksdb {
 
-class GenerateFileLevelTest {
+class GenerateLevelFilesBriefTest {
  public:
   std::vector<FileMetaData*> files_;
-  FileLevel file_level_;
+  LevelFilesBrief file_level_;
   Arena arena_;
 
-  GenerateFileLevelTest() { }
+  GenerateLevelFilesBriefTest() { }
 
-  ~GenerateFileLevelTest() {
+  ~GenerateLevelFilesBriefTest() {
     for (unsigned int i = 0; i < files_.size(); i++) {
       delete files_[i];
     }
@@ -49,33 +49,176 @@ class GenerateFileLevelTest {
   }
 };
 
-TEST(GenerateFileLevelTest, Empty) {
-  DoGenerateFileLevel(&file_level_, files_, &arena_);
+TEST(GenerateLevelFilesBriefTest, Empty) {
+  DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(0u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
-TEST(GenerateFileLevelTest, Single) {
+TEST(GenerateLevelFilesBriefTest, Single) {
   Add("p", "q");
-  DoGenerateFileLevel(&file_level_, files_, &arena_);
+  DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(1u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
 
-TEST(GenerateFileLevelTest, Multiple) {
+TEST(GenerateLevelFilesBriefTest, Multiple) {
   Add("150", "200");
   Add("200", "250");
   Add("300", "350");
   Add("400", "450");
-  DoGenerateFileLevel(&file_level_, files_, &arena_);
+  DoGenerateLevelFilesBrief(&file_level_, files_, &arena_);
   ASSERT_EQ(4u, file_level_.num_files);
   ASSERT_EQ(0, Compare());
 }
 
+class CountingLogger : public Logger {
+ public:
+  CountingLogger() : log_count(0) {}
+  using Logger::Logv;
+  virtual void Logv(const char* format, va_list ap) override { log_count++; }
+  int log_count;
+};
+
+Options GetOptionsWithNumLevels(int num_levels,
+                                std::shared_ptr<CountingLogger> logger) {
+  Options opt;
+  opt.num_levels = num_levels;
+  opt.info_log = logger;
+  return opt;
+}
+
+class VersionStorageInfoTest {
+ public:
+  const Comparator* ucmp_;
+  InternalKeyComparator icmp_;
+  std::shared_ptr<CountingLogger> logger_;
+  Options options_;
+  ImmutableCFOptions ioptions_;
+  MutableCFOptions mutable_cf_options_;
+  VersionStorageInfo vstorage_;
+
+  InternalKey GetInternalKey(const char* ukey,
+                             SequenceNumber smallest_seq = 100) {
+    return InternalKey(ukey, smallest_seq, kTypeValue);
+  }
+
+  VersionStorageInfoTest()
+      : ucmp_(BytewiseComparator()),
+        icmp_(ucmp_),
+        logger_(new CountingLogger()),
+        options_(GetOptionsWithNumLevels(6, logger_)),
+        ioptions_(options_),
+        mutable_cf_options_(options_, ioptions_),
+        vstorage_(&icmp_, ucmp_, 6, kCompactionStyleLevel, nullptr) {}
+
+  ~VersionStorageInfoTest() {
+    for (int i = 0; i < vstorage_.num_levels(); i++) {
+      for (auto* f : vstorage_.LevelFiles(i)) {
+        if (--f->refs == 0) {
+          delete f;
+        }
+      }
+    }
+  }
+
+  void Add(int level, uint32_t file_number, const char* smallest,
+           const char* largest, uint64_t file_size = 0) {
+    assert(level < vstorage_.num_levels());
+    FileMetaData* f = new FileMetaData;
+    f->fd = FileDescriptor(file_number, 0, file_size);
+    f->smallest = GetInternalKey(smallest, 0);
+    f->largest = GetInternalKey(largest, 0);
+    f->compensated_file_size = file_size;
+    f->refs = 0;
+    f->num_entries = 0;
+    f->num_deletions = 0;
+    vstorage_.AddFile(level, f);
+  }
+};
+
+TEST(VersionStorageInfoTest, MaxBytesForLevelStatic) {
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  mutable_cf_options_.max_bytes_for_level_base = 10;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  Add(4, 100U, "1", "2");
+  Add(5, 101U, "1", "2");
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 10U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 50U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 250U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1250U);
+
+  ASSERT_EQ(0, logger_->log_count);
+}
+
+TEST(VersionStorageInfoTest, MaxBytesForLevelDynamic) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 5;
+  Add(5, 1U, "1", "2", 500U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(vstorage_.base_level(), 5);
+
+  Add(5, 2U, "3", "4", 550U);
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 210U);
+  ASSERT_EQ(vstorage_.base_level(), 4);
+
+  Add(4, 3U, "3", "4", 550U);
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(0, logger_->log_count);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 210U);
+  ASSERT_EQ(vstorage_.base_level(), 4);
+
+  Add(3, 4U, "3", "4", 250U);
+  Add(3, 5U, "5", "7", 300U);
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(1, logger_->log_count);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 1005U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 201U);
+  ASSERT_EQ(vstorage_.base_level(), 3);
+
+  Add(1, 6U, "3", "4", 5U);
+  Add(1, 7U, "8", "9", 5U);
+  logger_->log_count = 0;
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(1, logger_->log_count);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(4), 1005U);
+  ASSERT_GT(vstorage_.MaxBytesForLevel(3), 1005U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 1005U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 201U);
+  ASSERT_EQ(vstorage_.base_level(), 1);
+}
+
+TEST(VersionStorageInfoTest, MaxBytesForLevelDynamicLotsOfData) {
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 100;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 2;
+  Add(0, 1U, "1", "2", 50U);
+  Add(1, 2U, "1", "2", 50U);
+  Add(2, 3U, "1", "2", 500U);
+  Add(3, 4U, "1", "2", 500U);
+  Add(4, 5U, "1", "2", 1700U);
+  Add(5, 6U, "1", "2", 500U);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 800U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 400U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 200U);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(1), 100U);
+  ASSERT_EQ(vstorage_.base_level(), 1);
+  ASSERT_EQ(0, logger_->log_count);
+}
+
 class FindLevelFileTest {
  public:
-  FileLevel file_level_;
+  LevelFilesBrief file_level_;
   bool disjoint_sorted_files_;
   Arena arena_;
 

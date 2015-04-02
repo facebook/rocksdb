@@ -67,7 +67,7 @@ class DocumentDBTest {
 TEST(DocumentDBTest, SimpleQueryTest) {
   DocumentDBOptions options;
   DocumentDB::IndexDescriptor index;
-  index.description = Parse("{'name': 1}");
+  index.description = Parse("{\"name\": 1}");
   index.name = "name_index";
 
   ASSERT_OK(DocumentDB::Open(options, dbname_, {}, &db_));
@@ -78,8 +78,8 @@ TEST(DocumentDBTest, SimpleQueryTest) {
   delete index.description;
 
   std::vector<std::string> json_objects = {
-      "{'_id': 1, 'name': 'One'}",   "{'_id': 2, 'name': 'Two'}",
-      "{'_id': 3, 'name': 'Three'}", "{'_id': 4, 'name': 'Four'}"};
+      "{\"_id\': 1, \"name\": \"One\"}",   "{\"_id\": 2, \"name\": \"Two\"}",
+      "{\"_id\": 3, \"name\": \"Three\"}", "{\"_id\": 4, \"name\": \"Four\"}"};
 
   for (auto& json : json_objects) {
     std::unique_ptr<JSONDocument> document(Parse(json));
@@ -164,7 +164,9 @@ TEST(DocumentDBTest, ComplexQueryTest) {
       "{'_id': 8, 'job_name': 'rock', 'priority': 3, 'progress': 93.24}",
       "{'_id': 9, 'job_name': 'steady', 'priority': 3, 'progress': 9.1}",
       "{'_id': 10, 'job_name': 'white', 'priority': 1, 'progress': 61.4}",
-      "{'_id': 11, 'job_name': 'who', 'priority': 4, 'progress': 39.41}", };
+      "{'_id': 11, 'job_name': 'who', 'priority': 4, 'progress': 39.41}",
+      "{'_id': 12, 'job_name': 'who', 'priority': -1, 'progress': 39.42}",
+      "{'_id': 13, 'job_name': 'who', 'priority': -2, 'progress': 39.42}", };
 
   // add index on the fly!
   CreateIndexes({job_name_index});
@@ -183,6 +185,15 @@ TEST(DocumentDBTest, ComplexQueryTest) {
         "10.0}, '$index': 'priority'}}]"));
     std::unique_ptr<Cursor> cursor(db_->Query(ReadOptions(), *query));
     AssertCursorIDs(cursor.get(), {4, 8});
+  }
+
+  // -1 <= priority <= 1, index priority
+  {
+    std::unique_ptr<JSONDocument> query(Parse(
+        "[{'$filter': {'priority': {'$lte': 1, '$gte': -1},"
+        " '$index': 'priority'}}]"));
+    std::unique_ptr<Cursor> cursor(db_->Query(ReadOptions(), *query));
+    AssertCursorIDs(cursor.get(), {6, 10, 12});
   }
 
   // 2 < priority < 4 AND progress > 10.0, index progress
@@ -209,7 +220,7 @@ TEST(DocumentDBTest, ComplexQueryTest) {
         "[{'$filter': {'progress': {'$gt': 5.0, '$gte': 35.0, '$lt': 65.5}, "
         "'$index': 'progress'}}]"));
     std::unique_ptr<Cursor> cursor(db_->Query(ReadOptions(), *query));
-    AssertCursorIDs(cursor.get(), {2, 5, 10, 11});
+    AssertCursorIDs(cursor.get(), {2, 5, 10, 11, 12, 13});
   }
 
   // 2 < priority <= 4, index priority
@@ -242,6 +253,53 @@ TEST(DocumentDBTest, ComplexQueryTest) {
     std::unique_ptr<JSONDocument> query(Parse("{'job_name': 'white'}"));
     std::unique_ptr<JSONDocument> update(Parse("{'$set': {'priority': 10}}"));
     ASSERT_OK(db_->Update(ReadOptions(), WriteOptions(), *query, *update));
+  }
+
+  // update twice: set priority to 15 where job_name is 'white'
+  {
+    std::unique_ptr<JSONDocument> query(Parse("{'job_name': 'white'}"));
+    std::unique_ptr<JSONDocument> update(Parse("{'$set': {'priority': 10},"
+                                               "'$set': {'priority': 15}}"));
+    ASSERT_OK(db_->Update(ReadOptions(), WriteOptions(), *query, *update));
+  }
+
+  // update twice: set priority to 15 and
+  // progress to 40 where job_name is 'white'
+  {
+    std::unique_ptr<JSONDocument> query(Parse("{'job_name': 'white'}"));
+    std::unique_ptr<JSONDocument> update(
+        Parse("{'$set': {'priority': 10, 'progress': 35},"
+              "'$set': {'priority': 15, 'progress': 40}}"));
+    ASSERT_OK(db_->Update(ReadOptions(), WriteOptions(), *query, *update));
+  }
+
+  // priority < 0
+  {
+    std::unique_ptr<JSONDocument> query(
+        Parse("[{'$filter': {'priority': {'$lt': 0}, '$index': 'priority'}}]"));
+    std::unique_ptr<Cursor> cursor(db_->Query(ReadOptions(), *query));
+    ASSERT_OK(cursor->status());
+    AssertCursorIDs(cursor.get(), {12, 13});
+  }
+
+  // -2 < priority < 0
+  {
+    std::unique_ptr<JSONDocument> query(
+        Parse("[{'$filter': {'priority': {'$gt': -2, '$lt': 0},"
+        " '$index': 'priority'}}]"));
+    std::unique_ptr<Cursor> cursor(db_->Query(ReadOptions(), *query));
+    ASSERT_OK(cursor->status());
+    AssertCursorIDs(cursor.get(), {12});
+  }
+
+  // -2 <= priority < 0
+  {
+    std::unique_ptr<JSONDocument> query(
+        Parse("[{'$filter': {'priority': {'$gte': -2, '$lt': 0},"
+        " '$index': 'priority'}}]"));
+    std::unique_ptr<Cursor> cursor(db_->Query(ReadOptions(), *query));
+    ASSERT_OK(cursor->status());
+    AssertCursorIDs(cursor.get(), {12, 13});
   }
 
   // 4 < priority

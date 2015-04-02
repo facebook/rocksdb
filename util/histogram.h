@@ -38,7 +38,7 @@ class HistogramBucketMapper {
     return minBucketValue_;
   }
 
-  uint64_t BucketLimit(const uint64_t bucketNumber) const {
+  uint64_t BucketLimit(const size_t bucketNumber) const {
     assert(bucketNumber < BucketCount());
     return bucketValues_[bucketNumber];
   }

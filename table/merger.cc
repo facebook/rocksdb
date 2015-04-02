@@ -23,27 +23,24 @@
 #include "util/autovector.h"
 
 namespace rocksdb {
-namespace merger {
-typedef std::priority_queue<
-          IteratorWrapper*,
-          std::vector<IteratorWrapper*>,
-          MaxIteratorComparator> MaxIterHeap;
+// Without anonymous namespace here, we fail the warning -Wmissing-prototypes
+namespace {
+typedef std::priority_queue<IteratorWrapper*, std::vector<IteratorWrapper*>,
+                            MaxIteratorComparator> MergerMaxIterHeap;
 
-typedef std::priority_queue<
-          IteratorWrapper*,
-          std::vector<IteratorWrapper*>,
-          MinIteratorComparator> MinIterHeap;
+typedef std::priority_queue<IteratorWrapper*, std::vector<IteratorWrapper*>,
+                            MinIteratorComparator> MergerMinIterHeap;
 
 // Return's a new MaxHeap of IteratorWrapper's using the provided Comparator.
-MaxIterHeap NewMaxIterHeap(const Comparator* comparator) {
-  return MaxIterHeap(MaxIteratorComparator(comparator));
+MergerMaxIterHeap NewMergerMaxIterHeap(const Comparator* comparator) {
+  return MergerMaxIterHeap(MaxIteratorComparator(comparator));
 }
 
 // Return's a new MinHeap of IteratorWrapper's using the provided Comparator.
-MinIterHeap NewMinIterHeap(const Comparator* comparator) {
-  return MinIterHeap(MinIteratorComparator(comparator));
+MergerMinIterHeap NewMergerMinIterHeap(const Comparator* comparator) {
+  return MergerMinIterHeap(MinIteratorComparator(comparator));
 }
-}  // namespace merger
+}  // namespace
 
 const size_t kNumIterReserve = 4;
 
@@ -56,8 +53,8 @@ class MergingIterator : public Iterator {
         current_(nullptr),
         use_heap_(true),
         direction_(kForward),
-        maxHeap_(merger::NewMaxIterHeap(comparator_)),
-        minHeap_(merger::NewMinIterHeap(comparator_)) {
+        maxHeap_(NewMergerMaxIterHeap(comparator_)),
+        minHeap_(NewMergerMinIterHeap(comparator_)) {
     children_.resize(n);
     for (int i = 0; i < n; i++) {
       children_[i].Set(children[i]);
@@ -84,11 +81,9 @@ class MergingIterator : public Iterator {
     }
   }
 
-  virtual bool Valid() const {
-    return (current_ != nullptr);
-  }
+  virtual bool Valid() const override { return (current_ != nullptr); }
 
-  virtual void SeekToFirst() {
+  virtual void SeekToFirst() override {
     ClearHeaps();
     for (auto& child : children_) {
       child.SeekToFirst();
@@ -100,7 +95,7 @@ class MergingIterator : public Iterator {
     direction_ = kForward;
   }
 
-  virtual void SeekToLast() {
+  virtual void SeekToLast() override {
     ClearHeaps();
     for (auto& child : children_) {
       child.SeekToLast();
@@ -112,7 +107,7 @@ class MergingIterator : public Iterator {
     direction_ = kReverse;
   }
 
-  virtual void Seek(const Slice& target) {
+  virtual void Seek(const Slice& target) override {
     // Invalidate the heap.
     use_heap_ = false;
     IteratorWrapper* first_child = nullptr;
@@ -157,7 +152,7 @@ class MergingIterator : public Iterator {
     direction_ = kForward;
   }
 
-  virtual void Next() {
+  virtual void Next() override {
     assert(Valid());
 
     // Ensure that all children are positioned after key().
@@ -195,7 +190,7 @@ class MergingIterator : public Iterator {
     }
   }
 
-  virtual void Prev() {
+  virtual void Prev() override {
     assert(Valid());
     // Ensure that all children are positioned before key().
     // If we are moving in the reverse direction, it is already
@@ -229,25 +224,25 @@ class MergingIterator : public Iterator {
     FindLargest();
   }
 
-  virtual Slice key() const {
+  virtual Slice key() const override {
     assert(Valid());
     return current_->key();
   }
 
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(Valid());
     return current_->value();
   }
 
-  virtual Status status() const {
-    Status status;
+  virtual Status status() const override {
+    Status s;
     for (auto& child : children_) {
-      status = child.status();
-      if (!status.ok()) {
+      s = child.status();
+      if (!s.ok()) {
         break;
       }
     }
-    return status;
+    return s;
   }
 
  private:
@@ -271,8 +266,8 @@ class MergingIterator : public Iterator {
     kReverse
   };
   Direction direction_;
-  merger::MaxIterHeap maxHeap_;
-  merger::MinIterHeap minHeap_;
+  MergerMaxIterHeap maxHeap_;
+  MergerMinIterHeap minHeap_;
 };
 
 void MergingIterator::FindSmallest() {
@@ -299,8 +294,8 @@ void MergingIterator::FindLargest() {
 
 void MergingIterator::ClearHeaps() {
   use_heap_ = true;
-  maxHeap_ = merger::NewMaxIterHeap(comparator_);
-  minHeap_ = merger::NewMinIterHeap(comparator_);
+  maxHeap_ = NewMergerMaxIterHeap(comparator_);
+  minHeap_ = NewMergerMinIterHeap(comparator_);
 }
 
 Iterator* NewMergingIterator(const Comparator* cmp, Iterator** list, int n,

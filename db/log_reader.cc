@@ -20,9 +20,9 @@ namespace log {
 Reader::Reporter::~Reporter() {
 }
 
-Reader::Reader(unique_ptr<SequentialFile>&& file, Reporter* reporter,
+Reader::Reader(unique_ptr<SequentialFile>&& _file, Reporter* reporter,
                bool checksum, uint64_t initial_offset)
-    : file_(std::move(file)),
+    : file_(std::move(_file)),
       reporter_(reporter),
       checksum_(checksum),
       backing_store_(new char[kBlockSize]),
@@ -32,20 +32,18 @@ Reader::Reader(unique_ptr<SequentialFile>&& file, Reporter* reporter,
       eof_offset_(0),
       last_record_offset_(0),
       end_of_buffer_offset_(0),
-      initial_offset_(initial_offset) {
-}
+      initial_offset_(initial_offset) {}
 
 Reader::~Reader() {
   delete[] backing_store_;
 }
 
 bool Reader::SkipToInitialBlock() {
-  size_t offset_in_block = initial_offset_ % kBlockSize;
-  uint64_t block_start_location = initial_offset_ - offset_in_block;
+  size_t initial_offset_in_block = initial_offset_ % kBlockSize;
+  uint64_t block_start_location = initial_offset_ - initial_offset_in_block;
 
   // Don't search a block if we'd be in the trailer
-  if (offset_in_block > kBlockSize - 6) {
-    offset_in_block = 0;
+  if (initial_offset_in_block > kBlockSize - 6) {
     block_start_location += kBlockSize;
   }
 
@@ -55,7 +53,7 @@ bool Reader::SkipToInitialBlock() {
   if (block_start_location > 0) {
     Status skip_status = file_->Skip(block_start_location);
     if (!skip_status.ok()) {
-      ReportDrop(block_start_location, skip_status);
+      ReportDrop(static_cast<size_t>(block_start_location), skip_status);
       return false;
     }
   }
@@ -83,16 +81,12 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
     const unsigned int record_type = ReadPhysicalRecord(&fragment);
     switch (record_type) {
       case kFullType:
-        if (in_fragmented_record) {
+        if (in_fragmented_record && !scratch->empty()) {
           // Handle bug in earlier versions of log::Writer where
           // it could emit an empty kFirstType record at the tail end
           // of a block followed by a kFullType or kFirstType record
           // at the beginning of the next block.
-          if (scratch->empty()) {
-            in_fragmented_record = false;
-          } else {
-            ReportCorruption(scratch->size(), "partial record without end(1)");
-          }
+          ReportCorruption(scratch->size(), "partial record without end(1)");
         }
         prospective_record_offset = physical_record_offset;
         scratch->clear();
@@ -101,16 +95,12 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
         return true;
 
       case kFirstType:
-        if (in_fragmented_record) {
+        if (in_fragmented_record && !scratch->empty()) {
           // Handle bug in earlier versions of log::Writer where
           // it could emit an empty kFirstType record at the tail end
           // of a block followed by a kFullType or kFirstType record
           // at the beginning of the next block.
-          if (scratch->empty()) {
-            in_fragmented_record = false;
-          } else {
-            ReportCorruption(scratch->size(), "partial record without end(2)");
-          }
+          ReportCorruption(scratch->size(), "partial record without end(2)");
         }
         prospective_record_offset = physical_record_offset;
         scratch->assign(fragment.data(), fragment.size());

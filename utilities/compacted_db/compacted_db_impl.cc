@@ -102,29 +102,32 @@ Status CompactedDBImpl::Init(const Options& options) {
   if (!s.ok()) {
     return s;
   }
+  NewThreadStatusCfInfo(cfd_);
   version_ = cfd_->GetSuperVersion()->current;
   user_comparator_ = cfd_->user_comparator();
+  auto* vstorage = version_->storage_info();
+  const LevelFilesBrief& l0 = vstorage->LevelFilesBrief(0);
   // L0 should not have files
-  if (version_->file_levels_[0].num_files > 1) {
+  if (l0.num_files > 1) {
     return Status::NotSupported("L0 contain more than 1 file");
   }
-  if (version_->file_levels_[0].num_files == 1) {
-    if (version_->num_non_empty_levels_ > 1) {
+  if (l0.num_files == 1) {
+    if (vstorage->num_non_empty_levels() > 1) {
       return Status::NotSupported("Both L0 and other level contain files");
     }
-    files_ = version_->file_levels_[0];
+    files_ = l0;
     return Status::OK();
   }
 
-  for (int i = 1; i < version_->num_non_empty_levels_ - 1; ++i) {
-    if (version_->file_levels_[i].num_files > 0) {
+  for (int i = 1; i < vstorage->num_non_empty_levels() - 1; ++i) {
+    if (vstorage->LevelFilesBrief(i).num_files > 0) {
       return Status::NotSupported("Other levels also contain files");
     }
   }
 
-  int level = version_->num_non_empty_levels_ - 1;
-  if (version_->file_levels_[level].num_files > 0) {
-    files_ = version_->file_levels_[version_->num_non_empty_levels_ - 1];
+  int level = vstorage->num_non_empty_levels() - 1;
+  if (vstorage->LevelFilesBrief(level).num_files > 0) {
+    files_ = vstorage->LevelFilesBrief(level);
     return Status::OK();
   }
   return Status::NotSupported("no file exists");

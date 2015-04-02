@@ -12,18 +12,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sstream>
+#include <string>
 #include "port/stack_trace.h"
 #include "rocksdb/env.h"
 #include "rocksdb/slice.h"
 #include "util/random.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 namespace test {
 
 // Run some of the tests registered by the TEST() macro.  If the
-// environment variable "ROCKSDB_TESTS" is not set, runs all tests.
-// Otherwise, runs only the tests whose name contains the value of
-// "ROCKSDB_TESTS" as a substring.  E.g., suppose the tests are:
+// environment variable "ROCKSDB_TESTS" and "ROCKSDB_TESTS_FROM"
+// are not set, runs all tests. Otherwise, run all tests after
+// ROCKSDB_TESTS_FROM and those specified by ROCKSDB_TESTS.
+// Partial name match also works for ROCKSDB_TESTS and
+// ROCKSDB_TESTS_FROM. E.g., suppose the tests are:
 //    TEST(Foo, Hello) { ... }
 //    TEST(Foo, World) { ... }
 // ROCKSDB_TESTS=Hello will run the first test
@@ -35,34 +39,26 @@ namespace test {
 extern int RunAllTests();
 
 // Return the directory to use for temporary storage.
-extern std::string TmpDir();
+extern std::string TmpDir(Env* env = Env::Default());
 
 // Return a randomization seed for this run.  Typically returns the
 // same number on repeated invocations of this binary, but automated
 // runs may be able to vary the seed.
 extern int RandomSeed();
 
+class TesterHelper;
+
 // An instance of Tester is allocated to hold temporary state during
 // the execution of an assertion.
 class Tester {
+  friend class TesterHelper;
+
  private:
   bool ok_;
-  const char* fname_;
-  int line_;
   std::stringstream ss_;
 
  public:
-  Tester(const char* f, int l)
-      : ok_(true), fname_(f), line_(l) {
-  }
-
-  ~Tester() {
-    if (!ok_) {
-      fprintf(stderr, "%s:%d:%s\n", fname_, line_, ss_.str().c_str());
-      port::PrintStack(2);
-      exit(1);
-    }
-  }
+  Tester() : ok_(true) {}
 
   Tester& Is(bool b, const char* msg) {
     if (!b) {
@@ -75,6 +71,14 @@ class Tester {
   Tester& IsOk(const Status& s) {
     if (!s.ok()) {
       ss_ << " " << s.ToString();
+      ok_ = false;
+    }
+    return *this;
+  }
+
+  Tester& IsNotOk(const Status& s) {
+    if (s.ok()) {
+      ss_ << " Error status expected";
       ok_ = false;
     }
     return *this;
@@ -106,37 +110,86 @@ class Tester {
     }
     return *this;
   }
+
+  operator bool() const { return ok_; }
 };
 
-#define ASSERT_TRUE(c) ::rocksdb::test::Tester(__FILE__, __LINE__).Is((c), #c)
-#define ASSERT_OK(s) ::rocksdb::test::Tester(__FILE__, __LINE__).IsOk((s))
-#define ASSERT_EQ(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsEq((a),(b))
-#define ASSERT_NE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsNe((a),(b))
-#define ASSERT_GE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsGe((a),(b))
-#define ASSERT_GT(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsGt((a),(b))
-#define ASSERT_LE(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsLe((a),(b))
-#define ASSERT_LT(a,b) ::rocksdb::test::Tester(__FILE__, __LINE__).IsLt((a),(b))
+class TesterHelper {
+ private:
+  const char* fname_;
+  int line_;
 
-#define TCONCAT(a,b) TCONCAT1(a,b)
-#define TCONCAT1(a,b) a##b
+ public:
+  TesterHelper(const char* f, int l) : fname_(f), line_(l) {}
 
-#define TEST(base,name)                                                 \
-class TCONCAT(_Test_,name) : public base {                              \
- public:                                                                \
-  void _Run();                                                          \
-  static void _RunIt() {                                                \
-    TCONCAT(_Test_,name) t;                                             \
-    t._Run();                                                           \
-  }                                                                     \
-};                                                                      \
-bool TCONCAT(_Test_ignored_,name) =                                     \
-  ::rocksdb::test::RegisterTest(#base, #name, &TCONCAT(_Test_,name)::_RunIt); \
-void TCONCAT(_Test_,name)::_Run()
+  void operator=(const Tester& tester) {
+    fprintf(stderr, "%s:%d:%s\n", fname_, line_, tester.ss_.str().c_str());
+    port::PrintStack(2);
+    exit(1);
+  }
+};
+
+// This is trying to solve:
+// * Evaluate expression
+// * Abort the test if the evaluation is not successful with the evaluation
+// details.
+// * Support operator << with ASSERT* for extra messages provided by the user
+// code of ASSERT*
+//
+// For the third, we need to make sure that an expression at the end of macro
+// supports << operator. But since we can have multiple of << we cannot abort
+// inside implementation of operator <<, as we may miss some extra message. That
+// is why there is TesterHelper with operator = which has lower precedence then
+// operator <<, and it will be called after all messages from use code are
+// accounted by <<.
+//
+// operator bool is added to Tester to make possible its declaration inside if
+// statement and do not pollute its outer scope with the name tester. But in C++
+// we cannot do any other operations inside if statement besides declaration.
+// Then in order to get inside if body there are two options: make operator
+// Tester::bool return true if ok_ == false or put the body into else part.
+#define TEST_EXPRESSION_(expression)                  \
+  if (::rocksdb::test::Tester& tester = (expression)) \
+    ;                                                 \
+  else                                                \
+  ::rocksdb::test::TesterHelper(__FILE__, __LINE__) = tester
+
+#define ASSERT_TRUE(c) TEST_EXPRESSION_(::rocksdb::test::Tester().Is((c), #c))
+#define ASSERT_OK(s) TEST_EXPRESSION_(::rocksdb::test::Tester().IsOk((s)))
+#define ASSERT_NOK(s) TEST_EXPRESSION_(::rocksdb::test::Tester().IsNotOk((s)))
+#define ASSERT_EQ(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsEq((a), (b)))
+#define ASSERT_NE(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsNe((a), (b)))
+#define ASSERT_GE(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsGe((a), (b)))
+#define ASSERT_GT(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsGt((a), (b)))
+#define ASSERT_LE(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsLe((a), (b)))
+#define ASSERT_LT(a, b) \
+  TEST_EXPRESSION_(::rocksdb::test::Tester().IsLt((a), (b)))
+
+#define TCONCAT(a, b) TCONCAT1(a, b)
+#define TCONCAT1(a, b) a##b
+
+#define TEST(base, name)                                              \
+  class TCONCAT(_Test_, name) : public base {                         \
+   public:                                                            \
+    void _Run();                                                      \
+    static void _RunIt() {                                            \
+      TCONCAT(_Test_, name) t;                                        \
+      t._Run();                                                       \
+    }                                                                 \
+  };                                                                  \
+  bool TCONCAT(_Test_ignored_, name) __attribute__((__unused__))      \
+    = ::rocksdb::test::RegisterTest(#base, #name,                     \
+                                    &TCONCAT(_Test_, name)::_RunIt);  \
+  void TCONCAT(_Test_, name)::_Run()
 
 // Register the specified test.  Typically not used directly, but
 // invoked via the macro expansion of TEST.
 extern bool RegisterTest(const char* base, const char* name, void (*func)());
-
 
 }  // namespace test
 }  // namespace rocksdb

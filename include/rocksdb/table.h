@@ -125,12 +125,32 @@ struct BlockBasedTableOptions {
   // If true, place whole keys in the filter (not just prefixes).
   // This must generally be true for gets to be efficient.
   bool whole_key_filtering = true;
+
+  // We currently have three versions:
+  // 0 -- This version is currently written out by all RocksDB's versions by
+  // default.  Can be read by really old RocksDB's. Doesn't support changing
+  // checksum (default is CRC32).
+  // 1 -- Can be read by RocksDB's versions since 3.0. Supports non-default
+  // checksum, like xxHash. It is written by RocksDB when
+  // BlockBasedTableOptions::checksum is something other than kCRC32c. (version
+  // 0 is silently upconverted)
+  // 2 -- Can be read by RocksDB's versions since 3.10. Changes the way we
+  // encode compressed blocks with LZ4, BZip2 and Zlib compression. If you
+  // don't plan to run RocksDB before version 3.10, you should probably use
+  // this.
+  // This option only affects newly written tables. When reading exising tables,
+  // the information about version is read from the footer.
+  uint32_t format_version = 0;
 };
 
 // Table Properties that are specific to block-based table properties.
 struct BlockBasedTablePropertyNames {
   // value of this propertis is a fixed int32 number.
   static const std::string kIndexType;
+  // value is "1" for true and "0" for false.
+  static const std::string kWholeKeyFiltering;
+  // value is "1" for true and "0" for false.
+  static const std::string kPrefixFiltering;
 };
 
 // Create default block based table factory.
@@ -351,15 +371,18 @@ class TableFactory {
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
       const ImmutableCFOptions& ioptions,
-      const InternalKeyComparator& internal_comparator,
-      WritableFile* file, const CompressionType compression_type,
-      const CompressionOptions& compression_opts) const = 0;
+      const InternalKeyComparator& internal_comparator, WritableFile* file,
+      const CompressionType compression_type,
+      const CompressionOptions& compression_opts,
+      const bool skipFilters = false) const = 0;
 
-  // Sanitizes the specified DB Options.
+  // Sanitizes the specified DB Options and ColumnFamilyOptions.
   //
   // If the function cannot find a way to sanitize the input DB Options,
   // a non-ok Status will be returned.
-  virtual Status SanitizeDBOptions(const DBOptions* db_opts) const = 0;
+  virtual Status SanitizeOptions(
+      const DBOptions& db_opts,
+      const ColumnFamilyOptions& cf_opts) const = 0;
 
   // Return a string that contains printable format of table configurations.
   // RocksDB prints configurations at DB Open().
@@ -367,13 +390,14 @@ class TableFactory {
 };
 
 #ifndef ROCKSDB_LITE
-// Create a special table factory that can open both of block based table format
-// and plain table, based on setting inside the SST files. It should be used to
+// Create a special table factory that can open either of the supported
+// table formats, based on setting inside the SST files. It should be used to
 // convert a DB from one table format to another.
 // @table_factory_to_write: the table factory used when writing to new files.
 // @block_based_table_factory:  block based table factory to use. If NULL, use
 //                              a default one.
 // @plain_table_factory: plain table factory to use. If NULL, use a default one.
+// @cuckoo_table_factory: cuckoo table factory to use. If NULL, use a default one.
 extern TableFactory* NewAdaptiveTableFactory(
     std::shared_ptr<TableFactory> table_factory_to_write = nullptr,
     std::shared_ptr<TableFactory> block_based_table_factory = nullptr,

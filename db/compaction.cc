@@ -29,19 +29,30 @@ uint64_t TotalFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
-Compaction::Compaction(Version* input_version, int start_level, int out_level,
+void Compaction::SetInputVersion(Version* _input_version) {
+  input_version_ = _input_version;
+  cfd_ = input_version_->cfd();
+
+  cfd_->Ref();
+  input_version_->Ref();
+  edit_ = new VersionEdit();
+  edit_->SetColumnFamily(cfd_->GetID());
+}
+
+Compaction::Compaction(int number_levels, int _start_level, int out_level,
                        uint64_t target_file_size,
                        uint64_t max_grandparent_overlap_bytes,
                        uint32_t output_path_id,
                        CompressionType output_compression, bool seek_compaction,
                        bool deletion_compaction)
-    : start_level_(start_level),
+    : start_level_(_start_level),
       output_level_(out_level),
       max_output_file_size_(target_file_size),
       max_grandparent_overlap_bytes_(max_grandparent_overlap_bytes),
-      input_version_(input_version),
-      number_levels_(input_version_->NumberLevels()),
-      cfd_(input_version_->cfd_),
+      input_version_(nullptr),
+      edit_(nullptr),
+      number_levels_(number_levels),
+      cfd_(nullptr),
       output_path_id_(output_path_id),
       output_compression_(output_compression),
       seek_compaction_(seek_compaction),
@@ -56,10 +67,6 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
       is_full_compaction_(false),
       is_manual_compaction_(false),
       level_ptrs_(std::vector<size_t>(number_levels_)) {
-  cfd_->Ref();
-  input_version_->Ref();
-  edit_ = new VersionEdit();
-  edit_->SetColumnFamily(cfd_->GetID());
   for (int i = 0; i < number_levels_; i++) {
     level_ptrs_[i] = 0;
   }
@@ -68,6 +75,38 @@ Compaction::Compaction(Version* input_version, int start_level, int out_level,
   inputs_.resize(num_levels);
   for (int i = 0; i < num_levels; ++i) {
     inputs_[i].level = start_level_ + i;
+  }
+}
+
+Compaction::Compaction(VersionStorageInfo* vstorage,
+    const autovector<CompactionInputFiles>& _inputs,
+    int _start_level, int _output_level,
+    uint64_t _max_grandparent_overlap_bytes,
+    const CompactionOptions& _options,
+    bool _deletion_compaction)
+    : start_level_(_start_level),
+      output_level_(_output_level),
+      max_output_file_size_(_options.output_file_size_limit),
+      max_grandparent_overlap_bytes_(_max_grandparent_overlap_bytes),
+      input_version_(nullptr),
+      number_levels_(vstorage->num_levels()),
+      cfd_(nullptr),
+      output_compression_(_options.compression),
+      seek_compaction_(false),
+      deletion_compaction_(_deletion_compaction),
+      inputs_(_inputs),
+      grandparent_index_(0),
+      seen_key_(false),
+      overlapped_bytes_(0),
+      base_index_(-1),
+      parent_index_(-1),
+      score_(0),
+      bottommost_level_(false),
+      is_full_compaction_(false),
+      is_manual_compaction_(false),
+      level_ptrs_(std::vector<size_t>(number_levels_)) {
+  for (int i = 0; i < number_levels_; i++) {
+    level_ptrs_[i] = 0;
   }
 }
 
@@ -85,8 +124,9 @@ Compaction::~Compaction() {
 
 void Compaction::GenerateFileLevels() {
   input_levels_.resize(num_input_levels());
-  for (int which = 0; which < num_input_levels(); which++) {
-    DoGenerateFileLevel(&input_levels_[which], inputs_[which].files, &arena_);
+  for (size_t which = 0; which < num_input_levels(); which++) {
+    DoGenerateLevelFilesBrief(&input_levels_[which], inputs_[which].files,
+                              &arena_);
   }
 }
 
@@ -100,18 +140,20 @@ bool Compaction::IsTrivialMove() const {
           num_input_levels() == 2 &&
           num_input_files(0) == 1 &&
           num_input_files(1) == 0 &&
+          input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
 
-void Compaction::AddInputDeletions(VersionEdit* edit) {
-  for (int which = 0; which < num_input_levels(); which++) {
+void Compaction::AddInputDeletions(VersionEdit* out_edit) {
+  for (size_t which = 0; which < num_input_levels(); which++) {
     for (size_t i = 0; i < inputs_[which].size(); i++) {
-      edit->DeleteFile(level(which), inputs_[which][i]->fd.GetNumber());
+      out_edit->DeleteFile(level(which), inputs_[which][i]->fd.GetNumber());
     }
   }
 }
 
 bool Compaction::KeyNotExistsBeyondOutputLevel(const Slice& user_key) {
+  assert(input_version_ != nullptr);
   assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
   if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
     return bottommost_level_;
@@ -119,7 +161,8 @@ bool Compaction::KeyNotExistsBeyondOutputLevel(const Slice& user_key) {
   // Maybe use binary search to find right entry instead of linear search?
   const Comparator* user_cmp = cfd_->user_comparator();
   for (int lvl = output_level_ + 1; lvl < number_levels_; lvl++) {
-    const std::vector<FileMetaData*>& files = input_version_->files_[lvl];
+    const std::vector<FileMetaData*>& files =
+        input_version_->storage_info()->LevelFiles(lvl);
     for (; level_ptrs_[lvl] < files.size(); ) {
       FileMetaData* f = files[level_ptrs_[lvl]];
       if (user_cmp->Compare(user_key, f->largest.user_key()) <= 0) {
@@ -165,7 +208,7 @@ bool Compaction::ShouldStopBefore(const Slice& internal_key) {
 
 // Mark (or clear) each file that is being compacted
 void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
-  for (int i = 0; i < num_input_levels(); i++) {
+  for (size_t i = 0; i < num_input_levels(); i++) {
     for (unsigned int j = 0; j < inputs_[i].size(); j++) {
       assert(mark_as_compacted ? !inputs_[i][j]->being_compacted :
                                   inputs_[i][j]->being_compacted);
@@ -175,9 +218,9 @@ void Compaction::MarkFilesBeingCompacted(bool mark_as_compacted) {
 }
 
 // Is this compaction producing files at the bottommost level?
-void Compaction::SetupBottomMostLevel(bool is_manual) {
-  assert(cfd_->ioptions()->compaction_style != kCompactionStyleFIFO);
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
+void Compaction::SetupBottomMostLevel(VersionStorageInfo* vstorage,
+                                      bool is_manual, bool level0_only) {
+  if (level0_only) {
     // If universal compaction style is used and manual
     // compaction is occuring, then we are guaranteed that
     // all files will be picked in a single compaction
@@ -192,24 +235,37 @@ void Compaction::SetupBottomMostLevel(bool is_manual) {
   bottommost_level_ = true;
   // checks whether there are files living beyond the output_level.
   for (int i = output_level_ + 1; i < number_levels_; i++) {
-    if (input_version_->NumLevelFiles(i) > 0) {
+    if (vstorage->NumLevelFiles(i) > 0) {
       bottommost_level_ = false;
       break;
     }
   }
 }
 
-void Compaction::ReleaseInputs() {
-  if (input_version_ != nullptr) {
-    input_version_->Unref();
-    input_version_ = nullptr;
-  }
-  if (cfd_ != nullptr) {
-    if (cfd_->Unref()) {
-      delete cfd_;
+// Sample output:
+// If compacting 3 L0 files, 2 L3 files and 1 L4 file, and outputting to L5,
+// print: "3@0 + 2@3 + 1@4 files to L5"
+const char* Compaction::InputLevelSummary(
+    InputLevelSummaryBuffer* scratch) const {
+  int len = 0;
+  bool is_first = true;
+  for (auto& input_level : inputs_) {
+    if (input_level.empty()) {
+      continue;
     }
-    cfd_ = nullptr;
+    if (!is_first) {
+      len +=
+          snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, " + ");
+    } else {
+      is_first = false;
+    }
+    len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+                    "%zu@%d", input_level.size(), input_level.level);
   }
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+           " files to L%d", output_level());
+
+  return scratch->buffer;
 }
 
 void Compaction::ReleaseCompactionFiles(Status status) {
@@ -217,7 +273,8 @@ void Compaction::ReleaseCompactionFiles(Status status) {
 }
 
 void Compaction::ResetNextCompactionIndex() {
-  input_version_->ResetNextCompactionIndex(start_level_);
+  assert(input_version_ != nullptr);
+  input_version_->storage_info()->ResetNextCompactionIndex(start_level_);
 }
 
 namespace {
@@ -250,14 +307,15 @@ void Compaction::Summary(char* output, int len) {
     return;
   }
 
-  for (int level = 0; level < num_input_levels(); ++level) {
-    if (level > 0) {
+  for (size_t level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
+    if (level_iter > 0) {
       write += snprintf(output + write, len - write, "], [");
       if (write < 0 || write >= len) {
         return;
       }
     }
-    write += InputSummary(inputs_[level].files, output + write, len - write);
+    write +=
+        InputSummary(inputs_[level_iter].files, output + write, len - write);
     if (write < 0 || write >= len) {
       return;
     }
@@ -273,8 +331,8 @@ uint64_t Compaction::OutputFilePreallocationSize(
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
     preallocation_size = mutable_options.MaxFileSizeForLevel(output_level());
   } else {
-    for (int level = 0; level < num_input_levels(); ++level) {
-      for (const auto& f : inputs_[level].files) {
+    for (size_t level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
+      for (const auto& f : inputs_[level_iter].files) {
         preallocation_size += f->fd.GetFileSize();
       }
     }
@@ -282,6 +340,17 @@ uint64_t Compaction::OutputFilePreallocationSize(
   // Over-estimate slightly so we don't end up just barely crossing
   // the threshold
   return preallocation_size * 1.1;
+}
+
+Compaction* Compaction::TEST_NewCompaction(
+    int num_levels, int start_level, int out_level, uint64_t target_file_size,
+    uint64_t max_grandparent_overlap_bytes, uint32_t output_path_id,
+    CompressionType output_compression, bool seek_compaction,
+    bool deletion_compaction) {
+  return new Compaction(num_levels, start_level, out_level, target_file_size,
+                        max_grandparent_overlap_bytes, output_path_id,
+                        output_compression, seek_compaction,
+                        deletion_compaction);
 }
 
 }  // namespace rocksdb

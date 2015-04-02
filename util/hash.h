@@ -24,4 +24,5 @@ inline uint32_t BloomHash(const Slice& key) {
 inline uint32_t GetSliceHash(const Slice& s) {
   return Hash(s.data(), s.size(), 397);
 }
-}
+
+}  // namespace rocksdb

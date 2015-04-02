@@ -159,7 +159,8 @@ class BlockIter : public Iterator {
 
   // Return the offset in data_ just past the end of the current entry.
   inline uint32_t NextEntryOffset() const {
-    return (value_.data() + value_.size()) - data_;
+    // NOTE: We don't support files bigger than 2GB
+    return static_cast<uint32_t>((value_.data() + value_.size()) - data_);
   }
 
   uint32_t GetRestartPoint(uint32_t index) {

@@ -12,6 +12,7 @@
 #include "db/write_batch_internal.h"
 #include "util/autovector.h"
 #include "port/port.h"
+#include "util/instrumented_mutex.h"
 
 namespace rocksdb {
 
@@ -27,9 +28,9 @@ class WriteThread {
     bool in_batch_group;
     bool done;
     uint64_t timeout_hint_us;
-    port::CondVar cv;
+    InstrumentedCondVar cv;
 
-    explicit Writer(port::Mutex* mu)
+    explicit Writer(InstrumentedMutex* mu)
         : batch(nullptr),
           sync(false),
           disableWAL(false),

@@ -7,6 +7,8 @@
 // where enough posix functionality is available.
 
 #pragma once
+#include <list>
+
 #include "db/filename.h"
 #include "port/port.h"
 #include "port/util_logger.h"
@@ -38,15 +40,24 @@ class AutoRollLogger : public Logger {
     ResetLogger();
   }
 
-  void Logv(const char* format, va_list ap);
+  using Logger::Logv;
+  void Logv(const char* format, va_list ap) override;
+
+  // Write a header entry to the log. All header information will be written
+  // again every time the log rolls over.
+  virtual void LogHeader(const char* format, va_list ap) override;
 
   // check if the logger has encountered any problem.
   Status GetStatus() {
     return status_;
   }
 
-  size_t GetLogFileSize() const {
-    return logger_->GetLogFileSize();
+  size_t GetLogFileSize() const override { return logger_->GetLogFileSize(); }
+
+  void Flush() override {
+    if (logger_) {
+      logger_->Flush();
+    }
   }
 
   virtual ~AutoRollLogger() {
@@ -56,11 +67,21 @@ class AutoRollLogger : public Logger {
     call_NowMicros_every_N_records_ = call_NowMicros_every_N_records;
   }
 
- private:
+  // Expose the log file path for testing purpose
+  std::string TEST_log_fname() const {
+    return log_fname_;
+  }
 
+ private:
   bool LogExpired();
   Status ResetLogger();
   void RollLogFile();
+  // Log message to logger without rolling
+  void LogInternal(const char* format, ...);
+  // Serialize the va_list to a string
+  std::string ValistToString(const char* format, va_list args) const;
+  // Write the logs marked as headers to the new log file
+  void WriteHeaderInfo();
 
   std::string log_fname_; // Current active info log's file name.
   std::string dbname_;
@@ -72,6 +93,8 @@ class AutoRollLogger : public Logger {
   Status status_;
   const size_t kMaxLogFileSize;
   const size_t kLogFileTimeToRoll;
+  // header information
+  std::list<std::string> headers_;
   // to avoid frequent env->NowMicros() calls, we cached the current time
   uint64_t cached_now;
   uint64_t ctime_;

@@ -34,7 +34,7 @@ class DummyDB : public StackableDB {
      : StackableDB(nullptr), options_(options), dbname_(dbname),
        deletions_enabled_(true), sequence_number_(0) {}
 
-  virtual SequenceNumber GetLatestSequenceNumber() const {
+  virtual SequenceNumber GetLatestSequenceNumber() const override {
     return ++sequence_number_;
   }
 
@@ -86,7 +86,7 @@ class DummyDB : public StackableDB {
       return path_;
     }
 
-    virtual uint64_t LogNumber() const {
+    virtual uint64_t LogNumber() const override {
       // what business do you have calling this method?
       ASSERT_TRUE(false);
       return 0;
@@ -96,13 +96,13 @@ class DummyDB : public StackableDB {
       return alive_ ? kAliveLogFile : kArchivedLogFile;
     }
 
-    virtual SequenceNumber StartSequence() const {
+    virtual SequenceNumber StartSequence() const override {
       // backupabledb should not need this method
       ASSERT_TRUE(false);
       return 0;
     }
 
-    virtual uint64_t SizeFileBytes() const {
+    virtual uint64_t SizeFileBytes() const override {
       // backupabledb should not need this method
       ASSERT_TRUE(false);
       return 0;
@@ -140,7 +140,7 @@ class TestEnv : public EnvWrapper {
   class DummySequentialFile : public SequentialFile {
    public:
     DummySequentialFile() : SequentialFile(), rnd_(5) {}
-    virtual Status Read(size_t n, Slice* result, char* scratch) {
+    virtual Status Read(size_t n, Slice* result, char* scratch) override {
       size_t read_size = (n > size_left) ? size_left : n;
       for (size_t i = 0; i < read_size; ++i) {
         scratch[i] = rnd_.Next() & 255;
@@ -150,7 +150,7 @@ class TestEnv : public EnvWrapper {
       return Status::OK();
     }
 
-    virtual Status Skip(uint64_t n) {
+    virtual Status Skip(uint64_t n) override {
       size_left = (n > size_left) ? size_left - n : 0;
       return Status::OK();
     }
@@ -159,9 +159,8 @@ class TestEnv : public EnvWrapper {
     Random rnd_;
   };
 
-  Status NewSequentialFile(const std::string& f,
-                           unique_ptr<SequentialFile>* r,
-                           const EnvOptions& options) {
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& options) override {
     MutexLock l(&mutex_);
     if (dummy_sequential_file_) {
       r->reset(new TestEnv::DummySequentialFile());
@@ -172,7 +171,7 @@ class TestEnv : public EnvWrapper {
   }
 
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
-                         const EnvOptions& options) {
+                         const EnvOptions& options) override {
     MutexLock l(&mutex_);
     written_files_.push_back(f);
     if (limit_written_files_ <= 0) {
@@ -636,7 +635,34 @@ TEST(BackupableDBTest, CorruptionsTest) {
   ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
   s = restore_db_->RestoreDBFromBackup(2, dbname_, dbname_);
   ASSERT_TRUE(!s.ok());
+
+  // make sure that no corrupt backups have actually been deleted!
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/1"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/1"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4"));
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5"));
+
+  // delete the corrupt backups and then make sure they're actually deleted
+  ASSERT_OK(restore_db_->DeleteBackup(5));
+  ASSERT_OK(restore_db_->DeleteBackup(4));
+  ASSERT_OK(restore_db_->DeleteBackup(3));
   ASSERT_OK(restore_db_->DeleteBackup(2));
+  (void) restore_db_->GarbageCollect();
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2") == false);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2") == false);
+
   CloseRestoreDB();
   AssertBackupConsistency(0, 0, keys_iteration * 1, keys_iteration * 5);
 
@@ -646,6 +672,39 @@ TEST(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(db_->CreateNewBackup(!!(rnd.Next() % 2)));
   CloseBackupableDB();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+}
+
+// This test verifies we don't delete the latest backup when read-only option is
+// set
+TEST(BackupableDBTest, NoDeleteWithReadOnly) {
+  const int keys_iteration = 5000;
+  Random rnd(6);
+  Status s;
+
+  OpenBackupableDB(true);
+  // create five backups
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(db_->CreateNewBackup(!!(rnd.Next() % 2)));
+  }
+  CloseBackupableDB();
+  ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "4"));
+
+  backupable_options_->destroy_old_data = false;
+  BackupEngineReadOnly* read_only_backup_engine;
+  ASSERT_OK(BackupEngineReadOnly::Open(env_, *backupable_options_,
+                                       &read_only_backup_engine));
+
+  // assert that data from backup 5 is still here (even though LATEST_BACKUP
+  // says 4 is latest)
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == true);
+  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == true);
+
+  // even though 5 is here, we should only see 4 backups
+  std::vector<BackupInfo> backup_info;
+  read_only_backup_engine->GetBackupInfo(&backup_info);
+  ASSERT_EQ(4UL, backup_info.size());
+  delete read_only_backup_engine;
 }
 
 // open DB, write, close DB, backup, restore, repeat
@@ -867,6 +926,8 @@ TEST(BackupableDBTest, DeleteTmpFiles) {
   file_manager_->WriteToFile(private_tmp_file, "tmp");
   ASSERT_EQ(true, file_manager_->FileExists(private_tmp_dir));
   OpenBackupableDB();
+  // Need to call this explicitly to delete tmp files
+  (void) db_->GarbageCollect();
   CloseBackupableDB();
   ASSERT_EQ(false, file_manager_->FileExists(shared_tmp));
   ASSERT_EQ(false, file_manager_->FileExists(private_tmp_file));
@@ -946,8 +1007,9 @@ TEST(BackupableDBTest, ReadOnlyBackupEngine) {
   backupable_options_->destroy_old_data = false;
   test_backup_env_->ClearWrittenFiles();
   test_backup_env_->SetLimitDeleteFiles(0);
-  auto read_only_backup_engine =
-      BackupEngineReadOnly::NewReadOnlyBackupEngine(env_, *backupable_options_);
+  BackupEngineReadOnly* read_only_backup_engine;
+  ASSERT_OK(BackupEngineReadOnly::Open(env_, *backupable_options_,
+                                       &read_only_backup_engine));
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
   ASSERT_EQ(backup_info.size(), 2U);

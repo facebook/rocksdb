@@ -29,14 +29,14 @@ using GFLAGS::ParseCommandLineFlags;
 
 DEFINE_bool(trigger_deadlock, false,
             "issue delete in range scan to trigger PrefixHashMap deadlock");
-DEFINE_uint64(bucket_count, 100000, "number of buckets");
+DEFINE_int32(bucket_count, 100000, "number of buckets");
 DEFINE_uint64(num_locks, 10001, "number of locks");
 DEFINE_bool(random_prefix, false, "randomize prefix");
 DEFINE_uint64(total_prefixes, 100000, "total number of prefixes");
 DEFINE_uint64(items_per_prefix, 1, "total number of values per prefix");
 DEFINE_int64(write_buffer_size, 33554432, "");
-DEFINE_int64(max_write_buffer_number, 2, "");
-DEFINE_int64(min_write_buffer_number_to_merge, 1, "");
+DEFINE_int32(max_write_buffer_number, 2, "");
+DEFINE_int32(min_write_buffer_number_to_merge, 1, "");
 DEFINE_int32(skiplist_height, 4, "");
 DEFINE_int32(memtable_prefix_bloom_bits, 10000000, "");
 DEFINE_int32(memtable_prefix_bloom_probes, 10, "");
@@ -52,7 +52,8 @@ struct TestKey {
   uint64_t prefix;
   uint64_t sorted;
 
-  TestKey(uint64_t prefix, uint64_t sorted) : prefix(prefix), sorted(sorted) {}
+  TestKey(uint64_t _prefix, uint64_t _sorted)
+      : prefix(_prefix), sorted(_sorted) {}
 };
 
 // return a slice backed by test_key
@@ -69,7 +70,7 @@ class TestKeyComparator : public Comparator {
 
   // Compare needs to be aware of the possibility of a and/or b is
   // prefix only
-  virtual int Compare(const Slice& a, const Slice& b) const {
+  virtual int Compare(const Slice& a, const Slice& b) const override {
     const TestKey* key_a = SliceToTestKey(a);
     const TestKey* key_b = SliceToTestKey(b);
     if (key_a->prefix != key_b->prefix) {
@@ -105,13 +106,10 @@ class TestKeyComparator : public Comparator {
     return "TestKeyComparator";
   }
 
-  virtual void FindShortestSeparator(
-      std::string* start,
-      const Slice& limit) const {
-  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {}
 
-  virtual void FindShortSuccessor(std::string* key) const {}
-
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 namespace {
@@ -441,7 +439,7 @@ TEST(PrefixTest, DynamicPrefixIterator) {
     for (auto prefix : prefixes) {
       TestKey test_key(prefix, FLAGS_items_per_prefix / 2);
       Slice key = TestKeyToSlice(test_key);
-      std::string value = "v" + std::to_string(0);
+      std::string value = "v" + ToString(0);
 
       perf_context.Reset();
       StopWatchNano timer(Env::Default(), true);

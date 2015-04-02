@@ -14,6 +14,8 @@
 #include "util/histogram.h"
 #include "util/stop_watch.h"
 #include "util/testharness.h"
+#include "util/thread_status_util.h"
+#include "util/string_util.h"
 
 
 bool FLAGS_random_key = false;
@@ -38,8 +40,13 @@ std::shared_ptr<DB> OpenDb(bool read_only = false) {
       FLAGS_min_write_buffer_number_to_merge;
 
     if (FLAGS_use_set_based_memetable) {
+#ifndef ROCKSDB_LITE
       options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(0));
       options.memtable_factory.reset(NewHashSkipListRepFactory());
+#else
+      fprintf(stderr, "Prefix hash is not supported in lite mode\n");
+      exit(1);
+#endif  // ROCKSDB_LITE
     }
 
     Status s;
@@ -61,21 +68,21 @@ TEST(PerfContextTest, SeekIntoDeletion) {
   ReadOptions read_options;
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     db->Put(write_options, key, value);
   }
 
   for (int i = 0; i < FLAGS_total_keys -1 ; ++i) {
-    std::string key = "k" + std::to_string(i);
+    std::string key = "k" + ToString(i);
     db->Delete(write_options, key);
   }
 
   HistogramImpl hist_get;
   HistogramImpl hist_get_time;
   for (int i = 0; i < FLAGS_total_keys - 1; ++i) {
-    std::string key = "k" + std::to_string(i);
+    std::string key = "k" + ToString(i);
     std::string value;
 
     perf_context.Reset();
@@ -88,27 +95,32 @@ TEST(PerfContextTest, SeekIntoDeletion) {
     hist_get_time.Add(elapsed_nanos);
   }
 
-  std::cout << "Get uesr key comparison: \n" << hist_get.ToString()
+  std::cout << "Get user key comparison: \n" << hist_get.ToString()
             << "Get time: \n" << hist_get_time.ToString();
 
-  HistogramImpl hist_seek_to_first;
-  std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
+  {
+    HistogramImpl hist_seek_to_first;
+    std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
 
-  perf_context.Reset();
-  StopWatchNano timer(Env::Default(), true);
-  iter->SeekToFirst();
-  hist_seek_to_first.Add(perf_context.user_key_comparison_count);
-  auto elapsed_nanos = timer.ElapsedNanos();
+    perf_context.Reset();
+    StopWatchNano timer(Env::Default(), true);
+    iter->SeekToFirst();
+    hist_seek_to_first.Add(perf_context.user_key_comparison_count);
+    auto elapsed_nanos = timer.ElapsedNanos();
 
-  std::cout << "SeekToFirst uesr key comparison: \n" << hist_seek_to_first.ToString()
-            << "ikey skipped: " << perf_context.internal_key_skipped_count << "\n"
-            << "idelete skipped: " << perf_context.internal_delete_skipped_count << "\n"
-            << "elapsed: " << elapsed_nanos << "\n";
+    std::cout << "SeekToFirst uesr key comparison: \n"
+              << hist_seek_to_first.ToString()
+              << "ikey skipped: " << perf_context.internal_key_skipped_count
+              << "\n"
+              << "idelete skipped: "
+              << perf_context.internal_delete_skipped_count << "\n"
+              << "elapsed: " << elapsed_nanos << "\n";
+  }
 
   HistogramImpl hist_seek;
   for (int i = 0; i < FLAGS_total_keys; ++i) {
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
-    std::string key = "k" + std::to_string(i);
+    std::string key = "k" + ToString(i);
 
     perf_context.Reset();
     StopWatchNano timer(Env::Default(), true);
@@ -199,6 +211,8 @@ void ProfileQueries(bool enabled_time = false) {
   HistogramImpl hist_write_wal_time;
   HistogramImpl hist_write_memtable_time;
 
+  uint64_t total_db_mutex_nanos = 0;
+
   std::cout << "Inserting " << FLAGS_total_keys << " key/value pairs\n...\n";
 
   std::vector<int> keys;
@@ -214,32 +228,44 @@ void ProfileQueries(bool enabled_time = false) {
   if (FLAGS_random_key) {
     std::random_shuffle(keys.begin(), keys.end());
   }
-
+#ifndef NDEBUG
+  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 1U);
+#endif
+  int num_mutex_waited = 0;
   for (const int i : keys) {
     if (i == kFlushFlag) {
       FlushOptions fo;
       db->Flush(fo);
       continue;
     }
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
 
-    std::vector<Slice> keys = {Slice(key)};
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
+
     std::vector<std::string> values;
 
     perf_context.Reset();
     db->Put(write_options, key, value);
+    if (++num_mutex_waited > 3) {
+#ifndef NDEBUG
+      ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
+#endif
+    }
     hist_write_pre_post.Add(perf_context.write_pre_and_post_process_time);
     hist_write_wal_time.Add(perf_context.write_wal_time);
     hist_write_memtable_time.Add(perf_context.write_memtable_time);
     hist_put.Add(perf_context.user_key_comparison_count);
+    total_db_mutex_nanos += perf_context.db_mutex_lock_nanos;
   }
+#ifndef NDEBUG
+  ThreadStatusUtil::TEST_SetStateDelay(ThreadStatus::STATE_MUTEX_WAIT, 0U);
+#endif
 
   for (const int i : keys) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
-    std::vector<Slice> keys = {Slice(key)};
+    std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
@@ -252,7 +278,7 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(perf_context.user_key_comparison_count);
 
     perf_context.Reset();
-    db->MultiGet(read_options, keys, &values);
+    db->MultiGet(read_options, multiget_keys, &values);
     hist_mget_snapshot.Add(perf_context.get_snapshot_time);
     hist_mget_memtable.Add(perf_context.get_from_memtable_time);
     hist_mget_files.Add(perf_context.get_from_output_files_time);
@@ -269,7 +295,8 @@ void ProfileQueries(bool enabled_time = false) {
             << " Writing WAL time: \n"
             << hist_write_wal_time.ToString() << "\n"
             << " Writing Mem Table time: \n"
-            << hist_write_memtable_time.ToString() << "\n";
+            << hist_write_memtable_time.ToString() << "\n"
+            << " Total DB mutex nanos: \n" << total_db_mutex_nanos << "\n";
 
   std::cout << "Get(): Time to get snapshot: \n" << hist_get_snapshot.ToString()
             << " Time to get value from memtables: \n"
@@ -306,6 +333,9 @@ void ProfileQueries(bool enabled_time = false) {
     ASSERT_GT(hist_mget_files.Average(), 0);
     ASSERT_GT(hist_mget_post_process.Average(), 0);
     ASSERT_GT(hist_mget_num_memtable_checked.Average(), 0);
+#ifndef NDEBUG
+    ASSERT_GT(total_db_mutex_nanos, 2000U);
+#endif
   }
 
   db.reset();
@@ -326,10 +356,10 @@ void ProfileQueries(bool enabled_time = false) {
   hist_mget_num_memtable_checked.Clear();
 
   for (const int i : keys) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
-    std::vector<Slice> keys = {Slice(key)};
+    std::vector<Slice> multiget_keys = {Slice(key)};
     std::vector<std::string> values;
 
     perf_context.Reset();
@@ -342,7 +372,7 @@ void ProfileQueries(bool enabled_time = false) {
     hist_get.Add(perf_context.user_key_comparison_count);
 
     perf_context.Reset();
-    db->MultiGet(read_options, keys, &values);
+    db->MultiGet(read_options, multiget_keys, &values);
     hist_mget_snapshot.Add(perf_context.get_snapshot_time);
     hist_mget_memtable.Add(perf_context.get_from_memtable_time);
     hist_mget_files.Add(perf_context.get_from_output_files_time);
@@ -442,8 +472,8 @@ TEST(PerfContextTest, SeekKeyComparison) {
   SetPerfLevel(kEnableTime);
   StopWatchNano timer(Env::Default());
   for (const int i : keys) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     perf_context.Reset();
     timer.Start();
@@ -462,8 +492,8 @@ TEST(PerfContextTest, SeekKeyComparison) {
   HistogramImpl hist_next;
 
   for (int i = 0; i < FLAGS_total_keys; ++i) {
-    std::string key = "k" + std::to_string(i);
-    std::string value = "v" + std::to_string(i);
+    std::string key = "k" + ToString(i);
+    std::string value = "v" + ToString(i);
 
     std::unique_ptr<Iterator> iter(db->NewIterator(read_options));
     perf_context.Reset();

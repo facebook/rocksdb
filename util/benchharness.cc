@@ -16,6 +16,26 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "util/string_util.h"
+
+#ifndef GFLAGS
+bool FLAGS_benchmark = false;
+uint64_t FLAGS_bm_min_usec = 100;
+int64_t FLAGS_bm_min_iters = 1;
+int32_t FLAGS_bm_max_secs = 1;
+#else
+#include <gflags/gflags.h>
+DEFINE_bool(benchmark, false, "Run benchmarks.");
+
+DEFINE_uint64(bm_min_usec, 100,
+             "Minimum # of microseconds we'll accept for each benchmark.");
+
+DEFINE_int64(bm_min_iters, 1,
+             "Minimum # of iterations we'll try for each benchmark.");
+
+DEFINE_int32(bm_max_secs, 1,
+             "Maximum # of seconds we'll spend on each benchmark.");
+#endif  // GFLAGS
 
 using std::function;
 using std::get;
@@ -27,18 +47,6 @@ using std::sort;
 using std::string;
 using std::tuple;
 using std::vector;
-
-DEFINE_bool(benchmark, false, "Run benchmarks.");
-
-DEFINE_int64(bm_min_usec, 100,
-             "Minimum # of microseconds we'll accept for each benchmark.");
-
-DEFINE_int64(bm_min_iters, 1,
-             "Minimum # of iterations we'll try for each benchmark.");
-
-DEFINE_int32(bm_max_secs, 1,
-             "Maximum # of seconds we'll spend on each benchmark.");
-
 
 namespace rocksdb {
 namespace benchmark {
@@ -206,7 +214,8 @@ static double RunBenchmarkGetNSPerIteration(const BenchmarkFun& fun,
   size_t actualEpochs = 0;
 
   for (; actualEpochs < epochs; ++actualEpochs) {
-    for (unsigned int n = FLAGS_bm_min_iters; n < (1UL << 30); n *= 2) {
+    for (unsigned int n = static_cast<unsigned int>(FLAGS_bm_min_iters);
+         n < (1UL << 30); n *= 2) {
       auto const nsecs = fun(n);
       if (nsecs < minNanoseconds) {
         continue;
@@ -275,7 +284,7 @@ static const ScaleInfo kMetricSuffixes[] {
 static string HumanReadable(double n, unsigned int decimals,
                             const ScaleInfo* scales) {
   if (std::isinf(n) || std::isnan(n)) {
-    return std::to_string(n);
+    return ToString(n);
   }
 
   const double absValue = fabs(n);

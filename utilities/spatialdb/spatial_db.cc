@@ -11,10 +11,13 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <algorithm>
+#include <condition_variable>
 #include <inttypes.h>
 #include <string>
 #include <vector>
-#include <algorithm>
+#include <mutex>
+#include <thread>
 #include <set>
 #include <unordered_set>
 
@@ -561,27 +564,49 @@ class SpatialDBImpl : public SpatialDB {
     return Write(write_options, &batch);
   }
 
-  virtual Status Compact() override {
-    // TODO(icanadi) maybe do this in parallel?
-    Status s, t;
+  virtual Status Compact(int num_threads) override {
+    std::vector<ColumnFamilyHandle*> column_families;
+    column_families.push_back(data_column_family_);
+
     for (auto& iter : name_to_index_) {
-      t = Flush(FlushOptions(), iter.second.column_family);
-      if (!t.ok()) {
-        s = t;
-      }
-      t = CompactRange(iter.second.column_family, nullptr, nullptr);
-      if (!t.ok()) {
-        s = t;
-      }
+      column_families.push_back(iter.second.column_family);
     }
-    t = Flush(FlushOptions(), data_column_family_);
-    if (!t.ok()) {
-      s = t;
+
+    std::mutex state_mutex;
+    std::condition_variable cv;
+    Status s;
+    int threads_running = 0;
+
+    std::vector<std::thread> threads;
+
+    for (auto cfh : column_families) {
+      threads.emplace_back([&, cfh] {
+          {
+            std::unique_lock<std::mutex> lk(state_mutex);
+            cv.wait(lk, [&] { return threads_running < num_threads; });
+            threads_running++;
+          }
+
+          Status t = Flush(FlushOptions(), cfh);
+          if (t.ok()) {
+            t = CompactRange(cfh, nullptr, nullptr);
+          }
+
+          {
+            std::unique_lock<std::mutex> lk(state_mutex);
+            threads_running--;
+            if (s.ok() && !t.ok()) {
+              s = t;
+            }
+            cv.notify_one();
+          }
+      });
     }
-    t = CompactRange(data_column_family_, nullptr, nullptr);
-    if (!t.ok()) {
-      s = t;
+
+    for (auto& t : threads) {
+      t.join();
     }
+
     return s;
   }
 

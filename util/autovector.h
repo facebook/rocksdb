@@ -201,16 +201,12 @@ class autovector {
 
   // will check boundry
   const_reference at(size_type n) const {
-    if (n >= size()) {
-      throw std::out_of_range("autovector: index out of range");
-    }
+    assert(n < size());
     return (*this)[n];
   }
 
   reference at(size_type n) {
-    if (n >= size()) {
-      throw std::out_of_range("autovector: index out of range");
-    }
+    assert(n < size());
     return (*this)[n];
   }
 

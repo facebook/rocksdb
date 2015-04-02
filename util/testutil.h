@@ -45,7 +45,7 @@ class ErrorEnv : public EnvWrapper {
 
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& soptions) {
+                                 const EnvOptions& soptions) override {
     result->reset();
     if (writable_file_error_) {
       ++num_writable_file_errors_;
@@ -76,6 +76,38 @@ class PlainInternalKeyComparator : public InternalKeyComparator {
   virtual void FindShortSuccessor(std::string* key) const override {
     user_comparator()->FindShortSuccessor(key);
   }
+};
+
+// A test comparator which compare two strings in this way:
+// (1) first compare prefix of 8 bytes in alphabet order,
+// (2) if two strings share the same prefix, sort the other part of the string
+//     in the reverse alphabet order.
+// This helps simulate the case of compounded key of [entity][timestamp] and
+// latest timestamp first.
+class SimpleSuffixReverseComparator : public Comparator {
+ public:
+  SimpleSuffixReverseComparator() {}
+
+  virtual const char* Name() const override {
+    return "SimpleSuffixReverseComparator";
+  }
+
+  virtual int Compare(const Slice& a, const Slice& b) const override {
+    Slice prefix_a = Slice(a.data(), 8);
+    Slice prefix_b = Slice(b.data(), 8);
+    int prefix_comp = prefix_a.compare(prefix_b);
+    if (prefix_comp != 0) {
+      return prefix_comp;
+    } else {
+      Slice suffix_a = Slice(a.data() + 8, a.size() - 8);
+      Slice suffix_b = Slice(b.data() + 8, b.size() - 8);
+      return -(suffix_a.compare(suffix_b));
+    }
+  }
+  virtual void FindShortestSeparator(std::string* start,
+                                     const Slice& limit) const override {}
+
+  virtual void FindShortSuccessor(std::string* key) const override {}
 };
 
 // Returns a user key comparator that can be used for comparing two uint64_t

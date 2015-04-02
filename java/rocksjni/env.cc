@@ -15,7 +15,7 @@
  * Signature: ()J
  */
 jlong Java_org_rocksdb_RocksEnv_getDefaultEnvInternal(
-    JNIEnv* env, jclass jclass) {
+    JNIEnv* env, jclass jclazz) {
   return reinterpret_cast<jlong>(rocksdb::Env::Default());
 }
 

@@ -20,6 +20,9 @@ namespace rocksdb {
 
 class Slice;
 
+// Append a human-readable time in micros.
+int AppendHumanMicros(uint64_t micros, char* output, int len);
+
 // Append a human-readable size in bytes
 int AppendHumanBytes(uint64_t bytes, char* output, int len);
 

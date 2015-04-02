@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <unordered_set>
+#include <atomic>
 
 #ifdef OS_LINUX
 #include <sys/stat.h>
@@ -44,30 +45,31 @@ class EnvPosixTest {
 };
 
 static void SetBool(void* ptr) {
-  reinterpret_cast<port::AtomicPointer*>(ptr)->NoBarrier_Store(ptr);
+  reinterpret_cast<std::atomic<bool>*>(ptr)
+      ->store(true, std::memory_order_relaxed);
 }
 
 TEST(EnvPosixTest, RunImmediately) {
-  port::AtomicPointer called (nullptr);
+  std::atomic<bool> called(false);
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  ASSERT_TRUE(called.NoBarrier_Load() != nullptr);
+  ASSERT_TRUE(called.load(std::memory_order_relaxed));
 }
 
 TEST(EnvPosixTest, RunMany) {
-  port::AtomicPointer last_id (nullptr);
+  std::atomic<int> last_id(0);
 
   struct CB {
-    port::AtomicPointer* last_id_ptr;   // Pointer to shared slot
-    uintptr_t id;             // Order# for the execution of this callback
+    std::atomic<int>* last_id_ptr;  // Pointer to shared slot
+    int id;                         // Order# for the execution of this callback
 
-    CB(port::AtomicPointer* p, int i) : last_id_ptr(p), id(i) { }
+    CB(std::atomic<int>* p, int i) : last_id_ptr(p), id(i) {}
 
     static void Run(void* v) {
       CB* cb = reinterpret_cast<CB*>(v);
-      void* cur = cb->last_id_ptr->NoBarrier_Load();
-      ASSERT_EQ(cb->id-1, reinterpret_cast<uintptr_t>(cur));
-      cb->last_id_ptr->Release_Store(reinterpret_cast<void*>(cb->id));
+      int cur = cb->last_id_ptr->load(std::memory_order_relaxed);
+      ASSERT_EQ(cb->id - 1, cur);
+      cb->last_id_ptr->store(cb->id, std::memory_order_release);
     }
   };
 
@@ -82,8 +84,8 @@ TEST(EnvPosixTest, RunMany) {
   env_->Schedule(&CB::Run, &cb4);
 
   Env::Default()->SleepForMicroseconds(kDelayMicros);
-  void* cur = last_id.Acquire_Load();
-  ASSERT_EQ(4U, reinterpret_cast<uintptr_t>(cur));
+  int cur = last_id.load(std::memory_order_acquire);
+  ASSERT_EQ(4, cur);
 }
 
 struct State {
@@ -139,10 +141,8 @@ TEST(EnvPosixTest, TwoPools) {
       {
         MutexLock l(&mu_);
         num_running_++;
-        std::cout << "Pool " << pool_name_ << ": "
-                  << num_running_ << " running threads.\n";
         // make sure we don't have more than pool_size_ jobs running.
-        ASSERT_LE(num_running_, pool_size_);
+        ASSERT_LE(num_running_, pool_size_.load());
       }
 
       // sleep for 1 sec
@@ -160,11 +160,16 @@ TEST(EnvPosixTest, TwoPools) {
       return num_finished_;
     }
 
+    void Reset(int pool_size) {
+      pool_size_.store(pool_size);
+      num_finished_ = 0;
+    }
+
    private:
     port::Mutex mu_;
     int num_running_;
     int num_finished_;
-    int pool_size_;
+    std::atomic<int> pool_size_;
     std::string pool_name_;
   };
 
@@ -203,6 +208,35 @@ TEST(EnvPosixTest, TwoPools) {
 
   ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::LOW));
   ASSERT_EQ(0U, env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  // call IncBackgroundThreadsIfNeeded to two pools. One increasing and
+  // the other decreasing
+  env_->IncBackgroundThreadsIfNeeded(kLowPoolSize - 1, Env::Priority::LOW);
+  env_->IncBackgroundThreadsIfNeeded(kHighPoolSize + 1, Env::Priority::HIGH);
+  high_pool_job.Reset(kHighPoolSize + 1);
+  low_pool_job.Reset(kLowPoolSize);
+
+  // schedule same number of jobs in each pool
+  for (int i = 0; i < kJobs; i++) {
+    env_->Schedule(&CB::Run, &low_pool_job);
+    env_->Schedule(&CB::Run, &high_pool_job, Env::Priority::HIGH);
+  }
+  // Wait a short while for the jobs to be dispatched.
+  Env::Default()->SleepForMicroseconds(kDelayMicros);
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
+            env_->GetThreadPoolQueueLen());
+  ASSERT_EQ((unsigned int)(kJobs - kLowPoolSize),
+            env_->GetThreadPoolQueueLen(Env::Priority::LOW));
+  ASSERT_EQ((unsigned int)(kJobs - (kHighPoolSize + 1)),
+            env_->GetThreadPoolQueueLen(Env::Priority::HIGH));
+
+  // wait for all jobs to finish
+  while (low_pool_job.NumFinished() < kJobs ||
+         high_pool_job.NumFinished() < kJobs) {
+    env_->SleepForMicroseconds(kDelayMicros);
+  }
+
+  env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 }
 
 TEST(EnvPosixTest, DecreaseNumBgThreads) {
@@ -516,7 +550,8 @@ TEST(EnvPosixTest, AllocateTest) {
   // allocate 100 MB
   size_t kPreallocateSize = 100 * 1024 * 1024;
   size_t kBlockSize = 512;
-  std::string data = "test";
+  size_t kPageSize = 4096;
+  std::string data(1024 * 1024, 'a');
   wfile->SetPreallocationBlockSize(kPreallocateSize);
   ASSERT_OK(wfile->Append(Slice(data)));
   ASSERT_OK(wfile->Flush());
@@ -529,8 +564,7 @@ TEST(EnvPosixTest, AllocateTest) {
   // we only require that number of allocated blocks is at least what we expect.
   // It looks like some FS give us more blocks that we asked for. That's fine.
   // It might be worth investigating further.
-  auto st_blocks = f_stat.st_blocks;
-  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), st_blocks);
+  ASSERT_LE((unsigned int)(kPreallocateSize / kBlockSize), f_stat.st_blocks);
 
   // close the file, should deallocate the blocks
   wfile.reset();
@@ -538,7 +572,9 @@ TEST(EnvPosixTest, AllocateTest) {
   stat(fname.c_str(), &f_stat);
   ASSERT_EQ((unsigned int)data.size(), f_stat.st_size);
   // verify that preallocated blocks were deallocated on file close
-  ASSERT_GT(st_blocks, f_stat.st_blocks);
+  // Because the FS might give us more blocks, we add a full page to the size
+  // and expect the number of blocks to be less or equal to that.
+  ASSERT_GE((f_stat.st_size + kPageSize + kBlockSize - 1) / kBlockSize, (unsigned int)f_stat.st_blocks);
 }
 #endif  // ROCKSDB_FALLOCATE_PRESENT
 
@@ -565,7 +601,8 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Create the files
   std::vector<std::string> fnames;
   for (int i = 0; i < 1000; ++i) {
-    fnames.push_back(GetOnDiskTestDir() + "/" + "testfile" + std::to_string(i));
+    fnames.push_back(
+        GetOnDiskTestDir() + "/" + "testfile" + ToString(i));
 
     // Create file.
     unique_ptr<WritableFile> wfile;
@@ -698,6 +735,7 @@ TEST(EnvPosixTest, PosixRandomRWFileTest) {
 
 class TestLogger : public Logger {
  public:
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
     log_count++;
 
@@ -771,6 +809,7 @@ TEST(EnvPosixTest, LogBufferTest) {
 class TestLogger2 : public Logger {
  public:
   explicit TestLogger2(size_t max_log_size) : max_log_size_(max_log_size) {}
+  using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
     char new_format[2000];
     std::fill_n(new_format, sizeof(new_format), '2');
@@ -801,6 +840,36 @@ TEST(EnvPosixTest, LogBufferMaxSizeTest) {
     LogToBuffer(&log_buffer, max_log_size, "%s", bytes9000);
     log_buffer.FlushBufferToLog();
   }
+}
+
+TEST(EnvPosixTest, Preallocation) {
+  const std::string src = test::TmpDir() + "/" + "testfile";
+  unique_ptr<WritableFile> srcfile;
+  const EnvOptions soptions;
+  ASSERT_OK(env_->NewWritableFile(src, &srcfile, soptions));
+  srcfile->SetPreallocationBlockSize(1024 * 1024);
+
+  // No writes should mean no preallocation
+  size_t block_size, last_allocated_block;
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 0UL);
+
+  // Small write should preallocate one block
+  srcfile->Append("test");
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 1UL);
+
+  // Write an entire preallocation block, make sure we increased by two.
+  std::string buf(block_size, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 2UL);
+
+  // Write five more blocks at once, ensure we're where we need to be.
+  buf = std::string(block_size * 5, ' ');
+  srcfile->Append(buf);
+  srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
+  ASSERT_EQ(last_allocated_block, 7UL);
 }
 
 }  // namespace rocksdb

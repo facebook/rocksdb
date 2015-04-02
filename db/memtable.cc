@@ -15,6 +15,7 @@
 
 #include "db/dbformat.h"
 #include "db/merge_context.h"
+#include "db/writebuffer.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
@@ -32,7 +33,8 @@
 namespace rocksdb {
 
 MemTableOptions::MemTableOptions(
-    const MutableCFOptions& mutable_cf_options, const Options& options)
+    const ImmutableCFOptions& ioptions,
+    const MutableCFOptions& mutable_cf_options)
   : write_buffer_size(mutable_cf_options.write_buffer_size),
     arena_block_size(mutable_cf_options.arena_block_size),
     memtable_prefix_bloom_bits(mutable_cf_options.memtable_prefix_bloom_bits),
@@ -40,43 +42,48 @@ MemTableOptions::MemTableOptions(
         mutable_cf_options.memtable_prefix_bloom_probes),
     memtable_prefix_bloom_huge_page_tlb_size(
         mutable_cf_options.memtable_prefix_bloom_huge_page_tlb_size),
-    inplace_update_support(options.inplace_update_support),
-    inplace_update_num_locks(options.inplace_update_num_locks),
-    inplace_callback(options.inplace_callback),
+    inplace_update_support(ioptions.inplace_update_support),
+    inplace_update_num_locks(mutable_cf_options.inplace_update_num_locks),
+    inplace_callback(ioptions.inplace_callback),
     max_successive_merges(mutable_cf_options.max_successive_merges),
-    filter_deletes(mutable_cf_options.filter_deletes) {}
+    filter_deletes(mutable_cf_options.filter_deletes),
+    statistics(ioptions.statistics),
+    merge_operator(ioptions.merge_operator),
+    info_log(ioptions.info_log) {}
 
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
-                   const MemTableOptions& moptions)
+                   const MutableCFOptions& mutable_cf_options,
+                   WriteBuffer* write_buffer)
     : comparator_(cmp),
-      ioptions_(ioptions),
-      moptions_(moptions),
+      moptions_(ioptions, mutable_cf_options),
       refs_(0),
-      kArenaBlockSize(OptimizeBlockSize(moptions.arena_block_size)),
-      arena_(moptions.arena_block_size),
+      kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
+      arena_(moptions_.arena_block_size),
+      allocator_(&arena_, write_buffer),
       table_(ioptions.memtable_factory->CreateMemTableRep(
-          comparator_, &arena_, ioptions.prefix_extractor, ioptions.info_log)),
+          comparator_, &allocator_, ioptions.prefix_extractor,
+          ioptions.info_log)),
       num_entries_(0),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
       mem_next_logfile_number_(0),
-      locks_(moptions.inplace_update_support ? moptions.inplace_update_num_locks
-                                             : 0),
+      locks_(moptions_.inplace_update_support ?
+             moptions_.inplace_update_num_locks : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       should_flush_(ShouldFlushNow()),
       flush_scheduled_(false) {
   // if should_flush_ == true without an entry inserted, something must have
   // gone wrong already.
   assert(!should_flush_);
-  if (prefix_extractor_ && moptions.memtable_prefix_bloom_bits > 0) {
+  if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
-        &arena_,
-        moptions.memtable_prefix_bloom_bits, ioptions.bloom_locality,
-        moptions.memtable_prefix_bloom_probes, nullptr,
-        moptions.memtable_prefix_bloom_huge_page_tlb_size,
+        &allocator_,
+        moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
+        moptions_.memtable_prefix_bloom_probes, nullptr,
+        moptions_.memtable_prefix_bloom_huge_page_tlb_size,
         ioptions.info_log));
   }
 }
@@ -176,7 +183,7 @@ Slice MemTableRep::UserKey(const char* key) const {
 }
 
 KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
-  *buf = arena_->Allocate(len);
+  *buf = allocator_->Allocate(len);
   return static_cast<KeyHandle>(*buf);
 }
 
@@ -185,7 +192,7 @@ KeyHandle MemTableRep::Allocate(const size_t len, char** buf) {
 // into this scratch space.
 const char* EncodeKey(std::string* scratch, const Slice& target) {
   scratch->clear();
-  PutVarint32(scratch, target.size());
+  PutVarint32(scratch, static_cast<uint32_t>(target.size()));
   scratch->append(target.data(), target.size());
   return scratch->data();
 }
@@ -214,8 +221,10 @@ class MemTableIterator: public Iterator {
     }
   }
 
-  virtual bool Valid() const { return valid_; }
-  virtual void Seek(const Slice& k) {
+  virtual bool Valid() const override { return valid_; }
+  virtual void Seek(const Slice& k) override {
+    PERF_TIMER_GUARD(seek_on_memtable_time);
+    PERF_COUNTER_ADD(seek_on_memtable_count, 1);
     if (bloom_ != nullptr &&
         !bloom_->MayContain(prefix_extractor_->Transform(ExtractUserKey(k)))) {
       valid_ = false;
@@ -224,35 +233,35 @@ class MemTableIterator: public Iterator {
     iter_->Seek(k, nullptr);
     valid_ = iter_->Valid();
   }
-  virtual void SeekToFirst() {
+  virtual void SeekToFirst() override {
     iter_->SeekToFirst();
     valid_ = iter_->Valid();
   }
-  virtual void SeekToLast() {
+  virtual void SeekToLast() override {
     iter_->SeekToLast();
     valid_ = iter_->Valid();
   }
-  virtual void Next() {
+  virtual void Next() override {
     assert(Valid());
     iter_->Next();
     valid_ = iter_->Valid();
   }
-  virtual void Prev() {
+  virtual void Prev() override {
     assert(Valid());
     iter_->Prev();
     valid_ = iter_->Valid();
   }
-  virtual Slice key() const {
+  virtual Slice key() const override {
     assert(Valid());
     return GetLengthPrefixedSlice(iter_->key());
   }
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(Valid());
     Slice key_slice = GetLengthPrefixedSlice(iter_->key());
     return GetLengthPrefixedSlice(key_slice.data() + key_slice.size());
   }
 
-  virtual Status status() const { return Status::OK(); }
+  virtual Status status() const override { return Status::OK(); }
 
  private:
   DynamicBloom* bloom_;
@@ -285,12 +294,12 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   //  key bytes    : char[internal_key.size()]
   //  value_size   : varint32 of value.size()
   //  value bytes  : char[value.size()]
-  size_t key_size = key.size();
-  size_t val_size = value.size();
-  size_t internal_key_size = key_size + 8;
-  const size_t encoded_len =
-      VarintLength(internal_key_size) + internal_key_size +
-      VarintLength(val_size) + val_size;
+  uint32_t key_size = static_cast<uint32_t>(key.size());
+  uint32_t val_size = static_cast<uint32_t>(value.size());
+  uint32_t internal_key_size = key_size + 8;
+  const uint32_t encoded_len = VarintLength(internal_key_size) +
+                               internal_key_size + VarintLength(val_size) +
+                               val_size;
   char* buf = nullptr;
   KeyHandle handle = table_->Allocate(encoded_len, &buf);
   assert(buf != nullptr);
@@ -454,10 +463,10 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.status = s;
     saver.mem = this;
     saver.merge_context = merge_context;
-    saver.merge_operator = ioptions_.merge_operator;
-    saver.logger = ioptions_.info_log;
+    saver.merge_operator = moptions_.merge_operator;
+    saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;
-    saver.statistics = ioptions_.statistics;
+    saver.statistics = moptions_.statistics;
     table_->Get(key, &saver, SaveValue);
   }
 
@@ -499,8 +508,8 @@ void MemTable::Update(SequenceNumber seq,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t prev_size = prev_value.size();
-          uint32_t new_size = value.size();
+          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
+          uint32_t new_size = static_cast<uint32_t>(value.size());
 
           // Update value, if new value size  <= previous value size
           if (new_size <= prev_size ) {
@@ -557,10 +566,10 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
       switch (static_cast<ValueType>(tag & 0xff)) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
-          uint32_t  prev_size = prev_value.size();
+          uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
 
           char* prev_buffer = const_cast<char*>(prev_value.data());
-          uint32_t  new_prev_size = prev_size;
+          uint32_t new_prev_size = prev_size;
 
           std::string str_value;
           WriteLock wl(GetLock(lkey.user_key()));
@@ -578,12 +587,12 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
                 memcpy(p, prev_buffer, new_prev_size);
               }
             }
-            RecordTick(ioptions_.statistics, NUMBER_KEYS_UPDATED);
+            RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
             should_flush_ = ShouldFlushNow();
             return true;
           } else if (status == UpdateStatus::UPDATED) {
             Add(seq, kTypeValue, key, Slice(str_value));
-            RecordTick(ioptions_.statistics, NUMBER_KEYS_WRITTEN);
+            RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
             should_flush_ = ShouldFlushNow();
             return true;
           } else if (status == UpdateStatus::UPDATE_FAILED) {

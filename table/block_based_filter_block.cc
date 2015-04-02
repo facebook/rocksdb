@@ -7,6 +7,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <algorithm>
 #include "table/block_based_filter_block.h"
 
 #include "db/dbformat.h"
@@ -28,6 +29,38 @@ bool SamePrefix(const SliceTransform* prefix_extractor,
     return (prefix_extractor->Transform(key1) ==
             prefix_extractor->Transform(key2));
   }
+}
+
+void AppendItem(std::string* props, const std::string& key,
+                const std::string& value) {
+  char cspace = ' ';
+  std::string value_str("");
+  size_t i = 0;
+  const size_t dataLength = 64;
+  const size_t tabLength = 2;
+  const size_t offLength = 16;
+
+  value_str.append(&value[i], std::min(size_t(dataLength), value.size()));
+  i += dataLength;
+  while (i < value.size()) {
+    value_str.append("\n");
+    value_str.append(offLength, cspace);
+    value_str.append(&value[i], std::min(size_t(dataLength), value.size() - i));
+    i += dataLength;
+  }
+
+  std::string result("");
+  if (key.size() < (offLength - tabLength))
+    result.append(size_t((offLength - tabLength)) - key.size(), cspace);
+  result.append(key);
+
+  props->append(result + ": " + value_str + "\n");
+}
+
+template <class TKey>
+void AppendItem(std::string* props, const TKey& key, const std::string& value) {
+  std::string key_str = std::to_string(key);
+  AppendItem(props, key_str, value);
 }
 }  // namespace
 
@@ -99,7 +132,7 @@ Slice BlockBasedFilterBlockBuilder::Finish() {
   }
 
   // Append array of per-filter offsets
-  const uint32_t array_offset = result_.size();
+  const uint32_t array_offset = static_cast<uint32_t>(result_.size());
   for (size_t i = 0; i < filter_offsets_.size(); i++) {
     PutFixed32(&result_, filter_offsets_[i]);
   }
@@ -113,7 +146,7 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
   const size_t num_entries = start_.size();
   if (num_entries == 0) {
     // Fast path if there are no keys for this filter
-    filter_offsets_.push_back(result_.size());
+    filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
     return;
   }
 
@@ -127,8 +160,9 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
   }
 
   // Generate filter for current set of keys and append to result_.
-  filter_offsets_.push_back(result_.size());
-  policy_->CreateFilter(&tmp_entries_[0], num_entries, &result_);
+  filter_offsets_.push_back(static_cast<uint32_t>(result_.size()));
+  policy_->CreateFilter(&tmp_entries_[0], static_cast<int>(num_entries),
+                        &result_);
 
   tmp_entries_.clear();
   entries_.clear();
@@ -137,10 +171,11 @@ void BlockBasedFilterBlockBuilder::GenerateFilter() {
 
 BlockBasedFilterBlockReader::BlockBasedFilterBlockReader(
     const SliceTransform* prefix_extractor,
-    const BlockBasedTableOptions& table_opt, BlockContents&& contents)
+    const BlockBasedTableOptions& table_opt, bool whole_key_filtering,
+    BlockContents&& contents)
     : policy_(table_opt.filter_policy.get()),
       prefix_extractor_(prefix_extractor),
-      whole_key_filtering_(table_opt.whole_key_filtering),
+      whole_key_filtering_(whole_key_filtering),
       data_(nullptr),
       offset_(nullptr),
       num_(0),
@@ -195,4 +230,25 @@ bool BlockBasedFilterBlockReader::MayMatch(const Slice& entry,
 size_t BlockBasedFilterBlockReader::ApproximateMemoryUsage() const {
   return num_ * 4 + 5 + (offset_ - data_);
 }
+
+std::string BlockBasedFilterBlockReader::ToString() const {
+  std::string result, filter_meta;
+  result.reserve(1024);
+
+  std::string s_bo("Block offset"), s_hd("Hex dump"), s_fb("# filter blocks");
+  AppendItem(&result, s_fb, std::to_string(num_));
+  AppendItem(&result, s_bo, s_hd);
+
+  for (size_t index = 0; index < num_; index++) {
+    uint32_t start = DecodeFixed32(offset_ + index * 4);
+    uint32_t limit = DecodeFixed32(offset_ + index * 4 + 4);
+
+    if (start != limit) {
+      result.append(" filter block # " + std::to_string(index + 1) + "\n");
+      Slice filter = Slice(data_ + start, limit - start);
+      AppendItem(&result, start, filter.ToString(true));
+    }
+  }
+  return result;
 }
+}  // namespace rocksdb

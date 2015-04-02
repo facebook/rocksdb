@@ -64,7 +64,7 @@ void VersionEdit::Clear() {
   column_family_name_.clear();
 }
 
-void VersionEdit::EncodeTo(std::string* dst) const {
+bool VersionEdit::EncodeTo(std::string* dst) const {
   if (has_comparator_) {
     PutVarint32(dst, kComparator);
     PutLengthPrefixedSlice(dst, comparator_);
@@ -98,6 +98,9 @@ void VersionEdit::EncodeTo(std::string* dst) const {
 
   for (size_t i = 0; i < new_files_.size(); i++) {
     const FileMetaData& f = new_files_[i].second;
+    if (!f.smallest.Valid() || !f.largest.Valid()) {
+      return false;
+    }
     if (f.fd.GetPathId() == 0) {
       // Use older format to make sure user can roll back the build if they
       // don't config multiple DB paths.
@@ -131,6 +134,7 @@ void VersionEdit::EncodeTo(std::string* dst) const {
   if (is_column_family_drop_) {
     PutVarint32(dst, kColumnFamilyDrop);
   }
+  return true;
 }
 
 static bool GetInternalKey(Slice* input, InternalKey* dst) {
@@ -164,7 +168,6 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
 
   // Temporary storage for parsing
   int level;
-  uint64_t number;
   FileMetaData f;
   Slice str;
   InternalKey key;
@@ -233,9 +236,9 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
         }
         break;
 
-      case kDeletedFile:
-        if (GetLevel(&input, &level, &msg) &&
-            GetVarint64(&input, &number)) {
+      case kDeletedFile: {
+        uint64_t number;
+        if (GetLevel(&input, &level, &msg) && GetVarint64(&input, &number)) {
           deleted_files_.insert(std::make_pair(level, number));
         } else {
           if (!msg) {
@@ -243,6 +246,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           }
         }
         break;
+      }
 
       case kNewFile: {
         uint64_t number;
@@ -293,7 +297,7 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
           new_files_.push_back(std::make_pair(level, f));
         } else {
           if (!msg) {
-            msg = "new-file2 entry";
+            msg = "new-file3 entry";
           }
         }
         break;

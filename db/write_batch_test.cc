@@ -13,6 +13,7 @@
 #include "db/memtable.h"
 #include "db/column_family.h"
 #include "db/write_batch_internal.h"
+#include "db/writebuffer.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -28,11 +29,12 @@ static std::string PrintContents(WriteBatch* b) {
   Options options;
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
+  WriteBuffer wb(options.db_write_buffer_size);
   MemTable* mem = new MemTable(cmp, ioptions,
-      MemTableOptions(MutableCFOptions(options, ioptions), options));
+                               MutableCFOptions(options, ioptions), &wb);
   mem->Ref();
   std::string state;
-  ColumnFamilyMemTablesDefault cf_mems_default(mem, &options);
+  ColumnFamilyMemTablesDefault cf_mems_default(mem);
   Status s = WriteBatchInternal::InsertInto(b, &cf_mems_default);
   int count = 0;
   Arena arena;
@@ -151,38 +153,72 @@ namespace {
   struct TestHandler : public WriteBatch::Handler {
     std::string seen;
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+                         const Slice& value) override {
       if (column_family_id == 0) {
         seen += "Put(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "PutCF(" + std::to_string(column_family_id) + ", " +
+        seen += "PutCF(" + ToString(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                           const Slice& value) override {
       if (column_family_id == 0) {
         seen += "Merge(" + key.ToString() + ", " + value.ToString() + ")";
       } else {
-        seen += "MergeCF(" + std::to_string(column_family_id) + ", " +
+        seen += "MergeCF(" + ToString(column_family_id) + ", " +
                 key.ToString() + ", " + value.ToString() + ")";
       }
       return Status::OK();
     }
-    virtual void LogData(const Slice& blob) {
+    virtual void LogData(const Slice& blob) override {
       seen += "LogData(" + blob.ToString() + ")";
     }
-    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
       if (column_family_id == 0) {
         seen += "Delete(" + key.ToString() + ")";
       } else {
-        seen += "DeleteCF(" + std::to_string(column_family_id) + ", " +
+        seen += "DeleteCF(" + ToString(column_family_id) + ", " +
                 key.ToString() + ")";
       }
       return Status::OK();
     }
   };
+}
+
+TEST(WriteBatchTest, MergeNotImplemented) {
+  WriteBatch batch;
+  batch.Merge(Slice("foo"), Slice("bar"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Merge(foo, bar)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST(WriteBatchTest, PutNotImplemented) {
+  WriteBatch batch;
+  batch.Put(Slice("k1"), Slice("v1"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Put(k1, v1)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
+}
+
+TEST(WriteBatchTest, DeleteNotImplemented) {
+  WriteBatch batch;
+  batch.Delete(Slice("k2"));
+  ASSERT_EQ(1, batch.Count());
+  ASSERT_EQ("Delete(k2)@0",
+            PrintContents(&batch));
+
+  WriteBatch::Handler handler;
+  ASSERT_OK(batch.Iterate(&handler));
 }
 
 TEST(WriteBatchTest, Blob) {
@@ -221,20 +257,21 @@ TEST(WriteBatchTest, Continue) {
   struct Handler : public TestHandler {
     int num_seen = 0;
     virtual Status PutCF(uint32_t column_family_id, const Slice& key,
-                       const Slice& value) {
+                         const Slice& value) override {
       ++num_seen;
       return TestHandler::PutCF(column_family_id, key, value);
     }
     virtual Status MergeCF(uint32_t column_family_id, const Slice& key,
-                         const Slice& value) {
+                           const Slice& value) override {
       ++num_seen;
       return TestHandler::MergeCF(column_family_id, key, value);
     }
-    virtual void LogData(const Slice& blob) {
+    virtual void LogData(const Slice& blob) override {
       ++num_seen;
       TestHandler::LogData(blob);
     }
-    virtual Status DeleteCF(uint32_t column_family_id, const Slice& key) {
+    virtual Status DeleteCF(uint32_t column_family_id,
+                            const Slice& key) override {
       ++num_seen;
       return TestHandler::DeleteCF(column_family_id, key);
     }

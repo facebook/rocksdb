@@ -44,6 +44,8 @@ void PerfContext::Reset() {
   get_from_memtable_count = 0;
   get_post_process_time = 0;
   get_from_output_files_time = 0;
+  seek_on_memtable_time = 0;
+  seek_on_memtable_count = 0;
   seek_child_seek_time = 0;
   seek_child_seek_count = 0;
   seek_min_heap_time = 0;
@@ -51,6 +53,8 @@ void PerfContext::Reset() {
   find_next_user_entry_time = 0;
   write_pre_and_post_process_time = 0;
   write_memtable_time = 0;
+  db_mutex_lock_nanos = 0;
+  db_condition_wait_nanos = 0;
 #endif
 }
 
@@ -76,13 +80,17 @@ std::string PerfContext::ToString() const {
      << OUTPUT(get_from_memtable_count)
      << OUTPUT(get_post_process_time)
      << OUTPUT(get_from_output_files_time)
+     << OUTPUT(seek_on_memtable_time)
+     << OUTPUT(seek_on_memtable_count)
      << OUTPUT(seek_child_seek_time)
      << OUTPUT(seek_child_seek_count)
      << OUTPUT(seek_min_heap_time)
      << OUTPUT(seek_internal_seek_time)
      << OUTPUT(find_next_user_entry_time)
      << OUTPUT(write_pre_and_post_process_time)
-     << OUTPUT(write_memtable_time);
+     << OUTPUT(write_memtable_time)
+     << OUTPUT(db_mutex_lock_nanos)
+     << OUTPUT(db_condition_wait_nanos);
   return ss.str();
 #endif
 }

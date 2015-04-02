@@ -9,8 +9,11 @@
 namespace {
 void f0() {
   char *p = nullptr;
+
+#ifndef __clang_analyzer__
   // cppcheck-suppress nullPointer
   *p = 10;  /* SIGSEGV here!! */
+#endif
 }
 
 void f1() {

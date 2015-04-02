@@ -29,24 +29,22 @@ class TwoLevelIterator: public Iterator {
     second_level_iter_.DeleteIter(false);
   }
 
-  virtual void Seek(const Slice& target);
-  virtual void SeekToFirst();
-  virtual void SeekToLast();
-  virtual void Next();
-  virtual void Prev();
+  virtual void Seek(const Slice& target) override;
+  virtual void SeekToFirst() override;
+  virtual void SeekToLast() override;
+  virtual void Next() override;
+  virtual void Prev() override;
 
-  virtual bool Valid() const {
-    return second_level_iter_.Valid();
-  }
-  virtual Slice key() const {
+  virtual bool Valid() const override { return second_level_iter_.Valid(); }
+  virtual Slice key() const override {
     assert(Valid());
     return second_level_iter_.key();
   }
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(Valid());
     return second_level_iter_.value();
   }
-  virtual Status status() const {
+  virtual Status status() const override {
     // It'd be nice if status() returned a const Status& instead of a Status
     if (!first_level_iter_.status().ok()) {
       return first_level_iter_.status();

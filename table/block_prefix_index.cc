@@ -87,7 +87,7 @@ class BlockPrefixIndex::Builder {
 
   BlockPrefixIndex* Finish() {
     // For now, use roughly 1:1 prefix to bucket ratio.
-    uint32_t num_buckets = prefixes_.size() + 1;
+    uint32_t num_buckets = static_cast<uint32_t>(prefixes_.size()) + 1;
 
     // Collect prefix records that hash to the same bucket, into a single
     // linklist.
@@ -143,8 +143,8 @@ class BlockPrefixIndex::Builder {
         auto current = prefixes_per_bucket[i];
         // populate block ids from largest to smallest
         while (current != nullptr) {
-          for (uint32_t i = 0; i < current->num_blocks; i++) {
-            *last_block = current->end_block - i;
+          for (uint32_t iter = 0; iter < current->num_blocks; iter++) {
+            *last_block = current->end_block - iter;
             last_block--;
           }
           current = current->next;

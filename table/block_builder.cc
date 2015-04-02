@@ -85,7 +85,7 @@ Slice BlockBuilder::Finish() {
   for (size_t i = 0; i < restarts_.size(); i++) {
     PutFixed32(&buffer_, restarts_[i]);
   }
-  PutFixed32(&buffer_, restarts_.size());
+  PutFixed32(&buffer_, static_cast<uint32_t>(restarts_.size()));
   finished_ = true;
   return Slice(buffer_);
 }
@@ -103,15 +103,15 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     }
   } else {
     // Restart compression
-    restarts_.push_back(buffer_.size());
+    restarts_.push_back(static_cast<uint32_t>(buffer_.size()));
     counter_ = 0;
   }
   const size_t non_shared = key.size() - shared;
 
   // Add "<shared><non_shared><value_size>" to buffer_
-  PutVarint32(&buffer_, shared);
-  PutVarint32(&buffer_, non_shared);
-  PutVarint32(&buffer_, value.size());
+  PutVarint32(&buffer_, static_cast<uint32_t>(shared));
+  PutVarint32(&buffer_, static_cast<uint32_t>(non_shared));
+  PutVarint32(&buffer_, static_cast<uint32_t>(value.size()));
 
   // Add string delta to buffer_ followed by value
   buffer_.append(key.data() + shared, non_shared);

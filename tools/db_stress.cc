@@ -28,6 +28,8 @@ int main() {
 }
 #else
 
+#define __STDC_FORMAT_MACROS
+#include <inttypes.h>
 #include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,6 +54,7 @@ int main() {
 #include "util/logging.h"
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
+#include "util/string_util.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -113,7 +116,11 @@ DEFINE_bool(verbose, false, "Verbose");
 DEFINE_bool(progress_reports, true,
             "If true, db_stress will report number of finished operations");
 
-DEFINE_int32(write_buffer_size, rocksdb::Options().write_buffer_size,
+DEFINE_uint64(db_write_buffer_size, rocksdb::Options().db_write_buffer_size,
+              "Number of bytes to buffer in all memtables before compacting");
+
+DEFINE_int32(write_buffer_size,
+             static_cast<int32_t>(rocksdb::Options().write_buffer_size),
              "Number of bytes to buffer in memtable before compacting");
 
 DEFINE_int32(max_write_buffer_number,
@@ -154,7 +161,8 @@ DEFINE_int32(level0_stop_writes_trigger,
              rocksdb::Options().level0_stop_writes_trigger,
              "Number of files in level-0 that will trigger put stop.");
 
-DEFINE_int32(block_size, rocksdb::BlockBasedTableOptions().block_size,
+DEFINE_int32(block_size,
+             static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
              "Number of bytes in a block.");
 
 DEFINE_int32(max_background_compactions,
@@ -190,6 +198,12 @@ DEFINE_int32(clear_column_family_one_in, 1000000,
              "With a chance of 1/N, delete a column family and then recreate "
              "it again. If N == 0, never drop/create column families. "
              "When test_batches_snapshots is true, this flag has no effect");
+
+DEFINE_int32(set_options_one_in, 0,
+             "With a chance of 1/N, change some random options");
+
+DEFINE_int32(set_in_place_one_in, 0,
+             "With a chance of 1/N, toggle in place support option");
 
 DEFINE_int64(cache_size, 2 * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
@@ -338,6 +352,8 @@ static const bool FLAGS_purge_redundant_percent_dummy __attribute__((unused)) =
 DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
             " the delete if key not present");
 
+DEFINE_bool(in_place_update, false, "On true, does inplace update in memtable");
+
 enum RepFactory {
   kSkipList,
   kHashSkipList,
@@ -372,7 +388,7 @@ static bool ValidatePrefixSize(const char* flagname, int32_t value) {
   return true;
 }
 DEFINE_int32(prefix_size, 7, "Control the prefix size for HashSkipListRep");
-static const bool FLAGS_prefix_size_dummy =
+static const bool FLAGS_prefix_size_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_prefix_size, &ValidatePrefixSize);
 
 DEFINE_bool(use_merge, false, "On true, replaces all writes with a Merge "
@@ -565,9 +581,9 @@ class SharedState {
 
   explicit SharedState(StressTest* stress_test)
       : cv_(&mu_),
-        seed_(FLAGS_seed),
+        seed_(static_cast<uint32_t>(FLAGS_seed)),
         max_key_(FLAGS_max_key),
-        log2_keys_per_lock_(FLAGS_log2_keys_per_lock),
+        log2_keys_per_lock_(static_cast<uint32_t>(FLAGS_log2_keys_per_lock)),
         num_threads_(FLAGS_threads),
         num_initialized_(0),
         num_populated_(0),
@@ -743,11 +759,8 @@ struct ThreadState {
   SharedState* shared;
   Stats stats;
 
-  ThreadState(uint32_t index, SharedState *shared)
-      : tid(index),
-        rand(1000 + index + shared->GetSeed()),
-        shared(shared) {
-  }
+  ThreadState(uint32_t index, SharedState* _shared)
+      : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
 };
 
 }  // namespace
@@ -787,8 +800,129 @@ class StressTest {
     delete db_;
   }
 
+  bool BuildOptionsTable() {
+    if (FLAGS_set_options_one_in <= 0) {
+      return true;
+    }
+    options_table_ = {
+      {"write_buffer_size",
+        {
+          ToString(FLAGS_write_buffer_size),
+          ToString(FLAGS_write_buffer_size * 2),
+          ToString(FLAGS_write_buffer_size * 4)
+        }
+      },
+      {"max_write_buffer_number",
+        {
+          ToString(FLAGS_max_write_buffer_number),
+          ToString(FLAGS_max_write_buffer_number * 2),
+          ToString(FLAGS_max_write_buffer_number * 4)
+        }
+      },
+      {"arena_block_size",
+        {
+          ToString(Options().arena_block_size),
+          ToString(FLAGS_write_buffer_size / 4),
+          ToString(FLAGS_write_buffer_size / 8),
+        }
+      },
+      {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
+      {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
+      {"memtable_prefix_bloom_huge_page_tlb_size",
+        {
+          "0",
+          ToString(2 * 1024 * 1024)
+        }
+      },
+      {"max_successive_merges", {"0", "2", "4"}},
+      {"filter_deletes", {"0", "1"}},
+      {"inplace_update_num_locks", {"100", "200", "300"}},
+      // TODO(ljin): enable test for this option
+      // {"disable_auto_compactions", {"100", "200", "300"}},
+      {"soft_rate_limit", {"0", "0.5", "0.9"}},
+      {"hard_rate_limit", {"0", "1.1", "2.0"}},
+      {"level0_file_num_compaction_trigger",
+        {
+          ToString(FLAGS_level0_file_num_compaction_trigger),
+          ToString(FLAGS_level0_file_num_compaction_trigger + 2),
+          ToString(FLAGS_level0_file_num_compaction_trigger + 4),
+        }
+      },
+      {"level0_slowdown_writes_trigger",
+        {
+          ToString(FLAGS_level0_slowdown_writes_trigger),
+          ToString(FLAGS_level0_slowdown_writes_trigger + 2),
+          ToString(FLAGS_level0_slowdown_writes_trigger + 4),
+        }
+      },
+      {"level0_stop_writes_trigger",
+        {
+          ToString(FLAGS_level0_stop_writes_trigger),
+          ToString(FLAGS_level0_stop_writes_trigger + 2),
+          ToString(FLAGS_level0_stop_writes_trigger + 4),
+        }
+      },
+      {"max_grandparent_overlap_factor",
+        {
+          ToString(Options().max_grandparent_overlap_factor - 5),
+          ToString(Options().max_grandparent_overlap_factor),
+          ToString(Options().max_grandparent_overlap_factor + 5),
+        }
+      },
+      {"expanded_compaction_factor",
+        {
+          ToString(Options().expanded_compaction_factor - 5),
+          ToString(Options().expanded_compaction_factor),
+          ToString(Options().expanded_compaction_factor + 5),
+        }
+      },
+      {"source_compaction_factor",
+        {
+          ToString(Options().source_compaction_factor),
+          ToString(Options().source_compaction_factor * 2),
+          ToString(Options().source_compaction_factor * 4),
+        }
+      },
+      {"target_file_size_base",
+        {
+          ToString(FLAGS_target_file_size_base),
+          ToString(FLAGS_target_file_size_base * 2),
+          ToString(FLAGS_target_file_size_base * 4),
+        }
+      },
+      {"target_file_size_multiplier",
+        {
+          ToString(FLAGS_target_file_size_multiplier),
+          "1",
+          "2",
+        }
+      },
+      {"max_bytes_for_level_base",
+        {
+          ToString(FLAGS_max_bytes_for_level_base / 2),
+          ToString(FLAGS_max_bytes_for_level_base),
+          ToString(FLAGS_max_bytes_for_level_base * 2),
+        }
+      },
+      {"max_bytes_for_level_multiplier",
+        {
+          ToString(FLAGS_max_bytes_for_level_multiplier),
+          "1",
+          "2",
+        }
+      },
+      {"max_mem_compaction_level", {"0", "1", "2"}},
+      {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+    };
+    for (const auto& iter : options_table_) {
+      options_index_.push_back(iter.first);
+    }
+    return true;
+  }
+
   bool Run() {
     PrintEnv();
+    BuildOptionsTable();
     Open();
     SharedState shared(this);
     uint32_t n = shared.GetNumThreads();
@@ -1169,6 +1303,33 @@ class StressTest {
     return s;
   }
 
+  Status SetOptions(ThreadState* thread) {
+    assert(FLAGS_set_options_one_in > 0);
+    std::unordered_map<std::string, std::string> opts;
+    std::string name = options_index_[
+      thread->rand.Next() % options_index_.size()];
+    int value_idx = thread->rand.Next() % options_table_[name].size();
+    if (name == "soft_rate_limit" || name == "hard_rate_limit") {
+      opts["soft_rate_limit"] = options_table_["soft_rate_limit"][value_idx];
+      opts["hard_rate_limit"] = options_table_["hard_rate_limit"][value_idx];
+    } else if (name == "level0_file_num_compaction_trigger" ||
+               name == "level0_slowdown_writes_trigger" ||
+               name == "level0_stop_writes_trigger") {
+      opts["level0_file_num_compaction_trigger"] =
+        options_table_["level0_file_num_compaction_trigger"][value_idx];
+      opts["level0_slowdown_writes_trigger"] =
+        options_table_["level0_slowdown_writes_trigger"][value_idx];
+      opts["level0_stop_writes_trigger"] =
+        options_table_["level0_stop_writes_trigger"][value_idx];
+    } else {
+      opts[name] = options_table_[name][value_idx];
+    }
+
+    int rand_cf_idx = thread->rand.Next() % FLAGS_column_families;
+    auto cfh = column_families_[rand_cf_idx];
+    return db_->SetOptions(cfh, opts);
+  }
+
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
@@ -1205,13 +1366,24 @@ class StressTest {
         }
       }
 
+      // Change Options
+      if (FLAGS_set_options_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_set_options_one_in)) {
+        SetOptions(thread);
+      }
+
+      if (FLAGS_set_in_place_one_in > 0 &&
+          thread->rand.OneIn(FLAGS_set_in_place_one_in)) {
+        options_.inplace_update_support ^= options_.inplace_update_support;
+      }
+
       if (!FLAGS_test_batches_snapshots &&
           FLAGS_clear_column_family_one_in != 0 && FLAGS_column_families > 1) {
         if (thread->rand.OneIn(FLAGS_clear_column_family_one_in)) {
           // drop column family and then create it again (can't drop default)
           int cf = thread->rand.Next() % (FLAGS_column_families - 1) + 1;
           std::string new_name =
-              std::to_string(new_column_family_name_.fetch_add(1));
+              ToString(new_column_family_name_.fetch_add(1));
           {
             MutexLock l(thread->shared->GetMutex());
             fprintf(
@@ -1287,7 +1459,7 @@ class StressTest {
           assert(count <=
                  (static_cast<int64_t>(1) << ((8 - FLAGS_prefix_size) * 8)));
           if (iter->status().ok()) {
-            thread->stats.AddPrefixes(1, count);
+            thread->stats.AddPrefixes(1, static_cast<int>(count));
           } else {
             thread->stats.AddErrors(1);
           }
@@ -1325,7 +1497,8 @@ class StressTest {
         } else {
           MultiPut(thread, write_opts, column_family, key, v, sz);
         }
-        PrintKeyValue(rand_column_family, rand_key, value, sz);
+        PrintKeyValue(rand_column_family, static_cast<uint32_t>(rand_key),
+                      value, sz);
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
@@ -1389,16 +1562,19 @@ class StressTest {
               from_db = iter->value().ToString();
               iter->Next();
             } else if (iter->key().compare(k) < 0) {
-              VerificationAbort(shared, "An out of range key was found", cf, i);
+              VerificationAbort(shared, "An out of range key was found",
+                                static_cast<int>(cf), i);
             }
           } else {
             // The iterator found no value for the key in question, so do not
             // move to the next item in the iterator
             s = Status::NotFound(Slice());
           }
-          VerifyValue(cf, i, options, shared, from_db, s, true);
+          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
+                      true);
           if (from_db.length()) {
-            PrintKeyValue(cf, i, from_db.data(), from_db.length());
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.length());
           }
         }
       } else {
@@ -1411,9 +1587,11 @@ class StressTest {
           std::string keystr = Key(i);
           Slice k = keystr;
           Status s = db_->Get(options, column_families_[cf], k, &from_db);
-          VerifyValue(cf, i, options, shared, from_db, s, true);
+          VerifyValue(static_cast<int>(cf), i, options, shared, from_db, s,
+                      true);
           if (from_db.length()) {
-            PrintKeyValue(cf, i, from_db.data(), from_db.length());
+            PrintKeyValue(static_cast<int>(cf), static_cast<uint32_t>(i),
+                          from_db.data(), from_db.length());
           }
         }
       }
@@ -1509,6 +1687,8 @@ class StressTest {
     fprintf(stdout, "Write percentage    : %d%%\n", FLAGS_writepercent);
     fprintf(stdout, "Delete percentage   : %d%%\n", FLAGS_delpercent);
     fprintf(stdout, "Iterate percentage  : %d%%\n", FLAGS_iterpercent);
+    fprintf(stdout, "DB-write-buffer-size: %" PRIu64 "\n",
+        FLAGS_db_write_buffer_size);
     fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
     fprintf(stdout,
             "Iterations          : %lu\n",
@@ -1525,6 +1705,8 @@ class StressTest {
             FLAGS_purge_redundant_percent);
     fprintf(stdout, "Deletes use filter  : %d\n",
             FLAGS_filter_deletes);
+    fprintf(stdout, "Do update in place  : %d\n",
+            FLAGS_in_place_update);
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
@@ -1544,6 +1726,7 @@ class StressTest {
         break;
       case rocksdb::kLZ4Compression:
         compression = "lz4";
+        break;
       case rocksdb::kLZ4HCCompression:
         compression = "lz4hc";
         break;
@@ -1575,9 +1758,11 @@ class StressTest {
     block_based_options.block_cache = cache_;
     block_based_options.block_cache_compressed = compressed_cache_;
     block_based_options.block_size = FLAGS_block_size;
+    block_based_options.format_version = 2;
     block_based_options.filter_policy = filter_policy_;
     options_.table_factory.reset(
         NewBlockBasedTableFactory(block_based_options));
+    options_.db_write_buffer_size = FLAGS_db_write_buffer_size;
     options_.write_buffer_size = FLAGS_write_buffer_size;
     options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options_.min_write_buffer_number_to_merge =
@@ -1608,22 +1793,31 @@ class StressTest {
     options_.create_if_missing = true;
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
+    options_.inplace_update_support = FLAGS_in_place_update;
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");
       exit(1);
     }
     switch (FLAGS_rep_factory) {
-      case kHashSkipList:
-        options_.memtable_factory.reset(NewHashSkipListRepFactory(10000));
-        break;
       case kSkipList:
         // no need to do anything
+        break;
+#ifndef ROCKSDB_LITE
+      case kHashSkipList:
+        options_.memtable_factory.reset(NewHashSkipListRepFactory(10000));
         break;
       case kVectorRep:
         options_.memtable_factory.reset(new VectorRepFactory());
         break;
+#else
+      default:
+        fprintf(stderr,
+                "RocksdbLite only supports skip list mem table. Skip "
+                "--rep_factory\n");
+#endif  // ROCKSDB_LITE
     }
+
     static Random purge_percent(1000); // no benefit from non-determinism here
     if (static_cast<int32_t>(purge_percent.Uniform(100)) <
         FLAGS_purge_redundant_percent - 1) {
@@ -1698,7 +1892,7 @@ class StressTest {
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
       }
       while (cf_descriptors.size() < (size_t)FLAGS_column_families) {
-        std::string name = std::to_string(new_column_family_name_.load());
+        std::string name = ToString(new_column_family_name_.load());
         new_column_family_name_++;
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
         column_family_names_.push_back(name);
@@ -1709,9 +1903,14 @@ class StressTest {
       assert(!s.ok() || column_families_.size() ==
                             static_cast<size_t>(FLAGS_column_families));
     } else {
+#ifndef ROCKSDB_LITE
       DBWithTTL* db_with_ttl;
       s = DBWithTTL::Open(options_, FLAGS_db, &db_with_ttl, FLAGS_ttl);
       db_ = db_with_ttl;
+#else
+      fprintf(stderr, "TTL is not supported in RocksDBLite\n");
+      exit(1);
+#endif
     }
     if (!s.ok()) {
       fprintf(stderr, "open error: %s\n", s.ToString().c_str());
@@ -1751,6 +1950,8 @@ class StressTest {
   std::vector<std::string> column_family_names_;
   std::atomic<int> new_column_family_name_;
   int num_times_reopened_;
+  std::unordered_map<std::string, std::vector<std::string>> options_table_;
+  std::vector<std::string> options_index_;
 };
 
 }  // namespace rocksdb

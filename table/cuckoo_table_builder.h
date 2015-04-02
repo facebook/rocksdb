@@ -68,11 +68,9 @@ class CuckooTableBuilder: public TableBuilder {
   };
   static const uint32_t kMaxVectorIdx = std::numeric_limits<int32_t>::max();
 
-  bool MakeSpaceForKey(
-      const autovector<uint64_t>& hash_vals,
-      const uint64_t call_id,
-      std::vector<CuckooBucket>* buckets,
-      uint64_t* bucket_id);
+  bool MakeSpaceForKey(const autovector<uint64_t>& hash_vals,
+                       const uint32_t call_id,
+                       std::vector<CuckooBucket>* buckets, uint64_t* bucket_id);
   Status MakeHashTable(std::vector<CuckooBucket>* buckets);
 
   inline bool IsDeletedKey(uint64_t idx) const;

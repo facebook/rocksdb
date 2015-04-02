@@ -18,9 +18,10 @@ class SkipListRep : public MemTableRep {
 
   friend class LookaheadIterator;
 public:
-  explicit SkipListRep(const MemTableRep::KeyComparator& compare, Arena* arena,
+  explicit SkipListRep(const MemTableRep::KeyComparator& compare,
+                       MemTableAllocator* allocator,
                        const SliceTransform* transform, const size_t lookahead)
-    : MemTableRep(arena), skip_list_(compare, arena), cmp_(compare),
+    : MemTableRep(allocator), skip_list_(compare, allocator), cmp_(compare),
       transform_(transform), lookahead_(lookahead) {
   }
 
@@ -36,7 +37,7 @@ public:
   }
 
   virtual size_t ApproximateMemoryUsage() override {
-    // All memory is allocated through arena; nothing to report here
+    // All memory is allocated through allocator; nothing to report here
     return 0;
   }
 
@@ -224,9 +225,9 @@ public:
 }
 
 MemTableRep* SkipListFactory::CreateMemTableRep(
-    const MemTableRep::KeyComparator& compare, Arena* arena,
+    const MemTableRep::KeyComparator& compare, MemTableAllocator* allocator,
     const SliceTransform* transform, Logger* logger) {
-  return new SkipListRep(compare, arena, transform, lookahead_);
+  return new SkipListRep(compare, allocator, transform, lookahead_);
 }
 
 } // namespace rocksdb

@@ -90,17 +90,17 @@ class DBIter: public Iterator {
     assert(iter_ == nullptr);
     iter_ = iter;
   }
-  virtual bool Valid() const { return valid_; }
-  virtual Slice key() const {
+  virtual bool Valid() const override { return valid_; }
+  virtual Slice key() const override {
     assert(valid_);
     return saved_key_.GetKey();
   }
-  virtual Slice value() const {
+  virtual Slice value() const override {
     assert(valid_);
     return (direction_ == kForward && !current_entry_is_merged_) ?
       iter_->value() : saved_value_;
   }
-  virtual Status status() const {
+  virtual Status status() const override {
     if (status_.ok()) {
       return iter_->status();
     } else {
@@ -108,11 +108,11 @@ class DBIter: public Iterator {
     }
   }
 
-  virtual void Next();
-  virtual void Prev();
-  virtual void Seek(const Slice& target);
-  virtual void SeekToFirst();
-  virtual void SeekToLast();
+  virtual void Next() override;
+  virtual void Prev() override;
+  virtual void Seek(const Slice& target) override;
+  virtual void SeekToFirst() override;
+  virtual void SeekToLast() override;
 
  private:
   void PrevInternal();
@@ -162,7 +162,8 @@ class DBIter: public Iterator {
 inline bool DBIter::ParseKey(ParsedInternalKey* ikey) {
   if (!ParseInternalKey(iter_->key(), ikey)) {
     status_ = Status::Corruption("corrupted internal key in DBIter");
-    Log(logger_, "corrupted internal key in DBIter: %s",
+    Log(InfoLogLevel::ERROR_LEVEL,
+        logger_, "corrupted internal key in DBIter: %s",
         iter_->key().ToString(true).c_str());
     return false;
   } else {
@@ -224,7 +225,6 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
           num_skipped++;  // skip this entry
           PERF_COUNTER_ADD(internal_key_skipped_count, 1);
         } else {
-          skipping = false;
           switch (ikey.type) {
             case kTypeDeletion:
               // Arrange to skip all upcoming entries for this key since
@@ -278,9 +278,11 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
 //       iter_ points to the next entry (or invalid)
 void DBIter::MergeValuesNewToOld() {
   if (!user_merge_operator_) {
-    Log(logger_, "Options::merge_operator is null.");
-    throw std::logic_error("DBIter::MergeValuesNewToOld() with"
-                           " Options::merge_operator null");
+    Log(InfoLogLevel::ERROR_LEVEL,
+        logger_, "Options::merge_operator is null.");
+    status_ = Status::InvalidArgument("user_merge_operator_ must be set.");
+    valid_ = false;
+    return;
   }
 
   // Start the merge process by pushing the first operand
@@ -310,8 +312,8 @@ void DBIter::MergeValuesNewToOld() {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       // ignore corruption if there is any.
-      const Slice value = iter_->value();
-      user_merge_operator_->FullMerge(ikey.user_key, &value, operands,
+      const Slice val = iter_->value();
+      user_merge_operator_->FullMerge(ikey.user_key, &val, operands,
                                       &saved_value_, logger_);
       // iter_ is positioned after put
       iter_->Next();
@@ -321,8 +323,8 @@ void DBIter::MergeValuesNewToOld() {
     if (kTypeMerge == ikey.type) {
       // hit a merge, add the value as an operand and run associative merge.
       // when complete, add result to operands and continue.
-      const Slice& value = iter_->value();
-      operands.push_front(value.ToString());
+      const Slice& val = iter_->value();
+      operands.push_front(val.ToString());
     }
   }
 
@@ -503,8 +505,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
     return true;
   }
 
-  const Slice& value = iter_->value();
-  user_merge_operator_->FullMerge(saved_key_.GetKey(), &value, operands,
+  const Slice& val = iter_->value();
+  user_merge_operator_->FullMerge(saved_key_.GetKey(), &val, operands,
                                   &saved_value_, logger_);
   valid_ = true;
   return true;

@@ -88,7 +88,6 @@ Status TableCache::FindTable(const EnvOptions& env_options,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
-      assert(file.get() == nullptr);
       *handle = cache_->Insert(key, table_reader.release(), 1, &DeleteEntry);
     }
   }

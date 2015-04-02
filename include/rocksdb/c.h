@@ -55,6 +55,9 @@ extern "C" {
 /* Exported types */
 
 typedef struct rocksdb_t                 rocksdb_t;
+typedef struct rocksdb_backup_engine_t   rocksdb_backup_engine_t;
+typedef struct rocksdb_backup_engine_info_t   rocksdb_backup_engine_info_t;
+typedef struct rocksdb_restore_options_t rocksdb_restore_options_t;
 typedef struct rocksdb_cache_t           rocksdb_cache_t;
 typedef struct rocksdb_compactionfilter_t rocksdb_compactionfilter_t;
 typedef struct rocksdb_compactionfiltercontext_t
@@ -77,6 +80,8 @@ typedef struct rocksdb_mergeoperator_t   rocksdb_mergeoperator_t;
 typedef struct rocksdb_options_t         rocksdb_options_t;
 typedef struct rocksdb_block_based_table_options_t
     rocksdb_block_based_table_options_t;
+typedef struct rocksdb_cuckoo_table_options_t
+    rocksdb_cuckoo_table_options_t;
 typedef struct rocksdb_randomfile_t      rocksdb_randomfile_t;
 typedef struct rocksdb_readoptions_t     rocksdb_readoptions_t;
 typedef struct rocksdb_seqfile_t         rocksdb_seqfile_t;
@@ -101,6 +106,56 @@ extern rocksdb_t* rocksdb_open_for_read_only(
     const char* name,
     unsigned char error_if_log_file_exist,
     char** errptr);
+
+extern rocksdb_backup_engine_t* rocksdb_backup_engine_open(
+    const rocksdb_options_t* options,
+    const char* path,
+    char** errptr);
+
+extern void rocksdb_backup_engine_create_new_backup(
+    rocksdb_backup_engine_t* be,
+    rocksdb_t* db,
+    char** errptr);
+
+extern rocksdb_restore_options_t* rocksdb_restore_options_create();
+extern void rocksdb_restore_options_destroy(rocksdb_restore_options_t* opt);
+extern void rocksdb_restore_options_set_keep_log_files(
+    rocksdb_restore_options_t* opt, int v);
+
+extern void rocksdb_backup_engine_restore_db_from_latest_backup(
+    rocksdb_backup_engine_t *be,
+    const char* db_dir,
+    const char* wal_dir,
+    const rocksdb_restore_options_t *restore_options,
+    char** errptr);
+
+extern const rocksdb_backup_engine_info_t* rocksdb_backup_engine_get_backup_info(
+    rocksdb_backup_engine_t* be);
+
+extern int rocksdb_backup_engine_info_count(
+    const rocksdb_backup_engine_info_t* info);
+
+extern int64_t rocksdb_backup_engine_info_timestamp(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern uint32_t rocksdb_backup_engine_info_backup_id(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern uint64_t rocksdb_backup_engine_info_size(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern uint32_t rocksdb_backup_engine_info_number_files(
+    const rocksdb_backup_engine_info_t* info,
+    int index);
+
+extern void rocksdb_backup_engine_info_destroy(
+    const rocksdb_backup_engine_info_t *info);
+
+extern void rocksdb_backup_engine_close(
+    rocksdb_backup_engine_t* be);
 
 extern rocksdb_t* rocksdb_open_column_families(
     const rocksdb_options_t* options,
@@ -376,6 +431,25 @@ extern void rocksdb_block_based_options_set_whole_key_filtering(
 extern void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt, rocksdb_block_based_table_options_t* table_options);
 
+/* Cuckoo table options */
+
+extern rocksdb_cuckoo_table_options_t*
+    rocksdb_cuckoo_options_create();
+extern void rocksdb_cuckoo_options_destroy(
+    rocksdb_cuckoo_table_options_t* options);
+extern void rocksdb_cuckoo_options_set_hash_ratio(
+    rocksdb_cuckoo_table_options_t* options, double v);
+extern void rocksdb_cuckoo_options_set_max_search_depth(
+    rocksdb_cuckoo_table_options_t* options, uint32_t v);
+extern void rocksdb_cuckoo_options_set_cuckoo_block_size(
+    rocksdb_cuckoo_table_options_t* options, uint32_t v);
+extern void rocksdb_cuckoo_options_set_identity_as_first_hash(
+    rocksdb_cuckoo_table_options_t* options, unsigned char v);
+extern void rocksdb_cuckoo_options_set_use_module_hash(
+    rocksdb_cuckoo_table_options_t* options, unsigned char v);
+extern void rocksdb_options_set_cuckoo_table_factory(
+    rocksdb_options_t *opt, rocksdb_cuckoo_table_options_t* table_options);
+
 /* Options */
 
 extern rocksdb_options_t* rocksdb_options_create();
@@ -419,6 +493,7 @@ extern void rocksdb_options_set_info_log(rocksdb_options_t*, rocksdb_logger_t*);
 extern void rocksdb_options_set_info_log_level(rocksdb_options_t*, int);
 extern void rocksdb_options_set_write_buffer_size(rocksdb_options_t*, size_t);
 extern void rocksdb_options_set_max_open_files(rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_total_wal_size(rocksdb_options_t* opt, uint64_t n);
 extern void rocksdb_options_set_compression_options(
     rocksdb_options_t*, int, int, int);
 extern void rocksdb_options_set_prefix_extractor(
@@ -521,9 +596,6 @@ extern void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t*);
 extern void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t*, size_t, int32_t, int32_t);
 extern void rocksdb_options_set_hash_link_list_rep(rocksdb_options_t*, size_t);
 extern void rocksdb_options_set_plain_table_factory(rocksdb_options_t*, uint32_t, int, double, size_t);
-
-extern void rocksdb_options_set_max_bytes_for_level_base(rocksdb_options_t* opt, uint64_t n);
-extern void rocksdb_options_set_stats_dump_period_sec(rocksdb_options_t* opt, unsigned int sec);
 
 extern void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level);
 

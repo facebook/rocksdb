@@ -39,7 +39,7 @@ class InternalKeyPropertiesCollector : public TablePropertiesCollector {
 class InternalKeyPropertiesCollectorFactory
     : public TablePropertiesCollectorFactory {
  public:
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() {
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
     return new InternalKeyPropertiesCollector();
   }
 
@@ -79,7 +79,7 @@ class UserKeyTablePropertiesCollectorFactory
   explicit UserKeyTablePropertiesCollectorFactory(
       std::shared_ptr<TablePropertiesCollectorFactory> user_collector_factory)
       : user_collector_factory_(user_collector_factory) {}
-  virtual TablePropertiesCollector* CreateTablePropertiesCollector() {
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
     return new UserKeyTablePropertiesCollector(
         user_collector_factory_->CreateTablePropertiesCollector());
   }

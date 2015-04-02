@@ -19,20 +19,26 @@ namespace rocksdb {
 
 class IntComparator : public Comparator {
  public:
-  int Compare(const Slice& a, const Slice& b) const {
+  int Compare(const Slice& a, const Slice& b) const override {
     assert(a.size() == 8);
     assert(b.size() == 8);
-    return *reinterpret_cast<const int64_t*>(a.data()) -
-      *reinterpret_cast<const int64_t*>(b.data());
+    int64_t diff = *reinterpret_cast<const int64_t*>(a.data()) -
+                   *reinterpret_cast<const int64_t*>(b.data());
+    if (diff < 0) {
+      return -1;
+    } else if (diff == 0) {
+      return 0;
+    } else {
+      return 1;
+    }
   }
 
-  const char* Name() const {
-    return "IntComparator";
-  }
+  const char* Name() const override { return "IntComparator"; }
 
-  void FindShortestSeparator(std::string* start, const Slice& limit) const {}
+  void FindShortestSeparator(std::string* start,
+                             const Slice& limit) const override {}
 
-  void FindShortSuccessor(std::string* key) const {}
+  void FindShortSuccessor(std::string* key) const override {}
 };
 
 struct FileIndexerTest {
@@ -94,7 +100,6 @@ TEST(FileIndexerTest, Empty) {
 // Case 1: no overlap, files are on the left of next level files
 TEST(FileIndexerTest, no_overlap_left) {
   Arena arena;
-  uint32_t kNumLevels = 4;
   indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 100, 200);
@@ -135,7 +140,6 @@ TEST(FileIndexerTest, no_overlap_left) {
 // Case 2: no overlap, files are on the right of next level files
 TEST(FileIndexerTest, no_overlap_right) {
   Arena arena;
-  uint32_t kNumLevels = 4;
   indexer = new FileIndexer(&ucmp);
   // level 1
   AddFile(1, 2100, 2200);
@@ -178,7 +182,6 @@ TEST(FileIndexerTest, no_overlap_right) {
 // Case 3: empty L2
 TEST(FileIndexerTest, empty_L2) {
   Arena arena;
-  uint32_t kNumLevels = 4;
   indexer = new FileIndexer(&ucmp);
   for (uint32_t i = 1; i < kNumLevels; ++i) {
     ASSERT_EQ(0U, indexer->LevelIndexSize(i));

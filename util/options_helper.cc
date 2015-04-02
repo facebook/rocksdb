@@ -4,11 +4,20 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include <cassert>
+#include <cctype>
 #include <unordered_set>
+#include "rocksdb/cache.h"
+#include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "rocksdb/slice_transform.h"
+#include "rocksdb/table.h"
+#include "rocksdb/utilities/convenience.h"
+#include "table/block_based_table_factory.h"
 #include "util/options_helper.h"
 
 namespace rocksdb {
+
+#ifndef ROCKSDB_LITE
 
 namespace {
 CompressionType ParseCompressionType(const std::string& type) {
@@ -25,9 +34,31 @@ CompressionType ParseCompressionType(const std::string& type) {
   } else if (type == "kLZ4HCCompression") {
     return kLZ4HCCompression;
   } else {
-    throw "unknown compression type: " + type;
+    throw std::invalid_argument("Unknown compression type: " + type);
   }
   return kNoCompression;
+}
+
+BlockBasedTableOptions::IndexType ParseBlockBasedTableIndexType(
+    const std::string& type) {
+  if (type == "kBinarySearch") {
+    return BlockBasedTableOptions::kBinarySearch;
+  } else if (type == "kHashSearch") {
+    return BlockBasedTableOptions::kHashSearch;
+  }
+  throw std::invalid_argument("Unknown index type: " + type);
+}
+
+ChecksumType ParseBlockBasedTableChecksumType(
+    const std::string& type) {
+  if (type == "kNoChecksum") {
+    return kNoChecksum;
+  } else if (type == "kCRC32c") {
+    return kCRC32c;
+  } else if (type == "kxxHash") {
+    return kxxHash;
+  }
+  throw std::invalid_argument("Unknown checksum type: " + type);
 }
 
 bool ParseBoolean(const std::string& type, const std::string& value) {
@@ -35,24 +66,57 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
     return true;
   } else if (value == "false" || value == "0") {
     return false;
-  } else {
-    throw type;
   }
-}
-uint32_t ParseInt(const std::string& value) {
-  return std::stoi(value);
-}
-
-uint32_t ParseUint32(const std::string& value) {
-  return std::stoul(value);
+  throw std::invalid_argument(type);
 }
 
 uint64_t ParseUint64(const std::string& value) {
-  return std::stoull(value);
+  size_t endchar;
+  uint64_t num = std::stoull(value.c_str(), &endchar);
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10LL;
+    else if (c == 'm' || c == 'M')
+      num <<= 20LL;
+    else if (c == 'g' || c == 'G')
+      num <<= 30LL;
+    else if (c == 't' || c == 'T')
+      num <<= 40LL;
+  }
+
+  return num;
 }
 
-int64_t ParseInt64(const std::string& value) {
-  return std::stol(value);
+size_t ParseSizeT(const std::string& value) {
+  return static_cast<size_t>(ParseUint64(value));
+}
+
+uint32_t ParseUint32(const std::string& value) {
+  uint64_t num = ParseUint64(value);
+  if ((num >> 32LL) == 0) {
+    return static_cast<uint32_t>(num);
+  } else {
+    throw std::out_of_range(value);
+  }
+}
+
+int ParseInt(const std::string& value) {
+  size_t endchar;
+  int num = std::stoi(value.c_str(), &endchar);
+
+  if (endchar < value.length()) {
+    char c = value[endchar];
+    if (c == 'k' || c == 'K')
+      num <<= 10;
+    else if (c == 'm' || c == 'M')
+      num <<= 20;
+    else if (c == 'g' || c == 'G')
+      num <<= 30;
+  }
+
+  return num;
 }
 
 double ParseDouble(const std::string& value) {
@@ -67,7 +131,7 @@ CompactionStyle ParseCompactionStyle(const std::string& type) {
   } else if (type == "kCompactionStyleFIFO") {
     return kCompactionStyleFIFO;
   } else {
-    throw "unknown compaction style: " + type;
+    throw std::invalid_argument("unknown compaction style: " + type);
   }
   return kCompactionStyleLevel;
 }
@@ -77,20 +141,24 @@ template<typename OptionsType>
 bool ParseMemtableOptions(const std::string& name, const std::string& value,
                           OptionsType* new_options) {
   if (name == "write_buffer_size") {
-    new_options->write_buffer_size = ParseInt64(value);
+    new_options->write_buffer_size = ParseSizeT(value);
   } else if (name == "arena_block_size") {
-    new_options->arena_block_size = ParseInt64(value);
+    new_options->arena_block_size = ParseSizeT(value);
   } else if (name == "memtable_prefix_bloom_bits") {
-    new_options->memtable_prefix_bloom_bits = stoul(value);
+    new_options->memtable_prefix_bloom_bits = ParseUint32(value);
   } else if (name == "memtable_prefix_bloom_probes") {
-    new_options->memtable_prefix_bloom_probes = stoul(value);
+    new_options->memtable_prefix_bloom_probes = ParseUint32(value);
   } else if (name == "memtable_prefix_bloom_huge_page_tlb_size") {
     new_options->memtable_prefix_bloom_huge_page_tlb_size =
-      ParseInt64(value);
+      ParseSizeT(value);
   } else if (name == "max_successive_merges") {
-    new_options->max_successive_merges = ParseInt64(value);
+    new_options->max_successive_merges = ParseSizeT(value);
   } else if (name == "filter_deletes") {
     new_options->filter_deletes = ParseBoolean(name, value);
+  } else if (name == "max_write_buffer_number") {
+    new_options->max_write_buffer_number = ParseInt(value);
+  } else if (name == "inplace_update_num_locks") {
+    new_options->inplace_update_num_locks = ParseSizeT(value);
   } else {
     return false;
   }
@@ -100,7 +168,13 @@ bool ParseMemtableOptions(const std::string& name, const std::string& value,
 template<typename OptionsType>
 bool ParseCompactionOptions(const std::string& name, const std::string& value,
                             OptionsType* new_options) {
-  if (name == "level0_file_num_compaction_trigger") {
+  if (name == "disable_auto_compactions") {
+    new_options->disable_auto_compactions = ParseBoolean(name, value);
+  } else if (name == "soft_rate_limit") {
+    new_options->soft_rate_limit = ParseDouble(value);
+  } else if (name == "hard_rate_limit") {
+    new_options->hard_rate_limit = ParseDouble(value);
+  } else if (name == "level0_file_num_compaction_trigger") {
     new_options->level0_file_num_compaction_trigger = ParseInt(value);
   } else if (name == "level0_slowdown_writes_trigger") {
     new_options->level0_slowdown_writes_trigger = ParseInt(value);
@@ -124,7 +198,7 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
     new_options->max_bytes_for_level_multiplier_additional.clear();
     size_t start = 0;
     while (true) {
-      size_t end = value.find_first_of(':', start);
+      size_t end = value.find(':', start);
       if (end == std::string::npos) {
         new_options->max_bytes_for_level_multiplier_additional.push_back(
             ParseInt(value.substr(start)));
@@ -135,194 +209,490 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
         start = end + 1;
       }
     }
+  } else if (name == "max_mem_compaction_level") {
+    new_options->max_mem_compaction_level = ParseInt(value);
+  } else if (name == "verify_checksums_in_compaction") {
+    new_options->verify_checksums_in_compaction = ParseBoolean(name, value);
   } else {
     return false;
   }
   return true;
 }
 
-bool GetMutableOptionsFromStrings(
-    const MutableCFOptions& base_options,
-    const std::unordered_map<std::string, std::string>& options_map,
-    MutableCFOptions* new_options) {
-  assert(new_options);
-  *new_options = base_options;
-  try {
-    for (const auto& o : options_map) {
-      if (ParseMemtableOptions(o.first, o.second, new_options)) {
-      } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
-      } else {
-        return false;
-      }
-    }
-  } catch (std::exception) {
+template<typename OptionsType>
+bool ParseMiscOptions(const std::string& name, const std::string& value,
+                      OptionsType* new_options) {
+  if (name == "max_sequential_skip_in_iterations") {
+    new_options->max_sequential_skip_in_iterations = ParseUint64(value);
+  } else {
     return false;
   }
   return true;
 }
 
-bool GetOptionsFromStrings(
-    const Options& base_options,
+Status GetMutableOptionsFromStrings(
+    const MutableCFOptions& base_options,
     const std::unordered_map<std::string, std::string>& options_map,
-    Options* new_options) {
+    MutableCFOptions* new_options) {
   assert(new_options);
   *new_options = base_options;
   for (const auto& o : options_map) {
     try {
       if (ParseMemtableOptions(o.first, o.second, new_options)) {
       } else if (ParseCompactionOptions(o.first, o.second, new_options)) {
-      } else if (o.first == "max_write_buffer_number") {
-        new_options->max_write_buffer_number = ParseInt(o.second);
-      } else if (o.first == "min_write_buffer_number_to_merge") {
-        new_options->min_write_buffer_number_to_merge = ParseInt(o.second);
-      } else if (o.first == "compression") {
-        new_options->compression = ParseCompressionType(o.second);
-      } else if (o.first == "compression_per_level") {
-        new_options->compression_per_level.clear();
-        size_t start = 0;
-        while (true) {
-          size_t end = o.second.find_first_of(':', start);
-          if (end == std::string::npos) {
-            new_options->compression_per_level.push_back(
-                ParseCompressionType(o.second.substr(start)));
+      } else if (ParseMiscOptions(o.first, o.second, new_options)) {
+      } else {
+        return Status::InvalidArgument(
+            "unsupported dynamic option: " + o.first);
+      }
+    } catch (std::exception& e) {
+      return Status::InvalidArgument("error parsing " + o.first + ":" +
+                                     std::string(e.what()));
+    }
+  }
+  return Status::OK();
+}
+
+namespace {
+
+std::string trim(const std::string& str) {
+  size_t start = 0;
+  size_t end = str.size() - 1;
+  while (isspace(str[start]) != 0 && start <= end) {
+    ++start;
+  }
+  while (isspace(str[end]) != 0 && start <= end) {
+    --end;
+  }
+  if (start <= end) {
+    return str.substr(start, end - start + 1);
+  }
+  return std::string();
+}
+
+}  // anonymous namespace
+
+Status StringToMap(const std::string& opts_str,
+                   std::unordered_map<std::string, std::string>* opts_map) {
+  assert(opts_map);
+  // Example:
+  //   opts_str = "write_buffer_size=1024;max_write_buffer_number=2;"
+  //              "nested_opt={opt1=1;opt2=2};max_bytes_for_level_base=100"
+  size_t pos = 0;
+  std::string opts = trim(opts_str);
+  while (pos < opts.size()) {
+    size_t eq_pos = opts.find('=', pos);
+    if (eq_pos == std::string::npos) {
+      return Status::InvalidArgument("Mismatched key value pair, '=' expected");
+    }
+    std::string key = trim(opts.substr(pos, eq_pos - pos));
+    if (key.empty()) {
+      return Status::InvalidArgument("Empty key found");
+    }
+
+    // skip space after '=' and look for '{' for possible nested options
+    pos = eq_pos + 1;
+    while (pos < opts.size() && isspace(opts[pos])) {
+      ++pos;
+    }
+    // Empty value at the end
+    if (pos >= opts.size()) {
+      (*opts_map)[key] = "";
+      break;
+    }
+    if (opts[pos] == '{') {
+      int count = 1;
+      size_t brace_pos = pos + 1;
+      while (brace_pos < opts.size()) {
+        if (opts[brace_pos] == '{') {
+          ++count;
+        } else if (opts[brace_pos] == '}') {
+          --count;
+          if (count == 0) {
             break;
-          } else {
-            new_options->compression_per_level.push_back(
-                ParseCompressionType(o.second.substr(start, end - start)));
-            start = end + 1;
           }
         }
-      } else if (o.first == "compression_opts") {
-        size_t start = 0;
-        size_t end = o.second.find_first_of(':');
+        ++brace_pos;
+      }
+      // found the matching closing brace
+      if (count == 0) {
+        (*opts_map)[key] = trim(opts.substr(pos + 1, brace_pos - pos - 1));
+        // skip all whitespace and move to the next ';'
+        // brace_pos points to the next position after the matching '}'
+        pos = brace_pos + 1;
+        while (pos < opts.size() && isspace(opts[pos])) {
+          ++pos;
+        }
+        if (pos < opts.size() && opts[pos] != ';') {
+          return Status::InvalidArgument(
+              "Unexpected chars after nested options");
+        }
+        ++pos;
+      } else {
+        return Status::InvalidArgument(
+            "Mismatched curly braces for nested options");
+      }
+    } else {
+      size_t sc_pos = opts.find(';', pos);
+      if (sc_pos == std::string::npos) {
+        (*opts_map)[key] = trim(opts.substr(pos));
+        // It either ends with a trailing semi-colon or the last key-value pair
+        break;
+      } else {
+        (*opts_map)[key] = trim(opts.substr(pos, sc_pos - pos));
+      }
+      pos = sc_pos + 1;
+    }
+  }
+
+  return Status::OK();
+}
+
+bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
+                             ColumnFamilyOptions* new_options) {
+  try {
+    if (ParseMemtableOptions(name, value, new_options)) {
+    } else if (ParseCompactionOptions(name, value, new_options)) {
+    } else if (ParseMiscOptions(name, value, new_options)) {
+    } else if (name == "block_based_table_factory") {
+      // Nested options
+      BlockBasedTableOptions table_opt, base_table_options;
+      auto block_based_table_factory = dynamic_cast<BlockBasedTableFactory*>(
+          new_options->table_factory.get());
+      if (block_based_table_factory != nullptr) {
+        base_table_options = block_based_table_factory->GetTableOptions();
+      }
+      Status table_opt_s = GetBlockBasedTableOptionsFromString(
+          base_table_options, value, &table_opt);
+      if (!table_opt_s.ok()) {
+        return false;
+      }
+      new_options->table_factory.reset(NewBlockBasedTableFactory(table_opt));
+    } else if (name == "min_write_buffer_number_to_merge") {
+      new_options->min_write_buffer_number_to_merge = ParseInt(value);
+    } else if (name == "compression") {
+      new_options->compression = ParseCompressionType(value);
+    } else if (name == "compression_per_level") {
+      new_options->compression_per_level.clear();
+      size_t start = 0;
+      while (true) {
+        size_t end = value.find(':', start);
         if (end == std::string::npos) {
-          throw o.first;
+          new_options->compression_per_level.push_back(
+              ParseCompressionType(value.substr(start)));
+          break;
+        } else {
+          new_options->compression_per_level.push_back(
+              ParseCompressionType(value.substr(start, end - start)));
+          start = end + 1;
         }
-        new_options->compression_opts.window_bits =
-            ParseInt(o.second.substr(start, end - start));
-        start = end + 1;
-        end = o.second.find_first_of(':', start);
-        if (end == std::string::npos) {
-          throw o.first;
-        }
-        new_options->compression_opts.level =
-            ParseInt(o.second.substr(start, end - start));
-        start = end + 1;
-        if (start >= o.second.size()) {
-          throw o.first;
-        }
-        new_options->compression_opts.strategy =
-            ParseInt(o.second.substr(start, o.second.size() - start));
-      } else if (o.first == "num_levels") {
-        new_options->num_levels = ParseInt(o.second);
-      } else if (o.first == "max_mem_compaction_level") {
-        new_options->max_mem_compaction_level = ParseInt(o.second);
-      } else if (o.first == "soft_rate_limit") {
-        new_options->soft_rate_limit = ParseDouble(o.second);
-      } else if (o.first == "hard_rate_limit") {
-        new_options->hard_rate_limit = ParseDouble(o.second);
-      } else if (o.first == "disable_auto_compactions") {
-        new_options->disable_auto_compactions = ParseBoolean(o.first, o.second);
-      } else if (o.first == "purge_redundant_kvs_while_flush") {
-        new_options->purge_redundant_kvs_while_flush =
-          ParseBoolean(o.first, o.second);
-      } else if (o.first == "compaction_style") {
-        new_options->compaction_style = ParseCompactionStyle(o.second);
-      } else if (o.first == "verify_checksums_in_compaction") {
-        new_options->verify_checksums_in_compaction =
-          ParseBoolean(o.first, o.second);
-      } else if (o.first == "compaction_options_universal") {
-        // TODO(ljin): add support
-        throw o.first;
-      } else if (o.first == "compaction_options_fifo") {
-        new_options->compaction_options_fifo.max_table_files_size
-          = ParseUint64(o.second);
-      } else if (o.first == "max_sequential_skip_in_iterations") {
-        new_options->max_sequential_skip_in_iterations = ParseUint64(o.second);
-      } else if (o.first == "inplace_update_support") {
-        new_options->inplace_update_support = ParseBoolean(o.first, o.second);
-      } else if (o.first == "inplace_update_num_locks") {
-        new_options->inplace_update_num_locks = ParseInt64(o.second);
-      } else if (o.first == "bloom_locality") {
-        new_options->bloom_locality = ParseUint32(o.second);
-      } else if (o.first == "min_partial_merge_operands") {
-        new_options->min_partial_merge_operands = ParseUint32(o.second);
-      } else if (o.first == "create_if_missing") {
-        new_options->create_if_missing = ParseBoolean(o.first, o.second);
-      } else if (o.first == "create_missing_column_families") {
-        new_options->create_missing_column_families =
-          ParseBoolean(o.first, o.second);
-      } else if (o.first == "error_if_exists") {
-        new_options->error_if_exists = ParseBoolean(o.first, o.second);
-      } else if (o.first == "paranoid_checks") {
-        new_options->paranoid_checks = ParseBoolean(o.first, o.second);
-      } else if (o.first == "max_open_files") {
-        new_options->max_open_files = ParseInt(o.second);
-      } else if (o.first == "max_total_wal_size") {
-        new_options->max_total_wal_size = ParseUint64(o.second);
-      } else if (o.first == "disable_data_sync") {
-        new_options->disableDataSync = ParseBoolean(o.first, o.second);
-      } else if (o.first == "use_fsync") {
-        new_options->use_fsync = ParseBoolean(o.first, o.second);
-      } else if (o.first == "db_paths") {
-        // TODO(ljin): add support
-        throw o.first;
-      } else if (o.first == "db_log_dir") {
-        new_options->db_log_dir = o.second;
-      } else if (o.first == "wal_dir") {
-        new_options->wal_dir = o.second;
-      } else if (o.first == "delete_obsolete_files_period_micros") {
-        new_options->delete_obsolete_files_period_micros =
-          ParseUint64(o.second);
-      } else if (o.first == "max_background_compactions") {
-        new_options->max_background_compactions = ParseInt(o.second);
-      } else if (o.first == "max_background_flushes") {
-        new_options->max_background_flushes = ParseInt(o.second);
-      } else if (o.first == "max_log_file_size") {
-        new_options->max_log_file_size = ParseInt64(o.second);
-      } else if (o.first == "log_file_time_to_roll") {
-        new_options->log_file_time_to_roll = ParseInt64(o.second);
-      } else if (o.first == "keep_log_file_num") {
-        new_options->keep_log_file_num = ParseInt64(o.second);
-      } else if (o.first == "max_manifest_file_size") {
-        new_options->max_manifest_file_size = ParseUint64(o.second);
-      } else if (o.first == "table_cache_numshardbits") {
-        new_options->table_cache_numshardbits = ParseInt(o.second);
-      } else if (o.first == "table_cache_remove_scan_count_limit") {
-        new_options->table_cache_remove_scan_count_limit = ParseInt(o.second);
-      } else if (o.first == "WAL_ttl_seconds") {
-        new_options->WAL_ttl_seconds = ParseUint64(o.second);
-      } else if (o.first == "WAL_size_limit_MB") {
-        new_options->WAL_size_limit_MB = ParseUint64(o.second);
-      } else if (o.first == "manifest_preallocation_size") {
-        new_options->manifest_preallocation_size = ParseInt64(o.second);
-      } else if (o.first == "allow_os_buffer") {
-        new_options->allow_os_buffer = ParseBoolean(o.first, o.second);
-      } else if (o.first == "allow_mmap_reads") {
-        new_options->allow_mmap_reads = ParseBoolean(o.first, o.second);
-      } else if (o.first == "allow_mmap_writes") {
-        new_options->allow_mmap_writes = ParseBoolean(o.first, o.second);
-      } else if (o.first == "is_fd_close_on_exec") {
-        new_options->is_fd_close_on_exec = ParseBoolean(o.first, o.second);
-      } else if (o.first == "skip_log_error_on_recovery") {
-        new_options->skip_log_error_on_recovery =
-          ParseBoolean(o.first, o.second);
-      } else if (o.first == "stats_dump_period_sec") {
-        new_options->stats_dump_period_sec = ParseUint32(o.second);
-      } else if (o.first == "advise_random_on_open") {
-        new_options->advise_random_on_open = ParseBoolean(o.first, o.second);
-      } else if (o.first == "use_adaptive_mutex") {
-        new_options->use_adaptive_mutex = ParseBoolean(o.first, o.second);
-      } else if (o.first == "bytes_per_sync") {
-        new_options->bytes_per_sync = ParseUint64(o.second);
+      }
+    } else if (name == "compression_opts") {
+      size_t start = 0;
+      size_t end = value.find(':');
+      if (end == std::string::npos) {
+        return false;
+      }
+      new_options->compression_opts.window_bits =
+          ParseInt(value.substr(start, end - start));
+      start = end + 1;
+      end = value.find(':', start);
+      if (end == std::string::npos) {
+        return false;
+      }
+      new_options->compression_opts.level =
+          ParseInt(value.substr(start, end - start));
+      start = end + 1;
+      if (start >= value.size()) {
+        return false;
+      }
+      new_options->compression_opts.strategy =
+          ParseInt(value.substr(start, value.size() - start));
+    } else if (name == "num_levels") {
+      new_options->num_levels = ParseInt(value);
+    } else if (name == "level_compaction_dynamic_level_bytes") {
+      new_options->level_compaction_dynamic_level_bytes =
+          ParseBoolean(name, value);
+    } else if (name == "purge_redundant_kvs_while_flush") {
+      new_options->purge_redundant_kvs_while_flush =
+          ParseBoolean(name, value);
+    } else if (name == "compaction_style") {
+      new_options->compaction_style = ParseCompactionStyle(value);
+    } else if (name == "compaction_options_universal") {
+      // TODO(ljin): add support
+      return false;
+    } else if (name == "compaction_options_fifo") {
+      new_options->compaction_options_fifo.max_table_files_size =
+          ParseUint64(value);
+    } else if (name == "bloom_locality") {
+      new_options->bloom_locality = ParseUint32(value);
+    } else if (name == "min_partial_merge_operands") {
+      new_options->min_partial_merge_operands = ParseUint32(value);
+    } else if (name == "inplace_update_support") {
+      new_options->inplace_update_support = ParseBoolean(name, value);
+    } else if (name == "prefix_extractor") {
+      const std::string kFixedPrefixName = "fixed:";
+      const std::string kCappedPrefixName = "capped:";
+      auto& pe_value = value;
+      if (pe_value.size() > kFixedPrefixName.size() &&
+          pe_value.compare(0, kFixedPrefixName.size(), kFixedPrefixName) == 0) {
+        int prefix_length =
+            ParseInt(trim(value.substr(kFixedPrefixName.size())));
+        new_options->prefix_extractor.reset(
+            NewFixedPrefixTransform(prefix_length));
+      } else if (pe_value.size() > kCappedPrefixName.size() &&
+                 pe_value.compare(0, kCappedPrefixName.size(),
+                                  kCappedPrefixName) == 0) {
+        int prefix_length =
+            ParseInt(trim(pe_value.substr(kCappedPrefixName.size())));
+        new_options->prefix_extractor.reset(
+            NewCappedPrefixTransform(prefix_length));
       } else {
         return false;
       }
-    } catch (std::exception) {
+    } else if (name == "optimize_filters_for_hits") {
+      new_options->optimize_filters_for_hits = ParseBoolean(name, value);
+    } else {
       return false;
     }
+  }
+  catch (std::exception& e) {
+    return false;
   }
   return true;
 }
 
+bool ParseDBOption(const std::string& name, const std::string& value,
+                   DBOptions* new_options) {
+  try {
+    if (name == "create_if_missing") {
+      new_options->create_if_missing = ParseBoolean(name, value);
+    } else if (name == "create_missing_column_families") {
+      new_options->create_missing_column_families =
+          ParseBoolean(name, value);
+    } else if (name == "error_if_exists") {
+      new_options->error_if_exists = ParseBoolean(name, value);
+    } else if (name == "paranoid_checks") {
+      new_options->paranoid_checks = ParseBoolean(name, value);
+    } else if (name == "max_open_files") {
+      new_options->max_open_files = ParseInt(value);
+    } else if (name == "max_total_wal_size") {
+      new_options->max_total_wal_size = ParseUint64(value);
+    } else if (name == "disable_data_sync") {
+      new_options->disableDataSync = ParseBoolean(name, value);
+    } else if (name == "use_fsync") {
+      new_options->use_fsync = ParseBoolean(name, value);
+    } else if (name == "db_paths") {
+      // TODO(ljin): add support
+      return false;
+    } else if (name == "db_log_dir") {
+      new_options->db_log_dir = value;
+    } else if (name == "wal_dir") {
+      new_options->wal_dir = value;
+    } else if (name == "delete_obsolete_files_period_micros") {
+      new_options->delete_obsolete_files_period_micros = ParseUint64(value);
+    } else if (name == "max_background_compactions") {
+      new_options->max_background_compactions = ParseInt(value);
+    } else if (name == "max_background_flushes") {
+      new_options->max_background_flushes = ParseInt(value);
+    } else if (name == "max_log_file_size") {
+      new_options->max_log_file_size = ParseSizeT(value);
+    } else if (name == "log_file_time_to_roll") {
+      new_options->log_file_time_to_roll = ParseSizeT(value);
+    } else if (name == "keep_log_file_num") {
+      new_options->keep_log_file_num = ParseSizeT(value);
+    } else if (name == "max_manifest_file_size") {
+      new_options->max_manifest_file_size = ParseUint64(value);
+    } else if (name == "table_cache_numshardbits") {
+      new_options->table_cache_numshardbits = ParseInt(value);
+    } else if (name == "table_cache_remove_scan_count_limit") {
+      new_options->table_cache_remove_scan_count_limit = ParseInt(value);
+    } else if (name == "WAL_ttl_seconds") {
+      new_options->WAL_ttl_seconds = ParseUint64(value);
+    } else if (name == "WAL_size_limit_MB") {
+      new_options->WAL_size_limit_MB = ParseUint64(value);
+    } else if (name == "manifest_preallocation_size") {
+      new_options->manifest_preallocation_size = ParseSizeT(value);
+    } else if (name == "allow_os_buffer") {
+      new_options->allow_os_buffer = ParseBoolean(name, value);
+    } else if (name == "allow_mmap_reads") {
+      new_options->allow_mmap_reads = ParseBoolean(name, value);
+    } else if (name == "allow_mmap_writes") {
+      new_options->allow_mmap_writes = ParseBoolean(name, value);
+    } else if (name == "is_fd_close_on_exec") {
+      new_options->is_fd_close_on_exec = ParseBoolean(name, value);
+    } else if (name == "skip_log_error_on_recovery") {
+      new_options->skip_log_error_on_recovery = ParseBoolean(name, value);
+    } else if (name == "stats_dump_period_sec") {
+      new_options->stats_dump_period_sec = ParseUint32(value);
+    } else if (name == "advise_random_on_open") {
+      new_options->advise_random_on_open = ParseBoolean(name, value);
+    } else if (name == "db_write_buffer_size") {
+      new_options->db_write_buffer_size = ParseUint64(value);
+    } else if (name == "use_adaptive_mutex") {
+      new_options->use_adaptive_mutex = ParseBoolean(name, value);
+    } else if (name == "bytes_per_sync") {
+      new_options->bytes_per_sync = ParseUint64(value);
+    } else {
+      return false;
+    }
+  }
+  catch (std::exception& e) {
+    return false;
+  }
+  return true;
+}
+
+Status GetBlockBasedTableOptionsFromMap(
+    const BlockBasedTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    BlockBasedTableOptions* new_table_options) {
+
+  assert(new_table_options);
+  *new_table_options = table_options;
+  for (const auto& o : opts_map) {
+    try {
+      if (o.first == "cache_index_and_filter_blocks") {
+        new_table_options->cache_index_and_filter_blocks =
+          ParseBoolean(o.first, o.second);
+      } else if (o.first == "index_type") {
+        new_table_options->index_type = ParseBlockBasedTableIndexType(o.second);
+      } else if (o.first == "hash_index_allow_collision") {
+        new_table_options->hash_index_allow_collision =
+          ParseBoolean(o.first, o.second);
+      } else if (o.first == "checksum") {
+        new_table_options->checksum =
+          ParseBlockBasedTableChecksumType(o.second);
+      } else if (o.first == "no_block_cache") {
+        new_table_options->no_block_cache = ParseBoolean(o.first, o.second);
+      } else if (o.first == "block_cache") {
+        new_table_options->block_cache = NewLRUCache(ParseSizeT(o.second));
+      } else if (o.first == "block_cache_compressed") {
+        new_table_options->block_cache_compressed =
+          NewLRUCache(ParseSizeT(o.second));
+      } else if (o.first == "block_size") {
+        new_table_options->block_size = ParseSizeT(o.second);
+      } else if (o.first == "block_size_deviation") {
+        new_table_options->block_size_deviation = ParseInt(o.second);
+      } else if (o.first == "block_restart_interval") {
+        new_table_options->block_restart_interval = ParseInt(o.second);
+      } else if (o.first == "filter_policy") {
+        // Expect the following format
+        // bloomfilter:int:bool
+        const std::string kName = "bloomfilter:";
+        if (o.second.compare(0, kName.size(), kName) != 0) {
+          return Status::InvalidArgument("Invalid filter policy name");
+        }
+        size_t pos = o.second.find(':', kName.size());
+        if (pos == std::string::npos) {
+          return Status::InvalidArgument("Invalid filter policy config, "
+                                         "missing bits_per_key");
+        }
+        int bits_per_key = ParseInt(
+            trim(o.second.substr(kName.size(), pos - kName.size())));
+        bool use_block_based_builder =
+          ParseBoolean("use_block_based_builder",
+                       trim(o.second.substr(pos + 1)));
+        new_table_options->filter_policy.reset(
+            NewBloomFilterPolicy(bits_per_key, use_block_based_builder));
+      } else if (o.first == "whole_key_filtering") {
+        new_table_options->whole_key_filtering =
+          ParseBoolean(o.first, o.second);
+      } else {
+        return Status::InvalidArgument("Unrecognized option: " + o.first);
+      }
+    } catch (std::exception& e) {
+      return Status::InvalidArgument("error parsing " + o.first + ":" +
+                                     std::string(e.what()));
+    }
+  }
+  return Status::OK();
+}
+
+Status GetBlockBasedTableOptionsFromString(
+    const BlockBasedTableOptions& table_options,
+    const std::string& opts_str,
+    BlockBasedTableOptions* new_table_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (!s.ok()) {
+    return s;
+  }
+  return GetBlockBasedTableOptionsFromMap(table_options, opts_map,
+                                          new_table_options);
+}
+
+Status GetColumnFamilyOptionsFromMap(
+    const ColumnFamilyOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    ColumnFamilyOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  for (const auto& o : opts_map) {
+    if (!ParseColumnFamilyOption(o.first, o.second, new_options)) {
+      return Status::InvalidArgument("Can't parse option " + o.first);
+    }
+  }
+  return Status::OK();
+}
+
+Status GetColumnFamilyOptionsFromString(
+    const ColumnFamilyOptions& base_options,
+    const std::string& opts_str,
+    ColumnFamilyOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (!s.ok()) {
+    return s;
+  }
+  return GetColumnFamilyOptionsFromMap(base_options, opts_map, new_options);
+}
+
+Status GetDBOptionsFromMap(
+    const DBOptions& base_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    DBOptions* new_options) {
+  assert(new_options);
+  *new_options = base_options;
+  for (const auto& o : opts_map) {
+    if (!ParseDBOption(o.first, o.second, new_options)) {
+      return Status::InvalidArgument("Can't parse option " + o.first);
+    }
+  }
+  return Status::OK();
+}
+
+Status GetDBOptionsFromString(
+    const DBOptions& base_options,
+    const std::string& opts_str,
+    DBOptions* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (!s.ok()) {
+    return s;
+  }
+  return GetDBOptionsFromMap(base_options, opts_map, new_options);
+}
+
+Status GetOptionsFromString(const Options& base_options,
+                            const std::string& opts_str, Options* new_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (!s.ok()) {
+    return s;
+  }
+  DBOptions new_db_options(base_options);
+  ColumnFamilyOptions new_cf_options(base_options);
+  for (const auto& o : opts_map) {
+    if (ParseDBOption(o.first, o.second, &new_db_options)) {
+    } else if (ParseColumnFamilyOption(o.first, o.second, &new_cf_options)) {
+    } else {
+      return Status::InvalidArgument("Can't parse option " + o.first);
+    }
+  }
+  *new_options = Options(new_db_options, new_cf_options);
+  return Status::OK();
+}
+
+#endif  // ROCKSDB_LITE
 }  // namespace rocksdb

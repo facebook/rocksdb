@@ -36,6 +36,7 @@
 #include "util/murmurhash.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 
 
 namespace rocksdb {
@@ -55,23 +56,23 @@ class PlainTableIterator : public Iterator {
   explicit PlainTableIterator(PlainTableReader* table, bool use_prefix_seek);
   ~PlainTableIterator();
 
-  bool Valid() const;
+  bool Valid() const override;
 
-  void SeekToFirst();
+  void SeekToFirst() override;
 
-  void SeekToLast();
+  void SeekToLast() override;
 
-  void Seek(const Slice& target);
+  void Seek(const Slice& target) override;
 
-  void Next();
+  void Next() override;
 
-  void Prev();
+  void Prev() override;
 
-  Slice key() const;
+  Slice key() const override;
 
-  Slice value() const;
+  Slice value() const override;
 
-  Status status() const;
+  Status status() const override;
 
  private:
   PlainTableReader* table_;
@@ -98,8 +99,8 @@ PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
     : internal_comparator_(icomparator),
       encoding_type_(encoding_type),
       full_scan_mode_(false),
-      data_end_offset_(table_properties->data_size),
-      user_key_len_(table_properties->fixed_key_len),
+      data_end_offset_(static_cast<uint32_t>(table_properties->data_size)),
+      user_key_len_(static_cast<uint32_t>(table_properties->fixed_key_len)),
       prefix_extractor_(ioptions.prefix_extractor),
       enable_bloom_(false),
       bloom_(6, nullptr),
@@ -327,7 +328,8 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     // Allocate bloom filter here for total order mode.
     if (IsTotalOrderMode()) {
       uint32_t num_bloom_bits =
-          table_properties_->num_entries * bloom_bits_per_key;
+          static_cast<uint32_t>(table_properties_->num_entries) *
+          bloom_bits_per_key;
       if (num_bloom_bits > 0) {
         enable_bloom_ = true;
         bloom_.SetTotalBits(&arena_, num_bloom_bits, ioptions_.bloom_locality,
@@ -350,7 +352,7 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
     bloom_.SetRawData(
         const_cast<unsigned char*>(
             reinterpret_cast<const unsigned char*>(bloom_block->data())),
-        bloom_block->size() * 8, num_blocks);
+        static_cast<uint32_t>(bloom_block->size()) * 8, num_blocks);
   }
 
   PlainTableIndexBuilder index_builder(&arena_, ioptions_, index_sparseness,
@@ -358,12 +360,12 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
 
   std::vector<uint32_t> prefix_hashes;
   if (!index_in_file) {
-    Status s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
+    s = PopulateIndexRecordList(&index_builder, &prefix_hashes);
     if (!s.ok()) {
       return s;
     }
   } else {
-    Status s = index_.InitFromRawData(*index_block);
+    s = index_.InitFromRawData(*index_block);
     if (!s.ok()) {
       return s;
     }
@@ -379,14 +381,14 @@ Status PlainTableReader::PopulateIndex(TableProperties* props,
   // Fill two table properties.
   if (!index_in_file) {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        std::to_string(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
+        ToString(index_.GetIndexSize() * PlainTableIndex::kOffsetLen);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        std::to_string(index_.GetSubIndexSize());
+        ToString(index_.GetSubIndexSize());
   } else {
     props->user_collected_properties["plain_table_hash_table_size"] =
-        std::to_string(0);
+        ToString(0);
     props->user_collected_properties["plain_table_sub_index_size"] =
-        std::to_string(0);
+        ToString(0);
   }
 
   return Status::OK();
@@ -509,7 +511,7 @@ Status PlainTableReader::Next(PlainTableKeyDecoder* decoder, uint32_t* offset,
     return Status::Corruption(
         "Unexpected EOF when reading the next value's size.");
   }
-  *offset = *offset + (value_ptr - start) + value_size;
+  *offset = *offset + static_cast<uint32_t>(value_ptr - start) + value_size;
   if (*offset > data_end_offset_) {
     return Status::Corruption("Unexpected EOF when reading the next value. ");
   }
@@ -566,7 +568,7 @@ Status PlainTableReader::Get(const ReadOptions& ro, const Slice& target,
   PlainTableKeyDecoder decoder(encoding_type_, user_key_len_,
                                ioptions_.prefix_extractor);
   while (offset < data_end_offset_) {
-    Status s = Next(&decoder, &offset, &found_key, nullptr, &found_value);
+    s = Next(&decoder, &offset, &found_key, nullptr, &found_value);
     if (!s.ok()) {
       return s;
     }

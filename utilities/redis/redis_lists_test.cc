@@ -745,9 +745,9 @@ TEST(RedisListsTest, PersistenceMultiKeyTest) {
 
 namespace {
 void MakeUpper(std::string* const s) {
-  int len = s->length();
-  for(int i=0; i<len; ++i) {
-    (*s)[i] = toupper((*s)[i]); // C-version defined in <ctype.h>
+  int len = static_cast<int>(s->length());
+  for (int i = 0; i < len; ++i) {
+    (*s)[i] = toupper((*s)[i]);  // C-version defined in <ctype.h>
   }
 }
 

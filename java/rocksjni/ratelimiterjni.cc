@@ -18,7 +18,7 @@ jlong Java_org_rocksdb_GenericRateLimiterConfig_newRateLimiterHandle(
     JNIEnv* env, jobject jobj, jlong jrate_bytes_per_second,
     jlong jrefill_period_micros, jint jfairness) {
   return reinterpret_cast<jlong>(rocksdb::NewGenericRateLimiter(
-      rocksdb::jlong_to_size_t(jrate_bytes_per_second),
-      rocksdb::jlong_to_size_t(jrefill_period_micros),
+      static_cast<int64_t>(jrate_bytes_per_second),
+      static_cast<int64_t>(jrefill_period_micros),
       static_cast<int32_t>(jfairness)));
 }

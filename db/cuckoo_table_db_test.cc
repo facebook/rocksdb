@@ -92,7 +92,7 @@ class CuckooTableDBTest {
   // Return spread of files per level
   std::string FilesPerLevel() {
     std::string result;
-    int last_non_zero_offset = 0;
+    size_t last_non_zero_offset = 0;
     for (int level = 0; level < db_->NumberLevels(); level++) {
       int f = NumTableFilesAtLevel(level);
       char buf[100];
@@ -226,33 +226,6 @@ TEST(CuckooTableDBTest, Uint64Comparator) {
   ASSERT_EQ("NOT_FOUND", Get(Uint64Key(2)));
   ASSERT_EQ("v0", Get(Uint64Key(3)));
   ASSERT_EQ("v4", Get(Uint64Key(4)));
-}
-
-TEST(CuckooTableDBTest, CompactionTrigger) {
-  Options options = CurrentOptions();
-  options.write_buffer_size = 100 << 10;  // 100KB
-  options.level0_file_num_compaction_trigger = 2;
-  Reopen(&options);
-
-  // Write 11 values, each 10016 B
-  for (int idx = 0; idx < 11; ++idx) {
-    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
-  }
-  dbfull()->TEST_WaitForFlushMemTable();
-  ASSERT_EQ("1", FilesPerLevel());
-
-  // Generate one more file in level-0, and should trigger level-0 compaction
-  for (int idx = 11; idx < 22; ++idx) {
-    ASSERT_OK(Put(Key(idx), std::string(10000, 'a' + idx)));
-  }
-  dbfull()->TEST_WaitForFlushMemTable();
-  ASSERT_EQ("2", FilesPerLevel());
-
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
-  ASSERT_EQ("0,2", FilesPerLevel());
-  for (int idx = 0; idx < 22; ++idx) {
-    ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));
-  }
 }
 
 TEST(CuckooTableDBTest, CompactionIntoMultipleFiles) {

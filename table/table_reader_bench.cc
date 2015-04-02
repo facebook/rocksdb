@@ -18,7 +18,6 @@ int main() {
 #include "rocksdb/table.h"
 #include "db/db_impl.h"
 #include "db/dbformat.h"
-#include "port/atomic_pointer.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
@@ -116,7 +115,7 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   unique_ptr<TableReader> table_reader;
   unique_ptr<RandomAccessFile> raf;
   if (!through_db) {
-    Status s = env->NewRandomAccessFile(file_name, &raf, env_options);
+    s = env->NewRandomAccessFile(file_name, &raf, env_options);
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
     s = opts.table_factory->NewTableReader(
@@ -258,12 +257,18 @@ int main(int argc, char** argv) {
   options.compression = rocksdb::CompressionType::kNoCompression;
 
   if (FLAGS_table_factory == "cuckoo_hash") {
+#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
     rocksdb::CuckooTableOptions table_options;
     table_options.hash_table_ratio = 0.75;
     tf.reset(rocksdb::NewCuckooTableFactory(table_options));
+#else
+    fprintf(stderr, "Plain table is not supported in lite mode\n");
+    exit(1);
+#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "plain_table") {
+#ifndef ROCKSDB_LITE
     options.allow_mmap_reads = true;
     env_options.use_mmap_reads = true;
 
@@ -275,6 +280,10 @@ int main(int argc, char** argv) {
     tf.reset(new rocksdb::PlainTableFactory(plain_table_options));
     options.prefix_extractor.reset(rocksdb::NewFixedPrefixTransform(
         FLAGS_prefix_len));
+#else
+    fprintf(stderr, "Cuckoo table is not supported in lite mode\n");
+    exit(1);
+#endif  // ROCKSDB_LITE
   } else if (FLAGS_table_factory == "block_based") {
     tf.reset(new rocksdb::BlockBasedTableFactory());
   } else {

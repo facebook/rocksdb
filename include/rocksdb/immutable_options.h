@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 #include "rocksdb/options.h"
 
@@ -35,6 +36,13 @@ struct ImmutableCFOptions {
   CompactionFilterFactory* compaction_filter_factory;
 
   CompactionFilterFactoryV2* compaction_filter_factory_v2;
+
+  bool inplace_update_support;
+
+  UpdateStatus (*inplace_callback)(char* existing_value,
+                                   uint32_t* existing_value_size,
+                                   Slice delta_value,
+                                   std::string* merged_value);
 
   Logger* info_log;
 
@@ -79,9 +87,19 @@ struct ImmutableCFOptions {
 
   CompressionOptions compression_opts;
 
+  bool level_compaction_dynamic_level_bytes;
+
   Options::AccessHint access_hint_on_compaction_start;
 
   int num_levels;
+
+  bool optimize_filters_for_hits;
+
+#ifndef ROCKSDB_LITE
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+#endif  // ROCKSDB_LITE
 };
 
 }  // namespace rocksdb

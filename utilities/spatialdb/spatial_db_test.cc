@@ -245,7 +245,10 @@ TEST(SpatialDBTest, RandomizedTest) {
     elements.push_back(make_pair(blob, bbox));
   }
 
-  db_->Compact();
+  // parallel
+  db_->Compact(2);
+  // serial
+  db_->Compact(1);
 
   for (int i = 0; i < 1000; ++i) {
     BoundingBox<int> int_bbox = RandomBoundingBox(128, &rnd, 10);

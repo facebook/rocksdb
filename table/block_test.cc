@@ -163,7 +163,7 @@ void CheckBlockContents(BlockContents contents, const int max_key,
     auto iter1 = reader1.NewIterator(nullptr);
     auto iter2 = reader1.NewIterator(nullptr);
     reader1.SetBlockHashIndex(CreateBlockHashIndexOnTheFly(
-        iter1, iter2, keys.size(), BytewiseComparator(),
+        iter1, iter2, static_cast<uint32_t>(keys.size()), BytewiseComparator(),
         prefix_extractor.get()));
 
     delete iter1;

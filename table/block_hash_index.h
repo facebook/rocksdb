@@ -25,8 +25,8 @@ class BlockHashIndex {
  public:
   // Represents a restart index in the index block's restart array.
   struct RestartIndex {
-    explicit RestartIndex(uint32_t first_index, uint32_t num_blocks = 1)
-        : first_index(first_index), num_blocks(num_blocks) {}
+    explicit RestartIndex(uint32_t _first_index, uint32_t _num_blocks = 1)
+        : first_index(_first_index), num_blocks(_num_blocks) {}
 
     // For a given prefix, what is the restart index for the first data block
     // that contains it.

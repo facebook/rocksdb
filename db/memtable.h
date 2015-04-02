@@ -19,21 +19,22 @@
 #include "rocksdb/db.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/immutable_options.h"
+#include "db/memtable_allocator.h"
 #include "util/arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
-class Arena;
 class Mutex;
 class MemTableIterator;
 class MergeContext;
+class WriteBuffer;
 
 struct MemTableOptions {
   explicit MemTableOptions(
-      const MutableCFOptions& mutable_cf_options,
-      const Options& options);
+      const ImmutableCFOptions& ioptions,
+      const MutableCFOptions& mutable_cf_options);
   size_t write_buffer_size;
   size_t arena_block_size;
   uint32_t memtable_prefix_bloom_bits;
@@ -47,6 +48,9 @@ struct MemTableOptions {
                                    std::string* merged_value);
   size_t max_successive_merges;
   bool filter_deletes;
+  Statistics* statistics;
+  MergeOperator* merge_operator;
+  Logger* info_log;
 };
 
 class MemTable {
@@ -55,7 +59,7 @@ class MemTable {
     const InternalKeyComparator comparator;
     explicit KeyComparator(const InternalKeyComparator& c) : comparator(c) { }
     virtual int operator()(const char* prefix_len_key1,
-                           const char* prefix_len_key2) const;
+                           const char* prefix_len_key2) const override;
     virtual int operator()(const char* prefix_len_key,
                            const Slice& key) const override;
   };
@@ -64,7 +68,8 @@ class MemTable {
   // is zero and the caller must call Ref() at least once.
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
-                    const MemTableOptions& moptions);
+                    const MutableCFOptions& mutable_cf_options,
+                    WriteBuffer* write_buffer);
 
   ~MemTable();
 
@@ -180,7 +185,10 @@ class MemTable {
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
   // Notify the underlying storage that no more items will be added
-  void MarkImmutable() { table_->MarkReadOnly(); }
+  void MarkImmutable() {
+    table_->MarkReadOnly();
+    allocator_.DoneAllocating();
+  }
 
   // return true if the current MemTableRep supports merge operator.
   bool IsMergeOperatorSupported() const {
@@ -188,7 +196,10 @@ class MemTable {
   }
 
   // return true if the current MemTableRep supports snapshots.
-  bool IsSnapshotSupported() const { return table_->IsSnapshotSupported(); }
+  // inplace update prevents snapshots,
+  bool IsSnapshotSupported() const {
+    return table_->IsSnapshotSupported() && !moptions_.inplace_update_support;
+  }
 
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
@@ -197,9 +208,6 @@ class MemTable {
     return comparator_.comparator;
   }
 
-  const Arena& TEST_GetArena() const { return arena_; }
-
-  const ImmutableCFOptions* GetImmutableOptions() const { return &ioptions_; }
   const MemTableOptions* GetMemTableOptions() const { return &moptions_; }
 
  private:
@@ -211,11 +219,11 @@ class MemTable {
   friend class MemTableList;
 
   KeyComparator comparator_;
-  const ImmutableCFOptions& ioptions_;
   const MemTableOptions moptions_;
   int refs_;
   const size_t kArenaBlockSize;
   Arena arena_;
+  MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
 
   uint64_t num_entries_;

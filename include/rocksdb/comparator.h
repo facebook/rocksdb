@@ -63,7 +63,7 @@ class Comparator {
 extern const Comparator* BytewiseComparator();
 
 // Return a builtin comparator that uses reverse lexicographic byte-wise
-// ordering. 
+// ordering.
 extern const Comparator* ReverseBytewiseComparator();
 
 }  // namespace rocksdb

@@ -30,9 +30,12 @@ TableBuilder* NewTableBuilder(const ImmutableCFOptions& ioptions,
                               const InternalKeyComparator& internal_comparator,
                               WritableFile* file,
                               const CompressionType compression_type,
-                              const CompressionOptions& compression_opts) {
-  return ioptions.table_factory->NewTableBuilder(
-      ioptions, internal_comparator, file, compression_type, compression_opts);
+                              const CompressionOptions& compression_opts,
+                              const bool skip_filters) {
+  return ioptions.table_factory->NewTableBuilder(ioptions, internal_comparator,
+                                                 file, compression_type,
+                                                 compression_opts,
+                                                 skip_filters);
 }
 
 Status BuildTable(const std::string& dbname, Env* env,
@@ -72,11 +75,13 @@ Status BuildTable(const std::string& dbname, Env* env,
         ioptions, internal_comparator, file.get(),
         compression, compression_opts);
 
-    // the first key is the smallest key
-    Slice key = iter->key();
-    meta->smallest.DecodeFrom(key);
-    meta->smallest_seqno = GetInternalKeySeqno(key);
-    meta->largest_seqno = meta->smallest_seqno;
+    {
+      // the first key is the smallest key
+      Slice key = iter->key();
+      meta->smallest.DecodeFrom(key);
+      meta->smallest_seqno = GetInternalKeySeqno(key);
+      meta->largest_seqno = meta->smallest_seqno;
+    }
 
     MergeHelper merge(internal_comparator.user_comparator(),
                       ioptions.merge_operator, ioptions.info_log,

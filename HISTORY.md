@@ -1,5 +1,67 @@
 # Rocksdb Change Log
 
+### Unreleased Features
+* Changed the LRU caching algorithm so that referenced blocks (by iterators) are never evicted
+* By default we now optimize the compilation for the compilation platform (using -march=native). If you want to build portable binary, use 'PORTABLE=1' before the make command.
+* We now allow level-compaction to place files in different paths by
+  specifying them in db_paths along with the target_size.
+  Lower numbered levels will be placed earlier in the db_paths and higher
+  numbered levels will be placed later in the db_paths vector.
+* Potentially big performance improvements if you're using RocksDB with lots of column families (100-1000)
+* Added BlockBasedTableOptions.format_version option, which allows user to specify which version of block based table he wants. As a general guidline, newer versions have more features, but might not be readable by older versions of RocksDB.
+* Added new block based table format (version 2), which you can enable by setting BlockBasedTableOptions.format_version = 2. This format changes how we encode size information in compressed blocks and should help with memory allocations if you're using Zlib or BZip2 compressions.
+* GetThreadStatus() is now able to report compaction activity.
+* MemEnv (env that stores data in memory) is now available in default library build. You can create it by calling NewMemEnv().
+* Add SliceTransform.SameResultWhenAppended() to help users determine it is safe to apply prefix bloom/hash.
+* Block based table now makes use of prefix bloom filter if it is a full fulter.
+* Block based table remembers whether a whole key or prefix based bloom filter is supported in SST files. Do a sanity check when reading the file with users' configuration.
+* Fixed a bug in ReadOnlyBackupEngine that deleted corrupted backups in some cases, even though the engine was ReadOnly
+* options.level_compaction_dynamic_level_bytes, a feature to allow RocksDB to pick dynamic base of bytes for levels. With this feature turned on, we will automatically adjust max bytes for each level. The goal of this feature is to have lower bound on size amplification. For more details, see comments in options.h.
+
+### Public API changes
+* Deprecated skip_log_error_on_recovery option
+* Logger method logv with log level parameter is now virtual
+
+### 3.9.0 (12/8/2014)
+
+### New Features
+* Add rocksdb::GetThreadList(), which in the future will return the current status of all
+  rocksdb-related threads.  We will have more code instruments in the following RocksDB
+  releases.
+* Change convert function in rocksdb/utilities/convenience.h to return Status instead of boolean.
+  Also add support for nested options in convert function
+
+### Public API changes
+* New API to create a checkpoint added. Given a directory name, creates a new
+  database which is an image of the existing database.
+* New API LinkFile added to Env. If you implement your own Env class, an
+  implementation of the API LinkFile will have to be provided.
+* MemTableRep takes MemTableAllocator instead of Arena
+
+### Improvements
+* RocksDBLite library now becomes smaller and will be compiled with -fno-exceptions flag.
+
+## 3.8.0 (11/14/2014)
+
+### Public API changes
+* BackupEngine::NewBackupEngine() was deprecated; please use BackupEngine::Open() from now on.
+* BackupableDB/RestoreBackupableDB have new GarbageCollect() methods, which will clean up files from corrupt and obsolete backups.
+* BackupableDB/RestoreBackupableDB have new GetCorruptedBackups() methods which list corrupt backups.
+
+### Cleanup
+* Bunch of code cleanup, some extra warnings turned on (-Wshadow, -Wshorten-64-to-32, -Wnon-virtual-dtor)
+
+### New features
+* CompactFiles and EventListener, although they are still in experimental state
+* Full ColumnFamily support in RocksJava.
+
+## 3.7.0 (11/6/2014)
+### Public API changes
+* Introduce SetOptions() API to allow adjusting a subset of options dynamically online
+* Introduce 4 new convenient functions for converting Options from string: GetColumnFamilyOptionsFromMap(), GetColumnFamilyOptionsFromString(), GetDBOptionsFromMap(), GetDBOptionsFromString()
+* Remove WriteBatchWithIndex.Delete() overloads using SliceParts
+* When opening a DB, if options.max_background_compactions is larger than the existing low pri pool of options.env, it will enlarge it. Similarly, options.max_background_flushes is larger than the existing high pri pool of options.env, it will enlarge it.
+
 ## 3.6.0 (10/7/2014)
 ### Disk format changes
 * If you're using RocksDB on ARM platforms and you're using default bloom filter, there is a disk format change you need to be aware of. There are three steps you need to do when you convert to new release: 1. turn off filter policy, 2. compact the whole database, 3. turn on filter policy

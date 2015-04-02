@@ -50,14 +50,16 @@ class PosixLogger : public Logger {
   virtual ~PosixLogger() {
     fclose(file_);
   }
-  virtual void Flush() {
+  virtual void Flush() override {
     if (flush_pending_) {
       flush_pending_ = false;
       fflush(file_);
     }
     last_flush_micros_ = env_->NowMicros();
   }
-  virtual void Logv(const char* format, va_list ap) {
+
+  using Logger::Logv;
+  virtual void Logv(const char* format, va_list ap) override {
     const uint64_t thread_id = (*gettid_)();
 
     // We try twice: the first time with a fixed-size stack allocated buffer,
@@ -122,14 +124,15 @@ class PosixLogger : public Logger {
       // space, pre-allocate more space to avoid overly large
       // allocations from filesystem allocsize options.
       const size_t log_size = log_size_;
-      const int last_allocation_chunk =
+      const size_t last_allocation_chunk =
         ((kDebugLogChunkSize - 1 + log_size) / kDebugLogChunkSize);
-      const int desired_allocation_chunk =
+      const size_t desired_allocation_chunk =
         ((kDebugLogChunkSize - 1 + log_size + write_size) /
            kDebugLogChunkSize);
       if (last_allocation_chunk != desired_allocation_chunk) {
-        fallocate(fd_, FALLOC_FL_KEEP_SIZE, 0,
-                  desired_allocation_chunk * kDebugLogChunkSize);
+        fallocate(
+            fd_, FALLOC_FL_KEEP_SIZE, 0,
+            static_cast<off_t>(desired_allocation_chunk * kDebugLogChunkSize));
       }
 #endif
 
@@ -152,9 +155,7 @@ class PosixLogger : public Logger {
       break;
     }
   }
-  size_t GetLogFileSize() const {
-    return log_size_;
-  }
+  size_t GetLogFileSize() const override { return log_size_; }
 };
 
 }  // namespace rocksdb

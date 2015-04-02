@@ -72,8 +72,8 @@ class CuckooReaderTest {
     env_options = EnvOptions(options);
   }
 
-  void SetUp(int num_items) {
-    this->num_items = num_items;
+  void SetUp(int num) {
+    num_items = num;
     hash_map.clear();
     keys.clear();
     keys.resize(num_items);
@@ -161,7 +161,7 @@ class CuckooReaderTest {
     ASSERT_EQ(static_cast<uint32_t>(cnt), num_items);
 
     it->SeekToLast();
-    cnt = num_items - 1;
+    cnt = static_cast<int>(num_items) - 1;
     ASSERT_TRUE(it->Valid());
     while (it->Valid()) {
       ASSERT_OK(it->status());
@@ -172,7 +172,7 @@ class CuckooReaderTest {
     }
     ASSERT_EQ(cnt, -1);
 
-    cnt = num_items / 2;
+    cnt = static_cast<int>(num_items) / 2;
     it->Seek(keys[cnt]);
     while (it->Valid()) {
       ASSERT_OK(it->status());
@@ -387,7 +387,7 @@ std::string GetFileName(uint64_t num) {
     FLAGS_file_dir = test::TmpDir();
   }
   return FLAGS_file_dir + "/cuckoo_read_benchmark" +
-    std::to_string(num/1000000) + "Mkeys";
+    ToString(num/1000000) + "Mkeys";
 }
 
 // Create last level file as we are interested in measuring performance of
@@ -517,11 +517,11 @@ TEST(CuckooReaderTest, TestReadPerformance) {
   fprintf(stdout,
       "WARNING: Not compiled with DNDEBUG. Performance tests may be slow.\n");
 #endif
-  std::vector<std::string> keys;
   for (uint64_t num : nums) {
     if (FLAGS_write || !Env::Default()->FileExists(GetFileName(num))) {
-      GetKeys(num, &keys);
-      WriteFile(keys, num, hash_ratio);
+      std::vector<std::string> all_keys;
+      GetKeys(num, &all_keys);
+      WriteFile(all_keys, num, hash_ratio);
     }
     ReadKeys(num, 0);
     ReadKeys(num, 10);

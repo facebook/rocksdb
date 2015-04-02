@@ -4,6 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 #include <string>
+#include <vector>
 #include <cmath>
 #include <iostream>
 #include <fstream>
@@ -122,7 +123,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   }
 
   // -- Make the log file expire
-  sleep(time);
+  sleep(static_cast<unsigned int>(time));
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
@@ -283,6 +284,88 @@ TEST(AutoRollLoggerTest, InfoLogLevel) {
                          std::istreambuf_iterator<char>(), '\n');
   ASSERT_EQ(log_lines, lines);
   inFile.close();
+}
+
+// Test the logger Header function for roll over logs
+// We expect the new logs creates as roll over to carry the headers specified
+static list<string> GetOldFileNames(const string& path) {
+  const string dirname = path.substr(/*start=*/ 0, path.find_last_of("/"));
+  const string fname = path.substr(path.find_last_of("/") + 1);
+
+  vector<string> children;
+  Env::Default()->GetChildren(dirname, &children);
+
+  // We know that the old log files are named [path]<something>
+  // Return all entities that match the pattern
+  list<string> ret;
+  for (auto child : children) {
+    if (fname != child && child.find(fname) == 0) {
+      ret.push_back(dirname + "/" + child);
+    }
+  }
+
+  return ret;
+}
+
+// Return the number of lines where a given pattern was found in the file
+static size_t GetLinesCount(const string& fname, const string& pattern) {
+  stringstream ssbuf;
+  string line;
+  size_t count = 0;
+
+  ifstream inFile(fname.c_str());
+  ssbuf << inFile.rdbuf();
+
+  while (getline(ssbuf, line)) {
+    if (line.find(pattern) != std::string::npos) {
+      count++;
+    }
+  }
+
+  return count;
+}
+
+TEST(AutoRollLoggerTest, LogHeaderTest) {
+  static const size_t MAX_HEADERS = 10;
+  static const size_t LOG_MAX_SIZE = 1024 * 5;
+  static const std::string HEADER_STR = "Log header line";
+
+  InitTestDb();
+
+  AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/ "",
+                        LOG_MAX_SIZE, /*log_file_time_to_roll=*/ 0);
+
+  // log some headers
+  for (size_t i = 0; i < MAX_HEADERS; i++) {
+    Header(&logger, "%s %d", HEADER_STR.c_str(), i);
+  }
+
+  const string& newfname = logger.TEST_log_fname().c_str();
+
+  // log enough data to cause a roll over
+  int i = 0;
+  for (size_t iter = 0; iter < 2; iter++) {
+    while (logger.GetLogFileSize() < LOG_MAX_SIZE) {
+      Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
+      ++i;
+    }
+
+    Info(&logger, "Rollover");
+  }
+
+  // Flus the log for the latest file
+  LogFlush(&logger);
+
+  const list<string> oldfiles = GetOldFileNames(newfname);
+
+  ASSERT_EQ(oldfiles.size(), (size_t) 2);
+
+  for (auto oldfname : oldfiles) {
+    // verify that the files rolled over
+    ASSERT_NE(oldfname, newfname);
+    // verify that the old log contains all the header logs
+    ASSERT_EQ(GetLinesCount(oldfname, HEADER_STR), MAX_HEADERS);
+  }
 }
 
 TEST(AutoRollLoggerTest, LogFileExistence) {
