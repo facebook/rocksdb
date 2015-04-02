@@ -481,6 +481,9 @@ class DBTest : public testing::Test {
   }
 
   ~DBTest() {
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({});
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     Close();
     Options options;
     options.db_paths.emplace_back(dbname_, 0);
