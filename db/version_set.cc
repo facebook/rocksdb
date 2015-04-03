@@ -655,14 +655,20 @@ void Version::GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta) {
 
 
 uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
-  // Estimation will be not accurate when:
-  // (1) there is merge keys
+  // Estimation will be inaccurate when:
+  // (1) there exist merge keys
   // (2) keys are directly overwritten
   // (3) deletion on non-existing keys
   // (4) low number of samples
   if (num_samples_ == 0) {
     return 0;
   }
+
+  if (accumulated_num_non_deletions_ <= accumulated_num_deletions_) {
+    return 0;
+  }
+
+  uint64_t est = accumulated_num_non_deletions_ - accumulated_num_deletions_;
 
   uint64_t file_count = 0;
   for (int level = 0; level < num_levels_; ++level) {
@@ -671,11 +677,9 @@ uint64_t VersionStorageInfo::GetEstimatedActiveKeys() const {
 
   if (num_samples_ < file_count) {
     // casting to avoid overflowing
-    return static_cast<uint64_t>(static_cast<double>(
-        accumulated_num_non_deletions_ - accumulated_num_deletions_) *
-        static_cast<double>(file_count) / num_samples_);
+    return (est * static_cast<double>(file_count) / num_samples_);
   } else {
-    return accumulated_num_non_deletions_ - accumulated_num_deletions_;
+    return est;
   }
 }
 
