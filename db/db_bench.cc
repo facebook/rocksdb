@@ -24,6 +24,7 @@ int main() {
 #include <numaif.h>
 #endif
 
+#include <fcntl.h>
 #include <inttypes.h>
 #include <cstddef>
 #include <sys/types.h>
@@ -1189,6 +1190,7 @@ class Benchmark {
   int64_t readwrites_;
   int64_t merge_keys_;
   bool report_file_operations_;
+  int cachedev_fd_;
 
   bool SanityCheck() {
     if (FLAGS_compression_ratio > 1) {
@@ -1455,6 +1457,9 @@ class Benchmark {
     if (cache_.get() != nullptr) {
       // this will leak, but we're shutting down so nobody cares
       cache_->DisownData();
+    }
+    if (FLAGS_disable_flashcache_for_background_threads && cachedev_fd_ != -1) {
+      close(cachedev_fd_);
     }
   }
 
@@ -2026,8 +2031,13 @@ class Benchmark {
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
     }
     if (FLAGS_disable_flashcache_for_background_threads) {
+      cachedev_fd_ = open(FLAGS_flashcache_dev.c_str(), O_RDONLY);
+      if (cachedev_fd_ < 0) {
+        fprintf(stderr, "Open flash device failed\n");
+        exit(1);
+      }
       flashcache_aware_env_ =
-          std::move(NewFlashcacheAwareEnv(FLAGS_env, FLAGS_flashcache_dev));
+          std::move(NewFlashcacheAwareEnv(FLAGS_env, cachedev_fd_));
       if (flashcache_aware_env_.get() == nullptr) {
         fprintf(stderr, "Failed to open flashcahce device at %s\n",
                 FLAGS_flashcache_dev.c_str());

@@ -29,7 +29,6 @@ class FlashcacheAwareEnv : public EnvWrapper {
     pid_t pid = getpid();
     /* cleanup previous whitelistings */
     if (ioctl(cachedev_fd_, FLASHCACHEDELALLWHITELIST, &pid) < 0) {
-      close(cachedev_fd_);
       cachedev_fd_ = -1;
       fprintf(stderr, "ioctl del-all-whitelist for flashcache failed\n");
       return;
@@ -46,7 +45,6 @@ class FlashcacheAwareEnv : public EnvWrapper {
       if (ioctl(cachedev_fd_, FLASHCACHEDELWHITELIST, &pid) < 0) {
         fprintf(stderr, "ioctl del-whitelist for flashcache failed\n");
       }
-      close(cachedev_fd_);
     }
   }
 
@@ -103,14 +101,7 @@ class FlashcacheAwareEnv : public EnvWrapper {
 };
 
 std::unique_ptr<Env> NewFlashcacheAwareEnv(Env* base,
-                                           const std::string& flashcache_dev) {
-  // Cachedev should remain open or ioctl will be lost
-  int cachedev_fd = open(flashcache_dev.c_str(), O_RDONLY);
-  if (cachedev_fd < 0) {
-    fprintf(stderr, "Open flash device failed\n");
-    return nullptr;
-  }
-
+                                           const int cachedev_fd) {
   std::unique_ptr<Env> ret(new FlashcacheAwareEnv(base, cachedev_fd));
   return std::move(ret);
 }

@@ -17,8 +17,9 @@ namespace rocksdb {
 // reads. Reads from compaction thread don't need to be cached because they are
 // going to be soon made obsolete (due to nature of compaction)
 // Usually you would pass Env::Default() as base.
-// flashcache_dev is a path to the flashcache device
+// cachedev_fd is a file descriptor of the flashcache device. Caller has to
+// open flashcache device before calling this API.
 extern std::unique_ptr<Env> NewFlashcacheAwareEnv(
-    Env* base, const std::string& flashcache_dev);
+    Env* base, const int cachedev_fd);
 
 }  // namespace rocksdb
