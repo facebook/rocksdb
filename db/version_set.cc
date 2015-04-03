@@ -1604,12 +1604,12 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
       }
 
       // Calculate base level and its size.
-      int base_level_size;
+      uint64_t base_level_size;
       if (cur_level_size <= base_bytes_min) {
         // Case 1. If we make target size of last level to be max_level_size,
         // target size of the first non-empty level would be smaller than
         // base_bytes_min. We set it be base_bytes_min.
-        base_level_size = static_cast<int>(base_bytes_min + 1);
+        base_level_size = base_bytes_min + 1U;
         base_level_ = first_non_empty_level;
         Warn(ioptions.info_log,
              "More existing levels in DB than needed. "
@@ -1625,16 +1625,17 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
         if (cur_level_size > base_bytes_max) {
           // Even L1 will be too large
           assert(base_level_ == 1);
-          base_level_size = static_cast<int>(base_bytes_max);
+          base_level_size = base_bytes_max;
         } else {
-          base_level_size = static_cast<int>(cur_level_size);
+          base_level_size = cur_level_size;
         }
       }
 
-      int level_size = base_level_size;
+      uint64_t level_size = base_level_size;
       for (int i = base_level_; i < num_levels_; i++) {
         if (i > base_level_) {
-          level_size = level_size * options.max_bytes_for_level_multiplier;
+          level_size = MultiplyCheckOverflow(
+              level_size, options.max_bytes_for_level_multiplier);
         }
         level_max_bytes_[i] = level_size;
       }

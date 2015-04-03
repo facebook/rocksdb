@@ -215,6 +215,25 @@ TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLotsOfData) {
   ASSERT_EQ(0, logger_->log_count);
 }
 
+TEST_F(VersionStorageInfoTest, MaxBytesForLevelDynamicLargeLevel) {
+  uint64_t kOneGB = 1000U * 1000U * 1000U;
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.max_bytes_for_level_base = 10U * kOneGB;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  Add(0, 1U, "1", "2", 50U);
+  Add(3, 4U, "1", "2", 32U * kOneGB);
+  Add(4, 5U, "1", "2", 500U * kOneGB);
+  Add(5, 6U, "1", "2", 3000U * kOneGB);
+
+  vstorage_.CalculateBaseBytes(ioptions_, mutable_cf_options_);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(5), 3000U * kOneGB);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(4), 300U * kOneGB);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(3), 30U * kOneGB);
+  ASSERT_EQ(vstorage_.MaxBytesForLevel(2), 3U * kOneGB);
+  ASSERT_EQ(vstorage_.base_level(), 2);
+  ASSERT_EQ(0, logger_->log_count);
+}
+
 class FindLevelFileTest : public testing::Test {
  public:
   LevelFilesBrief file_level_;
