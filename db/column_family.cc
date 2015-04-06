@@ -136,7 +136,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   result.min_write_buffer_number_to_merge =
       std::min(result.min_write_buffer_number_to_merge,
                result.max_write_buffer_number - 1);
-  result.compression_per_level = src.compression_per_level;
   if (result.max_mem_compaction_level >= result.num_levels) {
     result.max_mem_compaction_level = result.num_levels - 1;
   }
@@ -153,6 +152,24 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
         name.compare("HashLinkListRepFactory") == 0) {
       result.memtable_factory = std::make_shared<SkipListFactory>();
     }
+  }
+
+  if (!src.compression_per_level.empty()) {
+    for (size_t level = 0; level < src.compression_per_level.size(); ++level) {
+      if (!CompressionTypeSupported(src.compression_per_level[level])) {
+        Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
+            "Compression type chosen for level %zu is not supported: %s. "
+            "RocksDB "
+            "will not compress data on level %zu.",
+            level, CompressionTypeToString(src.compression_per_level[level]),
+            level);
+      }
+    }
+  } else if (!CompressionTypeSupported(src.compression)) {
+    Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
+        "Compression type chosen is not supported: %s. RocksDB will not "
+        "compress data.",
+        CompressionTypeToString(src.compression));
   }
 
   if (result.compaction_style == kCompactionStyleFIFO) {

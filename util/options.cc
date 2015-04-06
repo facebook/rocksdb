@@ -29,6 +29,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
+#include "util/compression.h"
 #include "util/statistics.h"
 #include "util/xfunc.h"
 
@@ -383,11 +384,12 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   Log(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
-          Log(log,"       Options.compression[%d]: %d",
-              i, compression_per_level[i]);
-       }
+        Log(log, "       Options.compression[%d]: %s", i,
+            CompressionTypeToString(compression_per_level[i]));
+      }
     } else {
-      Log(log,"         Options.compression: %d", compression);
+      Log(log, "         Options.compression: %s",
+          CompressionTypeToString(compression));
     }
     Log(log,"      Options.prefix_extractor: %s",
         prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
@@ -541,6 +543,46 @@ Options::PrepareForBulkLoad()
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
   return this;
+}
+
+const char* CompressionTypeToString(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return "NoCompression";
+    case kSnappyCompression:
+      return "Snappy";
+    case kZlibCompression:
+      return "Zlib";
+    case kBZip2Compression:
+      return "BZip2";
+    case kLZ4Compression:
+      return "LZ4";
+    case kLZ4HCCompression:
+      return "LZ4HC";
+    default:
+      assert(false);
+      return "";
+  }
+}
+
+bool CompressionTypeSupported(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return true;
+    case kSnappyCompression:
+      return Snappy_Supported();
+    case kZlibCompression:
+      return Zlib_Supported();
+    case kBZip2Compression:
+      return BZip2_Supported();
+    case kLZ4Compression:
+      return LZ4_Supported();
+    case kLZ4HCCompression:
+      return LZ4_Supported();
+    default:
+      assert(false);
+      return false;
+  }
 }
 
 #ifndef ROCKSDB_LITE

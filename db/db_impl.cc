@@ -67,6 +67,7 @@
 #include "util/autovector.h"
 #include "util/build_version.h"
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/db_info_dumper.h"
 #include "util/file_util.h"
 #include "util/hash_skiplist_rep.h"
@@ -189,26 +190,14 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
 }
 
 void DumpCompressionInfo(Logger* logger) {
-  Log(InfoLogLevel::INFO_LEVEL, logger, "Snappy "
-#ifndef SNAPPY
-      "NOT "
-#endif
-      "supported");
-  Log(InfoLogLevel::INFO_LEVEL, logger, "Zlib "
-#ifndef ZLIB
-      "NOT "
-#endif
-      "supported");
-  Log(InfoLogLevel::INFO_LEVEL, logger, "Bzip "
-#ifndef BZIP2
-      "NOT "
-#endif
-      "supported");
-  Log(InfoLogLevel::INFO_LEVEL, logger, "LZ4 "
-#ifndef LZ4
-      "NOT "
-#endif
-      "supported");
+  Log(InfoLogLevel::INFO_LEVEL, logger, "Compression algorithms supported:");
+  Log(InfoLogLevel::INFO_LEVEL, logger, "\tSnappy supported: %d",
+      Snappy_Supported());
+  Log(InfoLogLevel::INFO_LEVEL, logger, "\tZlib supported: %d",
+      Zlib_Supported());
+  Log(InfoLogLevel::INFO_LEVEL, logger, "\tBzip supported: %d",
+      BZip2_Supported());
+  Log(InfoLogLevel::INFO_LEVEL, logger, "\tLZ4 supported: %d", LZ4_Supported());
 }
 
 }  // namespace

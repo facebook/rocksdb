@@ -55,6 +55,12 @@ enum CompressionType : char {
   kBZip2Compression = 0x3, kLZ4Compression = 0x4, kLZ4HCCompression = 0x5
 };
 
+// returns true if RocksDB was correctly linked with compression library and
+// supports the compression type
+extern bool CompressionTypeSupported(CompressionType compression_type);
+// Returns a human-readable name of the compression type
+extern const char* CompressionTypeToString(CompressionType compression_type);
+
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,

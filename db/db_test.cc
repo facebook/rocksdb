@@ -60,41 +60,6 @@
 
 namespace rocksdb {
 
-static bool SnappyCompressionSupported(const CompressionOptions& options) {
-  std::string out;
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return Snappy_Compress(options, in.data(), in.size(), &out);
-}
-
-static bool SnappyCompressionSupported() {
-  CompressionOptions options;
-  return SnappyCompressionSupported(options);
-}
-
-static bool ZlibCompressionSupported(const CompressionOptions& options) {
-  std::string out;
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return Zlib_Compress(options, 2, in.data(), in.size(), &out);
-}
-
-static bool BZip2CompressionSupported(const CompressionOptions& options) {
-  std::string out;
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return BZip2_Compress(options, 2, in.data(), in.size(), &out);
-}
-
-static bool LZ4CompressionSupported(const CompressionOptions &options) {
-  std::string out;
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return LZ4_Compress(options, 2, in.data(), in.size(), &out);
-}
-
-static bool LZ4HCCompressionSupported(const CompressionOptions &options) {
-  std::string out;
-  Slice in = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-  return LZ4HC_Compress(options, 2, in.data(), in.size(), &out);
-}
-
 static std::string RandomString(Random* rnd, int len) {
   std::string r;
   test::RandomString(rnd, len, &r);
@@ -4418,7 +4383,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
 }
 
 TEST_F(DBTest, CompressedCache) {
-  if (!SnappyCompressionSupported()) {
+  if (!Snappy_Supported()) {
     return;
   }
   int num_iter = 80;
@@ -4542,7 +4507,7 @@ static std::string CompressibleString(Random* rnd, int len) {
 }
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio1) {
-  if (!SnappyCompressionSupported()) {
+  if (!Snappy_Supported()) {
     return;
   }
 
@@ -4611,7 +4576,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio1) {
 }
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionCompressRatio2) {
-  if (!SnappyCompressionSupported()) {
+  if (!Snappy_Supported()) {
     return;
   }
   Options options;
@@ -4655,7 +4620,7 @@ TEST_F(DBTest, FailMoreDbPaths) {
 }
 
 TEST_F(DBTest, UniversalCompactionSecondPathRatio) {
-  if (!SnappyCompressionSupported()) {
+  if (!Snappy_Supported()) {
     return;
   }
   Options options;
@@ -5348,25 +5313,18 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   options.level0_file_num_compaction_trigger = 3;
   options.create_if_missing = true;
 
-  if (SnappyCompressionSupported(CompressionOptions(wbits, lev, strategy))) {
+  if (Snappy_Supported()) {
     type = kSnappyCompression;
     fprintf(stderr, "using snappy\n");
-  } else if (ZlibCompressionSupported(
-               CompressionOptions(wbits, lev, strategy))) {
+  } else if (Zlib_Supported()) {
     type = kZlibCompression;
     fprintf(stderr, "using zlib\n");
-  } else if (BZip2CompressionSupported(
-               CompressionOptions(wbits, lev, strategy))) {
+  } else if (BZip2_Supported()) {
     type = kBZip2Compression;
     fprintf(stderr, "using bzip2\n");
-  } else if (LZ4CompressionSupported(
-                 CompressionOptions(wbits, lev, strategy))) {
+  } else if (LZ4_Supported()) {
     type = kLZ4Compression;
     fprintf(stderr, "using lz4\n");
-  } else if (LZ4HCCompressionSupported(
-                 CompressionOptions(wbits, lev, strategy))) {
-    type = kLZ4HCCompression;
-    fprintf(stderr, "using lz4hc\n");
   } else {
     fprintf(stderr, "skipping test, compression disabled\n");
     return false;
@@ -11129,7 +11087,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesBase2) {
 }
 
 TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
-  if (!SnappyCompressionSupported()) {
+  if (!Snappy_Supported()) {
     return;
   }
   const int kNKeys = 120;
