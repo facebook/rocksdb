@@ -13,7 +13,7 @@ namespace rocksdb {
 
 namespace {
 
-enum EntryType : unsigned char {
+enum PlainTableEntryType : unsigned char {
   kFullKey = 0,
   kPrefixFromPreviousKey = 1,
   kKeySuffix = 2,
@@ -27,7 +27,8 @@ enum EntryType : unsigned char {
 const unsigned char kSizeInlineLimit = 0x3F;
 
 // Return 0 for error
-size_t EncodeSize(EntryType type, uint32_t key_size, char* out_buffer) {
+size_t EncodeSize(PlainTableEntryType type, uint32_t key_size,
+                  char* out_buffer) {
   out_buffer[0] = type << 6;
 
   if (key_size < static_cast<uint32_t>(kSizeInlineLimit)) {
@@ -43,9 +44,9 @@ size_t EncodeSize(EntryType type, uint32_t key_size, char* out_buffer) {
 
 // Return position after the size byte(s). nullptr means error
 const char* DecodeSize(const char* offset, const char* limit,
-                       EntryType* entry_type, uint32_t* key_size) {
+                       PlainTableEntryType* entry_type, uint32_t* key_size) {
   assert(offset < limit);
-  *entry_type = static_cast<EntryType>(
+  *entry_type = static_cast<PlainTableEntryType>(
       (static_cast<unsigned char>(offset[0]) & ~kSizeInlineLimit) >> 6);
   char inline_key_size = offset[0] & kSizeInlineLimit;
   if (inline_key_size < kSizeInlineLimit) {
@@ -221,7 +222,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
     const char* start, const char* limit, ParsedInternalKey* parsed_key,
     Slice* internal_key, size_t* bytes_read, bool* seekable) {
   const char* key_ptr = start;
-  EntryType entry_type;
+  PlainTableEntryType entry_type;
 
   bool expect_suffix = false;
   do {
