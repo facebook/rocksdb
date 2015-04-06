@@ -86,9 +86,15 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   const ImmutableCFOptions ioptions(opts);
   if (!through_db) {
     env->NewWritableFile(file_name, &file, env_options);
-    tb = opts.table_factory->NewTableBuilder(ioptions, ikc, file.get(),
-                                             CompressionType::kNoCompression,
-                                             CompressionOptions());
+
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
+        int_tbl_prop_collector_factories;
+
+    tb = opts.table_factory->NewTableBuilder(
+        TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
+                            CompressionType::kNoCompression,
+                            CompressionOptions(), false),
+        file.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);

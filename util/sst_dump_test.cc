@@ -51,9 +51,14 @@ void createSST(const std::string& file_name,
 
   env->NewWritableFile(file_name, &file, env_options);
   opts.table_factory = tf;
-  tb.reset(opts.table_factory->NewTableBuilder(imoptions, ikc, file.get(),
-                                               CompressionType::kNoCompression,
-                                               CompressionOptions()));
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
+      int_tbl_prop_collector_factories;
+
+  tb.reset(opts.table_factory->NewTableBuilder(
+      TableBuilderOptions(imoptions, ikc, &int_tbl_prop_collector_factories,
+                          CompressionType::kNoCompression, CompressionOptions(),
+                          false),
+      file.get()));
 
   // Populate slightly more than 1K keys
   uint32_t num_keys = 1024;

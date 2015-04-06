@@ -386,7 +386,7 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 // But in the forseeable future, we will add more and more properties that are
 // specific to block-based table.
 class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
-    : public TablePropertiesCollector {
+    : public IntTblPropCollector {
  public:
   explicit BlockBasedTablePropertiesCollector(
       BlockBasedTableOptions::IndexType index_type, bool whole_key_filtering,
@@ -395,7 +395,8 @@ class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
         whole_key_filtering_(whole_key_filtering),
         prefix_filtering_(prefix_filtering) {}
 
-  virtual Status Add(const Slice& key, const Slice& value) override {
+  virtual Status InternalAdd(const Slice& key, const Slice& value,
+                             uint64_t file_size) override {
     // Intentionally left blank. Have no interest in collecting stats for
     // individual key/value pairs.
     return Status::OK();
@@ -455,13 +456,14 @@ struct BlockBasedTableBuilder::Rep {
   std::string compressed_output;
   std::unique_ptr<FlushBlockPolicy> flush_block_policy;
 
-  std::vector<std::unique_ptr<TablePropertiesCollector>>
-      table_properties_collectors;
+  std::vector<std::unique_ptr<IntTblPropCollector>> table_properties_collectors;
 
   Rep(const ImmutableCFOptions& _ioptions,
       const BlockBasedTableOptions& table_opt,
-      const InternalKeyComparator& icomparator, WritableFile* f,
-      const CompressionType _compression_type,
+      const InternalKeyComparator& icomparator,
+      const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+          int_tbl_prop_collector_factories,
+      WritableFile* f, const CompressionType _compression_type,
       const CompressionOptions& _compression_opts, const bool skip_filters)
       : ioptions(_ioptions),
         table_options(table_opt),
@@ -479,10 +481,9 @@ struct BlockBasedTableBuilder::Rep {
         flush_block_policy(
             table_options.flush_block_policy_factory->NewFlushBlockPolicy(
                 table_options, data_block)) {
-    for (auto& collector_factories :
-         ioptions.table_properties_collector_factories) {
+    for (auto& collector_factories : *int_tbl_prop_collector_factories) {
       table_properties_collectors.emplace_back(
-          collector_factories->CreateTablePropertiesCollector());
+          collector_factories->CreateIntTblPropCollector());
     }
     table_properties_collectors.emplace_back(
         new BlockBasedTablePropertiesCollector(
@@ -494,8 +495,10 @@ struct BlockBasedTableBuilder::Rep {
 BlockBasedTableBuilder::BlockBasedTableBuilder(
     const ImmutableCFOptions& ioptions,
     const BlockBasedTableOptions& table_options,
-    const InternalKeyComparator& internal_comparator, WritableFile* file,
-    const CompressionType compression_type,
+    const InternalKeyComparator& internal_comparator,
+    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories,
+    WritableFile* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
@@ -508,8 +511,9 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     sanitized_table_options.format_version = 1;
   }
 
-  rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator, file,
-                 compression_type, compression_opts, skip_filters);
+  rep_ = new Rep(ioptions, sanitized_table_options, internal_comparator,
+                 int_tbl_prop_collector_factories, file, compression_type,
+                 compression_opts, skip_filters);
 
   if (rep_->filter_block != nullptr) {
     rep_->filter_block->StartBlock(0);
@@ -564,7 +568,8 @@ void BlockBasedTableBuilder::Add(const Slice& key, const Slice& value) {
   r->props.raw_value_size += value.size();
 
   r->index_builder->OnKeyAdded(key);
-  NotifyCollectTableCollectorsOnAdd(key, value, r->table_properties_collectors,
+  NotifyCollectTableCollectorsOnAdd(key, value, r->offset,
+                                    r->table_properties_collectors,
                                     r->ioptions.info_log);
 }
 

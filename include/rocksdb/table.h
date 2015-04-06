@@ -31,6 +31,7 @@ namespace rocksdb {
 // -- Block-based Table
 class FlushBlockPolicyFactory;
 class RandomAccessFile;
+struct TableBuilderOptions;
 class TableBuilder;
 class TableReader;
 class WritableFile;
@@ -370,11 +371,8 @@ class TableFactory {
   // after closing the table builder. compression_type is the compression type
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
-      const ImmutableCFOptions& ioptions,
-      const InternalKeyComparator& internal_comparator, WritableFile* file,
-      const CompressionType compression_type,
-      const CompressionOptions& compression_opts,
-      const bool skipFilters = false) const = 0;
+      const TableBuilderOptions& table_builder_options,
+      WritableFile* file) const = 0;
 
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   //

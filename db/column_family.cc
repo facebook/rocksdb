@@ -100,6 +100,22 @@ const Comparator* ColumnFamilyHandleImpl::user_comparator() const {
   return cfd()->user_comparator();
 }
 
+void GetIntTblPropCollectorFactory(
+    const ColumnFamilyOptions& cf_options,
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories) {
+  auto& collector_factories = cf_options.table_properties_collector_factories;
+  for (size_t i = 0; i < cf_options.table_properties_collector_factories.size();
+       ++i) {
+    assert(collector_factories[i]);
+    int_tbl_prop_collector_factories->emplace_back(
+        new UserKeyTablePropertiesCollectorFactory(collector_factories[i]));
+  }
+  // Add collector to collect internal key statistics
+  int_tbl_prop_collector_factories->emplace_back(
+      new InternalKeyPropertiesCollectorFactory);
+}
+
 ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                     const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
@@ -138,22 +154,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
       result.memtable_factory = std::make_shared<SkipListFactory>();
     }
   }
-
-  // -- Sanitize the table properties collector
-  // All user defined properties collectors will be wrapped by
-  // UserKeyTablePropertiesCollector since for them they only have the
-  // knowledge of the user keys; internal keys are invisible to them.
-  auto& collector_factories = result.table_properties_collector_factories;
-  for (size_t i = 0; i < result.table_properties_collector_factories.size();
-       ++i) {
-    assert(collector_factories[i]);
-    collector_factories[i] =
-        std::make_shared<UserKeyTablePropertiesCollectorFactory>(
-            collector_factories[i]);
-  }
-  // Add collector to collect internal key statistics
-  collector_factories.push_back(
-      std::make_shared<InternalKeyPropertiesCollectorFactory>());
 
   if (result.compaction_style == kCompactionStyleFIFO) {
     result.num_levels = 1;
@@ -296,6 +296,9 @@ ColumnFamilyData::ColumnFamilyData(
       pending_flush_(false),
       pending_compaction_(false) {
   Ref();
+
+  // Convert user defined table properties collector factories to internal ones.
+  GetIntTblPropCollectorFactory(options_, &int_tbl_prop_collector_factories_);
 
   // if _dummy_versions is nullptr, then this is a dummy column family.
   if (_dummy_versions != nullptr) {

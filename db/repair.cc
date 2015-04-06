@@ -71,6 +71,8 @@ class Repairer {
             // once.
             NewLRUCache(10, options_.table_cache_numshardbits)),
         next_file_number_(1) {
+    GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories_);
+
     table_cache_ =
         new TableCache(ioptions_, env_options_, raw_table_cache_.get());
     edit_ = new VersionEdit();
@@ -115,6 +117,8 @@ class Repairer {
   std::string const dbname_;
   Env* const env_;
   const InternalKeyComparator icmp_;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories_;
   const Options options_;
   const ImmutableCFOptions ioptions_;
   std::shared_ptr<Cache> raw_table_cache_;
@@ -254,8 +258,9 @@ class Repairer {
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
-                          iter.get(), &meta, icmp_, 0, 0, kNoCompression,
-                          CompressionOptions());
+                          iter.get(), &meta, icmp_,
+                          &int_tbl_prop_collector_factories_, 0, 0,
+                          kNoCompression, CompressionOptions());
     }
     delete mem->Unref();
     delete cf_mems_default;

@@ -349,9 +349,13 @@ class TableConstructor: public Constructor {
     Reset();
     sink_.reset(new StringSink());
     unique_ptr<TableBuilder> builder;
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+        int_tbl_prop_collector_factories;
     builder.reset(ioptions.table_factory->NewTableBuilder(
-        ioptions, internal_comparator, sink_.get(), options.compression,
-        CompressionOptions()));
+        TableBuilderOptions(ioptions, internal_comparator,
+                            &int_tbl_prop_collector_factories,
+                            options.compression, CompressionOptions(), false),
+        sink_.get()));
 
     for (const auto kv : kv_map) {
       if (convert_to_internal_key_) {
@@ -1821,9 +1825,12 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   Options options;
   const ImmutableCFOptions ioptions(options);
   InternalKeyComparator ikc(options.comparator);
-  std::unique_ptr<TableBuilder> builder(
-      factory.NewTableBuilder(ioptions, ikc, &sink, kNoCompression,
-                              CompressionOptions()));
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories;
+  std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
+      TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
+                          kNoCompression, CompressionOptions(), false),
+      &sink));
 
   for (char c = 'a'; c <= 'z'; ++c) {
     std::string key(8, c);

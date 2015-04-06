@@ -11,8 +11,9 @@
 
 namespace rocksdb {
 
-Status InternalKeyPropertiesCollector::Add(
-    const Slice& key, const Slice& value) {
+Status InternalKeyPropertiesCollector::InternalAdd(const Slice& key,
+                                                   const Slice& value,
+                                                   uint64_t file_size) {
   ParsedInternalKey ikey;
   if (!ParseInternalKey(key, &ikey)) {
     return Status::InvalidArgument("Invalid internal key");
@@ -45,15 +46,31 @@ InternalKeyPropertiesCollector::GetReadableProperties() const {
   };
 }
 
+namespace {
+EntryType GetEntryType(ValueType value_type) {
+  switch (value_type) {
+    case kTypeValue:
+      return kEntryPut;
+    case kTypeDeletion:
+      return kEntryDelete;
+    case kTypeMerge:
+      return kEntryMerge;
+    default:
+      return kEntryOther;
+  }
+}
+}  // namespace
 
-Status UserKeyTablePropertiesCollector::Add(
-    const Slice& key, const Slice& value) {
+Status UserKeyTablePropertiesCollector::InternalAdd(const Slice& key,
+                                                    const Slice& value,
+                                                    uint64_t file_size) {
   ParsedInternalKey ikey;
   if (!ParseInternalKey(key, &ikey)) {
     return Status::InvalidArgument("Invalid internal key");
   }
 
-  return collector_->Add(ikey.user_key, value);
+  return collector_->AddUserKey(ikey.user_key, value, GetEntryType(ikey.type),
+                                ikey.sequence, file_size);
 }
 
 Status UserKeyTablePropertiesCollector::Finish(

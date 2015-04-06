@@ -9,6 +9,7 @@
 
 #include "db/builder.h"
 
+#include <vector>
 #include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/merge_helper.h"
@@ -26,28 +27,31 @@ namespace rocksdb {
 
 class TableFactory;
 
-TableBuilder* NewTableBuilder(const ImmutableCFOptions& ioptions,
-                              const InternalKeyComparator& internal_comparator,
-                              WritableFile* file,
-                              const CompressionType compression_type,
-                              const CompressionOptions& compression_opts,
-                              const bool skip_filters) {
-  return ioptions.table_factory->NewTableBuilder(ioptions, internal_comparator,
-                                                 file, compression_type,
-                                                 compression_opts,
-                                                 skip_filters);
+TableBuilder* NewTableBuilder(
+    const ImmutableCFOptions& ioptions,
+    const InternalKeyComparator& internal_comparator,
+    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories,
+    WritableFile* file, const CompressionType compression_type,
+    const CompressionOptions& compression_opts, const bool skip_filters) {
+  return ioptions.table_factory->NewTableBuilder(
+      TableBuilderOptions(ioptions, internal_comparator,
+                          int_tbl_prop_collector_factories, compression_type,
+                          compression_opts, skip_filters),
+      file);
 }
 
-Status BuildTable(const std::string& dbname, Env* env,
-                  const ImmutableCFOptions& ioptions,
-                  const EnvOptions& env_options, TableCache* table_cache,
-                  Iterator* iter, FileMetaData* meta,
-                  const InternalKeyComparator& internal_comparator,
-                  const SequenceNumber newest_snapshot,
-                  const SequenceNumber earliest_seqno_in_memtable,
-                  const CompressionType compression,
-                  const CompressionOptions& compression_opts,
-                  const Env::IOPriority io_priority) {
+Status BuildTable(
+    const std::string& dbname, Env* env, const ImmutableCFOptions& ioptions,
+    const EnvOptions& env_options, TableCache* table_cache, Iterator* iter,
+    FileMetaData* meta, const InternalKeyComparator& internal_comparator,
+    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories,
+    const SequenceNumber newest_snapshot,
+    const SequenceNumber earliest_seqno_in_memtable,
+    const CompressionType compression,
+    const CompressionOptions& compression_opts,
+    const Env::IOPriority io_priority) {
   Status s;
   meta->fd.file_size = 0;
   meta->smallest_seqno = meta->largest_seqno = 0;
@@ -72,8 +76,8 @@ Status BuildTable(const std::string& dbname, Env* env,
     file->SetIOPriority(io_priority);
 
     TableBuilder* builder = NewTableBuilder(
-        ioptions, internal_comparator, file.get(),
-        compression, compression_opts);
+        ioptions, internal_comparator, int_tbl_prop_collector_factories,
+        file.get(), compression, compression_opts);
 
     {
       // the first key is the smallest key

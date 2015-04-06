@@ -21,6 +21,7 @@
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
 #include "db/table_cache.h"
+#include "db/table_properties_collector.h"
 #include "db/flush_scheduler.h"
 #include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
@@ -125,6 +126,13 @@ struct SuperVersion {
 extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
+// Wrap user defined table proproties collector factories `from cf_options`
+// into internal ones in int_tbl_prop_collector_factories. Add a system internal
+// one too.
+extern void GetIntTblPropCollectorFactory(
+    const ColumnFamilyOptions& cf_options,
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories);
 
 class ColumnFamilySet;
 
@@ -239,6 +247,11 @@ class ColumnFamilyData {
     return internal_comparator_;
   }
 
+  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+  int_tbl_prop_collector_factories() const {
+    return &int_tbl_prop_collector_factories_;
+  }
+
   SuperVersion* GetSuperVersion() { return super_version_; }
   // thread-safe
   // Return a already referenced SuperVersion to be used safely.
@@ -307,6 +320,8 @@ class ColumnFamilyData {
   bool dropped_;               // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories_;
 
   const Options options_;
   const ImmutableCFOptions ioptions_;

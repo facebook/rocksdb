@@ -1115,7 +1115,8 @@ Status CompactionJob::OpenCompactionOutputFile() {
   }
 
   compact_->builder.reset(NewTableBuilder(
-      *cfd->ioptions(), cfd->internal_comparator(), compact_->outfile.get(),
+      *cfd->ioptions(), cfd->internal_comparator(),
+      cfd->int_tbl_prop_collector_factories(), compact_->outfile.get(),
       compact_->compaction->OutputCompressionType(),
       cfd->ioptions()->compression_opts, skip_filters));
   LogFlush(db_options_.info_log);

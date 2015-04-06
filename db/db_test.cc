@@ -1657,6 +1657,78 @@ TEST_F(DBTest, GetPropertiesOfAllTablesTest) {
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 }
 
+class CoutingUserTblPropCollector : public TablePropertiesCollector {
+ public:
+  const char* Name() const override { return "CoutingUserTblPropCollector"; }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    std::string encoded;
+    PutVarint32(&encoded, count_);
+    *properties = UserCollectedProperties{
+        {"CoutingUserTblPropCollector", message_}, {"Count", encoded},
+    };
+    return Status::OK();
+  }
+
+  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override {
+    ++count_;
+    return Status::OK();
+  }
+
+  virtual UserCollectedProperties GetReadableProperties() const override {
+    return UserCollectedProperties{};
+  }
+
+ private:
+  std::string message_ = "Rocksdb";
+  uint32_t count_ = 0;
+};
+
+class CoutingUserTblPropCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+    return new CoutingUserTblPropCollector();
+  }
+  const char* Name() const override {
+    return "CoutingUserTblPropCollectorFactory";
+  }
+};
+
+TEST_F(DBTest, GetUserDefinedTablaProperties) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  options.table_properties_collector_factories.resize(1);
+  options.table_properties_collector_factories[0] =
+      std::make_shared<CoutingUserTblPropCollectorFactory>();
+  Reopen(options);
+  // Create 4 tables
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10 + table; ++i) {
+      db_->Put(WriteOptions(), ToString(table * 100 + i), "val");
+    }
+    db_->Flush(FlushOptions());
+  }
+
+  TablePropertiesCollection props;
+  ASSERT_OK(db_->GetPropertiesOfAllTables(&props));
+  ASSERT_EQ(4U, props.size());
+  uint32_t sum = 0;
+  for (const auto& item : props) {
+    auto& user_collected = item.second->user_collected_properties;
+    ASSERT_TRUE(user_collected.find("CoutingUserTblPropCollector") !=
+                user_collected.end());
+    ASSERT_EQ(user_collected.at("CoutingUserTblPropCollector"), "Rocksdb");
+    ASSERT_TRUE(user_collected.find("Count") != user_collected.end());
+    Slice key(user_collected.at("Count"));
+    uint32_t count;
+    ASSERT_TRUE(GetVarint32(&key, &count));
+    sum += count;
+  }
+  ASSERT_EQ(10u + 11u + 12u + 13u, sum);
+}
+
 TEST_F(DBTest, LevelLimitReopen) {
   Options options = CurrentOptions();
   CreateAndReopenWithCF({"pikachu"}, options);

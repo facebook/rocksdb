@@ -158,11 +158,9 @@ class PlainTableFactory : public TableFactory {
       const InternalKeyComparator& internal_comparator,
       unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table) const override;
-  TableBuilder* NewTableBuilder(const ImmutableCFOptions& options,
-                                const InternalKeyComparator& icomparator,
-                                WritableFile* file, const CompressionType,
-                                const CompressionOptions&,
-                                const bool skip_filters = false) const override;
+  TableBuilder* NewTableBuilder(
+      const TableBuilderOptions& table_builder_options,
+      WritableFile* file) const override;
 
   std::string GetPrintableTableOptions() const override;
 

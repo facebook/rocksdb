@@ -1125,7 +1125,8 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
       mutex_.Unlock();
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
-          iter.get(), &meta, cfd->internal_comparator(), newest_snapshot,
+          iter.get(), &meta, cfd->internal_comparator(),
+          cfd->int_tbl_prop_collector_factories(), newest_snapshot,
           earliest_seqno_in_memtable, GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, Env::IO_HIGH);
       LogFlush(db_options_.info_log);

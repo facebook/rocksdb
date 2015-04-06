@@ -59,10 +59,13 @@ extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
-    const ImmutableCFOptions& ioptions, WritableFile* file,
-    uint32_t user_key_len, EncodingType encoding_type, size_t index_sparseness,
-    uint32_t bloom_bits_per_key, uint32_t num_probes, size_t huge_page_tlb_size,
-    double hash_table_ratio, bool store_index_in_file)
+    const ImmutableCFOptions& ioptions,
+    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories,
+    WritableFile* file, uint32_t user_key_len, EncodingType encoding_type,
+    size_t index_sparseness, uint32_t bloom_bits_per_key, uint32_t num_probes,
+    size_t huge_page_tlb_size, double hash_table_ratio,
+    bool store_index_in_file)
     : ioptions_(ioptions),
       bloom_block_(num_probes),
       file_(file),
@@ -105,10 +108,9 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.user_collected_properties
       [PlainTablePropertyNames::kEncodingType] = val;
 
-  for (auto& collector_factories :
-       ioptions.table_properties_collector_factories) {
+  for (auto& collector_factories : *int_tbl_prop_collector_factories) {
     table_properties_collectors_.emplace_back(
-        collector_factories->CreateTablePropertiesCollector());
+        collector_factories->CreateIntTblPropCollector());
   }
 }
 
@@ -161,8 +163,8 @@ void PlainTableBuilder::Add(const Slice& key, const Slice& value) {
   properties_.raw_value_size += value.size();
 
   // notify property collectors
-  NotifyCollectTableCollectorsOnAdd(key, value, table_properties_collectors_,
-                                    ioptions_.info_log);
+  NotifyCollectTableCollectorsOnAdd(
+      key, value, offset_, table_properties_collectors_, ioptions_.info_log);
 }
 
 Status PlainTableBuilder::status() const { return status_; }
