@@ -91,7 +91,7 @@ VALUE_SIZE=$vs \
 CACHE_SIZE=$cs"
 
 mkdir -p $output_dir
-echo -e "ops/sec\tmb/sec\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tUptime\tStall-time\tStall%\tTest" \
+echo -e "ops/sec\tmb/sec\tL0_GB\tSum_GB\tW-Amp\tW-MB/s\tusec/op\tp50\tp75\tp99\tp99.9\tp99.99\tUptime\tStall-time\tStall%\tTest" \
   > $output_dir/report.txt
 
 # Notes on test sequence:
@@ -219,4 +219,56 @@ for num_thr in "${nthreads[@]}" ; do
     NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilemerging
 done
 
-cat $output_dir/report.txt
+echo bulkload > $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep bulkload $output_dir/report.txt >> $output_dir/report2.txt
+echo fillseq >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep fillseq $output_dir/report.txt >> $output_dir/report2.txt
+echo overwrite sync=0 >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep overwrite $output_dir/report.txt | grep \.s0  >> $output_dir/report2.txt
+echo overwrite sync=1 >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep overwrite $output_dir/report.txt | grep \.s1  >> $output_dir/report2.txt
+echo updaterandom sync=0 >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep updaterandom $output_dir/report.txt | grep \.s0 >> $output_dir/report2.txt
+echo updaterandom sync=1 >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep updaterandom $output_dir/report.txt | grep \.s1 >> $output_dir/report2.txt
+echo mergerandom sync=0 >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep mergerandom $output_dir/report.txt | grep \.s0 >> $output_dir/report2.txt
+echo mergerandom sync=1 >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep mergerandom $output_dir/report.txt | grep \.s1 >> $output_dir/report2.txt
+echo readrandom >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep readrandom $output_dir/report.txt  >> $output_dir/report2.txt
+echo fwdrange >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep fwdrange\.t $output_dir/report.txt >> $output_dir/report2.txt
+echo revrange >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep revrange\.t $output_dir/report.txt >> $output_dir/report2.txt
+echo readwhile >> $output_dir/report2.txt >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep readwhilewriting $output_dir/report.txt >> $output_dir/report2.txt
+echo readwhile >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep readwhilemerging $output_dir/report.txt >> $output_dir/report2.txt
+echo fwdreadwhilewriting >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep fwdrangewhilewriting $output_dir/report.txt >> $output_dir/report2.txt
+echo fwdreadwhilemerging >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep fwdrangewhilemerg $output_dir/report.txt >> $output_dir/report2.txt
+echo revreadwhilewriting >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep revrangewhilewriting $output_dir/report.txt >> $output_dir/report2.txt
+echo revreadwhilemerging >> $output_dir/report2.txt
+head -1 $output_dir/report.txt >> $output_dir/report2.txt
+grep revrangewhilemerg $output_dir/report.txt >> $output_dir/report2.txt
+
+cat $output_dir/report2.txt
