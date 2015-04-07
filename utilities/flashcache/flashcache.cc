@@ -125,7 +125,7 @@ int FlashcacheWhitelistCurrentThread(Env* flashcache_aware_env) {
 
 #else   // !defined(ROCKSDB_LITE) && defined(OS_LINUX)
 std::unique_ptr<Env> NewFlashcacheAwareEnv(Env* base,
-                                           const std::string& flashcache_dev) {
+                                           const int cachedev_fd) {
   return nullptr;
 }
 int FlashcacheBlacklistCurrentThread(Env* flashcache_aware_env) { return -1; }
