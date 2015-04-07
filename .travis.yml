@@ -10,10 +10,11 @@ addons:
             - g++-4.9
             - zlib1g-dev
             - libbz2-dev
-            - libsnappy-dev
-            - libjemalloc-dev
-            - libgflags
-            - libgflags-dev
+            ### Not yet on the whitelist - https://github.com/travis-ci/apt-package-whitelist/blob/master/ubuntu-precise
+            # - libsnappy-dev           # https://github.com/travis-ci/travis-ci/issues/3611
+            # - libjemalloc-dev         # https://github.com/travis-ci/travis-ci/issues/3610
+            # - libgflags               # https://github.com/travis-ci/travis-ci/issues/3609
+            # - libgflags-dev
 
 # NOTE - no way to update-alternatives in containerized build yet, see - https://github.com/travis-ci/travis-ci/issues/3668
 #before_install:
