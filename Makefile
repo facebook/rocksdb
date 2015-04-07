@@ -815,7 +815,6 @@ ldb: tools/ldb.o $(LIBOBJECTS)
 # Jni stuff
 # ---------------------------------------------------------------------------
 
-JNI_NATIVE_SOURCES = ./java/rocksjni/*.cc
 JAVA_INCLUDE = -I$(JAVA_HOME)/include/ -I$(JAVA_HOME)/include/linux
 ARCH := $(shell getconf LONG_BIT)
 ROCKSDBJNILIB = librocksdbjni-linux$(ARCH).so

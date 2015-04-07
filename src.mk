@@ -223,6 +223,33 @@ TEST_BENCH_SOURCES =                                                    \
   util/thread_list_test.cc                                              \
   util/thread_local_test.cc
 
+JNI_NATIVE_SOURCES =                                          \
+  java/rocksjni/backupablejni.cc                              \
+  java/rocksjni/checkpoint.cc                                 \
+  java/rocksjni/columnfamilyhandle.cc                         \
+  java/rocksjni/comparator.cc                                 \
+  java/rocksjni/comparatorjnicallback.cc                      \
+  java/rocksjni/env.cc                                        \
+  java/rocksjni/filter.cc                                     \
+  java/rocksjni/iterator.cc                                   \
+  java/rocksjni/loggerjnicallback.cc                          \
+  java/rocksjni/memtablejni.cc                                \
+  java/rocksjni/merge_operator.cc                             \
+  java/rocksjni/options.cc                                    \
+  java/rocksjni/ratelimiterjni.cc                             \
+  java/rocksjni/restorejni.cc                                 \
+  java/rocksjni/rocksjni.cc                                   \
+  java/rocksjni/slice.cc                                      \
+  java/rocksjni/snapshot.cc                                   \
+  java/rocksjni/statistics.cc                                 \
+  java/rocksjni/table.cc                                      \
+  java/rocksjni/transaction_log.cc                            \
+  java/rocksjni/ttl.cc                                        \
+  java/rocksjni/write_batch.cc                                \
+  java/rocksjni/writebatchhandlerjnicallback.cc               \
+  java/rocksjni/write_batch_test.cc                           \
+  java/rocksjni/write_batch_with_index.cc
+
 # Currently, we do not generate dependencies for
 # java/rocksjni/write_batch_test.cc, because its dependent,
 # java/include/org_rocksdb_WriteBatch.h is generated.
