@@ -22,6 +22,40 @@ using std::unique_ptr;
 
 namespace log {
 
+/**
+ * Writer is a general purpose log stream writer. It provides an append-only
+ * abstraction for writing data. The details of the how the data is written is
+ * handled by the WriteableFile sub-class implementation.
+ *
+ * File format:
+ *
+ * File is broken down into variable sized records. The format of each record
+ * is described below.
+ *       +-----+-------------+--+----+----------+------+-- ... ----+
+ * File  | r0  |        r1   |P | r2 |    r3    |  r4  |           |
+ *       +-----+-------------+--+----+----------+------+-- ... ----+
+ *       <--- kBlockSize ------>|<-- kBlockSize ------>|
+ *  rn = variable size records
+ *  P = Padding
+ *
+ * Data is written out in kBlockSize chunks. If next record does not fit
+ * into the space left, the leftover space will be padded with \0.
+ *
+ * Record format:
+ *
+ * +---------+-----------+-----------+--- ... ---+
+ * |CRC (4B) | Size (2B) | Type (1B) | Payload   |
+ * +---------+-----------+-----------+--- ... ---+
+ *
+ * CRC = 32bit hash computed over the payload using CRC
+ * Size = Length of the payload data
+ * Type = Type of record
+ *        (kZeroType, kFullType, kFirstType, kLastType, kMiddleType )
+ *        The type is used to group a bunch of records together to represent
+ *        blocks that are larger than kBlockSize
+ * Payload = Byte stream as long as specified by the payload size
+ *
+ */
 class Writer {
  public:
   // Create a writer that will append data to "*dest".
