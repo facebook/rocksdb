@@ -24,6 +24,7 @@ int main() {
 #include <numaif.h>
 #endif
 
+#include <unistd.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <cstddef>
