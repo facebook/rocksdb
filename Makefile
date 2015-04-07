@@ -13,6 +13,16 @@ LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
 ARFLAGS = rs
 
+# If using GCC on Travis-CI, force use of GCC 4.9
+ifeq ($(TRAVIS),true)
+  ifeq ($(CC), gcc)
+    CC = /usr/bin/gcc-4.9
+  endif
+  ifeq ($(CXX),g++)
+    CXX = /usr/bin/g++-4.9
+  endif
+endif
+
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
   -e '@a=split("\t",$$_,-1); $$t=$$a[8]; $$t =~ s,^\./,,;'		\
