@@ -141,8 +141,8 @@ install:
 	for header in `find "include/rocksdb" -type f -name *.h`; do \
 		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
 	done
-	[ ! -e $(LIBRARY) ] || install -C -m 644 $(LIBRARY) $(INSTALL_PATH)/lib
-	[ ! -e $(SHARED) ] || install -C -m 644 $(SHARED) $(INSTALL_PATH)/lib
+	[ ! -e $(LIBRARY) ] || install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
+	[ -n '$(SHARED)' ] && install -C -m 755 $(SHARED) $(INSTALL_PATH)/lib
 #-------------------------------------------------
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
@@ -319,7 +319,7 @@ $(SHARED3): $(SHARED4)
 endif
 
 $(SHARED4):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED2) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) $(LDFLAGS) -o $@
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 

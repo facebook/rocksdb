@@ -95,7 +95,7 @@ PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS"
 PLATFORM_SHARED_EXT="so"
 PLATFORM_SHARED_LDFLAGS="-shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
-PLATFORM_SHARED_VERSIONED=false
+PLATFORM_SHARED_VERSIONED=true
 
 # generic port files (working on all platform by #ifdef) go directly in /port
 GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | tr "\n" " "`
@@ -115,6 +115,7 @@ case "$TARGET_OS" in
         PLATFORM_SHARED_EXT=dylib
         PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
         CROSS_COMPILE=true
+        PLATFORM_SHARED_VERSIONED=
         ;;
     Linux)
         PLATFORM=OS_LINUX
