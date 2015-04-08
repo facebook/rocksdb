@@ -246,6 +246,7 @@ TESTS = \
 	version_builder_test \
 	file_indexer_test \
 	write_batch_test \
+	write_batch_with_index_test \
 	write_controller_test\
 	deletefile_test \
 	table_test \
