@@ -232,7 +232,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       last_stats_dump_time_microsec_(0),
       next_job_id_(1),
       flush_on_destroy_(false),
-      env_options_(options),
+      env_options_(db_options_),
 #ifndef ROCKSDB_LITE
       wal_manager_(db_options_, env_options_),
 #endif  // ROCKSDB_LITE
