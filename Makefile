@@ -863,12 +863,21 @@ liblz4.a:
 	   cd lz4-r127/lib && make CFLAGS='-fPIC' all
 	   cp lz4-r127/lib/liblz4.a .
 
+# A version of each $(LIBOBJECTS) compiled with -fPIC
+java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
+CLEAN_FILES += jl
 
-rocksdbjavastatic: libz.a libbz2.a libsnappy.a liblz4.a
-	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j
+$(java_libobjects): jl/%.o: %.cc
+	$(AM_V_CC)mkdir -p $(@D)
+	@$(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+
+rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(COVERAGEFLAGS) libz.a libbz2.a libsnappy.a liblz4.a
+	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC \
+	  -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) \
+	  $(java_libobjects) $(COVERAGEFLAGS) \
+	  libz.a libbz2.a libsnappy.a liblz4.a
 	cd java/target;strip -S -x $(ROCKSDBJNILIB)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
@@ -890,11 +899,10 @@ rocksdbjavastaticpublish: rocksdbjavastaticrelease
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.jar -Dclassifier=osx
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 
-rocksdbjava:
-	OPT="-fPIC -DNDEBUG -O2" $(MAKE) $(LIBRARY) -j32
+rocksdbjava: $(java_libobjects)
 	cd java;$(MAKE) javalib;
 	rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(LIBOBJECTS) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
 	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
 	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
