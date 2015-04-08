@@ -144,14 +144,25 @@ bool Compaction::InputCompressionMatchesOutput() const {
 }
 
 bool Compaction::IsTrivialMove() const {
+  // If start_level_== output_level_, the purpose is to force compaction
+  // filter to be applied to that level, and thus cannot be a trivia move.
+  if (start_level_ == output_level_) {
+    return false;
+  }
+  // If compaction involves more than one file, it is not trivial move.
+  if (num_input_files(0) != 1) {
+    return false;
+  }
+  for (size_t l = 1u; l < num_input_levels(); l++) {
+    if (num_input_files(l) != 0) {
+      return false;
+    }
+  }
+
   // Avoid a move if there is lots of overlapping grandparent data.
   // Otherwise, the move could create a parent file that will require
   // a very expensive merge later on.
-  // If start_level_== output_level_, the purpose is to force compaction
-  // filter to be applied to that level, and thus cannot be a trivia move.
-  return (start_level_ != output_level_ && num_input_levels() == 2 &&
-          num_input_files(0) == 1 && num_input_files(1) == 0 &&
-          input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
+  return (input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
           InputCompressionMatchesOutput() &&
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }

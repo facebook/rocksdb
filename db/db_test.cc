@@ -11086,6 +11086,45 @@ TEST_F(DBTest, DynamicLevelMaxBytesBase2) {
   ASSERT_EQ(1U, int_prop);
 }
 
+TEST_F(DBTest, DynamicLevelMaxBytesBaseInc) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.db_write_buffer_size = 2048;
+  options.write_buffer_size = 2048;
+  options.max_write_buffer_number = 2;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 2;
+  options.target_file_size_base = 2048;
+  options.level_compaction_dynamic_level_bytes = true;
+  options.max_bytes_for_level_base = 10240;
+  options.max_bytes_for_level_multiplier = 4;
+  options.hard_rate_limit = 1.1;
+  options.max_background_compactions = 2;
+  options.num_levels = 5;
+
+  DestroyAndReopen(options);
+
+  int non_trivial = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial", [&]() { non_trivial++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  for (int i = 0; i < 3000; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_EQ(non_trivial, 0);
+
+  env_->SetBackgroundThreads(1, Env::LOW);
+  env_->SetBackgroundThreads(1, Env::HIGH);
+}
+
+
 TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   if (!Snappy_Supported()) {
     return;
