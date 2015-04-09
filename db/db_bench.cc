@@ -1418,7 +1418,8 @@ class Benchmark {
                 ? FLAGS_num
                 : ((FLAGS_writes > FLAGS_reads) ? FLAGS_writes : FLAGS_reads)),
         merge_keys_(FLAGS_merge_keys < 0 ? FLAGS_num : FLAGS_merge_keys),
-        report_file_operations_(FLAGS_report_file_operations) {
+        report_file_operations_(FLAGS_report_file_operations),
+        cachedev_fd_(-1) {
     if (report_file_operations_) {
       if (!FLAGS_hdfs.empty()) {
         fprintf(stderr,
@@ -1460,6 +1461,8 @@ class Benchmark {
       cache_->DisownData();
     }
     if (FLAGS_disable_flashcache_for_background_threads && cachedev_fd_ != -1) {
+      // Dtor for this env should run before cachedev_fd_ is closed
+      flashcache_aware_env_ = nullptr;
       close(cachedev_fd_);
     }
   }
@@ -2031,7 +2034,9 @@ class Benchmark {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);
       FLAGS_env->LowerThreadPoolIOPriority(Env::HIGH);
     }
-    if (FLAGS_disable_flashcache_for_background_threads) {
+    if (FLAGS_disable_flashcache_for_background_threads &&
+        cachedev_fd_ == -1) {
+      // Avoid creating the env twice when an use_existing_db is true
       cachedev_fd_ = open(FLAGS_flashcache_dev.c_str(), O_RDONLY);
       if (cachedev_fd_ < 0) {
         fprintf(stderr, "Open flash device failed\n");
