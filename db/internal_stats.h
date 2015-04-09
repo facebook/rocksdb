@@ -366,7 +366,7 @@ class InternalStats {
 
   void IncBytesMoved(int level, uint64_t amount) {}
 
-  void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {}
+  void RecordLevelNSlowdown(int level, bool soft) {}
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
