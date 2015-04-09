@@ -726,6 +726,76 @@ TEST_F(FaultInjectionTest, FaultTest) {
   } while (ChangeOptions());
 }
 
+class SleepingBackgroundTask {
+ public:
+  SleepingBackgroundTask()
+      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
+  void DoSleep() {
+    MutexLock l(&mutex_);
+    while (should_sleep_) {
+      bg_cv_.Wait();
+    }
+    done_with_sleep_ = true;
+    bg_cv_.SignalAll();
+  }
+  void WakeUp() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    bg_cv_.SignalAll();
+    while (!done_with_sleep_) {
+      bg_cv_.Wait();
+    }
+  }
+
+  static void DoSleepTask(void* arg) {
+    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+  }
+
+ private:
+  port::Mutex mutex_;
+  port::CondVar bg_cv_;  // Signalled when background work finishes
+  bool should_sleep_;
+  bool done_with_sleep_;
+};
+
+// Disable the test because it is not passing.
+// Previous log file is not fsynced if sync is forced after log rolling.
+// TODO(FB internal task#6730880) Fix the bug
+TEST_F(FaultInjectionTest, DISABLED_WriteOptionSyncTest) {
+  SleepingBackgroundTask sleeping_task_low;
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  // Block the job queue to prevent flush job from running.
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::HIGH);
+
+  WriteOptions write_options;
+  write_options.sync = false;
+
+  std::string key_space, value_space;
+  ASSERT_OK(
+      db_->Put(write_options, Key(1, &key_space), Value(1, &value_space)));
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  ASSERT_OK(db_->Flush(flush_options));
+  write_options.sync = true;
+  ASSERT_OK(
+      db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
+
+  env_->SetFilesystemActive(false);
+  NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+  sleeping_task_low.WakeUp();
+
+  ASSERT_OK(OpenDB());
+  std::string val;
+  Value(2, &value_space);
+  ASSERT_OK(ReadValue(2, &val));
+  ASSERT_EQ(value_space, val);
+
+  Value(1, &value_space);
+  ASSERT_OK(ReadValue(1, &val));
+  ASSERT_EQ(value_space, val);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
