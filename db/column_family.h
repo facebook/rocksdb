@@ -85,24 +85,23 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
+  // Accessing members of this class is not thread-safe and requires external
+  // synchronization (ie db mutex held or on write thread).
   MemTable* mem;
   MemTableListVersion* imm;
   Version* current;
   MutableCFOptions mutable_cf_options;
-  std::atomic<uint32_t> refs;
-  // We need to_delete because during Cleanup(), imm->Unref() returns
-  // all memtables that we need to free through this vector. We then
-  // delete all those memtables outside of mutex, during destruction
-  autovector<MemTable*> to_delete;
   // Version number of the current SuperVersion
   uint64_t version_number;
+
   InstrumentedMutex* db_mutex;
 
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
   SuperVersion* Ref();
-
+  // If Unref() returns true, Cleanup() should be called with mutex held
+  // before deleting this SuperVersion.
   bool Unref();
 
   // call these two methods with db mutex held
@@ -121,6 +120,13 @@ struct SuperVersion {
   static int dummy;
   static void* const kSVInUse;
   static void* const kSVObsolete;
+
+ private:
+  std::atomic<uint32_t> refs;
+  // We need to_delete because during Cleanup(), imm->Unref() returns
+  // all memtables that we need to free through this vector. We then
+  // delete all those memtables outside of mutex, during destruction
+  autovector<MemTable*> to_delete;
 };
 
 extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,

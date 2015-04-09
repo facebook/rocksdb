@@ -35,6 +35,9 @@ class MergeIteratorBuilder;
 // keeps a list of immutable memtables in a vector. the list is immutable
 // if refcount is bigger than one. It is used as a state for Get() and
 // Iterator code paths
+//
+// This class is not thread-safe.  External synchronization is required
+// (such as holding the db mutex or being on the write thread).
 class MemTableListVersion {
  public:
   explicit MemTableListVersion(MemTableListVersion* old = nullptr);
@@ -77,6 +80,11 @@ class MemTableListVersion {
 // flushes can occur concurrently.  However, they are 'committed'
 // to the manifest in FIFO order to maintain correctness and
 // recoverability from a crash.
+//
+//
+// Other than imm_flush_needed, this class is not thread-safe and requires
+// external synchronization (such as holding the db mutex or being on the
+// write thread.)
 class MemTableList {
  public:
   // A list of memtables.

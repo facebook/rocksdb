@@ -54,6 +54,19 @@ struct MemTableOptions {
   Logger* info_log;
 };
 
+// Note:  Many of the methods in this class have comments indicating that
+// external synchromization is required as these methods are not thread-safe.
+// It is up to higher layers of code to decide how to prevent concurrent
+// invokation of these methods.  This is usually done by acquiring either
+// the db mutex or the single writer thread.
+//
+// Some of these methods are documented to only require external
+// synchronization if this memtable is immutable.  Calling MarkImmutable() is
+// not sufficient to guarantee immutability.  It is up to higher layers of
+// code to determine if this MemTable can still be modified by other threads.
+// Eg: The Superversion stores a pointer to the current MemTable (that can
+// be modified) and a separate list of the MemTables that can no longer be
+// written to (aka the 'immutable memtables').
 class MemTable {
  public:
   struct KeyComparator : public MemTableRep::KeyComparator {
@@ -72,13 +85,18 @@ class MemTable {
                     const MutableCFOptions& mutable_cf_options,
                     WriteBuffer* write_buffer);
 
+  // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
 
   // Increase reference count.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   void Ref() { ++refs_; }
 
   // Drop reference count.
-  // If the refcount goes to zero return this memtable, otherwise return null
+  // If the refcount goes to zero return this memtable, otherwise return null.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   MemTable* Unref() {
     --refs_;
     assert(refs_ >= 0);
@@ -92,7 +110,7 @@ class MemTable {
   // data structure.
   //
   // REQUIRES: external synchronization to prevent simultaneous
-  // operations on the same MemTable.
+  // operations on the same MemTable (unless this Memtable is immutable).
   size_t ApproximateMemoryUsage();
 
   // This method heuristically determines if the memtable should continue to
@@ -120,6 +138,9 @@ class MemTable {
   // Add an entry into memtable that maps key to value at the
   // specified sequence number and with the specified type.
   // Typically value will be empty if type==kTypeDeletion.
+  //
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   void Add(SequenceNumber seq, ValueType type,
            const Slice& key,
            const Slice& value);
@@ -142,6 +163,9 @@ class MemTable {
   //       update inplace
   //     else add(key, new_value)
   //   else add(key, new_value)
+  //
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   void Update(SequenceNumber seq,
               const Slice& key,
               const Slice& value);
@@ -155,6 +179,9 @@ class MemTable {
   //       update inplace
   //     else add(key, new_value)
   //   else return false
+  //
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   bool UpdateCallback(SequenceNumber seq,
                       const Slice& key,
                       const Slice& delta);
@@ -165,29 +192,46 @@ class MemTable {
   size_t CountSuccessiveMergeEntries(const LookupKey& key);
 
   // Get total number of entries in the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
   uint64_t num_entries() const { return num_entries_; }
 
+  // Get total number of deletes in the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
   uint64_t num_deletes() const { return num_deletes_; }
 
   // Returns the edits area that is needed for flushing the memtable
   VersionEdit* GetEdits() { return &edit_; }
 
   // Returns if there is no entry inserted to the mem table.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
   bool IsEmpty() const { return first_seqno_ == 0; }
 
   // Returns the sequence number of the first element that was inserted
-  // into the memtable
+  // into the memtable.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable (unless this Memtable is immutable).
   SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
 
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   uint64_t GetNextLogNumber() { return mem_next_logfile_number_; }
 
   // Sets the next active logfile number when this memtable is about to
   // be flushed to storage
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
   void SetNextLogNumber(uint64_t num) { mem_next_logfile_number_ = num; }
 
-  // Notify the underlying storage that no more items will be added
+  // Notify the underlying storage that no more items will be added.
+  // REQUIRES: external synchronization to prevent simultaneous
+  // operations on the same MemTable.
+  // After MarkImmutable() is called, you should not attempt to
+  // write anything to this MemTable().  (Ie. do not call Add() or Update()).
   void MarkImmutable() {
     table_->MarkReadOnly();
     allocator_.DoneAllocating();
