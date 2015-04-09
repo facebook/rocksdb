@@ -921,7 +921,7 @@ commit-prereq:
 	$(MAKE) clean && $(MAKE) all check;
 	$(MAKE) clean && $(MAKE) rocksdbjava;
 	$(MAKE) clean && USE_CLANG=1 $(MAKE) all;
-	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) release;
+	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) static_lib;
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation
