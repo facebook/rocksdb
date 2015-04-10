@@ -30,12 +30,12 @@ class MemTableListTest : public testing::Test {
   Options options;
 
   MemTableListTest() : db(nullptr) {
-    dbname = test::TmpDir() + "/memtable_list_testdb";
+    dbname = test::TmpDir() + "/memtable_list_test";
   }
 
   // Create a test db if not yet created
   void CreateDB() {
-    if (db != nullptr) {
+    if (db == nullptr) {
       options.create_if_missing = true;
       DestroyDB(dbname, options);
       Status s = DB::Open(options, dbname, &db);
