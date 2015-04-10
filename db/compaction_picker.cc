@@ -682,7 +682,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
   int parent_index = -1;
   int base_index = -1;
   CompactionInputFiles inputs;
-  double score;
+  double score = 0;
 
   // Find the compactions by size on all levels.
   for (int i = 0; i < NumberLevels() - 1; i++) {
@@ -819,7 +819,7 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
   // could be made better by looking at key-ranges that are
   // being compacted at level 0.
   if (level == 0 && !level0_compactions_in_progress_.empty()) {
-    return nullptr;
+    return false;
   }
 
   assert(level >= 0);
