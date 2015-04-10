@@ -12457,6 +12457,7 @@ TEST_F(DBTest, CompressLevelCompaction) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

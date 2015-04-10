@@ -1399,7 +1399,7 @@ Status DBImpl::CompactFilesImpl(
     return s;
   }
 
-  autovector<CompactionInputFiles> input_files;
+  std::vector<CompactionInputFiles> input_files;
   s = cfd->compaction_picker()->GetCompactionInputsFromFileNumbers(
       &input_files, &input_set, version->storage_info(), compact_options);
   if (!s.ok()) {
@@ -1420,12 +1420,10 @@ Status DBImpl::CompactFilesImpl(
   unique_ptr<Compaction> c;
   assert(cfd->compaction_picker());
   c.reset(cfd->compaction_picker()->FormCompaction(
-        compact_options, input_files,
-        output_level, version->storage_info(),
-        *cfd->GetLatestMutableCFOptions()));
+      compact_options, input_files, output_level, version->storage_info(),
+      *cfd->GetLatestMutableCFOptions(), output_path_id));
   assert(c);
   c->SetInputVersion(version);
-  c->SetOutputPathId(static_cast<uint32_t>(output_path_id));
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->IsDeletionCompaction());
 

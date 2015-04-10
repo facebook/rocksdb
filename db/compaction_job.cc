@@ -245,7 +245,6 @@ void CompactionJob::Prepare() {
   auto* compaction = compact_->compaction;
 
   // Generate file_levels_ for compaction berfore making Iterator
-  compaction->GenerateFileLevels();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   assert(cfd != nullptr);
   {

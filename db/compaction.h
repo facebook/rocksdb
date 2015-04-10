@@ -34,11 +34,13 @@ class VersionStorageInfo;
 class Compaction {
  public:
   Compaction(VersionStorageInfo* input_version,
-    const autovector<CompactionInputFiles>& inputs,
-    int start_level, int output_level,
-    uint64_t max_grandparent_overlap_bytes,
-    const CompactionOptions& options,
-    bool deletion_compaction);
+             const MutableCFOptions& mutable_cf_options,
+             std::vector<CompactionInputFiles> inputs, int output_level,
+             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
+             uint32_t output_path_id, CompressionType compression,
+             std::vector<FileMetaData*> grandparents,
+             bool manual_compaction = false, double score = -1,
+             bool deletion_compaction = false);
 
   // No copying allowed
   Compaction(const Compaction&) = delete;
@@ -62,7 +64,7 @@ class Compaction {
 
   // Return the object that holds the edits to the descriptor done
   // by this compaction.
-  VersionEdit* edit() const { return edit_; }
+  VersionEdit* edit() { return &edit_; }
 
   // Returns the number of input files associated to the specified
   // compaction input level.
@@ -113,10 +115,6 @@ class Compaction {
   // Whether need to write output file to second DB path.
   uint32_t GetOutputPathId() const { return output_path_id_; }
 
-  // Generate input_levels_ from inputs_
-  // Should be called when inputs_ is stable
-  void GenerateFileLevels();
-
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
@@ -158,8 +156,6 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
-  void SetOutputPathId(uint32_t path_id) { output_path_id_ = path_id; }
-
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
   const MutableCFOptions* mutable_cf_options() { return &mutable_cf_options_; }
@@ -171,42 +167,27 @@ class Compaction {
 
   void SetInputVersion(Version* input_version);
 
-  // mark (or clear) all files that are being compacted
-  void MarkFilesBeingCompacted(bool mark_as_compacted);
-
-  // Initialize whether the compaction is producing files at the
-  // bottommost level.
-  //
-  // @see BottomMostLevel()
-  void SetupBottomMostLevel(VersionStorageInfo* vstorage, bool is_manual,
-                            bool level0_only);
-
-  static Compaction* TEST_NewCompaction(
-      int num_levels, int start_level, int out_level, uint64_t target_file_size,
-      uint64_t max_grandparent_overlap_bytes, uint32_t output_path_id,
-      CompressionType output_compression, bool seek_compaction = false,
-      bool deletion_compaction = false);
-
-  CompactionInputFiles* TEST_GetInputFiles(int l) {
-    return &inputs_[l];
-  }
-
   struct InputLevelSummaryBuffer {
     char buffer[128];
   };
 
   const char* InputLevelSummary(InputLevelSummaryBuffer* scratch) const;
 
- private:
-  friend class CompactionPicker;
-  friend class UniversalCompactionPicker;
-  friend class FIFOCompactionPicker;
-  friend class LevelCompactionPicker;
+  // In case of compaction error, reset the nextIndex that is used
+  // to pick up the next file to be compacted from files_by_size_
+  void ResetNextCompactionIndex();
 
-  Compaction(int num_levels, int start_level, int out_level,
-             uint64_t target_file_size, uint64_t max_grandparent_overlap_bytes,
-             uint32_t output_path_id, CompressionType output_compression,
-             bool seek_compaction = false, bool deletion_compaction = false);
+ private:
+  // mark (or clear) all files that are being compacted
+  void MarkFilesBeingCompacted(bool mark_as_compacted);
+
+  // helper function to determine if compaction with inputs and storage is
+  // bottommost
+  static bool IsBottommostLevel(
+      int output_level, VersionStorageInfo* vstorage,
+      const std::vector<CompactionInputFiles>& inputs);
+  static bool IsFullCompaction(VersionStorageInfo* vstorage,
+                               const std::vector<CompactionInputFiles>& inputs);
 
   const int start_level_;    // the lowest level to be compacted
   const int output_level_;  // levels to which output files are stored
@@ -214,43 +195,38 @@ class Compaction {
   uint64_t max_grandparent_overlap_bytes_;
   MutableCFOptions mutable_cf_options_;
   Version* input_version_;
-  VersionEdit* edit_;
-  int number_levels_;
+  VersionEdit edit_;
+  const int number_levels_;
   ColumnFamilyData* cfd_;
   Arena arena_;          // Arena used to allocate space for file_levels_
 
-  uint32_t output_path_id_;
+  const uint32_t output_path_id_;
   CompressionType output_compression_;
-  bool seek_compaction_;
   // If true, then the comaction can be done by simply deleting input files.
-  bool deletion_compaction_;
+  const bool deletion_compaction_;
 
-  // Compaction input files organized by level.
-  autovector<CompactionInputFiles> inputs_;
+  // Compaction input files organized by level. Constant after construction
+  const std::vector<CompactionInputFiles> inputs_;
 
   // A copy of inputs_, organized more closely in memory
   autovector<LevelFilesBrief, 2> input_levels_;
 
   // State used to check for number of of overlapping grandparent files
   // (grandparent == "output_level_ + 1")
-  // This vector is updated by Version::GetOverlappingInputs().
   std::vector<FileMetaData*> grandparents_;
   size_t grandparent_index_;   // Index in grandparent_starts_
   bool seen_key_;              // Some output key has been seen
   uint64_t overlapped_bytes_;  // Bytes of overlap between current output
                                // and grandparent files
-  int base_index_;    // index of the file in files_[start_level_]
-  int parent_index_;  // index of some file with same range in
-                      // files_[start_level_+1]
-  double score_;      // score that was used to pick this compaction.
+  const double score_;         // score that was used to pick this compaction.
 
   // Is this compaction creating a file in the bottom most level?
-  bool bottommost_level_;
+  const bool bottommost_level_;
   // Does this compaction include all sst files?
-  bool is_full_compaction_;
+  const bool is_full_compaction_;
 
   // Is this compaction requested by the client?
-  bool is_manual_compaction_;
+  const bool is_manual_compaction_;
 
   // "level_ptrs_" holds indices into "input_version_->levels_", where each
   // index remembers which file of an associated level we are currently used
@@ -258,10 +234,6 @@ class Compaction {
   // As it is for checking KeyNotExistsBeyondOutputLevel(), it only
   // records indices for all levels beyond "output_level_".
   std::vector<size_t> level_ptrs_;
-
-  // In case of compaction error, reset the nextIndex that is used
-  // to pick up the next file to be compacted from files_by_size_
-  void ResetNextCompactionIndex();
 
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;

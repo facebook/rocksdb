@@ -229,7 +229,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic) {
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(num_levels, static_cast<int>(compaction->num_input_levels()));
+  ASSERT_EQ(1, static_cast<int>(compaction->num_input_levels()));
   ASSERT_EQ(num_levels - 1, compaction->output_level());
 }
 
@@ -253,7 +253,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic2) {
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(num_levels - 1, static_cast<int>(compaction->num_input_levels()));
+  ASSERT_EQ(1, static_cast<int>(compaction->num_input_levels()));
   ASSERT_EQ(num_levels - 2, compaction->output_level());
 }
 
@@ -278,7 +278,7 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic3) {
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(num_levels - 2, static_cast<int>(compaction->num_input_levels()));
+  ASSERT_EQ(1, static_cast<int>(compaction->num_input_levels()));
   ASSERT_EQ(num_levels - 3, compaction->output_level());
 }
 
@@ -306,10 +306,11 @@ TEST_F(CompactionPickerTest, Level0TriggerDynamic4) {
   ASSERT_EQ(2U, compaction->num_input_files(0));
   ASSERT_EQ(1U, compaction->input(0, 0)->fd.GetNumber());
   ASSERT_EQ(2U, compaction->input(0, 1)->fd.GetNumber());
-  ASSERT_EQ(2U, compaction->num_input_files(num_levels - 3));
-  ASSERT_EQ(5U, compaction->input(num_levels - 3, 0)->fd.GetNumber());
-  ASSERT_EQ(6U, compaction->input(num_levels - 3, 1)->fd.GetNumber());
-  ASSERT_EQ(num_levels - 2, static_cast<int>(compaction->num_input_levels()));
+  ASSERT_EQ(2U, compaction->num_input_files(1));
+  ASSERT_EQ(num_levels - 3, compaction->level(1));
+  ASSERT_EQ(5U, compaction->input(1, 0)->fd.GetNumber());
+  ASSERT_EQ(6U, compaction->input(1, 1)->fd.GetNumber());
+  ASSERT_EQ(2, static_cast<int>(compaction->num_input_levels()));
   ASSERT_EQ(num_levels - 3, compaction->output_level());
 }
 

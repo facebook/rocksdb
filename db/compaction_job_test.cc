@@ -66,6 +66,9 @@ class CompactionJobTest : public testing::Test {
         auto key = ToString(i * (kKeysPerFile / 2) + k);
         auto value = ToString(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
+        // This is how the key will look like once it's written in bottommost
+        // file
+        InternalKey bottommost_internal_key(key, 0, kTypeValue);
         if (k == 0) {
           smallest = internal_key;
           smallest_seqno = sequence_number;
@@ -74,7 +77,7 @@ class CompactionJobTest : public testing::Test {
           largest_seqno = sequence_number;
         }
         std::pair<std::string, std::string> key_value(
-            {internal_key.Encode().ToString(), value});
+            {bottommost_internal_key.Encode().ToString(), value});
         contents.insert(key_value);
         if (i == 1 || k < kKeysPerFile / 2) {
           expected_results.insert(key_value);
@@ -143,14 +146,14 @@ TEST_F(CompactionJobTest, Simple) {
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   ASSERT_EQ(2U, files.size());
 
-  std::unique_ptr<Compaction> compaction(Compaction::TEST_NewCompaction(
-      7, 0, 1, 1024 * 1024, 10, 0, kNoCompression));
+  CompactionInputFiles compaction_input_files;
+  compaction_input_files.level = 0;
+  compaction_input_files.files.push_back(files[0]);
+  compaction_input_files.files.push_back(files[1]);
+  std::unique_ptr<Compaction> compaction(new Compaction(
+      cfd->current()->storage_info(), *cfd->GetLatestMutableCFOptions(),
+      {compaction_input_files}, 1, 1024 * 1024, 10, 0, kNoCompression, {}));
   compaction->SetInputVersion(cfd->current());
-
-  auto compaction_input_files = compaction->TEST_GetInputFiles(0);
-  compaction_input_files->level = 0;
-  compaction_input_files->files.push_back(files[0]);
-  compaction_input_files->files.push_back(files[1]);
 
   SnapshotList snapshots;
   int yield_callback_called = 0;

@@ -97,14 +97,14 @@ class CompactionPicker {
   // Takes a list of CompactionInputFiles and returns a Compaction object.
   Compaction* FormCompaction(
       const CompactionOptions& compact_options,
-      const autovector<CompactionInputFiles>& input_files,
-      int output_level, VersionStorageInfo* vstorage,
-      const MutableCFOptions& mutable_cf_options) const;
+      const std::vector<CompactionInputFiles>& input_files, int output_level,
+      VersionStorageInfo* vstorage, const MutableCFOptions& mutable_cf_options,
+      uint32_t output_path_id) const;
 
   // Converts a set of compaction input file numbers into
   // a list of CompactionInputFiles.
   Status GetCompactionInputsFromFileNumbers(
-      autovector<CompactionInputFiles>* input_files,
+      std::vector<CompactionInputFiles>* input_files,
       std::unordered_set<uint64_t>* input_set,
       const VersionStorageInfo* vstorage,
       const CompactionOptions& compact_options) const;
@@ -136,16 +136,25 @@ class CompactionPicker {
   //
   // Will return false if it is impossible to apply this compaction.
   bool ExpandWhileOverlapping(const std::string& cf_name,
-                              VersionStorageInfo* vstorage, Compaction* c);
+                              VersionStorageInfo* vstorage,
+                              CompactionInputFiles* inputs);
 
   // Returns true if any one of the parent files are being compacted
   bool RangeInCompaction(VersionStorageInfo* vstorage,
                          const InternalKey* smallest,
                          const InternalKey* largest, int level, int* index);
 
-  void SetupOtherInputs(const std::string& cf_name,
+  bool SetupOtherInputs(const std::string& cf_name,
                         const MutableCFOptions& mutable_cf_options,
-                        VersionStorageInfo* vstorage, Compaction* c);
+                        VersionStorageInfo* vstorage,
+                        CompactionInputFiles* inputs,
+                        CompactionInputFiles* output_level_inputs,
+                        int* parent_index, int base_index);
+
+  void GetGrandparents(VersionStorageInfo* vstorage,
+                       const CompactionInputFiles& inputs,
+                       const CompactionInputFiles& output_level_inputs,
+                       std::vector<FileMetaData*>* grandparents);
 
   const ImmutableCFOptions& ioptions_;
 
@@ -190,13 +199,14 @@ class LevelCompactionPicker : public CompactionPicker {
                             int level);
 
  private:
-  // For the specfied level, pick a compaction.
-  // Returns nullptr if there is no compaction to be done.
+  // For the specfied level, pick a file that we want to compact.
+  // Returns false if there is no file to compact.
+  // If it returns true, inputs->files.size() will be exactly one.
   // If level is 0 and there is already a compaction on that level, this
-  // function will return nullptr.
-  Compaction* PickCompactionBySize(const MutableCFOptions& mutable_cf_options,
-                                   VersionStorageInfo* vstorage, int level,
-                                   double score);
+  // function will return false.
+  bool PickCompactionBySize(VersionStorageInfo* vstorage, int level,
+                            int output_level, CompactionInputFiles* inputs,
+                            int* parent_index, int* base_index);
 };
 
 #ifndef ROCKSDB_LITE
