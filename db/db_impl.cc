@@ -430,6 +430,7 @@ void DBImpl::MaybeDumpStats() {
     // period in rare cases.
     last_stats_dump_time_microsec_ = now_micros;
 
+#ifndef ROCKSDB_LITE
     bool tmp1 = false;
     bool tmp2 = false;
     DBPropertyType cf_property_type =
@@ -452,6 +453,7 @@ void DBImpl::MaybeDumpStats() {
         db_options_.info_log, "------- DUMPING STATS -------");
     Log(InfoLogLevel::INFO_LEVEL,
         db_options_.info_log, "%s", stats.c_str());
+#endif  // !ROCKSDB_LITE
 
     PrintStatistics();
   }
