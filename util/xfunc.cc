@@ -3,13 +3,13 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifdef XFUNC
 #include <string>
 #include "db/db_impl.h"
 #include "db/managed_iterator.h"
 #include "rocksdb/options.h"
 #include "util/xfunc.h"
 
-#ifdef XFUNC
 
 namespace rocksdb {
 

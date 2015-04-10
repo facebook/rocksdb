@@ -654,6 +654,8 @@ DBOptions* DBOptions::IncreaseParallelism(int total_threads) {
   return this;
 }
 
+#endif  // !ROCKSDB_LITE
+
 ReadOptions::ReadOptions()
     : verify_checksums(true),
       fill_cache(true),
@@ -679,7 +681,5 @@ ReadOptions::ReadOptions(bool cksum, bool cache)
   XFUNC_TEST("", "managed_options", managed_options, xf_manage_options,
              reinterpret_cast<ReadOptions*>(this));
 }
-
-#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb
