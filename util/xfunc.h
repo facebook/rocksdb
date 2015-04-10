@@ -17,13 +17,15 @@ namespace rocksdb {
  *   with XFUNC only being set for debug builds.
  */
 #if defined(ROCKSDB_XFTEST_FORCE)
+#ifndef ROCKSDB_LITE
 #if (ROCKSDB_XFTEST_FORCE == 1)
 #define XFUNC
-#endif
+#endif  // ROCKSDB_XFTEST_FORCE == 1
 #elif defined(NDEBUG)
 #else
 #define XFUNC
-#endif
+#endif  // defined(ROCKSDB_XFTEST_FORCE)
+#endif  // !ROCKSDB_LITE
 
 #ifndef XFUNC
 #define XFUNC_TEST(condition, location, lfname, fname, ...)
