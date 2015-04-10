@@ -226,6 +226,7 @@ TESTS = \
 	manual_compaction_test \
 	memenv_test \
 	mock_env_test \
+	memtable_list_test \
 	merge_test \
 	merger_test \
 	redis_test \
@@ -804,6 +805,9 @@ filelock_test: util/filelock_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)

@@ -135,7 +135,11 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
 
-  // Request a flush of all existing memtables to storage
+  // Request a flush of all existing memtables to storage.  This will
+  // cause future calls to IsFlushPending() to return true if this list is
+  // non-empty (regardless of the min_write_buffer_number_to_merge
+  // parameter). This flush request will persist until the next time
+  // PickMemtablesToFlush() is called.
   void FlushRequested() { flush_requested_ = true; }
 
   // Copying allowed
