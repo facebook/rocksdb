@@ -6,6 +6,14 @@ At Facebook, we use RocksDB as a backend for many different stateful services. W
 1. MyRocks -- https://github.com/MySQLOnRocksDB/mysql-5.6
 2. MongoRocks -- https://github.com/mongodb-partners/mongo-rocks
 
+## LinkedIn
+Two different use cases at Linkedin are using RocksDB as a storage engine:
+
+1. LinkedIn's follow feed for storing user's activities
+2. Apache Samza, open source framework for stream processing
+
+Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
+
 ## Yahoo
 Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa.
 
