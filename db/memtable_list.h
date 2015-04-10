@@ -97,6 +97,9 @@ class MemTableList {
         flush_requested_(false) {
     current_->Ref();
   }
+
+  // Should not delete MemTableList without making sure MemTableList::current()
+  // is Unref()'d.
   ~MemTableList() {}
 
   MemTableListVersion* current() { return current_; }

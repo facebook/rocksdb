@@ -101,6 +101,10 @@ TEST_F(MemTableListTest, Empty) {
   autovector<MemTable*> mems;
   list.PickMemtablesToFlush(&mems);
   ASSERT_EQ(0, mems.size());
+
+  autovector<MemTable*> to_delete;
+  list.current()->Unref(&to_delete);
+  ASSERT_EQ(0, to_delete.size());
 }
 
 TEST_F(MemTableListTest, GetTest) {
@@ -372,6 +376,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     ASSERT_EQ(m, m->Unref());
     delete m;
   }
+  to_delete.clear();
 
   // Request a flush again. Should be nothing to flush
   list.FlushRequested();
@@ -379,23 +384,26 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Flush the 1 memtable that was picked in to_flush2
-  autovector<MemTable*> to_delete2;
   s = MemTableListTest::Mock_InstallMemtableFlushResults(
-      &list, MutableCFOptions(options, ioptions), to_flush2, &to_delete2);
+      &list, MutableCFOptions(options, ioptions), to_flush2, &to_delete);
   ASSERT_OK(s);
 
   // This will actually intall 2 tables.  The 1 we told it to flush, and also
   // tables[4] which has been waiting for tables[3] to commit.
-  ASSERT_EQ(2, to_delete2.size());
+  ASSERT_EQ(2, to_delete.size());
   ASSERT_EQ(0, list.size());
 
-  for (const auto& m : to_delete2) {
+  for (const auto& m : to_delete) {
     // Refcount should be 0 after calling InstallMemtableFlushResults.
     // Verify this, by Ref'ing then UnRef'ing:
     m->Ref();
     ASSERT_EQ(m, m->Unref());
     delete m;
   }
+  to_delete.clear();
+
+  list.current()->Unref(&to_delete);
+  ASSERT_EQ(0, to_delete.size());
 }
 
 }  // namespace rocksdb
