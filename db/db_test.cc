@@ -9613,6 +9613,7 @@ TEST_F(DBTest, FIFOCompactionTest) {
         ASSERT_OK(Put(ToString(i * 100 + j), RandomString(&rnd, 1024)));
       }
       // flush should happen here
+      ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
     }
     if (iter == 0) {
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
