@@ -188,7 +188,6 @@ MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(GTEST)
-BENCHHARNESS = ./util/benchharness.o
 VALGRIND_ERROR = 2
 VALGRIND_DIR = build_tools/VALGRIND_LOGS
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
@@ -204,7 +203,6 @@ TESTS = \
 	table_properties_collector_test \
 	arena_test \
 	auto_roll_logger_test \
-	benchharness_test \
 	block_test \
 	bloom_test \
 	dynamic_bloom_test \
@@ -277,7 +275,7 @@ TOOLS = \
 	ldb \
 	db_repl_stress
 
-BENCHMARKS = db_bench table_reader_bench log_and_apply_bench cache_bench memtablerep_bench
+BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
@@ -620,9 +618,6 @@ stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $
 redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-benchharness_test: util/benchharness_test.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS)
-	$(AM_LINK)
-
 histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -655,9 +650,6 @@ comparator_db_test: db/comparator_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 table_reader_bench: table/table_reader_bench.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK) $(pg)
-
-log_and_apply_bench: db/log_and_apply_bench.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS)
 	$(AM_LINK) $(pg)
 
 perf_context_test: db/perf_context_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -765,7 +757,7 @@ geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
 cuckoo_table_builder_test: table/cuckoo_table_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-cuckoo_table_reader_test: table/cuckoo_table_reader_test.o $(LIBOBJECTS) $(TESTHARNESS) $(BENCHHARNESS)
+cuckoo_table_reader_test: table/cuckoo_table_reader_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 cuckoo_table_db_test: db/cuckoo_table_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
