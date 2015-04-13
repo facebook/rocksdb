@@ -178,14 +178,12 @@ bool VectorRep::Iterator::Valid() const {
 // Returns the key at the current position.
 // REQUIRES: Valid()
 const char* VectorRep::Iterator::key() const {
-  assert(Valid());
   return *cit_;
 }
 
 // Advances to the next position.
 // REQUIRES: Valid()
 void VectorRep::Iterator::Next() {
-  assert(Valid());
   if (cit_ == bucket_->end()) {
     return;
   }
@@ -195,7 +193,6 @@ void VectorRep::Iterator::Next() {
 // Advances to the previous position.
 // REQUIRES: Valid()
 void VectorRep::Iterator::Prev() {
-  assert(Valid());
   if (cit_ == bucket_->begin()) {
     // If you try to go back from the first element, the iterator should be
     // invalidated. So we set it to past-the-end. This means that you can
