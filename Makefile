@@ -442,6 +442,9 @@ prioritize_long_running_tests =						\
 # See "man parallel" for its "-j ..." option.
 J = 100%
 
+# Use this regexp to select the subset of tests whose names match.
+tests-regexp = .
+
 .PHONY: check_0
 check_0: $(t_run)
 	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
@@ -454,6 +457,7 @@ check_0: $(t_run)
 	  printf '%s\n' $(t_run);					\
 	}								\
 	  | $(prioritize_long_running_tests)				\
+	  | grep -E '$(tests-regexp)'					\
 	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 endif
 
@@ -918,6 +922,13 @@ commit-prereq:
 	$(MAKE) clean && $(MAKE) rocksdbjava;
 	$(MAKE) clean && USE_CLANG=1 $(MAKE) all;
 	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) static_lib;
+
+xfunc:
+	for xftest in $(XFUNC_TESTS); do \
+		echo "===== Running xftest $$xftest"; \
+		make check ROCKSDB_XFUNC_TEST="$$xftest" tests-regexp="DBTest" ;\
+	done
+
 
 # ---------------------------------------------------------------------------
 #  	Platform-specific compilation

@@ -256,4 +256,10 @@ JNI_NATIVE_SOURCES =                                          \
 # TODO/FIXME: fix the above.  Otherwise, the current rules would fail:
 #   java/rocksjni/write_batch_test.cc:13:44: fatal error: include/org_rocksdb_WriteBatch.h: No such file or directory
 #    #include "include/org_rocksdb_WriteBatch.h"
-#                                               ^
+
+# These are the xfunc tests run :
+XFUNC_TESTS =                                                   \
+  "managed_new"                                                 \
+  "managed_xftest_dropold"                                      \
+  "managed_xftest_release"                                      \
+  "inplace_lock_test"
