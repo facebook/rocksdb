@@ -82,10 +82,19 @@ class MockEnv : public EnvWrapper {
 
   virtual Status GetTestDirectory(std::string* path) override;
 
+  // Results of these can be affected by FakeSleepForMicroseconds()
+  virtual Status GetCurrentTime(int64_t* unix_time) override;
+  virtual uint64_t NowMicros() override;
+  virtual uint64_t NowNanos() override;
+
   // Non-virtual functions, specific to MockEnv
   Status Truncate(const std::string& fname, size_t size);
 
   Status CorruptBuffer(const std::string& fname);
+
+  // Doesn't really sleep, just affects output of GetCurrentTime(), NowMicros()
+  // and NowNanos()
+  void FakeSleepForMicroseconds(int64_t micros);
 
  private:
   std::string NormalizePath(const std::string path);
@@ -94,6 +103,8 @@ class MockEnv : public EnvWrapper {
   typedef std::map<std::string, MemFile*> FileSystem;
   port::Mutex mutex_;
   FileSystem file_map_;  // Protected by mutex_.
+
+  std::atomic<int64_t> fake_sleep_micros_;
 };
 
 }  // namespace rocksdb

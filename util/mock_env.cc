@@ -19,8 +19,9 @@ namespace rocksdb {
 
 class MemFile {
  public:
-  explicit MemFile(const std::string& fn, bool _is_lock_file = false)
-      : fn_(fn),
+  explicit MemFile(Env* env, const std::string& fn, bool _is_lock_file = false)
+      : env_(env),
+        fn_(fn),
         refs_(0),
         is_lock_file_(_is_lock_file),
         locked_(false),
@@ -137,8 +138,10 @@ class MemFile {
 
  private:
   uint64_t Now() {
-    return std::chrono::duration_cast<std::chrono::seconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+    int64_t unix_time;
+    auto s = env_->GetCurrentTime(&unix_time);
+    assert(s.ok());
+    return static_cast<uint64_t>(unix_time);
   }
 
   // Private since only Unref() should be used to delete it.
@@ -150,6 +153,7 @@ class MemFile {
   MemFile(const MemFile&);
   void operator=(const MemFile&);
 
+  Env* env_;
   const std::string fn_;
   mutable port::Mutex mutex_;
   int refs_;
@@ -393,8 +397,7 @@ class TestMemLogger : public Logger {
 
 }  // Anonymous namespace
 
-MockEnv::MockEnv(Env* base_env)
-  : EnvWrapper(base_env) {}
+MockEnv::MockEnv(Env* base_env) : EnvWrapper(base_env), fake_sleep_micros_(0) {}
 
 MockEnv::~MockEnv() {
   for (FileSystem::iterator i = file_map_.begin(); i != file_map_.end(); ++i) {
@@ -445,7 +448,7 @@ Status MockEnv::NewWritableFile(const std::string& fname,
   if (file_map_.find(fn) != file_map_.end()) {
     DeleteFileInternal(fn);
   }
-  MemFile* file = new MemFile(fn, false);
+  MemFile* file = new MemFile(this, fn, false);
   file->Ref();
   file_map_[fn] = file;
 
@@ -599,7 +602,7 @@ Status MockEnv::NewLogger(const std::string& fname,
   auto iter = file_map_.find(fn);
   MemFile* file = nullptr;
   if (iter == file_map_.end()) {
-    file = new MemFile(fn, false);
+    file = new MemFile(this, fn, false);
     file->Ref();
     file_map_[fn] = file;
   } else {
@@ -622,7 +625,7 @@ Status MockEnv::LockFile(const std::string& fname, FileLock** flock) {
         return Status::IOError(fn, "Lock is already held.");
       }
     } else {
-      auto* file = new MemFile(fn, true);
+      auto* file = new MemFile(this, fn, true);
       file->Ref();
       file->Lock();
       file_map_[fn] = file;
@@ -650,6 +653,20 @@ Status MockEnv::UnlockFile(FileLock* flock) {
 Status MockEnv::GetTestDirectory(std::string* path) {
   *path = "/test";
   return Status::OK();
+}
+
+Status MockEnv::GetCurrentTime(int64_t* unix_time) {
+  auto s = EnvWrapper::GetCurrentTime(unix_time);
+  *unix_time += fake_sleep_micros_.load() / (1000 * 1000);
+  return s;
+}
+
+uint64_t MockEnv::NowMicros() {
+  return EnvWrapper::NowMicros() + fake_sleep_micros_.load();
+}
+
+uint64_t MockEnv::NowNanos() {
+  return EnvWrapper::NowNanos() + fake_sleep_micros_.load() * 1000;
 }
 
 // Non-virtual functions, specific to MockEnv
@@ -684,6 +701,10 @@ std::string MockEnv::NormalizePath(const std::string path) {
     dst.push_back(c);
   }
   return dst;
+}
+
+void MockEnv::FakeSleepForMicroseconds(int64_t micros) {
+  fake_sleep_micros_.fetch_add(micros);
 }
 
 }  // namespace rocksdb

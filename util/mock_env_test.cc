@@ -15,7 +15,7 @@ namespace rocksdb {
 
 class MockEnvTest : public testing::Test {
  public:
-  Env* env_;
+  MockEnv* env_;
   const EnvOptions soptions_;
 
   MockEnvTest()
@@ -262,6 +262,19 @@ TEST_F(MockEnvTest, DBTest) {
   }
 
   delete db;
+}
+
+TEST_F(MockEnvTest, FakeSleeping) {
+  int64_t now = 0;
+  auto s = env_->GetCurrentTime(&now);
+  ASSERT_OK(s);
+  env_->FakeSleepForMicroseconds(3 * 1000 * 1000);
+  int64_t after_sleep = 0;
+  s = env_->GetCurrentTime(&after_sleep);
+  ASSERT_OK(s);
+  auto delta = after_sleep - now;
+  // this will be true unless test runs for 2 seconds
+  ASSERT_TRUE(delta == 3 || delta == 4);
 }
 
 }  // namespace rocksdb
