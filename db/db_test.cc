@@ -9935,7 +9935,8 @@ namespace {
   }
 }  // namespace
 
-TEST_F(DBTest, CompactFilesOnLevelCompaction) {
+// TODO t6534343 -- Don't run two level 0 CompactFiles concurrently
+TEST_F(DBTest, DISABLED_CompactFilesOnLevelCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
