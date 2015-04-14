@@ -11243,12 +11243,22 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
 
   DestroyAndReopen(options);
   // When base level is L4, L4 is LZ4.
+  std::atomic<int> num_zlib(0);
+  std::atomic<int> num_lz4(0);
+  std::atomic<int> num_no(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         if (compaction->output_level() == 4) {
           ASSERT_TRUE(compaction->OutputCompressionType() == kLZ4Compression);
+          num_lz4.fetch_add(1);
         }
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:output_compression", [&](void* arg) {
+        auto* compression = reinterpret_cast<CompressionType*>(arg);
+        ASSERT_TRUE(*compression == kNoCompression);
+        num_no.fetch_add(1);
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -11264,18 +11274,31 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_EQ(NumTableFilesAtLevel(3), 0);
   ASSERT_GT(NumTableFilesAtLevel(4), 0);
+  ASSERT_GT(num_no.load(), 2);
+  ASSERT_GT(num_lz4.load(), 0);
   int prev_num_files_l4 = NumTableFilesAtLevel(4);
 
   // After base level turn L4->L3, L3 becomes LZ4 and L4 becomes Zlib
+  num_lz4.store(0);
+  num_no.store(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         if (compaction->output_level() == 4 && compaction->start_level() == 3) {
           ASSERT_TRUE(compaction->OutputCompressionType() == kZlibCompression);
+          num_zlib.fetch_add(1);
         } else {
           ASSERT_TRUE(compaction->OutputCompressionType() == kLZ4Compression);
+          num_lz4.fetch_add(1);
         }
       });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "FlushJob::WriteLevel0Table:output_compression", [&](void* arg) {
+        auto* compression = reinterpret_cast<CompressionType*>(arg);
+        ASSERT_TRUE(*compression == kNoCompression);
+        num_no.fetch_add(1);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   for (int i = 101; i < 500; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
@@ -11291,6 +11314,9 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_GT(NumTableFilesAtLevel(3), 0);
   ASSERT_GT(NumTableFilesAtLevel(4), prev_num_files_l4);
+  ASSERT_GT(num_no.load(), 2);
+  ASSERT_GT(num_lz4.load(), 0);
+  ASSERT_GT(num_zlib.load(), 0);
 }
 
 TEST_F(DBTest, DynamicCompactionOptions) {

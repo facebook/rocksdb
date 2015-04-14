@@ -180,6 +180,8 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
           cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber());
 
+      TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
+                               &output_compression_);
       s = BuildTable(dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
                      cfd_->table_cache(), iter.get(), &meta,
                      cfd_->internal_comparator(),
