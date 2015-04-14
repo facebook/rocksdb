@@ -15,11 +15,14 @@ ARFLAGS = rs
 
 # If using GCC on Travis-CI, force use of GCC 4.9
 ifeq ($(TRAVIS),true)
-  ifeq ($(CC), gcc)
+  $(info Detected Travis-CI environment)
+  ifeq ($(CC),gcc)
     CC = /usr/bin/gcc-4.9
+    $(info Set $$CC=${CC} for Travis)
   endif
   ifeq ($(CXX),g++)
     CXX = /usr/bin/g++-4.9
+    $(info Set $$CXX=${CXX} for Travis)
   endif
 endif
 
