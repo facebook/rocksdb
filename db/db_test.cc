@@ -11109,7 +11109,8 @@ TEST_F(DBTest, DynamicLevelMaxBytesBaseInc) {
 
   int non_trivial = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial", [&]() { non_trivial++; });
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
