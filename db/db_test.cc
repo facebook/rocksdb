@@ -4220,7 +4220,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   std::atomic<int> num_compactions_running(0);
   std::atomic<bool> has_parallel(false);
   rocksdb::SyncPoint::GetInstance()->SetCallBack("CompactionJob::Run():Start",
-                                                 [&]() {
+                                                 [&](void* arg) {
     if (num_compactions_running.fetch_add(1) > 0) {
       has_parallel.store(true);
       return;
@@ -4235,7 +4235,7 @@ TEST_P(DBTestUniversalCompactionParallel, UniversalCompactionParallel) {
   });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():End",
-      [&]() { num_compactions_running.fetch_add(-1); });
+      [&](void* arg) { num_compactions_running.fetch_add(-1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   options = CurrentOptions(options);
@@ -10379,7 +10379,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   std::atomic<int> sleep_count(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::DelayWrite:TimedWait",
-      [&]() { sleep_count.fetch_add(1); });
+      [&](void* arg) { sleep_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 256) {
@@ -11018,7 +11018,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesBase2) {
   // Hold compaction jobs to make sure
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "CompactionJob::Run():Start",
-      [&]() { env_->SleepForMicroseconds(100000); });
+      [&](void* arg) { env_->SleepForMicroseconds(100000); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(dbfull()->SetOptions({
       {"disable_auto_compactions", "true"},
@@ -11242,45 +11242,40 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
 
   DestroyAndReopen(options);
   // When base level is L4, L4 is LZ4.
-  std::atomic<bool> seen_lz4(false);
-  std::function<void(const CompressionType&, uint64_t)> cb1 =
-      [&](const CompressionType& ct, uint64_t size) {
-    ASSERT_TRUE(size <= 30 || ct == kLZ4Compression);
-    if (ct == kLZ4Compression) {
-      seen_lz4.store(true);
-    }
-  };
-  mock::MockTableBuilder::finish_cb_ = &cb1;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        if (compaction->output_level() == 4) {
+          ASSERT_TRUE(compaction->OutputCompressionType() == kLZ4Compression);
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   for (int i = 0; i < 100; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
   }
   Flush();
   dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE(seen_lz4.load());
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
   ASSERT_EQ(NumTableFilesAtLevel(3), 0);
+  ASSERT_GT(NumTableFilesAtLevel(4), 0);
+  int prev_num_files_l4 = NumTableFilesAtLevel(4);
 
   // After base level turn L4->L3, L3 becomes LZ4 and L4 becomes Zlib
-  std::atomic<bool> seen_zlib(false);
-  std::function<void(const CompressionType&, uint64_t)> cb2 =
-      [&](const CompressionType& ct, uint64_t size) {
-    ASSERT_TRUE(size <= 30 || ct != kNoCompression);
-    if (ct == kZlibCompression) {
-      if (!seen_zlib.load()) {
-        seen_lz4.store(false);
-      }
-      seen_zlib.store(true);
-    }
-    // Make sure after making L4 the base level, L4 is LZ4.
-    if (seen_zlib.load()) {
-      if (ct == kLZ4Compression && size < 80) {
-        seen_lz4.store(true);
-      }
-    }
-  };
-  mock::MockTableBuilder::finish_cb_ = &cb2;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
+        Compaction* compaction = reinterpret_cast<Compaction*>(arg);
+        if (compaction->output_level() == 4 && compaction->start_level() == 3) {
+          ASSERT_TRUE(compaction->OutputCompressionType() == kZlibCompression);
+        } else {
+          ASSERT_TRUE(compaction->OutputCompressionType() == kLZ4Compression);
+        }
+      });
+
   for (int i = 101; i < 500; i++) {
     ASSERT_OK(Put(Key(keys[i]), RandomString(&rnd, 200)));
     if (i % 100 == 99) {
@@ -11288,11 +11283,13 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
       dbfull()->TEST_WaitForCompact();
     }
   }
-  ASSERT_TRUE(seen_lz4.load());
-  ASSERT_TRUE(seen_zlib.load());
+
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
-  mock::MockTableBuilder::finish_cb_ = nullptr;
+  ASSERT_GT(NumTableFilesAtLevel(3), 0);
+  ASSERT_GT(NumTableFilesAtLevel(4), prev_num_files_l4);
 }
 
 TEST_F(DBTest, DynamicCompactionOptions) {
@@ -11541,8 +11538,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   std::atomic<int> sleep_count(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DelayWrite:Sleep",
-      [&]() { sleep_count.fetch_add(1); });
+      "DBImpl::DelayWrite:Sleep", [&](void* arg) { sleep_count.fetch_add(1); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // Hard rate limit slow down for 1000 us, so default 10ms should be ok
@@ -12371,14 +12367,16 @@ TEST_F(DBTest, CompressLevelCompaction) {
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "Compaction::InputCompressionMatchesOutput:Matches",
-      [&]() { matches++; });
+      [&](void* arg) { matches++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "Compaction::InputCompressionMatchesOutput:DidntMatch",
-      [&]() { didnt_match++; });
+      [&](void* arg) { didnt_match++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial", [&]() { non_trivial++; });
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:TrivialMove", [&]() { trivial_move++; });
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Reopen(options);

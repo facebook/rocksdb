@@ -20,6 +20,7 @@
 #include "util/log_buffer.h"
 #include "util/statistics.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -767,6 +768,8 @@ Compaction* LevelCompactionPicker::PickCompaction(
     vstorage->ComputeCompactionScore(mutable_cf_options,
                                      dummy_compaction_options_fifo);
   }
+
+  TEST_SYNC_POINT_CALLBACK("LevelCompactionPicker::PickCompaction:Return", c);
 
   return c;
 }
