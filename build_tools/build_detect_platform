@@ -177,6 +177,7 @@ else
     # Test whether fallocate is available
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <fcntl.h>
+      #include <linux/falloc.h>
       int main() {
 	int fd = open("/dev/null", 0);
   fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
