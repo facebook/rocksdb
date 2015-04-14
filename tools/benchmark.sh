@@ -124,6 +124,8 @@ function summarize_result {
 }
 
 function run_bulkload {
+  # This runs with a vector memtable and the WAL disabled to load faster. It is still crash safe and the
+  # client can discover where to restart a load after a crash. I think this is a good way to load.
   echo "Bulk loading $num_keys random keys"
   cmd="./db_bench --benchmarks=fillrandom \
        --use_existing_db=0 \
@@ -131,6 +133,8 @@ function run_bulkload {
        --sync=0 \
        $params_bulkload \
        --threads=1 \
+       --memtablerep=vector \
+       --disable_wal=1 \
        2>&1 | tee -a $output_dir/benchmark_bulkload_fillrandom.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
   eval $cmd
@@ -148,6 +152,8 @@ function run_bulkload {
 }
 
 function run_fillseq {
+  # This runs with a vector memtable and the WAL disabled to load faster. It is still crash safe and the
+  # client can discover where to restart a load after a crash. I think this is a good way to load.
   echo "Loading $num_keys keys sequentially"
   cmd="./db_bench --benchmarks=fillseq \
        --use_existing_db=0 \
@@ -155,6 +161,8 @@ function run_fillseq {
        $params_w \
        --min_level_to_compress=0 \
        --threads=1 \
+       --memtablerep=vector \
+       --disable_wal=1 \
        2>&1 | tee -a $output_dir/benchmark_fillseq.log"
   echo $cmd | tee $output_dir/benchmark_fillseq.log
   eval $cmd
