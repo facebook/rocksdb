@@ -11114,14 +11114,24 @@ TEST_F(DBTest, DynamicLevelMaxBytesBaseInc) {
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Random rnd(301);
-  for (int i = 0; i < 3000; i++) {
-    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
+  const int total_keys = 3000;
+  const int random_part_size = 100;
+  for (int i = 0; i < total_keys; i++) {
+    std::string value = RandomString(&rnd, random_part_size);
+    PutFixed32(&value, static_cast<uint32_t>(i));
+    ASSERT_OK(Put(Key(i), value));
   }
   Flush();
   dbfull()->TEST_WaitForCompact();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
   ASSERT_EQ(non_trivial, 0);
+
+  for (int i = 0; i < total_keys; i++) {
+    std::string value = Get(Key(i));
+    ASSERT_EQ(DecodeFixed32(value.c_str() + random_part_size),
+              static_cast<uint32_t>(i));
+  }
 
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);

@@ -2269,7 +2269,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     assert(c->num_input_files(0) == 1);
     FileMetaData* f = c->input(0, 0);
     c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-    c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
+    c->edit()->AddFile(c->output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
                        f->fd.GetFileSize(), f->smallest, f->largest,
                        f->smallest_seqno, f->largest_seqno);
     status = versions_->LogAndApply(c->column_family_data(),
