@@ -28,4 +28,5 @@ You can learn more from this great blog post by Mike Lin: http://devblog.dnanexu
 Iron.io is using RocksDB as a storage engine for their distributed queueing system.
 Learn more from Tech Talk by Reed Allman: http://www.youtube.com/watch?v=HTjt6oj-RL4
 
-
+# Turn
+Turn is using RocksDB as a storage layer for the distributed key/value store, serving about 2.4MM QPS from different datacenters.
