@@ -1130,7 +1130,7 @@ public class OptionsTest {
     RateLimiterConfig rateLimiterConfig;
     try {
       options = new Options();
-      rateLimiterConfig = new GenericRateLimiterConfig(1000, 0, 1);
+      rateLimiterConfig = new GenericRateLimiterConfig(1000, 100 * 1000, 1);
       options.setRateLimiterConfig(rateLimiterConfig);
       // Test with parameter initialization
       anotherOptions = new Options();
