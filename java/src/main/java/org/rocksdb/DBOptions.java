@@ -383,20 +383,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setTableCacheRemoveScanCountLimit(
-      final int limit) {
-    assert(isInitialized());
-    setTableCacheRemoveScanCountLimit(nativeHandle_, limit);
-    return this;
-  }
-
-  @Override
-  public int tableCacheRemoveScanCountLimit() {
-    assert(isInitialized());
-    return tableCacheRemoveScanCountLimit(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setWalTtlSeconds(
       final long walTtlSeconds) {
     assert(isInitialized());
@@ -632,9 +618,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setTableCacheNumshardbits(
       long handle, int tableCacheNumshardbits);
   private native int tableCacheNumshardbits(long handle);
-  private native void setTableCacheRemoveScanCountLimit(
-      long handle, int limit);
-  private native int tableCacheRemoveScanCountLimit(long handle);
   private native void setWalTtlSeconds(long handle, long walTtlSeconds);
   private native long walTtlSeconds(long handle);
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);

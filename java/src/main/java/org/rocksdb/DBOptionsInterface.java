@@ -506,39 +506,6 @@ public interface DBOptionsInterface {
   int tableCacheNumshardbits();
 
   /**
-   * During data eviction of table's LRU cache, it would be inefficient
-   * to strictly follow LRU because this piece of memory will not really
-   * be released unless its refcount falls to zero. Instead, make two
-   * passes: the first pass will release items with refcount = 1,
-   * and if not enough space releases after scanning the number of
-   * elements specified by this parameter, we will remove items in LRU
-   * order.
-   *
-   * @param limit scan count limit
-   * @return the instance of the current Object.
-   *
-   * @deprecated This function is depreciated.
-   */
-  @Deprecated
-  Object setTableCacheRemoveScanCountLimit(int limit);
-
-  /**
-   * During data eviction of table's LRU cache, it would be inefficient
-   * to strictly follow LRU because this piece of memory will not really
-   * be released unless its refcount falls to zero. Instead, make two
-   * passes: the first pass will release items with refcount = 1,
-   * and if not enough space releases after scanning the number of
-   * elements specified by this parameter, we will remove items in LRU
-   * order.
-   *
-   * @return scan count limit
-   *
-   * @deprecated This function is depreciated.
-   */
-  @Deprecated
-  int tableCacheRemoveScanCountLimit();
-
-  /**
    * {@link #walTtlSeconds()} and {@link #walSizeLimitMB()} affect how archived logs
    * will be deleted.
    * <ol>

@@ -452,20 +452,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  public int tableCacheRemoveScanCountLimit() {
-    assert(isInitialized());
-    return tableCacheRemoveScanCountLimit(nativeHandle_);
-  }
-
-  @Override
-  public Options setTableCacheRemoveScanCountLimit(
-      final int limit) {
-    assert(isInitialized());
-    setTableCacheRemoveScanCountLimit(nativeHandle_, limit);
-    return this;
-  }
-
-  @Override
   public long walTtlSeconds() {
     assert(isInitialized());
     return walTtlSeconds(nativeHandle_);
@@ -1152,9 +1138,6 @@ public class Options extends RocksObject
   private native void setTableCacheNumshardbits(
       long handle, int tableCacheNumshardbits);
   private native int tableCacheNumshardbits(long handle);
-  private native void setTableCacheRemoveScanCountLimit(
-      long handle, int limit);
-  private native int tableCacheRemoveScanCountLimit(long handle);
   private native void setWalTtlSeconds(long handle, long walTtlSeconds);
   private native long walTtlSeconds(long handle);
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);

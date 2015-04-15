@@ -696,27 +696,6 @@ void Java_org_rocksdb_Options_setTableCacheNumshardbits(
 }
 
 /*
- * Class:     org_rocksdb_Options
- * Method:    tableCacheRemoveScanCountLimit
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_tableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  // deprecated
-  return 0;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setTableCacheRemoveScanCountLimit
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setTableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint limit) {
-  // deprecated
-}
-
-/*
  * Method:    useFixedLengthPrefixExtractor
  * Signature: (JI)V
  */
@@ -3499,27 +3478,6 @@ jint Java_org_rocksdb_DBOptions_tableCacheNumshardbits(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
       table_cache_numshardbits;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setTableCacheRemoveScanCountLimit
- * Signature: (JI)V
- */
-void Java_org_rocksdb_DBOptions_setTableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint limit) {
-  // deprecated
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    tableCacheRemoveScanCountLimit
- * Signature: (J)I
- */
-jint Java_org_rocksdb_DBOptions_tableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  // deprecated
-  return 0;
 }
 
 /*
