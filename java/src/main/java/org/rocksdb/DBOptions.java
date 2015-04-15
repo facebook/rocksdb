@@ -495,22 +495,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  @Deprecated
-  public DBOptions setSkipLogErrorOnRecovery(
-      final boolean skip) {
-    assert(isInitialized());
-    setSkipLogErrorOnRecovery(nativeHandle_, skip);
-    return this;
-  }
-
-  @Override
-  @Deprecated
-  public boolean skipLogErrorOnRecovery() {
-    assert(isInitialized());
-    return skipLogErrorOnRecovery(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setStatsDumpPeriodSec(
       final int statsDumpPeriodSec) {
     assert(isInitialized());
@@ -670,9 +654,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setIsFdCloseOnExec(
       long handle, boolean isFdCloseOnExec);
   private native boolean isFdCloseOnExec(long handle);
-  private native void setSkipLogErrorOnRecovery(
-      long handle, boolean skip);
-  private native boolean skipLogErrorOnRecovery(long handle);
   private native void setStatsDumpPeriodSec(
       long handle, int statsDumpPeriodSec);
   private native int statsDumpPeriodSec(long handle);

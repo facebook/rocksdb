@@ -716,31 +716,6 @@ public interface DBOptionsInterface {
   boolean isFdCloseOnExec();
 
   /**
-   * Skip log corruption error on recovery (If client is ok with
-   * losing most recent changes)
-   * Default: false
-   *
-   * @param skip true if log corruption errors are skipped during recovery.
-   * @return the instance of the current Object.
-   *
-   * @deprecated will be removed in RocksDB 3.11.0. Not used anymore.
-   */
-  @Deprecated
-  Object setSkipLogErrorOnRecovery(boolean skip);
-
-  /**
-   * Skip log corruption error on recovery (If client is ok with
-   * losing most recent changes)
-   * Default: false
-   *
-   * @return true if log corruption errors are skipped during recovery.
-   *
-   * @deprecated will be removed in RocksDB 3.11.0. Not used anymore.
-   */
-  @Deprecated
-  boolean skipLogErrorOnRecovery();
-
-  /**
    * if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
    * Default: 3600 (1 hour)
    *

@@ -892,28 +892,6 @@ void Java_org_rocksdb_Options_setIsFdCloseOnExec(
 
 /*
  * Class:     org_rocksdb_Options
- * Method:    skipLogErrorOnRecovery
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_skipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)
-      ->skip_log_error_on_recovery;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setSkipLogErrorOnRecovery
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setSkipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean skip) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->skip_log_error_on_recovery =
-      static_cast<bool>(skip);
-}
-
-/*
- * Class:     org_rocksdb_Options
  * Method:    statsDumpPeriodSec
  * Signature: (J)I
  */
@@ -3695,28 +3673,6 @@ void Java_org_rocksdb_DBOptions_setIsFdCloseOnExec(
 jboolean Java_org_rocksdb_DBOptions_isFdCloseOnExec(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->is_fd_close_on_exec;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setSkipLogErrorOnRecovery
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setSkipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean skip) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->skip_log_error_on_recovery =
-      static_cast<bool>(skip);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    skipLogErrorOnRecovery
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_skipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)
-      ->skip_log_error_on_recovery;
 }
 
 /*

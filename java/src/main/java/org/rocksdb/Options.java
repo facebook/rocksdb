@@ -557,21 +557,6 @@ public class Options extends RocksObject
   }
 
   @Override
-  @Deprecated
-  public boolean skipLogErrorOnRecovery() {
-    assert(isInitialized());
-    return skipLogErrorOnRecovery(nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
-  public Options setSkipLogErrorOnRecovery(final boolean skip) {
-    assert(isInitialized());
-    setSkipLogErrorOnRecovery(nativeHandle_, skip);
-    return this;
-  }
-
-  @Override
   public int statsDumpPeriodSec() {
     assert(isInitialized());
     return statsDumpPeriodSec(nativeHandle_);
@@ -1189,9 +1174,6 @@ public class Options extends RocksObject
   private native void setIsFdCloseOnExec(
       long handle, boolean isFdCloseOnExec);
   private native boolean isFdCloseOnExec(long handle);
-  private native void setSkipLogErrorOnRecovery(
-      long handle, boolean skip);
-  private native boolean skipLogErrorOnRecovery(long handle);
   private native void setStatsDumpPeriodSec(
       long handle, int statsDumpPeriodSec);
   private native int statsDumpPeriodSec(long handle);

@@ -921,21 +921,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void skipLogErrorOnRecovery() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setSkipLogErrorOnRecovery(boolValue);
-      assertThat(opt.skipLogErrorOnRecovery()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void statsDumpPeriodSec() {
     Options opt = null;
     try {
