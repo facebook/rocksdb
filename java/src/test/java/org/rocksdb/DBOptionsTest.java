@@ -555,7 +555,7 @@ public class DBOptionsTest {
     try {
       options = new DBOptions();
       RateLimiterConfig rateLimiterConfig =
-          new GenericRateLimiterConfig(1000, 0, 1);
+          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
       options.setRateLimiterConfig(rateLimiterConfig);
       // Test with parameter initialization
       anotherOptions = new DBOptions();
