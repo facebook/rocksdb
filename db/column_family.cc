@@ -536,6 +536,7 @@ Compaction* ColumnFamilyData::PickCompaction(
 }
 
 const int ColumnFamilyData::kCompactAllLevels = -1;
+const int ColumnFamilyData::kCompactToBaseLevel = -2;
 
 Compaction* ColumnFamilyData::CompactRange(
     const MutableCFOptions& mutable_cf_options,

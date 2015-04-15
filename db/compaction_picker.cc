@@ -468,6 +468,11 @@ Compaction* CompactionPicker::CompactRange(
   }
 
   CompactionInputFiles output_level_inputs;
+  if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+    assert(input_level == 0);
+    output_level = vstorage->base_level();
+    assert(output_level > 0);
+  }
   output_level_inputs.level = output_level;
   if (input_level != output_level) {
     int parent_index = -1;
@@ -487,13 +492,16 @@ Compaction* CompactionPicker::CompactRange(
 
   std::vector<FileMetaData*> grandparents;
   GetGrandparents(vstorage, inputs, output_level_inputs, &grandparents);
-  return new Compaction(
+  Compaction* compaction = new Compaction(
       vstorage, mutable_cf_options, std::move(compaction_inputs), output_level,
       mutable_cf_options.MaxFileSizeForLevel(output_level),
       mutable_cf_options.MaxGrandParentOverlapBytes(input_level),
       output_path_id,
       GetCompressionType(ioptions_, output_level, vstorage->base_level()),
       std::move(grandparents), /* is manual compaction */ true);
+
+  TEST_SYNC_POINT_CALLBACK("CompactionPicker::CompactRange:Return", compaction);
+  return compaction;
 }
 
 #ifndef ROCKSDB_LITE

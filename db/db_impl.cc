@@ -1312,13 +1312,9 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
-    int output_level = 0;
-    if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
-        cfd->NumberLevels() > 1) {
-      output_level = cfd->NumberLevels() - 1;
-    }
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            output_level, target_path_id, begin, end);
+                            cfd->NumberLevels() - 1, target_path_id, begin,
+                            end);
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       // in case the compaction is unversal or if we're compacting the
@@ -1330,8 +1326,13 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
           (level == max_level_with_files && level > 0)) {
         s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
       } else {
-        // TODO(sdong) Skip empty levels if possible.
-        s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
+        int output_level = level + 1;
+        if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
+            cfd->ioptions()->level_compaction_dynamic_level_bytes &&
+            level == 0) {
+          output_level = ColumnFamilyData::kCompactToBaseLevel;
+        }
+        s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
                                 end);
       }
       if (!s.ok()) {
@@ -2234,16 +2235,23 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
           m->output_path_id, m->begin, m->end, &manual_end));
     if (!c) {
       m->done = true;
+      LogToBuffer(log_buffer,
+                  "[%s] Manual compaction from level-%d from %s .. "
+                  "%s; nothing to do\n",
+                  m->cfd->GetName().c_str(), m->input_level,
+                  (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+                  (m->end ? m->end->DebugString().c_str() : "(end)"));
+    } else {
+      LogToBuffer(log_buffer,
+                  "[%s] Manual compaction from level-%d to level-%d from %s .. "
+                  "%s; will stop at %s\n",
+                  m->cfd->GetName().c_str(), m->input_level, c->output_level(),
+                  (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
+                  (m->end ? m->end->DebugString().c_str() : "(end)"),
+                  ((m->done || manual_end == nullptr)
+                       ? "(end)"
+                       : manual_end->DebugString().c_str()));
     }
-    LogToBuffer(log_buffer,
-                "[%s] Manual compaction from level-%d to level-%d from %s .. "
-                "%s; will stop at %s\n",
-                m->cfd->GetName().c_str(), m->input_level, m->output_level,
-                (m->begin ? m->begin->DebugString().c_str() : "(begin)"),
-                (m->end ? m->end->DebugString().c_str() : "(end)"),
-                ((m->done || manual_end == nullptr)
-                     ? "(end)"
-                     : manual_end->DebugString().c_str()));
   } else if (!compaction_queue_.empty()) {
     // cfd is referenced here
     auto cfd = PopFirstFromCompactionQueue();

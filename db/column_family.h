@@ -239,6 +239,8 @@ class ColumnFamilyData {
   // A flag to tell a manual compaction is to compact all levels together
   // instad of for specific level.
   static const int kCompactAllLevels;
+  // A flag to tell a manual compaction's output is base level.
+  static const int kCompactToBaseLevel;
   // REQUIRES: DB mutex held
   Compaction* CompactRange(
       const MutableCFOptions& mutable_cf_options,
