@@ -825,6 +825,8 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
     return false;
   }
 
+  inputs->clear();
+
   assert(level >= 0);
 
   // Pick the largest file in this level that is not already
