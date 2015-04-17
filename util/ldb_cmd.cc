@@ -1084,7 +1084,7 @@ ReduceDBLevelsCommand::ReduceDBLevelsCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, false,
                BuildCmdLineOptions({ARG_NEW_LEVELS, ARG_PRINT_OLD_LEVELS})),
-    old_levels_(1 << 16),
+    old_levels_(1 << 7),
     new_levels_(-1),
     print_old_levels_(false) {
 
