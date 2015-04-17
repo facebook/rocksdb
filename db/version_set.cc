@@ -998,9 +998,9 @@ void VersionStorageInfo::ComputeCompactionScore(
       // overwrites/deletions).
       int num_sorted_runs = 0;
       uint64_t total_size = 0;
-      for (unsigned int i = 0; i < files_[level].size(); i++) {
-        if (!files_[level][i]->being_compacted) {
-          total_size += files_[level][i]->compensated_file_size;
+      for (auto* f : files_[level]) {
+        if (!f->being_compacted) {
+          total_size += f->compensated_file_size;
           num_sorted_runs++;
         }
       }
@@ -1033,7 +1033,7 @@ void VersionStorageInfo::ComputeCompactionScore(
       // Compute the ratio of current size to size limit.
       uint64_t level_bytes_no_compacting = 0;
       for (auto f : files_[level]) {
-        if (f && f->being_compacted == false) {
+        if (!f->being_compacted) {
           level_bytes_no_compacting += f->compensated_file_size;
         }
       }
@@ -1063,6 +1063,18 @@ void VersionStorageInfo::ComputeCompactionScore(
         compaction_level_[i] = compaction_level_[j];
         compaction_score_[j] = score;
         compaction_level_[j] = level;
+      }
+    }
+  }
+  ComputeFilesMarkedForCompaction();
+}
+
+void VersionStorageInfo::ComputeFilesMarkedForCompaction() {
+  files_marked_for_compaction_.clear();
+  for (int level = 0; level <= MaxInputLevel(); level++) {
+    for (auto* f : files_[level]) {
+      if (!f->being_compacted && f->marked_for_compaction) {
+        files_marked_for_compaction_.emplace_back(level, f);
       }
     }
   }

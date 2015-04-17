@@ -27,6 +27,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
@@ -12489,6 +12490,93 @@ TEST_F(DBTest, CompressLevelCompaction) {
   }
 
   Destroy(options);
+}
+
+TEST_F(DBTest, SuggestCompactRangeTest) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 2;
+  options.num_levels = 3;
+  options.max_bytes_for_level_base = 400 * 1024;
+
+  Reopen(options);
+
+  Random rnd(301);
+  int key_idx = 0;
+
+  // First three 110KB files are going to level 0
+  // After that, (100K, 200K)
+  for (int num = 0; num < 3; num++) {
+    GenerateNewFile(&rnd, &key_idx);
+  }
+
+  // Another 110KB triggers a compaction to 400K file to fill up level 0
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ(4, GetSstFileCount(dbname_));
+
+  // (1, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4", FilesPerLevel(0));
+
+  // (1, 4, 1)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,1", FilesPerLevel(0));
+
+  // (1, 4, 2)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,2", FilesPerLevel(0));
+
+  // (1, 4, 3)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,3", FilesPerLevel(0));
+
+  // (1, 4, 4)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,4", FilesPerLevel(0));
+
+  // (1, 4, 5)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,5", FilesPerLevel(0));
+
+  // (1, 4, 6)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,6", FilesPerLevel(0));
+
+  // (1, 4, 7)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,7", FilesPerLevel(0));
+
+  // (1, 4, 8)
+  GenerateNewFile(&rnd, &key_idx);
+  ASSERT_EQ("1,4,8", FilesPerLevel(0));
+
+  // compact it three times
+  for (int i = 0; i < 3; ++i) {
+    ASSERT_OK(experimental::SuggestCompactRange(db_, nullptr, nullptr));
+    dbfull()->TEST_WaitForCompact();
+  }
+
+  ASSERT_EQ("0,0,13", FilesPerLevel(0));
+
+  GenerateNewFile(&rnd, &key_idx, false);
+  ASSERT_EQ("1,0,13", FilesPerLevel(0));
+
+  // nonoverlapping with the file on level 0
+  Slice start("a"), end("b");
+  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  dbfull()->TEST_WaitForCompact();
+
+  // should not compact the level 0 file
+  ASSERT_EQ("1,0,13", FilesPerLevel(0));
+
+  start = Slice("j");
+  end = Slice("m");
+  ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
+  dbfull()->TEST_WaitForCompact();
+
+  // now it should compact the level 0 file
+  ASSERT_EQ("0,1,13", FilesPerLevel(0));
 }
 
 }  // namespace rocksdb

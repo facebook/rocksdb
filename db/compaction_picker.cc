@@ -667,12 +667,40 @@ Status CompactionPicker::SanitizeCompactionInputFiles(
 
 bool LevelCompactionPicker::NeedsCompaction(const VersionStorageInfo* vstorage)
     const {
+  if (!vstorage->FilesMarkedForCompaction().empty()) {
+    return true;
+  }
   for (int i = 0; i <= vstorage->MaxInputLevel(); i++) {
     if (vstorage->CompactionScore(i) >= 1) {
       return true;
     }
   }
   return false;
+}
+
+void LevelCompactionPicker::PickFilesMarkedForCompactionExperimental(
+    const std::string& cf_name, VersionStorageInfo* vstorage,
+    CompactionInputFiles* inputs, int* level, int* output_level) {
+  if (vstorage->FilesMarkedForCompaction().empty()) {
+    return;
+  }
+
+  for (auto& level_file : vstorage->FilesMarkedForCompaction()) {
+    // If it's being compaction it has nothing to do here.
+    // If this assert() fails that means that some function marked some
+    // files as being_compacted, but didn't call ComputeCompactionScore()
+    assert(!level_file.second->being_compacted);
+    *level = level_file.first;
+    *output_level = (*level == 0) ? vstorage->base_level() : *level + 1;
+
+    inputs->files = {level_file.second};
+    inputs->level = *level;
+    if (ExpandWhileOverlapping(cf_name, vstorage, inputs)) {
+      // found the compaction!
+      return;
+    }
+  }
+  inputs->files.clear();
 }
 
 Compaction* LevelCompactionPicker::PickCompaction(
@@ -697,10 +725,19 @@ Compaction* LevelCompactionPicker::PickCompaction(
           ExpandWhileOverlapping(cf_name, vstorage, &inputs)) {
         // found the compaction!
         break;
+      } else {
+        // didn't find the compaction, clear the inputs
+        inputs.clear();
       }
     }
   }
 
+  // if we didn't find a compaction, check if there are any files marked for
+  // compaction
+  if (inputs.empty()) {
+    PickFilesMarkedForCompactionExperimental(cf_name, vstorage, &inputs, &level,
+                                             &output_level);
+  }
   if (inputs.empty()) {
     return nullptr;
   }

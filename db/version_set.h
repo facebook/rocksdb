@@ -18,13 +18,15 @@
 // synchronization on all accesses.
 
 #pragma once
+#include <atomic>
+#include <deque>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
+#include <utility>
 #include <vector>
-#include <deque>
-#include <atomic>
-#include <limits>
+
 #include "db/dbformat.h"
 #include "db/version_builder.h"
 #include "db/version_edit.h"
@@ -118,6 +120,10 @@ class VersionStorageInfo {
   void ComputeCompactionScore(
       const MutableCFOptions& mutable_cf_options,
       const CompactionOptionsFIFO& compaction_options_fifo);
+
+  // This computes files_marked_for_compaction_ and is called by
+  // ComputeCompactionScore()
+  void ComputeFilesMarkedForCompaction();
 
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
@@ -220,6 +226,14 @@ class VersionStorageInfo {
   const std::vector<int>& FilesBySize(int level) const {
     assert(finalized_);
     return files_by_size_[level];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForCompaction()
+      const {
+    assert(finalized_);
+    return files_marked_for_compaction_;
   }
 
   int base_level() const { return base_level_; }
@@ -339,6 +353,11 @@ class VersionStorageInfo {
   // few largest files because a new version is created every few
   // seconds/minutes (because of concurrent compactions).
   static const size_t number_of_files_to_sort_ = 50;
+
+  // This vector contains list of files marked for compaction and also not
+  // currently being compacted. It is protected by DB mutex. It is calculated in
+  // ComputeCompactionScore()
+  autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields

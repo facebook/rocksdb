@@ -197,6 +197,14 @@ class LevelCompactionPicker : public CompactionPicker {
   bool PickCompactionBySize(VersionStorageInfo* vstorage, int level,
                             int output_level, CompactionInputFiles* inputs,
                             int* parent_index, int* base_index);
+
+  // If there is any file marked for compaction, put put it into inputs.
+  // This is still experimental. It will return meaningful results only if
+  // clients call experimental feature SuggestCompactRange()
+  void PickFilesMarkedForCompactionExperimental(const std::string& cf_name,
+                                                VersionStorageInfo* vstorage,
+                                                CompactionInputFiles* inputs,
+                                                int* level, int* output_level);
 };
 
 #ifndef ROCKSDB_LITE

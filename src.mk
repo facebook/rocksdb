@@ -11,7 +11,9 @@ LIB_SOURCES =                                                   \
   db/db_impl.cc                                                 \
   db/db_impl_debug.cc                                           \
   db/db_impl_readonly.cc                                        \
+  db/db_impl_experimental.cc                                    \
   db/db_iter.cc                                                 \
+  db/experimental.cc                                            \
   db/file_indexer.cc                                            \
   db/filename.cc                                                \
   db/flush_job.cc                                               \

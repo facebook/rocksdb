@@ -183,6 +183,10 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       ColumnFamilyMetaData* metadata) override;
 
+  // experimental API
+  Status SuggestCompactRange(ColumnFamilyHandle* column_family,
+                             const Slice* begin, const Slice* end);
+
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes

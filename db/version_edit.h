@@ -87,6 +87,9 @@ struct FileMetaData {
   bool init_stats_from_file;   // true if the data-entry stats of this file
                                // has initialized from file.
 
+  bool marked_for_compaction;  // True if client asked us nicely to compact this
+                               // file.
+
   FileMetaData()
       : refs(0),
         being_compacted(false),
@@ -96,7 +99,8 @@ struct FileMetaData {
         num_deletions(0),
         raw_key_size(0),
         raw_value_size(0),
-        init_stats_from_file(false) {}
+        init_stats_from_file(false),
+        marked_for_compaction(false) {}
 };
 
 // A compressed copy of file meta data that just contain
