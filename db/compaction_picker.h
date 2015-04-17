@@ -64,10 +64,6 @@ class CompactionPicker {
       uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end);
 
-  // Given the current number of levels, returns the lowest allowed level
-  // for compaction input.
-  virtual int MaxInputLevel(int current_num_levels) const = 0;
-
   // The maximum allowed output level.  Default value is NumberLevels() - 1.
   virtual int MaxOutputLevel() const {
     return NumberLevels() - 1;
@@ -184,12 +180,6 @@ class LevelCompactionPicker : public CompactionPicker {
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer) override;
 
-  // Returns current_num_levels - 2, meaning the last level cannot be
-  // compaction input level.
-  virtual int MaxInputLevel(int current_num_levels) const override {
-    return current_num_levels - 2;
-  }
-
   virtual bool NeedsCompaction(const VersionStorageInfo* vstorage) const
       override;
 
@@ -219,10 +209,6 @@ class UniversalCompactionPicker : public CompactionPicker {
                                      const MutableCFOptions& mutable_cf_options,
                                      VersionStorageInfo* vstorage,
                                      LogBuffer* log_buffer) override;
-
-  virtual int MaxInputLevel(int current_num_levels) const override {
-    return NumberLevels() - 2;
-  }
 
   virtual int MaxOutputLevel() const override { return NumberLevels() - 1; }
 
@@ -300,11 +286,6 @@ class FIFOCompactionPicker : public CompactionPicker {
       uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end) override;
 
-  // The maxinum allowed input level.  Always returns 0.
-  virtual int MaxInputLevel(int current_num_levels) const override {
-    return 0;
-  }
-
   // The maximum allowed output level.  Always returns 0.
   virtual int MaxOutputLevel() const override {
     return 0;
@@ -336,12 +317,6 @@ class NullCompactionPicker : public CompactionPicker {
       uint32_t output_path_id, const InternalKey* begin, const InternalKey* end,
       InternalKey** compaction_end) override {
     return nullptr;
-  }
-
-  // Given the current number of levels, returns the highest allowed level
-  // for compaction input.
-  virtual int MaxInputLevel(int current_num_levels) const override {
-    return current_num_levels - 2;
   }
 
   // Always returns false.
