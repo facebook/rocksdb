@@ -187,7 +187,8 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                      cfd_->internal_comparator(),
                      cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
                      earliest_seqno_in_memtable, output_compression_,
-                     cfd_->ioptions()->compression_opts, Env::IO_HIGH);
+                     cfd_->ioptions()->compression_opts,
+                     mutable_cf_options_.paranoid_file_checks, Env::IO_HIGH);
       LogFlush(db_options_.info_log);
     }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,

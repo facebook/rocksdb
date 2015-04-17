@@ -1587,6 +1587,50 @@ TEST_F(DBTest, IndexAndFilterBlocksOfNewTableAddedToCache) {
             TestGetTickerCount(options, BLOCK_CACHE_FILTER_HIT));
 }
 
+TEST_F(DBTest, ParanoidFileChecks) {
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.level0_file_num_compaction_trigger = 2;
+  options.paranoid_file_checks = true;
+  BlockBasedTableOptions table_options;
+  table_options.cache_index_and_filter_blocks = false;
+  table_options.filter_policy.reset(NewBloomFilterPolicy(20));
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  ASSERT_OK(Put(1, "1_key", "val"));
+  ASSERT_OK(Put(1, "9_key", "val"));
+  // Create a new table.
+  ASSERT_OK(Flush(1));
+  ASSERT_EQ(1, /* read and cache data block */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  ASSERT_OK(Put(1, "1_key2", "val2"));
+  ASSERT_OK(Put(1, "9_key2", "val2"));
+  // Create a new SST file. This will further trigger a compaction
+  // and generate another file.
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(3, /* Totally 3 files created up to now */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+
+  // After disabling options.paranoid_file_checks. NO further block
+  // is added after generating a new file.
+  ASSERT_OK(
+      dbfull()->SetOptions(handles_[1], {{"paranoid_file_checks", "false"}}));
+
+  ASSERT_OK(Put(1, "1_key3", "val3"));
+  ASSERT_OK(Put(1, "9_key3", "val3"));
+  ASSERT_OK(Flush(1));
+  ASSERT_OK(Put(1, "1_key4", "val4"));
+  ASSERT_OK(Put(1, "9_key4", "val4"));
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_EQ(3, /* Totally 3 files created up to now */
+            TestGetTickerCount(options, BLOCK_CACHE_ADD));
+}
+
 TEST_F(DBTest, GetPropertiesOfAllTablesTest) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;

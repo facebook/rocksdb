@@ -289,7 +289,7 @@ class Repairer {
       status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
                           iter.get(), &meta, icmp_,
                           &int_tbl_prop_collector_factories_, 0, 0,
-                          kNoCompression, CompressionOptions());
+                          kNoCompression, CompressionOptions(), false);
     }
     delete mem->Unref();
     delete cf_mems_default;

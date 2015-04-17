@@ -52,7 +52,7 @@ extern Status BuildTable(
     const SequenceNumber newest_snapshot,
     const SequenceNumber earliest_seqno_in_memtable,
     const CompressionType compression,
-    const CompressionOptions& compression_opts,
+    const CompressionOptions& compression_opts, bool paranoid_file_checks,
     const Env::IOPriority io_priority = Env::IO_HIGH);
 
 }  // namespace rocksdb

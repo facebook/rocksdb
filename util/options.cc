@@ -128,7 +128,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       bloom_locality(0),
       max_successive_merges(0),
       min_partial_merge_operands(2),
-      optimize_filters_for_hits(false)
+      optimize_filters_for_hits(false),
+      paranoid_file_checks(false)
 #ifndef ROCKSDB_LITE
       ,
       listeners() {
@@ -197,7 +198,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       bloom_locality(options.bloom_locality),
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
-      optimize_filters_for_hits(options.optimize_filters_for_hits)
+      optimize_filters_for_hits(options.optimize_filters_for_hits),
+      paranoid_file_checks(options.paranoid_file_checks)
 #ifndef ROCKSDB_LITE
       ,
       listeners(options.listeners) {

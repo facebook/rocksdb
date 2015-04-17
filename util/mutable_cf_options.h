@@ -42,7 +42,8 @@ struct MutableCFOptions {
       max_mem_compaction_level(options.max_mem_compaction_level),
       verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       max_sequential_skip_in_iterations(
-          options.max_sequential_skip_in_iterations)
+          options.max_sequential_skip_in_iterations),
+      paranoid_file_checks(options.paranoid_file_checks)
   {
     RefreshDerivedOptions(ioptions);
   }
@@ -71,7 +72,8 @@ struct MutableCFOptions {
       max_bytes_for_level_multiplier(0),
       max_mem_compaction_level(0),
       verify_checksums_in_compaction(false),
-      max_sequential_skip_in_iterations(0)
+      max_sequential_skip_in_iterations(0),
+      paranoid_file_checks(false)
   {}
 
   // Must be called after any change to MutableCFOptions
@@ -125,6 +127,7 @@ struct MutableCFOptions {
 
   // Misc options
   uint64_t max_sequential_skip_in_iterations;
+  bool paranoid_file_checks;
 
   // Derived options
   // Per-level target file size.

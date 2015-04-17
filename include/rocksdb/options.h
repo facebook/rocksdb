@@ -705,6 +705,10 @@ struct ColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits;
 
+  // After writing every SST file, reopen it and read all the keys.
+  // Default: false
+  bool paranoid_file_checks;
+
 #ifndef ROCKSDB_LITE
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.

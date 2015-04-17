@@ -225,6 +225,8 @@ bool ParseMiscOptions(const std::string& name, const std::string& value,
                       OptionsType* new_options) {
   if (name == "max_sequential_skip_in_iterations") {
     new_options->max_sequential_skip_in_iterations = ParseUint64(value);
+  } else if (name == "paranoid_file_checks") {
+    new_options->paranoid_file_checks = ParseBoolean(name, value);
   } else {
     return false;
   }

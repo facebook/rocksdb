@@ -984,6 +984,12 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
     Iterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), fd);
     s = iter->status();
+
+    if (s.ok() && mutable_cf_options_.paranoid_file_checks) {
+      for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
+      s = iter->status();
+    }
+
     delete iter;
     if (s.ok()) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
