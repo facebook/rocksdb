@@ -16,11 +16,11 @@ TEST_F(WriteControllerTest, SanityTest) {
   auto stop_token_1 = controller.GetStopToken();
   auto stop_token_2 = controller.GetStopToken();
 
-  ASSERT_EQ(true, controller.IsStopped());
+  ASSERT_TRUE(controller.IsStopped());
   stop_token_1.reset();
-  ASSERT_EQ(true, controller.IsStopped());
+  ASSERT_TRUE(controller.IsStopped());
   stop_token_2.reset();
-  ASSERT_EQ(false, controller.IsStopped());
+  ASSERT_FALSE(controller.IsStopped());
 
   auto delay_token_1 = controller.GetDelayToken(5);
   ASSERT_EQ(static_cast<uint64_t>(5), controller.GetDelay());
@@ -32,7 +32,7 @@ TEST_F(WriteControllerTest, SanityTest) {
   delay_token_1.reset();
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay());
   delay_token_1.reset();
-  ASSERT_EQ(false, controller.IsStopped());
+  ASSERT_FALSE(controller.IsStopped());
 }
 
 }  // namespace rocksdb
