@@ -8,12 +8,15 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 
 #include <iostream>
 #include <unordered_set>
 #include <atomic>
 
 #ifdef OS_LINUX
+#include <linux/fs.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -506,10 +509,35 @@ std::string GetOnDiskTestDir() {
 
   return base;
 }
+
+// Determine whether we can use the FS_IOC_GETVERSION ioctl
+// on a file in GetOnDiskTestDir().  Create a temporary file,
+// try to apply the ioctl (save that result), cleanup and
+// return the result.  Return true if it is supported, and
+// false if anything fails.
+bool ioctl_support__FS_IOC_GETVERSION(void) {
+  std::string file_ro = GetOnDiskTestDir() + "/XXXXXX";
+  auto *file = new char[file_ro.size() + 1];
+  memcpy(file, file_ro.data(), file_ro.size() + 1);
+  int fd = mkstemp(file);
+  long int version;
+  bool ok = (fd >= 0 && ioctl(fd, FS_IOC_GETVERSION, &version) >= 0);
+
+  close(fd);
+  unlink(file);
+  delete[] file;
+
+  return ok;
+}
+
 }  // namespace
+
 
 // Only works in linux platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueID) {
+  if (!ioctl_support__FS_IOC_GETVERSION()) {
+    return;
+  }
   // Create file.
   const EnvOptions soptions;
   std::string fname = GetOnDiskTestDir() + "/" + "testfile";
@@ -630,6 +658,9 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 
 // Only works in linux platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
+  if (!ioctl_support__FS_IOC_GETVERSION()) {
+    return;
+  }
   // Check whether a bunch of concurrently existing files have unique IDs.
   const EnvOptions soptions;
 
@@ -669,6 +700,9 @@ TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 
 // Only works in linux platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
+  if (!ioctl_support__FS_IOC_GETVERSION()) {
+    return;
+  }
   const EnvOptions soptions;
 
   std::string fname = GetOnDiskTestDir() + "/" + "testfile";
