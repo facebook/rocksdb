@@ -1494,7 +1494,8 @@ const char* VersionStorageInfo::LevelSummary(
     // overwrite the last space
     --len;
   }
-  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len, "]");
+  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+           "] max score %.2f", compaction_score_[0]);
   return scratch->buffer;
 }
 
