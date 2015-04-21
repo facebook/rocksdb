@@ -836,7 +836,7 @@ install-shared: install-headers $(SHARED4)
 
 # install static by default + install shared if it exists
 install: install-static
-	[ ! -e $(SHARED4) ] || $(MAKE) install-shared
+	[ -e $(SHARED4) ] && $(MAKE) install-shared || :
 
 #-------------------------------------------------
 
