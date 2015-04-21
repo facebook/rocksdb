@@ -34,7 +34,19 @@ ifeq ($(MAKECMDGOALS),shared_lib)
 OPT += -DNDEBUG
 endif
 
+ifeq ($(MAKECMDGOALS),install-shared)
+OPT += -DNDEBUG
+endif
+
 ifeq ($(MAKECMDGOALS),static_lib)
+OPT += -DNDEBUG
+endif
+
+ifeq ($(MAKECMDGOALS),install-static)
+OPT += -DNDEBUG
+endif
+
+ifeq ($(MAKECMDGOALS),install)
 OPT += -DNDEBUG
 endif
 
@@ -123,27 +135,6 @@ PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 
 # This (the first rule) must depend on "all".
 default: all
-
-#-------------------------------------------------
-# make install related stuff
-INSTALL_PATH ?= /usr/local
-
-uninstall:
-	rm -rf $(INSTALL_PATH)/include/rocksdb \
-	  $(INSTALL_PATH)/lib/$(LIBRARY) \
-	  $(INSTALL_PATH)/lib/$(SHARED)
-
-install:
-	install -d $(INSTALL_PATH)/lib
-	for header_dir in `find "include/rocksdb" -type d`; do \
-		install -d $(INSTALL_PATH)/$$header_dir; \
-	done
-	for header in `find "include/rocksdb" -type f -name *.h`; do \
-		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
-	done
-	[ ! -e $(LIBRARY) ] || install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
-	[ -n '$(SHARED)' ] && install -C -m 755 $(SHARED) $(INSTALL_PATH)/lib
-#-------------------------------------------------
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
   -Wno-unused-parameter
@@ -325,7 +316,8 @@ endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava install uninstall analyze
+	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
+	analyze
 
 all: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 
@@ -811,6 +803,43 @@ sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 
 ldb: tools/ldb.o $(LIBOBJECTS)
 	$(AM_LINK)
+
+#-------------------------------------------------
+# make install related stuff
+INSTALL_PATH ?= /usr/local
+
+uninstall:
+	rm -rf $(INSTALL_PATH)/include/rocksdb \
+	  $(INSTALL_PATH)/lib/$(LIBRARY) \
+	  $(INSTALL_PATH)/lib/$(SHARED4) \
+	  $(INSTALL_PATH)/lib/$(SHARED3) \
+	  $(INSTALL_PATH)/lib/$(SHARED2) \
+	  $(INSTALL_PATH)/lib/$(SHARED1)
+
+install-headers:
+	install -d $(INSTALL_PATH)/lib
+	for header_dir in `find "include/rocksdb" -type d`; do \
+		install -d $(INSTALL_PATH)/$$header_dir; \
+	done
+	for header in `find "include/rocksdb" -type f -name *.h`; do \
+		install -C -m 644 $$header $(INSTALL_PATH)/$$header; \
+	done
+
+install-static: install-headers $(LIBRARY)
+	install -C -m 755 $(LIBRARY) $(INSTALL_PATH)/lib
+
+install-shared: install-headers $(SHARED4)
+	install -C -m 755 $(SHARED4) $(INSTALL_PATH)/lib && \
+		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED3) && \
+		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED2) && \
+		ln -fs $(SHARED4) $(INSTALL_PATH)/lib/$(SHARED1)
+
+# install static by default + install shared if it exists
+install: install-static
+	[ -e $(SHARED4) ] && $(MAKE) install-shared
+
+#-------------------------------------------------
+
 
 # ---------------------------------------------------------------------------
 # Jni stuff
