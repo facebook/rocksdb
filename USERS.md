@@ -28,6 +28,9 @@ You can learn more from this great blog post by Mike Lin: http://devblog.dnanexu
 Iron.io is using RocksDB as a storage engine for their distributed queueing system.
 Learn more from Tech Talk by Reed Allman: http://www.youtube.com/watch?v=HTjt6oj-RL4
 
+## Tango Me
+Tango is using RocksDB as a graph storage to store all users' connection data and other social activity data.
+
 # Turn
 Turn is using RocksDB as a storage layer for their key/value store, serving at peak 2.4MM QPS out of different datacenters.
 Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/rocksdb_protobuf
