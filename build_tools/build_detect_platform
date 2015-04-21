@@ -209,7 +209,7 @@ EOF
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
     else
       if echo "#include <gflags/gflags.h>\nusing namespace google;\nint main() {}" | \
-        $CXX $CFLAGS -x c++ - -o /dev/null ; then
+        $CXX $CFLAGS -x c++ - -o /dev/null 2> /dev/null; then
           COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
           PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
       fi
