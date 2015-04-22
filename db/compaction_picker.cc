@@ -16,6 +16,7 @@
 #include <inttypes.h>
 #include <limits>
 #include <string>
+#include "db/column_family.h"
 #include "db/filename.h"
 #include "util/log_buffer.h"
 #include "util/statistics.h"
@@ -356,6 +357,45 @@ Compaction* CompactionPicker::CompactRange(
     InternalKey** compaction_end) {
   // CompactionPickerFIFO has its own implementation of compact range
   assert(ioptions_.compaction_style != kCompactionStyleFIFO);
+
+  if (input_level == ColumnFamilyData::kCompactAllLevels) {
+    assert(ioptions_.compaction_style == kCompactionStyleUniversal);
+
+    // Universal compaction with more than one level always compacts all the
+    // files together to the last level.
+    assert(vstorage->num_levels() > 1);
+    // DBImpl::CompactRange() set output level to be the last level
+    assert(output_level == vstorage->num_levels() - 1);
+    // DBImpl::RunManualCompaction will make full range for universal compaction
+    assert(begin == nullptr);
+    assert(end == nullptr);
+    *compaction_end = nullptr;
+
+    int start_level = 0;
+    for (; start_level < vstorage->num_levels() &&
+           vstorage->NumLevelFiles(start_level) == 0;
+         start_level++) {
+    }
+    if (start_level == vstorage->num_levels()) {
+      return nullptr;
+    }
+
+    std::vector<CompactionInputFiles> inputs(vstorage->num_levels() -
+                                             start_level);
+    for (int level = start_level; level < vstorage->num_levels(); level++) {
+      inputs[level - start_level].level = level;
+      auto& files = inputs[level - start_level].files;
+      for (FileMetaData* f : vstorage->LevelFiles(level)) {
+        files.push_back(f);
+      }
+    }
+    return new Compaction(
+        vstorage, mutable_cf_options, std::move(inputs), output_level,
+        mutable_cf_options.MaxFileSizeForLevel(output_level),
+        /* max_grandparent_overlap_bytes */ LLONG_MAX, output_path_id,
+        GetCompressionType(ioptions_, output_level, 1),
+        /* grandparents */ {}, /* is manual */ true);
+  }
 
   CompactionInputFiles inputs;
   inputs.level = input_level;

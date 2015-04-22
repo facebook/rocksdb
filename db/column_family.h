@@ -236,6 +236,9 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
                              LogBuffer* log_buffer);
+  // A flag to tell a manual compaction is to compact all levels together
+  // instad of for specific level.
+  static const int kCompactAllLevels;
   // REQUIRES: DB mutex held
   Compaction* CompactRange(
       const MutableCFOptions& mutable_cf_options,

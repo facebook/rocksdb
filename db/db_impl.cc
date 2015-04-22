@@ -1266,24 +1266,40 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
       }
     }
   }
-  for (int level = 0; level <= max_level_with_files; level++) {
-    // in case the compaction is unversal or if we're compacting the
-    // bottom-most level, the output level will be the same as input one.
-    // level 0 can never be the bottommost level (i.e. if all files are in level
-    // 0, we will compact to level 1)
-    if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-        cfd->ioptions()->compaction_style == kCompactionStyleFIFO ||
-        (level == max_level_with_files && level > 0)) {
-      s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
-    } else {
-      // TODO(sdong) Skip empty levels if possible.
-      s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
-                              end);
+
+  if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
+      cfd->NumberLevels() > 1) {
+    // Always compact all files together.
+    int output_level = 0;
+    if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
+        cfd->NumberLevels() > 1) {
+      output_level = cfd->NumberLevels() - 1;
     }
-    if (!s.ok()) {
-      LogFlush(db_options_.info_log);
-      return s;
+    s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
+                            output_level, target_path_id, begin, end);
+  } else {
+    for (int level = 0; level <= max_level_with_files; level++) {
+      // in case the compaction is unversal or if we're compacting the
+      // bottom-most level, the output level will be the same as input one.
+      // level 0 can never be the bottommost level (i.e. if all files are in
+      // level 0, we will compact to level 1)
+      if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
+          cfd->ioptions()->compaction_style == kCompactionStyleFIFO ||
+          (level == max_level_with_files && level > 0)) {
+        s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
+      } else {
+        // TODO(sdong) Skip empty levels if possible.
+        s = RunManualCompaction(cfd, level, level + 1, target_path_id, begin,
+                                end);
+      }
+      if (!s.ok()) {
+        break;
+      }
     }
+  }
+  if (!s.ok()) {
+    LogFlush(db_options_.info_log);
+    return s;
   }
 
   if (reduce_level) {
@@ -1668,7 +1684,8 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
                                    const Slice* begin, const Slice* end) {
-  assert(input_level >= 0);
+  assert(input_level == ColumnFamilyData::kCompactAllLevels ||
+         input_level >= 0);
 
   InternalKey begin_storage, end_storage;
 

@@ -5250,7 +5250,7 @@ TEST_F(DBTest, IncreaseUniversalCompactionNumLevels) {
   int max_key3 = 800;
 
   // Stage 1: open a DB with universal compaction, num_levels=1
-  Options options;
+  Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 1;
   options.write_buffer_size = 100 << 10;  // 100KB
@@ -5272,7 +5272,6 @@ TEST_F(DBTest, IncreaseUniversalCompactionNumLevels) {
   ASSERT_EQ(non_level0_num_files, 0);
 
   // Stage 2: reopen with universal compaction, num_levels=4
-  options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 4;
   options = CurrentOptions(options);
@@ -5302,7 +5301,6 @@ TEST_F(DBTest, IncreaseUniversalCompactionNumLevels) {
   // Need to restart it once to remove higher level records in manifest.
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   // Final reopen
-  options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 1;
   options = CurrentOptions(options);
@@ -5808,8 +5806,12 @@ TEST_F(DBTest, CompactionFilterWithValueChange) {
 
     // push all files to  lower levels
     ASSERT_OK(Flush(1));
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    if (option_config_ != kUniversalCompactionMultiLevel) {
+      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+      dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    } else {
+      dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    }
 
     // re-write all data again
     for (int i = 0; i < 100001; i++) {
@@ -5821,8 +5823,12 @@ TEST_F(DBTest, CompactionFilterWithValueChange) {
     // push all files to  lower levels. This should
     // invoke the compaction filter for all 100000 keys.
     ASSERT_OK(Flush(1));
-    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
-    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    if (option_config_ != kUniversalCompactionMultiLevel) {
+      dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+      dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    } else {
+      dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    }
 
     // verify that all keys now have the new value that
     // was set by the compaction process.
@@ -7145,11 +7151,15 @@ TEST_F(DBTest, DropWrites) {
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
     for (int i = 0; i < 5; i++) {
-      for (int level = 0; level < dbfull()->NumberLevels(); level++) {
-        if (level > 0 && level == dbfull()->NumberLevels() - 1) {
-          break;
+      if (option_config_ != kUniversalCompactionMultiLevel) {
+        for (int level = 0; level < dbfull()->NumberLevels(); level++) {
+          if (level > 0 && level == dbfull()->NumberLevels() - 1) {
+            break;
+          }
+          dbfull()->TEST_CompactRange(level, nullptr, nullptr);
         }
-        dbfull()->TEST_CompactRange(level, nullptr, nullptr);
+      } else {
+        dbfull()->CompactRange(nullptr, nullptr);
       }
     }
 
