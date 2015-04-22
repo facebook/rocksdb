@@ -37,6 +37,7 @@
 #                   You can estimate the size of the test database from this,
 #                   NKEYS and the compression rate (--compression_ratio) set
 #                   in tools/benchmark.sh
+#   BLOCK_LENGTH  - value for db_bench --block_size
 #   CACHE_BYTES   - the size of the RocksDB block cache in bytes
 #   DATA_DIR      - directory in which to create database files
 #   LOG_DIR       - directory in which to create WAL files, may be the same
@@ -61,6 +62,7 @@ duration=${NSECONDS:-$((60 * 60))}
 nps=${RANGE_LIMIT:-10}
 vs=${VAL_SIZE:-400}
 cs=${CACHE_BYTES:-$(( 1 * G ))}
+bs=${BLOCK_LENGTH:-4096}
 
 # If no command line arguments then run for 24 threads.
 if [[ $# -eq 0 ]]; then
@@ -88,6 +90,7 @@ NUM_KEYS=$num_keys \
 DB_DIR=$db_dir \
 WAL_DIR=$wal_dir \
 VALUE_SIZE=$vs \
+BLOCK_SIZE=$bs \
 CACHE_SIZE=$cs"
 
 mkdir -p $output_dir
@@ -109,7 +112,12 @@ if [[ $do_setup != 0 ]]; then
   # Test 1: bulk load
   env $ARGS ./tools/benchmark.sh bulkload
 
-  # Test 2: sequential fill
+  # Test 2a: sequential fill with large values to get peak ingest
+  #          adjust NUM_KEYS given the use of larger values
+  env $ARGS BLOCK_SIZE=$((1 * M)) VALUE_SIZE=$((32 * K)) NUM_KEYS=$(( num_keys / 64 )) \
+       ./tools/benchmark.sh fillseq
+
+  # Test 2b: sequential fill with the configured value size
   env $ARGS ./tools/benchmark.sh fillseq
 
   # Test 3: single-threaded overwrite

@@ -46,6 +46,7 @@ duration=${DURATION:-0}
 num_keys=${NUM_KEYS:-$((1 * G))}
 key_size=20
 value_size=${VALUE_SIZE:-400}
+block_size=${BLOCK_SIZE:-4096}
 
 const_params="
   --db=$DB_DIR \
@@ -56,12 +57,14 @@ const_params="
   --num_levels=6 \
   --key_size=$key_size \
   --value_size=$value_size \
-  --block_size=4096 \
+  --block_size=$block_size \
   --cache_size=$cache_size \
   --cache_numshardbits=6 \
   --compression_type=zlib \
   --min_level_to_compress=3 \
   --compression_ratio=0.5 \
+  --level_compaction_dynamic_level_bytes=true \
+  --bytes_per_sync=$((2 * M)) \
   \
   --hard_rate_limit=3 \
   --rate_limit_delay_max_milliseconds=1000000 \
@@ -163,10 +166,10 @@ function run_fillseq {
        --threads=1 \
        --memtablerep=vector \
        --disable_wal=1 \
-       2>&1 | tee -a $output_dir/benchmark_fillseq.log"
-  echo $cmd | tee $output_dir/benchmark_fillseq.log
+       2>&1 | tee -a $output_dir/benchmark_fillseq.v${value_size}.log"
+  echo $cmd | tee $output_dir/benchmark_fillseq.v${value_size}.log
   eval $cmd
-  summarize_result $output_dir/benchmark_fillseq.log fillseq fillseq
+  summarize_result $output_dir/benchmark_fillseq.v${value_size}.log fillseq.v${value_size} fillseq
 }
 
 function run_change {
