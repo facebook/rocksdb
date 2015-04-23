@@ -13,6 +13,7 @@
 #include <iostream>
 #include <unordered_set>
 #include <atomic>
+#include <list>
 
 #ifdef OS_LINUX
 #include <linux/fs.h>
@@ -472,15 +473,7 @@ TEST_F(EnvPosixTest, DecreaseNumBgThreads) {
 // Travis doesn't support fallocate or getting unique ID from files for whatever
 // reason.
 #ifndef TRAVIS
-// To make sure the Env::GetUniqueId() related tests work correctly, The files
-// should be stored in regular storage like "hard disk" or "flash device".
-// Otherwise we cannot get the correct id.
-//
-// The following function act as the replacement of test::TmpDir() that may be
-// customized by user to be on a storage that doesn't work with GetUniqueId().
-//
-// TODO(kailiu) This function still assumes /tmp/<test-dir> reside in regular
-// storage system.
+
 namespace {
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
@@ -500,47 +493,100 @@ bool IsUniqueIDValid(const std::string& s) {
 const size_t MAX_ID_SIZE = 100;
 char temp_id[MAX_ID_SIZE];
 
-std::string GetOnDiskTestDir() {
-  char base[100];
-  snprintf(base, sizeof(base), "/tmp/rocksdbtest-%d",
-           static_cast<int>(geteuid()));
-  // Directory may already exist
-  Env::Default()->CreateDirIfMissing(base);
 
-  return base;
-}
+}  // namespace
 
 // Determine whether we can use the FS_IOC_GETVERSION ioctl
-// on a file in GetOnDiskTestDir().  Create a temporary file,
+// on a file in directory DIR.  Create a temporary file therein,
 // try to apply the ioctl (save that result), cleanup and
 // return the result.  Return true if it is supported, and
 // false if anything fails.
-bool ioctl_support__FS_IOC_GETVERSION(void) {
-  std::string file_ro = GetOnDiskTestDir() + "/XXXXXX";
-  auto *file = new char[file_ro.size() + 1];
-  memcpy(file, file_ro.data(), file_ro.size() + 1);
-  int fd = mkstemp(file);
+// Note that this function "knows" that dir has just been created
+// and is empty, so we create a simply-named test file: "f".
+bool ioctl_support__FS_IOC_GETVERSION(const std::string& dir) {
+  const std::string file = dir + "/f";
+  int fd;
+  do {
+    fd = open(file.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  } while (fd < 0 && errno == EINTR);
   long int version;
   bool ok = (fd >= 0 && ioctl(fd, FS_IOC_GETVERSION, &version) >= 0);
 
   close(fd);
-  unlink(file);
-  delete[] file;
+  unlink(file.c_str());
 
   return ok;
 }
 
-}  // namespace
+// To ensure that Env::GetUniqueId-related tests work correctly, the files
+// should be stored in regular storage like "hard disk" or "flash device",
+// and not on a tmpfs file system (like /dev/shm and /tmp on some systems).
+// Otherwise we cannot get the correct id.
+//
+// This function serves as the replacement for test::TmpDir(), which may be
+// customized to be on a file system that doesn't work with GetUniqueId().
+
+class IoctlFriendlyTmpdir {
+ public:
+  explicit IoctlFriendlyTmpdir() {
+    char dir_buf[100];
+    std::list<std::string> candidate_dir_list = {"/var/tmp", "/tmp"};
+
+    const char *fmt = "%s/rocksdb.XXXXXX";
+    const char *tmp = getenv("TEST_IOCTL_FRIENDLY_TMPDIR");
+    // If $TEST_IOCTL_FRIENDLY_TMPDIR/rocksdb.XXXXXX fits, use
+    // $TEST_IOCTL_FRIENDLY_TMPDIR; subtract 2 for the "%s", and
+    // add 1 for the trailing NUL byte.
+    if (tmp && strlen(tmp) + strlen(fmt) - 2 + 1 <= sizeof dir_buf) {
+      // use $TEST_IOCTL_FRIENDLY_TMPDIR value
+      candidate_dir_list.push_front(tmp);
+    }
+
+    for (const std::string& d : candidate_dir_list) {
+      snprintf(dir_buf, sizeof dir_buf, fmt, d.c_str());
+      if (mkdtemp(dir_buf)) {
+        if (ioctl_support__FS_IOC_GETVERSION(dir_buf)) {
+          dir_ = dir_buf;
+          return;
+        } else {
+          // Diagnose ioctl-related failure only if this is the
+          // directory specified via that envvar.
+          if (tmp == d) {
+            fprintf(stderr, "TEST_IOCTL_FRIENDLY_TMPDIR-specified directory is "
+                    "not suitable: %s\n", d.c_str());
+          }
+          rmdir(dir_buf);  // ignore failure
+        }
+      } else {
+        // mkdtemp failed: diagnose it, but don't give up.
+        fprintf(stderr, "mkdtemp(%s/...) failed: %s\n", d.c_str(),
+                strerror(errno));
+      }
+    }
+
+    fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
+            " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
+    std::abort();
+  }
+
+  ~IoctlFriendlyTmpdir() {
+    rmdir(dir_.c_str());
+  }
+  const std::string& name() {
+    return dir_;
+  }
+
+ private:
+  std::string dir_;
+};
 
 
 // Only works in linux platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueID) {
-  if (!ioctl_support__FS_IOC_GETVERSION()) {
-    return;
-  }
   // Create file.
   const EnvOptions soptions;
-  std::string fname = GetOnDiskTestDir() + "/" + "testfile";
+  IoctlFriendlyTmpdir ift;
+  std::string fname = ift.name() + "/testfile";
   unique_ptr<WritableFile> wfile;
   ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
 
@@ -579,12 +625,12 @@ TEST_F(EnvPosixTest, RandomAccessUniqueID) {
 // only works in linux platforms
 #ifdef ROCKSDB_FALLOCATE_PRESENT
 TEST_F(EnvPosixTest, AllocateTest) {
-  std::string fname = GetOnDiskTestDir() + "/preallocate_testfile";
+  IoctlFriendlyTmpdir ift;
+  std::string fname = ift.name() + "/preallocate_testfile";
 
   // Try fallocate in a file to see whether the target file system supports it.
   // Skip the test if fallocate is not supported.
-  std::string fname_test_fallocate =
-      GetOnDiskTestDir() + "/preallocate_testfile_2";
+  std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
   int fd = -1;
   do {
     fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
@@ -658,17 +704,14 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 
 // Only works in linux platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
-  if (!ioctl_support__FS_IOC_GETVERSION()) {
-    return;
-  }
   // Check whether a bunch of concurrently existing files have unique IDs.
   const EnvOptions soptions;
 
   // Create the files
+  IoctlFriendlyTmpdir ift;
   std::vector<std::string> fnames;
   for (int i = 0; i < 1000; ++i) {
-    fnames.push_back(
-        GetOnDiskTestDir() + "/" + "testfile" + ToString(i));
+    fnames.push_back(ift.name() + "/" + "testfile" + ToString(i));
 
     // Create file.
     unique_ptr<WritableFile> wfile;
@@ -700,12 +743,10 @@ TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 
 // Only works in linux platforms
 TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
-  if (!ioctl_support__FS_IOC_GETVERSION()) {
-    return;
-  }
   const EnvOptions soptions;
 
-  std::string fname = GetOnDiskTestDir() + "/" + "testfile";
+  IoctlFriendlyTmpdir ift;
+  std::string fname = ift.name() + "/" + "testfile";
 
   // Check that after file is deleted we don't get same ID again in a new file.
   std::unordered_set<std::string> ids;
