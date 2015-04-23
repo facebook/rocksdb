@@ -10675,7 +10675,7 @@ TEST_F(DBTest, PreShutdownMultipleCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
-  const int kEntriesPerBuffer = 10;
+  const int kEntriesPerBuffer = 40;
   const int kNumL0Files = 4;
 
   const int kHighPriCount = 3;
@@ -10709,6 +10709,8 @@ TEST_F(DBTest, PreShutdownMultipleCompaction) {
       {{"FlushJob::FlushJob()", "CompactionJob::Run():Start"},
        {"CompactionJob::Run():Start",
         "DBTest::PreShutdownMultipleCompaction:Preshutdown"},
+        {"CompactionJob::Run():Start",
+        "DBTest::PreShutdownMultipleCompaction:VerifyCompaction"},
        {"DBTest::PreShutdownMultipleCompaction:Preshutdown",
         "CompactionJob::Run():End"},
        {"CompactionJob::Run():End",
@@ -10718,10 +10720,9 @@ TEST_F(DBTest, PreShutdownMultipleCompaction) {
 
   // Make rocksdb busy
   int key = 0;
-  int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
   // check how many threads are doing compaction using GetThreadList
   int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
-  for (int file = 0; file < 8 * kNumL0Files; ++file) {
+  for (int file = 0; file < 16 * kNumL0Files; ++file) {
     for (int k = 0; k < kEntriesPerBuffer; ++k) {
       ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
     }
@@ -10731,22 +10732,19 @@ TEST_F(DBTest, PreShutdownMultipleCompaction) {
       operation_count[thread.operation_type]++;
     }
 
-    // Record the max number of compactions at a time.
-    for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
-      if (max_operation_count[i] < operation_count[i]) {
-        max_operation_count[i] = operation_count[i];
-      }
-    }
     // Speed up the test
-    if (max_operation_count[ThreadStatus::OP_FLUSH] > 1 &&
-        max_operation_count[ThreadStatus::OP_COMPACTION] >
+    if (operation_count[ThreadStatus::OP_FLUSH] > 1 &&
+        operation_count[ThreadStatus::OP_COMPACTION] >
             0.6 * options.max_background_compactions) {
       break;
+    }
+    if (file == 15 * kNumL0Files) {
+      TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
     }
   }
 
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
-  ASSERT_GE(max_operation_count[ThreadStatus::OP_COMPACTION], 1);
+  ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
   CancelAllBackgroundWork(db_);
   TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
   dbfull()->TEST_WaitForCompact();
@@ -10765,7 +10763,7 @@ TEST_F(DBTest, PreShutdownCompactionMiddle) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
-  const int kEntriesPerBuffer = 10;
+  const int kEntriesPerBuffer = 40;
   const int kNumL0Files = 4;
 
   const int kHighPriCount = 3;
@@ -10796,20 +10794,21 @@ TEST_F(DBTest, PreShutdownCompactionMiddle) {
   std::vector<ThreadStatus> thread_list;
   // Delay both flush and compaction
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
-      {{"DBTest::PreShutdownMultipleCompaction:Preshutdown",
+      {{"DBTest::PreShutdownCompactionMiddle:Preshutdown",
         "CompactionJob::Run():Inprogress"},
+        {"CompactionJob::Run():Start",
+        "DBTest::PreShutdownCompactionMiddle:VerifyCompaction"},
        {"CompactionJob::Run():Inprogress", "CompactionJob::Run():End"},
        {"CompactionJob::Run():End",
-        "DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown"}});
+        "DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown"}});
 
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   // Make rocksdb busy
   int key = 0;
-  int max_operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
   // check how many threads are doing compaction using GetThreadList
   int operation_count[ThreadStatus::NUM_OP_TYPES] = {0};
-  for (int file = 0; file < 8 * kNumL0Files; ++file) {
+  for (int file = 0; file < 16 * kNumL0Files; ++file) {
     for (int k = 0; k < kEntriesPerBuffer; ++k) {
       ASSERT_OK(Put(ToString(key++), RandomString(&rnd, kTestValueSize)));
     }
@@ -10819,24 +10818,21 @@ TEST_F(DBTest, PreShutdownCompactionMiddle) {
       operation_count[thread.operation_type]++;
     }
 
-    // Record the max number of compactions at a time.
-    for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
-      if (max_operation_count[i] < operation_count[i]) {
-        max_operation_count[i] = operation_count[i];
-      }
-    }
     // Speed up the test
-    if (max_operation_count[ThreadStatus::OP_FLUSH] > 1 &&
-        max_operation_count[ThreadStatus::OP_COMPACTION] >
+    if (operation_count[ThreadStatus::OP_FLUSH] > 1 &&
+        operation_count[ThreadStatus::OP_COMPACTION] >
             0.6 * options.max_background_compactions) {
       break;
     }
+    if (file == 15 * kNumL0Files) {
+      TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyCompaction");
+    }
   }
 
-  ASSERT_GE(max_operation_count[ThreadStatus::OP_COMPACTION], 1);
+  ASSERT_GE(operation_count[ThreadStatus::OP_COMPACTION], 1);
   CancelAllBackgroundWork(db_);
-  TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:Preshutdown");
-  TEST_SYNC_POINT("DBTest::PreShutdownMultipleCompaction:VerifyPreshutdown");
+  TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:Preshutdown");
+  TEST_SYNC_POINT("DBTest::PreShutdownCompactionMiddle:VerifyPreshutdown");
   dbfull()->TEST_WaitForCompact();
   // Record the number of compactions at a time.
   for (int i = 0; i < ThreadStatus::NUM_OP_TYPES; ++i) {
