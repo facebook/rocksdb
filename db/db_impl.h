@@ -187,6 +187,8 @@ class DBImpl : public DB {
   Status SuggestCompactRange(ColumnFamilyHandle* column_family,
                              const Slice* begin, const Slice* end);
 
+  Status PromoteL0(ColumnFamilyHandle* column_family, int target_level);
+
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes

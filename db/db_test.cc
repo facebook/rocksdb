@@ -12619,6 +12619,72 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   ASSERT_EQ("0,1,13", FilesPerLevel(0));
 }
 
+TEST_F(DBTest, PromoteL0) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 10 * 1024 * 1024;
+  DestroyAndReopen(options);
+
+  // non overlapping ranges
+  std::vector<std::pair<int32_t, int32_t>> ranges = {
+      {81, 160}, {0, 80}, {161, 240}, {241, 320}};
+
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+  for (const auto& range : ranges) {
+    for (int32_t j = range.first; j < range.second; j++) {
+      values[j] = RandomString(&rnd, value_size);
+      ASSERT_OK(Put(Key(j), values[j]));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  int32_t level0_files = NumTableFilesAtLevel(0, 0);
+  ASSERT_EQ(level0_files, ranges.size());
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);  // No files in L1
+
+  // Promote L0 level to L2.
+  ASSERT_OK(experimental::PromoteL0(db_, db_->DefaultColumnFamily(), 2));
+  // We expect that all the files were trivially moved from L0 to L2
+  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2, 0), level0_files);
+
+  for (const auto& kv : values) {
+    ASSERT_EQ(Get(Key(kv.first)), kv.second);
+  }
+}
+
+TEST_F(DBTest, PromoteL0Failure) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 10 * 1024 * 1024;
+  DestroyAndReopen(options);
+
+  // Produce two L0 files with overlapping ranges.
+  ASSERT_OK(Put(Key(0), ""));
+  ASSERT_OK(Put(Key(3), ""));
+  ASSERT_OK(Flush());
+  ASSERT_OK(Put(Key(1), ""));
+  ASSERT_OK(Flush());
+
+  Status status;
+  // Fails because L0 has overlapping files.
+  status = experimental::PromoteL0(db_, db_->DefaultColumnFamily());
+  ASSERT_TRUE(status.IsInvalidArgument());
+
+  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  // Now there is a file in L1.
+  ASSERT_GE(NumTableFilesAtLevel(1, 0), 1);
+
+  ASSERT_OK(Put(Key(5), ""));
+  ASSERT_OK(Flush());
+  // Fails because L1 is non-empty.
+  status = experimental::PromoteL0(db_, db_->DefaultColumnFamily());
+  ASSERT_TRUE(status.IsInvalidArgument());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
