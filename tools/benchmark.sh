@@ -138,6 +138,7 @@ function run_bulkload {
        --threads=1 \
        --memtablerep=vector \
        --disable_wal=1 \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/benchmark_bulkload_fillrandom.log"
   echo $cmd | tee $output_dir/benchmark_bulkload_fillrandom.log
   eval $cmd
@@ -166,6 +167,7 @@ function run_fillseq {
        --threads=1 \
        --memtablerep=vector \
        --disable_wal=1 \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/benchmark_fillseq.v${value_size}.log"
   echo $cmd | tee $output_dir/benchmark_fillseq.v${value_size}.log
   eval $cmd
@@ -182,6 +184,7 @@ function run_change {
        $params_w \
        --threads=$num_threads \
        --merge_operator=\"put\" \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/${out_name}"
   echo $cmd | tee $output_dir/${out_name}
   eval $cmd
@@ -195,6 +198,7 @@ function run_filluniquerandom {
        --sync=0 \
        $params_w \
        --threads=1 \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/benchmark_filluniquerandom.log"
   echo $cmd | tee $output_dir/benchmark_filluniquerandom.log
   eval $cmd
@@ -208,6 +212,7 @@ function run_readrandom {
        --use_existing_db=1 \
        $params_w \
        --threads=$num_threads \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/${out_name}"
   echo $cmd | tee $output_dir/${out_name}
   eval $cmd
@@ -225,6 +230,7 @@ function run_readwhile {
        --threads=$num_threads \
        --writes_per_second=$writes_per_second \
        --merge_operator=\"put\" \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/${out_name}"
   echo $cmd | tee $output_dir/${out_name}
   eval $cmd
@@ -246,6 +252,7 @@ function run_rangewhile {
        --merge_operator=\"put\" \
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/${out_name}"
   echo $cmd | tee $output_dir/${out_name}
   eval $cmd
@@ -263,6 +270,7 @@ function run_range {
        --threads=$num_threads \
        --seek_nexts=$num_nexts_per_seek \
        --reverse_iterator=$reverse_arg \
+       --seed=$( date +%s ) \
        2>&1 | tee -a $output_dir/${out_name}"
   echo $cmd | tee $output_dir/${out_name}
   eval $cmd
