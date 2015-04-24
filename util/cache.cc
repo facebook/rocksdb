@@ -481,7 +481,7 @@ class ShardedLRUCache : public Cache {
   virtual ~ShardedLRUCache() {
     delete[] shards_;
   }
-  virtual void SetCapacity(size_t capacity) {
+  virtual void SetCapacity(size_t capacity) override {
     int num_shards = 1 << num_shard_bits_;
     const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
     MutexLock l(&capacity_mutex_);
