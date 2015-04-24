@@ -1058,6 +1058,10 @@ Compaction* UniversalCompactionPicker::PickCompaction(
       // If max read amplification is exceeding configured limits, then force
       // compaction without looking at filesize ratios and try to reduce
       // the number of files to fewer than level0_file_num_compaction_trigger.
+      // This is guaranteed by NeedsCompaction()
+      assert(sorted_runs.size() >=
+             static_cast<size_t>(
+                 mutable_cf_options.level0_file_num_compaction_trigger));
       unsigned int num_files =
           static_cast<unsigned int>(sorted_runs.size()) -
           mutable_cf_options.level0_file_num_compaction_trigger;
