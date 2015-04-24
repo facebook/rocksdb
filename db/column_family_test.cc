@@ -118,7 +118,11 @@ class ColumnFamilyTest : public testing::Test {
   int GetProperty(int cf, std::string property) {
     std::string value;
     EXPECT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
+#ifndef CYGWIN
     return std::stoi(value);
+#else
+    return std::strtol(value.c_str(), 0);
+#endif
   }
 
   void Destroy() {

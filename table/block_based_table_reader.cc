@@ -1586,7 +1586,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     }
 
     out_file->Append("Data Block # ");
-    out_file->Append(std::to_string(block_id));
+    out_file->Append(rocksdb::ToString(block_id));
     out_file->Append(" @ ");
     out_file->Append(blockhandles_iter->value().ToString(true).c_str());
     out_file->Append("\n");

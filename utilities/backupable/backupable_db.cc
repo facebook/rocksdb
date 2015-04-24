@@ -14,6 +14,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "rocksdb/transaction_log.h"
 
 #ifndef __STDC_FORMAT_MACROS
@@ -251,7 +252,7 @@ class BackupEngineImpl : public BackupEngine {
                                        bool tmp = false,
                                        const std::string& file = "") const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetPrivateDirRel() + "/" + std::to_string(backup_id) +
+    return GetPrivateDirRel() + "/" + rocksdb::ToString(backup_id) +
            (tmp ? ".tmp" : "") + "/" + file;
   }
   inline std::string GetSharedFileRel(const std::string& file = "",
@@ -270,8 +271,8 @@ class BackupEngineImpl : public BackupEngine {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
     return file_copy.insert(file_copy.find_last_of('.'),
-                            "_" + std::to_string(checksum_value)
-                              + "_" + std::to_string(file_size));
+                            "_" + rocksdb::ToString(checksum_value) + "_" +
+                                rocksdb::ToString(file_size));
   }
   inline std::string GetFileFromChecksumFile(const std::string& file) const {
     assert(file.size() == 0 || file[0] != '/');
@@ -287,7 +288,7 @@ class BackupEngineImpl : public BackupEngine {
     return GetAbsolutePath("meta");
   }
   inline std::string GetBackupMetaFile(BackupID backup_id) const {
-    return GetBackupMetaDir() + "/" + std::to_string(backup_id);
+    return GetBackupMetaDir() + "/" + rocksdb::ToString(backup_id);
   }
 
   Status GetLatestBackupFileContents(uint32_t* latest_backup);
@@ -402,7 +403,7 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
     Log(options_.info_log, "Detected backup %s", file.c_str());
     BackupID backup_id = 0;
     sscanf(file.c_str(), "%u", &backup_id);
-    if (backup_id == 0 || file != std::to_string(backup_id)) {
+    if (backup_id == 0 || file != rocksdb::ToString(backup_id)) {
       if (!read_only_) {
         Log(options_.info_log, "Unrecognized meta file %s, deleting",
             file.c_str());
@@ -1264,7 +1265,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       line.remove_prefix(checksum_prefix.size());
       checksum_value = static_cast<uint32_t>(
           strtoul(line.data(), nullptr, 10));
-      if (line != std::to_string(checksum_value)) {
+      if (line != rocksdb::ToString(checksum_value)) {
         return Status::Corruption("Invalid checksum value for " + filename +
                                   " in " + meta_filename_);
       }

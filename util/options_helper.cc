@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <cctype>
+#include <cstdlib>
 #include <unordered_set>
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
@@ -14,6 +15,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
+#include "util/logging.h"
 #include "util/options_helper.h"
 
 namespace rocksdb {
@@ -73,7 +75,13 @@ bool ParseBoolean(const std::string& type, const std::string& value) {
 
 uint64_t ParseUint64(const std::string& value) {
   size_t endchar;
+#ifndef CYGWIN
   uint64_t num = std::stoull(value.c_str(), &endchar);
+#else
+  char* endptr;
+  uint64_t num = std::strtoul(value.c_str(), &endptr, 0);
+  endchar = endptr - value.c_str();
+#endif
 
   if (endchar < value.length()) {
     char c = value[endchar];
@@ -105,7 +113,13 @@ uint32_t ParseUint32(const std::string& value) {
 
 int ParseInt(const std::string& value) {
   size_t endchar;
+#ifndef CYGWIN
   int num = std::stoi(value.c_str(), &endchar);
+#else
+  char* endptr;
+  int num = std::strtoul(value.c_str(), &endptr, 0);
+  endchar = endptr - value.c_str();
+#endif
 
   if (endchar < value.length()) {
     char c = value[endchar];
@@ -121,7 +135,11 @@ int ParseInt(const std::string& value) {
 }
 
 double ParseDouble(const std::string& value) {
+#ifndef CYGWIN
   return std::stod(value);
+#else
+  return std::strtod(value.c_str(), 0);
+#endif
 }
 
 CompactionStyle ParseCompactionStyle(const std::string& type) {

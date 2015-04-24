@@ -90,7 +90,6 @@ fi
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
 CROSS_COMPILE=
 PLATFORM_CCFLAGS=
-PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS"
 PLATFORM_SHARED_EXT="so"
 PLATFORM_SHARED_LDFLAGS="-shared -Wl,-soname -Wl,"
@@ -156,6 +155,16 @@ case "$TARGET_OS" in
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/dragonfly/dragonfly_specific.cc
         ;;
+    Cygwin)
+        PLATFORM=CYGWIN
+        PLATFORM_CXXFLAGS="-std=gnu++11"
+        COMMON_FLAGS="$COMMON_FLAGS -DCYGWIN"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/linux/linux_specific.cc
+        ;;
     OS_ANDROID_CROSSCOMPILE)
         PLATFORM=OS_ANDROID
 	COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX"
@@ -168,6 +177,7 @@ case "$TARGET_OS" in
         exit 1
 esac
 
+PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then

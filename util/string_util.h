@@ -14,10 +14,10 @@ extern std::vector<std::string> StringSplit(const std::string& arg, char delim);
 
 template <typename T>
 inline std::string ToString(T value) {
-#ifndef OS_ANDROID
+#if !(defined OS_ANDROID) && !(defined CYGWIN)
   return std::to_string(value);
 #else
-  // Andorid doesn't support all of C++11, std::to_string() being
+  // Andorid or cygwin doesn't support all of C++11, std::to_string() being
   // one of the not supported features.
   std::ostringstream os;
   os << value;

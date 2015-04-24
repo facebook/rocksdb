@@ -192,7 +192,7 @@ vector<string> GetTestKeys(size_t size) {
 
   int index = 0;
   for (auto& key : keys) {
-    key = "item-" + to_string(index++);
+    key = "item-" + rocksdb::ToString(index++);
   }
   return keys;
 }

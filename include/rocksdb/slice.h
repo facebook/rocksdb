@@ -20,6 +20,7 @@
 #define STORAGE_ROCKSDB_INCLUDE_SLICE_H_
 
 #include <assert.h>
+#include <cstdio>
 #include <stddef.h>
 #include <string.h>
 #include <string>
