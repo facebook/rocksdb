@@ -347,6 +347,44 @@ void deleter(const Slice& key, void* value) {
 }
 }  // namespace
 
+TEST_F(CacheTest, SetCapacity) {
+  // test1: increase capacity
+  // lets create a cache with capacity 5,
+  // then, insert 5 elements, then increase capacity
+  // to 10, returned capacity should be 10, usage=5
+  std::shared_ptr<Cache> cache = NewLRUCache(5, 0);
+  std::vector<Cache::Handle*> handles(10);
+  // Insert 5 entries, but not releasing.
+  for (size_t i = 0; i < 5; i++) {
+    std::string key = ToString(i+1);
+    handles[i] = cache->Insert(key, new Value(i+1), 1, &deleter);
+  }
+  ASSERT_EQ(5U, cache->GetCapacity());
+  ASSERT_EQ(5U, cache->GetUsage());
+  cache->SetCapacity(10);
+  ASSERT_EQ(10U, cache->GetCapacity());
+  ASSERT_EQ(5U, cache->GetUsage());
+
+  // test2: decrease capacity
+  // insert 5 more elements to cache, then release 5,
+  // then decrease capacity to 7, final capacity should be 7
+  // and usage should be 7
+  for (size_t i = 5; i < 10; i++) {
+    std::string key = ToString(i+1);
+    handles[i] = cache->Insert(key, new Value(i+1), 1, &deleter);
+  }
+  ASSERT_EQ(10U, cache->GetCapacity());
+  ASSERT_EQ(10U, cache->GetUsage());
+  for (size_t i = 0; i < 5; i++) {
+    cache->Release(handles[i]);
+  }
+  ASSERT_EQ(10U, cache->GetCapacity());
+  ASSERT_EQ(10U, cache->GetUsage());
+  cache->SetCapacity(7);
+  ASSERT_EQ(7, cache->GetCapacity());
+  ASSERT_EQ(7, cache->GetUsage());
+}
+
 TEST_F(CacheTest, OverCapacity) {
   size_t n = 10;
 

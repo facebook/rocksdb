@@ -192,7 +192,9 @@ class LRUCache {
   ~LRUCache();
 
   // Separate from constructor so caller can easily make an array of LRUCache
-  void SetCapacity(size_t capacity) { capacity_ = capacity; }
+  // if current usage is more than new capacity, the function will attempt to
+  // free the needed space
+  void SetCapacity(size_t capacity);
 
   // Like Cache methods, but with an extra "hash" parameter.
   Cache::Handle* Insert(const Slice& key, uint32_t hash,
@@ -218,6 +220,13 @@ class LRUCache {
   // Just reduce the reference count by 1.
   // Return true if last reference
   bool Unref(LRUHandle* e);
+
+  // Free some space following strict LRU policy until enough space
+  // to hold (usage_ + charge) is freed or the lru list is empty
+  // This function is not thread safe - it needs to be executed while
+  // holding the mutex_
+  void EvictFromLRU(size_t charge,
+                    autovector<LRUHandle*>* deleted);
 
   // Initialized before use.
   size_t capacity_;
@@ -282,6 +291,35 @@ void LRUCache::LRU_Append(LRUHandle* e) {
   e->prev = lru_.prev;
   e->prev->next = e;
   e->next->prev = e;
+}
+
+void LRUCache::EvictFromLRU(size_t charge,
+                            autovector<LRUHandle*>* deleted) {
+  while (usage_ + charge > capacity_ && lru_.next != &lru_) {
+    LRUHandle* old = lru_.next;
+    assert(old->in_cache);
+    assert(old->refs == 1);  // LRU list contains elements which may be evicted
+    LRU_Remove(old);
+    table_.Remove(old->key(), old->hash);
+    old->in_cache = false;
+    Unref(old);
+    usage_ -= old->charge;
+    deleted->push_back(old);
+  }
+}
+
+void LRUCache::SetCapacity(size_t capacity) {
+  autovector<LRUHandle*> last_reference_list;
+  {
+    MutexLock l(&mutex_);
+    capacity_ = capacity;
+    EvictFromLRU(0, &last_reference_list);
+  }
+  // we free the entries here outside of mutex for
+  // performance reasons
+  for (auto entry : last_reference_list) {
+    entry->Free();
+  }
 }
 
 Cache::Handle* LRUCache::Lookup(const Slice& key, uint32_t hash) {
@@ -357,18 +395,7 @@ Cache::Handle* LRUCache::Insert(
 
     // Free the space following strict LRU policy until enough space
     // is freed or the lru list is empty
-    while (usage_ + charge > capacity_ && lru_.next != &lru_) {
-      LRUHandle* old = lru_.next;
-      assert(old->in_cache);
-      assert(old->refs ==
-             1);  // LRU list contains elements which may be evicted
-      LRU_Remove(old);
-      table_.Remove(old->key(), old->hash);
-      old->in_cache = false;
-      Unref(old);
-      usage_ -= old->charge;
-      last_reference_list.push_back(old);
-    }
+    EvictFromLRU(charge, &last_reference_list);
 
     // insert into the cache
     // note that the cache might get larger than its capacity if not enough
@@ -427,6 +454,7 @@ class ShardedLRUCache : public Cache {
  private:
   LRUCache* shards_;
   port::Mutex id_mutex_;
+  port::Mutex capacity_mutex_;
   uint64_t last_id_;
   int num_shard_bits_;
   size_t capacity_;
@@ -452,6 +480,15 @@ class ShardedLRUCache : public Cache {
   }
   virtual ~ShardedLRUCache() {
     delete[] shards_;
+  }
+  virtual void SetCapacity(size_t capacity) {
+    int num_shards = 1 << num_shard_bits_;
+    const size_t per_shard = (capacity + (num_shards - 1)) / num_shards;
+    MutexLock l(&capacity_mutex_);
+    for (int s = 0; s < num_shards; s++) {
+      shards_[s].SetCapacity(per_shard);
+    }
+    capacity_ = capacity;
   }
   virtual Handle* Insert(const Slice& key, void* value, size_t charge,
                          void (*deleter)(const Slice& key,
