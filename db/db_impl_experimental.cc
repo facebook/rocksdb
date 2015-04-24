@@ -30,10 +30,10 @@ Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
   auto cfd = cfh->cfd();
   InternalKey start_key, end_key;
   if (begin != nullptr) {
-    start_key = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
+    start_key.SetMaxPossibleForUserKey(*begin);
   }
   if (end != nullptr) {
-    end_key = InternalKey(*end, 0, static_cast<ValueType>(0));
+    end_key.SetMinPossibleForUserKey(*end);
   }
   {
     InstrumentedMutexLock l(&mutex_);

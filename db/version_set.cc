@@ -397,7 +397,8 @@ bool SomeFileOverlapsRange(
   uint32_t index = 0;
   if (smallest_user_key != nullptr) {
     // Find the earliest possible internal key for smallest_user_key
-    InternalKey small(*smallest_user_key, kMaxSequenceNumber,kValueTypeForSeek);
+    InternalKey small;
+    small.SetMaxPossibleForUserKey(*smallest_user_key);
     index = FindFile(icmp, file_level, small.Encode());
   }
 
@@ -1230,7 +1231,8 @@ int VersionStorageInfo::PickLevelForMemTableOutput(
   if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
     // Push to next level if there is no overlap in next level,
     // and the #bytes overlapping in the level after that are limited.
-    InternalKey start(smallest_user_key, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey start;
+    start.SetMaxPossibleForUserKey(smallest_user_key);
     InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
     std::vector<FileMetaData*> overlaps;
     while (mutable_cf_options.max_mem_compaction_level > 0 &&

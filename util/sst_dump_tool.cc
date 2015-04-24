@@ -187,7 +187,8 @@ Status SstFileReader::ReadSequential(bool print_kv,
                                                          false));
   uint64_t i = 0;
   if (has_from) {
-    InternalKey ikey(from_key, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey ikey;
+    ikey.SetMaxPossibleForUserKey(from_key);
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();

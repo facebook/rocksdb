@@ -1686,7 +1686,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.begin = nullptr;
   } else {
-    begin_storage = InternalKey(*begin, kMaxSequenceNumber, kValueTypeForSeek);
+    begin_storage.SetMaxPossibleForUserKey(*begin);
     manual.begin = &begin_storage;
   }
   if (end == nullptr ||
@@ -1694,7 +1694,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
       cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
     manual.end = nullptr;
   } else {
-    end_storage = InternalKey(*end, 0, static_cast<ValueType>(0));
+    end_storage.SetMinPossibleForUserKey(*end);
     manual.end = &end_storage;
   }
 
@@ -3555,8 +3555,9 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
 
   for (int i = 0; i < n; i++) {
     // Convert user_key into a corresponding internal key.
-    InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
-    InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k1, k2;
+    k1.SetMaxPossibleForUserKey(range[i].start);
+    k2.SetMaxPossibleForUserKey(range[i].limit);
     uint64_t start = versions_->ApproximateOffsetOf(v, k1);
     uint64_t limit = versions_->ApproximateOffsetOf(v, k2);
     sizes[i] = (limit >= start ? limit - start : 0);

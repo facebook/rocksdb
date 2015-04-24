@@ -796,7 +796,8 @@ void InternalDumpCommand::DoCommand() {
   }
 
   if (has_from_) {
-    InternalKey ikey(from_, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey ikey;
+    ikey.SetMaxPossibleForUserKey(from_);
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
