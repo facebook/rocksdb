@@ -419,7 +419,7 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
                                       &backuped_file_infos_, backup_env_)))));
   }
 
-  if (options_.destroy_old_data) {  // Destory old data
+  if (options_.destroy_old_data) {  // Destroy old data
     assert(!read_only_);
     Log(options_.info_log,
         "Backup Engine started with destroy_old_data == true, deleting all "

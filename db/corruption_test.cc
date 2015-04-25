@@ -103,7 +103,7 @@ class CorruptionTest : public testing::Test {
     // db itself will raise errors because data is corrupted.
     // Instead, we want the reads to be successful and this test
     // will detect whether the appropriate corruptions have
-    // occured.
+    // occurred.
     Iterator* iter = db_->NewIterator(ReadOptions(false, true));
     for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
       uint64_t key;

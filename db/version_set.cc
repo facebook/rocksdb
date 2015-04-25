@@ -275,7 +275,7 @@ class FilePicker {
                               static_cast<uint32_t>(search_right_bound_));
         } else {
           // search_left_bound > search_right_bound, key does not exist in
-          // this level. Since no comparision is done in this level, it will
+          // this level. Since no comparison is done in this level, it will
           // need to search all files in the next level.
           search_left_bound_ = 0;
           search_right_bound_ = FileIndexer::kLevelMaxIndex;

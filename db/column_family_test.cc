@@ -268,7 +268,7 @@ class ColumnFamilyTest : public testing::Test {
     VectorLogPtr wal_files;
     Status s;
     // GetSortedWalFiles is a flakey function -- it gets all the wal_dir
-    // children files and then later checks for their existance. if some of the
+    // children files and then later checks for their existence. if some of the
     // log files doesn't exist anymore, it reports an error. it does all of this
     // without DB mutex held, so if a background process deletes the log file
     // while the function is being executed, it returns an error. We retry the

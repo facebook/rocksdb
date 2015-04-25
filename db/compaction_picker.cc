@@ -1248,12 +1248,12 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
                   cf_name.c_str(), file_num_buf, loop);
     }
 
-    // Check if the suceeding files need compaction.
+    // Check if the succeeding files need compaction.
     for (unsigned int i = loop + 1;
          candidate_count < max_files_to_compact && i < sorted_runs.size();
          i++) {
-      const SortedRun* suceeding_sr = &sorted_runs[i];
-      if (suceeding_sr->being_compacted) {
+      const SortedRun* succeeding_sr = &sorted_runs[i];
+      if (succeeding_sr->being_compacted) {
         break;
       }
       // Pick files if the total/last candidate file size (increased by the
@@ -1263,14 +1263,14 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
       // kCompactionStopStyleSimilarSize, it's simply the size of the last
       // picked file.
       double sz = candidate_size * (100.0 + ratio) / 100.0;
-      if (sz < static_cast<double>(suceeding_sr->size)) {
+      if (sz < static_cast<double>(succeeding_sr->size)) {
         break;
       }
       if (ioptions_.compaction_options_universal.stop_style ==
           kCompactionStopStyleSimilarSize) {
         // Similar-size stopping rule: also check the last picked file isn't
         // far larger than the next candidate file.
-        sz = (suceeding_sr->size * (100.0 + ratio)) / 100.0;
+        sz = (succeeding_sr->size * (100.0 + ratio)) / 100.0;
         if (sz < static_cast<double>(candidate_size)) {
           // If the small file we've encountered begins a run of similar-size
           // files, we'll pick them up on a future iteration of the outer
@@ -1278,9 +1278,9 @@ Compaction* UniversalCompactionPicker::PickCompactionUniversalReadAmp(
           // by the last-resort read amp strategy which disregards size ratios.
           break;
         }
-        candidate_size = suceeding_sr->compensated_file_size;
+        candidate_size = succeeding_sr->compensated_file_size;
       } else {  // default kCompactionStopStyleTotalSize
-        candidate_size += suceeding_sr->compensated_file_size;
+        candidate_size += succeeding_sr->compensated_file_size;
       }
       candidate_count++;
     }

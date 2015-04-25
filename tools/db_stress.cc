@@ -174,7 +174,7 @@ DEFINE_int32(compaction_thread_pool_adjust_interval, 0,
              "The interval (in milliseconds) to adjust compaction thread pool "
              "size. Don't change it periodically if the value is 0.");
 
-DEFINE_int32(compaction_thread_pool_varations, 2,
+DEFINE_int32(compaction_thread_pool_variations, 2,
              "Range of bakground thread pool size variations when adjusted "
              "periodically.");
 

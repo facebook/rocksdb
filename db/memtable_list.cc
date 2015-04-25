@@ -161,7 +161,7 @@ void MemTableList::RollbackMemtableFlush(const autovector<MemTable*>& mems,
   assert(!mems.empty());
 
   // If the flush was not successful, then just reset state.
-  // Maybe a suceeding attempt to flush will be successful.
+  // Maybe a succeeding attempt to flush will be successful.
   for (MemTable* m : mems) {
     assert(m->flush_in_progress_);
     assert(m->file_number_ == 0);
@@ -184,7 +184,7 @@ Status MemTableList::InstallMemtableFlushResults(
       ThreadStatus::STAGE_MEMTABLE_INSTALL_FLUSH_RESULTS);
   mu->AssertHeld();
 
-  // flush was sucessful
+  // flush was successful
   for (size_t i = 0; i < mems.size(); ++i) {
     // All the edits are associated with the first memtable of this batch.
     assert(i == 0 || mems[i]->GetEdits()->NumEntries() == 0);
@@ -193,7 +193,7 @@ Status MemTableList::InstallMemtableFlushResults(
     mems[i]->file_number_ = file_number;
   }
 
-  // if some other thread is already commiting, then return
+  // if some other thread is already committing, then return
   Status s;
   if (commit_in_progress_) {
     return s;

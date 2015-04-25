@@ -1295,7 +1295,7 @@ static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
 
 // A helper function that ensures the table properties returned in
 // `GetPropertiesOfAllTablesTest` is correct.
-// This test assumes entries size is differnt for each of the tables.
+// This test assumes entries size is different for each of the tables.
 namespace {
 void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
   TablePropertiesCollection props;
@@ -1955,7 +1955,7 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
     //   * sstable B in level 2
     // Then do enough Get() calls to arrange for an automatic compaction
     // of sstable A.  A bug would cause the compaction to be marked as
-    // occuring at level 1 (instead of the correct level 0).
+    // occurring at level 1 (instead of the correct level 0).
 
     // Step 1: First place sstables in levels 0 and 2
     int compaction_count = 0;
@@ -11648,7 +11648,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
 
   // Test max_mem_compaction_level.
-  // Destory DB and start from scratch
+  // Destroy DB and start from scratch
   options.max_background_compactions = 1;
   options.max_background_flushes = 0;
   options.max_mem_compaction_level = 2;
