@@ -456,6 +456,7 @@ void DBImpl::MaybeDumpStats() {
 #endif  // !ROCKSDB_LITE
 
     PrintStatistics();
+    Log(db_options_.info_log, "------- DUMPING STATS END -------");
   }
 }
 

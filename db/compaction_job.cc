@@ -505,11 +505,13 @@ void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
   VersionStorageInfo::LevelSummaryStorage tmp;
   const auto& stats = compaction_stats_;
   LogToBuffer(log_buffer_,
-              "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
+              "[%s] Compacted to: Base version %" PRIu64
+              " %s, MB/sec: %.1f rd, %.1f wr, level %d, "
               "files in(%d, %d) out(%d) "
               "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
               "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
               cfd->GetName().c_str(),
+              compact_->compaction->input_version()->GetVersionNumber(),
               cfd->current()->storage_info()->LevelSummary(&tmp),
               (stats.bytes_readn + stats.bytes_readnp1) /
                   static_cast<double>(stats.micros),
