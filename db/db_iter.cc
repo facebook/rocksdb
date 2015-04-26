@@ -254,7 +254,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
     }
     // If we have sequentially iterated via numerous keys and still not
     // found the next user-key, then it is better to seek so that we can
-    // avoid too many key comparisons. We seek to the last occurence of
+    // avoid too many key comparisons. We seek to the last occurrence of
     // our current key by looking for sequence number 0.
     if (skipping && num_skipped > max_skip_) {
       num_skipped = 0;

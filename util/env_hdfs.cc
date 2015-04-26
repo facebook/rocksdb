@@ -562,7 +562,7 @@ Status HdfsEnv::GetFileModificationTime(const std::string& fname,
 }
 
 // The rename is not atomic. HDFS does not allow a renaming if the
-// target already exists. So, we delete the target before attemting the
+// target already exists. So, we delete the target before attempting the
 // rename.
 Status HdfsEnv::RenameFile(const std::string& src, const std::string& target) {
   hdfsDelete(fileSys_, target.c_str(), 1);

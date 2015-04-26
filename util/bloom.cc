@@ -43,7 +43,7 @@ class FullFilterBitsBuilder : public FilterBitsBuilder {
   // When creating filter, it is ensured that
   // total_bits = num_lines * CACHE_LINE_SIZE * 8
   // dst len is >= 5, 1 for num_probes, 4 for num_lines
-  // Then total_bits = (len - 5) * 8, and cache_line_size could be calulated
+  // Then total_bits = (len - 5) * 8, and cache_line_size could be calculated
   // +----------------------------------------------------------------+
   // |              filter data with length total_bits/8              |
   // +----------------------------------------------------------------+

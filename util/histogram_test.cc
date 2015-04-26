@@ -33,7 +33,7 @@ TEST_F(HistogramTest, BasicOperation) {
     ASSERT_TRUE(percentile99 >= percentile85);
   }
 
-  ASSERT_EQ(histogram.Average(), 50.5); // avg is acurately caluclated.
+  ASSERT_EQ(histogram.Average(), 50.5); // avg is acurately calculated.
 }
 
 TEST_F(HistogramTest, EmptyHistogram) {

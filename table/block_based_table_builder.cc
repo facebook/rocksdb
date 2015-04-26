@@ -208,7 +208,7 @@ class HashIndexBuilder : public IndexBuilder {
       pending_entry_index_ = static_cast<uint32_t>(current_restart_index_);
     } else {
       // entry number increments when keys share the prefix reside in
-      // differnt data blocks.
+      // different data blocks.
       auto last_restart_index = pending_entry_index_ + pending_block_num_ - 1;
       assert(last_restart_index <= current_restart_index_);
       if (last_restart_index != current_restart_index_) {
@@ -383,7 +383,7 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 // A collector that collects properties of interest to block-based table.
 // For now this class looks heavy-weight since we only write one additional
 // property.
-// But in the forseeable future, we will add more and more properties that are
+// But in the foreseeable future, we will add more and more properties that are
 // specific to block-based table.
 class BlockBasedTableBuilder::BlockBasedTablePropertiesCollector
     : public IntTblPropCollector {

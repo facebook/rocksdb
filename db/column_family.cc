@@ -614,7 +614,7 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   void* expected = SuperVersion::kSVInUse;
   if (local_sv_->CompareAndSwap(static_cast<void*>(sv), expected)) {
     // When we see kSVInUse in the ThreadLocal, we are sure ThreadLocal
-    // storage has not been altered and no Scrape has happend. The
+    // storage has not been altered and no Scrape has happened. The
     // SuperVersion is still current.
     return true;
   } else {
