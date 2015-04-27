@@ -383,6 +383,11 @@ TEST_F(CacheTest, SetCapacity) {
   cache->SetCapacity(7);
   ASSERT_EQ(7, cache->GetCapacity());
   ASSERT_EQ(7, cache->GetUsage());
+
+  // release remaining 5 to keep valgrind happy
+  for (size_t i = 5; i < 10; i++) {
+    cache->Release(handles[i]);
+  }
 }
 
 TEST_F(CacheTest, OverCapacity) {
