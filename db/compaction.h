@@ -173,6 +173,8 @@ class Compaction {
 
   const char* InputLevelSummary(InputLevelSummaryBuffer* scratch) const;
 
+  uint64_t CalculateTotalInputSize() const;
+
   // In case of compaction error, reset the nextIndex that is used
   // to pick up the next file to be compacted from files_by_size_
   void ResetNextCompactionIndex();

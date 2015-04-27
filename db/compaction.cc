@@ -255,6 +255,16 @@ const char* Compaction::InputLevelSummary(
   return scratch->buffer;
 }
 
+uint64_t Compaction::CalculateTotalInputSize() const {
+  uint64_t size = 0;
+  for (auto& input_level : inputs_) {
+    for (auto f : input_level.files) {
+      size += f->fd.GetFileSize();
+    }
+  }
+  return size;
+}
+
 void Compaction::ReleaseCompactionFiles(Status status) {
   MarkFilesBeingCompacted(false);
   cfd_->compaction_picker()->ReleaseCompactionFiles(this, status);

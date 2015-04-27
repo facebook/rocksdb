@@ -138,6 +138,17 @@ Status FlushJob::Run(uint64_t* file_number) {
     *file_number = fn;
   }
 
+  auto stream = event_logger_->LogToBuffer(log_buffer_);
+  stream << "job" << job_context_->job_id << "event"
+         << "flush_finished";
+  stream << "lsm_state";
+  stream.StartArray();
+  auto vstorage = cfd_->current()->storage_info();
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    stream << vstorage->NumLevelFiles(level);
+  }
+  stream.EndArray();
+
   return s;
 }
 
@@ -166,12 +177,24 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
+    uint64_t total_num_entries = 0, total_num_deletes = 0;
+    size_t total_memory_usage = 0;
     for (MemTable* m : mems) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
+      total_num_entries += m->num_entries();
+      total_num_deletes += m->num_deletes();
+      total_memory_usage += m->ApproximateMemoryUsage();
     }
+
+    event_logger_->Log() << "job" << job_context_->job_id << "event"
+                         << "flush_started"
+                         << "num_memtables" << mems.size() << "num_entries"
+                         << total_num_entries << "num_deletes"
+                         << total_num_deletes << "memory_usage"
+                         << total_memory_usage;
     {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
@@ -195,7 +218,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber(),
         meta.fd.GetFileSize(), s.ToString().c_str());
-    event_logger_->Log() << "event"
+    event_logger_->Log() << "job" << job_context_->job_id << "event"
                          << "table_file_creation"
                          << "file_number" << meta.fd.GetNumber() << "file_size"
                          << meta.fd.GetFileSize();

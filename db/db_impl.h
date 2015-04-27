@@ -360,8 +360,8 @@ class DBImpl : public DB {
   // database is opened) and is heavyweight because it holds the mutex
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
-  Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
-                                     VersionEdit* edit);
+  Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
+                                     MemTable* mem, VersionEdit* edit);
   Status DelayWrite(uint64_t expiration_time);
 
   Status ScheduleFlushes(WriteContext* context);

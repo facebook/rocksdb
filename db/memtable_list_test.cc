@@ -222,9 +222,9 @@ TEST_F(MemTableListTest, FlushPendingTest) {
 
   // Create some MemTables
   std::vector<MemTable*> tables;
+  MutableCFOptions mutable_cf_options(options, ioptions);
   for (int i = 0; i < num_tables; i++) {
-    MemTable* mem =
-        new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb);
+    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb);
     mem->Ref();
 
     std::string value;

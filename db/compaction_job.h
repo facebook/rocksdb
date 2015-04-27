@@ -30,6 +30,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
+#include "util/event_logger.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "util/scoped_arena_iterator.h"
@@ -60,7 +61,8 @@ class CompactionJob {
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats, SnapshotList* snapshot_list,
                 bool is_snapshot_supported, std::shared_ptr<Cache> table_cache,
-                std::function<uint64_t()> yield_callback);
+                std::function<uint64_t()> yield_callback,
+                EventLogger* event_logger);
 
   ~CompactionJob();
 
@@ -125,6 +127,8 @@ class CompactionJob {
 
   // yield callback
   std::function<uint64_t()> yield_callback_;
+
+  EventLogger* event_logger_;
 };
 
 }  // namespace rocksdb

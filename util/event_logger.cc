@@ -21,12 +21,24 @@ namespace rocksdb {
 const char* kEventLoggerPrefix = "EVENT_LOG_v1";
 
 EventLoggerStream::EventLoggerStream(Logger* logger)
-    : logger_(logger), json_writter_(nullptr) {}
+    : logger_(logger), log_buffer_(nullptr), json_writter_(nullptr) {}
+
+EventLoggerStream::EventLoggerStream(LogBuffer* log_buffer)
+    : logger_(nullptr), log_buffer_(log_buffer), json_writter_(nullptr) {}
 
 EventLoggerStream::~EventLoggerStream() {
   if (json_writter_) {
     json_writter_->EndObject();
-    Log(logger_, "%s %s", kEventLoggerPrefix, json_writter_->Get().c_str());
+#ifdef ROCKSDB_PRINT_EVENTS_TO_STDOUT
+    printf("%s\n", json_writter_->Get().c_str());
+#else
+    if (logger_) {
+      Log(logger_, "%s %s", kEventLoggerPrefix, json_writter_->Get().c_str());
+    } else if (log_buffer_) {
+      LogToBuffer(log_buffer_, "%s %s", kEventLoggerPrefix,
+                  json_writter_->Get().c_str());
+    }
+#endif
     delete json_writter_;
   }
 }

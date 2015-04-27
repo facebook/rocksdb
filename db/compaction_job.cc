@@ -49,6 +49,7 @@
 #include "util/perf_context_imp.h"
 #include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/thread_status_util.h"
 
@@ -208,7 +209,7 @@ CompactionJob::CompactionJob(
     LogBuffer* log_buffer, Directory* db_directory, Directory* output_directory,
     Statistics* stats, SnapshotList* snapshots, bool is_snapshot_supported,
     std::shared_ptr<Cache> table_cache,
-    std::function<uint64_t()> yield_callback)
+    std::function<uint64_t()> yield_callback, EventLogger* event_logger)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_stats_(1),
@@ -225,7 +226,8 @@ CompactionJob::CompactionJob(
       snapshots_(snapshots),
       is_snapshot_supported_(is_snapshot_supported),
       table_cache_(std::move(table_cache)),
-      yield_callback_(std::move(yield_callback)) {
+      yield_callback_(std::move(yield_callback)),
+      event_logger_(event_logger) {
   ThreadStatusUtil::SetColumnFamily(
       compact_->compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
@@ -242,22 +244,10 @@ void CompactionJob::Prepare() {
   compact_->CleanupBatchBuffer();
   compact_->CleanupMergedBuffer();
 
-  auto* compaction = compact_->compaction;
-
   // Generate file_levels_ for compaction berfore making Iterator
-  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+  ColumnFamilyData* cfd __attribute__((unused)) =
+      compact_->compaction->column_family_data();
   assert(cfd != nullptr);
-  {
-    Compaction::InputLevelSummaryBuffer inputs_summary;
-    LogToBuffer(log_buffer_, "[%s] [JOB %d] Compacting %s, score %.2f",
-                cfd->GetName().c_str(), job_id_,
-                compaction->InputLevelSummary(&inputs_summary),
-                compaction->score());
-  }
-  char scratch[2345];
-  compact_->compaction->Summary(scratch, sizeof(scratch));
-  LogToBuffer(log_buffer_, "[%s] Compaction start summary: %s\n",
-              cfd->GetName().c_str(), scratch);
 
   assert(cfd->current()->storage_info()->NumLevelFiles(
              compact_->compaction->level()) > 0);
@@ -290,6 +280,35 @@ Status CompactionJob::Run() {
   TEST_SYNC_POINT("CompactionJob::Run():Start");
   log_buffer_->FlushBufferToLog();
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
+
+  auto* compaction = compact_->compaction;
+  // Let's check if anything will get logged. Don't prepare all the info if
+  // we're not logging
+  if (db_options_.info_log_level <= InfoLogLevel::INFO_LEVEL) {
+    Compaction::InputLevelSummaryBuffer inputs_summary;
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "[%s] [JOB %d] Compacting %s, score %.2f", cfd->GetName().c_str(),
+        job_id_, compaction->InputLevelSummary(&inputs_summary),
+        compaction->score());
+    char scratch[2345];
+    compact_->compaction->Summary(scratch, sizeof(scratch));
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "[%s] Compaction start summary: %s\n", cfd->GetName().c_str(), scratch);
+    // build event logger report
+    auto stream = event_logger_->Log();
+    stream << "job" << job_id_ << "event"
+           << "compaction_started";
+    for (size_t i = 0; i < compaction->num_input_levels(); ++i) {
+      stream << ("files_L" + ToString(compaction->level(i)));
+      stream.StartArray();
+      for (auto f : *compaction->inputs(i)) {
+        stream << f->fd.GetNumber();
+      }
+      stream.EndArray();
+    }
+    stream << "score" << compaction->score() << "input_data_size"
+           << compaction->CalculateTotalInputSize();
+  }
 
   const uint64_t start_micros = env_->NowMicros();
   std::unique_ptr<Iterator> input(
@@ -481,7 +500,6 @@ Status CompactionJob::Run() {
   if (compact_->num_input_records > compact_->num_output_records) {
     compaction_stats_.num_dropped_records +=
         compact_->num_input_records - compact_->num_output_records;
-    compact_->num_input_records = compact_->num_output_records = 0;
   }
 
   RecordCompactionIOStats();
@@ -503,14 +521,14 @@ void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
     *status = InstallCompactionResults(db_mutex);
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
+  auto vstorage = cfd->current()->storage_info();
   const auto& stats = compaction_stats_;
   LogToBuffer(log_buffer_,
               "[%s] compacted to: %s, MB/sec: %.1f rd, %.1f wr, level %d, "
               "files in(%d, %d) out(%d) "
               "MB in(%.1f, %.1f) out(%.1f), read-write-amplify(%.1f) "
               "write-amplify(%.1f) %s, records in: %d, records dropped: %d\n",
-              cfd->GetName().c_str(),
-              cfd->current()->storage_info()->LevelSummary(&tmp),
+              cfd->GetName().c_str(), vstorage->LevelSummary(&tmp),
               (stats.bytes_readn + stats.bytes_readnp1) /
                   static_cast<double>(stats.micros),
               stats.bytes_written / static_cast<double>(stats.micros),
@@ -523,6 +541,21 @@ void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
               stats.bytes_written / static_cast<double>(stats.bytes_readn),
               status->ToString().c_str(), stats.num_input_records,
               stats.num_dropped_records);
+
+  auto stream = event_logger_->LogToBuffer(log_buffer_);
+  stream << "job" << job_id_ << "event"
+         << "compaction_finished"
+         << "output_level" << compact_->compaction->output_level()
+         << "num_output_files" << compact_->outputs.size()
+         << "total_output_size" << compact_->total_bytes << "num_input_records"
+         << compact_->num_input_records << "num_output_records"
+         << compact_->num_output_records;
+  stream << "lsm_state";
+  stream.StartArray();
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    stream << vstorage->NumLevelFiles(level);
+  }
+  stream.EndArray();
 
   CleanupCompaction(*status);
 }
@@ -997,6 +1030,10 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
           " keys, %" PRIu64 " bytes",
           cfd->GetName().c_str(), job_id_, output_number, current_entries,
           current_bytes);
+      event_logger_->Log() << "job" << job_id_ << "event"
+                           << "table_file_creation"
+                           << "file_number" << output_number << "file_size"
+                           << current_bytes;
     }
   }
   return s;

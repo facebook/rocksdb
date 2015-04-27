@@ -671,7 +671,7 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
       fname = TableFileName(db_options_.db_paths, number, path_id);
-      event_logger_.Log() << "event"
+      event_logger_.Log() << "job" << state.job_id << "event"
                           << "table_file_deletion"
                           << "file_number" << number;
     } else {
@@ -937,6 +937,18 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     edit.SetColumnFamily(cfd->GetID());
     version_edits.insert({cfd->GetID(), edit});
   }
+  int job_id = next_job_id_.fetch_add(1);
+  {
+    auto stream = event_logger_.Log();
+    stream << "job" << job_id << "event"
+           << "recovery_started";
+    stream << "log_files";
+    stream.StartArray();
+    for (auto log_number : log_numbers) {
+      stream << log_number;
+    }
+    stream.EndArray();
+  }
 
   for (auto log_number : log_numbers) {
     // The previous incarnation may not have written any MANIFEST
@@ -1016,7 +1028,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           auto iter = version_edits.find(cfd->GetID());
           assert(iter != version_edits.end());
           VersionEdit* edit = &iter->second;
-          status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
+          status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
           if (!status.ok()) {
             // Reflect errors immediately so that conditions like full
             // file-systems cause the DB::Open() to fail.
@@ -1058,7 +1070,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
       // flush the final memtable (if non-empty)
       if (cfd->mem()->GetFirstSequenceNumber() != 0) {
-        status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
+        status = WriteLevel0TableForRecovery(job_id, cfd, cfd->mem(), edit);
         if (!status.ok()) {
           // Recovery failed
           break;
@@ -1087,11 +1099,14 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
   }
 
+  event_logger_.Log() << "job" << job_id << "event"
+                      << "recovery_finished";
+
   return status;
 }
 
-Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
-                                           VersionEdit* edit) {
+Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
+                                           MemTable* mem, VersionEdit* edit) {
   mutex_.AssertHeld();
   const uint64_t start_micros = env_->NowMicros();
   FileMetaData meta;
@@ -1129,6 +1144,10 @@ Status DBImpl::WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
         " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
         s.ToString().c_str());
+    event_logger_.Log() << "job" << job_id << "event"
+                        << "table_file_creation"
+                        << "file_number" << meta.fd.GetNumber() << "file_size"
+                        << meta.fd.GetFileSize();
   }
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
@@ -1453,7 +1472,7 @@ Status DBImpl::CompactFilesImpl(
       env_options_, versions_.get(), &shutting_down_, log_buffer,
       directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
       stats_, &snapshots_, is_snapshot_supported_, table_cache_,
-      std::move(yield_callback));
+      std::move(yield_callback), &event_logger_);
   compaction_job.Prepare();
 
   mutex_.Unlock();
@@ -2299,6 +2318,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     VersionStorageInfo::LevelSummaryStorage tmp;
     c->column_family_data()->internal_stats()->IncBytesMoved(
         c->level() + 1, f->fd.GetFileSize());
+    {
+      event_logger_.LogToBuffer(log_buffer)
+          << "job" << job_context->job_id << "event"
+          << "trivial_move"
+          << "destination_level" << c->level() + 1 << "file_number"
+          << f->fd.GetNumber() << "file_size" << f->fd.GetFileSize();
+    }
     LogToBuffer(
         log_buffer,
         "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes %s: %s\n",
@@ -2321,7 +2347,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         env_options_, versions_.get(), &shutting_down_, log_buffer,
         directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
         stats_, &snapshots_, is_snapshot_supported_, table_cache_,
-        std::move(yield_callback));
+        std::move(yield_callback), &event_logger_);
     compaction_job.Prepare();
     mutex_.Unlock();
     status = compaction_job.Run();

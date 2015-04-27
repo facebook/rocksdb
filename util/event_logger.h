@@ -11,6 +11,7 @@
 #include <chrono>
 
 #include "rocksdb/env.h"
+#include "util/log_buffer.h"
 
 namespace rocksdb {
 
@@ -56,11 +57,8 @@ class JSONWritter {
   }
 
   void StartArray() {
-    assert(state_ == kExpectKey);
+    assert(state_ == kExpectValue);
     state_ = kInArray;
-    if (!first_element_) {
-      stream_ << ", ";
-    }
     stream_ << "[";
     first_element_ = true;
   }
@@ -125,6 +123,12 @@ class EventLoggerStream {
     *json_writter_ << val;
     return *this;
   }
+
+  void StartArray() { json_writter_->StartArray(); }
+  void EndArray() { json_writter_->EndArray(); }
+  void StartObject() { json_writter_->StartObject(); }
+  void EndObject() { json_writter_->EndObject(); }
+
   ~EventLoggerStream();
 
  private:
@@ -138,7 +142,10 @@ class EventLoggerStream {
   }
   friend class EventLogger;
   explicit EventLoggerStream(Logger* logger);
-  Logger* logger_;
+  explicit EventLoggerStream(LogBuffer* log_buffer);
+  // exactly one is non-nullptr
+  Logger* const logger_;
+  LogBuffer* const log_buffer_;
   // ownership
   JSONWritter* json_writter_;
 };
@@ -151,6 +158,9 @@ class EventLogger {
  public:
   explicit EventLogger(Logger* logger) : logger_(logger) {}
   EventLoggerStream Log() { return EventLoggerStream(logger_); }
+  EventLoggerStream LogToBuffer(LogBuffer* log_buffer) {
+    return EventLoggerStream(log_buffer);
+  }
 
  private:
   Logger* logger_;
