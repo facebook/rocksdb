@@ -506,39 +506,6 @@ public interface DBOptionsInterface {
   int tableCacheNumshardbits();
 
   /**
-   * During data eviction of table's LRU cache, it would be inefficient
-   * to strictly follow LRU because this piece of memory will not really
-   * be released unless its refcount falls to zero. Instead, make two
-   * passes: the first pass will release items with refcount = 1,
-   * and if not enough space releases after scanning the number of
-   * elements specified by this parameter, we will remove items in LRU
-   * order.
-   *
-   * @param limit scan count limit
-   * @return the instance of the current Object.
-   *
-   * @deprecated This function is depreciated.
-   */
-  @Deprecated
-  Object setTableCacheRemoveScanCountLimit(int limit);
-
-  /**
-   * During data eviction of table's LRU cache, it would be inefficient
-   * to strictly follow LRU because this piece of memory will not really
-   * be released unless its refcount falls to zero. Instead, make two
-   * passes: the first pass will release items with refcount = 1,
-   * and if not enough space releases after scanning the number of
-   * elements specified by this parameter, we will remove items in LRU
-   * order.
-   *
-   * @return scan count limit
-   *
-   * @deprecated This function is depreciated.
-   */
-  @Deprecated
-  int tableCacheRemoveScanCountLimit();
-
-  /**
    * {@link #walTtlSeconds()} and {@link #walSizeLimitMB()} affect how archived logs
    * will be deleted.
    * <ol>
@@ -714,31 +681,6 @@ public interface DBOptionsInterface {
    * @return true if child process inheriting open files is disabled.
    */
   boolean isFdCloseOnExec();
-
-  /**
-   * Skip log corruption error on recovery (If client is ok with
-   * losing most recent changes)
-   * Default: false
-   *
-   * @param skip true if log corruption errors are skipped during recovery.
-   * @return the instance of the current Object.
-   *
-   * @deprecated will be removed in RocksDB 3.11.0. Not used anymore.
-   */
-  @Deprecated
-  Object setSkipLogErrorOnRecovery(boolean skip);
-
-  /**
-   * Skip log corruption error on recovery (If client is ok with
-   * losing most recent changes)
-   * Default: false
-   *
-   * @return true if log corruption errors are skipped during recovery.
-   *
-   * @deprecated will be removed in RocksDB 3.11.0. Not used anymore.
-   */
-  @Deprecated
-  boolean skipLogErrorOnRecovery();
 
   /**
    * if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec

@@ -16,39 +16,10 @@ public class ColumnFamilyDescriptor {
    * options,</p>
    *
    * @param columnFamilyName name of column family.
-   * @deprecated will be removed in RocksDB 3.10.0. Use
-   * {@link #ColumnFamilyDescriptor(byte[])} instead.
-   */
-  @Deprecated
-  public ColumnFamilyDescriptor(final String columnFamilyName){
-    this(columnFamilyName.getBytes(), new ColumnFamilyOptions());
-  }
-
-  /**
-   * <p>Creates a new Column Family using a name and default
-   * options,</p>
-   *
-   * @param columnFamilyName name of column family.
    * @since 3.10.0
    */
   public ColumnFamilyDescriptor(final byte[] columnFamilyName) {
     this(columnFamilyName, new ColumnFamilyOptions());
-  }
-
-  /**
-   * <p>Creates a new Column Family using a name and custom
-   * options.</p>
-   *
-   * @param columnFamilyName name of column family.
-   * @param columnFamilyOptions options to be used with
-   *     column family.
-   * @deprecated will be removed in RocksDB 3.10.0. Use
-   * {@link #ColumnFamilyDescriptor(byte[], ColumnFamilyOptions)} instead.
-   */
-  @Deprecated
-  public ColumnFamilyDescriptor(final String columnFamilyName,
-      final ColumnFamilyOptions columnFamilyOptions) {
-    this(columnFamilyName.getBytes(), columnFamilyOptions);
   }
 
   /**

@@ -474,21 +474,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void skipLogErrorOnRecovery() {
-    DBOptions opt = null;
-    try {
-      opt = new DBOptions();
-      boolean boolValue = rand.nextBoolean();
-      opt.setSkipLogErrorOnRecovery(boolValue);
-      assertThat(opt.skipLogErrorOnRecovery()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void statsDumpPeriodSec() {
     DBOptions opt = null;
     try {

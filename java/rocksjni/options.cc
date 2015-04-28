@@ -696,27 +696,6 @@ void Java_org_rocksdb_Options_setTableCacheNumshardbits(
 }
 
 /*
- * Class:     org_rocksdb_Options
- * Method:    tableCacheRemoveScanCountLimit
- * Signature: (J)I
- */
-jint Java_org_rocksdb_Options_tableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  // deprecated
-  return 0;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setTableCacheRemoveScanCountLimit
- * Signature: (JI)V
- */
-void Java_org_rocksdb_Options_setTableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint limit) {
-  // deprecated
-}
-
-/*
  * Method:    useFixedLengthPrefixExtractor
  * Signature: (JI)V
  */
@@ -888,28 +867,6 @@ void Java_org_rocksdb_Options_setIsFdCloseOnExec(
     JNIEnv* env, jobject jobj, jlong jhandle, jboolean is_fd_close_on_exec) {
   reinterpret_cast<rocksdb::Options*>(jhandle)->is_fd_close_on_exec =
       static_cast<bool>(is_fd_close_on_exec);
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    skipLogErrorOnRecovery
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_Options_skipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::Options*>(jhandle)
-      ->skip_log_error_on_recovery;
-}
-
-/*
- * Class:     org_rocksdb_Options
- * Method:    setSkipLogErrorOnRecovery
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_Options_setSkipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean skip) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->skip_log_error_on_recovery =
-      static_cast<bool>(skip);
 }
 
 /*
@@ -3525,27 +3482,6 @@ jint Java_org_rocksdb_DBOptions_tableCacheNumshardbits(
 
 /*
  * Class:     org_rocksdb_DBOptions
- * Method:    setTableCacheRemoveScanCountLimit
- * Signature: (JI)V
- */
-void Java_org_rocksdb_DBOptions_setTableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle, jint limit) {
-  // deprecated
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    tableCacheRemoveScanCountLimit
- * Signature: (J)I
- */
-jint Java_org_rocksdb_DBOptions_tableCacheRemoveScanCountLimit(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  // deprecated
-  return 0;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
  * Method:    setWalTtlSeconds
  * Signature: (JJ)V
  */
@@ -3695,28 +3631,6 @@ void Java_org_rocksdb_DBOptions_setIsFdCloseOnExec(
 jboolean Java_org_rocksdb_DBOptions_isFdCloseOnExec(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::DBOptions*>(jhandle)->is_fd_close_on_exec;
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    setSkipLogErrorOnRecovery
- * Signature: (JZ)V
- */
-void Java_org_rocksdb_DBOptions_setSkipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle, jboolean skip) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->skip_log_error_on_recovery =
-      static_cast<bool>(skip);
-}
-
-/*
- * Class:     org_rocksdb_DBOptions
- * Method:    skipLogErrorOnRecovery
- * Signature: (J)Z
- */
-jboolean Java_org_rocksdb_DBOptions_skipLogErrorOnRecovery(
-    JNIEnv* env, jobject jobj, jlong jhandle) {
-  return reinterpret_cast<rocksdb::DBOptions*>(jhandle)
-      ->skip_log_error_on_recovery;
 }
 
 /*

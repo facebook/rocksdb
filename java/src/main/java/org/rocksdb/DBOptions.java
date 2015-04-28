@@ -383,20 +383,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   }
 
   @Override
-  public DBOptions setTableCacheRemoveScanCountLimit(
-      final int limit) {
-    assert(isInitialized());
-    setTableCacheRemoveScanCountLimit(nativeHandle_, limit);
-    return this;
-  }
-
-  @Override
-  public int tableCacheRemoveScanCountLimit() {
-    assert(isInitialized());
-    return tableCacheRemoveScanCountLimit(nativeHandle_);
-  }
-
-  @Override
   public DBOptions setWalTtlSeconds(
       final long walTtlSeconds) {
     assert(isInitialized());
@@ -492,22 +478,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   public boolean isFdCloseOnExec() {
     assert(isInitialized());
     return isFdCloseOnExec(nativeHandle_);
-  }
-
-  @Override
-  @Deprecated
-  public DBOptions setSkipLogErrorOnRecovery(
-      final boolean skip) {
-    assert(isInitialized());
-    setSkipLogErrorOnRecovery(nativeHandle_, skip);
-    return this;
-  }
-
-  @Override
-  @Deprecated
-  public boolean skipLogErrorOnRecovery() {
-    assert(isInitialized());
-    return skipLogErrorOnRecovery(nativeHandle_);
   }
 
   @Override
@@ -648,9 +618,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setTableCacheNumshardbits(
       long handle, int tableCacheNumshardbits);
   private native int tableCacheNumshardbits(long handle);
-  private native void setTableCacheRemoveScanCountLimit(
-      long handle, int limit);
-  private native int tableCacheRemoveScanCountLimit(long handle);
   private native void setWalTtlSeconds(long handle, long walTtlSeconds);
   private native long walTtlSeconds(long handle);
   private native void setWalSizeLimitMB(long handle, long sizeLimitMB);
@@ -670,9 +637,6 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setIsFdCloseOnExec(
       long handle, boolean isFdCloseOnExec);
   private native boolean isFdCloseOnExec(long handle);
-  private native void setSkipLogErrorOnRecovery(
-      long handle, boolean skip);
-  private native boolean skipLogErrorOnRecovery(long handle);
   private native void setStatsDumpPeriodSec(
       long handle, int statsDumpPeriodSec);
   private native int statsDumpPeriodSec(long handle);
