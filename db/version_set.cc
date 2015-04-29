@@ -2802,39 +2802,100 @@ bool VersionSet::ManifestContains(uint64_t manifest_file_num,
   return result;
 }
 
+uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
+                                     const Slice& end) {
+  // pre-condition
+  assert(v->cfd_->internal_comparator().Compare(start, end) <= 0);
 
-uint64_t VersionSet::ApproximateOffsetOf(Version* v, const InternalKey& ikey) {
-  uint64_t result = 0;
+  uint64_t size = 0;
   const auto* vstorage = v->storage_info();
-  for (int level = 0; level < vstorage->num_levels(); level++) {
-    const std::vector<FileMetaData*>& files = vstorage->LevelFiles(level);
-    for (size_t i = 0; i < files.size(); i++) {
-      if (v->cfd_->internal_comparator().Compare(files[i]->largest, ikey) <=
-          0) {
-        // Entire file is before "ikey", so just add the file size
-        result += files[i]->fd.GetFileSize();
-      } else if (v->cfd_->internal_comparator().Compare(files[i]->smallest,
-                                                        ikey) > 0) {
-        // Entire file is after "ikey", so ignore
-        if (level > 0) {
-          // Files other than level 0 are sorted by meta->smallest, so
-          // no further files in this level will contain data for
-          // "ikey".
-          break;
-        }
-      } else {
-        // "ikey" falls in the range for this table.  Add the
-        // approximate offset of "ikey" within the table.
-        TableReader* table_reader_ptr;
-        Iterator* iter = v->cfd_->table_cache()->NewIterator(
-            ReadOptions(), env_options_, v->cfd_->internal_comparator(),
-            files[i]->fd, &table_reader_ptr);
-        if (table_reader_ptr != nullptr) {
-          result += table_reader_ptr->ApproximateOffsetOf(ikey.Encode());
-        }
-        delete iter;
+
+  for (int level = 0; level < vstorage->num_non_empty_levels(); level++) {
+    const LevelFilesBrief& files_brief = vstorage->LevelFilesBrief(level);
+    if (!files_brief.num_files) {
+      // empty level, skip exploration
+      continue;
+    }
+
+    if (!level) {
+      // level 0 data is sorted order, handle the use case explicitly
+      size += ApproximateSizeLevel0(v, files_brief, start, end);
+      continue;
+    }
+
+    assert(level > 0);
+    assert(files_brief.num_files > 0);
+
+    // identify the file position for starting key
+    const uint64_t idx_start =
+        FindFileInRange(v->cfd_->internal_comparator(), files_brief, start,
+                        /*start=*/0, files_brief.num_files - 1);
+    assert(idx_start < files_brief.num_files);
+
+    // scan all files from the starting position until the ending position
+    // inferred from the sorted order
+    for (uint64_t i = idx_start; i < files_brief.num_files; i++) {
+      uint64_t val;
+      val = ApproximateSize(v, files_brief.files[i], end);
+      if (!val) {
+        // the files after this will not have the range
+        break;
+      }
+
+      size += val;
+
+      if (i == idx_start) {
+        // subtract the bytes needed to be scanned to get to the starting
+        // key
+        val = ApproximateSize(v, files_brief.files[i], start);
+        assert(size >= val);
+        size -= val;
       }
     }
+  }
+
+  return size;
+}
+
+uint64_t VersionSet::ApproximateSizeLevel0(Version* v,
+                                           const LevelFilesBrief& files_brief,
+                                           const Slice& key_start,
+                                           const Slice& key_end) {
+  // level 0 files are not in sorted order, we need to iterate through
+  // the list to compute the total bytes that require scanning
+  uint64_t size = 0;
+  for (size_t i = 0; i < files_brief.num_files; i++) {
+    const uint64_t start = ApproximateSize(v, files_brief.files[i], key_start);
+    const uint64_t end = ApproximateSize(v, files_brief.files[i], key_end);
+    assert(end >= start);
+    size += end - start;
+  }
+  return size;
+}
+
+uint64_t VersionSet::ApproximateSize(Version* v, const FdWithKeyRange& f,
+                                     const Slice& key) {
+  // pre-condition
+  assert(v);
+
+  uint64_t result = 0;
+  if (v->cfd_->internal_comparator().Compare(f.largest_key, key) <= 0) {
+    // Entire file is before "key", so just add the file size
+    result = f.fd.GetFileSize();
+  } else if (v->cfd_->internal_comparator().Compare(f.smallest_key, key) > 0) {
+    // Entire file is after "key", so ignore
+    result = 0;
+  } else {
+    // "key" falls in the range for this table.  Add the
+    // approximate offset of "key" within the table.
+    TableReader* table_reader_ptr;
+    Iterator* iter = v->cfd_->table_cache()->NewIterator(
+        ReadOptions(), env_options_, v->cfd_->internal_comparator(), f.fd,
+        &table_reader_ptr);
+    if (table_reader_ptr != nullptr) {
+      result = table_reader_ptr->ApproximateOffsetOf(key);
+    }
+    delete iter;
   }
   return result;
 }

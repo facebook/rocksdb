@@ -618,9 +618,8 @@ class VersionSet {
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
-  // Return the approximate offset in the database of the data for
-  // "key" as of version "v".
-  uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
+  // Return the approximate size of data to be scanned for range [start, end)
+  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
@@ -656,6 +655,13 @@ class VersionSet {
       if (this->status->ok()) *this->status = s;
     }
   };
+
+  // ApproximateSize helper
+  uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
+                                 const Slice& start, const Slice& end);
+
+  uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
+                           const Slice& key);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);

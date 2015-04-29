@@ -3587,7 +3587,6 @@ void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
                                  const Range* range, int n, uint64_t* sizes) {
-  // TODO(opt): better implementation
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
@@ -3599,12 +3598,9 @@ void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
 
   for (int i = 0; i < n; i++) {
     // Convert user_key into a corresponding internal key.
-    InternalKey k1, k2;
-    k1.SetMaxPossibleForUserKey(range[i].start);
-    k2.SetMaxPossibleForUserKey(range[i].limit);
-    uint64_t start = versions_->ApproximateOffsetOf(v, k1);
-    uint64_t limit = versions_->ApproximateOffsetOf(v, k2);
-    sizes[i] = (limit >= start ? limit - start : 0);
+    InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
+    sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
   }
 
   {
