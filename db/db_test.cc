@@ -12547,7 +12547,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 100 << 10;  // 100KB
   options.level0_file_num_compaction_trigger = 2;
-  options.num_levels = 3;
+  options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
 
   Reopen(options);

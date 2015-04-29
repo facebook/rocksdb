@@ -38,7 +38,7 @@ Status DBImpl::SuggestCompactRange(ColumnFamilyHandle* column_family,
   {
     InstrumentedMutexLock l(&mutex_);
     auto vstorage = cfd->current()->storage_info();
-    for (int level = 0; level < vstorage->num_non_empty_levels(); ++level) {
+    for (int level = 0; level < vstorage->num_non_empty_levels() - 1; ++level) {
       std::vector<FileMetaData*> inputs;
       vstorage->GetOverlappingInputs(
           level, begin == nullptr ? nullptr : &start_key,
