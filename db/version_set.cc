@@ -1184,6 +1184,10 @@ bool Version::Unref() {
 bool VersionStorageInfo::OverlapInLevel(int level,
                                         const Slice* smallest_user_key,
                                         const Slice* largest_user_key) {
+  if (level >= num_non_empty_levels_) {
+    // empty level, no overlap
+    return false;
+  }
   return SomeFileOverlapsRange(*internal_comparator_, (level > 0),
                                level_files_brief_[level], smallest_user_key,
                                largest_user_key);
@@ -1227,6 +1231,11 @@ int VersionStorageInfo::PickLevelForMemTableOutput(
 void VersionStorageInfo::GetOverlappingInputs(
     int level, const InternalKey* begin, const InternalKey* end,
     std::vector<FileMetaData*>* inputs, int hint_index, int* file_index) {
+  if (level >= num_non_empty_levels_) {
+    // this level is empty, no overlapping inputs
+    return;
+  }
+
   inputs->clear();
   Slice user_begin, user_end;
   if (begin != nullptr) {

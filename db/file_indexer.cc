@@ -20,6 +20,9 @@ FileIndexer::FileIndexer(const Comparator* ucmp)
 size_t FileIndexer::NumLevelIndex() const { return next_level_index_.size(); }
 
 size_t FileIndexer::LevelIndexSize(size_t level) const {
+  if (level >= next_level_index_.size()) {
+    return 0;
+  }
   return next_level_index_[level].num_index;
 }
 

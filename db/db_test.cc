@@ -11963,6 +11963,25 @@ TEST_F(DBTest, EmptyCompactedDB) {
   Close();
 }
 
+// Github issue #596
+TEST_F(DBTest, HugeNumberOfLevels) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 2 * 1024 * 1024;         // 2MB
+  options.max_bytes_for_level_base = 2 * 1024 * 1024;  // 2MB
+  options.num_levels = 12;
+  options.max_background_compactions = 10;
+  options.max_bytes_for_level_multiplier = 2;
+  options.level_compaction_dynamic_level_bytes = true;
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+  for (int i = 0; i < 300000; ++i) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+
+  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
