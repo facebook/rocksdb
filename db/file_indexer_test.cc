@@ -11,6 +11,7 @@
 #include "db/file_indexer.h"
 #include "db/dbformat.h"
 #include "db/version_edit.h"
+#include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -343,6 +344,7 @@ TEST_F(FileIndexerTest, mixed) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

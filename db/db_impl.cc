@@ -1279,7 +1279,8 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   {
     InstrumentedMutexLock l(&mutex_);
     Version* base = cfd->current();
-    for (int level = 1; level < cfd->NumberLevels(); level++) {
+    for (int level = 1; level < base->storage_info()->num_non_empty_levels();
+         level++) {
       if (base->storage_info()->OverlapInLevel(level, begin, end)) {
         max_level_with_files = level;
       }
