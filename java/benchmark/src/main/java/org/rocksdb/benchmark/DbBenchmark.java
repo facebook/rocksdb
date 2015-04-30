@@ -94,7 +94,7 @@ class Stats {
 
   void stop() {
     finish_ = System.nanoTime();
-    seconds_ = (double) (finish_ - start_) / 1000000;
+    seconds_ = (double) (finish_ - start_) * 1e-9;
   }
 
   void addMessage(String msg) {
@@ -140,15 +140,15 @@ class Stats {
     if (bytes_ > 0) {
       // Rate is computed on actual elapsed time, not the sum of per-thread
       // elapsed times.
-      double elapsed = (finish_ - start_) * 1e-6;
+      double elapsed = (finish_ - start_) * 1e-9;
       extra.append(String.format("%6.1f MB/s", (bytes_ / 1048576.0) / elapsed));
     }
     extra.append(message_.toString());
-    double elapsed = (finish_ - start_) * 1e-6;
-    double throughput = (double) done_ / elapsed;
+    double elapsed = (finish_ - start_);
+    double throughput = (double) done_ / (elapsed * 1e-9);
 
     System.out.format("%-12s : %11.3f micros/op %d ops/sec;%s%s\n",
-            name, elapsed * 1e6 / done_,
+            name, (elapsed * 1e-6) / done_,
             (long) throughput, (extra.length() == 0 ? "" : " "), extra.toString());
   }
 }
