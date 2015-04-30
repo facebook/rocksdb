@@ -541,8 +541,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_flushes));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
-    options.setTableCacheRemoveScanCountLimit(
-        (Integer)flags_.get(Flag.cache_remove_scan_count_limit));
     options.setDisableDataSync(
         (Boolean)flags_.get(Flag.disable_data_sync));
     options.setUseFsync(
@@ -1196,11 +1194,6 @@ public class DbBenchmark {
     cache_numshardbits(-1,"Number of shards for the block cache\n" +
         "\tis 2 ** cache_numshardbits. Negative means use default settings.\n" +
         "\tThis is applied only if FLAGS_cache_size is non-negative.") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
-      }
-    },
-    cache_remove_scan_count_limit(32,"") {
       @Override public Object parseValue(String value) {
         return Integer.parseInt(value);
       }
