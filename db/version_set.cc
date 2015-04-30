@@ -2827,9 +2827,9 @@ uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
     assert(files_brief.num_files > 0);
 
     // identify the file position for starting key
-    const uint64_t idx_start =
-        FindFileInRange(v->cfd_->internal_comparator(), files_brief, start,
-                        /*start=*/0, files_brief.num_files - 1);
+    const uint64_t idx_start = FindFileInRange(
+        v->cfd_->internal_comparator(), files_brief, start,
+        /*start=*/0, static_cast<uint32_t>(files_brief.num_files - 1));
     assert(idx_start < files_brief.num_files);
 
     // scan all files from the starting position until the ending position
