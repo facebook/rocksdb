@@ -550,8 +550,6 @@ DEFINE_string(flashcache_dev, "", "Path to flashcache device");
 
 DEFINE_bool(use_tailing_iterator, false,
             "Use tailing iterator to access a series of keys instead of get");
-DEFINE_int64(iter_refresh_interval_us, -1,
-             "How often to refresh iterators. Disable refresh when -1");
 
 DEFINE_bool(use_adaptive_mutex, rocksdb::Options().use_adaptive_mutex,
             "Use adaptive mutex");
@@ -2697,7 +2695,6 @@ class Benchmark {
         multi_iters.push_back(db_with_cfh.db->NewIterator(options));
       }
     }
-    uint64_t last_refresh = FLAGS_env->NowMicros();
 
     std::unique_ptr<const char[]> key_guard;
     Slice key = AllocateKey(&key_guard);
@@ -2705,23 +2702,19 @@ class Benchmark {
     Duration duration(FLAGS_duration, reads_);
     char value_buffer[256];
     while (!duration.Done(1)) {
-      if (!FLAGS_use_tailing_iterator && FLAGS_iter_refresh_interval_us >= 0) {
-        uint64_t now = FLAGS_env->NowMicros();
-        if (now - last_refresh > (uint64_t)FLAGS_iter_refresh_interval_us) {
-          if (db_.db != nullptr) {
-            delete single_iter;
-            single_iter = db_.db->NewIterator(options);
-          } else {
-            for (auto iter : multi_iters) {
-              delete iter;
-            }
-            multi_iters.clear();
-            for (const auto& db_with_cfh : multi_dbs_) {
-              multi_iters.push_back(db_with_cfh.db->NewIterator(options));
-            }
+      if (!FLAGS_use_tailing_iterator) {
+        if (db_.db != nullptr) {
+          delete single_iter;
+          single_iter = db_.db->NewIterator(options);
+        } else {
+          for (auto iter : multi_iters) {
+            delete iter;
+          }
+          multi_iters.clear();
+          for (const auto& db_with_cfh : multi_dbs_) {
+            multi_iters.push_back(db_with_cfh.db->NewIterator(options));
           }
         }
-        last_refresh = now;
       }
       // Pick a Iterator to use
       Iterator* iter_to_use = single_iter;
