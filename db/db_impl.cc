@@ -3131,6 +3131,11 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 
   if (UNLIKELY(status.ok()) &&
       (write_controller_.IsStopped() || write_controller_.GetDelay() > 0)) {
+    // If writer is stopped, we need to get it going,
+    // so schedule flushes/compactions
+    if (context.schedule_bg_work_) {
+      MaybeScheduleFlushOrCompaction();
+    }
     status = DelayWrite(expiration_time);
   }
 
