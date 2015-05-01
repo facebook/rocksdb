@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## 3.10.2 (5/1/2015)
+* Make sure RocksDB is compiled with fallocate support
+* Fix possible hang in DB::Write()
+* Fix a possibility of SIGSEGV in CompactRange()
+
 ## 3.10.0 (3/24/2015)
 ### New Features
 * GetThreadStatus() is now able to report detailed thread status, including:
