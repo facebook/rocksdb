@@ -111,14 +111,14 @@ class CompactionPicker {
   // Stores the minimal range that covers all entries in inputs in
   // *smallest, *largest.
   // REQUIRES: inputs is not empty
-  void GetRange(const std::vector<FileMetaData*>& inputs, InternalKey* smallest,
-                InternalKey* largest);
+  void GetRange(const CompactionInputFiles& inputs,
+                InternalKey* smallest, InternalKey* largest);
 
   // Stores the minimal range that covers all entries in inputs1 and inputs2
   // in *smallest, *largest.
   // REQUIRES: inputs is not empty
-  void GetRange(const std::vector<FileMetaData*>& inputs1,
-                const std::vector<FileMetaData*>& inputs2,
+  void GetRange(const CompactionInputFiles& inputs1,
+                const CompactionInputFiles& inputs2,
                 InternalKey* smallest, InternalKey* largest);
 
   // Add more files to the inputs on "level" to make sure that
