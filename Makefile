@@ -21,33 +21,57 @@ perl_command = perl -n \
   -e 'printf "%7.3f %s %s\n", $$a[3], $$a[6] == 0 ? "PASS" : "FAIL", $$t'
 quoted_perl_command = $(subst ','\'',$(perl_command))
 
-ifneq ($(MAKECMDGOALS),dbg)
+# DEBUG_LEVEL can have three values:
+# * DEBUG_LEVEL=2; this is the ultimate debug mode. It will compile rocksdb
+# without any optimizations. To compile with level 2, issue `make dbg`
+# * DEBUG_LEVEL=1; debug level 1 enables all assertions and debug code, but
+# compiles rocksdb with -O2 optimizations. this is the default debug level.
+# `make all` or `make <binary_target>` compile RocksDB with debug level 1.
+# We use this debug level when developing RocksDB.
+# * DEBUG_LEVEL=0; this is the debug level we use for release. If you're
+# running rocksdb in production you most definitely want to compile RocksDB
+# with debug level 0. To compile with level 0, run `make shared_lib`, 
+# `make install-shared`, `make static_lib`, `make install-static` or
+# `make install`
+DEBUG_LEVEL=1
+
+ifeq ($(MAKECMDGOALS),dbg)
+	DEBUG_LEVEL=2
+endif
+
+ifeq ($(MAKECMDGOALS),shared_lib)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),install-shared)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),static_lib)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),install-static)
+	DEBUG_LEVEL=0
+endif
+
+ifeq ($(MAKECMDGOALS),install)
+	DEBUG_LEVEL=0
+endif
+
+# compile with -O2 if debug level is not 2
+ifneq ($(DEBUG_LEVEL), 2)
 OPT += -O2 -fno-omit-frame-pointer
 ifneq ($(MACHINE),ppc64) # ppc64 doesn't support -momit-leaf-frame-pointer
 OPT += -momit-leaf-frame-pointer
 endif
-else
-# intentionally left blank
 endif
 
-ifeq ($(MAKECMDGOALS),shared_lib)
+# if we're compiling for release, compile without debug code (-DNDEBUG) and
+# don't treat warnings as errors
+ifeq ($(DEBUG_LEVEL),0)
 OPT += -DNDEBUG
-endif
-
-ifeq ($(MAKECMDGOALS),install-shared)
-OPT += -DNDEBUG
-endif
-
-ifeq ($(MAKECMDGOALS),static_lib)
-OPT += -DNDEBUG
-endif
-
-ifeq ($(MAKECMDGOALS),install-static)
-OPT += -DNDEBUG
-endif
-
-ifeq ($(MAKECMDGOALS),install)
-OPT += -DNDEBUG
+DISABLE_WARNING_AS_ERROR=1
 endif
 
 #-----------------------------------------------
