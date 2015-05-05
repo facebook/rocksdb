@@ -724,7 +724,9 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 1});
   ASSERT_EQ(CountLiveLogFiles(), 5);
-  PutRandomData(3, 90*6, 1000);
+  PutRandomData(3, 240, 1000);
+  WaitForFlush(3);
+  PutRandomData(3, 300, 1000);
   WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 12);
