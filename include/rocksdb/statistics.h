@@ -240,7 +240,7 @@ enum Histograms : uint32_t {
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
   WRITE_STALL,
-  HISTOGRAM_ENUM_MAX,
+  HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
@@ -263,6 +263,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
   { SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
   { NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction" },
   { DB_SEEK, "rocksdb.db.seek.micros" },
+  { WRITE_STALL, "rocksdb.db.write.stall" },
 };
 
 struct HistogramData {

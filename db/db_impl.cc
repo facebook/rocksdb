@@ -265,8 +265,18 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   LogFlush(db_options_.info_log);
 }
 
-void DBImpl::CancelAllBackgroundWork() {
+// Will only lock the mutex_ and wait for completion if wait is true
+void DBImpl::CancelAllBackgroundWork(bool wait) {
   shutting_down_.store(true, std::memory_order_release);
+  if (!wait) {
+    return;
+  }
+  // Wait for background work to finish
+  mutex_.Lock();
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
+    bg_cv_.Wait();
+  }
+  mutex_.Unlock();
 }
 
 DBImpl::~DBImpl() {
@@ -285,7 +295,11 @@ DBImpl::~DBImpl() {
     }
     versions_->GetColumnFamilySet()->FreeDeadColumnFamilies();
   }
-  CancelAllBackgroundWork();
+  // CancelAllBackgroundWork called with false means we just set the
+  // shutdown marker, while holding the mutex_ here. After which we
+  // do a variant of the waiting after we release the lock and unschedule work
+  // (to consider: moving all the waiting into CancelAllBackgroundWork(true))
+  CancelAllBackgroundWork(false);
   mutex_.Unlock();
   int compactions_unscheduled = env_->UnSchedule(this, Env::Priority::LOW);
   int flushes_unscheduled = env_->UnSchedule(this, Env::Priority::HIGH);

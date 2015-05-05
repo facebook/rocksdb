@@ -5,6 +5,7 @@
 
 #include "utilities/ttl/db_ttl_impl.h"
 
+#include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/db_ttl.h"
 #include "db/filename.h"
 #include "db/write_batch_internal.h"
@@ -34,7 +35,11 @@ void DBWithTTLImpl::SanitizeOptions(int32_t ttl, ColumnFamilyOptions* options,
 // Open the db inside DBWithTTLImpl because options needs pointer to its ttl
 DBWithTTLImpl::DBWithTTLImpl(DB* db) : DBWithTTL(db) {}
 
-DBWithTTLImpl::~DBWithTTLImpl() { delete GetOptions().compaction_filter; }
+DBWithTTLImpl::~DBWithTTLImpl() {
+  // Need to stop background compaction before getting rid of the filter
+  CancelAllBackgroundWork(db_, /* wait = */ true);
+  delete GetOptions().compaction_filter;
+}
 
 Status UtilityDB::OpenTtlDB(const Options& options, const std::string& dbname,
                             StackableDB** dbptr, int32_t ttl, bool read_only) {

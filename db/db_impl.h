@@ -275,7 +275,7 @@ class DBImpl : public DB {
 
   const SnapshotList& snapshots() const { return snapshots_; }
 
-  void CancelAllBackgroundWork();
+  void CancelAllBackgroundWork(bool wait);
 
  protected:
   Env* const env_;
