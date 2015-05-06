@@ -1482,18 +1482,19 @@ Status DBImpl::CompactFilesImpl(
         c->column_family_data(), *c->mutable_cf_options(),
         job_context, log_buffer);
   };
+  assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
-      job_context->job_id, c.get(), db_options_, *c->mutable_cf_options(),
-      env_options_, versions_.get(), &shutting_down_, log_buffer,
-      directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
-      stats_, &snapshots_, is_snapshot_supported_, table_cache_,
-      std::move(yield_callback), &event_logger_);
+      job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
+      &shutting_down_, log_buffer, directories_.GetDbDir(),
+      directories_.GetDataDir(c->GetOutputPathId()), stats_,
+      snapshots_.GetAll(), table_cache_, std::move(yield_callback),
+      &event_logger_, c->mutable_cf_options()->paranoid_file_checks);
   compaction_job.Prepare();
 
   mutex_.Unlock();
   Status status = compaction_job.Run();
   mutex_.Lock();
-  compaction_job.Install(&status, &mutex_);
+  compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
   if (status.ok()) {
     InstallSuperVersionBackground(c->column_family_data(), job_context,
                                   *c->mutable_cf_options());
@@ -2357,17 +2358,18 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                        *c->mutable_cf_options(), job_context,
                                        log_buffer);
     };
+    assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
-        job_context->job_id, c.get(), db_options_, *c->mutable_cf_options(),
-        env_options_, versions_.get(), &shutting_down_, log_buffer,
-        directories_.GetDbDir(), directories_.GetDataDir(c->GetOutputPathId()),
-        stats_, &snapshots_, is_snapshot_supported_, table_cache_,
-        std::move(yield_callback), &event_logger_);
+        job_context->job_id, c.get(), db_options_, env_options_,
+        versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
+        directories_.GetDataDir(c->GetOutputPathId()), stats_,
+        snapshots_.GetAll(), table_cache_, std::move(yield_callback),
+        &event_logger_, c->mutable_cf_options()->paranoid_file_checks);
     compaction_job.Prepare();
     mutex_.Unlock();
     status = compaction_job.Run();
     mutex_.Lock();
-    compaction_job.Install(&status, &mutex_);
+    compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
     if (status.ok()) {
       InstallSuperVersionBackground(c->column_family_data(), job_context,
                                     *c->mutable_cf_options());

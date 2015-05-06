@@ -322,12 +322,11 @@ void Compaction::Summary(char* output, int len) {
   snprintf(output + write, len - write, "]");
 }
 
-uint64_t Compaction::OutputFilePreallocationSize(
-    const MutableCFOptions& mutable_options) {
+uint64_t Compaction::OutputFilePreallocationSize() {
   uint64_t preallocation_size = 0;
 
   if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-    preallocation_size = mutable_options.MaxFileSizeForLevel(output_level());
+    preallocation_size = max_output_file_size_;
   } else {
     for (size_t level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
       for (const auto& f : inputs_[level_iter].files) {

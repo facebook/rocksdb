@@ -58,12 +58,6 @@ namespace rocksdb {
 struct CompactionJob::CompactionState {
   Compaction* const compaction;
 
-  // If there were two snapshots with seq numbers s1 and
-  // s2 and s1 < s2, and if we find two instances of a key k1 then lies
-  // entirely within s1 and s2, then the earlier version of k1 can be safely
-  // deleted because that version is not visible in any snapshot.
-  std::vector<SequenceNumber> existing_snapshots;
-
   // Files produced by compaction
   struct Output {
     uint64_t number;
@@ -204,17 +198,17 @@ struct CompactionJob::CompactionState {
 
 CompactionJob::CompactionJob(
     int job_id, Compaction* compaction, const DBOptions& db_options,
-    const MutableCFOptions& mutable_cf_options, const EnvOptions& env_options,
-    VersionSet* versions, std::atomic<bool>* shutting_down,
-    LogBuffer* log_buffer, Directory* db_directory, Directory* output_directory,
-    Statistics* stats, SnapshotList* snapshots, bool is_snapshot_supported,
+    const EnvOptions& env_options, VersionSet* versions,
+    std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
+    Directory* db_directory, Directory* output_directory, Statistics* stats,
+    std::vector<SequenceNumber> existing_snapshots,
     std::shared_ptr<Cache> table_cache,
-    std::function<uint64_t()> yield_callback, EventLogger* event_logger)
+    std::function<uint64_t()> yield_callback, EventLogger* event_logger,
+    bool paranoid_file_checks)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_stats_(1),
       db_options_(db_options),
-      mutable_cf_options_(mutable_cf_options),
       env_options_(env_options),
       env_(db_options.env),
       versions_(versions),
@@ -223,13 +217,12 @@ CompactionJob::CompactionJob(
       db_directory_(db_directory),
       output_directory_(output_directory),
       stats_(stats),
-      snapshots_(snapshots),
-      is_snapshot_supported_(is_snapshot_supported),
+      existing_snapshots_(std::move(existing_snapshots)),
       table_cache_(std::move(table_cache)),
       yield_callback_(std::move(yield_callback)),
-      event_logger_(event_logger) {
-  ThreadStatusUtil::SetColumnFamily(
-      compact_->compaction->column_family_data());
+      event_logger_(event_logger),
+      paranoid_file_checks_(paranoid_file_checks) {
+  ThreadStatusUtil::SetColumnFamily(compact_->compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
 }
 
@@ -256,18 +249,16 @@ void CompactionJob::Prepare() {
 
   visible_at_tip_ = 0;
   latest_snapshot_ = 0;
-  // TODO(icanadi) move snapshots_ out of CompactionJob
-  snapshots_->getAll(compact_->existing_snapshots);
-  if (compact_->existing_snapshots.size() == 0) {
+  if (existing_snapshots_.size() == 0) {
     // optimize for fast path if there are no snapshots
     visible_at_tip_ = versions_->LastSequence();
     earliest_snapshot_ = visible_at_tip_;
   } else {
-    latest_snapshot_ = compact_->existing_snapshots.back();
+    latest_snapshot_ = existing_snapshots_.back();
     // Add the current seqno as the 'latest' virtual
     // snapshot to the end of this list.
-    compact_->existing_snapshots.push_back(versions_->LastSequence());
-    earliest_snapshot_ = compact_->existing_snapshots[0];
+    existing_snapshots_.push_back(versions_->LastSequence());
+    earliest_snapshot_ = existing_snapshots_[0];
   }
 
   // Is this compaction producing files at the bottommost level?
@@ -509,7 +500,9 @@ Status CompactionJob::Run() {
   return status;
 }
 
-void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
+void CompactionJob::Install(Status* status,
+                            const MutableCFOptions& mutable_cf_options,
+                            InstrumentedMutex* db_mutex) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_INSTALL);
   db_mutex->AssertHeld();
@@ -518,7 +511,7 @@ void CompactionJob::Install(Status* status, InstrumentedMutex* db_mutex) {
       compact_->compaction->output_level(), compaction_stats_);
 
   if (status->ok()) {
-    *status = InstallCompactionResults(db_mutex);
+    *status = InstallCompactionResults(db_mutex, mutable_cf_options);
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
   auto vstorage = cfd->current()->storage_info();
@@ -716,11 +709,8 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       SequenceNumber visible =
           visible_at_tip_
               ? visible_at_tip_
-              : is_snapshot_supported_
-                    ? findEarliestVisibleSnapshot(ikey.sequence,
-                                                  compact_->existing_snapshots,
-                                                  &prev_snapshot)
-                    : 0;
+              : findEarliestVisibleSnapshot(ikey.sequence, existing_snapshots_,
+                                            &prev_snapshot);
 
       if (visible_in_snapshot == visible) {
         // If the earliest snapshot is which this key is visible in
@@ -1018,7 +1008,7 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
         ReadOptions(), env_options_, cfd->internal_comparator(), fd);
     s = iter->status();
 
-    if (s.ok() && mutable_cf_options_.paranoid_file_checks) {
+    if (s.ok() && paranoid_file_checks_) {
       for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {}
       s = iter->status();
     }
@@ -1039,7 +1029,8 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
   return s;
 }
 
-Status CompactionJob::InstallCompactionResults(InstrumentedMutex* db_mutex) {
+Status CompactionJob::InstallCompactionResults(
+    InstrumentedMutex* db_mutex, const MutableCFOptions& mutable_cf_options) {
   db_mutex->AssertHeld();
 
   auto* compaction = compact_->compaction;
@@ -1074,7 +1065,7 @@ Status CompactionJob::InstallCompactionResults(InstrumentedMutex* db_mutex) {
         out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
   }
   return versions_->LogAndApply(compaction->column_family_data(),
-                                mutable_cf_options_, compaction->edit(),
+                                mutable_cf_options, compaction->edit(),
                                 db_mutex, db_directory_);
 }
 
@@ -1142,8 +1133,8 @@ Status CompactionJob::OpenCompactionOutputFile() {
 
   compact_->outputs.push_back(out);
   compact_->outfile->SetIOPriority(Env::IO_LOW);
-  compact_->outfile->SetPreallocationBlockSize(static_cast<size_t>(
-      compact_->compaction->OutputFilePreallocationSize(mutable_cf_options_)));
+  compact_->outfile->SetPreallocationBlockSize(
+      static_cast<size_t>(compact_->compaction->OutputFilePreallocationSize()));
 
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   bool skip_filters = false;

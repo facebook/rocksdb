@@ -155,7 +155,6 @@ TEST_F(CompactionJobTest, Simple) {
       {compaction_input_files}, 1, 1024 * 1024, 10, 0, kNoCompression, {}));
   compaction->SetInputVersion(cfd->current());
 
-  SnapshotList snapshots;
   int yield_callback_called = 0;
   std::function<uint64_t()> yield_callback = [&]() {
     yield_callback_called++;
@@ -164,17 +163,17 @@ TEST_F(CompactionJobTest, Simple) {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   mutex_.Lock();
   EventLogger event_logger(db_options_.info_log.get());
-  CompactionJob compaction_job(
-      0, compaction.get(), db_options_, *cfd->GetLatestMutableCFOptions(),
-      env_options_, versions_.get(), &shutting_down_, &log_buffer, nullptr,
-      nullptr, nullptr, &snapshots, true, table_cache_,
-      std::move(yield_callback), &event_logger);
+  CompactionJob compaction_job(0, compaction.get(), db_options_, env_options_,
+                               versions_.get(), &shutting_down_, &log_buffer,
+                               nullptr, nullptr, nullptr, {}, table_cache_,
+                               std::move(yield_callback), &event_logger, false);
+
   compaction_job.Prepare();
   mutex_.Unlock();
   ASSERT_OK(compaction_job.Run());
   mutex_.Lock();
   Status s;
-  compaction_job.Install(&s, &mutex_);
+  compaction_job.Install(&s, *cfd->GetLatestMutableCFOptions(), &mutex_);
   ASSERT_OK(s);
   mutex_.Unlock();
 

@@ -163,7 +163,7 @@ class Compaction {
   // Returns the size in bytes that the output file should be preallocated to.
   // In level compaction, that is max_file_size_. In universal compaction, that
   // is the sum of all input file sizes.
-  uint64_t OutputFilePreallocationSize(const MutableCFOptions& mutable_options);
+  uint64_t OutputFilePreallocationSize();
 
   void SetInputVersion(Version* input_version);
 

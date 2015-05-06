@@ -19,7 +19,6 @@
 
 #include "db/dbformat.h"
 #include "db/log_writer.h"
-#include "db/snapshot.h"
 #include "db/column_family.h"
 #include "db/version_edit.h"
 #include "db/memtable_list.h"
@@ -51,18 +50,15 @@ class Arena;
 
 class CompactionJob {
  public:
-  // TODO(icanadi) make effort to reduce number of parameters here
-  // IMPORTANT: mutable_cf_options needs to be alive while CompactionJob is
-  // alive
   CompactionJob(int job_id, Compaction* compaction, const DBOptions& db_options,
-                const MutableCFOptions& mutable_cf_options,
                 const EnvOptions& env_options, VersionSet* versions,
                 std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
                 Directory* db_directory, Directory* output_directory,
-                Statistics* stats, SnapshotList* snapshot_list,
-                bool is_snapshot_supported, std::shared_ptr<Cache> table_cache,
+                Statistics* stats,
+                std::vector<SequenceNumber> existing_snapshots,
+                std::shared_ptr<Cache> table_cache,
                 std::function<uint64_t()> yield_callback,
-                EventLogger* event_logger);
+                EventLogger* event_logger, bool paranoid_file_checks);
 
   ~CompactionJob();
 
@@ -77,7 +73,8 @@ class CompactionJob {
   Status Run();
   // REQUIRED: mutex held
   // status is the return of Run()
-  void Install(Status* status, InstrumentedMutex* db_mutex);
+  void Install(Status* status, const MutableCFOptions& mutable_cf_options,
+               InstrumentedMutex* db_mutex);
 
  private:
   void AllocateCompactionOutputFileNumbers();
@@ -89,7 +86,8 @@ class CompactionJob {
   void CallCompactionFilterV2(CompactionFilterV2* compaction_filter_v2,
                               uint64_t* time);
   Status FinishCompactionOutputFile(Iterator* input);
-  Status InstallCompactionResults(InstrumentedMutex* db_mutex);
+  Status InstallCompactionResults(InstrumentedMutex* db_mutex,
+                                  const MutableCFOptions& mutable_cf_options);
   SequenceNumber findEarliestVisibleSnapshot(
       SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
       SequenceNumber* prev_snapshot);
@@ -112,7 +110,6 @@ class CompactionJob {
 
   // DBImpl state
   const DBOptions& db_options_;
-  const MutableCFOptions& mutable_cf_options_;
   const EnvOptions& env_options_;
   Env* env_;
   VersionSet* versions_;
@@ -121,14 +118,19 @@ class CompactionJob {
   Directory* db_directory_;
   Directory* output_directory_;
   Statistics* stats_;
-  SnapshotList* snapshots_;
-  bool is_snapshot_supported_;
+  // If there were two snapshots with seq numbers s1 and
+  // s2 and s1 < s2, and if we find two instances of a key k1 then lies
+  // entirely within s1 and s2, then the earlier version of k1 can be safely
+  // deleted because that version is not visible in any snapshot.
+  std::vector<SequenceNumber> existing_snapshots_;
   std::shared_ptr<Cache> table_cache_;
 
   // yield callback
   std::function<uint64_t()> yield_callback_;
 
   EventLogger* event_logger_;
+
+  bool paranoid_file_checks_;
 };
 
 }  // namespace rocksdb
