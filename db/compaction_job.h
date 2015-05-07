@@ -77,6 +77,8 @@ class CompactionJob {
                InstrumentedMutex* db_mutex);
 
  private:
+  // update the thread status for starting a compaction.
+  void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs

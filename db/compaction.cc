@@ -140,7 +140,7 @@ bool Compaction::InputCompressionMatchesOutput() const {
     return true;
   }
   TEST_SYNC_POINT("Compaction::InputCompressionMatchesOutput:DidntMatch");
-  return false;
+  return matches;
 }
 
 bool Compaction::IsTrivialMove() const {

@@ -224,11 +224,49 @@ CompactionJob::CompactionJob(
       paranoid_file_checks_(paranoid_file_checks) {
   ThreadStatusUtil::SetColumnFamily(compact_->compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+  ReportStartedCompaction(compaction);
 }
 
 CompactionJob::~CompactionJob() {
   assert(compact_ == nullptr);
   ThreadStatusUtil::ResetThreadStatus();
+}
+
+void CompactionJob::ReportStartedCompaction(
+    Compaction* compaction) {
+  ThreadStatusUtil::SetColumnFamily(
+      compact_->compaction->column_family_data());
+
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_JOB_ID,
+      job_id_);
+
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_INPUT_OUTPUT_LEVEL,
+      (static_cast<uint64_t>(compact_->compaction->start_level()) << 32) +
+          compact_->compaction->output_level());
+
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_PROP_FLAGS,
+      compaction->IsManualCompaction() +
+          (compaction->IsDeletionCompaction() << 1) +
+          (compaction->IsTrivialMove() << 2));
+
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES,
+      compaction->CalculateTotalInputSize());
+
+  IOSTATS_RESET(bytes_written);
+  IOSTATS_RESET(bytes_read);
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_BYTES_WRITTEN, 0);
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_BYTES_READ, 0);
+
+  // Set the thread operation after operation properties
+  // to ensure GetThreadList() can always show them all together.
+  ThreadStatusUtil::SetThreadOperation(
+      ThreadStatus::OP_COMPACTION);
 }
 
 void CompactionJob::Prepare() {
@@ -1100,8 +1138,12 @@ inline SequenceNumber CompactionJob::findEarliestVisibleSnapshot(
 
 void CompactionJob::RecordCompactionIOStats() {
   RecordTick(stats_, COMPACT_READ_BYTES, IOSTATS(bytes_read));
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
+      ThreadStatus::COMPACTION_BYTES_READ, IOSTATS(bytes_read));
   IOSTATS_RESET(bytes_read);
   RecordTick(stats_, COMPACT_WRITE_BYTES, IOSTATS(bytes_written));
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
+      ThreadStatus::COMPACTION_BYTES_WRITTEN, IOSTATS(bytes_written));
   IOSTATS_RESET(bytes_written);
 }
 

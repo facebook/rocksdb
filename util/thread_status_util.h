@@ -59,6 +59,12 @@ class ThreadStatusUtil {
   static ThreadStatus::OperationStage SetThreadOperationStage(
       ThreadStatus::OperationStage stage);
 
+  static void SetThreadOperationProperty(
+      int code, uint64_t value);
+
+  static void IncreaseThreadOperationProperty(
+      int code, uint64_t delta);
+
   static void SetThreadState(ThreadStatus::StateType type);
 
   static void ResetThreadStatus();

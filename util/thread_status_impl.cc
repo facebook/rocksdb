@@ -4,6 +4,8 @@
 // of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#include <sstream>
+
 #include "rocksdb/env.h"
 #include "rocksdb/thread_status.h"
 #include "util/logging.h"
@@ -44,6 +46,65 @@ const std::string ThreadStatus::MicrosToString(uint64_t micros) {
   return std::string(buffer);
 }
 
+const std::string& ThreadStatus::GetOperationPropertyName(
+    ThreadStatus::OperationType op_type, int i) {
+  static const std::string empty_str = "";
+  switch (op_type) {
+    case ThreadStatus::OP_COMPACTION:
+      if (i >= NUM_COMPACTION_PROPERTIES) {
+        return empty_str;
+      }
+      return compaction_operation_properties[i].name;
+    case ThreadStatus::OP_FLUSH:
+      if (i >= NUM_FLUSH_PROPERTIES) {
+        return empty_str;
+      }
+      return flush_operation_properties[i].name;
+    default:
+      return empty_str;
+  }
+}
+
+std::map<std::string, uint64_t>
+    ThreadStatus::InterpretOperationProperties(
+    ThreadStatus::OperationType op_type, uint64_t* op_properties) {
+  int num_properties;
+  switch (op_type) {
+    case OP_COMPACTION:
+      num_properties = NUM_COMPACTION_PROPERTIES;
+      break;
+    case OP_FLUSH:
+      num_properties = NUM_FLUSH_PROPERTIES;
+      break;
+    default:
+      num_properties = 0;
+  }
+
+  std::map<std::string, uint64_t> property_map;
+  for (int i = 0; i < num_properties; ++i) {
+    if (op_type == OP_COMPACTION &&
+        i == COMPACTION_INPUT_OUTPUT_LEVEL) {
+      property_map.emplace(
+          "BaseInputLevel", op_properties[i] >> 32);
+      property_map.emplace(
+          "OutputLevel", op_properties[i] % (1LU << 32));
+    } else if (op_type == OP_COMPACTION &&
+               i == COMPACTION_PROP_FLAGS) {
+      property_map.emplace(
+          "IsManual", ((op_properties[i] & 2) >> 1));
+      property_map.emplace(
+          "IsDeletion", ((op_properties[i] & 4) >> 2));
+      property_map.emplace(
+          "IsTrivialMove", ((op_properties[i] & 8) >> 3));
+    } else {
+      property_map.emplace(
+          GetOperationPropertyName(op_type, i), op_properties[i]);
+    }
+  }
+  return property_map;
+}
+
+
 #else
 
 const std::string& ThreadStatus::GetThreadTypeName(
@@ -74,6 +135,18 @@ const std::string ThreadStatus::MicrosToString(
     uint64_t op_elapsed_time) {
   static std::string dummy_str = "";
   return dummy_str;
+}
+
+const std::string& ThreadStatus::GetOperationPropertyName(
+    ThreadStatus::OperationType op_type, int i) {
+  static std::string dummy_str = "";
+  return dummy_str;
+}
+
+std::map<std::string, uint64_t>
+    ThreadStatus::InterpretOperationProperties(
+    ThreadStatus::OperationType op_type, uint64_t* op_properties) {
+  return std::map<std::string, uint64_t>();
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS

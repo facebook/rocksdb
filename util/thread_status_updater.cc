@@ -28,6 +28,7 @@ void ThreadStatusUpdater::SetThreadType(
     ThreadStatus::ThreadType ttype) {
   auto* data = InitAndGet();
   data->thread_type.store(ttype, std::memory_order_relaxed);
+  ClearThreadOperationProperties();
 }
 
 void ThreadStatusUpdater::ResetThreadStatus() {
@@ -61,9 +62,37 @@ void ThreadStatusUpdater::SetThreadOperation(
     assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
     return;
   }
-  data->operation_stage.store(ThreadStatus::STAGE_UNKNOWN,
-      std::memory_order_relaxed);
-  data->operation_type.store(type, std::memory_order_relaxed);
+  // NOTE: Our practice here is to set all the thread operation properties
+  //       and stage before we set thread operation, and thread operation
+  //       will be set in std::memory_order_release.  This is to ensure
+  //       whenever a thread operation is not OP_UNKNOWN, we will always
+  //       have a consistent information on its properties.
+  data->operation_type.store(type, std::memory_order_release);
+  if (type == ThreadStatus::OP_UNKNOWN) {
+    data->operation_stage.store(ThreadStatus::STAGE_UNKNOWN,
+        std::memory_order_relaxed);
+    ClearThreadOperationProperties();
+  }
+}
+
+void ThreadStatusUpdater::SetThreadOperationProperty(
+    int i, uint64_t value) {
+  auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
+  data->op_properties[i].store(value, std::memory_order_relaxed);
+}
+
+void ThreadStatusUpdater::IncreaseThreadOperationProperty(
+    int i, uint64_t delta) {
+  auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
+  data->op_properties[i].fetch_add(delta, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetOperationStartTime(const uint64_t start_time) {
@@ -85,6 +114,18 @@ void ThreadStatusUpdater::ClearThreadOperation() {
       std::memory_order_relaxed);
   data->operation_type.store(
       ThreadStatus::OP_UNKNOWN, std::memory_order_relaxed);
+  ClearThreadOperationProperties();
+}
+
+void ThreadStatusUpdater::ClearThreadOperationProperties() {
+  auto* data = InitAndGet();
+  if (!data->enable_tracking) {
+    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+    return;
+  }
+  for (int i = 0; i < ThreadStatus::kNumOperationProperties; ++i) {
+    data->op_properties[i].store(0, std::memory_order_relaxed);
+  }
 }
 
 ThreadStatus::OperationStage ThreadStatusUpdater::SetThreadOperationStage(
@@ -144,11 +185,12 @@ Status ThreadStatusUpdater::GetThreadList(
     ThreadStatus::OperationStage op_stage = ThreadStatus::STAGE_UNKNOWN;
     ThreadStatus::StateType state_type = ThreadStatus::STATE_UNKNOWN;
     uint64_t op_elapsed_micros = 0;
+    uint64_t op_props[ThreadStatus::kNumOperationProperties] = {0};
     if (cf_info != nullptr) {
       db_name = &cf_info->db_name;
       cf_name = &cf_info->cf_name;
       op_type = thread_data->operation_type.load(
-          std::memory_order_relaxed);
+          std::memory_order_acquire);
       // display lower-level info only when higher-level info is available.
       if (op_type != ThreadStatus::OP_UNKNOWN) {
         op_elapsed_micros = now_micros - thread_data->op_start_time.load(
@@ -157,13 +199,18 @@ Status ThreadStatusUpdater::GetThreadList(
             std::memory_order_relaxed);
         state_type = thread_data->state_type.load(
             std::memory_order_relaxed);
+        for (int i = 0; i < ThreadStatus::kNumOperationProperties; ++i) {
+          op_props[i] = thread_data->op_properties[i].load(
+              std::memory_order_relaxed);
+        }
       }
     }
     thread_list->emplace_back(
         thread_data->thread_id, thread_type,
         db_name ? *db_name : "",
         cf_name ? *cf_name : "",
-        op_type, op_elapsed_micros, op_stage, state_type);
+        op_type, op_elapsed_micros, op_stage, op_props,
+        state_type);
   }
 
   return Status::OK();
@@ -282,6 +329,14 @@ void ThreadStatusUpdater::EraseColumnFamilyInfo(const void* cf_key) {
 }
 
 void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
+}
+
+void ThreadStatusUpdater::SetThreadOperationProperty(
+    int i, uint64_t value) {
+}
+
+void ThreadStatusUpdater::IncreaseThreadOperationProperty(
+    int i, uint64_t delta) {
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS

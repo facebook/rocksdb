@@ -76,6 +76,30 @@ ThreadStatus::OperationStage ThreadStatusUtil::SetThreadOperationStage(
   return thread_updater_local_cache_->SetThreadOperationStage(stage);
 }
 
+void ThreadStatusUtil::SetThreadOperationProperty(
+    int code, uint64_t value) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return;
+  }
+
+  thread_updater_local_cache_->SetThreadOperationProperty(
+      code, value);
+}
+
+void ThreadStatusUtil::IncreaseThreadOperationProperty(
+    int code, uint64_t delta) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return;
+  }
+
+  thread_updater_local_cache_->IncreaseThreadOperationProperty(
+      code, delta);
+}
+
 void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
   if (thread_updater_local_cache_ == nullptr) {
     // thread_updater_local_cache_ must be set in SetColumnFamily
@@ -150,6 +174,14 @@ void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {
 }
 
 void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
+}
+
+void ThreadStatusUtil::SetThreadOperationProperty(
+    int code, uint64_t value) {
+}
+
+void ThreadStatusUtil::IncreaseThreadOperationProperty(
+    int code, uint64_t delta) {
 }
 
 void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
