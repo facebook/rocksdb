@@ -94,7 +94,7 @@ class Stats {
 
   void stop() {
     finish_ = System.nanoTime();
-    seconds_ = (double) (finish_ - start_) / 1000000;
+    seconds_ = (double) (finish_ - start_) * 1e-9;
   }
 
   void addMessage(String msg) {
@@ -140,15 +140,15 @@ class Stats {
     if (bytes_ > 0) {
       // Rate is computed on actual elapsed time, not the sum of per-thread
       // elapsed times.
-      double elapsed = (finish_ - start_) * 1e-6;
+      double elapsed = (finish_ - start_) * 1e-9;
       extra.append(String.format("%6.1f MB/s", (bytes_ / 1048576.0) / elapsed));
     }
     extra.append(message_.toString());
-    double elapsed = (finish_ - start_) * 1e-6;
-    double throughput = (double) done_ / elapsed;
+    double elapsed = (finish_ - start_);
+    double throughput = (double) done_ / (elapsed * 1e-9);
 
     System.out.format("%-12s : %11.3f micros/op %d ops/sec;%s%s\n",
-            name, elapsed * 1e6 / done_,
+            name, (elapsed * 1e-6) / done_,
             (long) throughput, (extra.length() == 0 ? "" : " "), extra.toString());
   }
 }
@@ -541,8 +541,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_flushes));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
-    options.setTableCacheRemoveScanCountLimit(
-        (Integer)flags_.get(Flag.cache_remove_scan_count_limit));
     options.setDisableDataSync(
         (Boolean)flags_.get(Flag.disable_data_sync));
     options.setUseFsync(
@@ -1196,11 +1194,6 @@ public class DbBenchmark {
     cache_numshardbits(-1,"Number of shards for the block cache\n" +
         "\tis 2 ** cache_numshardbits. Negative means use default settings.\n" +
         "\tThis is applied only if FLAGS_cache_size is non-negative.") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
-      }
-    },
-    cache_remove_scan_count_limit(32,"") {
       @Override public Object parseValue(String value) {
         return Integer.parseInt(value);
       }
