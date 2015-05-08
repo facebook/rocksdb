@@ -634,8 +634,9 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     Log(options_.info_log, "Backup failed -- %s", s.ToString().c_str());
     Log(options_.info_log, "Backup Statistics %s\n",
         backup_statistics_.ToString().c_str());
-    backups_.erase(new_backup_id);
-    (void) GarbageCollect();
+    // delete files that we might have already written
+    DeleteBackup(new_backup_id);
+    GarbageCollect();
     return s;
   }
 
@@ -1013,21 +1014,33 @@ Status BackupEngineImpl::BackupFile(BackupID backup_id, BackupMeta* backup,
 
   // if it's shared, we also need to check if it exists -- if it does,
   // no need to copy it again
+  bool need_to_copy = true;
   if (shared && backup_env_->FileExists(dst_path)) {
+    need_to_copy = false;
     if (shared_checksum) {
       Log(options_.info_log,
           "%s already present, with checksum %u and size %" PRIu64,
           src_fname.c_str(), checksum_value, size);
+    } else if (backuped_file_infos_.find(dst_relative) ==
+               backuped_file_infos_.end()) {
+      // file already exists, but it's not referenced by any backup. overwrite
+      // the file
+      Log(options_.info_log,
+          "%s already present, but not referenced by any backup. We will "
+          "overwrite the file.",
+          src_fname.c_str());
+      need_to_copy = true;
+      backup_env_->DeleteFile(dst_path);
     } else {
-      backup_env_->GetFileSize(dst_path, &size);  // Ignore error
+      // the file is present and referenced by a backup
+      db_env_->GetFileSize(src_dir + src_fname, &size);  // Ignore error
       Log(options_.info_log, "%s already present, calculate checksum",
           src_fname.c_str());
-      s = CalculateChecksum(src_dir + src_fname,
-                            db_env_,
-                            size_limit,
+      s = CalculateChecksum(src_dir + src_fname, db_env_, size_limit,
                             &checksum_value);
     }
-  } else {
+  }
+  if (need_to_copy) {
     Log(options_.info_log, "Copying %s to %s", src_fname.c_str(),
         dst_path_tmp.c_str());
     s = CopyFile(src_dir + src_fname,
@@ -1117,14 +1130,17 @@ Status BackupEngineImpl::GarbageCollect() {
                            &shared_children);
   for (auto& child : shared_children) {
     std::string rel_fname = GetSharedFileRel(child);
+    auto child_itr = backuped_file_infos_.find(rel_fname);
     // if it's not refcounted, delete it
-    if (backuped_file_infos_.find(rel_fname) == backuped_file_infos_.end()) {
+    if (child_itr == backuped_file_infos_.end() ||
+        child_itr->second->refs == 0) {
       // this might be a directory, but DeleteFile will just fail in that
       // case, so we're good
       Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
       if (s.ok()) {
         Log(options_.info_log, "Deleted %s", rel_fname.c_str());
       }
+      backuped_file_infos_.erase(rel_fname);
     }
   }
 
@@ -1178,7 +1194,9 @@ Status BackupEngineImpl::BackupMeta::AddFile(
     }
   } else {
     if (itr->second->checksum_value != file_info->checksum_value) {
-      return Status::Corruption("Checksum mismatch for existing backup file");
+      return Status::Corruption(
+          "Checksum mismatch for existing backup file. Delete old backups and "
+          "try again.");
     }
     ++itr->second->refs;  // increase refcount if already present
   }
