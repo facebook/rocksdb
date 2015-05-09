@@ -791,9 +791,11 @@ Compaction* LevelCompactionPicker::PickCompaction(
     }
   }
 
+  bool is_manual = false;
   // if we didn't find a compaction, check if there are any files marked for
   // compaction
   if (inputs.empty()) {
+    is_manual = true;
     PickFilesMarkedForCompactionExperimental(cf_name, vstorage, &inputs, &level,
                                              &output_level);
   }
@@ -846,8 +848,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
       mutable_cf_options.MaxGrandParentOverlapBytes(level),
       GetPathId(ioptions_, mutable_cf_options, output_level),
       GetCompressionType(ioptions_, output_level, vstorage->base_level()),
-      std::move(grandparents),
-      /* is manual */ false, score);
+      std::move(grandparents), is_manual, score);
 
   // If it's level 0 compaction, make sure we don't execute any other level 0
   // compactions in parallel

@@ -1138,11 +1138,23 @@ class DBTest : public testing::Test {
     return sst_count;
   }
 
+  // this will generate non-overlapping files since it keeps increasing key_idx
   void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false) {
     for (int i = 0; i < 11; i++) {
       ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 10) ? 1 : 10000)));
       (*key_idx)++;
     }
+    if (!nowait) {
+      dbfull()->TEST_WaitForFlushMemTable();
+      dbfull()->TEST_WaitForCompact();
+    }
+  }
+
+  void GenerateNewRandomFile(Random* rnd, bool nowait = false) {
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 1000)));
+    }
+    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 1)));
     if (!nowait) {
       dbfull()->TEST_WaitForFlushMemTable();
       dbfull()->TEST_WaitForCompact();
@@ -12546,62 +12558,74 @@ TEST_F(DBTest, CompressLevelCompaction) {
 }
 
 TEST_F(DBTest, SuggestCompactRangeTest) {
+  class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
+   public:
+    virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
+        const CompactionFilter::Context& context) {
+      saved_context = context;
+      std::unique_ptr<CompactionFilter> empty_filter;
+      return empty_filter;
+    }
+    const char* Name() const override {
+      return "CompactionFilterFactoryGetContext";
+    }
+    static bool IsManual(CompactionFilterFactory* compaction_filter_factory) {
+      return reinterpret_cast<CompactionFilterFactoryGetContext*>(
+          compaction_filter_factory)->saved_context.is_manual_compaction;
+    }
+    CompactionFilter::Context saved_context;
+  };
+
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 100 << 10;  // 100KB
-  options.level0_file_num_compaction_trigger = 2;
+  options.compaction_filter_factory.reset(
+      new CompactionFilterFactoryGetContext());
+  options.write_buffer_size = 110 << 10;
+  options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 4;
-  options.max_bytes_for_level_base = 400 * 1024;
+  options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 450 << 10;
+  options.target_file_size_base = 98 << 10;
+  options.max_grandparent_overlap_factor = 1 << 20;  // inf
 
   Reopen(options);
 
   Random rnd(301);
-  int key_idx = 0;
 
-  // First three 110KB files are going to level 0
-  // After that, (100K, 200K)
   for (int num = 0; num < 3; num++) {
-    GenerateNewFile(&rnd, &key_idx);
+    GenerateNewRandomFile(&rnd);
   }
 
-  // Another 110KB triggers a compaction to 400K file to fill up level 0
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ(4, GetSstFileCount(dbname_));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("0,4", FilesPerLevel(0));
+  ASSERT_TRUE(!CompactionFilterFactoryGetContext::IsManual(
+                   options.compaction_filter_factory.get()));
 
-  // (1, 4)
-  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewRandomFile(&rnd);
   ASSERT_EQ("1,4", FilesPerLevel(0));
 
-  // (1, 4, 1)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,1", FilesPerLevel(0));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("2,4", FilesPerLevel(0));
 
-  // (1, 4, 2)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,2", FilesPerLevel(0));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("3,4", FilesPerLevel(0));
 
-  // (1, 4, 3)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,3", FilesPerLevel(0));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("0,4,4", FilesPerLevel(0));
 
-  // (1, 4, 4)
-  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewRandomFile(&rnd);
   ASSERT_EQ("1,4,4", FilesPerLevel(0));
 
-  // (1, 4, 5)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,5", FilesPerLevel(0));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("2,4,4", FilesPerLevel(0));
 
-  // (1, 4, 6)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,6", FilesPerLevel(0));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("3,4,4", FilesPerLevel(0));
 
-  // (1, 4, 7)
-  GenerateNewFile(&rnd, &key_idx);
-  ASSERT_EQ("1,4,7", FilesPerLevel(0));
+  GenerateNewRandomFile(&rnd);
+  ASSERT_EQ("0,4,8", FilesPerLevel(0));
 
-  // (1, 4, 8)
-  GenerateNewFile(&rnd, &key_idx);
+  GenerateNewRandomFile(&rnd);
   ASSERT_EQ("1,4,8", FilesPerLevel(0));
 
   // compact it three times
@@ -12612,7 +12636,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
 
   ASSERT_EQ("0,0,13", FilesPerLevel(0));
 
-  GenerateNewFile(&rnd, &key_idx, false);
+  GenerateNewRandomFile(&rnd);
   ASSERT_EQ("1,0,13", FilesPerLevel(0));
 
   // nonoverlapping with the file on level 0
@@ -12627,6 +12651,8 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   end = Slice("m");
   ASSERT_OK(experimental::SuggestCompactRange(db_, &start, &end));
   dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(CompactionFilterFactoryGetContext::IsManual(
+      options.compaction_filter_factory.get()));
 
   // now it should compact the level 0 file
   ASSERT_EQ("0,1,13", FilesPerLevel(0));
