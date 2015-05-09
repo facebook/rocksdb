@@ -12561,7 +12561,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
     virtual std::unique_ptr<CompactionFilter> CreateCompactionFilter(
-        const CompactionFilter::Context& context) {
+        const CompactionFilter::Context& context) override {
       saved_context = context;
       std::unique_ptr<CompactionFilter> empty_filter;
       return empty_filter;
