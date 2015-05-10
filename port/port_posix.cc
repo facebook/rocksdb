@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include <string.h>
 #include <cstdlib>
+#include <thread>
 #include "util/logging.h"
 
 namespace rocksdb {
@@ -132,6 +133,18 @@ void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(
 void InitOnce(OnceType* once, void (*initializer)()) {
   PthreadCall("once", pthread_once(once, initializer));
 }
+
+int GetNumberOfProcessors()
+{
+    return std::thread::hardware_concurrency();
+}
+
+int GetCurrentProcessor()
+{
+	int nProcessor = ::sched_getcpu();
+	return nProcessor == -1 ? 0 : (unsigned int)nProcessor;
+}
+
 
 }  // namespace port
 }  // namespace rocksdb

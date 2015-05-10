@@ -345,6 +345,9 @@ DEFINE_bool(use_fsync, false, "If true, issue fsync instead of fdatasync");
 
 DEFINE_bool(disable_wal, false, "If true, do not write WAL for write.");
 
+DEFINE_bool(concurrent_writes, false, "If true (and supported by the memtable), then permits concurrent write operations.");
+
+
 DEFINE_string(wal_dir, "", "If not empty, use the given dir for WAL");
 
 DEFINE_int32(num_levels, 7, "The total number of levels");
@@ -595,7 +598,8 @@ enum RepFactory {
   kPrefixHash,
   kVectorRep,
   kHashLinkedList,
-  kCuckoo
+  kCuckoo,
+  kLockFreeSkipList
 };
 
 namespace {
@@ -612,6 +616,8 @@ enum RepFactory StringToRepFactory(const char* ctype) {
     return kHashLinkedList;
   else if (!strcasecmp(ctype, "cuckoo"))
     return kCuckoo;
+  else if (!strcasecmp(ctype, "lock_free_skip_list"))
+	return kLockFreeSkipList;
 
   fprintf(stdout, "Cannot parse memreptable %s\n", ctype);
   return kSkipList;
@@ -1267,6 +1273,9 @@ class Benchmark {
       case kCuckoo:
         fprintf(stdout, "Memtablerep: cuckoo\n");
         break;
+      case kLockFreeSkipList:
+		fprintf(stdout, "Memtablerep: lock_free_skip_list\n");
+		break;					
     }
     fprintf(stdout, "Perf Level: %d\n", FLAGS_perf_level);
 
@@ -2053,6 +2062,7 @@ class Benchmark {
     } else {
       options.env = FLAGS_env;
     }
+	options.allow_concurrent_write_operations = FLAGS_concurrent_writes;
     options.disableDataSync = FLAGS_disable_data_sync;
     options.use_fsync = FLAGS_use_fsync;
     options.wal_dir = FLAGS_wal_dir;
@@ -2094,6 +2104,9 @@ class Benchmark {
         options.memtable_factory.reset(NewHashCuckooRepFactory(
             options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));
         break;
+	  case kLockFreeSkipList: 
+			options.memtable_factory.reset(new LockFreeSkipListFactory);
+	  break;			
 #else
       default:
         fprintf(stderr, "Only skip list is supported in lite mode\n");

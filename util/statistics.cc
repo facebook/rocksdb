@@ -63,6 +63,25 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
   }
 }
 
+void StatisticsImpl::setMaxTickerCount(uint32_t tickerType, uint64_t count) { 
+	assert(
+		enable_internal_stats_ ?
+		tickerType < INTERNAL_TICKER_ENUM_MAX :
+		tickerType < TICKER_ENUM_MAX);
+	if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
+		while (true)
+		{
+			auto i = tickers_[tickerType].value.load();
+			if (i <= count) break; // nothing to do
+			if (tickers_[tickerType].value.compare_exchange_strong(i, count)) break;
+		}
+	}
+	if (stats_ && tickerType < TICKER_ENUM_MAX) {
+		stats_->setMaxTickerCount(tickerType, count);
+	}
+}
+
+
 void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
   assert(
     enable_internal_stats_ ?

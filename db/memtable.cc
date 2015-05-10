@@ -29,7 +29,7 @@
 #include "util/perf_context_imp.h"
 #include "util/statistics.h"
 #include "util/stop_watch.h"
-
+ 
 namespace rocksdb {
 
 MemTableOptions::MemTableOptions(
@@ -54,12 +54,12 @@ MemTableOptions::MemTableOptions(
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
-                   WriteBuffer* write_buffer)
+                   WriteBuffer* write_buffer, bool permitConcurrentWriteOperations)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
-      arena_(moptions_.arena_block_size),
+      arena_(!permitConcurrentWriteOperations, moptions_.arena_block_size),
       allocator_(&arena_, write_buffer),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
@@ -75,6 +75,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                  ? moptions_.inplace_update_num_locks
                  : 0),
       prefix_extractor_(ioptions.prefix_extractor),
+	  permitConcurrentWriteOperations_(permitConcurrentWriteOperations),
       should_flush_(ShouldFlushNow()),
       flush_scheduled_(false),
       env_(ioptions.env) {
@@ -82,6 +83,9 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
   // gone wrong already.
   assert(!should_flush_);
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
+  
+	assert(!permitConcurrentWriteOperations_); 
+  
     prefix_bloom_.reset(new DynamicBloom(
         &allocator_,
         moptions_.memtable_prefix_bloom_bits, ioptions.bloom_locality,
@@ -315,21 +319,47 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(handle);
-  num_entries_++;
-  if (type == kTypeDeletion) {
-    num_deletes_++;
-  }
+  
+  if (!permitConcurrentWriteOperations_)
+  {
+  	  num_entries_ = num_entries_ + 1;
+	  if (type == kTypeDeletion) {
+        num_deletes_ = num_deletes_ + 1;
+      }	  
 
-  if (prefix_bloom_) {
-    assert(prefix_extractor_);
-    prefix_bloom_->Add(prefix_extractor_->Transform(key));
-  }
+	  if (prefix_bloom_) {
+		  assert(prefix_extractor_);
+		  assert(!permitConcurrentWriteOperations_);
+		  prefix_bloom_->Add(prefix_extractor_->Transform(key));
+	  }
 
-  // The first sequence number inserted into the memtable
-  assert(first_seqno_ == 0 || s > first_seqno_);
-  if (first_seqno_ == 0) {
-    first_seqno_ = s;
+	  // The first sequence number inserted into the memtable
+	  assert(first_seqno_ == 0 || s > first_seqno_); 
+	  if (first_seqno_ == 0) {
+		  first_seqno_ = s;
+	  }
   }
+  else
+  {
+	  num_entries_.fetch_add(1);
+	  if (type == kTypeDeletion) {
+        num_deletes_.fetch_add(1);
+      }	  	  
+
+	  assert(prefix_bloom_ == nullptr);
+
+	  // atomically update first_seqno_
+	  while (true)
+	  {
+		  uint64_t currSeqNum = first_seqno_.load();
+
+		  if (currSeqNum == 0 || s < currSeqNum)
+		  {
+			  if (first_seqno_.compare_exchange_strong(currSeqNum, s) == true)	break;
+		  }
+		  else break;
+	  }
+  }  
 
   should_flush_ = ShouldFlushNow();
 }

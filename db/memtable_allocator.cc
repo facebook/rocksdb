@@ -13,10 +13,10 @@
 #include "db/writebuffer.h"
 #include "util/arena.h"
 
-namespace rocksdb {
+namespace rocksdb { 
 
-MemTableAllocator::MemTableAllocator(Arena* arena, WriteBuffer* write_buffer)
-    : arena_(arena), write_buffer_(write_buffer), bytes_allocated_(0) {
+MemTableAllocator::MemTableAllocator(Allocator* allocator, WriteBuffer* write_buffer)
+    : allocator_(allocator), write_buffer_(write_buffer), bytes_allocated_(0) {
 }
 
 MemTableAllocator::~MemTableAllocator() {
@@ -27,7 +27,7 @@ char* MemTableAllocator::Allocate(size_t bytes) {
   assert(write_buffer_ != nullptr);
   bytes_allocated_ += bytes;
   write_buffer_->ReserveMem(bytes);
-  return arena_->Allocate(bytes);
+  return allocator_->Allocate(bytes);
 }
 
 char* MemTableAllocator::AllocateAligned(size_t bytes, size_t huge_page_size,
@@ -35,7 +35,7 @@ char* MemTableAllocator::AllocateAligned(size_t bytes, size_t huge_page_size,
   assert(write_buffer_ != nullptr);
   bytes_allocated_ += bytes;
   write_buffer_->ReserveMem(bytes);
-  return arena_->AllocateAligned(bytes, huge_page_size, logger);
+  return allocator_->AllocateAligned(bytes, huge_page_size, logger);
 }
 
 void MemTableAllocator::DoneAllocating() {
@@ -46,7 +46,7 @@ void MemTableAllocator::DoneAllocating() {
 }
 
 size_t MemTableAllocator::BlockSize() const {
-  return arena_->BlockSize();
+  return allocator_->BlockSize();
 }
 
 }  // namespace rocksdb

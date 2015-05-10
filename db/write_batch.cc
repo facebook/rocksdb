@@ -20,7 +20,7 @@
 //    kTypeColumnFamilyDeletion varint32 varstring varstring
 // varstring :=
 //    len: varint32
-//    data: uint8[len]
+//    data: uint8[len] 
 
 #include "rocksdb/write_batch.h"
 #include "rocksdb/merge_operator.h"
@@ -118,6 +118,62 @@ Status ReadRecordFromWriteBatch(Slice* input, char* tag,
   }
   return Status::OK();
 }
+
+bool WriteBatch::IsSimpleBatch() 
+{
+    if(Count()!=1) return false;
+	
+	Slice input(rep_);
+	if (input.size() < kHeader) {
+		return false; // error
+	}
+	input.remove_prefix(kHeader);
+	Slice key, value, blob;
+	Status s;
+	char tag = 0;
+	uint32_t column_family = 0;  
+
+	s = ReadRecordFromWriteBatch(&input, &tag, &column_family, &key, &value, &blob);
+	if (!s.ok()) {
+		return false;
+	}
+	
+	if(tag == kTypeColumnFamilyValue || tag == kTypeValue || 
+	   tag == kTypeColumnFamilyDeletion || tag == kTypeDeletion )
+	  return true;
+	else 
+	  return false;
+}
+
+Status WriteBatch::GetSimpleUpdateData(uint32_t* column_family, unsigned char* type, Slice* key, Slice* value)
+{
+	assert(Count()==1);
+	Slice input(rep_);
+	if (input.size() < kHeader) {
+		return Status::Corruption("malformed WriteBatch (too small)");
+	}
+	input.remove_prefix(kHeader);
+	char tag = 0;
+	Slice blob;	 	
+	Status s = ReadRecordFromWriteBatch(&input, &tag, column_family, key, value, &blob);	
+	
+	if(s.ok())
+	{
+	  if(tag == kTypeColumnFamilyDeletion || tag == kTypeDeletion) 
+	  {
+	    *type = kTypeDeletion;
+	    *value = Slice();
+	  }
+	  else if(tag == kTypeColumnFamilyValue || tag == kTypeValue)
+	  {
+	    *type = kTypeValue;
+	  }
+	  else assert(0);
+	}	
+	
+	return s;
+}
+
 
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);

@@ -39,6 +39,7 @@ class StatisticsImpl : public Statistics {
                              HistogramData* const data) const override;
 
   virtual void setTickerCount(uint32_t ticker_type, uint64_t count) override;
+  void setMaxTickerCount(uint32_t tickerType, uint64_t count) override;  
   virtual void recordTick(uint32_t ticker_type, uint64_t count) override;
   virtual void measureTime(uint32_t histogram_type, uint64_t value) override;
 
@@ -85,6 +86,12 @@ inline void SetTickerCount(Statistics* statistics, uint32_t ticker_type,
   if (statistics) {
     statistics->setTickerCount(ticker_type, count);
   }
+}
+
+inline void SetMaxTickerCount(Statistics* statistics, uint32_t ticker_type,	uint64_t count) {
+	if (statistics) {
+		statistics->setMaxTickerCount(ticker_type, count);
+	}
 }
 
 }

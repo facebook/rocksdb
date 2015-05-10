@@ -22,6 +22,7 @@
 #include "rocksdb/immutable_options.h"
 #include "db/memtable_allocator.h"
 #include "util/arena.h"
+#include "util/concurrent_arena.h"
 #include "util/dynamic_bloom.h"
 #include "util/mutable_cf_options.h"
 
@@ -31,7 +32,7 @@ class Mutex;
 class MemTableIterator;
 class MergeContext;
 class WriteBuffer;
-
+ 
 struct MemTableOptions {
   explicit MemTableOptions(
       const ImmutableCFOptions& ioptions,
@@ -83,7 +84,7 @@ class MemTable {
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
-                    WriteBuffer* write_buffer);
+                    WriteBuffer* write_buffer, bool permitConcurrentWriteOperations = false);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -207,13 +208,13 @@ class MemTable {
   // Returns if there is no entry inserted to the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  bool IsEmpty() const { return first_seqno_ == 0; }
+  bool IsEmpty() const { return first_seqno_.load() == 0; } 
 
   // Returns the sequence number of the first element that was inserted
   // into the memtable.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
+  SequenceNumber GetFirstSequenceNumber() { return first_seqno_.load(); }
 
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
@@ -269,12 +270,12 @@ class MemTable {
   const MemTableOptions moptions_;
   int refs_;
   const size_t kArenaBlockSize;
-  Arena arena_;
+  SimpleConcurrentArena arena_;
   MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
 
-  uint64_t num_entries_;
-  uint64_t num_deletes_;
+  std::atomic_uint_least64_t num_entries_;
+  std::atomic_uint_least64_t num_deletes_; 
 
   // These are used to manage memtable flushes to storage
   bool flush_in_progress_; // started the flush
@@ -286,7 +287,7 @@ class MemTable {
   VersionEdit edit_;
 
   // The sequence number of the kv that was inserted first
-  SequenceNumber first_seqno_;
+  std::atomic_uint_least64_t first_seqno_;
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;
@@ -300,6 +301,8 @@ class MemTable {
 
   const SliceTransform* const prefix_extractor_;
   std::unique_ptr<DynamicBloom> prefix_bloom_;
+  
+  bool permitConcurrentWriteOperations_;
 
   // a flag indicating if a memtable has met the criteria to flush
   bool should_flush_;

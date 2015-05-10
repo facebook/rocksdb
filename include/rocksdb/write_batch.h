@@ -28,7 +28,7 @@
 #include <string>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
-
+ 
 namespace rocksdb {
 
 class Slice;
@@ -145,6 +145,14 @@ class WriteBatch : public WriteBatchBase {
     // implementation always returns true.
     virtual bool Continue();
   };
+  
+  bool IsSimpleBatch();
+  
+  // Assumes that the batch contains a single put/delete update
+  // Returns the family id, type, key and value of the update
+  Status GetSimpleUpdateData(uint32_t* column_family, unsigned char* type, Slice* key, Slice* value);
+  
+  
   Status Iterate(Handler* handler) const;
 
   // Retrieve the serialized version of this batch.

@@ -1710,7 +1710,6 @@ VersionSet::VersionSet(const std::string& dbname, const DBOptions* db_options,
       next_file_number_(2),
       manifest_file_number_(0),  // Filled by Recover()
       pending_manifest_file_number_(0),
-      last_sequence_(0),
       prev_log_number_(0),
       current_version_number_(0),
       manifest_file_size_(0),
@@ -2015,7 +2014,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 void VersionSet::LogAndApplyCFHelper(VersionEdit* edit) {
   assert(edit->IsColumnFamilyManipulation());
   edit->SetNextFile(next_file_number_.load());
-  edit->SetLastSequence(last_sequence_);
+  edit->SetLastSequence(LastSequence());
   if (edit->is_column_family_drop_) {
     // if we drop column family, we have to make sure to save max column family,
     // so that we don't reuse existing ID
@@ -2038,7 +2037,7 @@ void VersionSet::LogAndApplyHelper(ColumnFamilyData* cfd,
     edit->SetPrevLogNumber(prev_log_number_);
   }
   edit->SetNextFile(next_file_number_.load());
-  edit->SetLastSequence(last_sequence_);
+  edit->SetLastSequence(LastSequence());
 
   builder->Apply(edit);
 }
@@ -2306,7 +2305,7 @@ Status VersionSet::Recover(
 
     manifest_file_size_ = current_manifest_file_size;
     next_file_number_.store(next_file + 1);
-    last_sequence_ = last_sequence;
+    sequence_number_mgr_.Reset(last_sequence); 
     prev_log_number_ = previous_log_number;
 
     Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
@@ -2316,7 +2315,7 @@ Status VersionSet::Recover(
         "prev_log_number is %lu,"
         "max_column_family is %u\n",
         manifest_filename.c_str(), (unsigned long)manifest_file_number_,
-        (unsigned long)next_file_number_.load(), (unsigned long)last_sequence_,
+        (unsigned long)next_file_number_.load(), (unsigned long)last_sequence,
         (unsigned long)log_number, (unsigned long)prev_log_number_,
         column_family_set_->GetMaxColumnFamily());
 
@@ -2660,7 +2659,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
     }
 
     next_file_number_.store(next_file + 1);
-    last_sequence_ = last_sequence;
+    sequence_number_mgr_.Reset(last_sequence);
     prev_log_number_ = previous_log_number;
 
     printf(

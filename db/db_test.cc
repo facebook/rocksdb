@@ -397,7 +397,10 @@ class DBTest : public testing::Test {
     kxxHashChecksum = 25,
     kFIFOCompaction = 26,
     kOptimizeFiltersForHits = 27,
-    kEnd = 28
+    kLockFreeSkipList = 28,
+	kConcurrentWriteOperationsNoWal = 29,
+	kConcurrentWriteOperationsWithWal = 30,
+    kEnd = 31
   };
   int option_config_;
 
@@ -424,6 +427,8 @@ class DBTest : public testing::Test {
     kSkipHashCuckoo = 64,
     kSkipFIFOCompaction = 128,
     kSkipMmapReads = 256,
+	kSkipConcurrentWriteOperationsNoWal = 512,
+	kSkipConcurrentWriteOperationsWithWal = 1024,
   };
 
 
@@ -502,6 +507,14 @@ class DBTest : public testing::Test {
           option_config_ == kWalDirAndMmapReads) {
         continue;
       }
+	  if ((skip_mask & kSkipConcurrentWriteOperationsNoWal) &&
+		  option_config_ == kConcurrentWriteOperationsNoWal) {
+		  continue;
+	  }	  
+	  if ((skip_mask & kSkipConcurrentWriteOperationsWithWal) &&
+		  option_config_ == kConcurrentWriteOperationsWithWal) {
+		  continue;
+	  }	  
       break;
     }
 
@@ -687,6 +700,21 @@ class DBTest : public testing::Test {
         set_block_based_table_factory = true;
         break;
       }
+	  case kLockFreeSkipList: {
+		  options.memtable_factory.reset(new LockFreeSkipListFactory);
+  		  break;
+	  }
+	  case kConcurrentWriteOperationsNoWal: {
+		  options.memtable_factory.reset(new LockFreeSkipListFactory);
+		  options.allow_concurrent_write_operations = true;
+		  break;
+	  }	
+	  case kConcurrentWriteOperationsWithWal: {
+		  options.memtable_factory.reset(new LockFreeSkipListFactory);
+		  options.allow_concurrent_write_operations = true;
+		  options.allow_mmap_writes = true;
+		  break;
+	  }		  
 
       default:
         break;
@@ -797,7 +825,10 @@ class DBTest : public testing::Test {
     }
   }
 
-  Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions()) {
+  Status Put(const Slice& k, const Slice& v, WriteOptions wo = WriteOptions()) {  
+    if (kConcurrentWriteOperationsNoWal == option_config_) {
+		wo.disableWAL = true;
+	}    
     if (kMergePut == option_config_ ) {
       return db_->Merge(wo, k, v);
     } else {
@@ -807,6 +838,9 @@ class DBTest : public testing::Test {
 
   Status Put(int cf, const Slice& k, const Slice& v,
              WriteOptions wo = WriteOptions()) {
+	if (kConcurrentWriteOperationsNoWal == option_config_) {
+		wo.disableWAL = true;
+	}			 
     if (kMergePut == option_config_) {
       return db_->Merge(wo, handles_[cf], k, v);
     } else {
@@ -815,11 +849,19 @@ class DBTest : public testing::Test {
   }
 
   Status Delete(const std::string& k) {
-    return db_->Delete(WriteOptions(), k);
+    WriteOptions wo;
+	if (kConcurrentWriteOperationsNoWal == option_config_) {
+		wo.disableWAL = true;
+	}
+	return db_->Delete(wo, k);  
   }
 
   Status Delete(int cf, const std::string& k) {
-    return db_->Delete(WriteOptions(), handles_[cf], k);
+    WriteOptions wo;
+	if (kConcurrentWriteOperationsNoWal == option_config_) {
+		wo.disableWAL = true;
+	}
+    return db_->Delete(wo, handles_[cf], k);
   }
 
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr) {
@@ -3005,7 +3047,7 @@ TEST_F(DBTest, IgnoreRecoveredLog) {
     }
     Status s = TryReopen(options);
     ASSERT_TRUE(!s.ok());
-  } while (ChangeOptions(kSkipHashCuckoo));
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipConcurrentWriteOperationsNoWal));
 }
 
 TEST_F(DBTest, RollLog) {
@@ -6328,7 +6370,7 @@ TEST_F(DBTest, ApproximateSizes) {
     }
     // ApproximateOffsetOf() is not yet implemented in plain table format.
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction |
-                         kSkipPlainTable | kSkipHashIndex));
+                         kSkipPlainTable | kSkipHashIndex | kSkipConcurrentWriteOperationsNoWal));
 }
 
 TEST_F(DBTest, ApproximateSizes_MixOfSmallAndLarge) {
@@ -8498,8 +8540,106 @@ TEST_F(DBTest, GroupCommitTest) {
     ASSERT_TRUE(!itr->Valid());
     delete itr;
 
-  } while (ChangeOptions(kSkipNoSeekToLast));
+  } while (ChangeOptions(kSkipNoSeekToLast | kSkipConcurrentWriteOperationsNoWal | kSkipConcurrentWriteOperationsWithWal));
 }
+
+// Concurrent writes test:
+namespace {
+	static const int kConWritesNumThreads = 4;
+	static const int kConWritesNumKeys = 100000;
+
+	struct ConWritesThread {
+		DB* db;
+		int id;
+		int odd; // should be 0 or 1
+		std::atomic<bool> done;
+	};
+
+	static void ConWritesThreadBody(void* arg) {
+		ConWritesThread* t = reinterpret_cast<ConWritesThread*>(arg);
+		int id = t->id;
+		int odd = t->odd;
+		DB* db = t->db;
+		WriteOptions wo;
+		wo.disableWAL = true;
+
+		for (int i = 0; i < kConWritesNumKeys; ++i) {
+			std::string kv(std::to_string((i + id * kConWritesNumKeys) * 2 + odd));
+			ASSERT_OK(db->Put(wo, kv, kv));
+		}
+		t->done = true;
+	}
+
+}  // namespace
+
+
+TEST_F(DBTest, ConcurrentWritesTest) {
+	do { 
+		Options options = CurrentOptions(); 		
+		options.statistics = rocksdb::CreateDBStatistics();
+		Reopen(options);
+
+		std::vector<std::string> expected_db;
+		for (int i = 0; i < kConWritesNumThreads * kConWritesNumKeys; ++i) {
+			expected_db.push_back(std::to_string(i * 2));
+		}
+		sort(expected_db.begin(), expected_db.end());
+
+
+		// Start threads
+		ConWritesThread thread[kConWritesNumThreads];
+		for (int id = 0; id < kConWritesNumThreads; id++) {
+			thread[id].id = id;
+			thread[id].db = db_;
+			thread[id].done = false;
+			thread[id].odd = 0;
+			env_->StartThread(ConWritesThreadBody, &thread[id]);
+		}
+
+		for (int id = 0; id < kConWritesNumThreads; id++) {
+			while (thread[id].done == false) {
+				env_->SleepForMicroseconds(100000);
+			}
+		}
+
+		// Start threads (now the thread write odd values, and the db is concurrently scanned)
+		
+		for (int id = 0; id < kConWritesNumThreads; id++) {
+			thread[id].id = id;
+			thread[id].db = db_;
+			thread[id].done = false;
+			thread[id].odd = 1;
+			env_->StartThread(ConWritesThreadBody, &thread[id]);
+		}
+
+		Iterator* itr = db_->NewIterator(ReadOptions());
+		itr->SeekToFirst();
+		for (auto x : expected_db) {
+			unsigned long keyNum;
+			ASSERT_TRUE(itr->Valid());
+			// skip odd keys
+			do
+			{
+				keyNum = std::strtoul(itr->key().ToString().c_str(), 0, 10);
+				if (keyNum % 2 == 1) itr->Next();
+			} while (keyNum % 2 == 1);
+
+			ASSERT_EQ(itr->key().ToString(), x);
+			ASSERT_EQ(itr->value().ToString(), x);
+			itr->Next();
+		}
+		ASSERT_TRUE(!itr->Valid());
+		delete itr;
+
+		for (int id = 0; id < kConWritesNumThreads; id++) {
+			while (thread[id].done == false) {
+				env_->SleepForMicroseconds(100000);
+			}
+		}
+
+
+	} while (ChangeOptions(kSkipNoSeekToLast | kSkipHashCuckoo));
+ }		 
 
 namespace {
 typedef std::map<std::string, std::string> KVMap;

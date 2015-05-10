@@ -187,6 +187,9 @@ class MemTableRepFactory {
                                          const SliceTransform*,
                                          Logger* logger) = 0;
   virtual const char* Name() const = 0;
+  
+  // returns true, iff the MemTableRep permits concurrent write operations (i.e., thread-safety is not violated by concurrent writes)
+  virtual bool PermitsConcurrentWriteOperations() const { return false; }   
 };
 
 // This uses a skip list to store keys. It is the default.
@@ -300,5 +303,21 @@ extern MemTableRepFactory* NewHashLinkListRepFactory(
 extern MemTableRepFactory* NewHashCuckooRepFactory(
     size_t write_buffer_size, size_t average_data_size = 64,
     unsigned int hash_function_count = 4);
+	
+	
+class LockFreeSkipListFactory : public MemTableRepFactory {
+public:
+	
+    virtual MemTableRep* CreateMemTableRep(const MemTableRep::KeyComparator&,
+                                           MemTableAllocator*,
+                                           const SliceTransform*,
+                                           Logger* logger) ;
+	
+	virtual const char* Name() const override { return "LockFreeSkipListFactory"; }
+	virtual bool PermitsConcurrentWriteOperations() const override { return true; }
+};	
+	
+	
+	
 #endif  // ROCKSDB_LITE
 }  // namespace rocksdb
