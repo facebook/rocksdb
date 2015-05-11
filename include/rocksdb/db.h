@@ -495,6 +495,8 @@ class DB {
     return GetOptions(DefaultColumnFamily());
   }
 
+  virtual const DBOptions& GetDBOptions() const = 0;
+
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) = 0;

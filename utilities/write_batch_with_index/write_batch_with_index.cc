@@ -10,8 +10,11 @@
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "db/column_family.h"
+#include "db/merge_context.h"
+#include "db/merge_helper.h"
 #include "db/skiplist.h"
 #include "util/arena.h"
+#include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
 
@@ -287,60 +290,6 @@ class BaseDeltaIterator : public Iterator {
   const Comparator* comparator_;  // not owned
 };
 
-class ReadableWriteBatch : public WriteBatch {
- public:
-  explicit ReadableWriteBatch(size_t reserved_bytes = 0)
-      : WriteBatch(reserved_bytes) {}
-  // Retrieve some information from a write entry in the write batch, given
-  // the start offset of the write entry.
-  Status GetEntryFromDataOffset(size_t data_offset, WriteType* type, Slice* Key,
-                                Slice* value, Slice* blob) const;
-};
-
-// Key used by skip list, as the binary searchable index of WriteBatchWithIndex.
-struct WriteBatchIndexEntry {
-  WriteBatchIndexEntry(size_t o, uint32_t c)
-      : offset(o), column_family(c), search_key(nullptr) {}
-  WriteBatchIndexEntry(const Slice* sk, uint32_t c)
-      : offset(0), column_family(c), search_key(sk) {}
-
-  // If this flag appears in the offset, it indicates a key that is smaller
-  // than any other entry for the same column family
-  static const size_t kFlagMin = std::numeric_limits<size_t>::max();
-
-  size_t offset;           // offset of an entry in write batch's string buffer.
-  uint32_t column_family;  // column family of the entry
-  const Slice* search_key;  // if not null, instead of reading keys from
-                            // write batch, use it to compare. This is used
-                            // for lookup key.
-};
-
-class WriteBatchEntryComparator {
- public:
-  WriteBatchEntryComparator(const Comparator* _default_comparator,
-                            const ReadableWriteBatch* write_batch)
-      : default_comparator_(_default_comparator), write_batch_(write_batch) {}
-  // Compare a and b. Return a negative value if a is less than b, 0 if they
-  // are equal, and a positive value if a is greater than b
-  int operator()(const WriteBatchIndexEntry* entry1,
-                 const WriteBatchIndexEntry* entry2) const;
-
-  int CompareKey(uint32_t column_family, const Slice& key1,
-                 const Slice& key2) const;
-
-  void SetComparatorForCF(uint32_t column_family_id,
-                          const Comparator* comparator) {
-    cf_comparator_map_[column_family_id] = comparator;
-  }
-
-  const Comparator* default_comparator() { return default_comparator_; }
-
- private:
-  const Comparator* default_comparator_;
-  std::unordered_map<uint32_t, const Comparator*> cf_comparator_map_;
-  const ReadableWriteBatch* write_batch_;
-};
-
 typedef SkipList<WriteBatchIndexEntry*, const WriteBatchEntryComparator&>
     WriteBatchEntrySkipList;
 
@@ -535,45 +484,6 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
     last_entry_offset = 0;
   }
 
-Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
-                                                  WriteType* type, Slice* Key,
-                                                  Slice* value,
-                                                  Slice* blob) const {
-  if (type == nullptr || Key == nullptr || value == nullptr ||
-      blob == nullptr) {
-    return Status::InvalidArgument("Output parameters cannot be null");
-  }
-
-  if (data_offset >= GetDataSize()) {
-    return Status::InvalidArgument("data offset exceed write batch size");
-  }
-  Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
-  char tag;
-  uint32_t column_family;
-  Status s =
-      ReadRecordFromWriteBatch(&input, &tag, &column_family, Key, value, blob);
-
-  switch (tag) {
-    case kTypeColumnFamilyValue:
-    case kTypeValue:
-      *type = kPutRecord;
-      break;
-    case kTypeColumnFamilyDeletion:
-    case kTypeDeletion:
-      *type = kDeleteRecord;
-      break;
-    case kTypeColumnFamilyMerge:
-    case kTypeMerge:
-      *type = kMergeRecord;
-      break;
-    case kTypeLogData:
-      *type = kLogDataRecord;
-      break;
-    default:
-      return Status::Corruption("unknown WriteBatch tag");
-  }
-  return Status::OK();
-}
 
 WriteBatchWithIndex::WriteBatchWithIndex(
     const Comparator* default_index_comparator, size_t reserved_bytes,
@@ -659,66 +569,97 @@ void WriteBatchWithIndex::Delete(const Slice& key) {
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }
 
-int WriteBatchEntryComparator::operator()(
-    const WriteBatchIndexEntry* entry1,
-    const WriteBatchIndexEntry* entry2) const {
-  if (entry1->column_family > entry2->column_family) {
-    return 1;
-  } else if (entry1->column_family < entry2->column_family) {
-    return -1;
-  }
-
-  if (entry1->offset == WriteBatchIndexEntry::kFlagMin) {
-    return -1;
-  } else if (entry2->offset == WriteBatchIndexEntry::kFlagMin) {
-    return 1;
-  }
-
+Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
+                                         const DBOptions& options,
+                                         const Slice& key, std::string* value) {
   Status s;
-  Slice key1, key2;
-  if (entry1->search_key == nullptr) {
-    Slice value, blob;
-    WriteType write_type;
-    s = write_batch_->GetEntryFromDataOffset(entry1->offset, &write_type, &key1,
-                                             &value, &blob);
-    if (!s.ok()) {
-      return 1;
-    }
-  } else {
-    key1 = *(entry1->search_key);
-  }
-  if (entry2->search_key == nullptr) {
-    Slice value, blob;
-    WriteType write_type;
-    s = write_batch_->GetEntryFromDataOffset(entry2->offset, &write_type, &key2,
-                                             &value, &blob);
-    if (!s.ok()) {
-      return -1;
-    }
-  } else {
-    key2 = *(entry2->search_key);
+  MergeContext merge_context;
+
+  WriteBatchWithIndexInternal::Result result =
+      WriteBatchWithIndexInternal::GetFromBatch(options, this, column_family,
+                                                key, &merge_context,
+                                                &rep->comparator, value, &s);
+
+  switch (result) {
+    case WriteBatchWithIndexInternal::Result::kFound:
+    case WriteBatchWithIndexInternal::Result::kError:
+      return s;
+    case WriteBatchWithIndexInternal::Result::kDeleted:
+    case WriteBatchWithIndexInternal::Result::kNotFound:
+      return Status::NotFound();
+    case WriteBatchWithIndexInternal::Result::kMergeInProgress:
+      return Status::MergeInProgress("");
+    default:
+      assert(false);
   }
 
-  int cmp = CompareKey(entry1->column_family, key1, key2);
-  if (cmp != 0) {
-    return cmp;
-  } else if (entry1->offset > entry2->offset) {
-    return 1;
-  } else if (entry1->offset < entry2->offset) {
-    return -1;
-  }
-  return 0;
+  return s;
 }
 
-int WriteBatchEntryComparator::CompareKey(uint32_t column_family,
-                                          const Slice& key1,
-                                          const Slice& key2) const {
-  auto comparator_for_cf = cf_comparator_map_.find(column_family);
-  if (comparator_for_cf != cf_comparator_map_.end()) {
-    return comparator_for_cf->second->Compare(key1, key2);
-  } else {
-    return default_comparator_->Compare(key1, key2);
+Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
+                                              const ReadOptions& read_options,
+                                              const Slice& key,
+                                              std::string* value) {
+  return GetFromBatchAndDB(db, read_options, db->DefaultColumnFamily(), key,
+                           value);
+}
+
+Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
+                                              const ReadOptions& read_options,
+                                              ColumnFamilyHandle* column_family,
+                                              const Slice& key,
+                                              std::string* value) {
+  Status s;
+  MergeContext merge_context;
+  const DBOptions& options = db->GetDBOptions();
+
+  std::string batch_value;
+  WriteBatchWithIndexInternal::Result result =
+      WriteBatchWithIndexInternal::GetFromBatch(
+          options, this, column_family, key, &merge_context, &rep->comparator,
+          &batch_value, &s);
+
+  if (result == WriteBatchWithIndexInternal::Result::kFound) {
+    value->assign(batch_value.data(), batch_value.size());
+    return s;
   }
+  if (result == WriteBatchWithIndexInternal::Result::kDeleted) {
+    return Status::NotFound();
+  }
+  if (result == WriteBatchWithIndexInternal::Result::kError) {
+    return s;
+  }
+  assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
+         result == WriteBatchWithIndexInternal::Result::kNotFound);
+
+  // Did not find key in batch OR could not resolve Merges.  Try DB.
+  s = db->Get(read_options, column_family, key, value);
+
+  if (s.ok() || s.IsNotFound()) {  // DB Get Suceeded
+    if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress) {
+      // Merge result from DB with merges in Batch
+      auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+      const MergeOperator* merge_operator =
+          cfh->cfd()->ioptions()->merge_operator;
+      Statistics* statistics = options.statistics.get();
+      Env* env = options.env;
+      Logger* logger = options.info_log.get();
+
+      Slice db_slice(*value);
+      Slice* merge_data;
+      if (s.ok()) {
+        merge_data = &db_slice;
+      } else {  // Key not present in db (s.IsNotFound())
+        merge_data = nullptr;
+      }
+
+      s = MergeHelper::TimedFullMerge(
+          key, merge_data, merge_context.GetOperands(), merge_operator,
+          statistics, env, logger, value);
+    }
+  }
+
+  return s;
 }
 
 }  // namespace rocksdb

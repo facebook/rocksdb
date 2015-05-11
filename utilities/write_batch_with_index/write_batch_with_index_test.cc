@@ -13,6 +13,8 @@
 #include "db/column_family.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/testharness.h"
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace rocksdb {
 
@@ -905,6 +907,279 @@ TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
     iter->Seek("0");
     AssertIter(iter.get(), "a", "b");
   }
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatch) {
+  Options options;
+  WriteBatchWithIndex batch;
+  Status s;
+  std::string value;
+
+  s = batch.GetFromBatch(options, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Put("a", "a");
+  batch.Put("b", "b");
+  batch.Put("c", "c");
+  batch.Put("a", "z");
+  batch.Delete("c");
+  batch.Delete("d");
+  batch.Delete("e");
+  batch.Put("e", "e");
+
+  s = batch.GetFromBatch(options, "b", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b", value);
+
+  s = batch.GetFromBatch(options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z", value);
+
+  s = batch.GetFromBatch(options, "c", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(options, "d", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+
+  batch.Merge("z", "z");
+
+  s = batch.GetFromBatch(options, "z", &value);
+  ASSERT_NOK(s);  // No merge operator specified.
+
+  s = batch.GetFromBatch(options, "b", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b", value);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
+  DB* db;
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  options.create_if_missing = true;
+
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  ColumnFamilyHandle* column_family = db->DefaultColumnFamily();
+  WriteBatchWithIndex batch;
+  std::string value;
+
+  s = batch.GetFromBatch(options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Put("x", "X");
+  std::string expected = "X";
+
+  for (int i = 0; i < 5; i++) {
+    batch.Merge("x", std::to_string(i));
+    expected = expected + "," + std::to_string(i);
+
+    if (i % 2 == 0) {
+      batch.Put("y", std::to_string(i / 2));
+    }
+
+    batch.Merge("z", "z");
+
+    s = batch.GetFromBatch(column_family, options, "x", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(expected, value);
+
+    s = batch.GetFromBatch(column_family, options, "y", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(std::to_string(i / 2), value);
+
+    s = batch.GetFromBatch(column_family, options, "z", &value);
+    ASSERT_TRUE(s.IsMergeInProgress());
+  }
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  WriteBatchWithIndex batch;
+  ReadOptions read_options;
+  WriteOptions write_options;
+  std::string value;
+
+  s = db->Put(write_options, "a", "a");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "b", "b");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "c", "c");
+  ASSERT_OK(s);
+
+  batch.Put("a", "batch.a");
+  batch.Delete("b");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("batch.a", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatchAndDB(db, read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  db->Delete(write_options, "x");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  WriteBatchWithIndex batch;
+  ReadOptions read_options;
+  WriteOptions write_options;
+  std::string value;
+
+  s = db->Put(write_options, "a", "a0");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "b", "b0");
+  ASSERT_OK(s);
+
+  s = db->Merge(write_options, "b", "b1");
+  ASSERT_OK(s);
+
+  s = db->Merge(write_options, "c", "c0");
+  ASSERT_OK(s);
+
+  s = db->Merge(write_options, "d", "d0");
+  ASSERT_OK(s);
+
+  batch.Merge("a", "a1");
+  batch.Merge("a", "a2");
+  batch.Merge("b", "b2");
+  batch.Merge("d", "d1");
+  batch.Merge("e", "e0");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0,a1,a2", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "b", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b0,b1,b2", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "d", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d0,d1", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  s = db->Delete(write_options, "x");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  const Snapshot* snapshot = db->GetSnapshot();
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+
+  s = db->Delete(write_options, "a");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a1,a2", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0,a1,a2", value);
+
+  batch.Delete("a");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Merge(write_options, "c", "c1");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0,c1", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+
+  s = db->Put(write_options, "e", "e1");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e1,e0", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  s = db->Delete(write_options, "e");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  db->ReleaseSnapshot(snapshot);
+  delete db;
+  DestroyDB(dbname, options);
 }
 
 }  // namespace

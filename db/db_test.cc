@@ -8753,6 +8753,9 @@ class ModelDB: public DB {
     return options_;
   }
 
+  using DB::GetDBOptions;
+  virtual const DBOptions& GetDBOptions() const override { return options_; }
+
   using DB::Flush;
   virtual Status Flush(const rocksdb::FlushOptions& options,
                        ColumnFamilyHandle* column_family) override {

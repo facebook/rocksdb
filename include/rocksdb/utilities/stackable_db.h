@@ -175,6 +175,11 @@ class StackableDB : public DB {
     return db_->GetOptions(column_family);
   }
 
+  using DB::GetDBOptions;
+  virtual const DBOptions& GetDBOptions() const override {
+    return db_->GetDBOptions();
+  }
+
   using DB::Flush;
   virtual Status Flush(const FlushOptions& fopts,
                        ColumnFamilyHandle* column_family) override {

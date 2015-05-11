@@ -658,7 +658,7 @@ class SpatialDBImpl : public SpatialDB {
 };
 
 namespace {
-DBOptions GetDBOptions(const SpatialDBOptions& options) {
+DBOptions GetDBOptionsFromSpatialDBOptions(const SpatialDBOptions& options) {
   DBOptions db_options;
   db_options.max_open_files = 50000;
   db_options.max_background_compactions = 3 * options.num_threads / 4;
@@ -760,7 +760,7 @@ class MetadataStorage {
 Status SpatialDB::Create(
     const SpatialDBOptions& options, const std::string& name,
     const std::vector<SpatialIndexOptions>& spatial_indexes) {
-  DBOptions db_options = GetDBOptions(options);
+  DBOptions db_options = GetDBOptionsFromSpatialDBOptions(options);
   db_options.create_if_missing = true;
   db_options.create_missing_column_families = true;
   db_options.error_if_exists = true;
@@ -805,7 +805,7 @@ Status SpatialDB::Create(
 
 Status SpatialDB::Open(const SpatialDBOptions& options, const std::string& name,
                        SpatialDB** db, bool read_only) {
-  DBOptions db_options = GetDBOptions(options);
+  DBOptions db_options = GetDBOptionsFromSpatialDBOptions(options);
   auto block_cache = NewLRUCache(options.cache_size);
   ColumnFamilyOptions column_family_options =
       GetColumnFamilyOptions(options, block_cache);

@@ -3524,6 +3524,8 @@ const Options& DBImpl::GetOptions(ColumnFamilyHandle* column_family) const {
   return *cfh->cfd()->options();
 }
 
+const DBOptions& DBImpl::GetDBOptions() const { return db_options_; }
+
 bool DBImpl::GetProperty(ColumnFamilyHandle* column_family,
                          const Slice& property, std::string* value) {
   bool is_int_property = false;

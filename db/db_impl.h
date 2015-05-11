@@ -150,6 +150,8 @@ class DBImpl : public DB {
   using DB::GetOptions;
   virtual const Options& GetOptions(
       ColumnFamilyHandle* column_family) const override;
+  using DB::GetDBOptions;
+  virtual const DBOptions& GetDBOptions() const override;
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
