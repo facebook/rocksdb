@@ -10,6 +10,8 @@
 #pragma once
 #include <stdint.h>
 #include <limits>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "rocksdb/flush_block_policy.h"
@@ -67,6 +69,9 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
+
+  // Get table properties
+  TableProperties GetTableProperties() const override;
 
  private:
   bool ok() const { return status().ok(); }

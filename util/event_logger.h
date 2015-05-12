@@ -72,6 +72,7 @@ class JSONWritter {
 
   void StartObject() {
     assert(state_ == kExpectValue);
+    state_ = kExpectKey;
     stream_ << "{";
     first_element_ = true;
   }

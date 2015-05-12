@@ -39,6 +39,7 @@
 #include "table/meta_blocks.h"
 #include "table/table_builder.h"
 
+#include "util/string_util.h"
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
@@ -830,28 +831,6 @@ Status BlockBasedTableBuilder::Finish() {
     }
   }
 
-  // Print out the table stats
-  if (ok()) {
-    // user collected properties
-    std::string user_collected;
-    user_collected.reserve(1024);
-    for (const auto& collector : r->table_properties_collectors) {
-      for (const auto& prop : collector->GetReadableProperties()) {
-        user_collected.append(prop.first);
-        user_collected.append("=");
-        user_collected.append(prop.second);
-        user_collected.append("; ");
-      }
-    }
-
-    Log(InfoLogLevel::INFO_LEVEL, r->ioptions.info_log,
-        "Table was constructed:\n"
-        "  [basic properties]: %s\n"
-        "  [user collected properties]: %s",
-        r->props.ToString().c_str(),
-        user_collected.c_str());
-  }
-
   return r->status;
 }
 
@@ -867,6 +846,16 @@ uint64_t BlockBasedTableBuilder::NumEntries() const {
 
 uint64_t BlockBasedTableBuilder::FileSize() const {
   return rep_->offset;
+}
+
+TableProperties BlockBasedTableBuilder::GetTableProperties() const {
+  TableProperties ret = rep_->props;
+  for (const auto& collector : rep_->table_properties_collectors) {
+    for (const auto& prop : collector->GetReadableProperties()) {
+      ret.user_collected_properties.insert(prop);
+    }
+  }
+  return ret;
 }
 
 const std::string BlockBasedTable::kFilterBlockPrefix = "filter.";

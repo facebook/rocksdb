@@ -125,6 +125,10 @@ class MockTableBuilder : public TableBuilder {
 
   uint64_t FileSize() const override { return table_.size(); }
 
+  TableProperties GetTableProperties() const override {
+    return TableProperties();
+  }
+
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;

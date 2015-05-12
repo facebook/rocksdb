@@ -22,6 +22,7 @@
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/event_logger_helpers.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -1010,6 +1011,7 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
   const uint32_t output_path_id = compact_->current_output()->path_id;
   assert(output_number != 0);
 
+  TableProperties table_properties;
   // Check for iterator errors
   Status s = input->status();
   const uint64_t current_entries = compact_->builder->NumEntries();
@@ -1017,6 +1019,9 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
     s = compact_->builder->Finish();
   } else {
     compact_->builder->Abandon();
+  }
+  if (s.ok()) {
+    table_properties = compact_->builder->GetTableProperties();
   }
   const uint64_t current_bytes = compact_->builder->FileSize();
   compact_->current_output()->file_size = current_bytes;
@@ -1058,10 +1063,9 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
           " keys, %" PRIu64 " bytes",
           cfd->GetName().c_str(), job_id_, output_number, current_entries,
           current_bytes);
-      event_logger_->Log() << "job" << job_id_ << "event"
-                           << "table_file_creation"
-                           << "file_number" << output_number << "file_size"
-                           << current_bytes;
+      EventLoggerHelpers::LogTableFileCreation(event_logger_, job_id_,
+                                               output_number, current_bytes,
+                                               table_properties);
     }
   }
   return s;

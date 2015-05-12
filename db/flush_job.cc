@@ -20,6 +20,7 @@
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/event_logger_helpers.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -195,6 +196,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                          << total_num_entries << "num_deletes"
                          << total_num_deletes << "memory_usage"
                          << total_memory_usage;
+    TableProperties table_properties;
     {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
@@ -211,17 +213,22 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                      cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
                      earliest_seqno_in_memtable, output_compression_,
                      cfd_->ioptions()->compression_opts,
-                     mutable_cf_options_.paranoid_file_checks, Env::IO_HIGH);
+                     mutable_cf_options_.paranoid_file_checks, Env::IO_HIGH,
+                     &table_properties);
       LogFlush(db_options_.info_log);
     }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber(),
         meta.fd.GetFileSize(), s.ToString().c_str());
-    event_logger_->Log() << "job" << job_context_->job_id << "event"
-                         << "table_file_creation"
-                         << "file_number" << meta.fd.GetNumber() << "file_size"
-                         << meta.fd.GetFileSize();
+
+    // output to event logger
+    if (s.ok()) {
+      EventLoggerHelpers::LogTableFileCreation(
+          event_logger_, job_context_->job_id, meta.fd.GetNumber(),
+          meta.fd.GetFileSize(), table_properties);
+    }
+
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }

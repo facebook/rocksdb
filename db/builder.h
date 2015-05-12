@@ -7,6 +7,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include <string>
+#include <utility>
 #include <vector>
 #include "db/table_properties_collector.h"
 #include "rocksdb/comparator.h"
@@ -15,6 +16,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
+#include "rocksdb/table_properties.h"
 
 namespace rocksdb {
 
@@ -53,6 +55,7 @@ extern Status BuildTable(
     const SequenceNumber earliest_seqno_in_memtable,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    const Env::IOPriority io_priority = Env::IO_HIGH);
+    const Env::IOPriority io_priority = Env::IO_HIGH,
+    TableProperties* table_properties = nullptr);
 
 }  // namespace rocksdb

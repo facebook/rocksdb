@@ -57,6 +57,8 @@ class CuckooTableBuilder: public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
+  TableProperties GetTableProperties() const override { return properties_; }
+
  private:
   struct CuckooBucket {
     CuckooBucket()

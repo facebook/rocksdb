@@ -51,7 +51,7 @@ Status BuildTable(
     const SequenceNumber earliest_seqno_in_memtable,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    const Env::IOPriority io_priority) {
+    const Env::IOPriority io_priority, TableProperties* table_properties) {
   Status s;
   meta->fd.file_size = 0;
   meta->smallest_seqno = meta->largest_seqno = 0;
@@ -199,12 +199,15 @@ Status BuildTable(
     // Finish and check for builder errors
     if (s.ok()) {
       s = builder->Finish();
-      if (s.ok()) {
-        meta->fd.file_size = builder->FileSize();
-        assert(meta->fd.GetFileSize() > 0);
-      }
     } else {
       builder->Abandon();
+    }
+    if (s.ok()) {
+      meta->fd.file_size = builder->FileSize();
+      assert(meta->fd.GetFileSize() > 0);
+      if (table_properties) {
+        *table_properties = builder->GetTableProperties();
+      }
     }
     delete builder;
 

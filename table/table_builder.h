@@ -9,9 +9,12 @@
 
 #pragma once
 
+#include <string>
+#include <utility>
 #include <vector>
 #include "db/table_properties_collector.h"
 #include "rocksdb/options.h"
+#include "rocksdb/table_properties.h"
 #include "util/mutable_cf_options.h"
 
 namespace rocksdb {
@@ -78,6 +81,9 @@ class TableBuilder {
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
+
+  // Returns table properties
+  virtual TableProperties GetTableProperties() const = 0;
 };
 
 }  // namespace rocksdb

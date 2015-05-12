@@ -14,6 +14,7 @@ LIB_SOURCES =                                                   \
   db/db_impl_experimental.cc                                    \
   db/db_iter.cc                                                 \
   db/experimental.cc                                            \
+  db/event_logger_helpers.cc                                    \
   db/file_indexer.cc                                            \
   db/filename.cc                                                \
   db/flush_job.cc                                               \

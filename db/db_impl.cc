@@ -31,6 +31,7 @@
 #include "db/compaction_job.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/event_logger_helpers.h"
 #include "db/filename.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
@@ -1131,6 +1132,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   ro.total_order_seek = true;
   Arena arena;
   Status s;
+  TableProperties table_properties;
   {
     ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
     const SequenceNumber newest_snapshot = snapshots_.GetNewest();
@@ -1141,6 +1143,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         " Level-0 table #%" PRIu64 ": started",
         cfd->GetName().c_str(), meta.fd.GetNumber());
 
+    bool paranoid_file_checks =
+        cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
     {
       mutex_.Unlock();
       s = BuildTable(
@@ -1148,21 +1152,25 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           iter.get(), &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), newest_snapshot,
           earliest_seqno_in_memtable, GetCompressionFlush(*cfd->ioptions()),
-          cfd->ioptions()->compression_opts, Env::IO_HIGH);
+          cfd->ioptions()->compression_opts, paranoid_file_checks, Env::IO_HIGH,
+          &table_properties);
       LogFlush(db_options_.info_log);
       mutex_.Lock();
     }
-
-    Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-        "[%s] [WriteLevel0TableForRecovery]"
-        " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
-        cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
-        s.ToString().c_str());
-    event_logger_.Log() << "job" << job_id << "event"
-                        << "table_file_creation"
-                        << "file_number" << meta.fd.GetNumber() << "file_size"
-                        << meta.fd.GetFileSize();
   }
+  Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
+      "[%s] [WriteLevel0TableForRecovery]"
+      " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
+      cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
+      s.ToString().c_str());
+
+  // output to event logger
+  if (s.ok()) {
+    EventLoggerHelpers::LogTableFileCreation(
+        &event_logger_, job_id, meta.fd.GetNumber(), meta.fd.GetFileSize(),
+        table_properties);
+  }
+
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
   // Note that if file_size is zero, the file has been deleted and
