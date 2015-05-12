@@ -152,10 +152,14 @@ class EventListenerTest : public testing::Test {
 class TestCompactionListener : public EventListener {
  public:
   void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
+    std::lock_guard<std::mutex> lock(mutex_);
     compacted_dbs_.push_back(db);
+    ASSERT_GT(ci.input_files.size(), 0U);
+    ASSERT_GT(ci.output_files.size(), 0U);
   }
 
   std::vector<DB*> compacted_dbs_;
+  std::mutex mutex_;
 };
 
 TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
