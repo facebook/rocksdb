@@ -395,6 +395,28 @@ TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {
   }
 }
 
+// This test exhibits the bug where we don't properly reset parent_index in
+// PickCompaction()
+TEST_F(CompactionPickerTest, ParentIndexResetBug) {
+  int num_levels = ioptions_.num_levels;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 2;
+  mutable_cf_options_.max_bytes_for_level_base = 200;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+  Add(0, 1U, "150", "200");       // <- marked for compaction
+  Add(1, 3U, "400", "500", 600);  // <- this one needs compacting
+  Add(2, 4U, "150", "200");
+  Add(2, 5U, "201", "210");
+  Add(2, 6U, "300", "310");
+  Add(2, 7U, "400", "500");  // <- being compacted
+
+  vstorage_->LevelFiles(2)[3]->being_compacted = true;
+  vstorage_->LevelFiles(0)[0]->marked_for_compaction = true;
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(level_compaction_picker.PickCompaction(
+      cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+}
 
 }  // namespace rocksdb
 

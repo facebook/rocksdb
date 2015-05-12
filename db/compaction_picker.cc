@@ -796,6 +796,7 @@ Compaction* LevelCompactionPicker::PickCompaction(
   // compaction
   if (inputs.empty()) {
     is_manual = true;
+    parent_index = base_index = -1;
     PickFilesMarkedForCompactionExperimental(cf_name, vstorage, &inputs, &level,
                                              &output_level);
   }
