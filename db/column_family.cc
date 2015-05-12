@@ -630,7 +630,7 @@ void ColumnFamilyData::NotifyOnCompactionCompleted(
     DB* db, Compaction* c, const Status& status) {
 #ifndef ROCKSDB_LITE
   auto listeners = ioptions()->listeners;
-  ASSERT_GT(listeners.size(), 0U);
+  assert(listeners.size() > 0U);
   CompactionJobInfo info;
   info.cf_name = c->column_family_data()->GetName();
   info.status = status;
