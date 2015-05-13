@@ -42,6 +42,7 @@ int main() {
 #include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/flashcache.h"
@@ -508,6 +509,8 @@ DEFINE_double(hard_rate_limit, 0.0, "When not equal to 0 this make threads "
 DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              "When hard_rate_limit is set then this is the max time a put will"
              " be stalled.");
+
+DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
 DEFINE_int32(max_grandparent_overlap_factor, 10, "Control maximum bytes of "
              "overlaps in grandparent (i.e., level+2) before we stop building a"
@@ -2255,6 +2258,10 @@ class Benchmark {
     }
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
+    }
+    if (FLAGS_rate_limiter_bytes_per_sec > 0) {
+      options.rate_limiter.reset(
+          NewGenericRateLimiter(FLAGS_rate_limiter_bytes_per_sec));
     }
 
     if (FLAGS_num_multi_db <= 1) {
