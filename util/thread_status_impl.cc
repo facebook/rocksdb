@@ -67,7 +67,8 @@ const std::string& ThreadStatus::GetOperationPropertyName(
 
 std::map<std::string, uint64_t>
     ThreadStatus::InterpretOperationProperties(
-    ThreadStatus::OperationType op_type, uint64_t* op_properties) {
+    ThreadStatus::OperationType op_type,
+    const uint64_t* op_properties) {
   int num_properties;
   switch (op_type) {
     case OP_COMPACTION:
@@ -145,7 +146,8 @@ const std::string& ThreadStatus::GetOperationPropertyName(
 
 std::map<std::string, uint64_t>
     ThreadStatus::InterpretOperationProperties(
-    ThreadStatus::OperationType op_type, uint64_t* op_properties) {
+    ThreadStatus::OperationType op_type,
+    const uint64_t* op_properties) {
   return std::map<std::string, uint64_t>();
 }
 

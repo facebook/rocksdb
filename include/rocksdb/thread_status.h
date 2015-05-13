@@ -177,7 +177,7 @@ struct ThreadStatus {
   // a property value.
   static std::map<std::string, uint64_t>
       InterpretOperationProperties(
-          OperationType op_type, uint64_t* op_properties);
+          OperationType op_type, const uint64_t* op_properties);
 
   // Obtain the name of a state given its type.
   static const std::string& GetStateName(StateType state_type);
