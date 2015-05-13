@@ -325,13 +325,14 @@ void Compaction::Summary(char* output, int len) {
 uint64_t Compaction::OutputFilePreallocationSize() {
   uint64_t preallocation_size = 0;
 
-  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel ||
+      output_level() > 0) {
     preallocation_size = max_output_file_size_;
   } else {
-    for (size_t level_iter = 0; level_iter < num_input_levels(); ++level_iter) {
-      for (const auto& f : inputs_[level_iter].files) {
-        preallocation_size += f->fd.GetFileSize();
-      }
+    // output_level() == 0
+    assert(num_input_levels() > 0);
+    for (const auto& f : inputs_[0].files) {
+      preallocation_size += f->fd.GetFileSize();
     }
   }
   // Over-estimate slightly so we don't end up just barely crossing

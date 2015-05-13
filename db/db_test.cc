@@ -200,7 +200,14 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
-      Status Close() override { return base_->Close(); }
+      Status Close() override {
+        // Check preallocation size
+        // preallocation size is never passed to base file.
+        size_t preallocation_size = preallocation_block_size();
+        TEST_SYNC_POINT_CALLBACK("DBTestWritableFile.GetPreallocationStatus",
+                                 &preallocation_size);
+        return base_->Close();
+      }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
         ++env_->sync_counter_;
@@ -4067,6 +4074,16 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBTestWritableFile.GetPreallocationStatus", [&](void* arg) {
+        ASSERT_TRUE(arg != nullptr);
+        size_t preallocation_size = *(static_cast<size_t*>(arg));
+        if (num_levels_ > 3) {
+          ASSERT_LE(preallocation_size, options.target_file_size_base * 1.1);
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   Random rnd(301);
   int key_idx = 0;
 
@@ -4175,6 +4192,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   dbfull()->TEST_WaitForCompact();
   // All files at level 0 will be compacted into a single one.
   ASSERT_EQ(NumSortedRuns(1), 1);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {

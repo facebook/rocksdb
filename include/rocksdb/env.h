@@ -532,6 +532,8 @@ class WritableFile {
     return Status::OK();
   }
 
+  size_t preallocation_block_size() { return preallocation_block_size_; }
+
  private:
   size_t last_preallocated_block_;
   size_t preallocation_block_size_;
