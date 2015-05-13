@@ -11095,7 +11095,9 @@ TEST_F(DBTest, DynamicLevelMaxBytesBase2) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
   ASSERT_EQ(3U, int_prop);
-  ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level3", &str_prop));
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level1", &str_prop));
+  ASSERT_EQ("0", str_prop);
+  ASSERT_TRUE(db_->GetProperty("rocksdb.num-files-at-level2", &str_prop));
   ASSERT_EQ("0", str_prop);
 
   // Trigger parallel compaction, and the first one would change the base
