@@ -16,9 +16,12 @@
 #include <inttypes.h>
 #include <limits>
 #include <string>
+#include <utility>
+
 #include "db/column_family.h"
 #include "db/filename.h"
 #include "util/log_buffer.h"
+#include "util/random.h"
 #include "util/statistics.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
@@ -744,8 +747,8 @@ void LevelCompactionPicker::PickFilesMarkedForCompactionExperimental(
     return;
   }
 
-  for (auto& level_file : vstorage->FilesMarkedForCompaction()) {
-    // If it's being compaction it has nothing to do here.
+  auto continuation = [&](std::pair<int, FileMetaData*> level_file) {
+    // If it's being compacted it has nothing to do here.
     // If this assert() fails that means that some function marked some
     // files as being_compacted, but didn't call ComputeCompactionScore()
     assert(!level_file.second->being_compacted);
@@ -754,7 +757,21 @@ void LevelCompactionPicker::PickFilesMarkedForCompactionExperimental(
 
     inputs->files = {level_file.second};
     inputs->level = *level;
-    if (ExpandWhileOverlapping(cf_name, vstorage, inputs)) {
+    return ExpandWhileOverlapping(cf_name, vstorage, inputs);
+  };
+
+  // take a chance on a random file first
+  Random64 rnd(/* seed */ reinterpret_cast<uint64_t>(vstorage));
+  size_t random_file_index = static_cast<size_t>(rnd.Uniform(
+      static_cast<uint64_t>(vstorage->FilesMarkedForCompaction().size())));
+
+  if (continuation(vstorage->FilesMarkedForCompaction()[random_file_index])) {
+    // found the compaction!
+    return;
+  }
+
+  for (auto& level_file : vstorage->FilesMarkedForCompaction()) {
+    if (continuation(level_file)) {
       // found the compaction!
       return;
     }
