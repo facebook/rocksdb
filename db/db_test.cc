@@ -154,9 +154,11 @@ class SpecialEnv : public EnvWrapper {
 
   std::function<void()>* table_write_callback_;
 
-  int64_t addon_time_;
+  std::atomic<int64_t> addon_time_;
+  bool no_sleep_;
 
-  explicit SpecialEnv(Env* base) : EnvWrapper(base), rnd_(301), addon_time_(0) {
+  explicit SpecialEnv(Env* base)
+      : EnvWrapper(base), rnd_(301), addon_time_(0), no_sleep_(false) {
     delay_sstable_sync_.store(false, std::memory_order_release);
     drop_writes_.store(false, std::memory_order_release);
     no_space_.store(false, std::memory_order_release);
@@ -358,19 +360,27 @@ class SpecialEnv : public EnvWrapper {
 
   virtual void SleepForMicroseconds(int micros) override {
     sleep_counter_.Increment();
-    target()->SleepForMicroseconds(micros);
+    if (no_sleep_) {
+      addon_time_.fetch_add(micros);
+    } else {
+      target()->SleepForMicroseconds(micros);
+    }
   }
 
   virtual Status GetCurrentTime(int64_t* unix_time) override {
     Status s = target()->GetCurrentTime(unix_time);
     if (s.ok()) {
-      *unix_time += addon_time_;
+      *unix_time += addon_time_.load();
     }
     return s;
   }
 
   virtual uint64_t NowNanos() override {
-    return target()->NowNanos() + addon_time_ * 1000;
+    return target()->NowNanos() + addon_time_.load() * 1000;
+  }
+
+  virtual uint64_t NowMicros() override {
+    return target()->NowMicros() + addon_time_.load();
   }
 };
 
@@ -639,8 +649,8 @@ class DBTest : public testing::Test {
           !options.purge_redundant_kvs_while_flush;
         break;
       case kPerfOptions:
-        options.hard_rate_limit = 2.0;
-        options.rate_limit_delay_max_milliseconds = 2;
+        options.soft_rate_limit = 2.0;
+        options.delayed_write_rate = 8 * 1024 * 1024;
         // TODO -- test more options
         break;
       case kDeletesFilterFirst:
@@ -4134,7 +4144,7 @@ class DelayFilter : public CompactionFilter {
   virtual bool Filter(int level, const Slice& key, const Slice& value,
                       std::string* new_value,
                       bool* value_changed) const override {
-    db_test->env_->addon_time_ += 1000;
+    db_test->env_->addon_time_.fetch_add(1000);
     return true;
   }
 
@@ -6704,7 +6714,7 @@ TEST_F(DBTest, Snapshot) {
     Put(0, "foo", "0v2");
     Put(1, "foo", "1v2");
 
-    env_->addon_time_++;
+    env_->addon_time_.fetch_add(1);
 
     const Snapshot* s2 = db_->GetSnapshot();
     ASSERT_EQ(2U, GetNumSnapshots());
@@ -11200,7 +11210,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesBase) {
       options.level_compaction_dynamic_level_bytes = true;
       options.max_bytes_for_level_base = 10240;
       options.max_bytes_for_level_multiplier = 4;
-      options.hard_rate_limit = 1.1;
+      options.soft_rate_limit = 1.1;
       options.max_background_compactions = max_background_compactions;
       options.num_levels = 5;
 
@@ -11493,7 +11503,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesBaseInc) {
   options.level_compaction_dynamic_level_bytes = true;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.hard_rate_limit = 1.1;
+  options.soft_rate_limit = 1.1;
   options.max_background_compactions = 2;
   options.num_levels = 5;
 
@@ -11545,7 +11555,7 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
   options.level_compaction_dynamic_level_bytes = false;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.hard_rate_limit = 1.1;
+  options.soft_rate_limit = 1.1;
   options.num_levels = 8;
 
   DestroyAndReopen(options);
@@ -11743,7 +11753,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
   options.level0_stop_writes_trigger = 2;
-  options.hard_rate_limit = 1.1;
+  options.soft_rate_limit = 1.1;
 
   // Use file size to distinguish levels
   // L1: 10, L2: 20, L3 40, L4 80
@@ -11853,7 +11863,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   options.env = env_;
   options.create_if_missing = true;
   options.compression = kNoCompression;
-  options.hard_rate_limit = 1.1;
+  options.soft_rate_limit = 1.1;
   options.write_buffer_size = k64KB;
   options.max_write_buffer_number = 2;
   // Compaction related options
@@ -12041,73 +12051,6 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   }
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
-
-  // Test for hard_rate_limit.
-  // First change max_bytes_for_level_base to a big value and populate
-  // L1 - L3. Then thrink max_bytes_for_level_base and disable auto compaction
-  // at the same time, we should see some level with score greater than 2.
-  ASSERT_OK(dbfull()->SetOptions({
-    {"max_bytes_for_level_base", ToString(k1MB) }
-  }));
-  // writing 40 x 64KB = 10 x 256KB
-  // (L1 + L2 + L3) = (1 + 2 + 4) * 256KB
-  for (int i = 0; i < 40; ++i) {
-    gen_l0_kb(i, 64, 32);
-  }
-  dbfull()->TEST_WaitForCompact();
-  ASSERT_TRUE((SizeAtLevel(1) > k1MB * 0.8 &&
-               SizeAtLevel(1) < k1MB * 1.2) ||
-              (SizeAtLevel(2) > 2 * k1MB * 0.8 &&
-               SizeAtLevel(2) < 2 * k1MB * 1.2) ||
-              (SizeAtLevel(3) > 4 * k1MB * 0.8 &&
-               SizeAtLevel(3) < 4 * k1MB * 1.2));
-  // Reduce max_bytes_for_level_base and disable compaction at the same time
-  // This should cause score to increase
-  ASSERT_OK(dbfull()->SetOptions({
-    {"disable_auto_compactions", "true"},
-    {"max_bytes_for_level_base", "65536"},
-  }));
-  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024)));
-  dbfull()->TEST_FlushMemTable(true);
-
-  // Check score is above 2
-  ASSERT_TRUE(SizeAtLevel(1) / k64KB > 2 ||
-              SizeAtLevel(2) / k64KB > 4 ||
-              SizeAtLevel(3) / k64KB > 8);
-
-  // Enfoce hard rate limit. Now set hard_rate_limit to 2,
-  // we should start to see put delay (1000 us) and timeout as a result
-  // (L0 score is not regulated by this limit).
-  ASSERT_OK(dbfull()->SetOptions({
-    {"hard_rate_limit", "2"},
-    {"level0_slowdown_writes_trigger", "18"},
-    {"level0_stop_writes_trigger", "20"}
-  }));
-  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024)));
-  dbfull()->TEST_FlushMemTable(true);
-
-  std::atomic<int> sleep_count(0);
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DelayWrite:Sleep", [&](void* arg) { sleep_count.fetch_add(1); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
-  // Hard rate limit slow down for 1000 us, so default 10ms should be ok
-  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-  sleep_count.store(0);
-  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-  ASSERT_GT(sleep_count.load(), 0);
-
-  // Lift the limit and no timeout
-  ASSERT_OK(dbfull()->SetOptions({
-    {"hard_rate_limit", "200"},
-  }));
-  dbfull()->TEST_FlushMemTable(true);
-  sleep_count.store(0);
-  ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
-  // Technically, time out is still possible for timing issue.
-  ASSERT_EQ(sleep_count.load(), 0);
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
-
 
   // Test max_mem_compaction_level.
   // Destroy DB and start from scratch
@@ -12784,7 +12727,7 @@ class DelayedMergeOperator : public AssociativeMergeOperator {
   virtual bool Merge(const Slice& key, const Slice* existing_value,
                      const Slice& value, std::string* new_value,
                      Logger* logger) const override {
-    db_test_->env_->addon_time_ += 1000;
+    db_test_->env_->addon_time_.fetch_add(1000);
     return true;
   }
 
@@ -12799,7 +12742,7 @@ TEST_F(DBTest, MergeTestTime) {
 
   // Enable time profiling
   SetPerfLevel(kEnableTime);
-  this->env_->addon_time_ = 0;
+  this->env_->addon_time_.store(0);
   Options options;
   options = CurrentOptions(options);
   options.statistics = rocksdb::CreateDBStatistics();
@@ -13070,7 +13013,7 @@ TEST_F(DBTest, TablePropertiesNeedCompactTest) {
   options.target_file_size_base = 2048;
   options.max_bytes_for_level_base = 10240;
   options.max_bytes_for_level_multiplier = 4;
-  options.hard_rate_limit = 1.1;
+  options.soft_rate_limit = 1.1;
   options.num_levels = 8;
 
   std::shared_ptr<TablePropertiesCollectorFactory> collector_factory(
@@ -13494,6 +13437,174 @@ TEST_F(DBTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   }
 
   TEST_SYNC_POINT("DBTest::SuggestCompactRangeNoTwoLevel0Compactions:2");
+}
+
+TEST_F(DBTest, DelayedWriteRate) {
+  Options options;
+  options.env = env_;
+  env_->no_sleep_ = true;
+  options = CurrentOptions(options);
+  options.write_buffer_size = 100000;  // Small write buffer
+  options.max_write_buffer_number = 256;
+  options.disable_auto_compactions = true;
+  options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 3;
+  options.level0_stop_writes_trigger = 999999;
+  options.delayed_write_rate = 200000;  // About 200KB/s limited rate
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  for (int i = 0; i < 3; i++) {
+    Put(Key(i), std::string(10000, 'x'));
+    Flush();
+  }
+
+  // These writes will be slowed down to 1KB/s
+  size_t estimated_total_size = 0;
+  Random rnd(301);
+  for (int i = 0; i < 3000; i++) {
+    auto rand_num = rnd.Uniform(20);
+    // Spread the size range to more.
+    size_t entry_size = rand_num * rand_num * rand_num;
+    WriteOptions wo;
+    // For a small chance, set a timeout.
+    if (rnd.Uniform(20) == 6) {
+      wo.timeout_hint_us = 1500;
+    }
+    Put(Key(i), std::string(entry_size, 'x'), wo);
+    estimated_total_size += entry_size + 20;
+    // Ocassionally sleep a while
+    if (rnd.Uniform(20) == 6) {
+      env_->SleepForMicroseconds(2666);
+    }
+  }
+  uint64_t estimated_sleep_time =
+      estimated_total_size / options.delayed_write_rate * 1000000U;
+  ASSERT_GT(env_->addon_time_.load(), estimated_sleep_time * 0.8);
+  ASSERT_LT(env_->addon_time_.load(), estimated_sleep_time * 1.1);
+
+  env_->no_sleep_ = false;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, SoftLimit) {
+  Options options;
+  options.env = env_;
+  options = CurrentOptions(options);
+  options.write_buffer_size = 100000;  // Small write buffer
+  options.max_write_buffer_number = 256;
+  options.level0_file_num_compaction_trigger = 3;
+  options.level0_slowdown_writes_trigger = 3;
+  options.level0_stop_writes_trigger = 999999;
+  options.delayed_write_rate = 200000;  // About 200KB/s limited rate
+  options.soft_rate_limit = 1.1;
+  options.target_file_size_base = 99999999;  // All into one file
+  options.max_bytes_for_level_base = 50000;
+  options.compression = kNoCompression;
+
+  Reopen(options);
+  Put(Key(0), "");
+
+  // Only allow two compactions
+  port::Mutex mut;
+  port::CondVar cv(&mut);
+  std::atomic<int> compaction_cnt(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "VersionSet::LogAndApply:WriteManifest", [&](void* arg) {
+        // Three flushes and the first compaction,
+        // three flushes and the second compaction go through.
+        MutexLock l(&mut);
+        while (compaction_cnt.load() >= 8) {
+          cv.Wait();
+        }
+        compaction_cnt.fetch_add(1);
+      });
+
+  std::atomic<int> sleep_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:Sleep", [&](void* arg) { sleep_count.fetch_add(1); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int i = 0; i < 3; i++) {
+    Put(Key(i), std::string(5000, 'x'));
+    Put(Key(100 - i), std::string(5000, 'x'));
+    Flush();
+  }
+  while (compaction_cnt.load() < 4 || NumTableFilesAtLevel(0) > 0) {
+    env_->SleepForMicroseconds(1000);
+  }
+  // Now there is one L1 file but doesn't trigger soft_rate_limit
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(sleep_count.load(), 0);
+
+  for (int i = 0; i < 3; i++) {
+    Put(Key(10 + i), std::string(5000, 'x'));
+    Put(Key(90 - i), std::string(5000, 'x'));
+    Flush();
+  }
+  while (compaction_cnt.load() < 8 || NumTableFilesAtLevel(0) > 0) {
+    env_->SleepForMicroseconds(1000);
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
+  ASSERT_EQ(sleep_count.load(), 0);
+
+  // Slowdown is triggered now
+  for (int i = 0; i < 10; i++) {
+    Put(Key(i), std::string(100, 'x'));
+  }
+  ASSERT_GT(sleep_count.load(), 0);
+
+  {
+    MutexLock l(&mut);
+    compaction_cnt.store(7);
+    cv.SignalAll();
+  }
+  while (NumTableFilesAtLevel(1) > 0) {
+    env_->SleepForMicroseconds(1000);
+  }
+
+  // Slowdown is not triggered any more.
+  sleep_count.store(0);
+  // Slowdown is not triggered now
+  for (int i = 0; i < 10; i++) {
+    Put(Key(i), std::string(100, 'x'));
+  }
+  ASSERT_EQ(sleep_count.load(), 0);
+
+  // shrink level base so L2 will hit soft limit easier.
+  ASSERT_OK(dbfull()->SetOptions({
+      {"max_bytes_for_level_base", "5000"},
+  }));
+  compaction_cnt.store(7);
+  Flush();
+
+  while (NumTableFilesAtLevel(0) == 0) {
+    env_->SleepForMicroseconds(1000);
+  }
+
+  // Slowdown is triggered now
+  for (int i = 0; i < 10; i++) {
+    Put(Key(i), std::string(100, 'x'));
+  }
+  ASSERT_GT(sleep_count.load(), 0);
+
+  {
+    MutexLock l(&mut);
+    compaction_cnt.store(7);
+    cv.SignalAll();
+  }
+
+  while (NumTableFilesAtLevel(2) != 0) {
+    env_->SleepForMicroseconds(1000);
+  }
+
+  // Slowdown is not triggered anymore
+  sleep_count.store(0);
+  for (int i = 0; i < 10; i++) {
+    Put(Key(i), std::string(100, 'x'));
+  }
+  ASSERT_EQ(sleep_count.load(), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb

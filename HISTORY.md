@@ -12,6 +12,8 @@
 * Change default value for options.compaction_filter_factory and options.compaction_filter_factory_v2 to nullptr instead of DefaultCompactionFilterFactory and DefaultCompactionFilterFactoryV2.
 * If CancelAllBackgroundWork is called without doing a flush after doing loads with WAL disabled, the changes which haven't been flushed before the call to CancelAllBackgroundWork will be lost.
 * WBWIIterator::Entry() now returns WriteEntry instead of `const WriteEntry&`
+* options.hard_rate_limit is deprecated.
+* When options.soft_rate_limit or options.level0_slowdown_writes_trigger is triggered, the way to slow down writes is changed to: write rate to DB is limited to to options.delayed_write_rate.
 
 ## 3.11.0 (5/19/2015)
 ### New Features

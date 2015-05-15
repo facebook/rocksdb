@@ -66,7 +66,7 @@ class MemTableListTest : public testing::Test {
     EnvOptions env_options;
     shared_ptr<Cache> table_cache(NewLRUCache(50000, 16));
     WriteBuffer write_buffer(db_options.db_write_buffer_size);
-    WriteController write_controller;
+    WriteController write_controller(10000000u);
 
     CreateDB();
     VersionSet versions(dbname, &db_options, env_options, table_cache.get(),

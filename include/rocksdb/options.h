@@ -480,8 +480,8 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int max_grandparent_overlap_factor;
 
-  // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
-  // soft_rate_limit. This is ignored when == 0.0.
+  // Puts are delayed to options.delayed_write_rate when any level has a
+  // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
   // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
   // hold, RocksDB will set soft_rate_limit = hard_rate_limit
   //
@@ -490,12 +490,7 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   double soft_rate_limit;
 
-  // Puts are delayed 1ms at a time when any level has a compaction score that
-  // exceeds hard_rate_limit. This is ignored when <= 1.0.
-  //
-  // Default: 0 (disabled)
-  //
-  // Dynamically changeable through SetOptions() API
+  // DEPRECATED -- this options is no longer usde
   double hard_rate_limit;
 
   // DEPRECATED -- this options is no longer used
@@ -1031,6 +1026,14 @@ struct DBOptions {
   //
   // Default: false
   bool enable_thread_tracking;
+
+  // The limited write rate to DB if soft_rate_limit or
+  // level0_slowdown_writes_trigger is triggered. It is calcualted using
+  // size of user write requests before compression.
+  // Unit: byte per second.
+  //
+  // Default: 1MB/s
+  uint64_t delayed_write_rate;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

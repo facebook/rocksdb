@@ -537,7 +537,7 @@ void DumpManifestFile(std::string file, bool verbose, bool hex) {
   // if VersionSet::DumpManifest() depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
   options.db_paths.emplace_back("dummy", 0);
-  WriteController wc;
+  WriteController wc(options.delayed_write_rate);
   WriteBuffer wb(options.db_write_buffer_size);
   VersionSet versions(dbname, &options, sopt, tc.get(), &wb, &wc);
   Status s = versions.DumpManifest(options, file, verbose, hex);
@@ -1146,7 +1146,7 @@ Status ReduceDBLevelsCommand::GetOldNumOfLevels(Options& opt,
   std::shared_ptr<Cache> tc(
       NewLRUCache(opt.max_open_files - 10, opt.table_cache_numshardbits));
   const InternalKeyComparator cmp(opt.comparator);
-  WriteController wc;
+  WriteController wc(opt.delayed_write_rate);
   WriteBuffer wb(opt.db_write_buffer_size);
   VersionSet versions(db_path_, &opt, soptions, tc.get(), &wb, &wc);
   std::vector<ColumnFamilyDescriptor> dummy;

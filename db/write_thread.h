@@ -72,8 +72,9 @@ class WriteThread {
   // REQUIRES: db mutex held
   void ExitWriteThread(Writer* w, Writer* last_writer, Status status);
 
-  void BuildBatchGroup(Writer** last_writer,
-                       autovector<WriteBatch*>* write_batch_group);
+  // return total batch group size
+  size_t BuildBatchGroup(Writer** last_writer,
+                         autovector<WriteBatch*>* write_batch_group);
 
  private:
   // Queue of writers.

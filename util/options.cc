@@ -241,7 +241,8 @@ DBOptions::DBOptions()
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
       listeners(),
-      enable_thread_tracking(false) {
+      enable_thread_tracking(false),
+      delayed_write_rate(1024U * 1024U) {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -286,7 +287,8 @@ DBOptions::DBOptions(const Options& options)
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
-      enable_thread_tracking(options.enable_thread_tracking) {}
+      enable_thread_tracking(options.enable_thread_tracking),
+      delayed_write_rate(options.delayed_write_rate) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"

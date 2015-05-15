@@ -36,36 +36,6 @@
 
 namespace rocksdb {
 
-namespace {
-// This function computes the amount of time in microseconds by which a write
-// should be delayed based on the number of level-0 files according to the
-// following formula:
-// if n < bottom, return 0;
-// if n >= top, return 1000;
-// otherwise, let r = (n - bottom) /
-//                    (top - bottom)
-//  and return r^2 * 1000.
-// The goal of this formula is to gradually increase the rate at which writes
-// are slowed. We also tried linear delay (r * 1000), but it seemed to do
-// slightly worse. There is no other particular reason for choosing quadratic.
-uint64_t SlowdownAmount(int n, double bottom, double top) {
-  uint64_t delay;
-  if (n >= top) {
-    delay = 1000;
-  } else if (n < bottom) {
-    delay = 0;
-  } else {
-    // If we are here, we know that:
-    //   level0_start_slowdown <= n < level0_slowdown
-    // since the previous two conditions are false.
-    double how_much = static_cast<double>(n - bottom) / (top - bottom);
-    delay = std::max(how_much * how_much * 1000, 100.0);
-  }
-  assert(delay <= 1000);
-  return delay;
-}
-}  // namespace
-
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
     ColumnFamilyData* column_family_data, DBImpl* db, InstrumentedMutex* mutex)
     : cfd_(column_family_data), db_(db), mutex_(mutex) {
@@ -146,9 +116,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   }
   if (result.max_mem_compaction_level >= result.num_levels) {
     result.max_mem_compaction_level = result.num_levels - 1;
-  }
-  if (result.soft_rate_limit > result.hard_rate_limit) {
-    result.soft_rate_limit = result.hard_rate_limit;
   }
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
@@ -456,7 +423,6 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     auto* vstorage = current_->storage_info();
     const double score = vstorage->max_compaction_score();
     const int max_level = vstorage->max_compaction_score_level();
-
     auto write_controller = column_family_set_->write_controller_;
 
     if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
@@ -477,37 +443,18 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
-      uint64_t slowdown =
-          SlowdownAmount(vstorage->l0_delay_trigger_count(),
-                         mutable_cf_options.level0_slowdown_writes_trigger,
-                         mutable_cf_options.level0_stop_writes_trigger);
-      write_controller_token_ = write_controller->GetDelayToken(slowdown);
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, slowdown);
+      write_controller_token_ = write_controller->GetDelayToken();
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
-          "us)",
-          name_.c_str(), vstorage->l0_delay_trigger_count(), slowdown);
-    } else if (mutable_cf_options.hard_rate_limit > 1.0 &&
-               score > mutable_cf_options.hard_rate_limit) {
-      uint64_t kHardLimitSlowdown = 1000;
-      write_controller_token_ =
-          write_controller->GetDelayToken(kHardLimitSlowdown);
-      internal_stats_->RecordLevelNSlowdown(max_level, false);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we hit hard limit on level %d. "
-          "(%" PRIu64 "us)",
-          name_.c_str(), max_level, kHardLimitSlowdown);
+          "[%s] Stalling writes because we have %d level-0 files",
+          name_.c_str(), vstorage->l0_delay_trigger_count());
     } else if (mutable_cf_options.soft_rate_limit > 0.0 &&
                score > mutable_cf_options.soft_rate_limit) {
-      uint64_t slowdown = SlowdownAmount(score,
-          mutable_cf_options.soft_rate_limit,
-          mutable_cf_options.hard_rate_limit);
-      write_controller_token_ = write_controller->GetDelayToken(slowdown);
+      write_controller_token_ = write_controller->GetDelayToken();
       internal_stats_->RecordLevelNSlowdown(max_level, true);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we hit soft limit on level %d (%" PRIu64
-          "us)",
-          name_.c_str(), max_level, slowdown);
+          "[%s] Stalling writes because we hit soft limit on level %d",
+          name_.c_str(), max_level);
     } else {
       write_controller_token_.reset();
     }

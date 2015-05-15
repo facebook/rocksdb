@@ -543,6 +543,10 @@ DEFINE_double(hard_rate_limit, 0.0, "When not equal to 0 this make threads "
               "sleep at each stats reporting interval until the compaction"
               " score for all levels is less than or equal to this value.");
 
+DEFINE_uint64(delayed_write_rate, 2097152u,
+              "Limited bytes allowed to DB when soft_rate_limit or "
+              "level0_slowdown_writes_trigger triggers");
+
 DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              "When hard_rate_limit is set then this is the max time a put will"
              " be stalled.");
@@ -2270,6 +2274,7 @@ class Benchmark {
     }
     options.soft_rate_limit = FLAGS_soft_rate_limit;
     options.hard_rate_limit = FLAGS_hard_rate_limit;
+    options.delayed_write_rate = FLAGS_delayed_write_rate;
     options.rate_limit_delay_max_milliseconds =
       FLAGS_rate_limit_delay_max_milliseconds;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;

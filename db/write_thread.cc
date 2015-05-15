@@ -87,8 +87,9 @@ void WriteThread::ExitWriteThread(WriteThread::Writer* w,
 //
 // REQUIRES: Writer list must be non-empty
 // REQUIRES: First writer must have a non-nullptr batch
-void WriteThread::BuildBatchGroup(WriteThread::Writer** last_writer,
-                                  autovector<WriteBatch*>* write_batch_group) {
+size_t WriteThread::BuildBatchGroup(
+    WriteThread::Writer** last_writer,
+    autovector<WriteBatch*>* write_batch_group) {
   assert(!writers_.empty());
   Writer* first = writers_.front();
   assert(first->batch != nullptr);
@@ -109,7 +110,7 @@ void WriteThread::BuildBatchGroup(WriteThread::Writer** last_writer,
   if (first->has_callback) {
     // TODO(agiardullo:) Batching not currently supported as this write may
     // fail if the callback function decides to abort this write.
-    return;
+    return size;
   }
 
   std::deque<Writer*>::iterator iter = writers_.begin();
@@ -155,6 +156,7 @@ void WriteThread::BuildBatchGroup(WriteThread::Writer** last_writer,
     w->in_batch_group = true;
     *last_writer = w;
   }
+  return size;
 }
 
 }  // namespace rocksdb

@@ -225,6 +225,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_(options.db_write_buffer_size),
+      write_controller_(options.delayed_write_rate),
+      last_batch_group_size_(0),
       unscheduled_flushes_(0),
       unscheduled_compactions_(0),
       bg_compaction_scheduled_(0),
@@ -1691,6 +1693,7 @@ Status DBImpl::SetOptions(ColumnFamilyHandle* column_family,
     Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "[%s] SetOptions failed", cfd->GetName().c_str());
   }
+  LogFlush(db_options_.info_log);
   return s;
 #endif  // ROCKSDB_LITE
 }
@@ -3409,8 +3412,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     status = ScheduleFlushes(&context);
   }
 
-  if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
-                               write_controller_.GetDelay() > 0))) {
+  if (UNLIKELY(status.ok()) &&
+      (write_controller_.IsStopped() || write_controller_.NeedsDelay())) {
     // If writer is stopped, we need to get it going,
     // so schedule flushes/compactions
     if (context.schedule_bg_work_) {
@@ -3418,7 +3421,11 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     }
     PERF_TIMER_STOP(write_pre_and_post_process_time);
     PERF_TIMER_GUARD(write_delay_time);
-    status = DelayWrite(expiration_time);
+    // We don't know size of curent batch so that we always use the size
+    // for previous one. It might create a fairness issue that expiration
+    // might happen for smaller writes but larger writes can go through.
+    // Can optimize it if it is an issue.
+    status = DelayWrite(last_batch_group_size_, expiration_time);
     PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
@@ -3432,7 +3439,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   autovector<WriteBatch*> write_batch_group;
 
   if (status.ok()) {
-    write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
+    last_batch_group_size_ =
+        write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
@@ -3566,24 +3574,36 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::DelayWrite(uint64_t expiration_time) {
+Status DBImpl::DelayWrite(uint64_t num_bytes, uint64_t expiration_time) {
   uint64_t time_delayed = 0;
   bool delayed = false;
   bool timed_out = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
     bool has_timeout = (expiration_time > 0);
-    auto delay = write_controller_.GetDelay();
-    if (write_controller_.IsStopped() == false && delay > 0) {
+    auto delay = write_controller_.GetDelay(env_, num_bytes);
+    if (delay > 0) {
       mutex_.Unlock();
       delayed = true;
       // hopefully we don't have to sleep more than 2 billion microseconds
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
-      env_->SleepForMicroseconds(static_cast<int>(delay));
+      if (has_timeout) {
+        auto time_now = env_->NowMicros();
+        if (time_now + delay >= expiration_time) {
+          if (expiration_time > time_now) {
+            env_->SleepForMicroseconds(
+                static_cast<int>(expiration_time - time_now));
+          }
+          timed_out = true;
+        }
+      }
+      if (!timed_out) {
+        env_->SleepForMicroseconds(static_cast<int>(delay));
+      }
       mutex_.Lock();
     }
 
-    while (bg_error_.ok() && write_controller_.IsStopped()) {
+    while (!timed_out && bg_error_.ok() && write_controller_.IsStopped()) {
       delayed = true;
       if (has_timeout) {
         TEST_SYNC_POINT("DBImpl::DelayWrite:TimedWait");
