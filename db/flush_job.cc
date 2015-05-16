@@ -82,14 +82,38 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       stats_(stats),
       event_logger_(event_logger) {
   // Update the thread status to indicate flush.
-  ThreadStatusUtil::SetColumnFamily(cfd_);
-  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
+  ReportStartedFlush();
   TEST_SYNC_POINT("FlushJob::FlushJob()");
 }
 
 FlushJob::~FlushJob() {
   TEST_SYNC_POINT("FlushJob::~FlushJob()");
   ThreadStatusUtil::ResetThreadStatus();
+}
+
+void FlushJob::ReportStartedFlush() {
+  ThreadStatusUtil::SetColumnFamily(cfd_);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_JOB_ID,
+      job_context_->job_id);
+  IOSTATS_RESET(bytes_written);
+}
+
+void FlushJob::ReportFlushInputSize(const autovector<MemTable*>& mems) {
+  uint64_t input_size = 0;
+  for (auto* mem : mems) {
+    input_size += mem->ApproximateMemoryUsage();
+  }
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
+      ThreadStatus::FLUSH_BYTES_MEMTABLES,
+      input_size);
+}
+
+void FlushJob::RecordFlushIOStats() {
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
+      ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+  IOSTATS_RESET(bytes_written);
 }
 
 Status FlushJob::Run(uint64_t* file_number) {
@@ -105,6 +129,7 @@ Status FlushJob::Run(uint64_t* file_number) {
     return Status::OK();
   }
 
+  ReportFlushInputSize(mems);
 
   // entries mems are (implicitly) sorted in ascending order by their created
   // time. We will use the first memtable's `edit` to keep the meta info for
@@ -138,6 +163,7 @@ Status FlushJob::Run(uint64_t* file_number) {
   if (s.ok() && file_number != nullptr) {
     *file_number = fn;
   }
+  RecordFlushIOStats();
 
   auto stream = event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_context_->job_id << "event"

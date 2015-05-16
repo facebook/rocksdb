@@ -18,21 +18,33 @@ const std::string& ThreadStatus::GetThreadTypeName(
     ThreadStatus::ThreadType thread_type) {
   static std::string thread_type_names[NUM_THREAD_TYPES + 1] = {
       "High Pri", "Low Pri", "User", "Unknown"};
+  if (thread_type < 0 || thread_type >= NUM_THREAD_TYPES) {
+    return thread_type_names[NUM_THREAD_TYPES];  // "Unknown"
+  }
   return thread_type_names[thread_type];
 }
 
 const std::string& ThreadStatus::GetOperationName(
     ThreadStatus::OperationType op_type) {
+  if (op_type < 0 || op_type >= NUM_OP_TYPES) {
+    return global_operation_table[OP_UNKNOWN].name;
+  }
   return global_operation_table[op_type].name;
 }
 
 const std::string& ThreadStatus::GetOperationStageName(
     ThreadStatus::OperationStage stage) {
+  if (stage < 0 || stage >= NUM_OP_STAGES) {
+    return global_op_stage_table[STAGE_UNKNOWN].name;
+  }
   return global_op_stage_table[stage].name;
 }
 
 const std::string& ThreadStatus::GetStateName(
     ThreadStatus::StateType state_type) {
+  if (state_type < 0 || state_type >= NUM_STATE_TYPES) {
+    return global_state_table[STATE_UNKNOWN].name;
+  }
   return global_state_table[state_type].name;
 }
 

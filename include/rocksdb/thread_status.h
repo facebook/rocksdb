@@ -85,8 +85,7 @@ struct ThreadStatus {
 
   enum FlushPropertyType : int {
     FLUSH_JOB_ID = 0,
-    FLUSH_BYTES_READ,
-    FLUSH_BYTES_REMAIN,
+    FLUSH_BYTES_MEMTABLES,
     FLUSH_BYTES_WRITTEN,
     NUM_FLUSH_PROPERTIES
   };

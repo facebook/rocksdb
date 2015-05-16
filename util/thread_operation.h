@@ -107,8 +107,7 @@ static OperationProperty compaction_operation_properties[] = {
 
 static OperationProperty flush_operation_properties[] = {
   {ThreadStatus::FLUSH_JOB_ID, "JobID"},
-  {ThreadStatus::FLUSH_BYTES_READ, "BytesRead"},
-  {ThreadStatus::FLUSH_BYTES_REMAIN, "BytesRemain"},
+  {ThreadStatus::FLUSH_BYTES_MEMTABLES, "BytesMemtables"},
   {ThreadStatus::FLUSH_BYTES_WRITTEN, "BytesWritten"}
 };
 

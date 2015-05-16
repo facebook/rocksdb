@@ -21,6 +21,8 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based_table_builder.h"
+#include "util/iostats_context_imp.h"
+#include "util/thread_status_util.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -52,6 +54,8 @@ Status BuildTable(
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     const Env::IOPriority io_priority, TableProperties* table_properties) {
+  // Reports the IOStats for flush for every following bytes.
+  const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
   meta->fd.file_size = 0;
   meta->smallest_seqno = meta->largest_seqno = 0;
@@ -176,6 +180,13 @@ Status BuildTable(
           }
         }
 
+        if (io_priority == Env::IO_HIGH &&
+            IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+          ThreadStatusUtil::IncreaseThreadOperationProperty(
+              ThreadStatus::FLUSH_BYTES_WRITTEN,
+              IOSTATS(bytes_written));
+          IOSTATS_RESET(bytes_written);
+        }
         if (!iterator_at_next) iter->Next();
       }
 
@@ -193,6 +204,13 @@ Status BuildTable(
         SequenceNumber seqno = GetInternalKeySeqno(key);
         meta->smallest_seqno = std::min(meta->smallest_seqno, seqno);
         meta->largest_seqno = std::max(meta->largest_seqno, seqno);
+        if (io_priority == Env::IO_HIGH &&
+            IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+          ThreadStatusUtil::IncreaseThreadOperationProperty(
+              ThreadStatus::FLUSH_BYTES_WRITTEN,
+              IOSTATS(bytes_written));
+          IOSTATS_RESET(bytes_written);
+        }
       }
     }
 
