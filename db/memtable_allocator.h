@@ -12,6 +12,7 @@
 
 #pragma once
 #include "util/allocator.h"
+#include <atomic>
 
 namespace rocksdb {
  
@@ -36,7 +37,7 @@ class MemTableAllocator : public Allocator {
  private:
   Allocator* allocator_;
   WriteBuffer* write_buffer_;
-  size_t bytes_allocated_;
+  std::atomic<size_t> bytes_allocated_;
 
   // No copying allowed
   MemTableAllocator(const MemTableAllocator&);

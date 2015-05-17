@@ -583,7 +583,7 @@ class VersionSet {
   }  
   
   // atomically increase sequence number and insert it to the active set (for concurrent writes)
-  uint64_t IncreaseSequenceNumberAndAndToActiveSet(unsigned short a)
+  uint64_t IncreaseSequenceNumberAndAddToActiveSet(unsigned short a)
   {
 	  uint64_t newVal = sequence_number_mgr_.CreateNew(a);
 	  return newVal;

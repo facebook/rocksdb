@@ -1021,7 +1021,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         *max_sequence = last_seq;
       }
 
-      // if some records are not sorted according to the sequence numbers, then we are not allow to flush before the end of the log file 
+      // if some records are not sorted according to the sequence numbers, then we don't want to flush them before reaching the end of the log file (otherwise we may lose some records)
       if (!read_only && !mayHaveUnsortedRecordsInLogFile) { 
         // we can do this because this is called before client has access to the
         // DB and there is only a single thread operating on DB
@@ -3184,7 +3184,7 @@ Status DBImpl::ConcurrentWrite(const WriteOptions& write_options, WriteBatch* my
 		}
 		// if cfd!=null, then the column family cannot be removed before the method returns
 
-		last_sequence = versions_->IncreaseSequenceNumberAndAndToActiveSet(1); 
+		last_sequence = versions_->IncreaseSequenceNumberAndAddToActiveSet(1); 
 		WriteBatchInternal::SetSequence(my_batch, last_sequence);
 
 		RecordTick(stats_, WRITE_DONE_BY_SELF);
