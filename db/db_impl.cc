@@ -1338,6 +1338,8 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
       if (!s.ok()) {
         break;
       }
+      TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
+      TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
     }
   }
   if (!s.ok()) {
@@ -1865,9 +1867,6 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
   } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
     return;
-  } else if (bg_manual_only_) {
-    // manual only
-    return;
   }
 
   while (unscheduled_flushes_ > 0 &&
@@ -1875,6 +1874,12 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     unscheduled_flushes_--;
     bg_flush_scheduled_++;
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
+  }
+
+  if (bg_manual_only_) {
+    // only manual compactions are allowed to run. don't schedule automatic
+    // compactions
+    return;
   }
 
   if (db_options_.max_background_flushes == 0 &&
