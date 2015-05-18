@@ -146,9 +146,7 @@ class PosixLogger : public Logger {
       uint64_t now_micros = static_cast<uint64_t>(now_tv.tv_sec) * 1000000 +
         now_tv.tv_usec;
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
-        flush_pending_ = false;
-        fflush(file_);
-        last_flush_micros_ = now_micros;
+        Flush();
       }
       if (base != buffer) {
         delete[] base;
