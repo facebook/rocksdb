@@ -11219,9 +11219,12 @@ TEST_F(DBTest, DynamicLevelMaxBytesCompactRange) {
   }
   Flush();
   dbfull()->TEST_WaitForCompact();
-  ASSERT_OK(
-      Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))), RandomString(&rnd, 80)));
-  Flush();
+  if (NumTableFilesAtLevel(0) == 0) {
+    // Make sure level 0 is not empty
+    ASSERT_OK(Put(Key(static_cast<int>(rnd.Uniform(kMaxKey))),
+                  RandomString(&rnd, 80)));
+    Flush();
+  }
 
   ASSERT_TRUE(db_->GetIntProperty("rocksdb.base-level", &int_prop));
   ASSERT_EQ(3U, int_prop);
