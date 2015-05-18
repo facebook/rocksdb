@@ -97,21 +97,21 @@ std::map<std::string, uint64_t>
   for (int i = 0; i < num_properties; ++i) {
     if (op_type == OP_COMPACTION &&
         i == COMPACTION_INPUT_OUTPUT_LEVEL) {
-      property_map.emplace(
-          "BaseInputLevel", op_properties[i] >> 32);
-      property_map.emplace(
-          "OutputLevel", op_properties[i] % (1LU << 32));
+      property_map.insert(
+          {"BaseInputLevel", op_properties[i] >> 32});
+      property_map.insert(
+          {"OutputLevel", op_properties[i] % (1LU << 32)});
     } else if (op_type == OP_COMPACTION &&
                i == COMPACTION_PROP_FLAGS) {
-      property_map.emplace(
-          "IsManual", ((op_properties[i] & 2) >> 1));
-      property_map.emplace(
-          "IsDeletion", ((op_properties[i] & 4) >> 2));
-      property_map.emplace(
-          "IsTrivialMove", ((op_properties[i] & 8) >> 3));
+      property_map.insert(
+          {"IsManual", ((op_properties[i] & 2) >> 1)});
+      property_map.insert(
+          {"IsDeletion", ((op_properties[i] & 4) >> 2)});
+      property_map.insert(
+          {"IsTrivialMove", ((op_properties[i] & 8) >> 3)});
     } else {
-      property_map.emplace(
-          GetOperationPropertyName(op_type, i), op_properties[i]);
+      property_map.insert(
+          {GetOperationPropertyName(op_type, i), op_properties[i]});
     }
   }
   return property_map;
