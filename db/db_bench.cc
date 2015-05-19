@@ -558,9 +558,15 @@ DEFINE_bool(use_adaptive_mutex, rocksdb::Options().use_adaptive_mutex,
             "Use adaptive mutex");
 
 DEFINE_uint64(bytes_per_sync,  rocksdb::Options().bytes_per_sync,
-              "Allows OS to incrementally sync files to disk while they are"
+              "Allows OS to incrementally sync SST files to disk while they are"
               " being written, in the background. Issue one request for every"
               " bytes_per_sync written. 0 turns it off.");
+
+DEFINE_uint64(wal_bytes_per_sync,  rocksdb::Options().wal_bytes_per_sync,
+              "Allows OS to incrementally sync WAL files to disk while they are"
+              " being written, in the background. Issue one request for every"
+              " wal_bytes_per_sync written. 0 turns it off.");
+
 DEFINE_bool(filter_deletes, false, " On true, deletes use bloom-filter and drop"
             " the delete if key not present");
 
@@ -2224,6 +2230,7 @@ class Benchmark {
     options.access_hint_on_compaction_start = FLAGS_compaction_fadvice_e;
     options.use_adaptive_mutex = FLAGS_use_adaptive_mutex;
     options.bytes_per_sync = FLAGS_bytes_per_sync;
+    options.wal_bytes_per_sync = FLAGS_wal_bytes_per_sync;
 
     // merge operator options
     options.merge_operator = MergeOperators::CreateFromStringId(

@@ -279,6 +279,10 @@ class InternalStats {
     // another thread.
     uint64_t write_other;
     uint64_t write_self;
+    // Stats from compaction jobs - bytes written, bytes read, duration.
+    uint64_t compact_bytes_write;
+    uint64_t compact_bytes_read;
+    uint64_t compact_micros;
     // Total number of keys written. write_self and write_other measure number
     // of write requests written, Each of the write request can contain updates
     // to multiple keys. num_keys_written is total number of keys updated by all
@@ -295,6 +299,9 @@ class InternalStats {
           write_with_wal(0),
           write_other(0),
           write_self(0),
+          compact_bytes_write(0),
+          compact_bytes_read(0),
+          compact_micros(0),
           num_keys_written(0),
           write_stall_micros(0),
           seconds_up(0) {}

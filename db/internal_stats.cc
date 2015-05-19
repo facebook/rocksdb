@@ -397,6 +397,10 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t wal_synced = db_stats_[InternalStats::WAL_FILE_SYNCED];
   uint64_t write_with_wal = db_stats_[InternalStats::WRITE_WITH_WAL];
   uint64_t write_stall_micros = db_stats_[InternalStats::WRITE_STALL_MICROS];
+  uint64_t compact_bytes_read = 0;
+  uint64_t compact_bytes_write = 0;
+  uint64_t compact_micros = 0;
+
   const int kHumanMicrosLen = 32;
   char human_micros[kHumanMicrosLen];
 
@@ -426,6 +430,22 @@ void InternalStats::DumpDBStats(std::string* value) {
            NumberToHumanString(wal_synced).c_str(),
            write_with_wal / static_cast<double>(wal_synced + 1),
            wal_bytes / kGB, wal_bytes / kMB / seconds_up);
+  value->append(buf);
+  // Compact
+  for (int level = 0; level < number_levels_; level++) {
+    compact_bytes_read += comp_stats_[level].bytes_readnp1 +
+                          comp_stats_[level].bytes_readn;
+    compact_bytes_write += comp_stats_[level].bytes_written;
+    compact_micros += comp_stats_[level].micros;
+  }
+  snprintf(buf, sizeof(buf),
+           "Cumulative compaction: %.2f GB write, %.2f MB/s write, "
+           "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
+           compact_bytes_write / kGB,
+           compact_bytes_write / kMB / seconds_up,
+           compact_bytes_read / kGB,
+           compact_bytes_read / kMB / seconds_up,
+           compact_micros / 1000000.0);
   value->append(buf);
   // Stall
   AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen, true);
@@ -471,6 +491,26 @@ void InternalStats::DumpDBStats(std::string* value) {
            interval_wal_bytes / kMB / std::max(interval_seconds_up, 0.001));
   value->append(buf);
 
+  // Compaction
+  uint64_t interval_compact_bytes_write =
+      compact_bytes_write - db_stats_snapshot_.compact_bytes_write;
+  uint64_t interval_compact_bytes_read =
+      compact_bytes_read - db_stats_snapshot_.compact_bytes_read;
+  uint64_t interval_compact_micros =
+      compact_micros - db_stats_snapshot_.compact_micros;
+
+  snprintf(buf, sizeof(buf),
+           "Interval compaction: %.2f GB write, %.2f MB/s write, "
+           "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
+           interval_compact_bytes_write / kGB,
+           interval_compact_bytes_write / kMB /
+               std::max(interval_seconds_up, 0.001),
+           interval_compact_bytes_read / kGB,
+           interval_compact_bytes_read / kMB /
+               std::max(interval_seconds_up, 0.001),
+           interval_compact_micros / 1000000.0);
+  value->append(buf);
+
   // Stall
   AppendHumanMicros(
       write_stall_micros - db_stats_snapshot_.write_stall_micros,
@@ -492,6 +532,9 @@ void InternalStats::DumpDBStats(std::string* value) {
   db_stats_snapshot_.wal_synced = wal_synced;
   db_stats_snapshot_.write_with_wal = write_with_wal;
   db_stats_snapshot_.write_stall_micros = write_stall_micros;
+  db_stats_snapshot_.compact_bytes_write = compact_bytes_write;
+  db_stats_snapshot_.compact_bytes_read = compact_bytes_read;
+  db_stats_snapshot_.compact_micros = compact_micros;
 }
 
 void InternalStats::DumpCFStats(std::string* value) {
