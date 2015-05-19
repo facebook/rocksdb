@@ -1,6 +1,6 @@
 # Rocksdb Change Log
 
-## Unreleased
+## 3.11.0 (5/19/2015)
 
 ### New Features
 * Added a new API Cache::SetCapacity(size_t capacity) to dynamically change the maximum configured capacity of the cache. If the new capacity is less than the existing cache usage, the implementation will try to lower the usage by evicting the necessary number of elements following a strict LRU policy.
