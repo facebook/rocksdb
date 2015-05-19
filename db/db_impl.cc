@@ -977,6 +977,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     std::string scratch;
     Slice record;
     WriteBatch batch;
+	bool mayHaveUnsortedRecordsInLogFile = false; // concurrent writes may change the order of the stored records 
+	bool firstRecord = true;
     while (reader.ReadRecord(&record, &scratch) && status.ok()) {
       if (record.size() < 12) {
         reporter.Corruption(record.size(),
@@ -997,13 +999,30 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       if (!status.ok()) {
         return status;
       }
-      const SequenceNumber last_seq = WriteBatchInternal::Sequence(&batch) +
-                                      WriteBatchInternal::Count(&batch) - 1;
+	  
+      const SequenceNumber first_seq = WriteBatchInternal::Sequence(&batch);
+	  
+      const SequenceNumber last_seq =  first_seq + WriteBatchInternal::Count(&batch) - 1;
+
+	  if(firstRecord) 
+	  {
+		firstRecord = false;
+	  }
+	  else // !firstRecord
+	  {
+		if(*max_sequence != first_seq-1)
+		{
+		    mayHaveUnsortedRecordsInLogFile = true;
+		}
+	  }
+									  
+									  
       if (last_seq > *max_sequence) {
         *max_sequence = last_seq;
       }
 
-      if (!read_only) {
+      // if some records are not sorted according to the sequence numbers, then we don't want to flush them before reaching the end of the log file (otherwise we may lose some records)
+      if (!read_only && !mayHaveUnsortedRecordsInLogFile) { 
         // we can do this because this is called before client has access to the
         // DB and there is only a single thread operating on DB
         ColumnFamilyData* cfd;
@@ -1031,9 +1050,33 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       return status;
     }
 
+    if (!read_only) // we have just encountered the end of log file
+	{ 
+      // we can do this because this is called before client has access to the
+      // DB and there is only a single thread operating on DB
+      ColumnFamilyData* cfd;
+
+      while ((cfd = flush_scheduler_.GetNextColumnFamily()) != nullptr) {
+        cfd->Unref();
+        // If this asserts, it means that InsertInto failed in
+        // filtering updates to already-flushed column families
+        assert(cfd->GetLogNumber() <= log_number);
+        auto iter = version_edits.find(cfd->GetID());
+        assert(iter != version_edits.end());
+        VersionEdit* edit = &iter->second;
+        status = WriteLevel0TableForRecovery(cfd, cfd->mem(), edit);
+        if (!status.ok()) {
+          // Reflect errors immediately so that conditions like full
+          // file-systems cause the DB::Open() to fail.
+          return status;
+        }
+        cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
+      }
+    }	
+	
     flush_scheduler_.Clear();
     if (versions_->LastSequence() < *max_sequence) {
-      versions_->SetLastSequence(*max_sequence);
+      versions_->SetLargerLatestSequences(*max_sequence);
     }
   }
 
@@ -1753,10 +1796,14 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
   Status s;
   {
     WriteContext context;
-    InstrumentedMutexLock guard_lock(&mutex_);
+	if (db_options_.allow_concurrent_write_operations) updatesSynchronizer.LockWrite(); 
+	mutex_.Lock(); 	
+    
 
     if (cfd->imm()->size() == 0 && cfd->mem()->IsEmpty()) {
       // Nothing to flush
+	  if (db_options_.allow_concurrent_write_operations) updatesSynchronizer.UnlockWrite();	        
+  	  mutex_.Unlock();		  
       return Status::OK();
     }
 
@@ -1774,6 +1821,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     // schedule flush
     SchedulePendingFlush(cfd);
     MaybeScheduleFlushOrCompaction();
+	if (db_options_.allow_concurrent_write_operations) updatesSynchronizer.UnlockWrite();
+	mutex_.Unlock();		
   }
 
   if (s.ok() && flush_options.wait) {
@@ -2694,6 +2743,23 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   ColumnFamilyHandle** handle) {
   Status s;
   *handle = nullptr;
+  
+ if (db_options_.allow_concurrent_write_operations)  
+  {
+	  if (!cf_options.memtable_factory->PermitsConcurrentWriteOperations())
+		  return Status::NotSupported("Memtable does not support concurrent write operations");
+
+	  if (cf_options.prefix_extractor != nullptr)
+		  return Status::NotSupported("prefix_extractor!=null is not compatible with concurrent write operations");
+
+	  if (cf_options.inplace_update_support)
+		  return Status::NotSupported("inplace_update_support==true is not compatible with concurrent write operations");
+
+	  if (cf_options.filter_deletes)
+		  return Status::NotSupported("filter_deletes=true is not compatible with concurrent write operations");
+  }  
+  
+  
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -3009,7 +3075,7 @@ const Snapshot* DBImpl::GetSnapshot() {
   InstrumentedMutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
   if (!is_snapshot_supported_) return nullptr;
-  return snapshots_.New(versions_->LastSequence(), unix_time);
+  return snapshots_.New(versions_->LastStableSequence(), unix_time);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
@@ -3038,7 +3104,155 @@ Status DBImpl::Delete(const WriteOptions& write_options,
   return DB::Delete(write_options, column_family, key);
 }
 
-Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
+Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) 
+{
+	if (!db_options_.allow_concurrent_write_operations)
+		return SerialWrite(write_options, my_batch);
+	
+	PERF_TIMER_GUARD(write_pre_and_post_process_time);    
+	
+    uint64_t max_total_wal_size = (db_options_.max_total_wal_size == 0)
+                                   ? 4 * max_total_in_memory_state_
+                                    : db_options_.max_total_wal_size; 
+	
+	
+	// If this write can be executed concurrently with other writes 
+	if (write_options.sync == false &&
+		write_options.timeout_hint_us == 0 &&  // no timeout
+		total_log_size_ < max_total_wal_size && 
+		my_batch != NULL &&
+		my_batch->IsSimpleBatch() &&
+		bg_error_.ok() &&
+		!write_buffer_.ShouldFlush() &&
+		flush_scheduler_.Empty() &&
+		!write_controller_.IsStopped() &&
+		!(write_controller_.GetDelay() > 0)
+		)
+	{
+		PERF_TIMER_STOP(write_pre_and_post_process_time);
+
+		return ConcurrentWrite(write_options, my_batch);
+	}
+
+	Status status = Status::OK();
+
+	updatesSynchronizer.LockWrite();
+	
+	PERF_TIMER_STOP(write_pre_and_post_process_time);
+	
+	status = SerialWrite(write_options, my_batch);
+	
+	PERF_TIMER_START(write_pre_and_post_process_time);
+
+	updatesSynchronizer.UnlockWrite();
+
+	return status;
+}
+
+Status DBImpl::ConcurrentWrite(const WriteOptions& write_options, WriteBatch* my_batch) 
+{
+	PERF_TIMER_GUARD(write_pre_and_post_process_time);
+
+	assert(db_options_.allow_concurrent_write_operations);
+	assert(my_batch!=NULL && my_batch->IsSimpleBatch());
+
+	Status status = Status::OK();
+	
+	uint64_t last_sequence;
+	uint32_t column_family;
+	unsigned char type;
+	Slice key; 
+	Slice value;
+	status = my_batch->GetSimpleUpdateData(&column_family, &type, &key, &value);
+	if(!status.ok()) return status;
+
+	updatesSynchronizer.LockRead();
+
+	ColumnFamilySet* cfs = versions_->GetColumnFamilySet();
+	
+	ColumnFamilyData* cfd = nullptr;
+	{
+	    // TODO(GG): consider removing this lock. It is currently used to protect: *cfs, default_cf_internal_stats_, and the WAL
+		InstrumentedMutexLock l(&mutex_); 
+
+		cfd = cfs->GetColumnFamily(column_family);  
+		
+		if(cfd == nullptr)
+		{
+			updatesSynchronizer.UnlockRead();
+			return  Status::InvalidArgument("Invalid column family");
+		}
+		// if cfd!=null, then the column family cannot be removed before the method returns
+
+		last_sequence = versions_->IncreaseSequenceNumberAndAddToActiveSet(1); 
+		WriteBatchInternal::SetSequence(my_batch, last_sequence);
+
+		RecordTick(stats_, WRITE_DONE_BY_SELF);
+		default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_SELF, 1); 
+		RecordTick(stats_, NUMBER_KEYS_WRITTEN, 1);
+		const uint64_t batch_size = WriteBatchInternal::ByteSize(my_batch);
+		RecordTick(stats_, BYTES_WRITTEN, batch_size);
+		default_cf_internal_stats_->AddDBStats(InternalStats::BYTES_WRITTEN, batch_size);
+		if (write_options.disableWAL && !flush_on_destroy_) flush_on_destroy_ = true; 
+
+		PERF_TIMER_STOP(write_pre_and_post_process_time);
+		
+		
+		if (!write_options.disableWAL) {	
+		  uint64_t log_size = 0;
+		  PERF_TIMER_GUARD(write_wal_time);
+
+		  Slice log_entry = WriteBatchInternal::Contents(my_batch); 
+		  status = log_->AddRecord(log_entry);
+		  total_log_size_ += log_entry.size();
+		  alive_log_files_.back().AddSize(log_entry.size());
+		  log_empty_ = false;
+		  log_size = log_entry.size();
+		  RecordTick(stats_, WAL_FILE_BYTES, log_size);
+	  
+		  default_cf_internal_stats_->AddDBStats(
+			   InternalStats::WAL_FILE_SYNCED, 1);
+		  default_cf_internal_stats_->AddDBStats(
+			   InternalStats::WAL_FILE_BYTES, log_size);
+		  
+		}
+	}	
+
+	{
+		PERF_TIMER_GUARD(write_memtable_time);
+
+		MemTable* mem = cfd->mem();
+		mem->Add(last_sequence, (ValueType)type , key, value); 
+		
+		if(mem->ShouldScheduleFlush())
+		{		  
+		  InstrumentedMutexLock l(&mutex_);
+		  if(mem->ShouldScheduleFlush()) {
+			flush_scheduler_.ScheduleFlush(cfd); 
+			mem->MarkFlushScheduled();		    
+		  }		
+		}
+		
+		versions_->RemoveFromActiveSet(last_sequence);
+
+		// atomically assign max of current value and last_sequence
+		SetMaxTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
+	}
+
+	PERF_TIMER_START(write_pre_and_post_process_time);
+
+	updatesSynchronizer.UnlockRead();
+
+	if (db_options_.paranoid_checks && !status.ok() && bg_error_.ok()) {
+		bg_error_ = status; // stop compaction & fail any further writes
+	}
+	
+	return status;
+}
+
+
+Status DBImpl::SerialWrite(const WriteOptions& write_options, WriteBatch* my_batch) 
+{
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
@@ -3107,7 +3321,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Flushing all column families with data in WAL number %" PRIu64
         ". Total log size is %" PRIu64 " while max_total_wal_size is %" PRIu64,
-        flush_column_family_if_log_file, total_log_size_, max_total_wal_size);
+        flush_column_family_if_log_file, total_log_size_.load(), max_total_wal_size);
     // no need to refcount because drop is happening in write thread, so can't
     // happen while we're in the write thread
     for (auto cfd : *versions_->GetColumnFamilySet()) {
@@ -3261,7 +3475,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
             InternalStats::WAL_FILE_BYTES, log_size);
       }
       if (status.ok()) {
-        versions_->SetLastSequence(last_sequence);
+        versions_->SetLargerLatestSequences(last_sequence);
       }
     }
   }
@@ -3350,6 +3564,7 @@ Status DBImpl::ScheduleFlushes(WriteContext* context) {
 // REQUIRES: this thread is currently at the front of the writer queue
 Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
                                            WriteContext* context) {
+  assert(!db_options_.allow_concurrent_write_operations || updatesSynchronizer.isWriting());										   
   mutex_.AssertHeld();
   unique_ptr<WritableFile> lfile;
   log::Writer* new_log = nullptr;
@@ -3367,9 +3582,13 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
   Status s;
   {
     if (creating_new_log) {
+	  EnvOptions logOptions = env_->OptimizeForLogWrite(env_options_);
+	  if(db_options_.allow_concurrent_write_operations && db_options_.allow_mmap_writes) 
+	     logOptions.use_mmap_writes = true ; // TODO(GG): faster for concurrent logging	
+	
       s = env_->NewWritableFile(
           LogFileName(db_options_.wal_dir, new_log_number), &lfile,
-          env_->OptimizeForLogWrite(env_options_));
+          logOptions);
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
@@ -3878,9 +4097,15 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
     EnvOptions soptions(db_options);
+	
+    EnvOptions logOptions = impl->db_options_.env->OptimizeForLogWrite(soptions);
+	  if(db_options.allow_concurrent_write_operations && db_options.allow_mmap_writes) 
+	     logOptions.use_mmap_writes = true ; // TODO(GG): faster for concurrent logging	
+		 
     s = impl->db_options_.env->NewWritableFile(
         LogFileName(impl->db_options_.wal_dir, new_log_number), &lfile,
-        impl->db_options_.env->OptimizeForLogWrite(soptions));
+        logOptions);
+		
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       impl->logfile_number_ = new_log_number;

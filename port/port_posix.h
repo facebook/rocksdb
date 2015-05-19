@@ -135,6 +135,12 @@ typedef pthread_once_t OnceType;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT
 extern void InitOnce(OnceType* once, void (*initializer)());
 
+// Returns the number of available processors (cpu cores)
+int GetNumberOfProcessors();
+
+// Returns the ID of the current processor (the ID is a number between 0 and GetNumberOfProcessors()-1)
+int GetCurrentProcessor();
+
 #define CACHE_LINE_SIZE 64U
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)

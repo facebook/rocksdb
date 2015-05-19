@@ -38,6 +38,7 @@
 #include "db/write_controller.h"
 #include "rocksdb/env.h"
 #include "util/instrumented_mutex.h"
+#include "db/sequence_num_mgr.h"
 
 namespace rocksdb {
 
@@ -561,17 +562,41 @@ class VersionSet {
   // Allocate and return a new file number
   uint64_t NewFileNumber() { return next_file_number_.fetch_add(1); }
 
-  // Return the last sequence number.
-  uint64_t LastSequence() const {
-    return last_sequence_.load(std::memory_order_acquire);
-  }
+  // Return the latest sequence number
+  uint64_t LastSequence() const { return sequence_number_mgr_.LastVersion(); }
 
-  // Set the last sequence number to s.
+  // Return the latest sequence number that represents an immutable snapshot
+  uint64_t LastStableSequence() { return sequence_number_mgr_.LastStableVersion(); }
+  
+  // Set the last sequence number to s (if it is smaller than s)
+  void SetLargerLatestSequences(uint64_t s) {
+
+	  if(s > sequence_number_mgr_.LastVersion())
+	  {
+		  sequence_number_mgr_.Reset(s);
+	  }
+  }  
+  
+    // Set the last sequence number to s.
   void SetLastSequence(uint64_t s) {
-    assert(s >= last_sequence_);
-    last_sequence_.store(s, std::memory_order_release);
+		  sequence_number_mgr_.Reset(s);
+  }  
+  
+  // atomically increase sequence number and insert it to the active set (for concurrent writes)
+  uint64_t IncreaseSequenceNumberAndAddToActiveSet(unsigned short a)
+  {
+	  uint64_t newVal = sequence_number_mgr_.CreateNew(a);
+	  return newVal;
+  }
+  
+  // remove sequence number s from the active set (for concurrent writes)
+  void RemoveFromActiveSet(uint64_t s)
+  {
+	  sequence_number_mgr_.Finish(s);
   }
 
+  
+  
   // Mark the specified file number as used.
   // REQUIRED: this is only called during single-threaded recovery
   void MarkFileNumberUsedDuringRecovery(uint64_t number);
@@ -657,7 +682,7 @@ class VersionSet {
   std::atomic<uint64_t> next_file_number_;
   uint64_t manifest_file_number_;
   uint64_t pending_manifest_file_number_;
-  std::atomic<uint64_t> last_sequence_;
+  SequenceNumberMgr sequence_number_mgr_;
   uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
 
   // Opened lazily

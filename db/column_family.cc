@@ -509,7 +509,7 @@ MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options) {
   assert(current_ != nullptr);
   return new MemTable(internal_comparator_, ioptions_,
-                      mutable_cf_options, write_buffer_);
+                      mutable_cf_options, write_buffer_ ,options_.allow_concurrent_write_operations);
 }
 
 void ColumnFamilyData::CreateNewMemtable(
@@ -717,6 +717,13 @@ Status ColumnFamilyData::SetOptions(
   Status s = GetMutableOptionsFromStrings(mutable_cf_options_, options_map,
                                           &new_mutable_cf_options);
   if (s.ok()) {
+  
+    if (options_.allow_concurrent_write_operations) 
+    {
+	  if (new_mutable_cf_options.filter_deletes) 
+		  return Status::NotSupported("filter_deletes=true is not compatible with concurrent write operations");	   
+    }       
+  
     mutable_cf_options_ = new_mutable_cf_options;
     mutable_cf_options_.RefreshDerivedOptions(ioptions_);
   }

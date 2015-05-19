@@ -981,6 +981,10 @@ struct DBOptions {
   // wasting spin time.
   // Default: false
   bool use_adaptive_mutex;
+  
+  // Allow rocksdb to concurrently execute write operations (the memtable is required to support concurrent write operations) 
+  // Default: false 
+  bool allow_concurrent_write_operations;     
 
   // Create DBOptions with default values for all fields
   DBOptions();

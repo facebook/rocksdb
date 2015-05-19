@@ -9,6 +9,7 @@
 #include <deque>
 #include <set>
 #include <vector>
+#include <atomic>
 
 namespace rocksdb {
 
@@ -16,9 +17,10 @@ class ColumnFamilyData;
 
 // This class is thread-compatible. It's should only be accessed from single
 // write thread (between BeginWrite() and EndWrite())
+// Only the method Empty() is thread-safe: it can be invoked by several concurrent threads 
 class FlushScheduler {
  public:
-  FlushScheduler() = default;
+  FlushScheduler() ;
   ~FlushScheduler() = default;
 
   void ScheduleFlush(ColumnFamilyData* cfd);
@@ -32,6 +34,7 @@ class FlushScheduler {
 
  private:
   std::deque<ColumnFamilyData*> column_families_;
+  std::atomic_bool 	is_empty_;
 #ifndef NDEBUG
   std::set<ColumnFamilyData*> column_families_set_;
 #endif  // NDEBUG

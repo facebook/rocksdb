@@ -90,6 +90,8 @@ LIB_SOURCES =                                                   \
   util/histogram.cc                                             \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
+  util/lockfreeskiplistrep.cc                                   \
+  util/concurrent_arena.cc                                      \
   utilities/backupable/backupable_db.cc                         \
   utilities/convenience/convenience.cc                          \
   utilities/checkpoint/checkpoint.cc                            \
