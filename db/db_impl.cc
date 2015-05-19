@@ -425,7 +425,7 @@ const Status DBImpl::CreateArchivalDirectory() {
 void DBImpl::PrintStatistics() {
   auto dbstats = db_options_.statistics.get();
   if (dbstats) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+    Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
         "STATISTICS:\n %s",
         dbstats->ToString().c_str());
   }
@@ -464,9 +464,9 @@ void DBImpl::MaybeDumpStats() {
                                                     DB::Properties::kDBStats,
                                                     &stats);
     }
-    Log(InfoLogLevel::INFO_LEVEL,
+    Log(InfoLogLevel::WARN_LEVEL,
         db_options_.info_log, "------- DUMPING STATS -------");
-    Log(InfoLogLevel::INFO_LEVEL,
+    Log(InfoLogLevel::WARN_LEVEL,
         db_options_.info_log, "%s", stats.c_str());
 #endif  // !ROCKSDB_LITE
 
