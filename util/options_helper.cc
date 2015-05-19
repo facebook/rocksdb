@@ -555,6 +555,8 @@ bool ParseDBOption(const std::string& name, const std::string& value,
       new_options->use_adaptive_mutex = ParseBoolean(name, value);
     } else if (name == "bytes_per_sync") {
       new_options->bytes_per_sync = ParseUint64(value);
+    } else if (name == "wal_bytes_per_sync") {
+      new_options->wal_bytes_per_sync = ParseUint64(value);
     } else {
       return false;
     }

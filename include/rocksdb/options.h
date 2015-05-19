@@ -1001,7 +1001,13 @@ struct DBOptions {
   // You may consider using rate_limiter to regulate write rate to device.
   // When rate limiter is enabled, it automatically enables bytes_per_sync
   // to 1MB.
+  //
+  // This option applies to table files
   uint64_t bytes_per_sync;
+
+  // Same as bytes_per_sync, but applies to WAL files
+  // Default: 0, turned off
+  uint64_t wal_bytes_per_sync;
 
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.

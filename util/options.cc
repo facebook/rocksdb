@@ -255,6 +255,7 @@ DBOptions::DBOptions()
       access_hint_on_compaction_start(NORMAL),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
+      wal_bytes_per_sync(0),
       enable_thread_tracking(false) {
 }
 
@@ -298,6 +299,7 @@ DBOptions::DBOptions(const Options& options)
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
+      wal_bytes_per_sync(options.wal_bytes_per_sync),
       enable_thread_tracking(options.enable_thread_tracking) {}
 
 static const char* const access_hints[] = {
@@ -364,6 +366,8 @@ void DBOptions::Dump(Logger* log) const {
         rate_limiter.get());
     Log(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
+    Log(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
+        wal_bytes_per_sync);
     Log(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
 }  // DBOptions::Dump

@@ -3455,7 +3455,7 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     if (creating_new_log) {
       s = env_->NewWritableFile(
           LogFileName(db_options_.wal_dir, new_log_number), &lfile,
-          env_->OptimizeForLogWrite(env_options_));
+          env_->OptimizeForLogWrite(env_options_, db_options_));
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
@@ -3965,7 +3965,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     EnvOptions soptions(db_options);
     s = impl->db_options_.env->NewWritableFile(
         LogFileName(impl->db_options_.wal_dir, new_log_number), &lfile,
-        impl->db_options_.env->OptimizeForLogWrite(soptions));
+        impl->db_options_.env->OptimizeForLogWrite(soptions,
+                                                   impl->db_options_));
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       impl->logfile_number_ = new_log_number;

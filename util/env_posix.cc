@@ -1510,9 +1510,11 @@ class PosixEnv : public Env {
     return dummy;
   }
 
-  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const override {
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                 const DBOptions& db_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
+    optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
     // test and make this false

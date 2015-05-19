@@ -11,6 +11,7 @@
 
 ### Public API changes
 * TablePropertiesCollector::AddUserKey() is added to replace TablePropertiesCollector::Add(). AddUserKey() exposes key type, sequence number and file size up to now to users.
+* DBOptions::bytes_per_sync used to apply to both WAL and table files. As of 3.11 it applies only to table files. If you want to use this option to sync WAL in the background, please use wal_bytes_per_sync
 
 ## 3.10.0 (3/24/2015)
 ### New Features

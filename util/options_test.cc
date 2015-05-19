@@ -172,6 +172,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
     {"advise_random_on_open", "true"},
     {"use_adaptive_mutex", "false"},
     {"bytes_per_sync", "47"},
+    {"wal_bytes_per_sync", "48"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -278,6 +279,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
+  ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
 }
 #endif  // !ROCKSDB_LITE
 
