@@ -71,6 +71,9 @@ std::string TableProperties::ToString(
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
       prop_delim, kv_delim);
 
+  AppendProperty(result, "compression",
+                 compression_type, prop_delim, kv_delim);
+
   return result;
 }
 

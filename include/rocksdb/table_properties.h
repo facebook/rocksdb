@@ -7,6 +7,7 @@
 #include <map>
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
+#include "rocksdb/options.h"
 
 namespace rocksdb {
 
@@ -52,6 +53,9 @@ struct TableProperties {
   // The name of the filter policy used in this table.
   // If no filter policy is used, `filter_policy_name` will be an empty string.
   std::string filter_policy_name;
+
+  // the type of compression used for the block
+  rocksdb::CompressionType compression_type = kNoCompression;
 
   // user collected properties
   UserCollectedProperties user_collected_properties;

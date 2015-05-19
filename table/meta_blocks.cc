@@ -144,8 +144,9 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
   ReadOptions read_options;
   read_options.verify_checksums = false;
   Status s;
+  rocksdb::CompressionType found_compression_type;
   s = ReadBlockContents(file, footer, read_options, handle, &block_contents,
-                        env, false);
+                        env, false, &found_compression_type);
 
   if (!s.ok()) {
     return s;
@@ -171,6 +172,8 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
        &new_table_properties->format_version},
       {TablePropertiesNames::kFixedKeyLen,
        &new_table_properties->fixed_key_len}, };
+
+  new_table_properties->compression_type = found_compression_type;
 
   std::string last_key;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
