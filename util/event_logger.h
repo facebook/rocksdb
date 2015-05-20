@@ -15,11 +15,11 @@
 
 namespace rocksdb {
 
-// JSONWritter doesn't support objects in arrays yet. There wasn't a need for
+// JSONWriter doesn't support objects in arrays yet. There wasn't a need for
 // that.
-class JSONWritter {
+class JSONWriter {
  public:
-  JSONWritter() : state_(kExpectKey), first_element_(true) { stream_ << "{"; }
+  JSONWriter() : state_(kExpectKey), first_element_(true) { stream_ << "{"; }
 
   void AddKey(const std::string& key) {
     assert(state_ == kExpectKey);
@@ -85,7 +85,7 @@ class JSONWritter {
 
   std::string Get() const { return stream_.str(); }
 
-  JSONWritter& operator<<(const char* val) {
+  JSONWriter& operator<<(const char* val) {
     if (state_ == kExpectKey) {
       AddKey(val);
     } else {
@@ -94,24 +94,24 @@ class JSONWritter {
     return *this;
   }
 
-  JSONWritter& operator<<(const std::string& val) {
+  JSONWriter& operator<<(const std::string& val) {
     return *this << val.c_str();
   }
 
   template <typename T>
-  JSONWritter& operator<<(const T& val) {
+  JSONWriter& operator<<(const T& val) {
     assert(state_ != kExpectKey);
     AddValue(val);
     return *this;
   }
 
  private:
-  enum JSONWritterState {
+  enum JSONWriterState {
     kExpectKey,
     kExpectValue,
     kInArray,
   };
-  JSONWritterState state_;
+  JSONWriterState state_;
   bool first_element_;
   std::ostringstream stream_;
 };
@@ -121,21 +121,21 @@ class EventLoggerStream {
   template <typename T>
   EventLoggerStream& operator<<(const T& val) {
     MakeStream();
-    *json_writter_ << val;
+    *json_writer_ << val;
     return *this;
   }
 
-  void StartArray() { json_writter_->StartArray(); }
-  void EndArray() { json_writter_->EndArray(); }
-  void StartObject() { json_writter_->StartObject(); }
-  void EndObject() { json_writter_->EndObject(); }
+  void StartArray() { json_writer_->StartArray(); }
+  void EndArray() { json_writer_->EndArray(); }
+  void StartObject() { json_writer_->StartObject(); }
+  void EndObject() { json_writer_->EndObject(); }
 
   ~EventLoggerStream();
 
  private:
   void MakeStream() {
-    if (!json_writter_) {
-      json_writter_ = new JSONWritter();
+    if (!json_writer_) {
+      json_writer_ = new JSONWriter();
       *this << "time_micros"
             << std::chrono::duration_cast<std::chrono::microseconds>(
                    std::chrono::system_clock::now().time_since_epoch()).count();
@@ -148,7 +148,7 @@ class EventLoggerStream {
   Logger* const logger_;
   LogBuffer* const log_buffer_;
   // ownership
-  JSONWritter* json_writter_;
+  JSONWriter* json_writer_;
 };
 
 // here is an example of the output that will show up in the LOG:
