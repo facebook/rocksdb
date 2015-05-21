@@ -249,7 +249,7 @@ DBOptions::DBOptions()
       allow_mmap_writes(false),
       is_fd_close_on_exec(true),
       skip_log_error_on_recovery(false),
-      stats_dump_period_sec(3600),
+      stats_dump_period_sec(600),
       advise_random_on_open(true),
       db_write_buffer_size(0),
       access_hint_on_compaction_start(NORMAL),

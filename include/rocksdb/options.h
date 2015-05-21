@@ -948,7 +948,7 @@ struct DBOptions {
   bool skip_log_error_on_recovery;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
-  // Default: 3600 (1 hour)
+  // Default: 600 (10 min)
   unsigned int stats_dump_period_sec;
 
   // If set true, will hint the underlying file system that the file
