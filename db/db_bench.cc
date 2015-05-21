@@ -367,13 +367,19 @@ static std::vector<int> FLAGS_max_bytes_for_level_multiplier_additional_v;
 DEFINE_string(max_bytes_for_level_multiplier_additional, "",
               "A vector that specifies additional fanout per level");
 
-DEFINE_int32(level0_stop_writes_trigger, 12, "Number of files in level-0"
+DEFINE_int32(level0_stop_writes_trigger,
+             rocksdb::Options().level0_stop_writes_trigger,
+             "Number of files in level-0"
              " that will trigger put stop.");
 
-DEFINE_int32(level0_slowdown_writes_trigger, 8, "Number of files in level-0"
+DEFINE_int32(level0_slowdown_writes_trigger,
+             rocksdb::Options().level0_slowdown_writes_trigger,
+             "Number of files in level-0"
              " that will slow down writes.");
 
-DEFINE_int32(level0_file_num_compaction_trigger, 4, "Number of files in level-0"
+DEFINE_int32(level0_file_num_compaction_trigger,
+             rocksdb::Options().level0_file_num_compaction_trigger,
+             "Number of files in level-0"
              " when compactions start");
 
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {

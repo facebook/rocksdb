@@ -1019,13 +1019,6 @@ void VersionStorageInfo::ComputeCompactionScore(
       if (compaction_style_ == kCompactionStyleFIFO) {
         score = static_cast<double>(total_size) /
                 compaction_options_fifo.max_table_files_size;
-      } else if (num_sorted_runs >=
-                 mutable_cf_options.level0_stop_writes_trigger) {
-        // If we are slowing down writes, then we better compact that first
-        score = 1000000;
-      } else if (num_sorted_runs >=
-                 mutable_cf_options.level0_slowdown_writes_trigger) {
-        score = 10000;
       } else {
         score = static_cast<double>(num_sorted_runs) /
                 mutable_cf_options.level0_file_num_compaction_trigger;
