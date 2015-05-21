@@ -173,7 +173,9 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
       {TablePropertiesNames::kFixedKeyLen,
        &new_table_properties->fixed_key_len}, };
 
-  new_table_properties->compression_type = found_compression_type;
+  if (found_compression_type != kNoCompression) {
+    new_table_properties->compression_type = found_compression_type;
+  }
 
   std::string last_key;
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
