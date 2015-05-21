@@ -197,7 +197,7 @@ class DBImpl : public DB {
   // match to our in-memory records
   virtual Status CheckConsistency();
 
-  virtual Status GetDbIdentity(std::string& identity) override;
+  virtual Status GetDbIdentity(std::string& identity) const override;
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,

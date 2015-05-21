@@ -3820,7 +3820,7 @@ Status DBImpl::CheckConsistency() {
   }
 }
 
-Status DBImpl::GetDbIdentity(std::string& identity) {
+Status DBImpl::GetDbIdentity(std::string& identity) const {
   std::string idfilename = IdentityFileName(dbname_);
   unique_ptr<SequentialFile> idfile;
   const EnvOptions soptions;

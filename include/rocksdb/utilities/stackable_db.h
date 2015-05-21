@@ -226,7 +226,7 @@ class StackableDB : public DB {
     return db_->DeleteFile(name);
   }
 
-  virtual Status GetDbIdentity(std::string& identity) override {
+  virtual Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
   }
 

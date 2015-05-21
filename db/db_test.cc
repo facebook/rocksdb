@@ -8797,7 +8797,7 @@ class ModelDB: public DB {
 
   virtual Status DeleteFile(std::string name) override { return Status::OK(); }
 
-  virtual Status GetDbIdentity(std::string& identity) override {
+  virtual Status GetDbIdentity(std::string& identity) const override {
     return Status::OK();
   }
 
