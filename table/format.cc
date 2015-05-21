@@ -332,7 +332,7 @@ Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
 
   compression_type = static_cast<rocksdb::CompressionType>(slice.data()[n]);
 
-  if (found_compression_type != nullptr) {
+  if (found_compression_type != nullptr && compression_type != kNoCompression) {
     *found_compression_type = compression_type;
   }
 

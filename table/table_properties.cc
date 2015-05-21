@@ -38,6 +38,25 @@ namespace {
   }
 }
 
+std::string GetCompressionString(rocksdb::CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return "no_compression";
+    case kSnappyCompression:
+      return "snappy";
+    case kZlibCompression:
+      return "zlib";
+    case kBZip2Compression:
+      return "bzip2";
+    case kLZ4Compression:
+      return "lz4";
+    case kLZ4HCCompression:
+      return "lz4hc";
+    default:
+      return "";
+  }
+}
+
 std::string TableProperties::ToString(
     const std::string& prop_delim,
     const std::string& kv_delim) const {
@@ -71,8 +90,12 @@ std::string TableProperties::ToString(
       filter_policy_name.empty() ? std::string("N/A") : filter_policy_name,
       prop_delim, kv_delim);
 
+  std::ostringstream compression_os;
+  compression_os << compression_type;
+  compression_os << " ";
+  compression_os << GetCompressionString(compression_type);
   AppendProperty(result, "compression",
-                 compression_type, prop_delim, kv_delim);
+                 compression_os.str(), prop_delim, kv_delim);
 
   return result;
 }
