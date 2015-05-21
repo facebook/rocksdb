@@ -11,6 +11,7 @@ namespace rocksdb {
 
 class EventLoggerHelpers {
  public:
+  static void AppendCurrentTime(JSONWriter* json_writer);
   static void LogTableFileCreation(EventLogger* event_logger, int job_id,
                                    uint64_t file_number, uint64_t file_size,
                                    const TableProperties& table_properties);

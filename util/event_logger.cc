@@ -18,7 +18,6 @@
 
 namespace rocksdb {
 
-const char* kEventLoggerPrefix = "EVENT_LOG_v1";
 
 EventLoggerStream::EventLoggerStream(Logger* logger)
     : logger_(logger), log_buffer_(nullptr), json_writer_(nullptr) {}
@@ -33,14 +32,35 @@ EventLoggerStream::~EventLoggerStream() {
     printf("%s\n", json_writer_->Get().c_str());
 #else
     if (logger_) {
-      Log(logger_, "%s %s", kEventLoggerPrefix, json_writer_->Get().c_str());
+      EventLogger::Log(logger_, *json_writer_);
     } else if (log_buffer_) {
-      LogToBuffer(log_buffer_, "%s %s", kEventLoggerPrefix,
-                  json_writer_->Get().c_str());
+      EventLogger::LogToBuffer(log_buffer_, *json_writer_);
     }
 #endif
     delete json_writer_;
   }
+}
+
+void EventLogger::Log(const JSONWriter& jwriter) {
+  Log(logger_, jwriter);
+}
+
+void EventLogger::Log(Logger* logger, const JSONWriter& jwriter) {
+#ifdef ROCKSDB_PRINT_EVENTS_TO_STDOUT
+  printf("%s\n", jwriter.Get().c_str());
+#else
+  rocksdb::Log(logger, "%s %s", Prefix(), jwriter.Get().c_str());
+#endif
+}
+
+void EventLogger::LogToBuffer(
+    LogBuffer* log_buffer, const JSONWriter& jwriter) {
+#ifdef ROCKSDB_PRINT_EVENTS_TO_STDOUT
+  printf("%s\n", jwriter.Get().c_str());
+#else
+  assert(log_buffer);
+  rocksdb::LogToBuffer(log_buffer, "%s %s", Prefix(), jwriter.Get().c_str());
+#endif
 }
 
 }  // namespace rocksdb

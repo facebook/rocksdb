@@ -157,11 +157,18 @@ class EventLoggerStream {
 // "file_size": 1909699}
 class EventLogger {
  public:
+  static const char* Prefix() {
+    return "EVENT_LOG_v1";
+  }
+
   explicit EventLogger(Logger* logger) : logger_(logger) {}
   EventLoggerStream Log() { return EventLoggerStream(logger_); }
   EventLoggerStream LogToBuffer(LogBuffer* log_buffer) {
     return EventLoggerStream(log_buffer);
   }
+  void Log(const JSONWriter& jwriter);
+  static void Log(Logger* logger, const JSONWriter& jwriter);
+  static void LogToBuffer(LogBuffer* log_buffer, const JSONWriter& jwriter);
 
  private:
   Logger* logger_;
