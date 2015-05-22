@@ -541,8 +541,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   const VersionStorageInfo* vstorage = cfd_->current()->storage_info();
 
   int num_levels_to_check =
-      (cfd_->ioptions()->compaction_style != kCompactionStyleUniversal &&
-       cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
+      (cfd_->ioptions()->compaction_style != kCompactionStyleFIFO)
           ? vstorage->num_levels() - 1
           : 1;
 
@@ -555,7 +554,7 @@ void InternalStats::DumpCFStats(std::string* value) {
   }
   // Count # of files being compacted for each level
   std::vector<int> files_being_compacted(number_levels_, 0);
-  for (int level = 0; level < num_levels_to_check; ++level) {
+  for (int level = 0; level < number_levels_; ++level) {
     for (auto* f : vstorage->LevelFiles(level)) {
       if (f->being_compacted) {
         ++files_being_compacted[level];
