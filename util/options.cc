@@ -307,197 +307,197 @@ static const char* const access_hints[] = {
 };
 
 void DBOptions::Dump(Logger* log) const {
-    Log(log,"         Options.error_if_exists: %d", error_if_exists);
-    Log(log,"       Options.create_if_missing: %d", create_if_missing);
-    Log(log,"         Options.paranoid_checks: %d", paranoid_checks);
-    Log(log,"                     Options.env: %p", env);
-    Log(log,"                Options.info_log: %p", info_log.get());
-    Log(log,"          Options.max_open_files: %d", max_open_files);
-    Log(log,"      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
-    Log(log, "       Options.disableDataSync: %d", disableDataSync);
-    Log(log, "             Options.use_fsync: %d", use_fsync);
-    Log(log, "     Options.max_log_file_size: %zu", max_log_file_size);
-    Log(log, "Options.max_manifest_file_size: %" PRIu64,
+    Warn(log, "         Options.error_if_exists: %d", error_if_exists);
+    Warn(log, "       Options.create_if_missing: %d", create_if_missing);
+    Warn(log, "         Options.paranoid_checks: %d", paranoid_checks);
+    Warn(log, "                     Options.env: %p", env);
+    Warn(log, "                Options.info_log: %p", info_log.get());
+    Warn(log, "          Options.max_open_files: %d", max_open_files);
+    Warn(log, "      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
+    Warn(log, "       Options.disableDataSync: %d", disableDataSync);
+    Warn(log, "             Options.use_fsync: %d", use_fsync);
+    Warn(log, "     Options.max_log_file_size: %zu", max_log_file_size);
+    Warn(log, "Options.max_manifest_file_size: %" PRIu64,
         max_manifest_file_size);
-    Log(log, "     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
-    Log(log, "     Options.keep_log_file_num: %zu", keep_log_file_num);
-    Log(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
-    Log(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
-    Log(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
-    Log(log, "         Options.create_missing_column_families: %d",
+    Warn(log, "     Options.log_file_time_to_roll: %zu", log_file_time_to_roll);
+    Warn(log, "     Options.keep_log_file_num: %zu", keep_log_file_num);
+    Warn(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
+    Warn(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
+    Warn(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
+    Warn(log, "         Options.create_missing_column_families: %d",
         create_missing_column_families);
-    Log(log, "                             Options.db_log_dir: %s",
+    Warn(log, "                             Options.db_log_dir: %s",
         db_log_dir.c_str());
-    Log(log, "                                Options.wal_dir: %s",
+    Warn(log, "                                Options.wal_dir: %s",
         wal_dir.c_str());
-    Log(log, "               Options.table_cache_numshardbits: %d",
+    Warn(log, "               Options.table_cache_numshardbits: %d",
         table_cache_numshardbits);
-    Log(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
+    Warn(log, "    Options.delete_obsolete_files_period_micros: %" PRIu64,
         delete_obsolete_files_period_micros);
-    Log(log, "             Options.max_background_compactions: %d",
+    Warn(log, "             Options.max_background_compactions: %d",
         max_background_compactions);
-    Log(log, "                 Options.max_background_flushes: %d",
+    Warn(log, "                 Options.max_background_flushes: %d",
         max_background_flushes);
-    Log(log, "                        Options.WAL_ttl_seconds: %" PRIu64,
+    Warn(log, "                        Options.WAL_ttl_seconds: %" PRIu64,
         WAL_ttl_seconds);
-    Log(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
+    Warn(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
         WAL_size_limit_MB);
-    Log(log, "            Options.manifest_preallocation_size: %zu",
+    Warn(log, "            Options.manifest_preallocation_size: %zu",
         manifest_preallocation_size);
-    Log(log, "                         Options.allow_os_buffer: %d",
+    Warn(log, "                         Options.allow_os_buffer: %d",
         allow_os_buffer);
-    Log(log, "                        Options.allow_mmap_reads: %d",
+    Warn(log, "                        Options.allow_mmap_reads: %d",
         allow_mmap_reads);
-    Log(log, "                       Options.allow_mmap_writes: %d",
+    Warn(log, "                       Options.allow_mmap_writes: %d",
         allow_mmap_writes);
-    Log(log, "                     Options.is_fd_close_on_exec: %d",
+    Warn(log, "                     Options.is_fd_close_on_exec: %d",
         is_fd_close_on_exec);
-    Log(log, "                   Options.stats_dump_period_sec: %u",
+    Warn(log, "                   Options.stats_dump_period_sec: %u",
         stats_dump_period_sec);
-    Log(log, "                   Options.advise_random_on_open: %d",
+    Warn(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
-    Log(log, "                    Options.db_write_buffer_size: %zd",
+    Warn(log, "                    Options.db_write_buffer_size: %zd",
         db_write_buffer_size);
-    Log(log, "         Options.access_hint_on_compaction_start: %s",
+    Warn(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
-    Log(log, "                      Options.use_adaptive_mutex: %d",
+    Warn(log, "                      Options.use_adaptive_mutex: %d",
         use_adaptive_mutex);
-    Log(log, "                            Options.rate_limiter: %p",
+    Warn(log, "                            Options.rate_limiter: %p",
         rate_limiter.get());
-    Log(log, "                          Options.bytes_per_sync: %" PRIu64,
+    Warn(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
-    Log(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
+    Warn(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
         wal_bytes_per_sync);
-    Log(log, "                  Options.enable_thread_tracking: %d",
+    Warn(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {
-  Log(log, "              Options.comparator: %s", comparator->Name());
-  Log(log, "          Options.merge_operator: %s",
+  Warn(log, "              Options.comparator: %s", comparator->Name());
+  Warn(log, "          Options.merge_operator: %s",
       merge_operator ? merge_operator->Name() : "None");
-  Log(log, "       Options.compaction_filter: %s",
+  Warn(log, "       Options.compaction_filter: %s",
       compaction_filter ? compaction_filter->Name() : "None");
-  Log(log, "       Options.compaction_filter_factory: %s",
+  Warn(log, "       Options.compaction_filter_factory: %s",
       compaction_filter_factory->Name());
-  Log(log, "       Options.compaction_filter_factory_v2: %s",
+  Warn(log, "       Options.compaction_filter_factory_v2: %s",
       compaction_filter_factory_v2->Name());
-  Log(log, "        Options.memtable_factory: %s", memtable_factory->Name());
-  Log(log, "           Options.table_factory: %s", table_factory->Name());
-  Log(log, "           table_factory options: %s",
+  Warn(log, "        Options.memtable_factory: %s", memtable_factory->Name());
+  Warn(log, "           Options.table_factory: %s", table_factory->Name());
+  Warn(log, "           table_factory options: %s",
       table_factory->GetPrintableTableOptions().c_str());
-  Log(log, "       Options.write_buffer_size: %zd", write_buffer_size);
-  Log(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
+  Warn(log, "       Options.write_buffer_size: %zd", write_buffer_size);
+  Warn(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
-        Log(log, "       Options.compression[%d]: %s", i,
+        Warn(log, "       Options.compression[%d]: %s", i,
             CompressionTypeToString(compression_per_level[i]));
       }
     } else {
-      Log(log, "         Options.compression: %s",
+      Warn(log, "         Options.compression: %s",
           CompressionTypeToString(compression));
     }
-    Log(log,"      Options.prefix_extractor: %s",
+    Warn(log, "      Options.prefix_extractor: %s",
         prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
-    Log(log,"            Options.num_levels: %d", num_levels);
-    Log(log,"       Options.min_write_buffer_number_to_merge: %d",
+    Warn(log, "            Options.num_levels: %d", num_levels);
+    Warn(log, "       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);
-    Log(log,"        Options.purge_redundant_kvs_while_flush: %d",
+    Warn(log, "        Options.purge_redundant_kvs_while_flush: %d",
          purge_redundant_kvs_while_flush);
-    Log(log,"           Options.compression_opts.window_bits: %d",
+    Warn(log, "           Options.compression_opts.window_bits: %d",
         compression_opts.window_bits);
-    Log(log,"                 Options.compression_opts.level: %d",
+    Warn(log, "                 Options.compression_opts.level: %d",
         compression_opts.level);
-    Log(log,"              Options.compression_opts.strategy: %d",
+    Warn(log, "              Options.compression_opts.strategy: %d",
         compression_opts.strategy);
-    Log(log,"     Options.level0_file_num_compaction_trigger: %d",
+    Warn(log, "     Options.level0_file_num_compaction_trigger: %d",
         level0_file_num_compaction_trigger);
-    Log(log,"         Options.level0_slowdown_writes_trigger: %d",
+    Warn(log, "         Options.level0_slowdown_writes_trigger: %d",
         level0_slowdown_writes_trigger);
-    Log(log,"             Options.level0_stop_writes_trigger: %d",
+    Warn(log, "             Options.level0_stop_writes_trigger: %d",
         level0_stop_writes_trigger);
-    Log(log,"               Options.max_mem_compaction_level: %d",
+    Warn(log, "               Options.max_mem_compaction_level: %d",
         max_mem_compaction_level);
-    Log(log,"                  Options.target_file_size_base: %" PRIu64,
+    Warn(log, "                  Options.target_file_size_base: %" PRIu64,
         target_file_size_base);
-    Log(log,"            Options.target_file_size_multiplier: %d",
+    Warn(log, "            Options.target_file_size_multiplier: %d",
         target_file_size_multiplier);
-    Log(log,"               Options.max_bytes_for_level_base: %" PRIu64,
+    Warn(log, "               Options.max_bytes_for_level_base: %" PRIu64,
         max_bytes_for_level_base);
-    Log(log, "Options.level_compaction_dynamic_level_bytes: %d",
+    Warn(log, "Options.level_compaction_dynamic_level_bytes: %d",
         level_compaction_dynamic_level_bytes);
-    Log(log,"         Options.max_bytes_for_level_multiplier: %d",
+    Warn(log, "         Options.max_bytes_for_level_multiplier: %d",
         max_bytes_for_level_multiplier);
     for (size_t i = 0; i < max_bytes_for_level_multiplier_additional.size();
          i++) {
-      Log(log, "Options.max_bytes_for_level_multiplier_addtl[%zu]: %d", i,
+      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%zu]: %d", i,
           max_bytes_for_level_multiplier_additional[i]);
     }
-    Log(log,"      Options.max_sequential_skip_in_iterations: %" PRIu64,
+    Warn(log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
-    Log(log,"             Options.expanded_compaction_factor: %d",
+    Warn(log, "             Options.expanded_compaction_factor: %d",
         expanded_compaction_factor);
-    Log(log,"               Options.source_compaction_factor: %d",
+    Warn(log, "               Options.source_compaction_factor: %d",
         source_compaction_factor);
-    Log(log,"         Options.max_grandparent_overlap_factor: %d",
+    Warn(log, "         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
-    Log(log,"                       Options.arena_block_size: %zu",
+    Warn(log, "                       Options.arena_block_size: %zu",
         arena_block_size);
-    Log(log,"                      Options.soft_rate_limit: %.2f",
+    Warn(log, "                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
-    Log(log,"                      Options.hard_rate_limit: %.2f",
+    Warn(log, "                      Options.hard_rate_limit: %.2f",
         hard_rate_limit);
-    Log(log,"      Options.rate_limit_delay_max_milliseconds: %u",
+    Warn(log, "      Options.rate_limit_delay_max_milliseconds: %u",
         rate_limit_delay_max_milliseconds);
-    Log(log,"               Options.disable_auto_compactions: %d",
+    Warn(log, "               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Log(log,"         Options.purge_redundant_kvs_while_flush: %d",
+    Warn(log, "         Options.purge_redundant_kvs_while_flush: %d",
         purge_redundant_kvs_while_flush);
-    Log(log,"                          Options.filter_deletes: %d",
+    Warn(log, "                          Options.filter_deletes: %d",
         filter_deletes);
-    Log(log, "          Options.verify_checksums_in_compaction: %d",
+    Warn(log, "          Options.verify_checksums_in_compaction: %d",
         verify_checksums_in_compaction);
-    Log(log,"                        Options.compaction_style: %d",
+    Warn(log, "                        Options.compaction_style: %d",
         compaction_style);
-    Log(log," Options.compaction_options_universal.size_ratio: %u",
+    Warn(log, " Options.compaction_options_universal.size_ratio: %u",
         compaction_options_universal.size_ratio);
-    Log(log,"Options.compaction_options_universal.min_merge_width: %u",
+    Warn(log, "Options.compaction_options_universal.min_merge_width: %u",
         compaction_options_universal.min_merge_width);
-    Log(log,"Options.compaction_options_universal.max_merge_width: %u",
+    Warn(log, "Options.compaction_options_universal.max_merge_width: %u",
         compaction_options_universal.max_merge_width);
-    Log(log,"Options.compaction_options_universal."
+    Warn(log, "Options.compaction_options_universal."
             "max_size_amplification_percent: %u",
         compaction_options_universal.max_size_amplification_percent);
-    Log(log,
+    Warn(log,
         "Options.compaction_options_universal.compression_size_percent: %d",
         compaction_options_universal.compression_size_percent);
-    Log(log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
+    Warn(log, "Options.compaction_options_fifo.max_table_files_size: %" PRIu64,
         compaction_options_fifo.max_table_files_size);
     std::string collector_names;
     for (const auto& collector_factory : table_properties_collector_factories) {
       collector_names.append(collector_factory->Name());
       collector_names.append("; ");
     }
-    Log(log, "                  Options.table_properties_collectors: %s",
+    Warn(log, "                  Options.table_properties_collectors: %s",
         collector_names.c_str());
-    Log(log, "                  Options.inplace_update_support: %d",
+    Warn(log, "                  Options.inplace_update_support: %d",
         inplace_update_support);
-    Log(log, "                Options.inplace_update_num_locks: %zd",
+    Warn(log, "                Options.inplace_update_num_locks: %zd",
         inplace_update_num_locks);
-    Log(log, "              Options.min_partial_merge_operands: %u",
+    Warn(log, "              Options.min_partial_merge_operands: %u",
         min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
-    Log(log, "              Options.memtable_prefix_bloom_bits: %d",
+    Warn(log, "              Options.memtable_prefix_bloom_bits: %d",
         memtable_prefix_bloom_bits);
-    Log(log, "            Options.memtable_prefix_bloom_probes: %d",
+    Warn(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
-    Log(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %zu",
+    Warn(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %zu",
         memtable_prefix_bloom_huge_page_tlb_size);
-    Log(log, "                          Options.bloom_locality: %d",
+    Warn(log, "                          Options.bloom_locality: %d",
         bloom_locality);
-    Log(log, "                   Options.max_successive_merges: %zd",
+    Warn(log, "                   Options.max_successive_merges: %zd",
         max_successive_merges);
-    Log(log, "               Options.optimize_fllters_for_hits: %d",
+    Warn(log, "               Options.optimize_fllters_for_hits: %d",
         optimize_filters_for_hits);
 }  // ColumnFamilyOptions::Dump
 

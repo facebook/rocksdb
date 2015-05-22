@@ -4190,12 +4190,11 @@ void DumpRocksDBBuildVersion(Logger * log) {
 #if !defined(IOS_CROSS_COMPILE)
   // if we compile with Xcode, we don't run build_detect_vesion, so we don't
   // generate util/build_version.cc
-  Log(InfoLogLevel::INFO_LEVEL, log,
+  Warn(log,
       "RocksDB version: %d.%d.%d\n", ROCKSDB_MAJOR, ROCKSDB_MINOR,
       ROCKSDB_PATCH);
-  Log(InfoLogLevel::INFO_LEVEL, log, "Git sha %s", rocksdb_build_git_sha);
-  Log(InfoLogLevel::INFO_LEVEL, log, "Compile date %s",
-      rocksdb_build_compile_date);
+  Warn(log, "Git sha %s", rocksdb_build_git_sha);
+  Warn(log, "Compile date %s", rocksdb_build_compile_date);
 #endif
 }
 
