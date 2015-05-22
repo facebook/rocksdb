@@ -686,30 +686,36 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       // evict from cache
       TableCache::Evict(table_cache_.get(), number);
       fname = TableFileName(db_options_.db_paths, number, path_id);
-      event_logger_.Log() << "job" << state.job_id << "event"
-                          << "table_file_deletion"
-                          << "file_number" << number;
     } else {
       fname = ((type == kLogFile) ?
           db_options_.wal_dir : dbname_) + "/" + to_delete;
     }
 
-#ifdef ROCKSDB_LITE
-    Status s = env_->DeleteFile(fname);
-    Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-        "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
-        fname.c_str(), type, number, s.ToString().c_str());
-#else   // not ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
     if (type == kLogFile && (db_options_.WAL_ttl_seconds > 0 ||
-                             db_options_.WAL_size_limit_MB > 0)) {
+                              db_options_.WAL_size_limit_MB > 0)) {
       wal_manager_.ArchiveWALFile(fname, number);
-    } else {
-      Status s = env_->DeleteFile(fname);
+      continue;
+    }
+#endif  // !ROCKSDB_LITE
+    auto file_deletion_status = env_->DeleteFile(fname);
+    if (file_deletion_status.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
-          fname.c_str(), type, number, s.ToString().c_str());
+          fname.c_str(), type, number,
+          file_deletion_status.ToString().c_str());
+    } else {
+      Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+          "[JOB %d] Failed to delete %s type=%d #%" PRIu64 " -- %s\n",
+          state.job_id, fname.c_str(), type, number,
+          file_deletion_status.ToString().c_str());
     }
-#endif  // ROCKSDB_LITE
+    if (type == kTableFile) {
+      event_logger_.Log() << "job" << state.job_id << "event"
+                          << "table_file_deletion"
+                          << "file_number" << number
+                          << "status" << file_deletion_status.ToString();
+    }
   }
 
   // Delete old info log files.
