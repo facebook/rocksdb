@@ -1155,22 +1155,21 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           cfd->ioptions()->compression_opts, paranoid_file_checks, Env::IO_HIGH,
           &table_properties);
       LogFlush(db_options_.info_log);
+      Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
+          "[%s] [WriteLevel0TableForRecovery]"
+          " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
+          cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
+          s.ToString().c_str());
+
+      // output to event logger
+      if (s.ok()) {
+        EventLoggerHelpers::LogTableFileCreation(
+            &event_logger_, job_id, meta.fd.GetNumber(), meta.fd.GetFileSize(),
+            table_properties);
+      }
       mutex_.Lock();
     }
   }
-  Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-      "[%s] [WriteLevel0TableForRecovery]"
-      " Level-0 table #%" PRIu64 ": %" PRIu64 " bytes %s",
-      cfd->GetName().c_str(), meta.fd.GetNumber(), meta.fd.GetFileSize(),
-      s.ToString().c_str());
-
-  // output to event logger
-  if (s.ok()) {
-    EventLoggerHelpers::LogTableFileCreation(
-        &event_logger_, job_id, meta.fd.GetNumber(), meta.fd.GetFileSize(),
-        table_properties);
-  }
-
   ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
   // Note that if file_size is zero, the file has been deleted and
