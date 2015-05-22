@@ -1029,21 +1029,35 @@ TEST_F(ColumnFamilyTest, CreateMissingColumnFamilies) {
 
 TEST_F(ColumnFamilyTest, SanitizeOptions) {
   DBOptions db_options;
-  for (int i = 1; i <= 3; i++) {
-    for (int j = 1; j <= 3; j++) {
-      for (int k = 1; k <= 3; k++) {
-        ColumnFamilyOptions original;
-        original.level0_stop_writes_trigger = i;
-        original.level0_slowdown_writes_trigger = j;
-        original.level0_file_num_compaction_trigger = k;
-        ColumnFamilyOptions result =
-            SanitizeOptions(db_options, nullptr, original);
-        ASSERT_TRUE(result.level0_stop_writes_trigger >=
-                    result.level0_slowdown_writes_trigger);
-        ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
-                    result.level0_file_num_compaction_trigger);
-        ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
-                    original.level0_file_num_compaction_trigger);
+  for (int s = kCompactionStyleLevel; s <= kCompactionStyleUniversal; ++s) {
+    for (int l = 0; l <= 2; l++) {
+      for (int i = 1; i <= 3; i++) {
+        for (int j = 1; j <= 3; j++) {
+          for (int k = 1; k <= 3; k++) {
+            ColumnFamilyOptions original;
+            original.compaction_style = static_cast<CompactionStyle>(s);
+            original.num_levels = l;
+            original.level0_stop_writes_trigger = i;
+            original.level0_slowdown_writes_trigger = j;
+            original.level0_file_num_compaction_trigger = k;
+            ColumnFamilyOptions result =
+                SanitizeOptions(db_options, nullptr, original);
+            ASSERT_TRUE(result.level0_stop_writes_trigger >=
+                        result.level0_slowdown_writes_trigger);
+            ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
+                        result.level0_file_num_compaction_trigger);
+            ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
+                        original.level0_file_num_compaction_trigger);
+            if (s == kCompactionStyleLevel) {
+              ASSERT_GE(result.num_levels, 2);
+            } else {
+              ASSERT_GE(result.num_levels, 1);
+              if (original.num_levels >= 1) {
+                ASSERT_EQ(result.num_levels, original.num_levels);
+              }
+            }
+          }
+        }
       }
     }
   }

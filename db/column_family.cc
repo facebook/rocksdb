@@ -136,6 +136,13 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   result.min_write_buffer_number_to_merge =
       std::min(result.min_write_buffer_number_to_merge,
                result.max_write_buffer_number - 1);
+  if (result.num_levels < 1) {
+    result.num_levels = 1;
+  }
+  if (result.compaction_style == kCompactionStyleLevel &&
+      result.num_levels < 2) {
+    result.num_levels = 2;
+  }
   if (result.max_mem_compaction_level >= result.num_levels) {
     result.max_mem_compaction_level = result.num_levels - 1;
   }
