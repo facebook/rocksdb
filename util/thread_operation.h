@@ -13,7 +13,7 @@
 
 #pragma once
 
-#include "include/rocksdb/thread_status.h"
+#include "rocksdb/thread_status.h"
 
 #include <string>
 
