@@ -53,6 +53,7 @@ void EventLoggerHelpers::LogTableFileCreation(
     }
     jwriter.EndObject();
   }
+  jwriter.EndObject();
 
   event_logger->Log(jwriter);
 }
