@@ -626,9 +626,6 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // The list of registered event listeners.
-  std::list<EventListener*> listeners_;
-
   // count how many events are currently being notified.
   int notifying_events_;
 

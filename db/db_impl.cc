@@ -312,7 +312,6 @@ DBImpl::~DBImpl() {
   while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
     bg_cv_.Wait();
   }
-  listeners_.clear();
   flush_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
