@@ -9,7 +9,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "util/logging.h"
 #include "util/testharness.h"
 
@@ -17,30 +17,33 @@ using std::string;
 
 namespace rocksdb {
 
-class OptimisticTransactionTest : public testing::Test {
+class TransactionTest : public testing::Test {
  public:
-  OptimisticTransactionDB* txn_db;
-  DB* db;
+  TransactionDB* db;
   string dbname;
   Options options;
 
-  OptimisticTransactionTest() {
+  TransactionDBOptions txn_db_options;
+
+  TransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
-    dbname = test::TmpDir() + "/optimistic_transaction_testdb";
+    dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
-    Status s = OptimisticTransactionDB::Open(options, dbname, &txn_db);
+    txn_db_options.transaction_lock_timeout = 0;
+    txn_db_options.default_lock_timeout = 0;
+    Status s = TransactionDB::Open(options, txn_db_options, dbname, &db);
     assert(s.ok());
-    db = txn_db->GetBaseDB();
   }
-  ~OptimisticTransactionTest() {
-    delete txn_db;
+
+  ~TransactionTest() {
+    delete db;
     DestroyDB(dbname, options);
   }
 };
 
-TEST_F(OptimisticTransactionTest, SuccessTest) {
+TEST_F(TransactionTest, SuccessTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -49,98 +52,116 @@ TEST_F(OptimisticTransactionTest, SuccessTest) {
   db->Put(write_options, Slice("foo"), Slice("bar"));
   db->Put(write_options, Slice("foo2"), Slice("bar"));
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options, TransactionOptions());
   ASSERT_TRUE(txn);
 
-  txn->GetForUpdate(read_options, "foo", &value);
+  s = txn->GetForUpdate(read_options, "foo", &value);
+  ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
 
-  txn->Put(Slice("foo"), Slice("bar2"));
+  s = txn->Put(Slice("foo"), Slice("bar2"));
+  ASSERT_OK(s);
 
-  txn->GetForUpdate(read_options, "foo", &value);
+  s = txn->GetForUpdate(read_options, "foo", &value);
+  ASSERT_OK(s);
   ASSERT_EQ(value, "bar2");
 
   s = txn->Commit();
-  ASSERT_OK(s);
-
-  db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "bar2");
-
-  delete txn;
-}
-
-TEST_F(OptimisticTransactionTest, WriteConflictTest) {
-  WriteOptions write_options;
-  ReadOptions read_options;
-  string value;
-  Status s;
-
-  db->Put(write_options, "foo", "bar");
-  db->Put(write_options, "foo2", "bar");
-
-  Transaction* txn = txn_db->BeginTransaction(write_options);
-  ASSERT_TRUE(txn);
-
-  txn->Put("foo", "bar2");
-
-  // This Put outside of a transaction will conflict with the previous write
-  s = db->Put(write_options, "foo", "barz");
   ASSERT_OK(s);
 
   s = db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "barz");
-
-  s = txn->Commit();
-  ASSERT_NOK(s);  // Txn should not commit
-
-  // Verify that transaction did not write anything
-  db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "barz");
-  db->Get(read_options, "foo2", &value);
-  ASSERT_EQ(value, "bar");
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "bar2");
 
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, WriteConflictTest2) {
+TEST_F(TransactionTest, WriteConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options;
-  OptimisticTransactionOptions txn_options;
+  string value;
+  Status s;
+
+  db->Put(write_options, "foo", "A");
+  db->Put(write_options, "foo2", "B");
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  s = txn->Put("foo", "A2");
+  ASSERT_OK(s);
+
+  s = txn->Put("foo2", "B2");
+  ASSERT_OK(s);
+
+  // This Put outside of a transaction will conflict with the previous write
+  s = db->Put(write_options, "foo", "xxx");
+  ASSERT_NOK(s);
+
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(value, "A");
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  db->Get(read_options, "foo", &value);
+  ASSERT_EQ(value, "A2");
+  db->Get(read_options, "foo2", &value);
+  ASSERT_EQ(value, "B2");
+
+  delete txn;
+}
+
+TEST_F(TransactionTest, WriteConflictTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
   db->Put(write_options, "foo", "bar");
-  db->Put(write_options, "foo2", "bar");
 
   txn_options.set_snapshot = true;
-  Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   // This Put outside of a transaction will conflict with a later write
   s = db->Put(write_options, "foo", "barz");
   ASSERT_OK(s);
 
-  txn->Put("foo", "bar2");  // Conflicts with write done after snapshot taken
+  s = txn->Put("foo2", "X");
+  ASSERT_OK(s);
+
+  s = txn->Put("foo",
+               "bar2");  // Conflicts with write done after snapshot taken
+  ASSERT_NOK(s);
+
+  s = txn->Put("foo3", "Y");
+  ASSERT_OK(s);
 
   s = db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "barz");
 
   s = txn->Commit();
-  ASSERT_NOK(s);  // Txn should not commit
+  ASSERT_OK(s);  // Txn should commit, but only write foo2 and foo3
 
-  // Verify that transaction did not write anything
+  // Verify that transaction wrote foo2 and foo3 but not foo
   db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "barz");
+
   db->Get(read_options, "foo2", &value);
-  ASSERT_EQ(value, "bar");
+  ASSERT_EQ(value, "X");
+
+  db->Get(read_options, "foo3", &value);
+  ASSERT_EQ(value, "Y");
 
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, ReadConflictTest) {
+TEST_F(TransactionTest, ReadConflictTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
@@ -148,7 +169,7 @@ TEST_F(OptimisticTransactionTest, ReadConflictTest) {
   db->Put(write_options, "foo2", "bar");
 
   txn_options.set_snapshot = true;
-  Transaction* txn = txn_db->BeginTransaction(write_options, txn_options);
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   txn->SetSnapshot();
@@ -159,24 +180,21 @@ TEST_F(OptimisticTransactionTest, ReadConflictTest) {
 
   // This Put outside of a transaction will conflict with the previous read
   s = db->Put(write_options, "foo", "barz");
-  ASSERT_OK(s);
+  ASSERT_NOK(s);
 
   s = db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "barz");
+  ASSERT_EQ(value, "bar");
+
+  s = txn->Get(read_options, "foo", &value);
+  ASSERT_EQ(value, "bar");
 
   s = txn->Commit();
-  ASSERT_NOK(s);  // Txn should not commit
-
-  // Verify that transaction did not write anything
-  txn->GetForUpdate(read_options, "foo", &value);
-  ASSERT_EQ(value, "barz");
-  txn->GetForUpdate(read_options, "foo2", &value);
-  ASSERT_EQ(value, "bar");
+  ASSERT_OK(s);
 
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, TxnOnlyTest) {
+TEST_F(TransactionTest, TxnOnlyTest) {
   // Test to make sure transactions work when there are no other writes in an
   // empty db.
 
@@ -185,10 +203,11 @@ TEST_F(OptimisticTransactionTest, TxnOnlyTest) {
   string value;
   Status s;
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
-  txn->Put("x", "y");
+  s = txn->Put("x", "y");
+  ASSERT_OK(s);
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -196,7 +215,7 @@ TEST_F(OptimisticTransactionTest, TxnOnlyTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, FlushTest) {
+TEST_F(TransactionTest, FlushTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   string value;
@@ -205,7 +224,7 @@ TEST_F(OptimisticTransactionTest, FlushTest) {
   db->Put(write_options, Slice("foo"), Slice("bar"));
   db->Put(write_options, Slice("foo2"), Slice("bar"));
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   snapshot_read_options.snapshot = txn->GetSnapshot();
@@ -213,7 +232,8 @@ TEST_F(OptimisticTransactionTest, FlushTest) {
   txn->GetForUpdate(snapshot_read_options, "foo", &value);
   ASSERT_EQ(value, "bar");
 
-  txn->Put(Slice("foo"), Slice("bar2"));
+  s = txn->Put(Slice("foo"), Slice("bar2"));
+  ASSERT_OK(s);
 
   txn->GetForUpdate(snapshot_read_options, "foo", &value);
   ASSERT_EQ(value, "bar2");
@@ -236,16 +256,18 @@ TEST_F(OptimisticTransactionTest, FlushTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, FlushTest2) {
+TEST_F(TransactionTest, FlushTest2) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
   db->Put(write_options, Slice("foo"), Slice("bar"));
   db->Put(write_options, Slice("foo2"), Slice("bar"));
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  txn_options.set_snapshot = true;
+  Transaction* txn = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   snapshot_read_options.snapshot = txn->GetSnapshot();
@@ -253,7 +275,8 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
   txn->GetForUpdate(snapshot_read_options, "foo", &value);
   ASSERT_EQ(value, "bar");
 
-  txn->Put(Slice("foo"), Slice("bar2"));
+  s = txn->Put(Slice("foo"), Slice("bar2"));
+  ASSERT_OK(s);
 
   txn->GetForUpdate(snapshot_read_options, "foo", &value);
   ASSERT_EQ(value, "bar2");
@@ -281,17 +304,24 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
   // the first memtable to get purged from the MemtableList history.
   db->Flush(flush_ops);
 
-  s = txn->Commit();
-  // txn should not commit since MemTableList History is not large enough
-  ASSERT_NOK(s);
+  s = txn->Put("X", "Y");
+  ASSERT_NOK(s);  // Put should fail since MemTableList History is not older
+                  // than snapshot.
 
-  db->Get(read_options, "foo", &value);
-  ASSERT_EQ(value, "bar");
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  // Transaction should only write the keys that succeeded.
+  s = db->Get(read_options, "foo", &value);
+  ASSERT_EQ(value, "bar2");
+
+  s = db->Get(read_options, "X", &value);
+  ASSERT_TRUE(s.IsNotFound());
 
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, NoSnapshotTest) {
+TEST_F(TransactionTest, NoSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -299,7 +329,7 @@ TEST_F(OptimisticTransactionTest, NoSnapshotTest) {
 
   db->Put(write_options, "AAA", "bar");
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   // Modify key after transaction start
@@ -308,7 +338,8 @@ TEST_F(OptimisticTransactionTest, NoSnapshotTest) {
   // Read and write without a snapshot
   txn->GetForUpdate(read_options, "AAA", &value);
   ASSERT_EQ(value, "bar1");
-  txn->Put("AAA", "bar2");
+  s = txn->Put("AAA", "bar2");
+  ASSERT_OK(s);
 
   // Should commit since read/write was done after data changed
   s = txn->Commit();
@@ -320,7 +351,7 @@ TEST_F(OptimisticTransactionTest, NoSnapshotTest) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
+TEST_F(TransactionTest, MultipleSnapshotTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
   string value;
@@ -330,7 +361,7 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
   db->Put(write_options, "BBB", "bar");
   db->Put(write_options, "CCC", "bar");
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   db->Put(write_options, "AAA", "bar1");
@@ -338,7 +369,8 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
   // Read and write without a snapshot
   txn->GetForUpdate(read_options, "AAA", &value);
   ASSERT_EQ(value, "bar1");
-  txn->Put("AAA", "bar2");
+  s = txn->Put("AAA", "bar2");
+  ASSERT_OK(s);
 
   // Modify BBB before snapshot is taken
   db->Put(write_options, "BBB", "bar1");
@@ -349,7 +381,8 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
   // Read and write with snapshot
   txn->GetForUpdate(snapshot_read_options, "BBB", &value);
   ASSERT_EQ(value, "bar1");
-  txn->Put("BBB", "bar2");
+  s = txn->Put("BBB", "bar2");
+  ASSERT_OK(s);
 
   db->Put(write_options, "CCC", "bar1");
 
@@ -360,7 +393,8 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
   // Read and write with snapshot
   txn->GetForUpdate(snapshot_read_options, "CCC", &value);
   ASSERT_EQ(value, "bar1");
-  txn->Put("CCC", "bar2");
+  s = txn->Put("CCC", "bar2");
+  ASSERT_OK(s);
 
   s = txn->GetForUpdate(read_options, "AAA", &value);
   ASSERT_OK(s);
@@ -397,7 +431,7 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
 
   // verify that we track multiple writes to the same key at different snapshots
   delete txn;
-  txn = txn_db->BeginTransaction(write_options);
+  txn = db->BeginTransaction(write_options);
 
   // Potentially conflicting writes
   db->Put(write_options, "ZZZ", "zzz");
@@ -405,32 +439,39 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
 
   txn->SetSnapshot();
 
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   txn_options.set_snapshot = true;
-  Transaction* txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
   txn2->SetSnapshot();
 
   // This should not conflict in txn since the snapshot is later than the
   // previous write (spoiler alert:  it will later conflict with txn2).
-  txn->Put("ZZZ", "zzzz");
+  s = txn->Put("ZZZ", "zzzz");
+  ASSERT_OK(s);
+
   s = txn->Commit();
   ASSERT_OK(s);
 
   delete txn;
 
   // This will conflict since the snapshot is earlier than another write to ZZZ
-  txn2->Put("ZZZ", "xxxxx");
+  s = txn2->Put("ZZZ", "xxxxx");
+  ASSERT_NOK(s);
 
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "ZZZ", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ(value, "zzzz");
 
   delete txn2;
 }
 
-TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
+TEST_F(TransactionTest, ColumnFamiliesTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
@@ -445,7 +486,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
 
   delete cfa;
   delete cfb;
-  delete txn_db;
+  delete db;
 
   // open DB with three column families
   std::vector<ColumnFamilyDescriptor> column_families;
@@ -457,20 +498,21 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
       ColumnFamilyDescriptor("CFA", ColumnFamilyOptions()));
   column_families.push_back(
       ColumnFamilyDescriptor("CFB", ColumnFamilyOptions()));
-  std::vector<ColumnFamilyHandle*> handles;
-  s = OptimisticTransactionDB::Open(options, dbname, column_families, &handles,
-                                    &txn_db);
-  ASSERT_OK(s);
-  db = txn_db->GetBaseDB();
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  std::vector<ColumnFamilyHandle*> handles;
+
+  s = TransactionDB::Open(options, txn_db_options, dbname, column_families,
+                          &handles, &db);
+  ASSERT_OK(s);
+
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   txn->SetSnapshot();
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
   txn_options.set_snapshot = true;
-  Transaction* txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn2);
 
   // Write some data to the db
@@ -482,15 +524,18 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_OK(s);
   db->Delete(write_options, handles[1], "AAAZZZ");
 
-  // These keys do no conflict with existing writes since they're in
+  // These keys do not conflict with existing writes since they're in
   // different column families
-  txn->Delete("AAA");
-  txn->GetForUpdate(snapshot_read_options, handles[1], "foo", &value);
+  s = txn->Delete("AAA");
+  ASSERT_OK(s);
+  s = txn->GetForUpdate(snapshot_read_options, handles[1], "foo", &value);
+  ASSERT_TRUE(s.IsNotFound());
   Slice key_slice("AAAZZZ");
   Slice value_slices[2] = {Slice("bar"), Slice("bar")};
-  txn->Put(handles[2], SliceParts(&key_slice, 1), SliceParts(value_slices, 2));
+  s = txn->Put(handles[2], SliceParts(&key_slice, 1),
+               SliceParts(value_slices, 2));
+  ASSERT_OK(s);
 
-  // Txn should commit
   s = txn->Commit();
   ASSERT_OK(s);
   s = db->Get(read_options, "AAA", &value);
@@ -500,27 +545,29 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
 
   Slice key_slices[3] = {Slice("AAA"), Slice("ZZ"), Slice("Z")};
   Slice value_slice("barbarbar");
+
+  s = txn2->Delete(handles[2], "XXX");
+  ASSERT_OK(s);
+  s = txn2->Delete(handles[1], "XXX");
+  ASSERT_OK(s);
+
   // This write will cause a conflict with the earlier batch write
-  txn2->Put(handles[1], SliceParts(key_slices, 3), SliceParts(&value_slice, 1));
-
-  txn2->Delete(handles[2], "XXX");
-  txn2->Delete(handles[1], "XXX");
-  s = txn2->GetForUpdate(snapshot_read_options, handles[1], "AAA", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
-  // Verify txn did not commit
-  s = txn2->Commit();
+  s = txn2->Put(handles[1], SliceParts(key_slices, 3),
+                SliceParts(&value_slice, 1));
   ASSERT_NOK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
   s = db->Get(read_options, handles[1], "AAAZZZ", &value);
   ASSERT_EQ(value, "barbar");
 
   delete txn;
   delete txn2;
 
-  txn = txn_db->BeginTransaction(write_options, txn_options);
+  txn = db->BeginTransaction(write_options, txn_options);
   snapshot_read_options.snapshot = txn->GetSnapshot();
 
-  txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  txn2 = db->BeginTransaction(write_options, txn_options);
   ASSERT_TRUE(txn);
 
   std::vector<ColumnFamilyHandle*> multiget_cfh = {handles[1], handles[2],
@@ -538,11 +585,16 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   ASSERT_EQ(values[1], "barbar");
   ASSERT_EQ(values[2], "foo");
 
-  txn->Delete(handles[2], "ZZZ");
-  txn->Put(handles[2], "ZZZ", "YYY");
-  txn->Put(handles[2], "ZZZ", "YYYY");
-  txn->Delete(handles[2], "ZZZ");
-  txn->Put(handles[2], "AAAZZZ", "barbarbar");
+  s = txn->Delete(handles[2], "ZZZ");
+  ASSERT_OK(s);
+  s = txn->Put(handles[2], "ZZZ", "YYY");
+  ASSERT_OK(s);
+  s = txn->Put(handles[2], "ZZZ", "YYYY");
+  ASSERT_OK(s);
+  s = txn->Delete(handles[2], "ZZZ");
+  ASSERT_OK(s);
+  s = txn->Put(handles[2], "AAAZZZ", "barbarbar");
+  ASSERT_OK(s);
 
   // Txn should commit
   s = txn->Commit();
@@ -555,17 +607,17 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
 
   results = txn2->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
                                     multiget_keys, &values);
-  ASSERT_OK(results[0]);
-  ASSERT_OK(results[1]);
-  ASSERT_OK(results[2]);
-  ASSERT_TRUE(results[3].IsNotFound());
-  ASSERT_EQ(values[0], "bar");
-  ASSERT_EQ(values[1], "barbar");
-  ASSERT_EQ(values[2], "foo");
+  // All results should fail since there was a conflict
+  ASSERT_NOK(results[0]);
+  ASSERT_NOK(results[1]);
+  ASSERT_NOK(results[2]);
+  ASSERT_NOK(results[3]);
 
-  // Verify Txn Did not Commit
+  s = db->Get(read_options, handles[2], "foo", &value);
+  ASSERT_EQ(value, "000");
+
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_OK(s);
 
   s = db->DropColumnFamily(handles[1]);
   ASSERT_OK(s);
@@ -580,7 +632,84 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   }
 }
 
-TEST_F(OptimisticTransactionTest, EmptyTest) {
+TEST_F(TransactionTest, ColumnFamiliesTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  ColumnFamilyHandle *one, *two;
+  ColumnFamilyOptions cf_options;
+
+  // Create 2 new column families
+  s = db->CreateColumnFamily(cf_options, "ONE", &one);
+  ASSERT_OK(s);
+  s = db->CreateColumnFamily(cf_options, "TWO", &two);
+  ASSERT_OK(s);
+
+  Transaction* txn1 = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn1);
+  Transaction* txn2 = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn2);
+
+  s = txn1->Put(one, "X", "1");
+  ASSERT_OK(s);
+  s = txn1->Put(two, "X", "2");
+  ASSERT_OK(s);
+  s = txn1->Put("X", "0");
+  ASSERT_OK(s);
+
+  s = txn2->Put(one, "X", "11");
+  ASSERT_TRUE(s.IsBusy());
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  // Drop first column family
+  s = db->DropColumnFamily(one);
+  ASSERT_OK(s);
+
+  // Should fail since column family was dropped.
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
+  txn1 = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn1);
+
+  // Should fail since column family was dropped
+  s = txn1->Put(one, "X", "111");
+  ASSERT_TRUE(s.IsInvalidArgument());
+
+  s = txn1->Put(two, "X", "222");
+  ASSERT_OK(s);
+
+  s = txn1->Put("X", "000");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, two, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("222", value);
+
+  s = db->Get(read_options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("000", value);
+
+  s = db->DropColumnFamily(two);
+  ASSERT_OK(s);
+
+  delete txn1;
+  delete txn2;
+
+  delete one;
+  delete two;
+}
+
+TEST_F(TransactionTest, EmptyTest) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
@@ -589,16 +718,16 @@ TEST_F(OptimisticTransactionTest, EmptyTest) {
   s = db->Put(write_options, "aaa", "aaa");
   ASSERT_OK(s);
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   s = txn->Commit();
   ASSERT_OK(s);
   delete txn;
 
-  txn = txn_db->BeginTransaction(write_options);
+  txn = db->BeginTransaction(write_options);
   txn->Rollback();
   delete txn;
 
-  txn = txn_db->BeginTransaction(write_options);
+  txn = db->BeginTransaction(write_options);
   s = txn->GetForUpdate(read_options, "aaa", &value);
   ASSERT_EQ(value, "aaa");
 
@@ -606,29 +735,34 @@ TEST_F(OptimisticTransactionTest, EmptyTest) {
   ASSERT_OK(s);
   delete txn;
 
-  txn = txn_db->BeginTransaction(write_options);
+  txn = db->BeginTransaction(write_options);
   txn->SetSnapshot();
+
   s = txn->GetForUpdate(read_options, "aaa", &value);
   ASSERT_EQ(value, "aaa");
 
+  // Conflicts with previous GetForUpdate
   s = db->Put(write_options, "aaa", "xxx");
-  s = txn->Commit();
   ASSERT_NOK(s);
+
+  // transaction expired!
+  s = txn->Commit();
+  ASSERT_OK(s);
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, PredicateManyPreceders) {
+TEST_F(TransactionTest, PredicateManyPreceders) {
   WriteOptions write_options;
   ReadOptions read_options1, read_options2;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
   txn_options.set_snapshot = true;
-  Transaction* txn1 = txn_db->BeginTransaction(write_options, txn_options);
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
   read_options1.snapshot = txn1->GetSnapshot();
 
-  Transaction* txn2 = txn_db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options);
   txn2->SetSnapshot();
   read_options2.snapshot = txn2->GetSnapshot();
 
@@ -639,135 +773,161 @@ TEST_F(OptimisticTransactionTest, PredicateManyPreceders) {
       txn1->MultiGetForUpdate(read_options1, multiget_keys, &multiget_values);
   ASSERT_TRUE(results[1].IsNotFound());
 
-  txn2->Put("2", "x");
+  s = txn2->Put("2", "x");  // Conflict's with txn1's MultiGetForUpdate
+  ASSERT_NOK(s);
 
-  s = txn2->Commit();
-  ASSERT_OK(s);
+  txn2->Rollback();
 
   multiget_values.clear();
   results =
       txn1->MultiGetForUpdate(read_options1, multiget_keys, &multiget_values);
   ASSERT_TRUE(results[1].IsNotFound());
 
-  // should not commit since txn2 wrote a key txn has read
   s = txn1->Commit();
-  ASSERT_NOK(s);
+  ASSERT_OK(s);
 
   delete txn1;
   delete txn2;
 
-  txn1 = txn_db->BeginTransaction(write_options, txn_options);
+  txn1 = db->BeginTransaction(write_options, txn_options);
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  txn2 = db->BeginTransaction(write_options, txn_options);
   read_options2.snapshot = txn2->GetSnapshot();
 
-  txn1->Put("4", "x");
+  s = txn1->Put("4", "x");
+  ASSERT_OK(s);
 
-  txn2->Delete("4");
+  s = txn2->Delete("4");  // conflict
+  ASSERT_NOK(s);
 
-  // txn1 can commit since txn2's delete hasn't happened yet (it's just batched)
   s = txn1->Commit();
   ASSERT_OK(s);
 
   s = txn2->GetForUpdate(read_options2, "4", &value);
-  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_TRUE(s.IsBusy());
 
-  // txn2 cannot commit since txn1 changed "4"
-  s = txn2->Commit();
-  ASSERT_NOK(s);
+  txn2->Rollback();
 
   delete txn1;
   delete txn2;
 }
 
-TEST_F(OptimisticTransactionTest, LostUpdate) {
+TEST_F(TransactionTest, LostUpdate) {
   WriteOptions write_options;
   ReadOptions read_options, read_options1, read_options2;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
   // Test 2 transactions writing to the same key in multiple orders and
   // with/without snapshots
 
-  Transaction* txn1 = txn_db->BeginTransaction(write_options);
-  Transaction* txn2 = txn_db->BeginTransaction(write_options);
+  Transaction* txn1 = db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options);
 
-  txn1->Put("1", "1");
-  txn2->Put("1", "2");
+  s = txn1->Put("1", "1");
+  ASSERT_OK(s);
+
+  s = txn2->Put("1", "2");  // conflict
+  ASSERT_NOK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
 
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  s = txn2->Commit();
-  ASSERT_NOK(s);
+  s = db->Get(read_options, "1", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("1", value);
 
   delete txn1;
   delete txn2;
 
   txn_options.set_snapshot = true;
-  txn1 = txn_db->BeginTransaction(write_options, txn_options);
+  txn1 = db->BeginTransaction(write_options, txn_options);
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  txn2 = db->BeginTransaction(write_options, txn_options);
   read_options2.snapshot = txn2->GetSnapshot();
 
-  txn1->Put("1", "3");
-  txn2->Put("1", "4");
+  s = txn1->Put("1", "3");
+  ASSERT_OK(s);
+  s = txn2->Put("1", "4");  // conflict
+  ASSERT_NOK(s);
 
   s = txn1->Commit();
   ASSERT_OK(s);
 
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "1", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("3", value);
 
   delete txn1;
   delete txn2;
 
-  txn1 = txn_db->BeginTransaction(write_options, txn_options);
+  txn1 = db->BeginTransaction(write_options, txn_options);
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  txn2 = db->BeginTransaction(write_options, txn_options);
   read_options2.snapshot = txn2->GetSnapshot();
 
-  txn1->Put("1", "5");
+  s = txn1->Put("1", "5");
+  ASSERT_OK(s);
+
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  txn2->Put("1", "6");
-  s = txn2->Commit();
+  s = txn2->Put("1", "6");
   ASSERT_NOK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "1", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("5", value);
 
   delete txn1;
   delete txn2;
 
-  txn1 = txn_db->BeginTransaction(write_options, txn_options);
+  txn1 = db->BeginTransaction(write_options, txn_options);
   read_options1.snapshot = txn1->GetSnapshot();
 
-  txn2 = txn_db->BeginTransaction(write_options, txn_options);
+  txn2 = db->BeginTransaction(write_options, txn_options);
   read_options2.snapshot = txn2->GetSnapshot();
 
-  txn1->Put("1", "5");
+  s = txn1->Put("1", "7");
+  ASSERT_OK(s);
   s = txn1->Commit();
   ASSERT_OK(s);
 
   txn2->SetSnapshot();
-  txn2->Put("1", "6");
+  s = txn2->Put("1", "8");
+  ASSERT_OK(s);
   s = txn2->Commit();
   ASSERT_OK(s);
+
+  s = db->Get(read_options, "1", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("8", value);
 
   delete txn1;
   delete txn2;
 
-  txn1 = txn_db->BeginTransaction(write_options);
-  txn2 = txn_db->BeginTransaction(write_options);
+  txn1 = db->BeginTransaction(write_options);
+  txn2 = db->BeginTransaction(write_options);
 
-  txn1->Put("1", "7");
+  s = txn1->Put("1", "9");
+  ASSERT_OK(s);
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  txn2->Put("1", "8");
+  s = txn2->Put("1", "10");
+  ASSERT_OK(s);
   s = txn2->Commit();
   ASSERT_OK(s);
 
@@ -776,53 +936,46 @@ TEST_F(OptimisticTransactionTest, LostUpdate) {
 
   s = db->Get(read_options, "1", &value);
   ASSERT_OK(s);
-  ASSERT_EQ(value, "8");
+  ASSERT_EQ(value, "10");
 }
 
-TEST_F(OptimisticTransactionTest, UntrackedWrites) {
+TEST_F(TransactionTest, UntrackedWrites) {
   WriteOptions write_options;
   ReadOptions read_options;
   string value;
   Status s;
 
   // Verify transaction rollback works for untracked keys.
-  Transaction* txn = txn_db->BeginTransaction(write_options);
-  txn->PutUntracked("untracked", "0");
+  Transaction* txn = db->BeginTransaction(write_options);
+  txn->SetSnapshot();
+
+  s = txn->PutUntracked("untracked", "0");
+  ASSERT_OK(s);
   txn->Rollback();
   s = db->Get(read_options, "untracked", &value);
   ASSERT_TRUE(s.IsNotFound());
 
   delete txn;
-  txn = txn_db->BeginTransaction(write_options);
+  txn = db->BeginTransaction(write_options);
+  txn->SetSnapshot();
 
-  txn->Put("tracked", "1");
-  txn->PutUntracked("untracked", "1");
-  txn->MergeUntracked("untracked", "2");
-  txn->DeleteUntracked("untracked");
-
-  // Write to the untracked key outside of the transaction and verify
-  // it doesn't prevent the transaction from committing.
   s = db->Put(write_options, "untracked", "x");
   ASSERT_OK(s);
 
-  s = txn->Commit();
+  // Untracked writes should succeed even though key was written after snapshot
+  s = txn->PutUntracked("untracked", "1");
+  ASSERT_OK(s);
+  s = txn->MergeUntracked("untracked", "2");
+  ASSERT_OK(s);
+  s = txn->DeleteUntracked("untracked");
   ASSERT_OK(s);
 
-  s = db->Get(read_options, "untracked", &value);
-  ASSERT_TRUE(s.IsNotFound());
-
-  delete txn;
-  txn = txn_db->BeginTransaction(write_options);
-
-  txn->Put("tracked", "10");
-  txn->PutUntracked("untracked", "A");
-
-  // Write to tracked key outside of the transaction and verify that the
-  // untracked keys are not written when the commit fails.
-  s = db->Delete(write_options, "tracked");
+  // Conflict
+  s = txn->Put("untracked", "3");
+  ASSERT_NOK(s);
 
   s = txn->Commit();
-  ASSERT_NOK(s);
+  ASSERT_OK(s);
 
   s = db->Get(read_options, "untracked", &value);
   ASSERT_TRUE(s.IsNotFound());
@@ -830,10 +983,197 @@ TEST_F(OptimisticTransactionTest, UntrackedWrites) {
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, IteratorTest) {
+TEST_F(TransactionTest, ExpiredTransaction) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  // Set txn expiration timeout to 0 microseconds (expires instantly)
+  txn_options.expiration = 0;
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  s = txn1->Put("X", "1");
+  ASSERT_OK(s);
+
+  s = txn1->Put("Y", "1");
+  ASSERT_OK(s);
+
+  Transaction* txn2 = db->BeginTransaction(write_options);
+
+  // txn2 should be able to write to X since txn1 has expired
+  s = txn2->Put("X", "2");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  s = db->Get(read_options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("2", value);
+
+  s = txn1->Put("Z", "1");
+  ASSERT_OK(s);
+
+  // txn1 should fail to commit since it is expired
+  s = txn1->Commit();
+  ASSERT_TRUE(s.IsTimedOut());
+
+  s = db->Get(read_options, "Y", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn1;
+  delete txn2;
+}
+
+TEST_F(TransactionTest, Rollback) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+
+  ASSERT_OK(s);
+
+  s = txn1->Put("X", "1");
+  ASSERT_OK(s);
+
+  Transaction* txn2 = db->BeginTransaction(write_options);
+
+  // txn2 should not be able to write to X since txn1 has it locked
+  s = txn2->Put("X", "2");
+  ASSERT_TRUE(s.IsBusy());
+
+  txn1->Rollback();
+  delete txn1;
+
+  // txn2 should now be able to write to X
+  s = txn2->Put("X", "3");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("3", value);
+
+  delete txn2;
+}
+
+TEST_F(TransactionTest, LockLimitTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  delete db;
+
+  // Open DB with a lock limit of 3
+  txn_db_options.max_num_locks = 3;
+  s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  ASSERT_OK(s);
+
+  // Create a txn and verify we can only lock up to 3 keys
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  s = txn->Put("X", "x");
+  ASSERT_OK(s);
+
+  s = txn->Put("Y", "y");
+  ASSERT_OK(s);
+
+  s = txn->Put("Z", "z");
+  ASSERT_OK(s);
+
+  // lock limit reached
+  s = txn->Put("W", "w");
+  ASSERT_TRUE(s.IsBusy());
+
+  // re-locking same key shouldn't put us over the limit
+  s = txn->Put("X", "xx");
+  ASSERT_OK(s);
+
+  s = txn->GetForUpdate(read_options, "W", &value);
+  ASSERT_TRUE(s.IsBusy());
+  s = txn->GetForUpdate(read_options, "V", &value);
+  ASSERT_TRUE(s.IsBusy());
+
+  // re-locking same key shouldn't put us over the limit
+  s = txn->GetForUpdate(read_options, "Y", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("y", value);
+
+  s = txn->Get(read_options, "W", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  Transaction* txn2 = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn2);
+
+  // lock limit reached
+  s = txn2->Put("X", "x");
+  ASSERT_TRUE(s.IsBusy());
+
+  // lock limit reached
+  s = txn2->Put("M", "m");
+  ASSERT_TRUE(s.IsBusy());
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("xx", value);
+
+  s = db->Get(read_options, "W", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Committing txn should release its locks and allow txn2 to proceed
+  s = txn2->Put("X", "x2");
+  ASSERT_OK(s);
+
+  s = txn2->Delete("X");
+  ASSERT_OK(s);
+
+  s = txn2->Put("M", "m");
+  ASSERT_OK(s);
+
+  s = txn2->Put("Z", "z2");
+  ASSERT_OK(s);
+
+  // lock limit reached
+  s = txn2->Delete("Y");
+  ASSERT_TRUE(s.IsBusy());
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "Z", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z2", value);
+
+  s = db->Get(read_options, "Y", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("y", value);
+
+  s = db->Get(read_options, "X", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete txn;
+  delete txn2;
+}
+
+TEST_F(TransactionTest, IteratorTest) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
@@ -853,7 +1193,7 @@ TEST_F(OptimisticTransactionTest, IteratorTest) {
   s = db->Put(write_options, "D", "d");
   ASSERT_OK(s);
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   // Write some keys in a txn
@@ -892,7 +1232,12 @@ TEST_F(OptimisticTransactionTest, IteratorTest) {
     ASSERT_EQ(results[i], iter->value().ToString());
 
     s = txn->GetForUpdate(read_options, iter->key(), nullptr);
-    ASSERT_OK(s);
+    if (i == 2) {
+      // "C" was modified after txn's snapshot
+      ASSERT_TRUE(s.IsBusy());
+    } else {
+      ASSERT_OK(s);
+    }
 
     iter->Next();
   }
@@ -937,22 +1282,21 @@ TEST_F(OptimisticTransactionTest, IteratorTest) {
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ("h", iter->value().ToString());
 
-  // key "C" was modified in the db after txn's snapshot.  txn will not commit.
   s = txn->Commit();
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_OK(s);
 
   delete iter;
   delete txn;
 }
 
-TEST_F(OptimisticTransactionTest, SavepointTest) {
+TEST_F(TransactionTest, SavepointTest) {
   WriteOptions write_options;
   ReadOptions read_options, snapshot_read_options;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   string value;
   Status s;
 
-  Transaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   txn->RollbackToSavePoint();
@@ -973,7 +1317,7 @@ TEST_F(OptimisticTransactionTest, SavepointTest) {
   ASSERT_EQ("b", value);
 
   delete txn;
-  txn = txn_db->BeginTransaction(write_options);
+  txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
   s = txn->Put("A", "a");
@@ -1104,6 +1448,135 @@ TEST_F(OptimisticTransactionTest, SavepointTest) {
   delete txn;
 }
 
+TEST_F(TransactionTest, TimeoutTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  delete db;
+
+  // transaction writes have an infinite timeout,
+  // but we will override this when we start a txn
+  // db writes have infinite timeout
+  txn_db_options.transaction_lock_timeout = -1;
+  txn_db_options.default_lock_timeout = -1;
+
+  s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "aaa", "aaa");
+  ASSERT_OK(s);
+
+  TransactionOptions txn_options0;
+  txn_options0.expiration = 100;  // 100ms
+  txn_options0.lock_timeout = 50;  // txn timeout no longer infinite
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options0);
+
+  s = txn1->GetForUpdate(read_options, "aaa", nullptr);
+  ASSERT_OK(s);
+
+  // Conflicts with previous GetForUpdate.
+  // Since db writes do not have a timeout, this should eventually succeed when
+  // the transaction expires.
+  s = db->Put(write_options, "aaa", "xxx");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_NOK(s);  // expired!
+
+  s = db->Get(read_options, "aaa", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("xxx", value);
+
+  delete txn1;
+  delete db;
+
+  // transaction writes have 10ms timeout,
+  // db writes have infinite timeout
+  txn_db_options.transaction_lock_timeout = 50;
+  txn_db_options.default_lock_timeout = -1;
+
+  s = TransactionDB::Open(options, txn_db_options, dbname, &db);
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "aaa", "aaa");
+  ASSERT_OK(s);
+
+  TransactionOptions txn_options;
+  txn_options.expiration = 100;  // 100ms
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  s = txn1->GetForUpdate(read_options, "aaa", nullptr);
+  ASSERT_OK(s);
+
+  // Conflicts with previous GetForUpdate.
+  // Since db writes do not have a timeout, this should eventually succeed when
+  // the transaction expires.
+  s = db->Put(write_options, "aaa", "xxx");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_NOK(s);  // expired!
+
+  s = db->Get(read_options, "aaa", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("xxx", value);
+
+  delete txn1;
+  txn_options.expiration = 6000000;  // 100 minutes
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  TransactionOptions txn_options2;
+  txn_options2.expiration = 10;  // 10ms
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options2);
+  ASSERT_OK(s);
+
+  s = txn2->Put("a", "2");
+  ASSERT_OK(s);
+
+  // txn1 has a lock timeout longer than txn2's expiration, so it will win
+  s = txn1->Delete("a");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  // txn2 should be timed out since txn1 waiting until its timeout expired.
+  s = txn2->Commit();
+  ASSERT_TRUE(s.IsTimedOut());
+
+  delete txn1;
+  delete txn2;
+  txn_options.expiration = 6000000;  // 100 minutes
+  txn1 = db->BeginTransaction(write_options, txn_options);
+  txn_options2.expiration = 100000000;
+  txn2 = db->BeginTransaction(write_options, txn_options2);
+
+  s = txn1->Delete("asdf");
+  ASSERT_OK(s);
+
+  // txn2 has a smaller lock timeout than txn1's expiration, so it will time out
+  s = txn2->Delete("asdf");
+  ASSERT_TRUE(s.IsBusy());
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+
+  s = txn2->Put("asdf", "asdf");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  s = db->Get(read_options, "asdf", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("asdf", value);
+
+  delete txn1;
+  delete txn2;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
@@ -1111,14 +1584,4 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#else
-#include <stdio.h>
-
-int main(int argc, char** argv) {
-  fprintf(
-      stderr,
-      "SKIPPED as optimistic_transaction is not supported in ROCKSDB_LITE\n");
-  return 0;
-}
-
-#endif  // !ROCKSDB_LITE
+#endif  // ROCKSDB_LITE

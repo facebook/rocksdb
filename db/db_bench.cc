@@ -54,7 +54,8 @@ int main() {
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/flashcache.h"
-#include "rocksdb/utilities/optimistic_transaction.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
@@ -448,8 +449,12 @@ DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
 DEFINE_uint64(delete_obsolete_files_period_micros, 0,
               "Ignored. Left here for backward compatibility");
 
-DEFINE_bool(transaction_db, false,
+DEFINE_bool(optimistic_transaction_db, false,
             "Open a OptimisticTransactionDB instance. "
+            "Required for randomtransaction benchmark.");
+
+DEFINE_bool(transaction_db, false,
+            "Open a TransactionDB instance. "
             "Required for randomtransaction benchmark.");
 
 DEFINE_uint64(transaction_sets, 2,
@@ -919,7 +924,7 @@ static void AppendWithSpace(std::string* str, Slice msg) {
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;
-  OptimisticTransactionDB* txn_db;
+  OptimisticTransactionDB* opt_txn_db;
   std::atomic<size_t> num_created;  // Need to be updated after all the
                                     // new entries in cfh are set.
   size_t num_hot;  // Number of column families to be queried at each moment.
@@ -927,7 +932,7 @@ struct DBWithColumnFamilies {
                    // Column families will be created and used to be queried.
   port::Mutex create_cf_mutex;  // Only one thread can execute CreateNewCf()
 
-  DBWithColumnFamilies() : db(nullptr), txn_db(nullptr) {
+  DBWithColumnFamilies() : db(nullptr), opt_txn_db(nullptr) {
     cfh.clear();
     num_created = 0;
     num_hot = 0;
@@ -936,7 +941,7 @@ struct DBWithColumnFamilies {
   DBWithColumnFamilies(const DBWithColumnFamilies& other)
       : cfh(other.cfh),
         db(other.db),
-        txn_db(other.txn_db),
+        opt_txn_db(other.opt_txn_db),
         num_created(other.num_created.load()),
         num_hot(other.num_hot) {}
 
@@ -944,9 +949,9 @@ struct DBWithColumnFamilies {
     std::for_each(cfh.begin(), cfh.end(),
                   [](ColumnFamilyHandle* cfhi) { delete cfhi; });
     cfh.clear();
-    if (txn_db) {
-      delete txn_db;
-      txn_db = nullptr;
+    if (opt_txn_db) {
+      delete opt_txn_db;
+      opt_txn_db = nullptr;
     } else {
       delete db;
     }
@@ -2445,11 +2450,19 @@ class Benchmark {
       if (FLAGS_readonly) {
         s = DB::OpenForReadOnly(options, db_name, column_families,
             &db->cfh, &db->db);
-      } else if (FLAGS_transaction_db) {
+      } else if (FLAGS_optimistic_transaction_db) {
         s = OptimisticTransactionDB::Open(options, db_name, column_families,
-                                          &db->cfh, &db->txn_db);
+                                          &db->cfh, &db->opt_txn_db);
         if (s.ok()) {
-          db->db = db->txn_db->GetBaseDB();
+          db->db = db->opt_txn_db->GetBaseDB();
+        }
+      } else if (FLAGS_transaction_db) {
+        TransactionDB* ptr;
+        TransactionDBOptions txn_db_options;
+        s = TransactionDB::Open(options, txn_db_options, db_name,
+                                column_families, &db->cfh, &ptr);
+        if (s.ok()) {
+          db->db = ptr;
         }
       } else {
         s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
@@ -2459,11 +2472,19 @@ class Benchmark {
       db->num_hot = num_hot;
     } else if (FLAGS_readonly) {
       s = DB::OpenForReadOnly(options, db_name, &db->db);
-    } else if (FLAGS_transaction_db) {
-      s = OptimisticTransactionDB::Open(options, db_name, &db->txn_db);
+    } else if (FLAGS_optimistic_transaction_db) {
+      s = OptimisticTransactionDB::Open(options, db_name, &db->opt_txn_db);
       if (s.ok()) {
-        db->db = db->txn_db->GetBaseDB();
+        db->db = db->opt_txn_db->GetBaseDB();
       }
+    } else if (FLAGS_transaction_db) {
+      TransactionDB* ptr;
+      TransactionDBOptions txn_db_options;
+      s = TransactionDB::Open(options, txn_db_options, db_name, &ptr);
+      if (s.ok()) {
+        db->db = ptr;
+      }
+
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
@@ -3530,7 +3551,6 @@ class Benchmark {
     uint64_t transactions_aborted = 0;
     Status s;
     uint64_t num_prefix_ranges = FLAGS_transaction_sets;
-    bool use_txn = FLAGS_transaction_db;
 
     if (num_prefix_ranges == 0 || num_prefix_ranges > 9999) {
       fprintf(stderr, "invalid value for transaction_sets\n");
@@ -3545,12 +3565,17 @@ class Benchmark {
     }
 
     while (!duration.Done(1)) {
-      OptimisticTransaction* txn = nullptr;
+      Transaction* txn = nullptr;
       WriteBatch* batch = nullptr;
 
-      if (use_txn) {
-        txn = db_.txn_db->BeginTransaction(write_options_);
+      if (FLAGS_optimistic_transaction_db) {
+        txn = db_.opt_txn_db->BeginTransaction(write_options_);
         assert(txn);
+      } else if (FLAGS_transaction_db) {
+        TransactionDB* txn_db = reinterpret_cast<TransactionDB*>(db_.db);
+        TransactionOptions txn_options;
+        txn_options.expiration = 10000000;
+        txn = txn_db->BeginTransaction(write_options_, txn_options);
       } else {
         batch = new WriteBatch();
       }
@@ -3558,6 +3583,7 @@ class Benchmark {
       // pick a random number to use to increment a key in each set
       uint64_t incr = (thread->rand.Next() % 100) + 1;
 
+      bool failed = false;
       // For each set, pick a key at random and increment it
       for (uint8_t i = 0; i < num_prefix_ranges; i++) {
         uint64_t int_value;
@@ -3572,8 +3598,8 @@ class Benchmark {
         std::string full_key = std::string(prefix_buf) + base_key.ToString();
         Slice key(full_key);
 
-        if (use_txn) {
-          s = txn->Get(read_options, key, &value);
+        if (txn) {
+          s = txn->GetForUpdate(read_options, key, &value);
         } else {
           s = db->Get(read_options, key, &value);
         }
@@ -3599,15 +3625,23 @@ class Benchmark {
         }
 
         std::string sum = ToString(int_value + incr);
-        if (use_txn) {
-          txn->Put(key, sum);
+        if (txn) {
+          s = txn->Put(key, sum);
+          if (!s.ok()) {
+            failed = true;
+            break;
+          }
         } else {
           batch->Put(key, sum);
         }
       }
 
-      if (use_txn) {
-        s = txn->Commit();
+      if (txn) {
+        if (failed) {
+          txn->Rollback();
+        } else {
+          s = txn->Commit();
+        }
       } else {
         s = db->Write(write_options_, batch);
       }
@@ -3616,7 +3650,7 @@ class Benchmark {
         // Ideally, we'd want to run this stress test with enough concurrency
         // on a small enough set of keys that we get some failed transactions
         // due to conflicts.
-        if (use_txn && s.IsBusy()) {
+        if (txn && s.IsBusy()) {
           transactions_aborted++;
         } else {
           fprintf(stderr, "Unexpected write error: %s\n", s.ToString().c_str());
@@ -3635,7 +3669,7 @@ class Benchmark {
     }
 
     char msg[100];
-    if (use_txn) {
+    if (FLAGS_optimistic_transaction_db || FLAGS_transaction_db) {
       snprintf(msg, sizeof(msg),
                "( transactions:%" PRIu64 " aborts:%" PRIu64 ")",
                transactions_done, transactions_aborted);
@@ -3653,7 +3687,7 @@ class Benchmark {
   // Since each iteration of RandomTransaction() incremented a key in each set
   // by the same value, the sum of the keys in each set should be the same.
   void RandomTransactionVerify() {
-    if (!FLAGS_transaction_db) {
+    if (!FLAGS_transaction_db && !FLAGS_optimistic_transaction_db) {
       // transactions not used, nothing to verify.
       return;
     }

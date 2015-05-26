@@ -80,6 +80,10 @@ class Status {
   static Status Busy(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kBusy, msg, msg2);
   }
+  static Status TimedOut() { return Status(kTimedOut); }
+  static Status TimedOut(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kTimedOut, msg, msg2);
+  }
 
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }

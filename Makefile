@@ -304,7 +304,8 @@ TESTS = \
 	write_callback_test \
 	heap_test \
 	compact_on_deletion_collector_test \
-	compaction_job_stats_test
+	compaction_job_stats_test \
+	transaction_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -917,6 +918,9 @@ write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 heap_test: util/heap_test.o $(GTEST)
+	$(AM_LINK)
+
+transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)

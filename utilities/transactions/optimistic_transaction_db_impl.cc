@@ -18,10 +18,10 @@
 
 namespace rocksdb {
 
-OptimisticTransaction* OptimisticTransactionDBImpl::BeginTransaction(
+Transaction* OptimisticTransactionDBImpl::BeginTransaction(
     const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options) {
-  OptimisticTransaction* txn =
+  Transaction* txn =
       new OptimisticTransactionImpl(this, write_options, txn_options);
 
   return txn;

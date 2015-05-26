@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <atomic>
 #include <stack>
 #include <string>
 #include <unordered_map>
@@ -18,21 +19,26 @@
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
-class OptimisticTransactionImpl : public Transaction {
- public:
-  OptimisticTransactionImpl(OptimisticTransactionDB* db,
-                            const WriteOptions& write_options,
-                            const OptimisticTransactionOptions& txn_options);
+using TransactionID = uint64_t;
 
-  virtual ~OptimisticTransactionImpl();
+class TransactionDBImpl;
+
+class TransactionImpl : public Transaction {
+ public:
+  TransactionImpl(TransactionDB* db, const WriteOptions& write_options,
+                  const TransactionOptions& txn_options);
+
+  virtual ~TransactionImpl();
 
   Status Commit() override;
+
+  Status CommitBatch(WriteBatch* batch);
 
   void Rollback() override;
 
@@ -145,68 +151,111 @@ class OptimisticTransactionImpl : public Transaction {
 
   void PutLogData(const Slice& blob) override;
 
-  const TransactionKeyMap* GetTrackedKeys() const { return &tracked_keys_; }
-
   const Snapshot* GetSnapshot() const override { return snapshot_; }
 
   void SetSnapshot() override;
 
   WriteBatchWithIndex* GetWriteBatch() override;
 
- protected:
-  OptimisticTransactionDB* const txn_db_;
-  DB* db_;
-  const WriteOptions write_options_;
-  const Snapshot* snapshot_;
-  SequenceNumber start_sequence_number_;
-  const Comparator* cmp_;
-  std::unique_ptr<WriteBatchWithIndex> write_batch_;
+  // Generate a new unique transaction identifier
+  static TransactionID GenTxnID();
+
+  TransactionID GetTxnID() const { return txn_id_; }
+
+  // Returns the time (in milliseconds according to Env->GetMicros()*1000)
+  // that this transaction will be expired.  Returns 0 if this transaction does
+  // not expire.
+  uint64_t GetExpirationTime() const { return expiration_time_; }
+
+  // returns true if this transaction has an expiration_time and has expired.
+  bool IsExpired() const;
+
+  // Returns the number of milliseconds a transaction can wait on acquiring a
+  // lock or -1 if there is no timeout.
+  int64_t GetLockTimeout() const { return lock_timeout_; }
+  void SetLockTimeout(int64_t timeout) { lock_timeout_ = timeout; }
 
  private:
-  // Map of Column Family IDs to keys and corresponding sequence numbers.
-  // The sequence number stored for a key will be used during commit to make
-  // sure this key has
-  // not changed since this sequence number.
+  TransactionDB* const db_;
+
+  TransactionDBImpl* txn_db_impl_;
+
+  // Used to create unique ids for transactions.
+  static std::atomic<TransactionID> txn_id_counter_;
+
+  // Unique ID for this transaction
+  const TransactionID txn_id_;
+
+  const WriteOptions write_options_;
+
+  // If snapshot_ is set, all keys that locked must also have not been written
+  // since this snapshot
+  const Snapshot* snapshot_;
+
+  const Comparator* cmp_;
+
+  std::unique_ptr<WriteBatchWithIndex> write_batch_;
+
+  // If expiration_ is non-zero, start_time_ stores that time the txn was
+  // constructed,
+  // in milliseconds.
+  const uint64_t start_time_;
+
+  // If non-zero, this transaction should not be committed after this time (in
+  // milliseconds)
+  const uint64_t expiration_time_;
+
+  // Timeout in microseconds when locking a key or -1 if there is no timeout.
+  int64_t lock_timeout_;
+
+  // Map from column_family_id to map of keys to Sequence Numbers.  Stores keys
+  // that have been locked.
+  // The key is known to not have been modified after the Sequence Number
+  // stored.
   TransactionKeyMap tracked_keys_;
 
-  // Records the number of entries currently in the WriteBatch including calls
-  // to
-  // Put, Merge, Delete, and PutLogData()
+  // Records the number of entries currently in the WriteBatch include calls to
+  // PutLogData()
   size_t num_entries_ = 0;
 
   // Stack of number of entries in write_batch at each save point
   std::unique_ptr<std::stack<size_t>> save_points_;
 
-  friend class OptimisticTransactionCallback;
+  Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
+                 bool check_snapshot = true);
+  Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
+                 bool check_snapshot = true);
+  void Cleanup();
 
-  // Returns OK if it is safe to commit this transaction.  Returns Status::Busy
-  // if there are read or write conflicts that would prevent us from committing
-  // OR if we can not determine whether there would be any such conflicts.
-  //
-  // Should only be called on writer thread.
-  Status CheckTransactionForConflicts(DB* db);
+  Status CheckKeySequence(ColumnFamilyHandle* column_family, const Slice& key);
 
-  void RecordOperation(ColumnFamilyHandle* column_family, const Slice& key);
-  void RecordOperation(ColumnFamilyHandle* column_family,
-                       const SliceParts& key);
+  Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
+
+  Status DoCommit(WriteBatch* batch);
+
+  void RollbackLastN(size_t num);
 
   // No copying allowed
-  OptimisticTransactionImpl(const OptimisticTransactionImpl&);
-  void operator=(const OptimisticTransactionImpl&);
+  TransactionImpl(const TransactionImpl&);
+  void operator=(const TransactionImpl&);
 };
 
-// Used at commit time to trigger transaction validation
-class OptimisticTransactionCallback : public WriteCallback {
+// Used at commit time to check whether transaction is committing before its
+// expiration time.
+class TransactionCallback : public WriteCallback {
  public:
-  explicit OptimisticTransactionCallback(OptimisticTransactionImpl* txn)
-      : txn_(txn) {}
+  explicit TransactionCallback(TransactionImpl* txn) : txn_(txn) {}
 
   Status Callback(DB* db) override {
-    return txn_->CheckTransactionForConflicts(db);
+    if (txn_->IsExpired()) {
+      return Status::TimedOut();
+    } else {
+      return Status::OK();
+    }
   }
 
  private:
-  OptimisticTransactionImpl* txn_;
+  TransactionImpl* txn_;
 };
 
 }  // namespace rocksdb

@@ -221,6 +221,10 @@ set(SOURCES
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/transactions/optimistic_transaction_impl.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
+        utilities/transactions/transaction_impl.cc
+        utilities/transactions/transaction_db_impl.cc
+        utilities/transactions/transaction_lock_mgr.cc
+        utilities/transactions/transaction_util.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
@@ -333,6 +337,7 @@ set(TESTS
         utilities/spatialdb/spatial_db_test.cc
         utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
+        utilities/transactions/transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
 )

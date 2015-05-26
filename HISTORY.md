@@ -17,6 +17,7 @@
 
 ## 3.12.0 (7/2/2015)
 ### New Features
+* Added experimental support for pessimistic transactions.  See include/rocksdb/utilities/transaction.h for more info.
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
 * Added a new way to report QPS from db_bench (check out --report_file and --report_interval_seconds)
 * Added a cache for individual rows. See DBOptions::row_cache for more info.

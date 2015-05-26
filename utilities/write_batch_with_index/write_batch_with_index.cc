@@ -626,12 +626,15 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
     case WriteBatchWithIndexInternal::Result::kError:
-      return s;
+      // use returned status
+      break;
     case WriteBatchWithIndexInternal::Result::kDeleted:
     case WriteBatchWithIndexInternal::Result::kNotFound:
-      return Status::NotFound();
+      s = Status::NotFound();
+      break;
     case WriteBatchWithIndexInternal::Result::kMergeInProgress:
-      return Status::MergeInProgress("");
+      s = Status::MergeInProgress("");
+      break;
     default:
       assert(false);
   }
@@ -659,8 +662,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
   std::string batch_value;
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context, &rep->comparator,
-          &batch_value, &s);
+          options, this, column_family, key, &merge_context,
+          &rep->comparator, &batch_value, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     value->assign(batch_value.data(), batch_value.size());
