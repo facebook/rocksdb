@@ -428,6 +428,18 @@ extern void rocksdb_block_based_options_set_block_cache_compressed(
     rocksdb_cache_t* block_cache_compressed);
 extern void rocksdb_block_based_options_set_whole_key_filtering(
     rocksdb_block_based_table_options_t*, unsigned char);
+extern void rocksdb_block_based_options_set_format_version(
+    rocksdb_block_based_table_options_t*, int);
+enum {
+  rocksdb_block_based_table_index_type_binary_search = 0,
+  rocksdb_block_based_table_index_type_hash_search = 1,
+};
+extern void rocksdb_block_based_options_set_index_type(
+    rocksdb_block_based_table_options_t*, int); // uses one of the above enums
+extern void rocksdb_block_based_options_set_hash_index_allow_collision(
+    rocksdb_block_based_table_options_t*, unsigned char);
+extern void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
+    rocksdb_block_based_table_options_t*, unsigned char);
 extern void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt, rocksdb_block_based_table_options_t* table_options);
 
@@ -476,6 +488,7 @@ extern void rocksdb_options_set_comparator(
 extern void rocksdb_options_set_merge_operator(
     rocksdb_options_t*,
     rocksdb_mergeoperator_t*);
+extern void rocksdb_options_set_uint64add_merge_operator(rocksdb_options_t*);
 extern void rocksdb_options_set_compression_per_level(
   rocksdb_options_t* opt,
   int* level_values,
@@ -821,6 +834,7 @@ extern rocksdb_slicetransform_t* rocksdb_slicetransform_create(
         const char* key, size_t length),
     const char* (*name)(void*));
 extern rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t);
+extern rocksdb_slicetransform_t* rocksdb_slicetransform_create_noop();
 extern void rocksdb_slicetransform_destroy(rocksdb_slicetransform_t*);
 
 /* Universal Compaction options */
