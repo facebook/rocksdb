@@ -962,9 +962,20 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
       // for files that have been created right now and no other thread has
       // access to them. That's why we can safely mutate compensated_file_size.
       if (file_meta->compensated_file_size == 0) {
-        file_meta->compensated_file_size = file_meta->fd.GetFileSize() +
-            file_meta->num_deletions * average_value_size *
-            kDeletionWeightOnCompaction;
+        file_meta->compensated_file_size = file_meta->fd.GetFileSize();
+        // Here we only boost the size of deletion entries of a file only
+        // when the number of deletion entries is greater than the number of
+        // non-deletion entries in the file.  The motivation here is that in
+        // a stable workload, the number of deletion entries should be roughly
+        // equal to the number of non-deletion entries.  If we compensate the
+        // size of deletion entries in a stable workload, the deletion
+        // compensation logic might introduce unwanted effet which changes the
+        // shape of LSM tree.
+        if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
+          file_meta->compensated_file_size +=
+              (file_meta->num_deletions * 2 - file_meta->num_entries)
+              * average_value_size * kDeletionWeightOnCompaction;
+        }
       }
     }
   }
