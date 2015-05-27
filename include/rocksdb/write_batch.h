@@ -66,6 +66,13 @@ class WriteBatch : public WriteBatchBase {
     Merge(nullptr, key, value);
   }
 
+  // variant that takes SliceParts
+  void Merge(ColumnFamilyHandle* column_family, const SliceParts& key,
+             const SliceParts& value) override;
+  void Merge(const SliceParts& key, const SliceParts& value) override {
+    Merge(nullptr, key, value);
+  }
+
   using WriteBatchBase::Delete;
   // If the database contains a mapping for "key", erase it.  Else do nothing.
   void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
