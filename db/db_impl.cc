@@ -1255,7 +1255,7 @@ void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number,
     const MutableCFOptions& mutable_cf_options) {
 #ifndef ROCKSDB_LITE
-  if (cfd->ioptions()->listeners.size() == 0U) {
+  if (db_options_.listeners.size() == 0U) {
     return;
   }
   mutex_.AssertHeld();
@@ -1271,11 +1271,17 @@ void DBImpl::NotifyOnFlushCompleted(
   notifying_events_++;
   // release lock while notifying events
   mutex_.Unlock();
-  // TODO(yhchiang): make db_paths dynamic.
-  cfd->NotifyOnFlushCompleted(
-        this, MakeTableFileName(db_options_.db_paths[0].path, file_number),
-        triggered_flush_slowdown,
-        triggered_flush_stop);
+  {
+    // TODO(yhchiang): make db_paths dynamic.
+    auto file_path = MakeTableFileName(db_options_.db_paths[0].path,
+                                       file_number);
+    for (auto listener : db_options_.listeners) {
+      listener->OnFlushCompleted(
+          this, cfd->GetName(), file_path,
+          // Use path 0 as fulled memtables are first flushed into path 0.
+          triggered_flush_slowdown, triggered_flush_stop);
+    }
+  }
   mutex_.Lock();
   notifying_events_--;
   assert(notifying_events_ >= 0);
@@ -1540,7 +1546,7 @@ Status DBImpl::CompactFilesImpl(
 void DBImpl::NotifyOnCompactionCompleted(
     ColumnFamilyData* cfd, Compaction *c, const Status &st) {
 #ifndef ROCKSDB_LITE
-  if (cfd->ioptions()->listeners.size() == 0U) {
+  if (db_options_.listeners.size() == 0U) {
     return;
   }
   mutex_.AssertHeld();
@@ -1550,7 +1556,29 @@ void DBImpl::NotifyOnCompactionCompleted(
   notifying_events_++;
   // release lock while notifying events
   mutex_.Unlock();
-  cfd->NotifyOnCompactionCompleted(this, c, st);
+  {
+    CompactionJobInfo info;
+    info.cf_name = cfd->GetName();
+    info.status = st;
+    info.output_level = c->output_level();
+    for (size_t i = 0; i < c->num_input_levels(); ++i) {
+      for (const auto fmd : *c->inputs(i)) {
+        info.input_files.push_back(
+            TableFileName(db_options_.db_paths,
+                          fmd->fd.GetNumber(),
+                          fmd->fd.GetPathId()));
+      }
+    }
+    for (const auto newf : c->edit()->GetNewFiles()) {
+      info.output_files.push_back(
+          TableFileName(db_options_.db_paths,
+                        newf.second.fd.GetNumber(),
+                        newf.second.fd.GetPathId()));
+    }
+    for (auto listener : db_options_.listeners) {
+      listener->OnCompactionCompleted(this, info);
+    }
+  }
   mutex_.Lock();
   notifying_events_--;
   assert(notifying_events_ >= 0);

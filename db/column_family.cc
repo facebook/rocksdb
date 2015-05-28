@@ -634,51 +634,6 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
   return false;
 }
 
-void ColumnFamilyData::NotifyOnCompactionCompleted(
-    DB* db, Compaction* c, const Status& status) {
-#ifndef ROCKSDB_LITE
-  auto listeners = ioptions()->listeners;
-  assert(listeners.size() > 0U);
-  CompactionJobInfo info;
-  info.cf_name = c->column_family_data()->GetName();
-  info.status = status;
-  info.output_level = c->output_level();
-  for (size_t i = 0; i < c->num_input_levels(); ++i) {
-    for (const auto fmd : *c->inputs(i)) {
-      info.input_files.push_back(
-          TableFileName(options_.db_paths,
-                        fmd->fd.GetNumber(),
-                        fmd->fd.GetPathId()));
-    }
-  }
-  for (const auto newf : c->edit()->GetNewFiles()) {
-    info.output_files.push_back(
-        TableFileName(options_.db_paths,
-                      newf.second.fd.GetNumber(),
-                      newf.second.fd.GetPathId()));
-  }
-  for (auto listener : listeners) {
-    listener->OnCompactionCompleted(db, info);
-  }
-#endif  // ROCKSDB_LITE
-}
-
-void ColumnFamilyData::NotifyOnFlushCompleted(
-    DB* db, const std::string& file_path,
-    bool triggered_flush_slowdown,
-    bool triggered_flush_stop) {
-
-#ifndef ROCKSDB_LITE
-  auto listeners = ioptions()->listeners;
-  for (auto listener : listeners) {
-    listener->OnFlushCompleted(
-        db, GetName(), file_path,
-        // Use path 0 as fulled memtables are first flushed into path 0.
-        triggered_flush_slowdown, triggered_flush_stop);
-  }
-#endif  // ROCKSDB_LITE
-}
-
 SuperVersion* ColumnFamilyData::InstallSuperVersion(
     SuperVersion* new_superversion, InstrumentedMutex* db_mutex) {
   db_mutex->AssertHeld();

@@ -709,12 +709,6 @@ struct ColumnFamilyOptions {
   // Default: false
   bool paranoid_file_checks;
 
-#ifndef ROCKSDB_LITE
-  // A vector of EventListeners which call-back functions will be called
-  // when specific RocksDB event happens.
-  std::vector<std::shared_ptr<EventListener>> listeners;
-#endif  // ROCKSDB_LITE
-
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -1008,6 +1002,12 @@ struct DBOptions {
   // Same as bytes_per_sync, but applies to WAL files
   // Default: 0, turned off
   uint64_t wal_bytes_per_sync;
+
+#ifndef ROCKSDB_LITE
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+#endif  // ROCKSDB_LITE
 
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.

@@ -2,6 +2,7 @@
 
 ## Public API changes
 * DB::GetDbIdentity() is now a const function.  If this function is overridden in your application, be sure to also make GetDbIdentity() const to avoid compile error.
+* Move listeners from ColumnFamilyOptions to DBOptions. 
 
 ## 3.11.0 (5/19/2015)
 

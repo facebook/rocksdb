@@ -129,13 +129,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_successive_merges(0),
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false),
-      paranoid_file_checks(false)
-#ifndef ROCKSDB_LITE
-      ,
-      listeners() {
-#else  // ROCKSDB_LITE
-{
-#endif  // ROCKSDB_LITE
+      paranoid_file_checks(false) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -199,13 +193,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
-      paranoid_file_checks(options.paranoid_file_checks)
-#ifndef ROCKSDB_LITE
-      ,
-      listeners(options.listeners) {
-#else   // ROCKSDB_LITE
-{
-#endif  // ROCKSDB_LITE
+      paranoid_file_checks(options.paranoid_file_checks) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -256,6 +244,9 @@ DBOptions::DBOptions()
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
+#ifndef ROCKSDB_LITE
+      listeners(),
+#endif
       enable_thread_tracking(false) {
 }
 
@@ -300,6 +291,9 @@ DBOptions::DBOptions(const Options& options)
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
+#ifndef ROCKSDB_LITE
+      listeners(options.listeners),
+#endif
       enable_thread_tracking(options.enable_thread_tracking) {}
 
 static const char* const access_hints[] = {

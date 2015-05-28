@@ -292,13 +292,6 @@ class ColumnFamilyData {
 
   void ResetThreadLocalSuperVersions();
 
-  void NotifyOnCompactionCompleted(DB* db, Compaction* c, const Status& status);
-
-  void NotifyOnFlushCompleted(
-      DB* db, const std::string& file_path,
-      bool triggered_flush_slowdown,
-      bool triggered_flush_stop);
-
   // Protected by DB mutex
   void set_pending_flush(bool value) { pending_flush_ = value; }
   void set_pending_compaction(bool value) { pending_compaction_ = value; }
