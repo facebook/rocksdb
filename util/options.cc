@@ -90,6 +90,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
+      max_write_buffer_number_to_maintain(0),
       compression(kSnappyCompression),
       prefix_extractor(nullptr),
       num_levels(7),
@@ -143,6 +144,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
+      max_write_buffer_number_to_maintain(
+          options.max_write_buffer_number_to_maintain),
       compression(options.compression),
       compression_per_level(options.compression_per_level),
       compression_opts(options.compression_opts),
@@ -398,6 +401,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         min_write_buffer_number_to_merge);
     Warn(log, "        Options.purge_redundant_kvs_while_flush: %d",
          purge_redundant_kvs_while_flush);
+    Warn(log, "    Options.max_write_buffer_number_to_maintain: %d",
+         max_write_buffer_number_to_maintain);
     Warn(log, "           Options.compression_opts.window_bits: %d",
         compression_opts.window_bits);
     Warn(log, "                 Options.compression_opts.level: %d",

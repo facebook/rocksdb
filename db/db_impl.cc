@@ -93,11 +93,15 @@ void DumpRocksDBBuildVersion(Logger * log);
 
 struct DBImpl::WriteContext {
   autovector<SuperVersion*> superversions_to_free_;
+  autovector<MemTable*> memtables_to_free_;
   bool schedule_bg_work_ = false;
 
   ~WriteContext() {
     for (auto& sv : superversions_to_free_) {
       delete sv;
+    }
+    for (auto& m : memtables_to_free_) {
+      delete m;
     }
   }
 };
@@ -1201,7 +1205,7 @@ Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
     bool* madeProgress, JobContext* job_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
-  assert(cfd->imm()->size() != 0);
+  assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
 
   FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
@@ -1850,7 +1854,7 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     WriteContext context;
     InstrumentedMutexLock guard_lock(&mutex_);
 
-    if (cfd->imm()->size() == 0 && cfd->mem()->IsEmpty()) {
+    if (cfd->imm()->NumNotFlushed() == 0 && cfd->mem()->IsEmpty()) {
       // Nothing to flush
       return Status::OK();
     }
@@ -1882,7 +1886,7 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
   Status s;
   // Wait until the compaction completes
   InstrumentedMutexLock l(&mutex_);
-  while (cfd->imm()->size() > 0 && bg_error_.ok()) {
+  while (cfd->imm()->NumNotFlushed() > 0 && bg_error_.ok()) {
     bg_cv_.Wait();
   }
   if (!bg_error_.ok()) {
@@ -3527,13 +3531,13 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
       // doesn't need that particular log to stay alive, so we just
       // advance the log number. no need to persist this in the manifest
       if (loop_cfd->mem()->GetFirstSequenceNumber() == 0 &&
-          loop_cfd->imm()->size() == 0) {
+          loop_cfd->imm()->NumNotFlushed() == 0) {
         loop_cfd->SetLogNumber(logfile_number_);
       }
     }
   }
   cfd->mem()->SetNextLogNumber(logfile_number_);
-  cfd->imm()->Add(cfd->mem());
+  cfd->imm()->Add(cfd->mem(), &context->memtables_to_free_);
   new_mem->Ref();
   cfd->SetMemtable(new_mem);
   context->superversions_to_free_.push_back(

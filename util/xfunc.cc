@@ -64,6 +64,16 @@ void xf_manage_new(DBImpl* db, ReadOptions* read_options,
 
 void xf_manage_create(ManagedIterator* iter) { iter->SetDropOld(false); }
 
+void xf_transaction_set_memtable_history(
+    int32_t* max_write_buffer_number_to_maintain) {
+  *max_write_buffer_number_to_maintain = 10;
+}
+
+void xf_transaction_clear_memtable_history(
+    int32_t* max_write_buffer_number_to_maintain) {
+  *max_write_buffer_number_to_maintain = 0;
+}
+
 }  // namespace rocksdb
 
 #endif  // XFUNC

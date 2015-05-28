@@ -40,6 +40,10 @@ void xf_manage_new(DBImpl* db, ReadOptions* readoptions,
                    bool is_snapshot_supported);
 void xf_manage_create(ManagedIterator* iter);
 void xf_manage_options(ReadOptions* read_options);
+void xf_transaction_set_memtable_history(
+    int32_t* max_write_buffer_number_to_maintain);
+void xf_transaction_clear_memtable_history(
+    int32_t* max_write_buffer_number_to_maintain);
 
 // This class provides the facility to run custom code to test a specific
 // feature typically with all existing unit tests.

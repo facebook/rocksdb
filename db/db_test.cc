@@ -3141,6 +3141,7 @@ TEST_F(DBTest, FlushMultipleMemtable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
+    options.max_write_buffer_number_to_maintain = -1;
     CreateAndReopenWithCF({"pikachu"}, options);
     ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
     ASSERT_OK(Flush(1));
@@ -3159,6 +3160,7 @@ TEST_F(DBTest, NumImmutableMemTable) {
     writeOpt.disableWAL = true;
     options.max_write_buffer_number = 4;
     options.min_write_buffer_number_to_merge = 3;
+    options.max_write_buffer_number_to_maintain = 0;
     options.write_buffer_size = 1000000;
     CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -3314,6 +3316,7 @@ TEST_F(DBTest, FlushEmptyColumnFamily) {
   writeOpt.disableWAL = true;
   options.max_write_buffer_number = 2;
   options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 1;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // Compaction can still go through even if no thread can flush the
@@ -3360,6 +3363,7 @@ TEST_F(DBTest, GetProperty) {
   options.max_background_flushes = 1;
   options.max_write_buffer_number = 10;
   options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 0;
   options.write_buffer_size = 1000000;
   Reopen(options);
 
@@ -3578,6 +3582,7 @@ TEST_F(DBTest, FlushSchedule) {
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
   options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 1;
   options.max_write_buffer_number = 2;
   options.write_buffer_size = 100 * 1000;
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -3783,6 +3788,7 @@ Options DeletionTriggerOptions() {
   options.compression = kNoCompression;
   options.write_buffer_size = kCDTKeysPerBuffer * (kCDTValueSize + 24);
   options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 0;
   options.num_levels = kCDTNumLevels;
   options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 1;

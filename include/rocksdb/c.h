@@ -538,6 +538,8 @@ extern void rocksdb_options_enable_statistics(rocksdb_options_t*);
 
 extern void rocksdb_options_set_max_write_buffer_number(rocksdb_options_t*, int);
 extern void rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t*, int);
+extern void rocksdb_options_set_max_write_buffer_number_to_maintain(
+    rocksdb_options_t*, int);
 extern void rocksdb_options_set_max_background_compactions(rocksdb_options_t*, int);
 extern void rocksdb_options_set_max_background_flushes(rocksdb_options_t*, int);
 extern void rocksdb_options_set_max_log_file_size(rocksdb_options_t*, size_t);

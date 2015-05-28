@@ -32,6 +32,7 @@
 #include "util/autovector.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/options_helper.h"
+#include "util/xfunc.h"
 
 namespace rocksdb {
 
@@ -152,6 +153,18 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }
+  if (result.max_write_buffer_number_to_maintain < 0) {
+    result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
+  }
+  XFUNC_TEST("memtablelist_history", "transaction_xftest_SanitizeOptions",
+             xf_transaction_set_memtable_history1,
+             xf_transaction_set_memtable_history,
+             &result.max_write_buffer_number_to_maintain);
+  XFUNC_TEST("memtablelist_history_clear", "transaction_xftest_SanitizeOptions",
+             xf_transaction_clear_memtable_history1,
+             xf_transaction_clear_memtable_history,
+             &result.max_write_buffer_number_to_maintain);
+
   if (!result.prefix_extractor) {
     assert(result.memtable_factory);
     Slice name = result.memtable_factory->Name();
@@ -309,7 +322,8 @@ ColumnFamilyData::ColumnFamilyData(
       mutable_cf_options_(options_, ioptions_),
       write_buffer_(write_buffer),
       mem_(nullptr),
-      imm_(options_.min_write_buffer_number_to_merge),
+      imm_(options_.min_write_buffer_number_to_merge,
+           options_.max_write_buffer_number_to_maintain),
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
@@ -445,13 +459,13 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
 
     auto write_controller = column_family_set_->write_controller_;
 
-    if (imm()->size() >= mutable_cf_options.max_write_buffer_number) {
+    if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d",
-          name_.c_str(), imm()->size(),
+          name_.c_str(), imm()->NumNotFlushed(),
           mutable_cf_options.max_write_buffer_number);
     } else if (vstorage->l0_delay_trigger_count() >=
                mutable_cf_options.level0_stop_writes_trigger) {

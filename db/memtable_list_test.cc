@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include <algorithm>
 #include <string>
 #include <vector>
 #include "db/memtable_list.h"
@@ -92,9 +93,9 @@ class MemTableListTest : public testing::Test {
 
 TEST_F(MemTableListTest, Empty) {
   // Create an empty MemTableList and validate basic functions.
-  MemTableList list(1);
+  MemTableList list(1, 0);
 
-  ASSERT_EQ(0, list.size());
+  ASSERT_EQ(0, list.NumNotFlushed());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
   ASSERT_FALSE(list.IsFlushPending());
 
@@ -110,12 +111,15 @@ TEST_F(MemTableListTest, Empty) {
 TEST_F(MemTableListTest, GetTest) {
   // Create MemTableList
   int min_write_buffer_number_to_merge = 2;
-  MemTableList list(min_write_buffer_number_to_merge);
+  int max_write_buffer_number_to_maintain = 0;
+  MemTableList list(min_write_buffer_number_to_merge,
+                    max_write_buffer_number_to_maintain);
 
   SequenceNumber seq = 1;
   std::string value;
   Status s;
   MergeContext merge_context;
+  autovector<MemTable*> to_delete;
 
   LookupKey lkey("key1", seq);
   bool found = list.current()->Get(lkey, &value, &s, &merge_context);
@@ -158,7 +162,7 @@ TEST_F(MemTableListTest, GetTest) {
   ASSERT_EQ(1, mem->num_deletes());
 
   // Add memtable to list
-  list.Add(mem);
+  list.Add(mem, &to_delete);
 
   SequenceNumber saved_seq = seq;
 
@@ -172,7 +176,7 @@ TEST_F(MemTableListTest, GetTest) {
   mem2->Add(++seq, kTypeValue, "key2", "value2.3");
 
   // Add second memtable to list
-  list.Add(mem2);
+  list.Add(mem2, &to_delete);
 
   // Fetch keys via MemTableList
   merge_context.Clear();
@@ -196,10 +200,182 @@ TEST_F(MemTableListTest, GetTest) {
   found = list.current()->Get(LookupKey("key2", 1), &value, &s, &merge_context);
   ASSERT_FALSE(found);
 
-  ASSERT_EQ(2, list.size());
+  ASSERT_EQ(2, list.NumNotFlushed());
 
-  autovector<MemTable*> to_delete;
   list.current()->Unref(&to_delete);
+  for (MemTable* m : to_delete) {
+    delete m;
+  }
+}
+
+TEST_F(MemTableListTest, GetFromHistoryTest) {
+  // Create MemTableList
+  int min_write_buffer_number_to_merge = 2;
+  int max_write_buffer_number_to_maintain = 2;
+  MemTableList list(min_write_buffer_number_to_merge,
+                    max_write_buffer_number_to_maintain);
+
+  SequenceNumber seq = 1;
+  std::string value;
+  Status s;
+  MergeContext merge_context;
+  autovector<MemTable*> to_delete;
+
+  LookupKey lkey("key1", seq);
+  bool found = list.current()->Get(lkey, &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  // Create a MemTable
+  InternalKeyComparator cmp(BytewiseComparator());
+  auto factory = std::make_shared<SkipListFactory>();
+  options.memtable_factory = factory;
+  ImmutableCFOptions ioptions(options);
+
+  WriteBuffer wb(options.db_write_buffer_size);
+  MemTable* mem =
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb);
+  mem->Ref();
+
+  // Write some keys to this memtable.
+  mem->Add(++seq, kTypeDeletion, "key1", "");
+  mem->Add(++seq, kTypeValue, "key2", "value2");
+  mem->Add(++seq, kTypeValue, "key2", "value2.2");
+
+  // Fetch the newly written keys
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  // MemTable found out that this key is *not* found (at this sequence#)
+  ASSERT_TRUE(found && s.IsNotFound());
+
+  merge_context.Clear();
+  found = mem->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ(value, "value2.2");
+
+  // Add memtable to list
+  list.Add(mem, &to_delete);
+  ASSERT_EQ(0, to_delete.size());
+
+  // Fetch keys via MemTableList
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  ASSERT_TRUE(found && s.IsNotFound());
+
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  ASSERT_TRUE(s.ok() && found);
+  ASSERT_EQ("value2.2", value);
+
+  // Flush this memtable from the list.
+  // (It will then be a part of the memtable history).
+  autovector<MemTable*> to_flush;
+  list.PickMemtablesToFlush(&to_flush);
+  ASSERT_EQ(1, to_flush.size());
+
+  s = Mock_InstallMemtableFlushResults(
+      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  ASSERT_OK(s);
+  ASSERT_EQ(0, list.NumNotFlushed());
+  ASSERT_EQ(1, list.NumFlushed());
+  ASSERT_EQ(0, to_delete.size());
+
+  // Verify keys are no longer in MemTableList
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  // Verify keys are present in history
+  merge_context.Clear();
+  found = list.current()->GetFromHistory(LookupKey("key1", seq), &value, &s,
+                                         &merge_context);
+  ASSERT_TRUE(found && s.IsNotFound());
+
+  merge_context.Clear();
+  found = list.current()->GetFromHistory(LookupKey("key2", seq), &value, &s,
+                                         &merge_context);
+  ASSERT_TRUE(found);
+  ASSERT_EQ("value2.2", value);
+
+  // Create another memtable and write some keys to it
+  WriteBuffer wb2(options.db_write_buffer_size);
+  MemTable* mem2 =
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2);
+  mem2->Ref();
+
+  mem2->Add(++seq, kTypeDeletion, "key1", "");
+  mem2->Add(++seq, kTypeValue, "key3", "value3");
+
+  // Add second memtable to list
+  list.Add(mem2, &to_delete);
+  ASSERT_EQ(0, to_delete.size());
+
+  to_flush.clear();
+  list.PickMemtablesToFlush(&to_flush);
+  ASSERT_EQ(1, to_flush.size());
+
+  // Flush second memtable
+  s = Mock_InstallMemtableFlushResults(
+      &list, MutableCFOptions(options, ioptions), to_flush, &to_delete);
+  ASSERT_OK(s);
+  ASSERT_EQ(0, list.NumNotFlushed());
+  ASSERT_EQ(2, list.NumFlushed());
+  ASSERT_EQ(0, to_delete.size());
+
+  // Add a third memtable to push the first memtable out of the history
+  WriteBuffer wb3(options.db_write_buffer_size);
+  MemTable* mem3 =
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb3);
+  mem3->Ref();
+  list.Add(mem3, &to_delete);
+  ASSERT_EQ(1, list.NumNotFlushed());
+  ASSERT_EQ(1, list.NumFlushed());
+  ASSERT_EQ(1, to_delete.size());
+
+  // Verify keys are no longer in MemTableList
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key1", seq), &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key3", seq), &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  // Verify that the second memtable's keys are in the history
+  merge_context.Clear();
+  found = list.current()->GetFromHistory(LookupKey("key1", seq), &value, &s,
+                                         &merge_context);
+  ASSERT_TRUE(found && s.IsNotFound());
+
+  merge_context.Clear();
+  found = list.current()->GetFromHistory(LookupKey("key3", seq), &value, &s,
+                                         &merge_context);
+  ASSERT_TRUE(found);
+  ASSERT_EQ("value3", value);
+
+  // Verify that key2 from the first memtable is no longer in the history
+  merge_context.Clear();
+  found =
+      list.current()->Get(LookupKey("key2", seq), &value, &s, &merge_context);
+  ASSERT_FALSE(found);
+
+  // Cleanup
+  list.current()->Unref(&to_delete);
+  ASSERT_EQ(3, to_delete.size());
   for (MemTable* m : to_delete) {
     delete m;
   }
@@ -215,10 +391,13 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ImmutableCFOptions ioptions(options);
   InternalKeyComparator cmp(BytewiseComparator());
   WriteBuffer wb(options.db_write_buffer_size);
+  autovector<MemTable*> to_delete;
 
   // Create MemTableList
   int min_write_buffer_number_to_merge = 3;
-  MemTableList list(min_write_buffer_number_to_merge);
+  int max_write_buffer_number_to_maintain = 7;
+  MemTableList list(min_write_buffer_number_to_merge,
+                    max_write_buffer_number_to_maintain);
 
   // Create some MemTables
   std::vector<MemTable*> tables;
@@ -264,9 +443,10 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Add 2 tables
-  list.Add(tables[0]);
-  list.Add(tables[1]);
-  ASSERT_EQ(2, list.size());
+  list.Add(tables[0], &to_delete);
+  list.Add(tables[1], &to_delete);
+  ASSERT_EQ(2, list.NumNotFlushed());
+  ASSERT_EQ(0, to_delete.size());
 
   // Even though we have less than the minimum to flush, a flush is
   // pending since we had previously requested a flush and never called
@@ -277,7 +457,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Pick tables to flush
   list.PickMemtablesToFlush(&to_flush);
   ASSERT_EQ(2, to_flush.size());
-  ASSERT_EQ(2, list.size());
+  ASSERT_EQ(2, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
@@ -288,16 +468,17 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_flush.clear();
 
   // Add another table
-  list.Add(tables[2]);
+  list.Add(tables[2], &to_delete);
   // We now have the minimum to flush regardles of whether FlushRequested()
   // was called.
   ASSERT_TRUE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
+  ASSERT_EQ(0, to_delete.size());
 
   // Pick tables to flush
   list.PickMemtablesToFlush(&to_flush);
   ASSERT_EQ(3, to_flush.size());
-  ASSERT_EQ(3, list.size());
+  ASSERT_EQ(3, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
@@ -305,14 +486,15 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   autovector<MemTable*> to_flush2;
   list.PickMemtablesToFlush(&to_flush2);
   ASSERT_EQ(0, to_flush2.size());
-  ASSERT_EQ(3, list.size());
+  ASSERT_EQ(3, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Add another table
-  list.Add(tables[3]);
+  list.Add(tables[3], &to_delete);
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
+  ASSERT_EQ(0, to_delete.size());
 
   // Request a flush again
   list.FlushRequested();
@@ -322,7 +504,7 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Pick tables to flush again
   list.PickMemtablesToFlush(&to_flush2);
   ASSERT_EQ(1, to_flush2.size());
-  ASSERT_EQ(4, list.size());
+  ASSERT_EQ(4, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
@@ -333,28 +515,27 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_flush.clear();
 
   // Add another tables
-  list.Add(tables[4]);
-  ASSERT_EQ(5, list.size());
+  list.Add(tables[4], &to_delete);
+  ASSERT_EQ(5, list.NumNotFlushed());
   // We now have the minimum to flush regardles of whether FlushRequested()
   ASSERT_TRUE(list.IsFlushPending());
   ASSERT_TRUE(list.imm_flush_needed.load(std::memory_order_acquire));
+  ASSERT_EQ(0, to_delete.size());
 
   // Pick tables to flush
   list.PickMemtablesToFlush(&to_flush);
   // Should pick 4 of 5 since 1 table has been picked in to_flush2
   ASSERT_EQ(4, to_flush.size());
-  ASSERT_EQ(5, list.size());
+  ASSERT_EQ(5, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
 
   // Pick tables to flush again
   autovector<MemTable*> to_flush3;
   ASSERT_EQ(0, to_flush3.size());  // nothing not in progress of being flushed
-  ASSERT_EQ(5, list.size());
+  ASSERT_EQ(5, list.NumNotFlushed());
   ASSERT_FALSE(list.IsFlushPending());
   ASSERT_FALSE(list.imm_flush_needed.load(std::memory_order_acquire));
-
-  autovector<MemTable*> to_delete;
 
   // Flush the 4 memtables that were picked in to_flush
   s = Mock_InstallMemtableFlushResults(
@@ -366,17 +547,10 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   // Current implementation will only commit memtables in the order they were
   // created.  So InstallMemtableFlushResults will install the first 3 tables
   // in to_flush and stop when it encounters a table not yet flushed.
-  ASSERT_EQ(3, to_delete.size());
-  ASSERT_EQ(2, list.size());
-
-  for (const auto& m : to_delete) {
-    // Refcount should be 0 after calling InstallMemtableFlushResults.
-    // Verify this, by Ref'ing then UnRef'ing:
-    m->Ref();
-    ASSERT_EQ(m, m->Unref());
-    delete m;
-  }
-  to_delete.clear();
+  ASSERT_EQ(2, list.NumNotFlushed());
+  int num_in_history = std::min(3, max_write_buffer_number_to_maintain);
+  ASSERT_EQ(num_in_history, list.NumFlushed());
+  ASSERT_EQ(5 - list.NumNotFlushed() - num_in_history, to_delete.size());
 
   // Request a flush again. Should be nothing to flush
   list.FlushRequested();
@@ -388,10 +562,12 @@ TEST_F(MemTableListTest, FlushPendingTest) {
       &list, MutableCFOptions(options, ioptions), to_flush2, &to_delete);
   ASSERT_OK(s);
 
-  // This will actually intall 2 tables.  The 1 we told it to flush, and also
+  // This will actually install 2 tables.  The 1 we told it to flush, and also
   // tables[4] which has been waiting for tables[3] to commit.
-  ASSERT_EQ(2, to_delete.size());
-  ASSERT_EQ(0, list.size());
+  ASSERT_EQ(0, list.NumNotFlushed());
+  num_in_history = std::min(5, max_write_buffer_number_to_maintain);
+  ASSERT_EQ(num_in_history, list.NumFlushed());
+  ASSERT_EQ(5 - list.NumNotFlushed() - num_in_history, to_delete.size());
 
   for (const auto& m : to_delete) {
     // Refcount should be 0 after calling InstallMemtableFlushResults.
@@ -403,7 +579,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   to_delete.clear();
 
   list.current()->Unref(&to_delete);
-  ASSERT_EQ(0, to_delete.size());
+  int to_delete_size = std::min(5, max_write_buffer_number_to_maintain);
+  ASSERT_EQ(to_delete_size, to_delete.size());
 }
 
 }  // namespace rocksdb

@@ -107,7 +107,12 @@ TEST_F(FlushJobTest, NonEmpty) {
     InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
     inserted_keys.insert({internal_key.Encode().ToString(), value});
   }
-  cfd->imm()->Add(new_mem);
+
+  autovector<MemTable*> to_delete;
+  cfd->imm()->Add(new_mem, &to_delete);
+  for (auto& m : to_delete) {
+    delete m;
+  }
 
   EventLogger event_logger(db_options_.info_log.get());
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),

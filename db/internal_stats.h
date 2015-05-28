@@ -32,9 +32,12 @@ enum DBPropertyType : uint32_t {
   kStats,            // Return general statitistics of both DB and CF
   kSsTables,         // Return a human readable string of current SST files
   kStartIntTypes,    // ---- Dummy value to indicate the start of integer values
-  kNumImmutableMemTable,   // Return number of immutable mem tables
-  kMemtableFlushPending,   // Return 1 if mem table flushing is pending,
-                           // otherwise 0.
+  kNumImmutableMemTable,         // Return number of immutable mem tables that
+                                 // have not been flushed.
+  kNumImmutableMemTableFlushed,  // Return number of immutable mem tables
+                                 // in memory that have already been flushed
+  kMemtableFlushPending,         // Return 1 if mem table flushing is pending,
+                                 // otherwise 0.
   kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,       // Return accumulated background errors encountered.
   kCurSizeActiveMemTable,  // Return current size of the active memtable
