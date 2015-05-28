@@ -22,7 +22,7 @@
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
-#include "db/event_logger_helpers.h"
+#include "db/event_helpers.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -1063,9 +1063,9 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
           " keys, %" PRIu64 " bytes",
           cfd->GetName().c_str(), job_id_, output_number, current_entries,
           current_bytes);
-      EventLoggerHelpers::LogTableFileCreation(event_logger_, job_id_,
-                                               output_number, current_bytes,
-                                               table_properties);
+      EventHelpers::LogTableFileCreation(event_logger_, job_id_,
+                                         output_number, current_bytes,
+                                         table_properties);
     }
   }
   return s;

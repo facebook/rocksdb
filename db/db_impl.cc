@@ -31,7 +31,7 @@
 #include "db/compaction_job.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
-#include "db/event_logger_helpers.h"
+#include "db/event_helpers.h"
 #include "db/filename.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
@@ -1168,7 +1168,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
       // output to event logger
       if (s.ok()) {
-        EventLoggerHelpers::LogTableFileCreation(
+        EventHelpers::LogTableFileCreation(
             &event_logger_, job_id, meta.fd.GetNumber(), meta.fd.GetFileSize(),
             table_properties);
       }

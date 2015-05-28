@@ -3,7 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "db/event_logger_helpers.h"
+#include "db/event_helpers.h"
 
 namespace rocksdb {
 
@@ -11,13 +11,13 @@ namespace {
 inline double SafeDivide(double a, double b) { return b == 0.0 ? 0 : a / b; }
 }  // namespace
 
-void EventLoggerHelpers::AppendCurrentTime(JSONWriter* jwriter) {
+void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
   *jwriter << "time_micros"
            << std::chrono::duration_cast<std::chrono::microseconds>(
                   std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-void EventLoggerHelpers::LogTableFileCreation(
+void EventHelpers::LogTableFileCreation(
     EventLogger* event_logger, int job_id, uint64_t file_number,
     uint64_t file_size, const TableProperties& table_properties) {
   JSONWriter jwriter;

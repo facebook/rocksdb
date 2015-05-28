@@ -20,7 +20,7 @@
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
-#include "db/event_logger_helpers.h"
+#include "db/event_helpers.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -250,7 +250,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
     // output to event logger
     if (s.ok()) {
-      EventLoggerHelpers::LogTableFileCreation(
+      EventHelpers::LogTableFileCreation(
           event_logger_, job_context_->job_id, meta.fd.GetNumber(),
           meta.fd.GetFileSize(), table_properties);
     }
