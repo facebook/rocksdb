@@ -973,8 +973,8 @@ void VersionStorageInfo::ComputeCompensatedSizes() {
         // shape of LSM tree.
         if (file_meta->num_deletions * 2 >= file_meta->num_entries) {
           file_meta->compensated_file_size +=
-              (file_meta->num_deletions * 2 - file_meta->num_entries)
-              * average_value_size * kDeletionWeightOnCompaction;
+              (file_meta->num_deletions * 2 - file_meta->num_entries) *
+              average_value_size * kDeletionWeightOnCompaction;
         }
       }
     }

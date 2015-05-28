@@ -1299,7 +1299,7 @@ void DBImpl::NotifyOnFlushCompleted(
 
 Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
                             const Slice* begin, const Slice* end,
-                            bool reduce_level, int target_level,
+                            bool change_level, int target_level,
                             uint32_t target_path_id) {
   if (target_path_id >= db_options_.db_paths.size()) {
     return Status::InvalidArgument("Invalid target path ID");
@@ -1364,7 +1364,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     return s;
   }
 
-  if (reduce_level) {
+  if (change_level) {
     s = ReFitLevel(cfd, max_level_with_files, target_level);
   }
   LogFlush(db_options_.info_log);
@@ -1658,6 +1658,9 @@ int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
 
 Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   assert(level < cfd->NumberLevels());
+  if (target_level >= cfd->NumberLevels()) {
+    return Status::InvalidArgument("Target level exceeds number of levels");
+  }
 
   SuperVersion* superversion_to_free = nullptr;
   SuperVersion* new_superversion = new SuperVersion();
@@ -1691,17 +1694,29 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     to_level = FindMinimumEmptyLevelFitting(cfd, mutable_cf_options, level);
   }
 
-  assert(to_level <= level);
-
   Status status;
-  if (to_level < level) {
+  auto* vstorage = cfd->current()->storage_info();
+  if (to_level > level) {
+    if (level == 0) {
+      return Status::NotSupported(
+          "Cannot change from level 0 to other levels.");
+    }
+    // Check levels are empty for a trivial move
+    for (int l = level + 1; l <= to_level; l++) {
+      if (vstorage->NumLevelFiles(l) > 0) {
+        return Status::NotSupported(
+            "Levels between source and target are not empty for a move.");
+      }
+    }
+  }
+  if (to_level != level) {
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
         "[%s] Before refitting:\n%s",
         cfd->GetName().c_str(), cfd->current()->DebugString().data());
 
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
-    for (const auto& f : cfd->current()->storage_info()->LevelFiles(level)) {
+    for (const auto& f : vstorage->LevelFiles(level)) {
       edit.DeleteFile(level, f->fd.GetNumber());
       edit.AddFile(to_level, f->fd.GetNumber(), f->fd.GetPathId(),
                    f->fd.GetFileSize(), f->smallest, f->largest,

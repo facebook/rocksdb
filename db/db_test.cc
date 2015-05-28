@@ -11313,6 +11313,83 @@ TEST_F(DBTest, DynamicLevelMaxBytesBaseInc) {
   env_->SetBackgroundThreads(1, Env::HIGH);
 }
 
+TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
+  Random rnd(301);
+  const int kMaxKey = 2000;
+
+  Options options;
+  options.create_if_missing = true;
+  options.db_write_buffer_size = 2048;
+  options.write_buffer_size = 2048;
+  options.max_write_buffer_number = 8;
+  options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 4;
+  options.level0_stop_writes_trigger = 8;
+  options.target_file_size_base = 2048;
+  options.level_compaction_dynamic_level_bytes = false;
+  options.max_bytes_for_level_base = 10240;
+  options.max_bytes_for_level_multiplier = 4;
+  options.hard_rate_limit = 1.1;
+  options.num_levels = 8;
+
+  DestroyAndReopen(options);
+
+  auto verify_func = [&](int num_keys) {
+    for (int i = 0; i < num_keys; i++) {
+      ASSERT_NE("NOT_FOUND", Get(Key(kMaxKey + i)));
+      if (i < num_keys / 10) {
+        ASSERT_EQ("NOT_FOUND", Get(Key(i)));
+      } else {
+        ASSERT_NE("NOT_FOUND", Get(Key(i)));
+      }
+    }
+  };
+
+  int total_keys = 1000;
+  for (int i = 0; i < total_keys; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+    ASSERT_OK(Delete(Key(i / 10)));
+  }
+  verify_func(total_keys);
+  dbfull()->TEST_WaitForCompact();
+
+  options.level_compaction_dynamic_level_bytes = true;
+  options.disable_auto_compactions = true;
+  Reopen(options);
+  verify_func(total_keys);
+
+  std::atomic_bool compaction_finished(false);
+  // Issue manual compaction in one thread and still verify DB state
+  // in main thread.
+  std::thread t([&]() {
+    dbfull()->CompactRange(nullptr, nullptr, true, options.num_levels - 1);
+    compaction_finished.store(true);
+  });
+  do {
+    verify_func(total_keys);
+  } while (!compaction_finished.load());
+  t.join();
+
+  ASSERT_OK(dbfull()->SetOptions({
+      {"disable_auto_compactions", "false"},
+  }));
+
+  int total_keys2 = 2000;
+  for (int i = total_keys; i < total_keys2; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+    ASSERT_OK(Delete(Key(i / 10)));
+  }
+
+  verify_func(total_keys2);
+  dbfull()->TEST_WaitForCompact();
+  verify_func(total_keys2);
+
+  // Base level is not level 1
+  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
+}
 
 TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   if (!Snappy_Supported()) {

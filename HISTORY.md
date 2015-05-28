@@ -7,6 +7,7 @@
 * DB::GetDbIdentity() is now a const function.  If this function is overridden in your application, be sure to also make GetDbIdentity() const to avoid compile error.
 * Move listeners from ColumnFamilyOptions to DBOptions.
 * Add max_write_buffer_number_to_maintain option
+* DB::CompactRange()'s parameter reduce_level is changed to change_level, to allow users to move levels to lower levels if allowed. It can be used to migrate a DB from options.level_compaction_dynamic_level_bytes=false to options.level_compaction_dynamic_level_bytes.true.
 
 ## 3.11.0 (5/19/2015)
 ### New Features

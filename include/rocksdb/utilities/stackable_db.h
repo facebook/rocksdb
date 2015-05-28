@@ -129,9 +129,9 @@ class StackableDB : public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
+                              bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) override {
-    return db_->CompactRange(column_family, begin, end, reduce_level,
+    return db_->CompactRange(column_family, begin, end, change_level,
                              target_level, target_path_id);
   }
 
