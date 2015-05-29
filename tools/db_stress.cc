@@ -807,7 +807,7 @@ class DbStressListener : public EventListener {
   }
 
   virtual void OnCompactionCompleted(
-      DB *db, const CompactionJobInfo& ci) {
+      DB *db, const CompactionJobInfo& ci) override {
     assert(db);
     assert(db->GetName() == db_name_);
     assert(IsValidColumnFamilyName(ci.cf_name));
