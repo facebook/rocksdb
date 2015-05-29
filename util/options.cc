@@ -70,15 +70,9 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
           options.level_compaction_dynamic_level_bytes),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       num_levels(options.num_levels),
-      optimize_filters_for_hits(options.optimize_filters_for_hits)
-#ifndef ROCKSDB_LITE
-      ,
+      optimize_filters_for_hits(options.optimize_filters_for_hits),
       listeners(options.listeners) {
 }
-#else  // ROCKSDB_LITE
-{
-}
-#endif  // ROCKSDB_LITE
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
@@ -247,9 +241,7 @@ DBOptions::DBOptions()
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
-#ifndef ROCKSDB_LITE
       listeners(),
-#endif
       enable_thread_tracking(false) {
 }
 
@@ -294,9 +286,7 @@ DBOptions::DBOptions(const Options& options)
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
-#ifndef ROCKSDB_LITE
       listeners(options.listeners),
-#endif
       enable_thread_tracking(options.enable_thread_tracking) {}
 
 static const char* const access_hints[] = {

@@ -30,10 +30,13 @@ int main() {
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <chrono>
 #include <exception>
+#include <thread>
+
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -775,6 +778,110 @@ struct ThreadState {
 
   ThreadState(uint32_t index, SharedState* _shared)
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
+};
+
+class DbStressListener : public EventListener {
+ public:
+  DbStressListener(
+      const std::string& db_name,
+      const std::vector<DbPath>& db_paths,
+      const std::vector<ColumnFamilyDescriptor>& cf_descs) :
+      db_name_(db_name),
+      db_paths_(db_paths),
+      cf_descs_(cf_descs),
+      rand_(301) {}
+  virtual ~DbStressListener() {}
+#ifndef ROCKSDB_LITE
+  virtual void OnFlushCompleted(
+      DB* db, const std::string& column_family_name,
+      const std::string& file_path,
+      bool triggered_writes_slowdown,
+      bool triggered_writes_stop) override {
+    assert(db);
+    assert(db->GetName() == db_name_);
+    assert(IsValidColumnFamilyName(column_family_name));
+    VerifyFilePath(file_path);
+    // pretending doing some work here
+    std::this_thread::sleep_for(
+        std::chrono::microseconds(rand_.Uniform(5000)));
+  }
+
+  virtual void OnCompactionCompleted(
+      DB *db, const CompactionJobInfo& ci) {
+    assert(db);
+    assert(db->GetName() == db_name_);
+    assert(IsValidColumnFamilyName(ci.cf_name));
+    assert(ci.input_files.size() + ci.output_files.size() > 0U);
+    for (const auto& file_path : ci.input_files) {
+      VerifyFilePath(file_path);
+    }
+    for (const auto& file_path : ci.output_files) {
+      VerifyFilePath(file_path);
+    }
+    // pretending doing some work here
+    std::this_thread::sleep_for(
+        std::chrono::microseconds(rand_.Uniform(5000)));
+  }
+
+ protected:
+  bool IsValidColumnFamilyName(const std::string& cf_name) const {
+    if (cf_name == kDefaultColumnFamilyName) {
+      return true;
+    }
+    for (const auto& cf_desc : cf_descs_) {
+      if (cf_desc.name == cf_name) {
+        return true;
+      }
+    }
+    fprintf(stderr,
+        "Unable to find the matched column family name "
+        "for CF: %s.  Existing CF names are:\n",
+        cf_name.c_str());
+    for (const auto& cf_desc : cf_descs_) {
+      fprintf(stderr, "  %s\n", cf_desc.name.c_str());
+    }
+    fflush(stderr);
+    return false;
+  }
+
+  void VerifyFileDir(const std::string& file_dir) {
+    if (db_name_ == file_dir) {
+      return;
+    }
+    for (const auto& db_path : db_paths_) {
+      if (db_path.path == file_dir) {
+        return;
+      }
+    }
+    assert(false);
+  }
+
+  void VerifyFileName(const std::string& file_name) {
+    uint64_t file_number;
+    FileType file_type;
+    bool result = ParseFileName(file_name, &file_number, &file_type);
+    assert(result);
+    assert(file_type == kTableFile);
+  }
+
+  void VerifyFilePath(const std::string& file_path) {
+    size_t pos = file_path.find_last_of("/");
+    if (pos == std::string::npos) {
+      VerifyFileName(file_path);
+    } else {
+      if (pos > 0) {
+        VerifyFileDir(file_path.substr(0, pos));
+      }
+      VerifyFileName(file_path.substr(pos));
+    }
+  }
+#endif  // !ROCKSDB_LITE
+
+ private:
+  std::string db_name_;
+  std::vector<DbPath> db_paths_;
+  std::vector<ColumnFamilyDescriptor> cf_descs_;
+  Random rand_;
 };
 
 }  // namespace
@@ -1913,6 +2020,9 @@ class StressTest {
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
         column_family_names_.push_back(name);
       }
+      options_.listeners.clear();
+      options_.listeners.emplace_back(
+          new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
       options_.create_missing_column_families = true;
       s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                    &column_families_, &db_);

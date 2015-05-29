@@ -104,4 +104,11 @@ class EventListener {
 
 }  // namespace rocksdb
 
+#else
+
+namespace rocksdb {
+class EventListener {
+};
+}
+
 #endif  // ROCKSDB_LITE
