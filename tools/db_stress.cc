@@ -845,6 +845,7 @@ class DbStressListener : public EventListener {
   }
 
   void VerifyFileDir(const std::string& file_dir) {
+#ifndef NDEBUG
     if (db_name_ == file_dir) {
       return;
     }
@@ -854,17 +855,21 @@ class DbStressListener : public EventListener {
       }
     }
     assert(false);
+#endif  // !NDEBUG
   }
 
   void VerifyFileName(const std::string& file_name) {
+#ifndef NDEBUG
     uint64_t file_number;
     FileType file_type;
     bool result = ParseFileName(file_name, &file_number, &file_type);
     assert(result);
     assert(file_type == kTableFile);
+#endif  // !NDEBUG
   }
 
   void VerifyFilePath(const std::string& file_path) {
+#ifndef NDEBUG
     size_t pos = file_path.find_last_of("/");
     if (pos == std::string::npos) {
       VerifyFileName(file_path);
@@ -874,6 +879,7 @@ class DbStressListener : public EventListener {
       }
       VerifyFileName(file_path.substr(pos));
     }
+#endif  // !NDEBUG
   }
 #endif  // !ROCKSDB_LITE
 
