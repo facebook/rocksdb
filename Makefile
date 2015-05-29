@@ -362,11 +362,11 @@ dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench -j32
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
 
 coverage:
 	$(MAKE) clean
-	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check -j32
+	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) all check
 	cd coverage && ./coverage_test.sh
         # Delete intermediate files
 	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
