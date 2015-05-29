@@ -97,7 +97,8 @@ TEST_F(FlushJobTest, Empty) {
 TEST_F(FlushJobTest, NonEmpty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions());
+  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                           kMaxSequenceNumber);
   new_mem->Ref();
   std::map<std::string, std::string> inserted_keys;
   for (int i = 1; i < 10000; ++i) {

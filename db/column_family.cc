@@ -527,18 +527,18 @@ uint64_t ColumnFamilyData::GetNumLiveVersions() const {
 }
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   assert(current_ != nullptr);
-  return new MemTable(internal_comparator_, ioptions_,
-                      mutable_cf_options, write_buffer_);
+  return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
+                      write_buffer_, earliest_seq);
 }
 
 void ColumnFamilyData::CreateNewMemtable(
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  SetMemtable(ConstructNewMemtable(mutable_cf_options));
+  SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
   mem_->Ref();
 }
 

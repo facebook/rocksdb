@@ -39,6 +39,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/utilities/checkpoint.h"
 #include "rocksdb/utilities/convenience.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"

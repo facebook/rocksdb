@@ -8,6 +8,7 @@ Some examples of the features disabled by ROCKSDB_LITE:
 * No support for replication (which we provide in form of TrasactionalIterator)
 * No advanced monitoring tools
 * No special-purpose memtables that are highly optimized for specific use cases
+* No Transactions
 
 When adding a new big feature to RocksDB, please add ROCKSDB_LITE compile guard if:
 * Nobody from mobile really needs your feature,

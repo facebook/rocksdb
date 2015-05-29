@@ -32,6 +32,7 @@ namespace rocksdb {
 #else
 
 struct Options;
+struct WriteOptions;
 class ManagedIterator;
 class DBImpl;
 void GetXFTestOptions(Options* options, int skip_policy);
@@ -44,6 +45,11 @@ void xf_transaction_set_memtable_history(
     int32_t* max_write_buffer_number_to_maintain);
 void xf_transaction_clear_memtable_history(
     int32_t* max_write_buffer_number_to_maintain);
+void xf_transaction_write(const WriteOptions& write_options,
+                          const DBOptions& db_options,
+                          class WriteBatch* my_batch,
+                          class WriteCallback* callback, DBImpl* db_impl,
+                          Status* success, bool* write_attempted);
 
 // This class provides the facility to run custom code to test a specific
 // feature typically with all existing unit tests.

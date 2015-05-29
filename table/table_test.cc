@@ -444,7 +444,8 @@ class MemTableConstructor: public Constructor {
     options_.memtable_factory = table_factory_;
     ImmutableCFOptions ioptions(options_);
     memtable_ = new MemTable(internal_comparator_, ioptions,
-                             MutableCFOptions(options_, ioptions), wb);
+                             MutableCFOptions(options_, ioptions), wb,
+                             kMaxSequenceNumber);
     memtable_->Ref();
   }
   ~MemTableConstructor() {
@@ -458,7 +459,7 @@ class MemTableConstructor: public Constructor {
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
                              MutableCFOptions(options_, mem_ioptions),
-                             write_buffer_);
+                             write_buffer_, kMaxSequenceNumber);
     memtable_->Ref();
     int seq = 1;
     for (const auto kv : kv_map) {
@@ -1949,7 +1950,8 @@ TEST_F(MemTableTest, Simple) {
   ImmutableCFOptions ioptions(options);
   WriteBuffer wb(options.db_write_buffer_size);
   MemTable* memtable =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb);
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
+                   kMaxSequenceNumber);
   memtable->Ref();
   WriteBatch batch;
   WriteBatchInternal::SetSequence(&batch, 100);

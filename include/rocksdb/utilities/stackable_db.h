@@ -22,6 +22,8 @@ class StackableDB : public DB {
     return db_;
   }
 
+  virtual DB* GetRootDB() override { return db_->GetRootDB(); }
+
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle) override {

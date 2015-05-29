@@ -133,7 +133,8 @@ TEST_F(MemTableListTest, GetTest) {
 
   WriteBuffer wb(options.db_write_buffer_size);
   MemTable* mem =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb);
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
+                   kMaxSequenceNumber);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -169,7 +170,8 @@ TEST_F(MemTableListTest, GetTest) {
   // Create another memtable and write some keys to it
   WriteBuffer wb2(options.db_write_buffer_size);
   MemTable* mem2 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2);
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2,
+                   kMaxSequenceNumber);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -233,7 +235,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
 
   WriteBuffer wb(options.db_write_buffer_size);
   MemTable* mem =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb);
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
+                   kMaxSequenceNumber);
   mem->Ref();
 
   // Write some keys to this memtable.
@@ -307,7 +310,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Create another memtable and write some keys to it
   WriteBuffer wb2(options.db_write_buffer_size);
   MemTable* mem2 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2);
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb2,
+                   kMaxSequenceNumber);
   mem2->Ref();
 
   mem2->Add(++seq, kTypeDeletion, "key1", "");
@@ -332,7 +336,8 @@ TEST_F(MemTableListTest, GetFromHistoryTest) {
   // Add a third memtable to push the first memtable out of the history
   WriteBuffer wb3(options.db_write_buffer_size);
   MemTable* mem3 =
-      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb3);
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb3,
+                   kMaxSequenceNumber);
   mem3->Ref();
   list.Add(mem3, &to_delete);
   ASSERT_EQ(1, list.NumNotFlushed());
@@ -403,7 +408,8 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   std::vector<MemTable*> tables;
   MutableCFOptions mutable_cf_options(options, ioptions);
   for (int i = 0; i < num_tables; i++) {
-    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb);
+    MemTable* mem = new MemTable(cmp, ioptions, mutable_cf_options, &wb,
+                                 kMaxSequenceNumber);
     mem->Ref();
 
     std::string value;
@@ -581,6 +587,15 @@ TEST_F(MemTableListTest, FlushPendingTest) {
   list.current()->Unref(&to_delete);
   int to_delete_size = std::min(5, max_write_buffer_number_to_maintain);
   ASSERT_EQ(to_delete_size, to_delete.size());
+
+  for (const auto& m : to_delete) {
+    // Refcount should be 0 after calling InstallMemtableFlushResults.
+    // Verify this, by Ref'ing then UnRef'ing:
+    m->Ref();
+    ASSERT_EQ(m, m->Unref());
+    delete m;
+  }
+  to_delete.clear();
 }
 
 }  // namespace rocksdb

@@ -603,6 +603,9 @@ class DB {
   }
 #endif  // ROCKSDB_LITE
 
+  // Needed for StackableDB
+  virtual DB* GetRootDB() { return this; }
+
  private:
   // No copying allowed
   DB(const DB&);

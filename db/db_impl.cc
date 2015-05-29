@@ -48,6 +48,7 @@
 #include "db/version_set.h"
 #include "db/writebuffer.h"
 #include "db/write_batch_internal.h"
+#include "db/write_callback.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
 #include "port/likely.h"
@@ -866,7 +867,7 @@ Status DBImpl::Recover(
     s = CheckConsistency();
   }
   if (s.ok()) {
-    SequenceNumber max_sequence(0);
+    SequenceNumber max_sequence(kMaxSequenceNumber);
     default_cf_handle_ = new ColumnFamilyHandleImpl(
         versions_->GetColumnFamilySet()->GetDefault(), this, &mutex_);
     default_cf_internal_stats_ = default_cf_handle_->cfd()->internal_stats();
@@ -917,7 +918,8 @@ Status DBImpl::Recover(
       if (!s.ok()) {
         // Clear memtables if recovery failed
         for (auto cfd : *versions_->GetColumnFamilySet()) {
-          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
+          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                 kMaxSequenceNumber);
         }
       }
     }
@@ -1035,7 +1037,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       }
       const SequenceNumber last_seq = WriteBatchInternal::Sequence(&batch) +
                                       WriteBatchInternal::Count(&batch) - 1;
-      if (last_seq > *max_sequence) {
+      if ((*max_sequence == kMaxSequenceNumber) || (last_seq > *max_sequence)) {
         *max_sequence = last_seq;
       }
 
@@ -1058,7 +1060,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
             // file-systems cause the DB::Open() to fail.
             return status;
           }
-          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
+
+          cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                 *max_sequence);
         }
       }
     }
@@ -1068,7 +1072,8 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
 
     flush_scheduler_.Clear();
-    if (versions_->LastSequence() < *max_sequence) {
+    if ((*max_sequence != kMaxSequenceNumber) &&
+        (versions_->LastSequence() < *max_sequence)) {
       versions_->SetLastSequence(*max_sequence);
     }
   }
@@ -1099,7 +1104,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
           // Recovery failed
           break;
         }
-        cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions());
+
+        cfd->CreateNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                               *max_sequence);
       }
 
       // write MANIFEST with update
@@ -2657,10 +2664,8 @@ Status DBImpl::GetImpl(const ReadOptions& read_options,
   } else {
     snapshot = versions_->LastSequence();
   }
-
   // Acquire SuperVersion
   SuperVersion* sv = GetAndRefSuperVersion(cfd);
-
   // Prepare to store a list of merge operations if merge occurs.
   MergeContext merge_context;
 
@@ -3156,9 +3161,32 @@ Status DBImpl::Delete(const WriteOptions& write_options,
 }
 
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
+  return WriteImpl(write_options, my_batch, nullptr);
+}
+
+Status DBImpl::WriteWithCallback(const WriteOptions& write_options,
+                                 WriteBatch* my_batch,
+                                 WriteCallback* callback) {
+  return WriteImpl(write_options, my_batch, callback);
+}
+
+Status DBImpl::WriteImpl(const WriteOptions& write_options,
+                         WriteBatch* my_batch, WriteCallback* callback) {
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+
+  Status status;
+  bool xfunc_attempted_write = false;
+  XFUNC_TEST("transaction", "transaction_xftest_write_impl",
+             xf_transaction_write1, xf_transaction_write, write_options,
+             db_options_, my_batch, callback, this, &status,
+             &xfunc_attempted_write);
+  if (xfunc_attempted_write) {
+    // Test already did the write
+    return status;
+  }
+
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
   WriteThread::Writer w(&mutex_);
   w.batch = my_batch;
@@ -3166,6 +3194,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   w.disableWAL = write_options.disableWAL;
   w.in_batch_group = false;
   w.done = false;
+  w.has_callback = (callback != nullptr) ? true : false;
   w.timeout_hint_us = write_options.timeout_hint_us;
 
   uint64_t expiration_time = 0;
@@ -3188,7 +3217,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
   }
 
-  Status status = write_thread_.EnterWriteThread(&w, expiration_time);
+  status = write_thread_.EnterWriteThread(&w, expiration_time);
   assert(status.ok() || status.IsTimedOut());
   if (status.IsTimedOut()) {
     mutex_.Unlock();
@@ -3290,16 +3319,30 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
 
   uint64_t last_sequence = versions_->LastSequence();
   WriteThread::Writer* last_writer = &w;
+  autovector<WriteBatch*> write_batch_group;
+
   if (status.ok()) {
-    autovector<WriteBatch*> write_batch_group;
     write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
 
     // Add to log and apply to memtable.  We can release the lock
     // during this phase since &w is currently responsible for logging
     // and protects against concurrent loggers and concurrent writes
     // into memtables
-    {
-      mutex_.Unlock();
+
+    mutex_.Unlock();
+
+    if (callback != nullptr) {
+      // If this write has a validation callback, check to see if this write
+      // is able to be written.  Must be called on the write thread.
+      status = callback->Callback(this);
+    }
+  } else {
+    mutex_.Unlock();
+  }
+
+  // At this point the mutex is unlocked
+
+  if (status.ok()) {
       WriteBatch* updates = nullptr;
       if (write_batch_group.size() == 1) {
         updates = write_batch_group[0];
@@ -3371,6 +3414,7 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
         tmp_batch_.Clear();
       }
       mutex_.Lock();
+
       // internal stats
       default_cf_internal_stats_->AddDBStats(
           InternalStats::BYTES_WRITTEN, batch_size);
@@ -3385,13 +3429,17 @@ Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
       if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
       }
+  } else {
+    // Operation failed.  Make sure sure mutex is held for cleanup code below.
+    mutex_.Lock();
     }
-  }
-  if (db_options_.paranoid_checks && !status.ok() &&
-      !status.IsTimedOut() && bg_error_.ok()) {
+
+    if (db_options_.paranoid_checks && !status.ok() && !status.IsTimedOut() &&
+        !status.IsBusy() && bg_error_.ok()) {
     bg_error_ = status; // stop compaction & fail any further writes
   }
 
+  mutex_.AssertHeld();
   write_thread_.ExitWriteThread(&w, last_writer, status);
 
   if (context.schedule_bg_work_) {
@@ -3503,7 +3551,8 @@ Status DBImpl::SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
     }
 
     if (s.ok()) {
-      new_mem = cfd->ConstructNewMemtable(mutable_cf_options);
+      SequenceNumber seq = versions_->LastSequence();
+      new_mem = cfd->ConstructNewMemtable(mutable_cf_options, seq);
       new_superversion = new SuperVersion();
     }
   }
@@ -3647,6 +3696,18 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(ColumnFamilyData* cfd) {
   return cfd->GetThreadLocalSuperVersion(&mutex_);
 }
 
+// REQUIRED: this function should only be called on the write thread or if the
+// mutex is held.
+SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
+  auto column_family_set = versions_->GetColumnFamilySet();
+  auto cfd = column_family_set->GetColumnFamily(column_family_id);
+  if (!cfd) {
+    return nullptr;
+  }
+
+  return GetAndRefSuperVersion(cfd);
+}
+
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
   bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
@@ -3663,6 +3724,30 @@ void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
     }
     RecordTick(stats_, NUMBER_SUPERVERSION_RELEASES);
   }
+}
+
+// REQUIRED: this function should only be called on the write thread.
+void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
+                                          SuperVersion* sv) {
+  auto column_family_set = versions_->GetColumnFamilySet();
+  auto cfd = column_family_set->GetColumnFamily(column_family_id);
+
+  // If SuperVersion is held, and we successfully fetched a cfd using
+  // GetAndRefSuperVersion(), it must still exist.
+  assert(cfd != nullptr);
+  ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
+// REQUIRED: this function should only be called on the write thread or if the
+// mutex is held.
+ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
+  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  if (!cf_memtables->Seek(column_family_id)) {
+    return nullptr;
+  }
+
+  return cf_memtables->GetColumnFamilyHandle();
 }
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
@@ -4234,5 +4319,84 @@ void DumpRocksDBBuildVersion(Logger * log) {
   Warn(log, "Compile date %s", rocksdb_build_compile_date);
 #endif
 }
+
+#ifndef ROCKSDB_LITE
+SequenceNumber DBImpl::GetEarliestMemTableSequenceNumber(SuperVersion* sv,
+                                                         bool include_history) {
+  // Find the earliest sequence number that we know we can rely on reading
+  // from the memtable without needing to check sst files.
+  SequenceNumber earliest_seq =
+      sv->imm->GetEarliestSequenceNumber(include_history);
+  if (earliest_seq == kMaxSequenceNumber) {
+    earliest_seq = sv->mem->GetEarliestSequenceNumber();
+  }
+  assert(sv->mem->GetEarliestSequenceNumber() >= earliest_seq);
+
+  return earliest_seq;
+}
+#endif  // ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE
+Status DBImpl::GetLatestSequenceForKeyFromMemtable(SuperVersion* sv,
+                                                   const Slice& key,
+                                                   SequenceNumber* seq) {
+  Status s;
+  std::string value;
+  MergeContext merge_context;
+
+  SequenceNumber current_seq = versions_->LastSequence();
+  LookupKey lkey(key, current_seq);
+
+  *seq = kMaxSequenceNumber;
+
+  // Check if there is a record for this key in the latest memtable
+  sv->mem->Get(lkey, &value, &s, &merge_context, seq);
+
+  if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
+    // unexpected error reading memtable.
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "Unexpected status returned from MemTable::Get: %s\n",
+        s.ToString().c_str());
+
+    return s;
+  }
+
+  if (*seq != kMaxSequenceNumber) {
+    // Found a sequence number, no need to check immutable memtables
+    return Status::OK();
+  }
+
+  // Check if there is a record for this key in the immutable memtables
+  sv->imm->Get(lkey, &value, &s, &merge_context, seq);
+
+  if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
+    // unexpected error reading memtable.
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "Unexpected status returned from MemTableList::Get: %s\n",
+        s.ToString().c_str());
+
+    return s;
+  }
+
+  if (*seq != kMaxSequenceNumber) {
+    // Found a sequence number, no need to check memtable history
+    return Status::OK();
+  }
+
+  // Check if there is a record for this key in the immutable memtables
+  sv->imm->GetFromHistory(lkey, &value, &s, &merge_context, seq);
+
+  if (!(s.ok() || s.IsNotFound() || s.IsMergeInProgress())) {
+    // unexpected error reading memtable.
+    Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+        "Unexpected status returned from MemTableList::GetFromHistory: %s\n",
+        s.ToString().c_str());
+
+    return s;
+  }
+
+  return Status::OK();
+}
+#endif  // ROCKSDB_LITE
 
 }  // namespace rocksdb

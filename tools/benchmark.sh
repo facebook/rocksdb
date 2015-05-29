@@ -3,7 +3,8 @@
 
 if [ $# -ne 1 ]; then
   echo -n "./benchmark.sh [bulkload/fillseq/overwrite/filluniquerandom/"
-  echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/mergerandom]"
+  echo    "readrandom/readwhilewriting/readwhilemerging/updaterandom/"
+  echo    "mergerandom/randomtransaction]"
   exit 0
 fi
 
@@ -278,6 +279,18 @@ function run_range {
   summarize_result $output_dir/${out_name} ${full_name}.t${num_threads} seekrandom
 }
 
+function run_randomtransaction {
+  echo "..."
+  cmd="./db_bench $params_r --benchmarks=randomtransaction \
+       --num=$num_keys \
+       --transaction_db \
+       --threads=5 \
+       --transaction_sets=5 \
+       2>&1 | tee $output_dir/benchmark_randomtransaction.log"
+  echo $cmd | tee $output_dir/benchmark_rangescanwhilewriting.log
+  eval $cmd
+}
+
 function now() {
   echo `date +"%s"`
 }
@@ -326,6 +339,8 @@ for job in ${jobs[@]}; do
     run_rangewhile merging $job false
   elif [ $job = revrangewhilemerging ]; then
     run_rangewhile merging $job true
+  elif [ $job = randomtransaction ]; then
+    run_randomtransaction
   elif [ $job = debug ]; then
     num_keys=1000; # debug
     echo "Setting num_keys to $num_keys"

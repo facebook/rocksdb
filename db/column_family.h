@@ -223,10 +223,13 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
-
-  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options);
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);
+
+  // See Memtable constructor for explanation of earliest_seq param.
+  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
+                                 SequenceNumber earliest_seq);
+  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
+                         SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
 

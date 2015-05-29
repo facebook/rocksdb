@@ -105,6 +105,13 @@ void WriteThread::BuildBatchGroup(WriteThread::Writer** last_writer,
   }
 
   *last_writer = first;
+
+  if (first->has_callback) {
+    // TODO(agiardullo:) Batching not currently supported as this write may
+    // fail if the callback function decides to abort this write.
+    return;
+  }
+
   std::deque<Writer*>::iterator iter = writers_.begin();
   ++iter;  // Advance past "first"
   for (; iter != writers_.end(); ++iter) {
@@ -123,6 +130,12 @@ void WriteThread::BuildBatchGroup(WriteThread::Writer** last_writer,
     if (w->timeout_hint_us < first->timeout_hint_us) {
       // Do not include those writes with shorter timeout.  Otherwise, we might
       // execute a write that should instead be aborted because of timeout.
+      break;
+    }
+
+    if (w->has_callback) {
+      // Do not include writes which may be aborted if the callback does not
+      // succeed.
       break;
     }
 

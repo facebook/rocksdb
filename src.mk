@@ -109,6 +109,8 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/uint64add.cc                        \
   utilities/redis/redis_lists.cc                                \
   utilities/spatialdb/spatial_db.cc                             \
+  utilities/transactions/optimistic_transaction_impl.cc         \
+  utilities/transactions/optimistic_transaction_db_impl.cc      \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
@@ -179,6 +181,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/wal_manager_test.cc                                                \
   db/write_batch_test.cc                                                \
   db/write_controller_test.cc                                           \
+  db/write_callback_test.cc                                             \
   table/block_based_filter_block_test.cc                                \
   table/block_hash_index_test.cc                                        \
   table/block_test.cc                                                   \
@@ -211,6 +214,7 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/spatialdb/spatial_db_test.cc                                \
+  utilities/transactions/optimistic_transaction_test.cc               \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc	\
   util/log_write_bench.cc                                               \
@@ -266,4 +270,5 @@ XFUNC_TESTS =                                                   \
   "managed_new"                                                 \
   "managed_xftest_dropold"                                      \
   "managed_xftest_release"                                      \
-  "inplace_lock_test"
+  "inplace_lock_test"                                           \
+  "transaction"

@@ -87,20 +87,38 @@ int MemTableList::NumFlushed() const {
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext* merge_context) {
-  for (auto& memtable : memlist_) {
-    if (memtable->Get(key, value, s, merge_context)) {
-      return true;
-    }
-  }
-  return false;
+                              Status* s, MergeContext* merge_context,
+                              SequenceNumber* seq) {
+  return GetFromList(&memlist_, key, value, s, merge_context, seq);
 }
 
 bool MemTableListVersion::GetFromHistory(const LookupKey& key,
                                          std::string* value, Status* s,
-                                         MergeContext* merge_context) {
-  for (auto& memtable : memlist_history_) {
-    if (memtable->Get(key, value, s, merge_context)) {
+                                         MergeContext* merge_context,
+                                         SequenceNumber* seq) {
+  return GetFromList(&memlist_history_, key, value, s, merge_context, seq);
+}
+
+bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
+                                      const LookupKey& key, std::string* value,
+                                      Status* s, MergeContext* merge_context,
+                                      SequenceNumber* seq) {
+  *seq = kMaxSequenceNumber;
+
+  for (auto& memtable : *list) {
+    SequenceNumber current_seq = kMaxSequenceNumber;
+
+    bool done = memtable->Get(key, value, s, merge_context, &current_seq);
+    if (*seq == kMaxSequenceNumber) {
+      // Store the most recent sequence number of any operation on this key.
+      // Since we only care about the most recent change, we only need to
+      // return the first operation found when searching memtables in
+      // reverse-chronological order.
+      *seq = current_seq;
+    }
+
+    if (done) {
+      assert(*seq != kMaxSequenceNumber);
       return true;
     }
   }
@@ -137,6 +155,17 @@ uint64_t MemTableListVersion::GetTotalNumDeletes() const {
     total_num += m->num_deletes();
   }
   return total_num;
+}
+
+SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
+    bool include_history) const {
+  if (include_history && !memlist_history_.empty()) {
+    return memlist_history_.back()->GetEarliestSequenceNumber();
+  } else if (!memlist_.empty()) {
+    return memlist_.back()->GetEarliestSequenceNumber();
+  } else {
+    return kMaxSequenceNumber;
+  }
 }
 
 // caller is responsible for referencing m

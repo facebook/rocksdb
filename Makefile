@@ -30,7 +30,7 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 # We use this debug level when developing RocksDB.
 # * DEBUG_LEVEL=0; this is the debug level we use for release. If you're
 # running rocksdb in production you most definitely want to compile RocksDB
-# with debug level 0. To compile with level 0, run `make shared_lib`, 
+# with debug level 0. To compile with level 0, run `make shared_lib`,
 # `make install-shared`, `make static_lib`, `make install-static` or
 # `make install`
 DEBUG_LEVEL=1
@@ -287,7 +287,9 @@ TESTS = \
 	thread_list_test \
 	sst_dump_test \
 	compact_files_test \
-	perf_context_test
+	perf_context_test \
+	optimistic_transaction_test \
+	write_callback_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -817,6 +819,9 @@ sst_dump_test: util/sst_dump_test.o $(LIBOBJECTS) $(TESTHARNESS)
 memenv_test : util/memenv_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+optimistic_transaction_test: utilities/transactions/optimistic_transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 mock_env_test : util/mock_env_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -830,6 +835,9 @@ auto_roll_logger_test: util/auto_roll_logger_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)

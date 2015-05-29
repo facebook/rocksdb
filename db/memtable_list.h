@@ -21,6 +21,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
+#include "rocksdb/types.h"
 #include "util/autovector.h"
 #include "util/instrumented_mutex.h"
 #include "util/log_buffer.h"
@@ -48,15 +49,30 @@ class MemTableListVersion {
 
   // Search all the memtables starting from the most recent one.
   // Return the most recent value found, if any.
+  //
+  // If any operation was found for this key, its most recent sequence number
+  // will be stored in *seq on success (regardless of whether true/false is
+  // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context);
+           MergeContext* merge_context, SequenceNumber* seq);
+
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context) {
+    SequenceNumber seq;
+    return Get(key, value, s, merge_context, &seq);
+  }
 
   // Similar to Get(), but searches the Memtable history of memtables that
   // have already been flushed.  Should only be used from in-memory only
   // queries (such as Transaction validation) as the history may contain
   // writes that are also present in the SST files.
   bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
-                      MergeContext* merge_context);
+                      MergeContext* merge_context, SequenceNumber* seq);
+  bool GetFromHistory(const LookupKey& key, std::string* value, Status* s,
+                      MergeContext* merge_context) {
+    SequenceNumber seq;
+    return GetFromHistory(key, value, s, merge_context, &seq);
+  }
 
   void AddIterators(const ReadOptions& options,
                     std::vector<Iterator*>* iterator_list, Arena* arena);
@@ -68,6 +84,12 @@ class MemTableListVersion {
 
   uint64_t GetTotalNumDeletes() const;
 
+  // Returns the value of MemTable::GetEarliestSequenceNumber() on the most
+  // recent MemTable in this list or kMaxSequenceNumber if the list is empty.
+  // If include_history=true, will also search Memtables in MemTableList
+  // History.
+  SequenceNumber GetEarliestSequenceNumber(bool include_history = false) const;
+
  private:
   // REQUIRE: m is an immutable memtable
   void Add(MemTable* m, autovector<MemTable*>* to_delete);
@@ -75,6 +97,10 @@ class MemTableListVersion {
   void Remove(MemTable* m, autovector<MemTable*>* to_delete);
 
   void TrimHistory(autovector<MemTable*>* to_delete);
+
+  bool GetFromList(std::list<MemTable*>* list, const LookupKey& key,
+                   std::string* value, Status* s, MergeContext* merge_context,
+                   SequenceNumber* seq);
 
   friend class MemTableList;
 
