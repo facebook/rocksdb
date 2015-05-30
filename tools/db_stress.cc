@@ -784,11 +784,9 @@ class DbStressListener : public EventListener {
  public:
   DbStressListener(
       const std::string& db_name,
-      const std::vector<DbPath>& db_paths,
-      const std::vector<ColumnFamilyDescriptor>& cf_descs) :
+      const std::vector<DbPath>& db_paths) :
       db_name_(db_name),
       db_paths_(db_paths),
-      cf_descs_(cf_descs),
       rand_(301) {}
   virtual ~DbStressListener() {}
 #ifndef ROCKSDB_LITE
@@ -828,20 +826,13 @@ class DbStressListener : public EventListener {
     if (cf_name == kDefaultColumnFamilyName) {
       return true;
     }
-    for (const auto& cf_desc : cf_descs_) {
-      if (cf_desc.name == cf_name) {
-        return true;
+    // The column family names in the stress tests are numbers.
+    for (size_t i = 0; i < cf_name.size(); ++i) {
+      if (cf_name[i] < '0' || cf_name[i] > '9') {
+        return false;
       }
     }
-    fprintf(stderr,
-        "Unable to find the matched column family name "
-        "for CF: %s.  Existing CF names are:\n",
-        cf_name.c_str());
-    for (const auto& cf_desc : cf_descs_) {
-      fprintf(stderr, "  %s\n", cf_desc.name.c_str());
-    }
-    fflush(stderr);
-    return false;
+    return true;
   }
 
   void VerifyFileDir(const std::string& file_dir) {
@@ -886,7 +877,6 @@ class DbStressListener : public EventListener {
  private:
   std::string db_name_;
   std::vector<DbPath> db_paths_;
-  std::vector<ColumnFamilyDescriptor> cf_descs_;
   Random rand_;
 };
 
@@ -2028,7 +2018,7 @@ class StressTest {
       }
       options_.listeners.clear();
       options_.listeners.emplace_back(
-          new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
+          new DbStressListener(FLAGS_db, options_.db_paths));
       options_.create_missing_column_families = true;
       s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                    &column_families_, &db_);
