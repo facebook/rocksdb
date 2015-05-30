@@ -9,6 +9,7 @@
 
 #include <string>
 #include <vector>
+#include <inttypes.h>
 
 #include "db/column_family.h"
 #include "db/db_impl.h"
@@ -304,9 +305,9 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
         char msg[255];
         snprintf(
             msg, sizeof(msg),
-            "Could not commit transaction with write at SequenceNumber %lu "
+            "Could not commit transaction with write at SequenceNumber %" PRIu64 " "
             "as the MemTable only contains changes newer than SequenceNumber "
-            "%lu.",
+            "%" PRIu64 ".",
             key_seq, earliest_seq);
         result = Status::Busy(msg);
       } else {
