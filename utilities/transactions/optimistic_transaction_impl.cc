@@ -7,6 +7,11 @@
 
 #include "utilities/transactions/optimistic_transaction_impl.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <string>
 #include <vector>
 
@@ -304,9 +309,9 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
         char msg[255];
         snprintf(
             msg, sizeof(msg),
-            "Could not commit transaction with write at SequenceNumber %lu "
-            "as the MemTable only contains changes newer than SequenceNumber "
-            "%lu.",
+            "Could not commit transaction with write at SequenceNumber %" PRIu64
+            " as the MemTable only contains changes newer than SequenceNumber "
+            "%" PRIu64 ".",
             key_seq, earliest_seq);
         result = Status::Busy(msg);
       } else {

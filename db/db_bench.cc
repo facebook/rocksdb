@@ -3609,7 +3609,8 @@ class Benchmark {
         if (total != prev_total) {
           fprintf(stderr,
                   "RandomTransactionVerify found inconsistent totals. "
-                  "Set[%u]: %lu, Set[%u]: %lu \n",
+                  "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64
+                  " \n",
                   i - 1, prev_total, i, total);
           abort();
         }
@@ -3617,7 +3618,8 @@ class Benchmark {
       prev_total = total;
     }
 
-    fprintf(stdout, "RandomTransactionVerify Success! Total:%lu\n", prev_total);
+    fprintf(stdout, "RandomTransactionVerify Success! Total:%" PRIu64 "\n",
+            prev_total);
   }
 
   void Compact(ThreadState* thread) {
