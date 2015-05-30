@@ -304,9 +304,9 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
         char msg[255];
         snprintf(
             msg, sizeof(msg),
-            "Could not commit transaction with write at SequenceNumber %lu "
+            "Could not commit transaction with write at SequenceNumber %llu "
             "as the MemTable only contains changes newer than SequenceNumber "
-            "%lu.",
+            "%llu.",
             key_seq, earliest_seq);
         result = Status::Busy(msg);
       } else {
