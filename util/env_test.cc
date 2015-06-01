@@ -982,6 +982,87 @@ TEST_F(EnvPosixTest, Preallocation) {
   ASSERT_EQ(last_allocated_block, 7UL);
 }
 
+// Test that all WritableFileWrapper forwards all calls to WritableFile.
+TEST_F(EnvPosixTest, WritableFileWrapper) {
+  class Base : public WritableFile {
+   public:
+    mutable int *step_;
+
+    void inc(int x) const {
+      EXPECT_EQ(x, (*step_)++);
+    }
+
+    explicit Base(int* step) : step_(step) {
+      inc(0);
+    }
+
+    Status Append(const Slice& data) override { inc(1); return Status::OK(); }
+    Status Close() override { inc(2); return Status::OK(); }
+    Status Flush() override { inc(3); return Status::OK(); }
+    Status Sync() override { inc(4); return Status::OK(); }
+    Status Fsync() override { inc(5); return Status::OK(); }
+    void SetIOPriority(Env::IOPriority pri) override { inc(6); }
+    uint64_t GetFileSize() override { inc(7); return 0; }
+    void GetPreallocationStatus(size_t* block_size,
+                                size_t* last_allocated_block) override {
+      inc(8);
+    }
+    size_t GetUniqueId(char* id, size_t max_size) const override {
+      inc(9);
+      return 0;
+    }
+    Status InvalidateCache(size_t offset, size_t length) override {
+      inc(10);
+      return Status::OK();
+    }
+
+   protected:
+    Status Allocate(off_t offset, off_t len) override {
+      inc(11);
+      return Status::OK();
+    }
+    Status RangeSync(off_t offset, off_t nbytes) override {
+      inc(12);
+      return Status::OK();
+    }
+
+   public:
+    ~Base() {
+      inc(13);
+    }
+  };
+
+  class Wrapper : public WritableFileWrapper {
+   public:
+    explicit Wrapper(WritableFile* target) : WritableFileWrapper(target) {}
+
+    void CallProtectedMethods() {
+      Allocate(0, 0);
+      RangeSync(0, 0);
+    }
+  };
+
+  int step = 0;
+
+  {
+    Base b(&step);
+    Wrapper w(&b);
+    w.Append(Slice());
+    w.Close();
+    w.Flush();
+    w.Sync();
+    w.Fsync();
+    w.SetIOPriority(Env::IOPriority::IO_HIGH);
+    w.GetFileSize();
+    w.GetPreallocationStatus(nullptr, nullptr);
+    w.GetUniqueId(nullptr, 0);
+    w.InvalidateCache(0, 0);
+    w.CallProtectedMethods();
+  }
+
+  EXPECT_EQ(14, step);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
