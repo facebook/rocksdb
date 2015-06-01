@@ -688,9 +688,6 @@ class DBImpl : public DB {
   // Indicate DB was opened successfully
   bool opened_successfully_;
 
-  // count how many events are currently being notified.
-  int notifying_events_;
-
   // No copying allowed
   DBImpl(const DBImpl&);
   void operator=(const DBImpl&);

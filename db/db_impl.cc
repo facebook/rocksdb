@@ -245,8 +245,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       event_logger_(db_options_.info_log.get()),
       bg_work_gate_closed_(false),
       refitting_level_(false),
-      opened_successfully_(false),
-      notifying_events_(0) {
+      opened_successfully_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
 
   // Reserve ten files or so for other uses and give the rest to TableCache.
@@ -279,7 +278,7 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
   }
   // Wait for background work to finish
   mutex_.Lock();
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
   mutex_.Unlock();
@@ -314,7 +313,7 @@ DBImpl::~DBImpl() {
   bg_flush_scheduled_ -= flushes_unscheduled;
 
   // Wait for background work to finish
-  while (bg_compaction_scheduled_ || bg_flush_scheduled_ || notifying_events_) {
+  while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
   flush_scheduler_.Clear();
@@ -1279,7 +1278,6 @@ void DBImpl::NotifyOnFlushCompleted(
   bool triggered_flush_stop =
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
        mutable_cf_options.level0_stop_writes_trigger);
-  notifying_events_++;
   // release lock while notifying events
   mutex_.Unlock();
   {
@@ -1294,8 +1292,6 @@ void DBImpl::NotifyOnFlushCompleted(
     }
   }
   mutex_.Lock();
-  notifying_events_--;
-  assert(notifying_events_ >= 0);
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 #endif  // ROCKSDB_LITE
@@ -1549,6 +1545,9 @@ Status DBImpl::CompactFilesImpl(
   }
 
   bg_compaction_scheduled_--;
+  if (bg_compaction_scheduled_ == 0) {
+    bg_cv_.SignalAll();
+  }
 
   return status;
 }
@@ -1564,7 +1563,6 @@ void DBImpl::NotifyOnCompactionCompleted(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
-  notifying_events_++;
   // release lock while notifying events
   mutex_.Unlock();
   {
@@ -1591,8 +1589,6 @@ void DBImpl::NotifyOnCompactionCompleted(
     }
   }
   mutex_.Lock();
-  notifying_events_--;
-  assert(notifying_events_ >= 0);
   // no need to signal bg_cv_ as it will be signaled at the end of the
   // flush process.
 #endif  // ROCKSDB_LITE
