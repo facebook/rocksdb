@@ -14,7 +14,7 @@
 
 using namespace rocksdb;
 std::string kDBPath = "/tmp/rocksdb_compact_files_example";
-class CompactionTask;
+struct CompactionTask;
 
 // This is an example interface of external-compaction algorithm.
 // Compaction algorithm can be implemented outside the core-RocksDB
@@ -35,19 +35,19 @@ class Compactor : public EventListener {
 // Example structure that describes a compaction task.
 struct CompactionTask {
   CompactionTask(
-      DB* db, Compactor* compactor,
-      const std::string& column_family_name,
-      const std::vector<std::string>& input_file_names,
-      const int output_level,
-      const CompactionOptions& compact_options,
-      bool retry_on_fail)
-          : db(db),
-            compactor(compactor),
-            column_family_name(column_family_name),
-            input_file_names(input_file_names),
-            output_level(output_level),
-            compact_options(compact_options),
-            retry_on_fail(false) {}
+      DB* _db, Compactor* _compactor,
+      const std::string& _column_family_name,
+      const std::vector<std::string>& _input_file_names,
+      const int _output_level,
+      const CompactionOptions& _compact_options,
+      bool _retry_on_fail)
+          : db(_db),
+            compactor(_compactor),
+            column_family_name(_column_family_name),
+            input_file_names(_input_file_names),
+            output_level(_output_level),
+            compact_options(_compact_options),
+            retry_on_fail(_retry_on_fail) {}
   DB* db;
   Compactor* compactor;
   const std::string& column_family_name;
