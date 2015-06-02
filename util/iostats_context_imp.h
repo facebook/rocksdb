@@ -5,6 +5,7 @@
 //
 #pragma once
 #include "rocksdb/iostats_context.h"
+#include "util/perf_step_timer.h"
 
 #ifndef IOS_CROSS_COMPILE
 
@@ -33,6 +34,18 @@
 #define IOSTATS(metric)                        \
   (iostats_context.metric)
 
+// Stop the timer and update the metric
+#define IOSTATS_TIMER_STOP(metric)          \
+  iostats_step_timer_ ## metric.Stop();
+
+#define IOSTATS_TIMER_START(metric)          \
+  iostats_step_timer_ ## metric.Start();
+
+// Declare and set start time of the timer
+#define IOSTATS_TIMER_GUARD(metric)                                       \
+  PerfStepTimer iostats_step_timer_ ## metric(&(iostats_context.metric));  \
+  iostats_step_timer_ ## metric.Start();
+
 #else  // IOS_CROSS_COMPILE
 
 #define IOSTATS_ADD(metric, value)
@@ -42,5 +55,9 @@
 #define IOSTATS_SET_THREAD_POOL_ID(value)
 #define IOSTATS_THREAD_POOL_ID()
 #define IOSTATS(metric) 0
+
+#define IOSTATS_TIMER_GUARD(metric)
+#define IOSTATS_TIMER_STOP(metric)
+#define IOSTATS_TIMER_START(metric)
 
 #endif  // IOS_CROSS_COMPILE

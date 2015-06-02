@@ -9,7 +9,11 @@
 #include <stdint.h>
 #include <string>
 
+#include "rocksdb/perf_level.h"
+
 // A thread local context for gathering io-stats efficiently and transparently.
+// Use SetPerfLevel(PerfLevel::kEnableTime) to enable time stats.
+
 namespace rocksdb {
 
 struct IOStatsContext {
@@ -25,6 +29,18 @@ struct IOStatsContext {
   uint64_t bytes_written;
   // number of bytes that has been read.
   uint64_t bytes_read;
+
+  // time spent in open() and fopen().
+  uint64_t open_nanos;
+  // time spent in fallocate().
+  uint64_t allocate_nanos;
+  // time spent in write() and pwrite().
+  uint64_t write_nanos;
+  // time spent in sync_file_range().
+  uint64_t range_sync_nanos;
+
+  // time spent in Logger::Logv().
+  uint64_t logger_nanos;
 };
 
 #ifndef IOS_CROSS_COMPILE

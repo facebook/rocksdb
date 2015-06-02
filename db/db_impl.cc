@@ -3322,7 +3322,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     if (context.schedule_bg_work_) {
       MaybeScheduleFlushOrCompaction();
     }
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
+    PERF_TIMER_GUARD(write_delay_time);
     status = DelayWrite(expiration_time);
+    PERF_TIMER_START(write_pre_and_post_process_time);
   }
 
   if (UNLIKELY(status.ok() && has_timeout &&
