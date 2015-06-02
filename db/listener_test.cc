@@ -212,7 +212,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
 class TestFlushListener : public EventListener {
  public:
   void OnTableFileCreated(
-      const TableFileCreationInfo& info) {
+      const TableFileCreationInfo& info) override {
     db_name_ = info.db_name;
     cf_name_ = info.cf_name;
     file_path_ = info.file_path;
