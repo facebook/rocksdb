@@ -222,7 +222,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                          << total_num_entries << "num_deletes"
                          << total_num_deletes << "memory_usage"
                          << total_memory_usage;
-    TableProperties table_properties;
+    TableFileCreationInfo info;
     {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
@@ -240,7 +240,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                      earliest_seqno_in_memtable, output_compression_,
                      cfd_->ioptions()->compression_opts,
                      mutable_cf_options_.paranoid_file_checks, Env::IO_HIGH,
-                     &table_properties);
+                     &info.table_properties);
       LogFlush(db_options_.info_log);
     }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
@@ -250,9 +250,16 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
     // output to event logger
     if (s.ok()) {
-      EventHelpers::LogTableFileCreation(
-          event_logger_, job_context_->job_id, meta.fd.GetNumber(),
-          meta.fd.GetFileSize(), table_properties);
+      info.db_name = dbname_;
+      info.cf_name = cfd_->GetName();
+      info.file_path = TableFileName(db_options_.db_paths,
+                                     meta.fd.GetNumber(),
+                                     meta.fd.GetPathId());
+      info.file_size = meta.fd.GetFileSize();
+      info.job_id = job_context_->job_id;
+      EventHelpers::LogAndNotifyTableFileCreation(
+          event_logger_, db_options_.listeners,
+          meta.fd, info);
     }
 
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {

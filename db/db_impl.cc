@@ -1162,13 +1162,14 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
         cfd->GetLatestMutableCFOptions()->paranoid_file_checks;
     {
       mutex_.Unlock();
+      TableFileCreationInfo info;
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
           iter.get(), &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), newest_snapshot,
           earliest_seqno_in_memtable, GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks, Env::IO_HIGH,
-          &table_properties);
+          &info.table_properties);
       LogFlush(db_options_.info_log);
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[%s] [WriteLevel0TableForRecovery]"
@@ -1178,9 +1179,15 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
       // output to event logger
       if (s.ok()) {
-        EventHelpers::LogTableFileCreation(
-            &event_logger_, job_id, meta.fd.GetNumber(), meta.fd.GetFileSize(),
-            table_properties);
+        info.db_name = dbname_;
+        info.cf_name = cfd->GetName();
+        info.file_path = TableFileName(db_options_.db_paths,
+                                       meta.fd.GetNumber(),
+                                       meta.fd.GetPathId());
+        info.file_size = meta.fd.GetFileSize();
+        info.job_id = job_id;
+        EventHelpers::LogAndNotifyTableFileCreation(
+            &event_logger_, db_options_.listeners, meta.fd, info);
       }
       mutex_.Lock();
     }
@@ -1222,6 +1229,13 @@ Status DBImpl::FlushMemTableToOutputFile(
                      &event_logger_);
 
   uint64_t file_number;
+
+  // Within flush_job.Run, rocksdb may call event listener to notify
+  // file creation and deletion.
+  //
+  // Note that flush_job.Run will unlock and lock the db_mutex,
+  // and EventListener callback will be called when the db_mutex
+  // is unlocked by the current thread.
   Status s = flush_job.Run(&file_number);
 
   if (s.ok()) {
@@ -1516,12 +1530,14 @@ Status DBImpl::CompactFilesImpl(
       &shutting_down_, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->GetOutputPathId()), stats_,
       snapshots_.GetAll(), table_cache_, std::move(yield_callback),
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks);
+      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+      dbname_);
   compaction_job.Prepare();
 
   mutex_.Unlock();
   Status status = compaction_job.Run();
   mutex_.Lock();
+
   compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
   if (status.ok()) {
     InstallSuperVersionBackground(c->column_family_data(), job_context,
@@ -2439,11 +2455,14 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->GetOutputPathId()), stats_,
         snapshots_.GetAll(), table_cache_, std::move(yield_callback),
-        &event_logger_, c->mutable_cf_options()->paranoid_file_checks);
+        &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
+        dbname_);
     compaction_job.Prepare();
+
     mutex_.Unlock();
     status = compaction_job.Run();
     mutex_.Lock();
+
     compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
     if (status.ok()) {
       InstallSuperVersionBackground(c->column_family_data(), job_context,

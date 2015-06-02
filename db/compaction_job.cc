@@ -205,10 +205,11 @@ CompactionJob::CompactionJob(
     std::vector<SequenceNumber> existing_snapshots,
     std::shared_ptr<Cache> table_cache,
     std::function<uint64_t()> yield_callback, EventLogger* event_logger,
-    bool paranoid_file_checks)
+    bool paranoid_file_checks, const std::string& dbname)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
       compaction_stats_(1),
+      dbname_(dbname),
       db_options_(db_options),
       env_options_(env_options),
       env_(db_options.env),
@@ -1020,13 +1021,9 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
   } else {
     compact_->builder->Abandon();
   }
-  if (s.ok()) {
-    table_properties = compact_->builder->GetTableProperties();
-  }
   const uint64_t current_bytes = compact_->builder->FileSize();
   compact_->current_output()->file_size = current_bytes;
   compact_->total_bytes += current_bytes;
-  compact_->builder.reset();
 
   // Finish and check for file errors
   if (s.ok() && !db_options_.disableDataSync) {
@@ -1058,16 +1055,23 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
 
     delete iter;
     if (s.ok()) {
+      TableFileCreationInfo info(compact_->builder->GetTableProperties());
+      info.db_name = dbname_;
+      info.cf_name = cfd->GetName();
+      info.file_path = TableFileName(cfd->ioptions()->db_paths,
+                                     fd.GetNumber(), fd.GetPathId());
+      info.file_size = fd.GetFileSize();
+      info.job_id = job_id_;
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
           " keys, %" PRIu64 " bytes",
           cfd->GetName().c_str(), job_id_, output_number, current_entries,
           current_bytes);
-      EventHelpers::LogTableFileCreation(event_logger_, job_id_,
-                                         output_number, current_bytes,
-                                         table_properties);
+      EventHelpers::LogAndNotifyTableFileCreation(
+          event_logger_, cfd->ioptions()->listeners, fd, info);
     }
   }
+  compact_->builder.reset();
   return s;
 }
 

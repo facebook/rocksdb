@@ -58,7 +58,8 @@ class CompactionJob {
                 std::vector<SequenceNumber> existing_snapshots,
                 std::shared_ptr<Cache> table_cache,
                 std::function<uint64_t()> yield_callback,
-                EventLogger* event_logger, bool paranoid_file_checks);
+                EventLogger* event_logger, bool paranoid_file_checks,
+                const std::string& dbname);
 
   ~CompactionJob();
 
@@ -111,6 +112,7 @@ class CompactionJob {
   InternalStats::CompactionStats compaction_stats_;
 
   // DBImpl state
+  const std::string& dbname_;
   const DBOptions& db_options_;
   const EnvOptions& env_options_;
   Env* env_;

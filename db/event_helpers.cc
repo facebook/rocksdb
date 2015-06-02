@@ -17,15 +17,19 @@ void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
                   std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-void EventHelpers::LogTableFileCreation(
-    EventLogger* event_logger, int job_id, uint64_t file_number,
-    uint64_t file_size, const TableProperties& table_properties) {
+// TODO(yhchiang): change the API to directly take TableFileCreationInfo
+void EventHelpers::LogAndNotifyTableFileCreation(
+    EventLogger* event_logger,
+    const std::vector<std::shared_ptr<EventListener>>& listeners,
+    const FileDescriptor& fd, const TableFileCreationInfo& info) {
+  assert(event_logger);
   JSONWriter jwriter;
   AppendCurrentTime(&jwriter);
-  jwriter << "job" << job_id
-           << "event" << "table_file_creation"
-           << "file_number" << file_number
-           << "file_size" << file_size;
+  jwriter << "cf_name" << info.cf_name
+          << "job" << info.job_id
+          << "event" << "table_file_creation"
+          << "file_number" << fd.GetNumber()
+          << "file_size" << fd.GetFileSize();
 
   // table_properties
   {
@@ -33,22 +37,24 @@ void EventHelpers::LogTableFileCreation(
     jwriter.StartObject();
 
     // basic properties:
-    jwriter << "data_size" << table_properties.data_size
-            << "index_size" << table_properties.index_size
-            << "filter_size" << table_properties.filter_size
-            << "raw_key_size" << table_properties.raw_key_size
+    jwriter << "data_size" << info.table_properties.data_size
+            << "index_size" << info.table_properties.index_size
+            << "filter_size" << info.table_properties.filter_size
+            << "raw_key_size" << info.table_properties.raw_key_size
             << "raw_average_key_size" << SafeDivide(
-                table_properties.raw_key_size,
-                table_properties.num_entries)
-            << "raw_value_size" << table_properties.raw_value_size
+                info.table_properties.raw_key_size,
+                info.table_properties.num_entries)
+            << "raw_value_size" << info.table_properties.raw_value_size
             << "raw_average_value_size" << SafeDivide(
-               table_properties.raw_value_size, table_properties.num_entries)
-            << "num_data_blocks" << table_properties.num_data_blocks
-            << "num_entries" << table_properties.num_entries
-            << "filter_policy_name" << table_properties.filter_policy_name;
+               info.table_properties.raw_value_size,
+               info.table_properties.num_entries)
+            << "num_data_blocks" << info.table_properties.num_data_blocks
+            << "num_entries" << info.table_properties.num_entries
+            << "filter_policy_name" <<
+                info.table_properties.filter_policy_name;
 
     // user collected properties
-    for (const auto& prop : table_properties.user_collected_properties) {
+    for (const auto& prop : info.table_properties.user_collected_properties) {
       jwriter << prop.first << prop.second;
     }
     jwriter.EndObject();
@@ -56,6 +62,16 @@ void EventHelpers::LogTableFileCreation(
   jwriter.EndObject();
 
   event_logger->Log(jwriter);
+
+#ifndef ROCKSDB_LITE
+  if (listeners.size() == 0) {
+    return;
+  }
+
+  for (auto listener : listeners) {
+    listener->OnTableFileCreated(info);
+  }
+#endif  // !ROCKSDB_LITE
 }
 
 }  // namespace rocksdb

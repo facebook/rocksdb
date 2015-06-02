@@ -166,7 +166,8 @@ TEST_F(CompactionJobTest, Simple) {
   CompactionJob compaction_job(0, compaction.get(), db_options_, env_options_,
                                versions_.get(), &shutting_down_, &log_buffer,
                                nullptr, nullptr, nullptr, {}, table_cache_,
-                               std::move(yield_callback), &event_logger, false);
+                               std::move(yield_callback), &event_logger, false,
+                               "dbname");
 
   compaction_job.Prepare();
   mutex_.Unlock();

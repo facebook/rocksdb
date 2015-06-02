@@ -821,6 +821,18 @@ class DbStressListener : public EventListener {
         std::chrono::microseconds(rand_.Uniform(5000)));
   }
 
+  virtual void OnTableFileCreated(
+      const TableFileCreationInfo& info) override {
+    assert(info.db_name == db_name_);
+    assert(IsValidColumnFamilyName(info.cf_name));
+    VerifyFilePath(info.file_path);
+    assert(info.file_size > 0);
+    assert(info.job_id > 0);
+    assert(info.table_properties.data_size > 0);
+    assert(info.table_properties.raw_key_size > 0);
+    assert(info.table_properties.num_entries > 0);
+  }
+
  protected:
   bool IsValidColumnFamilyName(const std::string& cf_name) const {
     if (cf_name == kDefaultColumnFamilyName) {

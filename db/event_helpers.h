@@ -4,16 +4,25 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
-#include "util/event_logger.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "db/column_family.h"
+#include "db/version_edit.h"
+#include "rocksdb/listener.h"
 #include "rocksdb/table_properties.h"
+#include "util/event_logger.h"
 
 namespace rocksdb {
 
 class EventHelpers {
  public:
   static void AppendCurrentTime(JSONWriter* json_writer);
-  static void LogTableFileCreation(EventLogger* event_logger, int job_id,
-                                   uint64_t file_number, uint64_t file_size,
-                                   const TableProperties& table_properties);
+  static void LogAndNotifyTableFileCreation(
+      EventLogger* event_logger,
+      const std::vector<std::shared_ptr<EventListener>>& listeners,
+      const FileDescriptor& fd, const TableFileCreationInfo& info);
 };
+
 }  // namespace rocksdb
