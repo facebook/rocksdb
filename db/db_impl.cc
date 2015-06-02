@@ -3223,6 +3223,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     RecordTick(stats_, WRITE_WITH_WAL);
   }
 
+  StopWatch write_sw(env_, db_options_.statistics.get(), DB_WRITE);
+
   WriteContext context;
   mutex_.Lock();
 
