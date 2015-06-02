@@ -20,9 +20,6 @@
 #include "util/log_buffer.h"
 #include "util/statistics.h"
 #include "util/string_util.h"
-=======
-#include "util/string_util.h"
->>>>>>> users/dmitrism/mswinport
 
 namespace rocksdb {
 
@@ -347,13 +344,12 @@ void CompactionPicker::SetupOtherInputs(
                                      &c->parent_index_);
       if (expanded1.size() == c->inputs(c->num_input_levels() - 1)->size() &&
           !FilesInCompaction(expanded1)) {
-        Log(options_->info_log,
+          Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
             "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64 "+%" PRIu64
             " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 "bytes)\n",
-            c->column_family_data()->GetName().c_str(), level,
+            cf_name.c_str(), level,
             c->inputs_[0].size(), c->inputs_[1].size(), inputs0_size,
-            inputs1_size, expanded0.size(), expanded1.size(), expanded0_size,
-            inputs1_size);
+            inputs1_size, expanded0.size(), expanded1.size(), expanded0_size, inputs1_size);
         smallest = new_start;
         largest = new_limit;
         c->inputs_[0].files = expanded0;
@@ -913,11 +909,11 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     LogToBuffer(log_buffer, "[%s] Universal: nothing to do\n", cf_name.c_str());
     return nullptr;
   }
-  Version::FileSummaryStorage tmp;
+
+  VersionStorageInfo::FileSummaryStorage tmp;
   LogToBuffer(log_buffer,3072, "[%s] Universal: candidate files(%" ROCKSDB_PRIszt "): %s\n",
               cf_name.c_str(), level_files.size(),
               vstorage->LevelFileSummary(&tmp, kLevel0));
-  VersionStorageInfo::FileSummaryStorage tmp;
 
   // Check for size amplification first.
   Compaction* c;

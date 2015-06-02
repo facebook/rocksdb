@@ -1373,7 +1373,8 @@ class Benchmark {
   }
 
   Slice AllocateKey(std::unique_ptr<const char[]>* key_guard) {
-    key_guard->reset(new char[key_size_]);
+    // MS Windows has = delete on templated reset and no pointer decay
+    key_guard->reset( reinterpret_cast<const char*>(new char[key_size_]));
     return Slice(key_guard->get(), key_size_);
   }
 
@@ -3168,10 +3169,6 @@ class Benchmark {
 };
 
 }  // namespace rocksdb
-
-
-WINDOWSENTRYPOINT;
-
 
 int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();

@@ -205,6 +205,12 @@ TEST(EventListenerTest, OnSingleDBCompactionTest) {
 
 class TestFlushListener : public EventListener {
  public:
+
+   TestFlushListener() :
+     slowdown_count(0),
+     stop_count(0)
+   {}
+
   void OnFlushCompleted(
       DB* db, const std::string& name,
       const std::string& file_path,

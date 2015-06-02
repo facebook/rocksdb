@@ -79,6 +79,7 @@ class WalManagerTest {
         Put(ToString(k), std::string(1024, 'a'));
       }
     }
+    current_log_writer_.reset();
   }
 
   std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(

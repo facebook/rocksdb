@@ -14,7 +14,6 @@
 #include <set>
 #include <list>
 #include <utility>
-#include <list>
 #include <vector>
 #include <string>
 
@@ -168,6 +167,7 @@ class DBImpl : public DB {
       SequenceNumber seq_number, unique_ptr<TransactionLogIterator>* iter,
       const TransactionLogIterator::ReadOptions&
           read_options = TransactionLogIterator::ReadOptions()) override;
+
   virtual Status DeleteFile(std::string name) override;
 
   virtual void GetLiveFilesMetaData(

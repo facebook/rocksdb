@@ -137,8 +137,8 @@ class RegularKeysStartWithAFactory : public TablePropertiesCollectorFactory {
   const char* Name() const override { return "RegularKeysStartWithA"; }
 };
 
-extern uint64_t kBlockBasedTableMagicNumber;
-extern uint64_t kPlainTableMagicNumber;
+extern const uint64_t kBlockBasedTableMagicNumber;
+extern const uint64_t kPlainTableMagicNumber;
 namespace {
 void TestCustomizedTablePropertiesCollector(
     uint64_t magic_number, bool encode_as_internal, const Options& options,
