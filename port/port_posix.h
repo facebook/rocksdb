@@ -11,9 +11,6 @@
 
 #pragma once
 
-// Expand to nothing
-#define WINDOWSENTRYPOINT
-
 // size_t printf formatting named in the manner of C99 standard formatting strings such as PRIu64
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"

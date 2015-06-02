@@ -12,16 +12,17 @@
 #endif
 
 #include "port/win/port_win.h"
-#include <io.h>
 
+#include <io.h>
 #include "port/dirent.h"
 #include "port/sys_time.h"
 
-#include <Mmsystem.h>
 #include <cstdlib>
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
+
+#include <memory>
 #include <exception>
 #include <chrono>
 
@@ -88,22 +89,6 @@ void CondVar::Wait() {
     mu_->locked_ = true;
 #endif
 }
-
-//////////////////////
-//TEMPORARY
-//////////////////////
-uint64_t NowNanos() {
-
-    using namespace std::chrono;
-    return duration_cast<nanoseconds>(system_clock::now().time_since_epoch()).count();
-}
-
-uint64_t NowMicros() {
-
-    using namespace std::chrono;
-    return duration_cast<microseconds>(system_clock::now().time_since_epoch()).count();
-}
-//////////////////////
 
 
 bool CondVar::TimedWait(uint64_t abs_time_us) {
@@ -216,5 +201,130 @@ int closedir(DIR* dirp) {
     return 0;
 }
 
+int truncate(const char* path, int64_t len) {
+
+  if (path == nullptr) {
+    errno = EFAULT;
+    return -1;
+  }
+
+  if (len < 0) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  HANDLE hFile = CreateFile(path,
+    GENERIC_READ | GENERIC_WRITE,
+    0, // No sharing while truncating
+    NULL, // Security attrs
+    OPEN_EXISTING, // Truncate existing file only
+    FILE_ATTRIBUTE_NORMAL,
+    NULL);
+
+  if (INVALID_HANDLE_VALUE == hFile) {
+    auto lastError = GetLastError();
+    if (lastError == ERROR_FILE_NOT_FOUND) {
+      errno = ENOENT;
+    } else if (lastError == ERROR_ACCESS_DENIED) {
+      errno = EACCES;
+    } else {
+      errno = EIO;
+    }
+    return -1;
+  }
+
+  int result = 0;
+  FILE_END_OF_FILE_INFO end_of_file;
+  end_of_file.EndOfFile.QuadPart = len;
+
+  if (!SetFileInformationByHandle(hFile,
+        FileEndOfFileInfo,
+        &end_of_file,
+        sizeof(FILE_END_OF_FILE_INFO))) {
+    errno = EIO;
+    result = -1;
+  }
+
+  CloseHandle(hFile);
+  return result;
+}
+
 }  // namespace port
 }  // namespace rocksdb
+
+#ifdef JEMALLOC
+
+#include "jemalloc/jemalloc.h"
+
+namespace rocksdb {
+
+namespace port {
+
+__declspec(noinline)
+void WINAPI InitializeJemalloc() {
+    je_init();
+    atexit(je_uninit);
+}
+
+} // port
+} // rocksdb
+
+extern "C" {
+
+#ifdef _WIN64
+
+#pragma comment(linker, "/INCLUDE:p_rocksdb_init_jemalloc")
+
+typedef void (WINAPI *CRT_Startup_Routine)(void);
+
+// .CRT section is merged with .rdata on x64 so it must be constant data.
+// must be of external linkage
+// We put this into XCT since we want to run this earlier than C++ static constructors
+// which are placed into XCU
+#pragma const_seg(".CRT$XCT")
+extern const CRT_Startup_Routine p_rocksdb_init_jemalloc;
+const CRT_Startup_Routine p_rocksdb_init_jemalloc = rocksdb::port::InitializeJemalloc;
+#pragma const_seg()
+
+#else // _WIN64
+
+// x86 untested
+
+#pragma comment(linker, "/INCLUDE:_p_rocksdb_init_jemalloc")
+
+#pragma section(".CRT$XCT", read)
+JEMALLOC_SECTION(".CRT$XCT") JEMALLOC_ATTR(used)
+static const void (WINAPI *p_rocksdb_init_jemalloc)(void) = rocksdb::port::InitializeJemalloc;
+
+#endif // _WIN64
+
+} // extern "C"
+
+// Global operators to be replaced by a linker
+
+void* operator new(size_t size) {
+  void* p = je_malloc(size);
+  if (!p) {
+      throw std::bad_alloc();
+  }
+  return p;
+}
+
+void* operator new[](size_t size) {
+  void* p = je_malloc(size);
+  if (!p) {
+    throw std::bad_alloc();
+  }
+  return p;
+}
+
+void operator delete(void* p) {
+  je_free(p);
+}
+
+void operator delete[](void* p) {
+  je_free(p);
+}
+
+#endif // JEMALLOC
+

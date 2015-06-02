@@ -17,10 +17,6 @@
 #  define WIN32_LEAN_AND_MEAN
 #endif
 
-#ifndef ROCKSDB_ATOMIC_PRESENT
-#define ROCKSDB_ATOMIC_PRESENT
-#endif
-
 // Assume that for everywhere
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #define PLATFORM_IS_LITTLE_ENDIAN true
@@ -31,8 +27,9 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <stdint.h>
+
 #include "rocksdb/options.h"
-#include "port/atomic_pointer.h"
 
 #ifndef strcasecmp
 #define strcasecmp _stricmp
@@ -42,6 +39,8 @@
 #ifndef snprintf
 #define snprintf _snprintf
 #endif
+
+typedef SSIZE_T ssize_t;
 
 // size_t printf formatting named in the manner of C99 standard formatting strings such as PRIu64
 // in fact, we could use that one
@@ -66,47 +65,6 @@
 #include "snappy.h"
 #endif
 
-#ifdef JEMALLOC
-
-#include "jemalloc/jemalloc.h"
-#include "jemalloc/internal/jemalloc_internal.h"
-
-/*
-class JemallocInitializer
-{
-    public:
-        static JemallocInitializer& GetInstance() { static JemallocInitializer instance; return instance; }
-
-    private:
-        JemallocInitializer() { je_init(); }
-        ~JemallocInitializer() { je_uninit(); }
-        JemallocInitializer(const JemallocInitializer&);
-        JemallocInitializer& operator=(const JemallocInitializer&);
-};
-
-inline void* operator new(size_t size){ static JemallocInitializer& inst = JemallocInitializer::GetInstance(); return je_malloc(size); }
-inline void* operator new[](size_t size) { static JemallocInitializer& inst = JemallocInitializer::GetInstance();  return je_malloc(size); }
-inline void  operator delete  (void* ptr) { static JemallocInitializer& inst = JemallocInitializer::GetInstance();  je_free(ptr); }
-inline void  operator delete[](void* ptr) { static JemallocInitializer& inst = JemallocInitializer::GetInstance();  je_free(ptr); }
-*/
-
-#define WINDOWSENTRYPOINT \
-extern "C" \
-{ \
-    extern  __declspec(noinline) int __cdecl mainCRTStartup(void); \
-} \
-__declspec(noinline) int mainMain(void) \
-{ \
-    je_init(); \
-    int ret = mainCRTStartup(); \
-    je_uninit(); \
-    return ret; \
-}
-
-#else
-#  define WINDOWSENTRYPOINT
-#endif
-
 // Thread local storage on Linux
 // There is thread_local in C++11
 #define __thread __declspec(thread)
@@ -116,9 +74,7 @@ __declspec(noinline) int mainMain(void) \
 #endif
 
 namespace rocksdb {
-    
-// For Thread Local Storage abstraction
-typedef DWORD pthread_key_t;
+
 #define PREFETCH(addr, rw, locality)
 
 namespace port 
@@ -548,7 +504,6 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 
 #define CACHE_LINE_SIZE 64U
 
-
 #ifdef min
 #undef min
 #endif
@@ -556,8 +511,66 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 #undef max
 #endif
 
+// For Thread Local Storage abstraction
+typedef DWORD pthread_key_t;
+
+inline
+int pthread_key_create(pthread_key_t *key, void(*destructor)(void*)) {
+    // Not used
+    (void)destructor;
+
+    pthread_key_t k = TlsAlloc();
+    if (k == TLS_OUT_OF_INDEXES) {
+        return ENOMEM;
+    }
+
+    *key = k;
+    return 0;
+}
+
+inline
+int pthread_key_delete(pthread_key_t key) {
+    if(!TlsFree(key)) {
+        return EINVAL;
+    }
+    return 0;
+}
+
+inline
+int pthread_setspecific(pthread_key_t key, const void *value) {
+    if(!TlsSetValue(key, const_cast<void*>(value))) {
+        return ENOMEM;
+    }
+    return 0;
+}
+
+inline
+void* pthread_getspecific(pthread_key_t key) {
+    void* result = TlsGetValue(key);
+    if(!result) {
+        if(GetLastError() != ERROR_SUCCESS) {
+            errno = EINVAL;
+        } else {
+            errno = NOERROR;
+        }
+    }
+    return result;
+}
+
+// UNIX equiv although errno numbers will be off
+// using C-runtime to implement. Note, this does not
+// feel space with zeros in case the file is extended.
+int truncate(const char* path, int64_t length);
 
 } // namespace port
+
+using port::pthread_key_t;
+using port::pthread_key_create;
+using port::pthread_key_delete;
+using port::pthread_setspecific;
+using port::pthread_getspecific;
+using port::truncate;
+
 } // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_PORT_PORT_POSIX_H_

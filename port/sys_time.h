@@ -12,7 +12,7 @@
 #ifndef STORAGE_LEVELDB_PORT_SYS_TIME_H_
 #define STORAGE_LEVELDB_PORT_SYS_TIME_H_
 
-#if defined(OS_WIN) && defined(_MSC_VER)
+#if defined(_WIN32) && defined(_MSC_VER)
 
 #include <time.h>
 

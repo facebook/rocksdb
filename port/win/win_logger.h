@@ -12,39 +12,41 @@
 
 #pragma once
 
+#include <atomic>
+
 #include "rocksdb/env.h"
 
-namespace rocksdb 
-{
+namespace rocksdb {
+
+class Env;
 
 const int kDebugLogChunkSize = 128 * 1024;
 
-class WinLogger : public rocksdb::Logger 
-{
+class WinLogger : public rocksdb::Logger {
 private:
-    FILE* file_;
-	uint64_t (*gettid_)();  // Return the thread id for the current thread
-	std::atomic_size_t log_size_;
-	int fd_;
-	const static uint64_t flush_every_seconds_ = 5;
-	std::atomic_uint_fast64_t last_flush_micros_;
-	Env* env_;
-	bool flush_pending_;
+    FILE*                     file_;
+    uint64_t                  (*gettid_)();  // Return the thread id for the current thread
+    std::atomic_size_t        log_size_;
+    std::atomic_uint_fast64_t last_flush_micros_;
+    Env*                      env_;
+    bool                      flush_pending_;
+
+    const static uint64_t flush_every_seconds_ = 5;
 
 public:
-	WinLogger(uint64_t(*gettid)(), Env* env, FILE * file, const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL);
-  
-	virtual ~WinLogger();
-	
-	virtual void close();
+    WinLogger(uint64_t(*gettid)(), Env* env, FILE * file, const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL);
 
-	virtual void Flush();
-  
-	virtual void Logv(const char* format, va_list ap);
+    virtual ~WinLogger();
 
-	virtual void DebugWriter(const char* str, int len);
+    void close();
 
-	size_t GetLogFileSize() const;
+    void Flush() override;
+
+    void Logv(const char* format, va_list ap) override;
+
+    size_t GetLogFileSize() const override;
+
+    void DebugWriter(const char* str, int len);
 };
 
 }  // namespace rocksdb
