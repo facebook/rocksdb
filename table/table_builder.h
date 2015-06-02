@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 namespace rocksdb {
 
 class Slice;
