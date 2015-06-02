@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <iostream>
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
