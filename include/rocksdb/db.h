@@ -430,7 +430,7 @@ class DB {
                               bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) {
     return CompactRange(DefaultColumnFamily(), begin, end, change_level,
-                        change_level, target_path_id);
+                        target_level, target_path_id);
   }
   virtual Status SetOptions(ColumnFamilyHandle* column_family,
       const std::unordered_map<std::string, std::string>& new_options) {
