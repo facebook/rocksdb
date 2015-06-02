@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/mock_env.h"
-#include <sys/time.h>
+#include "port/sys_time.h"
 #include <algorithm>
 #include <chrono>
 #include "util/rate_limiter.h"

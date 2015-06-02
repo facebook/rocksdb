@@ -747,6 +747,13 @@ class TestLogger : public Logger {
       int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
       // 48 bytes for extra information + bytes allocated
 
+      // When we have n == -1 there is not a terminating zero expected
+#ifdef OS_WIN
+      if (n < 0) {
+        char_0_count++;
+      }
+#endif
+
       if (new_format[0] == '[') {
         // "[DEBUG] "
         ASSERT_TRUE(n <= 56 + (512 - static_cast<int>(sizeof(struct timeval))));

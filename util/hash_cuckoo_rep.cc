@@ -75,7 +75,6 @@ class HashCuckooRep : public MemTableRep {
         backup_table_(nullptr) {
     char* mem = reinterpret_cast<char*>(
         allocator_->Allocate(sizeof(std::atomic<const char*>) * bucket_count_));
-        arena_->Allocate(sizeof(std::atomic<const char*>) * bucket_count_));
     cuckoo_array_ = new (mem) std::atomic<char*>[bucket_count_];
     for (unsigned int bid = 0; bid < bucket_count_; ++bid) {
       cuckoo_array_[bid].store(nullptr, std::memory_order_relaxed);

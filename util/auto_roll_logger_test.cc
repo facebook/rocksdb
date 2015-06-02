@@ -123,7 +123,11 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   }
 
   // -- Make the log file expire
+#ifdef OS_WIN
+  Sleep(static_cast<unsigned int>(time) * 1000);
+#else
   sleep(static_cast<unsigned int>(time));
+#endif
   LogMessage(logger, log_message.c_str());
 
   // At this time, the new log file should be created.
@@ -201,6 +205,8 @@ TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
       kSampleMessage + ":CompositeRollByTimeAndSizeLogger");
 }
 
+#ifndef OS_WIN
+//TODO: does not build for Windows because of PosixLogger use below. Need to port
 TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   shared_ptr<Logger> logger;
@@ -245,6 +251,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
       auto_roll_logger, options.log_file_time_to_roll,
       kSampleMessage + ":CreateLoggerFromOptions - both");
 }
+#endif
 
 TEST(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();

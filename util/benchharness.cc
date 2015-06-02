@@ -58,7 +58,9 @@ static vector<tuple<const char*, const char*, BenchmarkFun>> benchmarks;
 
 // Add the global baseline
 BENCHMARK(globalBenchmarkBaseline) {
+#ifndef OS_WIN
   asm volatile("");
+#endif
 }
 
 void detail::AddBenchmarkImpl(const char* file, const char* name,
@@ -310,7 +312,7 @@ static string MetricReadable(double n, unsigned int decimals) {
 static void PrintBenchmarkResultsAsTable(
   const vector<tuple<const char*, const char*, double> >& data) {
   // Width available
-  static const uint columns = 76;
+  static const size_t columns = 76;
 
   // Compute the longest benchmark name
   size_t longestName = 0;

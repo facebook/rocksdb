@@ -583,7 +583,10 @@ void ManifestDumpCommand::DoCommand() {
     bool found = false;
     // We need to find the manifest file by searching the directory
     // containing the db for files of the form MANIFEST_[0-9]+
-    DIR* d = opendir(db_path_.c_str());
+
+    auto CloseDir = [](DIR* p) { closedir(p); };
+    std::unique_ptr<DIR, decltype(CloseDir)> d(opendir(db_path_.c_str()), CloseDir);
+
     if (d == nullptr) {
       exec_state_ = LDBCommandExecuteResult::FAILED(
         db_path_ + " is not a directory");

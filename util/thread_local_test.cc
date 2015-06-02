@@ -6,7 +6,7 @@
 #include <atomic>
 
 #include "rocksdb/env.h"
-#include "port/port_posix.h"
+#include "port/port.h"
 #include "util/autovector.h"
 #include "util/thread_local.h"
 #include "util/testharness.h"
