@@ -528,6 +528,8 @@ class DB {
       const TransactionLogIterator::ReadOptions&
           read_options = TransactionLogIterator::ReadOptions()) = 0;
 
+// Windows API macro interference
+#undef DeleteFile
   // Delete the file name from the db directory and update the internal state to
   // reflect that. Supports deletion of sst and log files only. 'name' must be
   // path relative to the db directory. eg. 000001.sst, /archive/000003.log

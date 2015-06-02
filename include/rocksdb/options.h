@@ -22,6 +22,10 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/universal_compaction.h"
 
+#ifdef max
+#undef max
+#endif
+
 namespace rocksdb {
 
 class Cache;

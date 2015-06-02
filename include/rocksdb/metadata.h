@@ -3,13 +3,15 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+#pragma once
+
+#include <stdint.h>
+
 #include <limits>
 #include <string>
 #include <vector>
 
 #include "rocksdb/types.h"
-
-#pragma once
 
 namespace rocksdb {
 struct ColumnFamilyMetaData;

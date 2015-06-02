@@ -13,6 +13,10 @@
 
 #pragma once
 
+#ifndef STORAGE_ROCKSDB_INCLUDE_THREAD_STATUS_H_
+#define STORAGE_ROCKSDB_INCLUDE_THREAD_STATUS_H_
+
+#include <stdint.h>
 #include <cstddef>
 #include <string>
 
@@ -103,3 +107,5 @@ struct ThreadStatus {
 
 
 }  // namespace rocksdb
+
+#endif // STORAGE_ROCKSDB_INCLUDE_THREAD_STATUS_H_
