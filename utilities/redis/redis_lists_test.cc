@@ -38,7 +38,7 @@ class RedisListsTest {
   }
 };
 
-const string RedisListsTest::kDefaultDbName = "/tmp/redisdefaultdb/";
+const string RedisListsTest::kDefaultDbName = test::TmpDir();
 Options RedisListsTest::options = Options();
 
 // operator== and operator<< are defined below for vectors (lists)
