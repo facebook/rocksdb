@@ -4,7 +4,6 @@
 
 #pragma once
 
-#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
@@ -15,19 +14,6 @@ namespace rocksdb {
 
 class DB;
 class Status;
-
-struct CompactionJobInfo {
-  // the name of the column family where the compaction happened.
-  std::string cf_name;
-  // the status indicating whether the compaction was successful or not.
-  Status status;
-  // the output level of the compaction.
-  int output_level;
-  // the names of the compaction input files.
-  std::vector<std::string> input_files;
-  // the names of the compaction output files.
-  std::vector<std::string> output_files;
-};
 
 struct TableFileCreationInfo {
   TableFileCreationInfo() = default;
@@ -46,6 +32,22 @@ struct TableFileCreationInfo {
   int job_id;
   // Detailed properties of the created file.
   TableProperties table_properties;
+};
+
+
+#ifndef ROCKSDB_LITE
+
+struct CompactionJobInfo {
+  // the name of the column family where the compaction happened.
+  std::string cf_name;
+  // the status indicating whether the compaction was successful or not.
+  Status status;
+  // the output level of the compaction.
+  int output_level;
+  // the names of the compaction input files.
+  std::vector<std::string> input_files;
+  // the names of the compaction output files.
+  std::vector<std::string> output_files;
 };
 
 // EventListener class contains a set of call-back functions that will
@@ -137,13 +139,11 @@ class EventListener {
   virtual ~EventListener() {}
 };
 
-}  // namespace rocksdb
-
 #else
 
-namespace rocksdb {
 class EventListener {
 };
-}
 
 #endif  // ROCKSDB_LITE
+
+}  // namespace rocksdb
