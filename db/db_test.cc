@@ -11337,13 +11337,19 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
 
   DestroyAndReopen(options);
 
-  auto verify_func = [&](int num_keys) {
+  auto verify_func = [&](int num_keys, bool if_sleep) {
     for (int i = 0; i < num_keys; i++) {
       ASSERT_NE("NOT_FOUND", Get(Key(kMaxKey + i)));
       if (i < num_keys / 10) {
         ASSERT_EQ("NOT_FOUND", Get(Key(i)));
       } else {
         ASSERT_NE("NOT_FOUND", Get(Key(i)));
+      }
+      if (if_sleep && i % 1000 == 0) {
+        // Without it, valgrind may choose not to give another
+        // thread a chance to run before finishing the function,
+        // causing the test to be extremely slow.
+        env_->SleepForMicroseconds(1);
       }
     }
   };
@@ -11354,13 +11360,13 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
     ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
     ASSERT_OK(Delete(Key(i / 10)));
   }
-  verify_func(total_keys);
+  verify_func(total_keys, false);
   dbfull()->TEST_WaitForCompact();
 
   options.level_compaction_dynamic_level_bytes = true;
   options.disable_auto_compactions = true;
   Reopen(options);
-  verify_func(total_keys);
+  verify_func(total_keys, false);
 
   std::atomic_bool compaction_finished(false);
   // Issue manual compaction in one thread and still verify DB state
@@ -11370,7 +11376,7 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
     compaction_finished.store(true);
   });
   do {
-    verify_func(total_keys);
+    verify_func(total_keys, true);
   } while (!compaction_finished.load());
   t.join();
 
@@ -11385,9 +11391,9 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
     ASSERT_OK(Delete(Key(i / 10)));
   }
 
-  verify_func(total_keys2);
+  verify_func(total_keys2, false);
   dbfull()->TEST_WaitForCompact();
-  verify_func(total_keys2);
+  verify_func(total_keys2, false);
 
   // Base level is not level 1
   ASSERT_EQ(NumTableFilesAtLevel(1), 0);
