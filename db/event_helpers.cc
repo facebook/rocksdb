@@ -17,7 +17,6 @@ void EventHelpers::AppendCurrentTime(JSONWriter* jwriter) {
                   std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-// TODO(yhchiang): change the API to directly take TableFileCreationInfo
 void EventHelpers::LogAndNotifyTableFileCreation(
     EventLogger* event_logger,
     const std::vector<std::shared_ptr<EventListener>>& listeners,
