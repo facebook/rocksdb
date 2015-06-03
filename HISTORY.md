@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## 3.11.1 (6/1/2015)
+
+### Changes
+* Just a single change to fix the Java linking (github issue #606)
+
 ## 3.11.0 (5/19/2015)
 
 ### New Features
