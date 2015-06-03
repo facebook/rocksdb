@@ -353,7 +353,7 @@ class DBImpl : public DB {
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,
                                    const CompactionJobStats& job_stats,
-                                   uint64_t job_id);
+                                   int job_id);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 

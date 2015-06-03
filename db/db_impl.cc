@@ -1584,7 +1584,7 @@ Status DBImpl::CompactFilesImpl(
 void DBImpl::NotifyOnCompactionCompleted(
     ColumnFamilyData* cfd, Compaction *c, const Status &st,
     const CompactionJobStats& compaction_job_stats,
-    const uint64_t job_id) {
+    const int job_id) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
     return;
