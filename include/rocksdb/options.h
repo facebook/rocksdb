@@ -250,7 +250,11 @@ struct ColumnFamilyOptions {
   // after they are flushed.
   // If this value is set to -1, 'max_write_buffer_number' will be used.
   //
-  // Default: 0
+  // Default:
+  // If using an OptimisticTransactionDB, the default value will be set to the
+  // value
+  // of 'max_write_buffer_number' if it is not explicitly set by the user.
+  // Otherwise, the default is 0.
   int max_write_buffer_number_to_maintain;
 
   // Compress blocks using the specified compression algorithm.  This

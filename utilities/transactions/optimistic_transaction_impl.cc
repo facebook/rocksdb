@@ -292,12 +292,14 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
       // Since it would be too slow to check the SST files, we will only use
       // the memtables to check whether there have been any recent writes
       // to this key after it was accessed in this transaction.  But if the
-      // memtables have been flushed recently, we cannot rely on them to tell
-      // whether there have been any recent writes and must fail this
+      // Memtables do not contain a long enough history, we must fail the
       // transaction.
       if (earliest_seq == kMaxSequenceNumber) {
         // The age of this memtable is unknown.  Cannot rely on it to check
-        // for recent writes.
+        // for recent writes.  This error shouldn't happen often in practice as
+        // the
+        // Memtable should have a valid earliest sequence number except in some
+        // corner cases (such as error cases during recovery).
         result = Status::Busy(
             "Could not commit transaction with as the MemTable does not "
             "countain a long enough history to check write at SequenceNumber: ",
@@ -311,7 +313,11 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
             msg, sizeof(msg),
             "Could not commit transaction with write at SequenceNumber %" PRIu64
             " as the MemTable only contains changes newer than SequenceNumber "
-            "%" PRIu64 ".",
+            "%" PRIu64
+            ".  Increasing the value of the "
+            "max_write_buffer_number_to_maintain option could reduce the "
+            "frequency "
+            "of this error.",
             key_seq, earliest_seq);
         result = Status::Busy(msg);
       } else {
