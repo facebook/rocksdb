@@ -32,6 +32,16 @@ void ThreadStatusUtil::UnregisterThread() {
   }
 }
 
+uint64_t ThreadStatusUtil::GetThreadID() {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return 0;
+  }
+  return thread_updater_local_cache_->GetThreadID();
+}
+
+
 void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {
   if (!MaybeInitThreadLocalUpdater(cfd->ioptions()->env)) {
     return;
@@ -168,6 +178,10 @@ bool ThreadStatusUtil::thread_updater_initialized_ = false;
 
 bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* env) {
   return false;
+}
+
+uint64_t ThreadStatusUtil::GetThreadID() {
+  return 0;
 }
 
 void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {

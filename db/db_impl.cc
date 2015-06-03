@@ -1530,8 +1530,20 @@ Status DBImpl::CompactFilesImpl(
       &shutting_down_, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->GetOutputPathId()), stats_,
       snapshots_.GetAll(), table_cache_, std::move(yield_callback),
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
-      dbname_);
+      &event_logger_, c->mutable_cf_options()->paranoid_file_checks, dbname_,
+      nullptr);  // Here we pass a nullptr for CompactionJobStats because
+                 // CompactFiles does not trigger OnCompactionCompleted(),
+                 // which is the only place where CompactionJobStats is
+                 // returned.  The idea of not triggering OnCompationCompleted()
+                 // is that CompactFiles runs in the caller thread, so the user
+                 // should always know when it completes.  As a result, it makes
+                 // less sense to notify the users something they should already
+                 // know.
+                 //
+                 // In the future, if we would like to add CompactionJobStats
+                 // support for CompactFiles, we should have CompactFiles API
+                 // pass a pointer of CompactionJobStats as the out-value
+                 // instead of using EventListener.
   compaction_job.Prepare();
 
   mutex_.Unlock();
@@ -1570,7 +1582,9 @@ Status DBImpl::CompactFilesImpl(
 #endif  // ROCKSDB_LITE
 
 void DBImpl::NotifyOnCompactionCompleted(
-    ColumnFamilyData* cfd, Compaction *c, const Status &st) {
+    ColumnFamilyData* cfd, Compaction *c, const Status &st,
+    const CompactionJobStats& compaction_job_stats,
+    const uint64_t job_id) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
     return;
@@ -1585,7 +1599,11 @@ void DBImpl::NotifyOnCompactionCompleted(
     CompactionJobInfo info;
     info.cf_name = cfd->GetName();
     info.status = st;
+    info.thread_id = ThreadStatusUtil::GetThreadID();
+    info.job_id = job_id;
+    info.base_input_level = c->start_level();
     info.output_level = c->output_level();
+    info.stats = compaction_job_stats;
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
         info.input_files.push_back(
@@ -2246,6 +2264,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
   bool is_manual = (manual_compaction_ != nullptr) &&
                    (manual_compaction_->in_progress == false);
 
+  CompactionJobStats compaction_job_stats;
   Status status = bg_error_;
   if (status.ok() && shutting_down_.load(std::memory_order_acquire)) {
     status = Status::ShutdownInProgress();
@@ -2389,6 +2408,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     assert(c->level() == 0);
     assert(c->column_family_data()->ioptions()->compaction_style ==
            kCompactionStyleFIFO);
+
+    compaction_job_stats.num_input_files = c->num_input_files(0);
+
     for (const auto& f : *c->inputs(0)) {
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
     }
@@ -2407,6 +2429,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // TODO(yhchiang): add op details for showing trivial-move.
     ThreadStatusUtil::SetColumnFamily(c->column_family_data());
     ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
+
+    compaction_job_stats.num_input_files = c->num_input_files(0);
 
     // Move file to next level
     assert(c->num_input_files(0) == 1);
@@ -2456,7 +2480,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         directories_.GetDataDir(c->GetOutputPathId()), stats_,
         snapshots_.GetAll(), table_cache_, std::move(yield_callback),
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
-        dbname_);
+        dbname_, &compaction_job_stats);
     compaction_job.Prepare();
 
     mutex_.Unlock();
@@ -2470,9 +2494,10 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     }
     *madeProgress = true;
   }
-  // FIXME(orib): should I check if column family data is null?
   if (c != nullptr) {
-    NotifyOnCompactionCompleted(c->column_family_data(), c.get(), status);
+    NotifyOnCompactionCompleted(
+        c->column_family_data(), c.get(), status,
+        compaction_job_stats, job_context->job_id);
     c->ReleaseCompactionFiles(status);
     *madeProgress = true;
   }

@@ -115,6 +115,8 @@ class ThreadStatusUpdater {
   // ColumnFamilyInfoKey, ThreadOperation, and ThreadState.
   void ResetThreadStatus();
 
+  uint64_t GetThreadID();
+
   // Set the thread type of the current thread.
   void SetThreadType(ThreadStatus::ThreadType ttype);
 

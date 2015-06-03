@@ -205,9 +205,11 @@ CompactionJob::CompactionJob(
     std::vector<SequenceNumber> existing_snapshots,
     std::shared_ptr<Cache> table_cache,
     std::function<uint64_t()> yield_callback, EventLogger* event_logger,
-    bool paranoid_file_checks, const std::string& dbname)
+    bool paranoid_file_checks, const std::string& dbname,
+    CompactionJobStats* compaction_job_stats)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
+      compaction_job_stats_(compaction_job_stats),
       compaction_stats_(1),
       dbname_(dbname),
       db_options_(db_options),
@@ -248,11 +250,15 @@ void CompactionJob::ReportStartedCompaction(
       (static_cast<uint64_t>(compact_->compaction->start_level()) << 32) +
           compact_->compaction->output_level());
 
+  // In the current design, a CompactionJob is always created
+  // for non-trivial compaction.
+  assert(compaction->IsTrivialMove() == false ||
+         compaction->IsManualCompaction() == true);
+
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_PROP_FLAGS,
-      compaction->IsManualCompaction() +
-          (compaction->IsDeletionCompaction() << 1) +
-          (compaction->IsTrivialMove() << 2));
+          compaction->IsManualCompaction() +
+          (compaction->IsDeletionCompaction() << 1));
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES,
@@ -269,6 +275,11 @@ void CompactionJob::ReportStartedCompaction(
   // to ensure GetThreadList() can always show them all together.
   ThreadStatusUtil::SetThreadOperation(
       ThreadStatus::OP_COMPACTION);
+
+  if (compaction_job_stats_) {
+    compaction_job_stats_->is_manual_compaction =
+          compaction->IsManualCompaction();
+  }
 }
 
 void CompactionJob::Prepare() {
@@ -575,6 +586,8 @@ void CompactionJob::Install(Status* status,
               status->ToString().c_str(), stats.num_input_records,
               stats.num_dropped_records);
 
+  UpdateCompactionJobStats(stats);
+
   auto stream = event_logger_->LogToBuffer(log_buffer_);
   stream << "job" << job_id_ << "event"
          << "compaction_finished"
@@ -636,19 +649,8 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
          !cfd->IsDropped() && status.ok()) {
     compact_->num_input_records++;
     if (++loop_cnt > 1000) {
-      if (key_drop_user > 0) {
-        RecordTick(stats_, COMPACTION_KEY_DROP_USER, key_drop_user);
-        key_drop_user = 0;
-      }
-      if (key_drop_newer_entry > 0) {
-        RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY,
-                   key_drop_newer_entry);
-        key_drop_newer_entry = 0;
-      }
-      if (key_drop_obsolete > 0) {
-        RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE, key_drop_obsolete);
-        key_drop_obsolete = 0;
-      }
+      RecordDroppedKeys(
+          &key_drop_user, &key_drop_newer_entry, &key_drop_obsolete);
       RecordCompactionIOStats();
       loop_cnt = 0;
     }
@@ -678,6 +680,13 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       value = compact_->combined_value_buf_[combined_idx];
 
       ++combined_idx;
+    }
+
+    if (compaction_job_stats_ != nullptr) {
+      compaction_job_stats_->total_input_raw_key_bytes +=
+          input->key().size();
+      compaction_job_stats_->total_input_raw_value_bytes +=
+          input->value().size();
     }
 
     if (compact_->compaction->ShouldStopBefore(key) &&
@@ -922,18 +931,31 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
     }
   }
   RecordTick(stats_, FILTER_OPERATION_TOTAL_TIME, total_filter_time);
-  if (key_drop_user > 0) {
-    RecordTick(stats_, COMPACTION_KEY_DROP_USER, key_drop_user);
-  }
-  if (key_drop_newer_entry > 0) {
-    RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY, key_drop_newer_entry);
-  }
-  if (key_drop_obsolete > 0) {
-    RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE, key_drop_obsolete);
-  }
+  RecordDroppedKeys(&key_drop_user, &key_drop_newer_entry, &key_drop_obsolete);
   RecordCompactionIOStats();
 
   return status;
+}
+
+void CompactionJob::RecordDroppedKeys(
+    int64_t* key_drop_user,
+    int64_t* key_drop_newer_entry,
+    int64_t* key_drop_obsolete) {
+  if (*key_drop_user > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_USER, *key_drop_user);
+    *key_drop_user = 0;
+  }
+  if (*key_drop_newer_entry > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_NEWER_ENTRY, *key_drop_newer_entry);
+    if (compaction_job_stats_) {
+      compaction_job_stats_->num_records_replaced += *key_drop_newer_entry;
+    }
+    *key_drop_newer_entry = 0;
+  }
+  if (*key_drop_obsolete > 0) {
+    RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE, *key_drop_obsolete);
+    *key_drop_obsolete = 0;
+  }
 }
 
 void CompactionJob::CallCompactionFilterV2(
@@ -1225,6 +1247,54 @@ void CompactionJob::CleanupCompaction(const Status& status) {
   }
   delete compact_;
   compact_ = nullptr;
+}
+
+#ifndef ROCKSDB_LITE
+namespace {
+void CopyPrefix(
+    char* dst, size_t dst_length, const Slice& src) {
+  assert(dst_length > 0);
+  size_t length = src.size() > dst_length - 1 ? dst_length - 1 : src.size();
+  memcpy(dst, src.data(), length);
+  dst[length] = 0;
+}
+}  // namespace
+
+#endif  // !ROCKSDB_LITE
+
+void CompactionJob::UpdateCompactionJobStats(
+    const InternalStats::CompactionStats& stats) const {
+#ifndef ROCKSDB_LITE
+  if (compaction_job_stats_) {
+    compaction_job_stats_->elapsed_micros = stats.micros;
+
+    // input information
+    compaction_job_stats_->total_input_bytes =
+        stats.bytes_readn + stats.bytes_readnp1;
+    compaction_job_stats_->num_input_records = compact_->num_input_records;
+    compaction_job_stats_->num_input_files =
+        stats.files_in_leveln + stats.files_in_levelnp1;
+    compaction_job_stats_->num_input_files_at_output_level =
+        stats.files_in_levelnp1;
+
+    // output information
+    compaction_job_stats_->total_output_bytes = stats.bytes_written;
+    compaction_job_stats_->num_output_records =
+        compact_->num_output_records;
+    compaction_job_stats_->num_output_files = stats.files_out_levelnp1;
+
+    if (compact_->outputs.size() > 0U) {
+      CopyPrefix(
+          compaction_job_stats_->smallest_output_key_prefix,
+          sizeof(compaction_job_stats_->smallest_output_key_prefix),
+          compact_->outputs[0].smallest.user_key().ToString());
+      CopyPrefix(
+          compaction_job_stats_->largest_output_key_prefix,
+          sizeof(compaction_job_stats_->largest_output_key_prefix),
+          compact_->current_output()->largest.user_key().ToString());
+    }
+  }
+#endif  // !ROCKSDB_LITE
 }
 
 }  // namespace rocksdb

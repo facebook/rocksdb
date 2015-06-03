@@ -351,7 +351,9 @@ class DBImpl : public DB {
                               const MutableCFOptions& mutable_cf_options);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
-                                   Compaction *c, const Status &st);
+                                   Compaction *c, const Status &st,
+                                   const CompactionJobStats& job_stats,
+                                   uint64_t job_id);
 
   void NewThreadStatusCfInfo(ColumnFamilyData* cfd) const;
 

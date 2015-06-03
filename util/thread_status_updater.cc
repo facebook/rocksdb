@@ -15,6 +15,11 @@ namespace rocksdb {
 
 __thread ThreadStatusData* ThreadStatusUpdater::thread_status_data_ = nullptr;
 
+uint64_t ThreadStatusUpdater::GetThreadID() {
+  auto* data = InitAndGet();
+  return data->thread_id;
+}
+
 void ThreadStatusUpdater::UnregisterThread() {
   if (thread_status_data_ != nullptr) {
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
@@ -290,6 +295,10 @@ void ThreadStatusUpdater::UnregisterThread() {
 }
 
 void ThreadStatusUpdater::ResetThreadStatus() {
+}
+
+uint64_t ThreadStatusUpdater::GetThreadID() {
+  return 0;
 }
 
 void ThreadStatusUpdater::SetThreadType(

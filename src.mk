@@ -78,6 +78,7 @@ LIB_SOURCES =                                                   \
   util/cache.cc                                                 \
   util/coding.cc                                                \
   util/comparator.cc                                            \
+  util/compaction_job_stats_impl.cc                             \
   util/crc32c.cc                                                \
   util/db_info_dumper.cc                                        \
   util/dynamic_bloom.cc                                         \
@@ -153,6 +154,7 @@ TEST_BENCH_SOURCES =                                                    \
   third-party/gtest-1.7.0/fused-src/gtest/gtest-all.cc                  \
   db/column_family_test.cc                                              \
   db/compaction_job_test.cc                                             \
+  db/compaction_job_stats_test.cc                                       \
   db/compaction_picker_test.cc                                          \
   db/comparator_db_test.cc                                              \
   db/corruption_test.cc                                                 \

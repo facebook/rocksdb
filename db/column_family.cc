@@ -25,13 +25,13 @@
 #include "db/version_set.h"
 #include "db/writebuffer.h"
 #include "db/internal_stats.h"
-#include "db/job_context.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "util/autovector.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/options_helper.h"
+#include "util/thread_status_util.h"
 #include "util/xfunc.h"
 
 namespace rocksdb {

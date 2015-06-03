@@ -3,14 +3,16 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+
+#include <stdio.h>
+#include <string>
+
 #include "merge_helper.h"
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
 #include "util/statistics.h"
-#include <string>
-#include <stdio.h>
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
@@ -222,7 +224,6 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       UpdateInternalKey(&original_key[0], original_key.size(),
                         orig_ikey.sequence, orig_ikey.type);
 
-      // The final value() is always stored in operands_.back()
       swap(operands_.back(),merge_result);
     } else {
       RecordTick(stats, NUMBER_MERGE_FAILURES);

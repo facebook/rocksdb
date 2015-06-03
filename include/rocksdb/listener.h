@@ -7,6 +7,7 @@
 
 #include <string>
 #include <vector>
+#include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table_properties.h"
 
@@ -14,6 +15,7 @@ namespace rocksdb {
 
 class DB;
 class Status;
+struct CompactionJobStats;
 
 struct TableFileCreationInfo {
   TableFileCreationInfo() = default;
@@ -38,16 +40,29 @@ struct TableFileCreationInfo {
 #ifndef ROCKSDB_LITE
 
 struct CompactionJobInfo {
+  CompactionJobInfo() = default;
+  explicit CompactionJobInfo(const CompactionJobStats& _stats) :
+      stats(_stats) {}
+
   // the name of the column family where the compaction happened.
   std::string cf_name;
   // the status indicating whether the compaction was successful or not.
   Status status;
+  // the id of the thread that completed this compaction job.
+  uint64_t thread_id;
+  // the job id, which is unique in the same thread.
+  int job_id;
+  // the smallest input level of the compaction.
+  int base_input_level;
   // the output level of the compaction.
   int output_level;
   // the names of the compaction input files.
   std::vector<std::string> input_files;
   // the names of the compaction output files.
   std::vector<std::string> output_files;
+  // If non-null, this variable stores detailed information
+  // about this compaction.
+  CompactionJobStats stats;
 };
 
 // EventListener class contains a set of call-back functions that will
