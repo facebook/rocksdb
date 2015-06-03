@@ -7,6 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <algorithm>
 #include <iostream>
 #include <mutex>
@@ -75,7 +80,7 @@ std::string Key(uint64_t key, int length) {
   if (length > kBufSize) {
     length = kBufSize;
   }
-  snprintf(buf, kBufSize, "%0*lu", length, key);
+  snprintf(buf, kBufSize, "%0*" PRIu64, length, key);
   return std::string(buf);
 }
 
