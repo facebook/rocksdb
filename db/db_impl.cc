@@ -350,12 +350,15 @@ DBImpl::~DBImpl() {
   if (opened_successfully_) {
     JobContext job_context(next_job_id_.fetch_add(1));
     FindObsoleteFiles(&job_context, true);
+
+    mutex_.Unlock();
     // manifest number starting from 2
     job_context.manifest_file_number = 1;
     if (job_context.HaveSomethingToDelete()) {
       PurgeObsoleteFiles(job_context);
     }
     job_context.Clean();
+    mutex_.Lock();
   }
 
   for (auto l : logs_to_free_) {
@@ -520,7 +523,8 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
     job_context->min_pending_output = std::numeric_limits<uint64_t>::max();
   }
 
-  // get obsolete files
+  // Get obsolete files.  This function will also update the list of
+  // pending files in VersionSet().
   versions_->GetObsoleteFiles(&job_context->sst_delete_files,
                               job_context->min_pending_output);
 
@@ -714,10 +718,10 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
           file_deletion_status.ToString().c_str());
     }
     if (type == kTableFile) {
-      event_logger_.Log() << "job" << state.job_id << "event"
-                          << "table_file_deletion"
-                          << "file_number" << number
-                          << "status" << file_deletion_status.ToString();
+      EventHelpers::LogAndNotifyTableFileDeletion(
+          &event_logger_, state.job_id, number, fname,
+          file_deletion_status, GetName(),
+          db_options_.listeners);
     }
   }
 
@@ -751,10 +755,13 @@ void DBImpl::DeleteObsoleteFiles() {
   mutex_.AssertHeld();
   JobContext job_context(next_job_id_.fetch_add(1));
   FindObsoleteFiles(&job_context, true);
+
+  mutex_.Unlock();
   if (job_context.HaveSomethingToDelete()) {
     PurgeObsoleteFiles(job_context);
   }
   job_context.Clean();
+  mutex_.Lock();
 }
 
 Status DBImpl::Directories::CreateAndNewDirectory(
@@ -1433,7 +1440,7 @@ Status DBImpl::CompactFiles(
     // FindObsoleteFiles(). This is because job_context does not
     // catch all created files if compaction failed.
     FindObsoleteFiles(&job_context, !s.ok());
-  }
+  }  // release the mutex
 
   // delete unnecessary files if any, this is done outside the mutex
   if (job_context.HaveSomethingToDelete() || !log_buffer.IsEmpty()) {
@@ -1444,6 +1451,7 @@ Status DBImpl::CompactFiles(
     // It also applies to access other states that DB owns.
     log_buffer.FlushBufferToLog();
     if (job_context.HaveSomethingToDelete()) {
+      // no mutex is locked here.  No need to Unlock() and Lock() here.
       PurgeObsoleteFiles(job_context);
     }
     job_context.Clean();
@@ -3948,9 +3956,11 @@ Status DBImpl::DeleteFile(std::string name) {
     }
     FindObsoleteFiles(&job_context, false);
   }  // lock released here
+
   LogFlush(db_options_.info_log);
   // remove files outside the db-lock
   if (job_context.HaveSomethingToDelete()) {
+    // Call PurgeObsoleteFiles() without holding mutex.
     PurgeObsoleteFiles(job_context);
   }
   job_context.Clean();

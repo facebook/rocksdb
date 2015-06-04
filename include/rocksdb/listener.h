@@ -39,6 +39,17 @@ struct TableFileCreationInfo {
 
 #ifndef ROCKSDB_LITE
 
+struct TableFileDeletionInfo {
+  // The name of the database where the file was deleted.
+  std::string db_name;
+  // The path to the deleted file.
+  std::string file_path;
+  // The id of the job which deleted the file.
+  int job_id;
+  // The status indicating whether the deletion was successfull or not.
+  Status status;
+};
+
 struct CompactionJobInfo {
   CompactionJobInfo() = default;
   explicit CompactionJobInfo(const CompactionJobStats& _stats) :
@@ -121,6 +132,20 @@ class EventListener {
       const std::string& file_path,
       bool triggered_writes_slowdown,
       bool triggered_writes_stop) {}
+
+  // A call-back function for RocksDB which will be called whenever
+  // a SST file is deleted.  Different from OnCompactionCompleted and
+  // OnFlushCompleted, this call-back is designed for external logging
+  // service and thus only provide string parameters instead
+  // of a pointer to DB.  Applications that build logic basic based
+  // on file creations and deletions is suggested to implement
+  // OnFlushCompleted and OnCompactionCompleted.
+  //
+  // Note that if applications would like to use the passed reference
+  // outside this function call, they should make copies from the
+  // returned value.
+  virtual void OnTableFileDeleted(
+      const TableFileDeletionInfo& info) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a registered RocksDB compacts a file. The default implementation

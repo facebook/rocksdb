@@ -11400,6 +11400,38 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
   ASSERT_EQ(NumTableFilesAtLevel(2), 0);
 }
 
+namespace {
+class OnFileDeletionListener : public EventListener {
+ public:
+  OnFileDeletionListener() :
+      matched_count_(0),
+      expected_file_name_("") {}
+
+  void SetExpectedFileName(
+      const std::string file_name) {
+    expected_file_name_ = file_name;
+  }
+
+  void VerifyMatchedCount(size_t expected_value) {
+    ASSERT_EQ(matched_count_, expected_value);
+  }
+
+  void OnTableFileDeleted(
+      const TableFileDeletionInfo& info) override {
+    if (expected_file_name_ != "") {
+      ASSERT_EQ(expected_file_name_, info.file_path);
+      expected_file_name_ = "";
+      matched_count_++;
+    }
+  }
+
+ private:
+  size_t matched_count_;
+  std::string expected_file_name_;
+};
+
+}  // namespace
+
 TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   if (!Snappy_Supported()) {
     return;
@@ -11431,6 +11463,9 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   options.compression_per_level[0] = kNoCompression;
   options.compression_per_level[1] = kNoCompression;
   options.compression_per_level[2] = kSnappyCompression;
+
+  OnFileDeletionListener* listener = new OnFileDeletionListener();
+  options.listeners.emplace_back(listener);
 
   DestroyAndReopen(options);
 
@@ -11464,8 +11499,11 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(&cf_meta);
   for (auto file : cf_meta.levels[4].files) {
+    listener->SetExpectedFileName(dbname_ + file.name);
     ASSERT_OK(dbfull()->DeleteFile(file.name));
   }
+  listener->VerifyMatchedCount(cf_meta.levels[4].files.size());
+
   int num_keys = 0;
   std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
@@ -12162,6 +12200,8 @@ TEST_F(DBTest, DeleteMovedFileAfterCompaction) {
     options.create_if_missing = true;
     options.level0_file_num_compaction_trigger =
         2;  // trigger compaction when we have 2 files
+    OnFileDeletionListener* listener = new OnFileDeletionListener();
+    options.listeners.emplace_back(listener);
     DestroyAndReopen(options);
 
     Random rnd(301);
@@ -12214,12 +12254,14 @@ TEST_F(DBTest, DeleteMovedFileAfterCompaction) {
     ASSERT_EQ("0,0,2", FilesPerLevel(0));
 
     // iterator is holding the file
-    ASSERT_TRUE(env_->FileExists(dbname_ + "/" + moved_file_name));
+    ASSERT_TRUE(env_->FileExists(dbname_ + moved_file_name));
 
+    listener->SetExpectedFileName(dbname_ + moved_file_name);
     iterator.reset();
 
     // this file should have been compacted away
-    ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + moved_file_name));
+    ASSERT_TRUE(!env_->FileExists(dbname_ + moved_file_name));
+    listener->VerifyMatchedCount(1);
   }
 }
 
@@ -12393,6 +12435,10 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
       2;  // trigger compaction when we have 2 files
   options.max_background_flushes = 2;
   options.max_background_compactions = 2;
+
+  OnFileDeletionListener* listener = new OnFileDeletionListener();
+  options.listeners.emplace_back(listener);
+
   Reopen(options);
 
   Random rnd(301);
@@ -12441,6 +12487,7 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(metadata.size(), 1U);
   auto file_on_L2 = metadata[0].name;
+  listener->SetExpectedFileName(dbname_ + file_on_L2);
 
   ASSERT_OK(dbfull()->TEST_CompactRange(3, nullptr, nullptr));
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
@@ -12456,7 +12503,8 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
   ASSERT_EQ(metadata.size(), 2U);
 
   // This file should have been deleted
-  ASSERT_TRUE(!env_->FileExists(dbname_ + "/" + file_on_L2));
+  ASSERT_TRUE(!env_->FileExists(dbname_ + file_on_L2));
+  listener->VerifyMatchedCount(1);
 }
 
 TEST_F(DBTest, CloseSpeedup) {

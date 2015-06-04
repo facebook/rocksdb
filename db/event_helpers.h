@@ -23,6 +23,11 @@ class EventHelpers {
       EventLogger* event_logger,
       const std::vector<std::shared_ptr<EventListener>>& listeners,
       const FileDescriptor& fd, const TableFileCreationInfo& info);
+  static void LogAndNotifyTableFileDeletion(
+      EventLogger* event_logger, int job_id,
+      uint64_t file_number, const std::string& file_path,
+      const Status& status, const std::string& db_name,
+      const std::vector<std::shared_ptr<EventListener>>& listeners);
 };
 
 }  // namespace rocksdb

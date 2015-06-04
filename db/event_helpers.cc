@@ -73,4 +73,36 @@ void EventHelpers::LogAndNotifyTableFileCreation(
 #endif  // !ROCKSDB_LITE
 }
 
+void EventHelpers::LogAndNotifyTableFileDeletion(
+    EventLogger* event_logger, int job_id,
+    uint64_t file_number, const std::string& file_path,
+    const Status& status, const std::string& dbname,
+    const std::vector<std::shared_ptr<EventListener>>& listeners) {
+
+  JSONWriter jwriter;
+  AppendCurrentTime(&jwriter);
+
+  jwriter << "job" << job_id
+          << "event" << "table_file_deletion"
+          << "file_number" << file_number;
+  if (!status.ok()) {
+    jwriter << "status" << status.ToString();
+  }
+
+  jwriter.EndObject();
+
+  event_logger->Log(jwriter);
+
+#ifndef ROCKSDB_LITE
+  TableFileDeletionInfo info;
+  info.db_name = dbname;
+  info.job_id = job_id;
+  info.file_path = file_path;
+  info.status = status;
+  for (auto listener : listeners) {
+    listener->OnTableFileDeleted(info);
+  }
+#endif  // !ROCKSDB_LITE
+}
+
 }  // namespace rocksdb
