@@ -457,11 +457,10 @@ uint64_t EstimatedFileSize(
 namespace {
 
 void CopyPrefix(
-    char* dst, size_t dst_length, const Slice& src) {
-  assert(dst_length > 0);
-  size_t length = src.size() > dst_length - 1 ? dst_length - 1 : src.size();
-  memcpy(dst, src.data(), length);
-  dst[length] = 0;
+    const Slice& src, size_t prefix_length, std::string* dst) {
+  assert(prefix_length > 0);
+  size_t length = src.size() > prefix_length ? prefix_length : src.size();
+  dst->assign(src.data(), length);
 }
 
 }  // namespace
@@ -499,12 +498,12 @@ CompactionJobStats NewManualCompactionJobStats(
 
   stats.num_records_replaced = num_records_replaced;
 
-  CopyPrefix(stats.smallest_output_key_prefix,
-             sizeof(stats.smallest_output_key_prefix),
-             smallest_key);
-  CopyPrefix(stats.largest_output_key_prefix,
-             sizeof(stats.largest_output_key_prefix),
-             largest_key);
+  CopyPrefix(smallest_key,
+             CompactionJobStats::kMaxPrefixLength,
+             &stats.smallest_output_key_prefix);
+  CopyPrefix(largest_key,
+             CompactionJobStats::kMaxPrefixLength,
+             &stats.largest_output_key_prefix);
 
   return stats;
 }

@@ -1252,11 +1252,10 @@ void CompactionJob::CleanupCompaction(const Status& status) {
 #ifndef ROCKSDB_LITE
 namespace {
 void CopyPrefix(
-    char* dst, size_t dst_length, const Slice& src) {
-  assert(dst_length > 0);
-  size_t length = src.size() > dst_length - 1 ? dst_length - 1 : src.size();
-  memcpy(dst, src.data(), length);
-  dst[length] = 0;
+    const Slice& src, size_t prefix_length, std::string* dst) {
+  assert(prefix_length > 0);
+  size_t length = src.size() > prefix_length ? prefix_length : src.size();
+  dst->assign(src.data(), length);
 }
 }  // namespace
 
@@ -1285,13 +1284,13 @@ void CompactionJob::UpdateCompactionJobStats(
 
     if (compact_->outputs.size() > 0U) {
       CopyPrefix(
-          compaction_job_stats_->smallest_output_key_prefix,
-          sizeof(compaction_job_stats_->smallest_output_key_prefix),
-          compact_->outputs[0].smallest.user_key().ToString());
+          compact_->outputs[0].smallest.user_key(),
+          CompactionJobStats::kMaxPrefixLength,
+          &compaction_job_stats_->smallest_output_key_prefix);
       CopyPrefix(
-          compaction_job_stats_->largest_output_key_prefix,
-          sizeof(compaction_job_stats_->largest_output_key_prefix),
-          compact_->current_output()->largest.user_key().ToString());
+          compact_->current_output()->largest.user_key(),
+          CompactionJobStats::kMaxPrefixLength,
+          &compaction_job_stats_->largest_output_key_prefix);
     }
   }
 #endif  // !ROCKSDB_LITE

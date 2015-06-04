@@ -6,6 +6,7 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#include <string>
 
 namespace rocksdb {
 struct CompactionJobStats {
@@ -45,7 +46,9 @@ struct CompactionJobStats {
 
   // 0-terminated strings storing the first 8 bytes of the smallest and
   // largest key in the output.
-  char smallest_output_key_prefix[9];
-  char largest_output_key_prefix[9];
+  static const size_t kMaxPrefixLength = 8;
+
+  std::string smallest_output_key_prefix;
+  std::string largest_output_key_prefix;
 };
 }  // namespace rocksdb
