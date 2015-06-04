@@ -321,6 +321,11 @@ class CompactionJobStatsTest : public testing::Test {
     ASSERT_OK(db_->CompactRange(&start, &limit));
   }
 
+  void TEST_Compact(int level, int cf, const Slice& start, const Slice& limit) {
+    ASSERT_OK(dbfull()->TEST_CompactRange(level, &start, &limit, handles_[cf],
+                                          true /* disallow trivial move */));
+  }
+
   // Do n memtable compactions, each of which produces an sstable
   // covering the range [small,large].
   void MakeTables(int n, const std::string& small, const std::string& large,
@@ -588,7 +593,7 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
               1, num_keys_per_L0_file,
               compression_ratio, 0));
       ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
-      Compact(1, smallest_key, largest_key);
+      TEST_Compact(0, 1, smallest_key, largest_key);
       snprintf(buf, kBufSize, "%d,%d", num_L0_files - count, count);
       ASSERT_EQ(std::string(buf), FilesPerLevel(1));
     }
@@ -606,7 +611,7 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
             1, num_keys_per_L0_file * num_remaining_L0,
             compression_ratio, 0));
     ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
-    Compact(1, smallest_key, largest_key);
+    TEST_Compact(0, 1, smallest_key, largest_key);
 
     int num_L1_files = num_L0_files - num_remaining_L0 + 1;
     num_L0_files = 0;

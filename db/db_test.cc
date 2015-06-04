@@ -1496,6 +1496,7 @@ TEST_F(DBTest, CompactedDB) {
   ASSERT_OK(Put("aaa", DummyString(kFileSize / 2, 'a')));
   Flush();
   ASSERT_OK(Put("bbb", DummyString(kFileSize / 2, 'b')));
+  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   Flush();
   Close();
 
@@ -1509,7 +1510,6 @@ TEST_F(DBTest, CompactedDB) {
   // Full compaction
   Reopen(options);
   // Add more keys
-  ASSERT_OK(Put("eee", DummyString(kFileSize / 2, 'e')));
   ASSERT_OK(Put("fff", DummyString(kFileSize / 2, 'f')));
   ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
   ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
@@ -2049,7 +2049,8 @@ TEST_F(DBTest, KeyMayExist) {
     ASSERT_EQ(cache_added, TestGetTickerCount(options, BLOCK_CACHE_ADD));
 
     ASSERT_OK(Flush(1));
-    db_->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
+                                true /* disallow trivial move */);
 
     numopen = TestGetTickerCount(options, NO_FILE_OPENS);
     cache_added = TestGetTickerCount(options, BLOCK_CACHE_ADD);
@@ -3736,13 +3737,162 @@ TEST_F(DBTest, CompactionsGenerateMultipleFiles) {
 
   // Reopening moves updates to level-0
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1],
+                              true /* disallow trivial move */);
 
   ASSERT_EQ(NumTableFilesAtLevel(0, 1), 0);
   ASSERT_GT(NumTableFilesAtLevel(1, 1), 1);
   for (int i = 0; i < 80; i++) {
     ASSERT_EQ(Get(1, Key(i)), values[i]);
   }
+}
+
+TEST_F(DBTest, TrivialMoveOneFile) {
+  int32_t trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.write_buffer_size = 100000000;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  int32_t num_keys = 80;
+  int32_t value_size = 100 * 1024;  // 100 KB
+
+  Random rnd(301);
+  std::vector<std::string> values;
+  for (int i = 0; i < num_keys; i++) {
+    values.push_back(RandomString(&rnd, value_size));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+
+  // Reopening moves updates to L0
+  Reopen(options);
+  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 1);  // 1 file in L0
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);  // 0 files in L1
+
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(metadata.size(), 1U);
+  LiveFileMetaData level0_file = metadata[0];  // L0 file meta
+
+  // Compaction will initiate a trivial move from L0 to L1
+  dbfull()->CompactRange(nullptr, nullptr);
+
+  // File moved From L0 to L1
+  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);  // 0 files in L0
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 1);  // 1 file in L1
+
+  metadata.clear();
+  db_->GetLiveFilesMetaData(&metadata);
+  ASSERT_EQ(metadata.size(), 1U);
+  ASSERT_EQ(metadata[0].name /* level1_file.name */, level0_file.name);
+  ASSERT_EQ(metadata[0].size /* level1_file.size */, level0_file.size);
+
+  for (int i = 0; i < num_keys; i++) {
+    ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+
+  ASSERT_EQ(trivial_move, 1);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, TrivialMoveNonOverlappingFiles) {
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 10 * 1024 * 1024;
+
+  DestroyAndReopen(options);
+  // non overlapping ranges
+  std::vector<std::pair<int32_t, int32_t>> ranges = {
+    {100, 199},
+    {300, 399},
+    {0, 99},
+    {200, 299},
+    {600, 699},
+    {400, 499},
+    {500, 550},
+    {551, 599},
+  };
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+  for (uint32_t i = 0; i < ranges.size(); i++) {
+    for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
+      values[j] = RandomString(&rnd, value_size);
+      ASSERT_OK(Put(Key(j), values[j]));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  int32_t level0_files = NumTableFilesAtLevel(0, 0);
+  ASSERT_EQ(level0_files, ranges.size());    // Multiple files in L0
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0), 0);  // No files in L1
+
+  // Since data is non-overlapping we expect compaction to initiate
+  // a trivial move
+  db_->CompactRange(nullptr, nullptr);
+  // We expect that all the files were trivially moved from L0 to L1
+  ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
+  ASSERT_EQ(NumTableFilesAtLevel(1, 0) /* level1_files */, level0_files);
+
+  for (uint32_t i = 0; i < ranges.size(); i++) {
+    for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
+      ASSERT_EQ(Get(Key(j)), values[j]);
+    }
+  }
+
+  ASSERT_EQ(trivial_move, 1);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  trivial_move = 0;
+  non_trivial_move = 0;
+  values.clear();
+  DestroyAndReopen(options);
+  // Same ranges as above but overlapping
+  ranges = {
+    {100, 199},
+    {300, 399},
+    {0, 99},
+    {200, 299},
+    {600, 699},
+    {400, 499},
+    {500, 560},  // this range overlap with the next one
+    {551, 599},
+  };
+  for (uint32_t i = 0; i < ranges.size(); i++) {
+    for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
+      values[j] = RandomString(&rnd, value_size);
+      ASSERT_OK(Put(Key(j), values[j]));
+    }
+    ASSERT_OK(Flush());
+  }
+
+  db_->CompactRange(nullptr, nullptr);
+
+  for (uint32_t i = 0; i < ranges.size(); i++) {
+    for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
+      ASSERT_EQ(Get(Key(j)), values[j]);
+    }
+  }
+  ASSERT_EQ(trivial_move, 0);
+  ASSERT_EQ(non_trivial_move, 1);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest, CompactionTrigger) {
@@ -7194,7 +7344,8 @@ TEST_F(DBTest, DropWrites) {
           if (level > 0 && level == dbfull()->NumberLevels() - 1) {
             break;
           }
-          dbfull()->TEST_CompactRange(level, nullptr, nullptr);
+          dbfull()->TEST_CompactRange(level, nullptr, nullptr, nullptr,
+                                      true /* disallow trivial move */);
         }
       } else {
         dbfull()->CompactRange(nullptr, nullptr);
@@ -7257,7 +7408,8 @@ TEST_F(DBTest, NoSpaceCompactRange) {
     // Force out-of-space errors
     env_->no_space_.store(true, std::memory_order_release);
 
-    Status s = db_->CompactRange(nullptr, nullptr);
+    Status s = dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                                           true /* disallow trivial move */);
     ASSERT_TRUE(s.IsIOError());
 
     env_->no_space_.store(false, std::memory_order_release);
@@ -12489,7 +12641,8 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
   auto file_on_L2 = metadata[0].name;
   listener->SetExpectedFileName(dbname_ + file_on_L2);
 
-  ASSERT_OK(dbfull()->TEST_CompactRange(3, nullptr, nullptr));
+  ASSERT_OK(dbfull()->TEST_CompactRange(3, nullptr, nullptr, nullptr,
+                                        true /* disallow trivial move */));
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
 
   // finish the flush!
@@ -12502,7 +12655,7 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
   db_->GetLiveFilesMetaData(&metadata);
   ASSERT_EQ(metadata.size(), 2U);
 
-  // This file should have been deleted
+  // This file should have been deleted during last compaction
   ASSERT_TRUE(!env_->FileExists(dbname_ + file_on_L2));
   listener->VerifyMatchedCount(1);
 }

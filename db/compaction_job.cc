@@ -83,22 +83,6 @@ struct CompactionJob::CompactionState {
         num_input_records(0),
         num_output_records(0) {}
 
-  // Create a client visible context of this compaction
-  CompactionFilter::Context GetFilterContextV1() {
-    CompactionFilter::Context context;
-    context.is_full_compaction = compaction->IsFullCompaction();
-    context.is_manual_compaction = compaction->IsManualCompaction();
-    return context;
-  }
-
-  // Create a client visible context of this compaction
-  CompactionFilterContext GetFilterContext() {
-    CompactionFilterContext context;
-    context.is_full_compaction = compaction->IsFullCompaction();
-    context.is_manual_compaction = compaction->IsManualCompaction();
-    return context;
-  }
-
   std::vector<std::string> key_str_buf_;
   std::vector<std::string> existing_value_str_buf_;
   // new_value_buf_ will only be appended if a value changes
@@ -360,11 +344,7 @@ Status CompactionJob::Run() {
   Status status;
   ParsedInternalKey ikey;
   std::unique_ptr<CompactionFilterV2> compaction_filter_from_factory_v2 =
-      nullptr;
-  auto context = compact_->GetFilterContext();
-  compaction_filter_from_factory_v2 =
-      cfd->ioptions()->compaction_filter_factory_v2->CreateCompactionFilterV2(
-          context);
+      compact_->compaction->CreateCompactionFilterV2();
   auto compaction_filter_v2 = compaction_filter_from_factory_v2.get();
 
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
@@ -629,10 +609,8 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
   auto compaction_filter = cfd->ioptions()->compaction_filter;
   std::unique_ptr<CompactionFilter> compaction_filter_from_factory = nullptr;
   if (!compaction_filter) {
-    auto context = compact_->GetFilterContextV1();
     compaction_filter_from_factory =
-        cfd->ioptions()->compaction_filter_factory->CreateCompactionFilter(
-            context);
+        compact_->compaction->CreateCompactionFilter();
     compaction_filter = compaction_filter_from_factory.get();
   }
 

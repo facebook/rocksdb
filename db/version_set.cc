@@ -733,6 +733,7 @@ VersionStorageInfo::VersionStorageInfo(
       files_(new std::vector<FileMetaData*>[num_levels_]),
       base_level_(num_levels_ == 1 ? -1 : 1),
       files_by_size_(num_levels_),
+      level0_non_overlapping_(false),
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
       compaction_level_(num_levels_),
@@ -871,6 +872,7 @@ void Version::PrepareApply(const MutableCFOptions& mutable_cf_options) {
   storage_info_.UpdateFilesBySize();
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
+  storage_info_.GenerateLevel0NonOverlapping();
 }
 
 bool Version::MaybeInitializeFileMetaData(FileMetaData* file_meta) {
@@ -1121,6 +1123,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
 // 3. UpdateFilesBySize();
 // 4. GenerateFileIndexer();
 // 5. GenerateLevelFilesBrief();
+// 6. GenerateLevel0NonOverlapping();
 void VersionStorageInfo::SetFinalized() {
   finalized_ = true;
 #ifndef NDEBUG
@@ -1203,6 +1206,33 @@ void VersionStorageInfo::UpdateFilesBySize() {
     }
     next_file_to_compact_by_size_[level] = 0;
     assert(files_[level].size() == files_by_size_[level].size());
+  }
+}
+
+void VersionStorageInfo::GenerateLevel0NonOverlapping() {
+  assert(!finalized_);
+  level0_non_overlapping_ = true;
+  if (level_files_brief_.size() == 0) {
+    return;
+  }
+
+  // A copy of L0 files sorted by smallest key
+  std::vector<FdWithKeyRange> level0_sorted_file(
+      level_files_brief_[0].files,
+      level_files_brief_[0].files + level_files_brief_[0].num_files);
+  sort(level0_sorted_file.begin(), level0_sorted_file.end(),
+       [this](FdWithKeyRange& f1, FdWithKeyRange& f2) -> bool {
+         return (internal_comparator_->Compare(f1.smallest_key,
+                                               f2.smallest_key) < 0);
+       });
+
+  for (size_t i = 1; i < level0_sorted_file.size(); ++i) {
+    FdWithKeyRange& f = level0_sorted_file[i];
+    FdWithKeyRange& prev = level0_sorted_file[i - 1];
+    if (internal_comparator_->Compare(prev.largest_key, f.smallest_key) >= 0) {
+      level0_non_overlapping_ = false;
+      break;
+    }
   }
 }
 

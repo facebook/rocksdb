@@ -233,7 +233,8 @@ class DBImpl : public DB {
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
-                             const Slice* begin, const Slice* end);
+                             const Slice* begin, const Slice* end,
+                             bool disallow_trivial_move = false);
 
 #ifndef ROCKSDB_LITE
   // Extra methods (for testing) that are not in the public DB interface
@@ -241,7 +242,8 @@ class DBImpl : public DB {
 
   // Compact any files in the named level that overlap [*begin, *end]
   Status TEST_CompactRange(int level, const Slice* begin, const Slice* end,
-                           ColumnFamilyHandle* column_family = nullptr);
+                           ColumnFamilyHandle* column_family = nullptr,
+                           bool disallow_trivial_move = false);
 
   // Force current memtable contents to be flushed.
   Status TEST_FlushMemTable(bool wait = true);
@@ -640,10 +642,11 @@ class DBImpl : public DB {
     uint32_t output_path_id;
     bool done;
     Status status;
-    bool in_progress;           // compaction request being processed?
-    const InternalKey* begin;   // nullptr means beginning of key range
-    const InternalKey* end;     // nullptr means end of key range
-    InternalKey tmp_storage;    // Used to keep track of compaction progress
+    bool in_progress;             // compaction request being processed?
+    const InternalKey* begin;     // nullptr means beginning of key range
+    const InternalKey* end;       // nullptr means end of key range
+    InternalKey tmp_storage;      // Used to keep track of compaction progress
+    bool disallow_trivial_move;   // Force actual compaction to run
   };
   ManualCompaction* manual_compaction_;
 

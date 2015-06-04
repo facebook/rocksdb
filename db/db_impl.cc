@@ -1825,7 +1825,8 @@ SequenceNumber DBImpl::GetLatestSequenceNumber() const {
 
 Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                                    int output_level, uint32_t output_path_id,
-                                   const Slice* begin, const Slice* end) {
+                                   const Slice* begin, const Slice* end,
+                                   bool disallow_trivial_move) {
   assert(input_level == ColumnFamilyData::kCompactAllLevels ||
          input_level >= 0);
 
@@ -1838,6 +1839,7 @@ Status DBImpl::RunManualCompaction(ColumnFamilyData* cfd, int input_level,
   manual.output_path_id = output_path_id;
   manual.done = false;
   manual.in_progress = false;
+  manual.disallow_trivial_move = disallow_trivial_move;
   // For universal compaction, we enforce every manual compaction to compact
   // all files.
   if (begin == nullptr ||
@@ -2271,6 +2273,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
 
   bool is_manual = (manual_compaction_ != nullptr) &&
                    (manual_compaction_->in_progress == false);
+  bool trivial_move_disallowed = is_manual &&
+                                 manual_compaction_->disallow_trivial_move;
 
   CompactionJobStats compaction_job_stats;
   Status status = bg_error_;
@@ -2431,7 +2435,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                 c->column_family_data()->GetName().c_str(),
                 c->num_input_files(0));
     *madeProgress = true;
-  } else if (!is_manual && c->IsTrivialMove()) {
+  } else if (!trivial_move_disallowed && c->IsTrivialMove()) {
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:TrivialMove");
     // Instrument for event update
     // TODO(yhchiang): add op details for showing trivial-move.
@@ -2440,13 +2444,23 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
 
     compaction_job_stats.num_input_files = c->num_input_files(0);
 
-    // Move file to next level
-    assert(c->num_input_files(0) == 1);
-    FileMetaData* f = c->input(0, 0);
-    c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-    c->edit()->AddFile(c->output_level(), f->fd.GetNumber(), f->fd.GetPathId(),
-                       f->fd.GetFileSize(), f->smallest, f->largest,
-                       f->smallest_seqno, f->largest_seqno);
+    // Move files to next level
+    int32_t moved_files = 0;
+    int64_t moved_bytes = 0;
+    for (size_t i = 0; i < c->num_input_files(0); i++) {
+      FileMetaData* f = c->input(0, i);
+      c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+      c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
+                         f->fd.GetFileSize(), f->smallest, f->largest,
+                         f->smallest_seqno, f->largest_seqno);
+
+      LogToBuffer(log_buffer,
+                  "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
+                  c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
+                  c->level() + 1, f->fd.GetFileSize());
+      ++moved_files;
+      moved_bytes += f->fd.GetFileSize();
+    }
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
@@ -2455,20 +2469,20 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
                                   *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
-    c->column_family_data()->internal_stats()->IncBytesMoved(
-        c->level() + 1, f->fd.GetFileSize());
+    c->column_family_data()->internal_stats()->IncBytesMoved(c->level() + 1,
+                                                             moved_bytes);
     {
       event_logger_.LogToBuffer(log_buffer)
           << "job" << job_context->job_id << "event"
           << "trivial_move"
-          << "destination_level" << c->level() + 1 << "file_number"
-          << f->fd.GetNumber() << "file_size" << f->fd.GetFileSize();
+          << "destination_level" << c->level() + 1 << "files" << moved_files
+          << "total_files_size" << moved_bytes;
     }
     LogToBuffer(
         log_buffer,
-        "[%s] Moved #%" PRIu64 " to level-%d %" PRIu64 " bytes %s: %s\n",
-        c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-        c->level() + 1, f->fd.GetFileSize(), status.ToString().c_str(),
+        "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
+        c->column_family_data()->GetName().c_str(), moved_files, c->level() + 1,
+        moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
     *madeProgress = true;
 
