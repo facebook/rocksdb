@@ -70,6 +70,8 @@ class BlockBasedTableBuilder : public TableBuilder {
   // Finish() call, returns the size of the final generated file.
   uint64_t FileSize() const override;
 
+  bool NeedCompact() const override;
+
   // Get table properties
   TableProperties GetTableProperties() const override;
 

@@ -66,6 +66,7 @@ struct CompactionJob::CompactionState {
     uint64_t file_size;
     InternalKey smallest, largest;
     SequenceNumber smallest_seqno, largest_seqno;
+    bool need_compaction;
   };
   std::vector<Output> outputs;
 
@@ -1016,6 +1017,8 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
   // Check for iterator errors
   Status s = input->status();
   const uint64_t current_entries = compact_->builder->NumEntries();
+  compact_->current_output()->need_compaction =
+      compact_->builder->NeedCompact();
   if (s.ok()) {
     s = compact_->builder->Finish();
   } else {
@@ -1106,9 +1109,10 @@ Status CompactionJob::InstallCompactionResults(
   compaction->AddInputDeletions(compact_->compaction->edit());
   for (size_t i = 0; i < compact_->outputs.size(); i++) {
     const CompactionState::Output& out = compact_->outputs[i];
-    compaction->edit()->AddFile(
-        compaction->output_level(), out.number, out.path_id, out.file_size,
-        out.smallest, out.largest, out.smallest_seqno, out.largest_seqno);
+    compaction->edit()->AddFile(compaction->output_level(), out.number,
+                                out.path_id, out.file_size, out.smallest,
+                                out.largest, out.smallest_seqno,
+                                out.largest_seqno, out.need_compaction);
   }
   return versions_->LogAndApply(compaction->column_family_data(),
                                 mutable_cf_options, compaction->edit(),

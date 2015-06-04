@@ -12957,6 +12957,121 @@ TEST_F(DBTest, CompressLevelCompaction) {
   Destroy(options);
 }
 
+class CountingDeleteTabPropCollector : public TablePropertiesCollector {
+ public:
+  const char* Name() const override { return "CountingDeleteTabPropCollector"; }
+
+  Status AddUserKey(const Slice& user_key, const Slice& value, EntryType type,
+                    SequenceNumber seq, uint64_t file_size) override {
+    if (type == kEntryDelete) {
+      num_deletes_++;
+    }
+    return Status::OK();
+  }
+
+  bool NeedCompact() const override { return num_deletes_ > 10; }
+
+  UserCollectedProperties GetReadableProperties() const override {
+    return UserCollectedProperties{};
+  }
+
+  Status Finish(UserCollectedProperties* properties) override {
+    *properties =
+        UserCollectedProperties{{"num_delete", ToString(num_deletes_)}};
+    return Status::OK();
+  }
+
+ private:
+  uint32_t num_deletes_ = 0;
+};
+
+class CountingDeleteTabPropCollectorFactory
+    : public TablePropertiesCollectorFactory {
+ public:
+  virtual TablePropertiesCollector* CreateTablePropertiesCollector() override {
+    return new CountingDeleteTabPropCollector();
+  }
+  const char* Name() const override {
+    return "CountingDeleteTabPropCollectorFactory";
+  }
+};
+
+TEST_F(DBTest, TablePropertiesNeedCompactTest) {
+  Random rnd(301);
+
+  Options options;
+  options.create_if_missing = true;
+  options.write_buffer_size = 4096;
+  options.max_write_buffer_number = 8;
+  options.level0_file_num_compaction_trigger = 2;
+  options.level0_slowdown_writes_trigger = 2;
+  options.level0_stop_writes_trigger = 4;
+  options.target_file_size_base = 2048;
+  options.max_bytes_for_level_base = 10240;
+  options.max_bytes_for_level_multiplier = 4;
+  options.hard_rate_limit = 1.1;
+  options.num_levels = 8;
+
+  std::shared_ptr<TablePropertiesCollectorFactory> collector_factory(
+      new CountingDeleteTabPropCollectorFactory);
+  options.table_properties_collector_factories.resize(1);
+  options.table_properties_collector_factories[0] = collector_factory;
+
+  DestroyAndReopen(options);
+
+  const int kMaxKey = 1000;
+  for (int i = 0; i < kMaxKey; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 102)));
+    ASSERT_OK(Put(Key(kMaxKey + i), RandomString(&rnd, 102)));
+  }
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  if (NumTableFilesAtLevel(0) == 1) {
+    // Clear Level 0 so that when later flush a file with deletions,
+    // we don't trigger an organic compaction.
+    ASSERT_OK(Put(Key(0), ""));
+    ASSERT_OK(Put(Key(kMaxKey * 2), ""));
+    Flush();
+    dbfull()->TEST_WaitForCompact();
+  }
+  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
+
+  {
+    int c = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(Key(kMaxKey - 100));
+    while (iter->Valid() && iter->key().compare(Key(kMaxKey + 100)) < 0) {
+      iter->Next();
+      ++c;
+    }
+    ASSERT_EQ(c, 200);
+  }
+
+  Delete(Key(0));
+  for (int i = kMaxKey - 100; i < kMaxKey + 100; i++) {
+    Delete(Key(i));
+  }
+  Delete(Key(kMaxKey * 2));
+
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+
+  {
+    SetPerfLevel(kEnableCount);
+    perf_context.Reset();
+    int c = 0;
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    iter->Seek(Key(kMaxKey - 100));
+    while (iter->Valid() && iter->key().compare(Key(kMaxKey + 100)) < 0) {
+      iter->Next();
+    }
+    ASSERT_EQ(c, 0);
+    ASSERT_LT(perf_context.internal_delete_skipped_count, 30u);
+    ASSERT_LT(perf_context.internal_key_skipped_count, 30u);
+    SetPerfLevel(kDisable);
+  }
+}
+
 TEST_F(DBTest, SuggestCompactRangeTest) {
   class CompactionFilterFactoryGetContext : public CompactionFilterFactory {
    public:
@@ -12971,7 +13086,7 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
     }
     static bool IsManual(CompactionFilterFactory* compaction_filter_factory) {
       return reinterpret_cast<CompactionFilterFactoryGetContext*>(
-          compaction_filter_factory)->saved_context.is_manual_compaction;
+                 compaction_filter_factory)->saved_context.is_manual_compaction;
     }
     CompactionFilter::Context saved_context;
   };

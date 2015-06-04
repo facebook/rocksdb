@@ -848,6 +848,15 @@ uint64_t BlockBasedTableBuilder::FileSize() const {
   return rep_->offset;
 }
 
+bool BlockBasedTableBuilder::NeedCompact() const {
+  for (const auto& collector : rep_->table_properties_collectors) {
+    if (collector->NeedCompact()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 TableProperties BlockBasedTableBuilder::GetTableProperties() const {
   TableProperties ret = rep_->props;
   for (const auto& collector : rep_->table_properties_collectors) {

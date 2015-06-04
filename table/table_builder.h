@@ -82,6 +82,10 @@ class TableBuilder {
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
 
+  // If the user defined table properties collector suggest the file to
+  // be further compacted.
+  virtual bool NeedCompact() const { return false; }
+
   // Returns table properties
   virtual TableProperties GetTableProperties() const = 0;
 };

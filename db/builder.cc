@@ -222,6 +222,7 @@ Status BuildTable(
     }
     if (s.ok()) {
       meta->fd.file_size = builder->FileSize();
+      meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
       if (table_properties) {
         *table_properties = builder->GetTableProperties();
