@@ -264,6 +264,34 @@ extern char* rocksdb_get_cf(
     size_t* vallen,
     char** errptr);
 
+// if values_list[i] == NULL and errs[i] == NULL,
+// then we got status.IsNotFound(), which we will not return.
+// all errors except status status.ok() and status.IsNotFound() are returned.
+//
+// errs, values_list and values_list_sizes must be num_keys in length,
+// allocated by the caller.
+// errs is a list of strings as opposed to the conventional one error,
+// where errs[i] is the status for retrieval of keys_list[i].
+// each non-NULL errs entry is a malloc()ed, null terminated string.
+// each non-NULL values_list entry is a malloc()ed array, with
+// the length for each stored in values_list_sizes[i].
+extern void rocksdb_multi_get(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes,
+    char** errs);
+
+extern void rocksdb_multi_get_cf(
+    rocksdb_t* db,
+    const rocksdb_readoptions_t* options,
+    const rocksdb_column_family_handle_t* const* column_families,
+    size_t num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    char** values_list, size_t* values_list_sizes,
+    char** errs);
+
 extern rocksdb_iterator_t* rocksdb_create_iterator(
     rocksdb_t* db,
     const rocksdb_readoptions_t* options);

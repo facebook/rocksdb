@@ -505,6 +505,33 @@ int main(int argc, char** argv) {
     rocksdb_iter_destroy(iter);
   }
 
+  StartPhase("multiget");
+  {
+    const char* keys[3] = { "box", "foo", "notfound" };
+    const size_t keys_sizes[3] = { 3, 3, 8 };
+    char* vals[3];
+    size_t vals_sizes[3];
+    char* errs[3];
+    rocksdb_multi_get(db, roptions, 3, keys, keys_sizes, vals, vals_sizes, errs);
+
+    int i;
+    for (i = 0; i < 3; i++) {
+      CheckEqual(NULL, errs[i], 0);
+      switch (i) {
+      case 0:
+        CheckEqual("c", vals[i], vals_sizes[i]);
+        break;
+      case 1:
+        CheckEqual("hello", vals[i], vals_sizes[i]);
+        break;
+      case 2:
+        CheckEqual(NULL, vals[i], vals_sizes[i]);
+        break;
+      }
+      Free(&vals[i]);
+    }
+  }
+
   StartPhase("approximate_sizes");
   {
     int i;
@@ -778,12 +805,36 @@ int main(int argc, char** argv) {
     CheckGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
+    const char* keys[3] = { "box", "box", "bar" };
+    const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
+    const size_t keys_sizes[3] = { 3, 3, 8 };
+    char* vals[3];
+    size_t vals_sizes[3];
+    char* errs[3];
+    rocksdb_multi_get_cf(db, roptions, get_handles, 3, keys, keys_sizes, vals, vals_sizes, errs);
+
+    int i;
+    for (i = 0; i < 3; i++) {
+      CheckEqual(NULL, errs[i], 0);
+      switch (i) {
+      case 0:
+        CheckEqual(NULL, vals[i], vals_sizes[i]); // wrong cf
+        break;
+      case 1:
+        CheckEqual("c", vals[i], vals_sizes[i]); // bingo
+        break;
+      case 2:
+        CheckEqual(NULL, vals[i], vals_sizes[i]); // normal not found
+        break;
+      }
+      Free(&vals[i]);
+    }
+
     rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db, roptions, handles[1]);
     CheckCondition(!rocksdb_iter_valid(iter));
     rocksdb_iter_seek_to_first(iter);
     CheckCondition(rocksdb_iter_valid(iter));
 
-    int i;
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
