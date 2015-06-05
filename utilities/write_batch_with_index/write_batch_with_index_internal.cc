@@ -10,6 +10,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -187,7 +188,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
       default: {
         result = WriteBatchWithIndexInternal::Result::kError;
         (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                                  std::to_string(entry.type));
+                                  ToString(entry.type));
         break;
       }
     }
