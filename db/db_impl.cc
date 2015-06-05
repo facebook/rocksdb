@@ -1707,11 +1707,10 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   SuperVersion* superversion_to_free = nullptr;
   SuperVersion* new_superversion = new SuperVersion();
 
-  mutex_.Lock();
+  InstrumentedMutexLock guard_lock(&mutex_);
 
   // only allow one thread refitting
   if (refitting_level_) {
-    mutex_.Unlock();
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "[ReFitLevel] another thread is refitting");
     delete new_superversion;
@@ -1743,12 +1742,14 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   auto* vstorage = cfd->current()->storage_info();
   if (to_level > level) {
     if (level == 0) {
+      delete new_superversion;
       return Status::NotSupported(
           "Cannot change from level 0 to other levels.");
     }
     // Check levels are empty for a trivial move
     for (int l = level + 1; l <= to_level; l++) {
       if (vstorage->NumLevelFiles(l) > 0) {
+        delete new_superversion;
         return Status::NotSupported(
             "Levels between source and target are not empty for a move.");
       }
@@ -1791,7 +1792,6 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   refitting_level_ = false;
   bg_work_gate_closed_ = false;
 
-  mutex_.Unlock();
   delete superversion_to_free;
   delete new_superversion;
   return status;
