@@ -1221,10 +1221,10 @@ void VersionStorageInfo::GenerateLevel0NonOverlapping() {
       level_files_brief_[0].files,
       level_files_brief_[0].files + level_files_brief_[0].num_files);
   sort(level0_sorted_file.begin(), level0_sorted_file.end(),
-       [this](FdWithKeyRange& f1, FdWithKeyRange& f2) -> bool {
-         return (internal_comparator_->Compare(f1.smallest_key,
-                                               f2.smallest_key) < 0);
-       });
+       [this](const FdWithKeyRange & f1, const FdWithKeyRange & f2)->bool {
+    return (internal_comparator_->Compare(f1.smallest_key, f2.smallest_key) <
+            0);
+  });
 
   for (size_t i = 1; i < level0_sorted_file.size(); ++i) {
     FdWithKeyRange& f = level0_sorted_file[i];
