@@ -132,6 +132,8 @@ DEFINE_int64(seed, 0,
              "Seed base for random number generators. "
              "When 0 it is deterministic.");
 
+static rocksdb::Env* FLAGS_env = rocksdb::Env::Default();
+
 namespace rocksdb {
 
 namespace {

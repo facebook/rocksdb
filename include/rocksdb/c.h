@@ -44,6 +44,22 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_C_H_
 #define STORAGE_ROCKSDB_INCLUDE_C_H_
 
+#pragma once
+
+#ifdef OS_WIN
+#    ifdef ROCKSDB_DLL
+#        ifdef ROCKSDB_LIBRARY_EXPORTS
+#            define ROCKSDB_LIBRARY_API __declspec(dllexport)
+#        else
+#            define ROCKSDB_LIBRARY_API __declspec(dllimport)
+#        endif
+#    else
+#        define ROCKSDB_LIBRARY_API
+#    endif
+#else
+#    define ROCKSDB_LIBRARY_API
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
