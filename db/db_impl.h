@@ -350,7 +350,8 @@ class DBImpl : public DB {
                                 SuperVersion* super_version, Arena* arena);
 
   void NotifyOnFlushCompleted(ColumnFamilyData* cfd, uint64_t file_number,
-                              const MutableCFOptions& mutable_cf_options);
+                              const MutableCFOptions& mutable_cf_options,
+                              int job_id);
 
   void NotifyOnCompactionCompleted(ColumnFamilyData* cfd,
                                    Compaction *c, const Status &st,

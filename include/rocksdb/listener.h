@@ -4,7 +4,6 @@
 
 #pragma once
 
-
 #include <string>
 #include <vector>
 #include "rocksdb/compaction_job_stats.h"
@@ -48,6 +47,27 @@ struct TableFileDeletionInfo {
   int job_id;
   // The status indicating whether the deletion was successfull or not.
   Status status;
+};
+
+struct FlushJobInfo {
+  // the name of the column family
+  std::string cf_name;
+  // the path to the newly created file
+  std::string file_path;
+  // the id of the thread that completed this flush job.
+  uint64_t thread_id;
+  // the job id, which is unique in the same thread.
+  int job_id;
+  // If true, then rocksdb is currently slowing-down all writes to prevent
+  // creating too many Level 0 files as compaction seems not able to
+  // catch up the write request speed.  This indicates that there are
+  // too many files in Level 0.
+  bool triggered_writes_slowdown;
+  // If true, then rocksdb is currently blocking any writes to prevent
+  // creating more L0 files.  This indicates that there are too many
+  // files in level 0.  Compactions should try to compact L0 files down
+  // to lower levels as soon as possible.
+  bool triggered_writes_stop;
 };
 
 struct CompactionJobInfo {
@@ -114,24 +134,8 @@ class EventListener {
   // Note that the this function must be implemented in a way such that
   // it should not run for an extended period of time before the function
   // returns.  Otherwise, RocksDB may be blocked.
-  //
-  // @param db a pointer to the rocksdb instance which just flushed
-  //     a memtable to disk.
-  // @param column_family_id the id of the flushed column family.
-  // @param file_path the path to the newly created file.
-  // @param triggered_writes_slowdown true when rocksdb is currently
-  //     slowing-down all writes to prevent creating too many Level 0
-  //     files as compaction seems not able to catch up the write request
-  //     speed.  This indicates that there're too many files in Level 0.
-  // @param triggered_writes_stop true when rocksdb is currently blocking
-  //     any writes to prevent creating more L0 files.  This indicates that
-  //     there're too many files in level 0.  Compactions should try to
-  //     compact L0 files down to lower levels as soon as possible.
   virtual void OnFlushCompleted(
-      DB* db, const std::string& column_family_name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) {}
+      DB* db, const FlushJobInfo& flush_job_info) {}
 
   // A call-back function for RocksDB which will be called whenever
   // a SST file is deleted.  Different from OnCompactionCompleted and

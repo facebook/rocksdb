@@ -213,9 +213,12 @@ class TestFlushListener : public EventListener {
  public:
   void OnTableFileCreated(
       const TableFileCreationInfo& info) override {
-    db_name_ = info.db_name;
-    cf_name_ = info.cf_name;
-    file_path_ = info.file_path;
+    // remember the info for later checking the FlushJobInfo.
+    prev_fc_info_ = info;
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
     ASSERT_GT(info.table_properties.data_size, 0U);
     ASSERT_GT(info.table_properties.raw_key_size, 0U);
     ASSERT_GT(info.table_properties.raw_value_size, 0U);
@@ -224,32 +227,27 @@ class TestFlushListener : public EventListener {
   }
 
   void OnFlushCompleted(
-      DB* db, const std::string& cf_name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) override {
+      DB* db, const FlushJobInfo& info) override {
     flushed_dbs_.push_back(db);
-    flushed_column_family_names_.push_back(cf_name);
-    if (triggered_writes_slowdown) {
+    flushed_column_family_names_.push_back(info.cf_name);
+    if (info.triggered_writes_slowdown) {
       slowdown_count++;
     }
-    if (triggered_writes_stop) {
+    if (info.triggered_writes_stop) {
       stop_count++;
     }
-    // verify the file created matches the flushed file.
-    ASSERT_EQ(db_name_, db->GetName());
-    ASSERT_EQ(cf_name_, cf_name);
-    ASSERT_GT(file_path.size(), 0U);
-    ASSERT_EQ(file_path, file_path_);
+    // verify whether the previously created file matches the flushed file.
+    ASSERT_EQ(prev_fc_info_.db_name, db->GetName());
+    ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
+    ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
+    ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
   }
 
   std::vector<std::string> flushed_column_family_names_;
   std::vector<DB*> flushed_dbs_;
   int slowdown_count;
   int stop_count;
-  std::string db_name_;
-  std::string cf_name_;
-  std::string file_path_;
+  TableFileCreationInfo prev_fc_info_;
 };
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {

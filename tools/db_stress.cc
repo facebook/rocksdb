@@ -791,14 +791,11 @@ class DbStressListener : public EventListener {
   virtual ~DbStressListener() {}
 #ifndef ROCKSDB_LITE
   virtual void OnFlushCompleted(
-      DB* db, const std::string& column_family_name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) override {
+      DB* db, const FlushJobInfo& info) override {
     assert(db);
     assert(db->GetName() == db_name_);
-    assert(IsValidColumnFamilyName(column_family_name));
-    VerifyFilePath(file_path);
+    assert(IsValidColumnFamilyName(info.cf_name));
+    VerifyFilePath(info.file_path);
     // pretending doing some work here
     std::this_thread::sleep_for(
         std::chrono::microseconds(rand_.Uniform(5000)));

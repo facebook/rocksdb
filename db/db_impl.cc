@@ -1276,7 +1276,8 @@ Status DBImpl::FlushMemTableToOutputFile(
 #ifndef ROCKSDB_LITE
   if (s.ok()) {
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, file_number, mutable_cf_options);
+    NotifyOnFlushCompleted(cfd, file_number, mutable_cf_options,
+                           job_context->job_id);
   }
 #endif  // ROCKSDB_LITE
   return s;
@@ -1284,7 +1285,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
 void DBImpl::NotifyOnFlushCompleted(
     ColumnFamilyData* cfd, uint64_t file_number,
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, int job_id) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
     return;
@@ -1293,23 +1294,27 @@ void DBImpl::NotifyOnFlushCompleted(
   if (shutting_down_.load(std::memory_order_acquire)) {
     return;
   }
-  bool triggered_flush_slowdown =
+  bool triggered_writes_slowdown =
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
        mutable_cf_options.level0_slowdown_writes_trigger);
-  bool triggered_flush_stop =
+  bool triggered_writes_stop =
       (cfd->current()->storage_info()->NumLevelFiles(0) >=
        mutable_cf_options.level0_stop_writes_trigger);
   // release lock while notifying events
   mutex_.Unlock();
   {
-    // TODO(yhchiang): make db_paths dynamic.
-    auto file_path = MakeTableFileName(db_options_.db_paths[0].path,
+    FlushJobInfo info;
+    info.cf_name = cfd->GetName();
+    // TODO(yhchiang): make db_paths dynamic in case flush does not
+    //                 go to L0 in the future.
+    info.file_path = MakeTableFileName(db_options_.db_paths[0].path,
                                        file_number);
+    info.thread_id = ThreadStatusUtil::GetThreadID();
+    info.job_id = job_id;
+    info.triggered_writes_slowdown = triggered_writes_slowdown;
+    info.triggered_writes_stop = triggered_writes_stop;
     for (auto listener : db_options_.listeners) {
-      listener->OnFlushCompleted(
-          this, cfd->GetName(), file_path,
-          // Use path 0 as fulled memtables are first flushed into path 0.
-          triggered_flush_slowdown, triggered_flush_stop);
+      listener->OnFlushCompleted(this, info);
     }
   }
   mutex_.Lock();

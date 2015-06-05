@@ -31,12 +31,9 @@ class FlushedFileCollector : public EventListener {
   ~FlushedFileCollector() {}
 
   virtual void OnFlushCompleted(
-      DB* db, const std::string& column_family_name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) {
+      DB* db, const FlushJobInfo& info) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    flushed_files_.push_back(file_path);
+    flushed_files_.push_back(info.file_path);
   }
 
   std::vector<std::string> GetFlushedFiles() {

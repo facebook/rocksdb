@@ -71,13 +71,10 @@ class FullCompactor : public Compactor {
   // If triggered_writes_stop is true, it will also set the retry
   // flag of compaction-task to true.
   void OnFlushCompleted(
-      DB* db, const std::string& cf_name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) override {
-    CompactionTask* task = PickCompaction(db, cf_name);
+      DB* db, const FlushJobInfo& info) override {
+    CompactionTask* task = PickCompaction(db, info.cf_name);
     if (task != nullptr) {
-      if (triggered_writes_stop) {
+      if (info.triggered_writes_stop) {
         task->retry_on_fail = true;
       }
       // Schedule compaction in a different thread.

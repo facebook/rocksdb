@@ -4,6 +4,7 @@
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
 
 ### Public API changes
+* EventListener::OnFlushCompleted() now passes FlushJobInfo instead of a list of parameters.
 * DB::GetDbIdentity() is now a const function.  If this function is overridden in your application, be sure to also make GetDbIdentity() const to avoid compile error.
 * Move listeners from ColumnFamilyOptions to DBOptions.
 * Add max_write_buffer_number_to_maintain option
