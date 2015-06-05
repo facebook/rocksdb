@@ -1736,6 +1736,9 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
     to_level = FindMinimumEmptyLevelFitting(cfd, mutable_cf_options, level);
   }
 
+  printf("level %d, to_level %d\n", level, to_level);
+  assert(to_level <= level);
+
   Status status;
   auto* vstorage = cfd->current()->storage_info();
   if (to_level > level) {

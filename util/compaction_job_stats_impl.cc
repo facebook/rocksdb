@@ -29,9 +29,6 @@ void CompactionJobStats::Reset() {
   num_records_replaced = 0;
 
   is_manual_compaction = 0;
-
-  smallest_output_key_prefix[0] = 0;
-  largest_output_key_prefix[0] = 0;
 }
 
 #else
