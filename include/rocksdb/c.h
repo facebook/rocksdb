@@ -44,22 +44,6 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_C_H_
 #define STORAGE_ROCKSDB_INCLUDE_C_H_
 
-#pragma once
-
-#ifdef OS_WIN
-#    ifdef ROCKSDB_DLL
-#        ifdef ROCKSDB_LIBRARY_EXPORTS
-#            define ROCKSDB_LIBRARY_API __declspec(dllexport)
-#        else
-#            define ROCKSDB_LIBRARY_API __declspec(dllimport)
-#        endif
-#    else
-#        define ROCKSDB_LIBRARY_API
-#    endif
-#else
-#    define ROCKSDB_LIBRARY_API
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -439,6 +423,21 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_cache_comp
     rocksdb_block_based_table_options_t* options,
     rocksdb_cache_t* block_cache_compressed);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_whole_key_filtering(
+    rocksdb_block_based_table_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_format_version(
+    rocksdb_block_based_table_options_t*, int);
+enum {
+  rocksdb_block_based_table_index_type_binary_search = 0,
+  rocksdb_block_based_table_index_type_hash_search = 1,
+};
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_index_type(
+    rocksdb_block_based_table_options_t*, int); // uses one of the above enums
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_hash_index_allow_collision(
+    rocksdb_block_based_table_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
+    rocksdb_block_based_table_options_t*, unsigned char);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt, rocksdb_block_based_table_options_t* table_options);
@@ -830,7 +829,9 @@ extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t* rocksdb_slicetransform_crea
         void*,
         const char* key, size_t length),
     const char* (*name)(void*));
+
 extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t* rocksdb_slicetransform_create_fixed_prefix(size_t);
+extern ROCKSDB_LIBRARY_API rocksdb_slicetransform_t* rocksdb_slicetransform_create_noop();
 extern ROCKSDB_LIBRARY_API void rocksdb_slicetransform_destroy(rocksdb_slicetransform_t*);
 
 /* Universal Compaction options */

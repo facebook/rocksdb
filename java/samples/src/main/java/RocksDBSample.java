@@ -3,6 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+import java.lang.IllegalArgumentException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +44,7 @@ public class RocksDBSample {
           .setMaxBackgroundCompactions(10)
           .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
           .setCompactionStyle(CompactionStyle.UNIVERSAL);
-    } catch (RocksDBException e) {
+    } catch (IllegalArgumentException e) {
       assert(false);
     }
 
@@ -56,38 +57,35 @@ public class RocksDBSample {
     assert(options.compressionType() == CompressionType.SNAPPY_COMPRESSION);
     assert(options.compactionStyle() == CompactionStyle.UNIVERSAL);
 
-    try {
-      assert(options.memTableFactoryName().equals("SkipListFactory"));
-      options.setMemTableConfig(
-          new HashSkipListMemTableConfig()
-              .setHeight(4)
-              .setBranchingFactor(4)
-              .setBucketCount(2000000));
-      assert(options.memTableFactoryName().equals("HashSkipListRepFactory"));
+    assert(options.memTableFactoryName().equals("SkipListFactory"));
+    options.setMemTableConfig(
+        new HashSkipListMemTableConfig()
+            .setHeight(4)
+            .setBranchingFactor(4)
+            .setBucketCount(2000000));
+    assert(options.memTableFactoryName().equals("HashSkipListRepFactory"));
 
-      options.setMemTableConfig(
-          new HashLinkedListMemTableConfig()
-              .setBucketCount(100000));
-      assert(options.memTableFactoryName().equals("HashLinkedListRepFactory"));
+    options.setMemTableConfig(
+        new HashLinkedListMemTableConfig()
+            .setBucketCount(100000));
+    assert(options.memTableFactoryName().equals("HashLinkedListRepFactory"));
 
-      options.setMemTableConfig(
-          new VectorMemTableConfig().setReservedSize(10000));
-      assert(options.memTableFactoryName().equals("VectorRepFactory"));
+    options.setMemTableConfig(
+        new VectorMemTableConfig().setReservedSize(10000));
+    assert(options.memTableFactoryName().equals("VectorRepFactory"));
 
-      options.setMemTableConfig(new SkipListMemTableConfig());
-      assert(options.memTableFactoryName().equals("SkipListFactory"));
+    options.setMemTableConfig(new SkipListMemTableConfig());
+    assert(options.memTableFactoryName().equals("SkipListFactory"));
 
-      options.setTableFormatConfig(new PlainTableConfig());
-      // Plain-Table requires mmap read
-      options.setAllowMmapReads(true);
-      assert(options.tableFactoryName().equals("PlainTable"));
+    options.setTableFormatConfig(new PlainTableConfig());
+    // Plain-Table requires mmap read
+    options.setAllowMmapReads(true);
+    assert(options.tableFactoryName().equals("PlainTable"));
 
-      options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000,
-          10000, 10));
-      options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
-    } catch (RocksDBException e) {
-      assert(false);
-    }
+    options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000,
+        10000, 10));
+    options.setRateLimiterConfig(new GenericRateLimiterConfig(10000000));
+
 
     Filter bloomFilter = new BloomFilter(10);
     BlockBasedTableConfig table_options = new BlockBasedTableConfig();
@@ -114,7 +112,7 @@ public class RocksDBSample {
     assert(options.tableFactoryName().equals("BlockBasedTable"));
 
     try {
-      db = RocksDB.open(options, db_path_not_found);
+      db = RocksDB.open(options, db_path);
       db.put("hello".getBytes(), "world".getBytes());
       byte[] value = db.get("hello".getBytes());
       assert("world".equals(new String(value)));

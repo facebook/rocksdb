@@ -187,7 +187,8 @@ Status SstFileReader::ReadSequential(bool print_kv,
                                                          false));
   uint64_t i = 0;
   if (has_from) {
-    InternalKey ikey(from_key, kMaxSequenceNumber, kValueTypeForSeek);
+    InternalKey ikey;
+    ikey.SetMaxPossibleForUserKey(from_key);
     iter->Seek(ikey.Encode());
   } else {
     iter->SeekToFirst();
@@ -377,7 +378,7 @@ int SSTDumpTool::Run(int argc, char** argv) {
 
     // scan all files in give file path.
     if (command == "" || command == "scan" || command == "check") {
-      st = reader.ReadSequential(command != "check",
+      st = reader.ReadSequential(command == "scan",
                                  read_num > 0 ? (read_num - total_read) :
                                                 read_num,
                                  has_from, from_key, has_to, to_key);

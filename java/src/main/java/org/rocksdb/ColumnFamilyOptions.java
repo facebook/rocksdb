@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 /**
@@ -144,8 +146,7 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
-  public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize)
-      throws RocksDBException {
+  public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize) {
     assert(isInitialized());
     setWriteBufferSize(nativeHandle_, writeBufferSize);
     return this;
@@ -199,6 +200,30 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
+  }
+
+  @Override
+  public ColumnFamilyOptions setCompressionPerLevel(
+      final List<CompressionType> compressionLevels) {
+    final List<Byte> byteCompressionTypes = new ArrayList<>(
+        compressionLevels.size());
+    for (final CompressionType compressionLevel : compressionLevels) {
+      byteCompressionTypes.add(compressionLevel.getValue());
+    }
+    setCompressionPerLevel(nativeHandle_, byteCompressionTypes);
+    return this;
+  }
+
+  @Override
+  public List<CompressionType> compressionPerLevel() {
+    final List<Byte> byteCompressionTypes =
+        compressionPerLevel(nativeHandle_);
+    final List<CompressionType> compressionLevels = new ArrayList<>();
+    for (final Byte byteCompressionType : byteCompressionTypes) {
+      compressionLevels.add(CompressionType.getCompressionType(
+          byteCompressionType));
+    }
+    return compressionLevels;
   }
 
   @Override
@@ -297,6 +322,19 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setLevelCompactionDynamicLevelBytes(
+      final boolean enableLevelCompactionDynamicLevelBytes) {
+    setLevelCompactionDynamicLevelBytes(nativeHandle_,
+        enableLevelCompactionDynamicLevelBytes);
+    return this;
+  }
+
+  @Override
+  public boolean levelCompactionDynamicLevelBytes() {
+    return levelCompactionDynamicLevelBytes(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setMaxBytesForLevelMultiplier(
       final int multiplier) {
     setMaxBytesForLevelMultiplier(nativeHandle_, multiplier);
@@ -383,8 +421,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setArenaBlockSize(
-      final long arenaBlockSize)
-      throws RocksDBException {
+      final long arenaBlockSize) {
     setArenaBlockSize(nativeHandle_, arenaBlockSize);
     return this;
   }
@@ -470,7 +507,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMemTableConfig(
-      final MemTableConfig config) throws RocksDBException {
+      final MemTableConfig config) {
     memTableConfig_ = config;
     setMemTableFactory(nativeHandle_, config.newMemTableFactoryHandle());
     return this;
@@ -510,8 +547,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setInplaceUpdateNumLocks(
-      final long inplaceUpdateNumLocks)
-      throws RocksDBException {
+      final long inplaceUpdateNumLocks) {
     setInplaceUpdateNumLocks(nativeHandle_, inplaceUpdateNumLocks);
     return this;
   }
@@ -558,7 +594,7 @@ public class ColumnFamilyOptions extends RocksObject
 
   @Override
   public ColumnFamilyOptions setMaxSuccessiveMerges(
-      final long maxSuccessiveMerges) throws RocksDBException {
+      final long maxSuccessiveMerges) {
     setMaxSuccessiveMerges(nativeHandle_, maxSuccessiveMerges);
     return this;
   }
@@ -578,6 +614,18 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public int minPartialMergeOperands() {
     return minPartialMergeOperands(nativeHandle_);
+  }
+
+  @Override
+  public ColumnFamilyOptions setOptimizeFiltersForHits(
+      final boolean optimizeFiltersForHits) {
+    setOptimizeFiltersForHits(nativeHandle_, optimizeFiltersForHits);
+    return this;
+  }
+
+  @Override
+  public boolean optimizeFiltersForHits() {
+    return optimizeFiltersForHits(nativeHandle_);
   }
 
   /**
@@ -619,7 +667,7 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setMergeOperator(
       long handle, long mergeOperatorHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
-      throws RocksDBException;
+      throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
   private native void setMaxWriteBufferNumber(
       long handle, int maxWriteBufferNumber);
@@ -629,6 +677,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native int minWriteBufferNumberToMerge(long handle);
   private native void setCompressionType(long handle, byte compressionType);
   private native byte compressionType(long handle);
+  private native void setCompressionPerLevel(long handle,
+      List<Byte> compressionLevels);
+  private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
   private native void setNumLevels(
@@ -655,6 +706,10 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setMaxBytesForLevelBase(
       long handle, long maxBytesForLevelBase);
   private native long maxBytesForLevelBase(long handle);
+  private native void setLevelCompactionDynamicLevelBytes(
+      long handle, boolean enableLevelCompactionDynamicLevelBytes);
+  private native boolean levelCompactionDynamicLevelBytes(
+      long handle);
   private native void setMaxBytesForLevelMultiplier(
       long handle, int multiplier);
   private native int maxBytesForLevelMultiplier(long handle);
@@ -677,7 +732,8 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, int rateLimitDelayMaxMilliseconds);
   private native int rateLimitDelayMaxMilliseconds(long handle);
   private native void setArenaBlockSize(
-      long handle, long arenaBlockSize) throws RocksDBException;
+      long handle, long arenaBlockSize)
+      throws IllegalArgumentException;
   private native long arenaBlockSize(long handle);
   private native void setDisableAutoCompactions(
       long handle, boolean disableAutoCompactions);
@@ -704,7 +760,8 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, boolean inplaceUpdateSupport);
   private native boolean inplaceUpdateSupport(long handle);
   private native void setInplaceUpdateNumLocks(
-      long handle, long inplaceUpdateNumLocks) throws RocksDBException;
+      long handle, long inplaceUpdateNumLocks)
+      throws IllegalArgumentException;
   private native long inplaceUpdateNumLocks(long handle);
   private native void setMemtablePrefixBloomBits(
       long handle, int memtablePrefixBloomBits);
@@ -716,11 +773,15 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, int bloomLocality);
   private native int bloomLocality(long handle);
   private native void setMaxSuccessiveMerges(
-      long handle, long maxSuccessiveMerges) throws RocksDBException;
+      long handle, long maxSuccessiveMerges)
+      throws IllegalArgumentException;
   private native long maxSuccessiveMerges(long handle);
   private native void setMinPartialMergeOperands(
       long handle, int minPartialMergeOperands);
   private native int minPartialMergeOperands(long handle);
+  private native void setOptimizeFiltersForHits(long handle,
+      boolean optimizeFiltersForHits);
+  private native boolean optimizeFiltersForHits(long handle);
 
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;

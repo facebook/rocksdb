@@ -50,7 +50,7 @@ static int NextLength(int length) {
   return length;
 }
 
-class BloomTest {
+class BloomTest : public testing::Test {
  private:
   const FilterPolicy* policy_;
   std::string filter_;
@@ -119,12 +119,12 @@ class BloomTest {
   }
 };
 
-TEST(BloomTest, EmptyFilter) {
+TEST_F(BloomTest, EmptyFilter) {
   ASSERT_TRUE(! Matches("hello"));
   ASSERT_TRUE(! Matches("world"));
 }
 
-TEST(BloomTest, Small) {
+TEST_F(BloomTest, Small) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
@@ -133,7 +133,7 @@ TEST(BloomTest, Small) {
   ASSERT_TRUE(! Matches("foo"));
 }
 
-TEST(BloomTest, VaryingLengths) {
+TEST_F(BloomTest, VaryingLengths) {
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -174,7 +174,7 @@ TEST(BloomTest, VaryingLengths) {
 
 // Different bits-per-byte
 
-class FullBloomTest {
+class FullBloomTest : public testing::Test {
  private:
   const FilterPolicy* policy_;
   std::unique_ptr<FilterBitsBuilder> bits_builder_;
@@ -233,13 +233,13 @@ class FullBloomTest {
   }
 };
 
-TEST(FullBloomTest, FullEmptyFilter) {
+TEST_F(FullBloomTest, FullEmptyFilter) {
   // Empty filter is not match, at this level
   ASSERT_TRUE(!Matches("hello"));
   ASSERT_TRUE(!Matches("world"));
 }
 
-TEST(FullBloomTest, FullSmall) {
+TEST_F(FullBloomTest, FullSmall) {
   Add("hello");
   Add("world");
   ASSERT_TRUE(Matches("hello"));
@@ -248,7 +248,7 @@ TEST(FullBloomTest, FullSmall) {
   ASSERT_TRUE(!Matches("foo"));
 }
 
-TEST(FullBloomTest, FullVaryingLengths) {
+TEST_F(FullBloomTest, FullVaryingLengths) {
   char buffer[sizeof(int)];
 
   // Count number of filters that significantly exceed the false positive rate
@@ -292,9 +292,10 @@ TEST(FullBloomTest, FullVaryingLengths) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
 
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }
 
 #endif  // GFLAGS

@@ -111,7 +111,7 @@ public:
 
     DoCommand();
     if (exec_state_.IsNotStarted()) {
-      exec_state_ = LDBCommandExecuteResult::SUCCEED("");
+      exec_state_ = LDBCommandExecuteResult::Succeed("");
     }
 
     if (db_ != nullptr) {
@@ -243,7 +243,7 @@ protected:
     }
     if (!st.ok()) {
       string msg = st.ToString();
-      exec_state_ = LDBCommandExecuteResult::FAILED(msg);
+      exec_state_ = LDBCommandExecuteResult::Failed(msg);
     }
 
     options_ = opt;

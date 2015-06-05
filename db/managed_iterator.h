@@ -81,4 +81,4 @@ class ManagedIterator : public Iterator {
 };
 
 }  // namespace rocksdb
-#endif  // ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE

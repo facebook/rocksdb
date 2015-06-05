@@ -21,6 +21,7 @@
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
 #include "db/table_cache.h"
+#include "db/table_properties_collector.h"
 #include "db/flush_scheduler.h"
 #include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
@@ -84,24 +85,23 @@ class ColumnFamilyHandleInternal : public ColumnFamilyHandleImpl {
 
 // holds references to memtable, all immutable memtables and version
 struct SuperVersion {
+  // Accessing members of this class is not thread-safe and requires external
+  // synchronization (ie db mutex held or on write thread).
   MemTable* mem;
   MemTableListVersion* imm;
   Version* current;
   MutableCFOptions mutable_cf_options;
-  std::atomic<uint32_t> refs;
-  // We need to_delete because during Cleanup(), imm->Unref() returns
-  // all memtables that we need to free through this vector. We then
-  // delete all those memtables outside of mutex, during destruction
-  autovector<MemTable*> to_delete;
   // Version number of the current SuperVersion
   uint64_t version_number;
+
   InstrumentedMutex* db_mutex;
 
   // should be called outside the mutex
   SuperVersion() = default;
   ~SuperVersion();
   SuperVersion* Ref();
-
+  // If Unref() returns true, Cleanup() should be called with mutex held
+  // before deleting this SuperVersion.
   bool Unref();
 
   // call these two methods with db mutex held
@@ -120,11 +120,25 @@ struct SuperVersion {
   static int dummy;
   static void* const kSVInUse;
   static void* const kSVObsolete;
+
+ private:
+  std::atomic<uint32_t> refs;
+  // We need to_delete because during Cleanup(), imm->Unref() returns
+  // all memtables that we need to free through this vector. We then
+  // delete all those memtables outside of mutex, during destruction
+  autovector<MemTable*> to_delete;
 };
 
 extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
+// Wrap user defined table proproties collector factories `from cf_options`
+// into internal ones in int_tbl_prop_collector_factories. Add a system internal
+// one too.
+extern void GetIntTblPropCollectorFactory(
+    const ColumnFamilyOptions& cf_options,
+    std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+        int_tbl_prop_collector_factories);
 
 class ColumnFamilySet;
 
@@ -162,11 +176,11 @@ class ColumnFamilyData {
   // until client drops the column family handle. That way, client can still
   // access data from dropped column family.
   // Column family can be dropped and still alive. In that state:
-  // *) Column family is not included in the iteration.
   // *) Compaction and flush is not executed on the dropped column family.
   // *) Client can continue reading from column family. Writes will fail unless
   // WriteOptions::ignore_missing_column_families is true
   // When the dropped column family is unreferenced, then we:
+  // *) Remove column family from the linked list maintained by ColumnFamilySet
   // *) delete all memory associated with that column family
   // *) delete all the files associated with that column family
   void SetDropped();
@@ -209,10 +223,13 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
-
-  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options);
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);
+
+  // See Memtable constructor for explanation of earliest_seq param.
+  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
+                                 SequenceNumber earliest_seq);
+  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
+                         SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
 
@@ -222,6 +239,11 @@ class ColumnFamilyData {
   // REQUIRES: DB mutex held
   Compaction* PickCompaction(const MutableCFOptions& mutable_options,
                              LogBuffer* log_buffer);
+  // A flag to tell a manual compaction is to compact all levels together
+  // instad of for specific level.
+  static const int kCompactAllLevels;
+  // A flag to tell a manual compaction's output is base level.
+  static const int kCompactToBaseLevel;
   // REQUIRES: DB mutex held
   Compaction* CompactRange(
       const MutableCFOptions& mutable_cf_options,
@@ -237,6 +259,11 @@ class ColumnFamilyData {
   // thread-safe
   const InternalKeyComparator& internal_comparator() const {
     return internal_comparator_;
+  }
+
+  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+  int_tbl_prop_collector_factories() const {
+    return &int_tbl_prop_collector_factories_;
   }
 
   SuperVersion* GetSuperVersion() { return super_version_; }
@@ -267,13 +294,6 @@ class ColumnFamilyData {
                                     InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
-
-  void NotifyOnCompactionCompleted(DB* db, Compaction* c, const Status& status);
-
-  void NotifyOnFlushCompleted(
-      DB* db, const std::string& file_path,
-      bool triggered_flush_slowdown,
-      bool triggered_flush_stop);
 
   // Protected by DB mutex
   void set_pending_flush(bool value) { pending_flush_ = value; }
@@ -307,6 +327,8 @@ class ColumnFamilyData {
   bool dropped_;               // true if client dropped it
 
   const InternalKeyComparator internal_comparator_;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories_;
 
   const Options options_;
   const ImmutableCFOptions ioptions_;
@@ -331,8 +353,9 @@ class ColumnFamilyData {
   // This needs to be destructed before mutex_
   std::unique_ptr<ThreadLocalPtr> local_sv_;
 
-  // pointers for a circular linked list. we use it to support iterations
-  // that can be concurrent with writes
+  // pointers for a circular linked list. we use it to support iterations over
+  // all column families that are alive (note: dropped column families can also
+  // be alive as long as client holds a reference)
   ColumnFamilyData* next_;
   ColumnFamilyData* prev_;
 
@@ -383,11 +406,13 @@ class ColumnFamilySet {
     explicit iterator(ColumnFamilyData* cfd)
         : current_(cfd) {}
     iterator& operator++() {
-      // dummy is never dead or dropped, so this will never be infinite
+      // dropped column families might still be included in this iteration
+      // (we're only removing them when client drops the last reference to the
+      // column family).
+      // dummy is never dead, so this will never be infinite
       do {
         current_ = current_->next_;
-      } while (current_->refs_.load(std::memory_order_relaxed) == 0 ||
-               current_->IsDropped());
+      } while (current_->refs_.load(std::memory_order_relaxed) == 0);
       return *this;
     }
     bool operator!=(const iterator& other) {

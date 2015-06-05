@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   db = rocksdb_open(options, DBPath, &err);
   assert(!err);
 
-  // open Backup Engine that we will use for backing up or database
+  // open Backup Engine that we will use for backing up our database
   be = rocksdb_backup_engine_open(options, DBBackupPath, &err);
   assert(!err);
 

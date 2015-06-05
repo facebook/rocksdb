@@ -22,6 +22,8 @@ class StackableDB : public DB {
     return db_;
   }
 
+  virtual DB* GetRootDB() override { return db_->GetRootDB(); }
+
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle) override {
@@ -127,9 +129,9 @@ class StackableDB : public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
+                              bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) override {
-    return db_->CompactRange(column_family, begin, end, reduce_level,
+    return db_->CompactRange(column_family, begin, end, change_level,
                              target_level, target_path_id);
   }
 
@@ -173,6 +175,11 @@ class StackableDB : public DB {
   virtual const Options& GetOptions(ColumnFamilyHandle* column_family) const
       override {
     return db_->GetOptions(column_family);
+  }
+
+  using DB::GetDBOptions;
+  virtual const DBOptions& GetDBOptions() const override {
+    return db_->GetDBOptions();
   }
 
   using DB::Flush;
@@ -221,7 +228,7 @@ class StackableDB : public DB {
     return db_->DeleteFile(name);
   }
 
-  virtual Status GetDbIdentity(std::string& identity) override {
+  virtual Status GetDbIdentity(std::string& identity) const override {
     return db_->GetDbIdentity(identity);
   }
 

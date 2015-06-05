@@ -35,7 +35,7 @@ bool SyncPoint::PredecessorsAllCleared(const std::string& point) {
 }
 
 void SyncPoint::SetCallBack(const std::string point,
-                            std::function<void()> callback) {
+                            std::function<void(void*)> callback) {
   std::unique_lock<std::mutex> lock(mutex_);
   callbacks_[point] = callback;
 }
@@ -63,7 +63,7 @@ void SyncPoint::ClearTrace() {
   cleared_points_.clear();
 }
 
-void SyncPoint::Process(const std::string& point) {
+void SyncPoint::Process(const std::string& point, void* cb_arg) {
   std::unique_lock<std::mutex> lock(mutex_);
 
   if (!enabled_) return;
@@ -72,7 +72,7 @@ void SyncPoint::Process(const std::string& point) {
   if (callback_pair != callbacks_.end()) {
     num_callbacks_running_++;
     mutex_.unlock();
-    callback_pair->second();
+    callback_pair->second(cb_arg);
     mutex_.lock();
     num_callbacks_running_--;
     cv_.notify_all();
@@ -85,6 +85,5 @@ void SyncPoint::Process(const std::string& point) {
   cleared_points_.insert(point);
   cv_.notify_all();
 }
-
 }  // namespace rocksdb
 #endif  // NDEBUG

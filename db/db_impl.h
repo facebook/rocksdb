@@ -21,6 +21,8 @@
 #include "db/log_writer.h"
 #include "db/snapshot.h"
 #include "db/column_family.h"
+#include "db/compaction_job.h"
+#include "db/flush_job.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/writebuffer.h"
@@ -31,6 +33,8 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
+#include "util/event_logger.h"
+#include "util/hash.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
 #include "util/scoped_arena_iterator.h"
@@ -50,6 +54,7 @@ class VersionEdit;
 class VersionSet;
 class CompactionFilterV2;
 class Arena;
+class WriteCallback;
 struct JobContext;
 
 class DBImpl : public DB {
@@ -73,6 +78,7 @@ class DBImpl : public DB {
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
+
   using DB::Get;
   virtual Status Get(const ReadOptions& options,
                      ColumnFamilyHandle* column_family, const Slice& key,
@@ -120,7 +126,7 @@ class DBImpl : public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
+                              bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) override;
 
   using DB::CompactFiles;
@@ -147,6 +153,8 @@ class DBImpl : public DB {
   using DB::GetOptions;
   virtual const Options& GetOptions(
       ColumnFamilyHandle* column_family) const override;
+  using DB::GetDBOptions;
+  virtual const DBOptions& GetDBOptions() const override;
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
@@ -181,13 +189,47 @@ class DBImpl : public DB {
       ColumnFamilyHandle* column_family,
       ColumnFamilyMetaData* metadata) override;
 
+  // experimental API
+  Status SuggestCompactRange(ColumnFamilyHandle* column_family,
+                             const Slice* begin, const Slice* end);
+
+  Status PromoteL0(ColumnFamilyHandle* column_family, int target_level);
+
+  // Similar to Write() but will call the callback once on the single write
+  // thread to determine whether it is safe to perform the write.
+  virtual Status WriteWithCallback(const WriteOptions& write_options,
+                                   WriteBatch* my_batch,
+                                   WriteCallback* callback);
+
+  // Returns the sequence number that is guaranteed to be smaller than or equal
+  // to the sequence number of any key that could be inserted into the current
+  // memtables. It can then be assumed that any write with a larger(or equal)
+  // sequence number will be present in this memtable or a later memtable.
+  //
+  // If the earliest sequence number could not be determined,
+  // kMaxSequenceNumber will be returned.
+  //
+  // If include_history=true, will also search Memtables in MemTableList
+  // History.
+  SequenceNumber GetEarliestMemTableSequenceNumber(SuperVersion* sv,
+                                                   bool include_history);
+
+  // For a given key, check to see if there are any records for this key
+  // in the memtables, including memtable history.
+
+  // On success, *seq will contain the sequence number for the
+  // latest such change or kMaxSequenceNumber if no records were present.
+  // Returns OK on success, other status on error reading memtables.
+  Status GetLatestSequenceForKeyFromMemtable(SuperVersion* sv, const Slice& key,
+                                             SequenceNumber* seq);
+
 #endif  // ROCKSDB_LITE
 
   // checks if all live files exist on file system and that their file sizes
   // match to our in-memory records
   virtual Status CheckConsistency();
 
-  virtual Status GetDbIdentity(std::string& identity) override;
+  virtual Status GetDbIdentity(std::string& identity) const override;
 
   Status RunManualCompaction(ColumnFamilyData* cfd, int input_level,
                              int output_level, uint32_t output_path_id,
@@ -241,9 +283,11 @@ class DBImpl : public DB {
   // pass the pointer that you got from TEST_BeginWrite()
   void TEST_EndWrite(void* w);
 
-  uint64_t TEST_max_total_in_memory_state() {
+  uint64_t TEST_MaxTotalInMemoryState() const {
     return max_total_in_memory_state_;
   }
+
+  size_t TEST_LogsToFreeSize();
 
 #endif  // ROCKSDB_LITE
 
@@ -264,6 +308,34 @@ class DBImpl : public DB {
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   const SnapshotList& snapshots() const { return snapshots_; }
+
+  void CancelAllBackgroundWork(bool wait);
+
+  // Find Super version and reference it. Based on options, it might return
+  // the thread local cached one.
+  // Call ReturnAndCleanupSuperVersion() when it is no longer needed.
+  SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
+
+  // Similar to the previous function but looks up based on a column family id.
+  // nullptr will be returned if this column family no longer exists.
+  // REQUIRED: this function should only be called on the write thread or if the
+  // mutex is held.
+  SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
+
+  // Un-reference the super version and return it to thread local cache if
+  // needed. If it is the last reference of the super version. Clean it up
+  // after un-referencing it.
+  void ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd, SuperVersion* sv);
+
+  // Similar to the previous function but looks up based on a column family id.
+  // nullptr will be returned if this column family no longer exists.
+  // REQUIRED: this function should only be called on the write thread.
+  void ReturnAndCleanupSuperVersion(uint32_t colun_family_id, SuperVersion* sv);
+
+  // REQUIRED: this function should only be called on the write thread or if the
+  // mutex is held.  Return value only valid until next call to this function or
+  // mutex is released.
+  ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
 
  protected:
   Env* const env_;
@@ -287,6 +359,9 @@ class DBImpl : public DB {
 
   void EraseThreadStatusDbInfo() const;
 
+  Status WriteImpl(const WriteOptions& options, WriteBatch* updates,
+                   WriteCallback* callback);
+
  private:
   friend class DB;
   friend class InternalStats;
@@ -295,6 +370,9 @@ class DBImpl : public DB {
 #endif
   friend struct SuperVersion;
   friend class CompactedDBImpl;
+#ifndef NDEBUG
+  friend class XFTransactionWriteHandler;
+#endif
   struct CompactionState;
 
   struct WriteContext;
@@ -348,8 +426,8 @@ class DBImpl : public DB {
   // database is opened) and is heavyweight because it holds the mutex
   // for the entire period. The second method WriteLevel0Table supports
   // concurrent flush memtables to storage.
-  Status WriteLevel0TableForRecovery(ColumnFamilyData* cfd, MemTable* mem,
-                                     VersionEdit* edit);
+  Status WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
+                                     MemTable* mem, VersionEdit* edit);
   Status DelayWrite(uint64_t expiration_time);
 
   Status ScheduleFlushes(WriteContext* context);
@@ -370,7 +448,8 @@ class DBImpl : public DB {
   Status CompactFilesImpl(
       const CompactionOptions& compact_options, ColumnFamilyData* cfd,
       Version* version, const std::vector<std::string>& input_file_names,
-      const int output_level, int output_path_id);
+      const int output_level, int output_path_id, JobContext* job_context,
+      LogBuffer* log_buffer);
 #endif  // ROCKSDB_LITE
 
   ColumnFamilyData* GetColumnFamilyDataByName(const std::string& cf_name);
@@ -456,6 +535,9 @@ class DBImpl : public DB {
   // If true, we have only one (default) column family. We use this to optimize
   // some code-paths
   bool single_column_family_mode_;
+  // If this is non-empty, we need to delete these log files in background
+  // threads. Protected by db mutex.
+  autovector<log::Writer*> logs_to_free_;
 
   bool is_snapshot_supported_;
 
@@ -599,6 +681,9 @@ class DBImpl : public DB {
   WalManager wal_manager_;
 #endif  // ROCKSDB_LITE
 
+  // Unified interface for logging events
+  EventLogger event_logger_;
+
   // A value of true temporarily disables scheduling of background work
   bool bg_work_gate_closed_;
 
@@ -607,12 +692,6 @@ class DBImpl : public DB {
 
   // Indicate DB was opened successfully
   bool opened_successfully_;
-
-  // The list of registered event listeners.
-  std::list<EventListener*> listeners_;
-
-  // count how many events are currently being notified.
-  int notifying_events_;
 
   // No copying allowed
   DBImpl(const DBImpl&);
@@ -644,16 +723,6 @@ class DBImpl : public DB {
   SuperVersion* InstallSuperVersion(ColumnFamilyData* cfd, SuperVersion* new_sv,
                                     const MutableCFOptions& mutable_cf_options,
                                     bool dont_schedule_bg_work = false);
-
-  // Find Super version and reference it. Based on options, it might return
-  // the thread local cached one.
-  inline SuperVersion* GetAndRefSuperVersion(ColumnFamilyData* cfd);
-
-  // Un-reference the super version and return it to thread local cache if
-  // needed. If it is the last reference of the super version. Clean it up
-  // after un-referencing it.
-  inline void ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
-                                           SuperVersion* sv);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;

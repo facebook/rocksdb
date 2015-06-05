@@ -472,8 +472,9 @@ public class RocksDBTest {
         rand.nextBytes(b);
         db.put((String.valueOf(i)).getBytes(), b);
       }
+      db.flush(new FlushOptions().setWaitForFlush(true));
       db.compactRange("0".getBytes(), "201".getBytes(),
-          true, 0, 0);
+          true, -1, 0);
     } finally {
       if (db != null) {
         db.close();
@@ -580,7 +581,7 @@ public class RocksDBTest {
             String.valueOf(i).getBytes(), b);
       }
       db.compactRange(columnFamilyHandles.get(1), "0".getBytes(),
-          "201".getBytes(), true, 0, 0);
+          "201".getBytes(), true, -1, 0);
     } finally {
       for (ColumnFamilyHandle handle : columnFamilyHandles) {
         handle.dispose();
@@ -729,6 +730,9 @@ public class RocksDBTest {
         }
       }
     } finally {
+      for (ColumnFamilyHandle handle : columnFamilyHandles) {
+        handle.dispose();
+      }
       if (db != null) {
         db.close();
       }

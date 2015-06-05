@@ -14,7 +14,7 @@
 
 namespace rocksdb {
 
-class CuckooTableDBTest {
+class CuckooTableDBTest : public testing::Test {
  private:
   std::string dbname_;
   Env* env_;
@@ -23,14 +23,14 @@ class CuckooTableDBTest {
  public:
   CuckooTableDBTest() : env_(Env::Default()) {
     dbname_ = test::TmpDir() + "/cuckoo_table_db_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
 
   ~CuckooTableDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   Options CurrentOptions() {
@@ -83,9 +83,8 @@ class CuckooTableDBTest {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    ASSERT_TRUE(
-        db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                         &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(level), &property));
     return atoi(property.c_str());
   }
 
@@ -107,7 +106,7 @@ class CuckooTableDBTest {
   }
 };
 
-TEST(CuckooTableDBTest, Flush) {
+TEST_F(CuckooTableDBTest, Flush) {
   // Try with empty DB first.
   ASSERT_TRUE(dbfull() != nullptr);
   ASSERT_EQ("NOT_FOUND", Get("key2"));
@@ -170,7 +169,7 @@ TEST(CuckooTableDBTest, Flush) {
   ASSERT_EQ("NOT_FOUND", Get("key6"));
 }
 
-TEST(CuckooTableDBTest, FlushWithDuplicateKeys) {
+TEST_F(CuckooTableDBTest, FlushWithDuplicateKeys) {
   Options options = CurrentOptions();
   Reopen(&options);
   ASSERT_OK(Put("key1", "v1"));
@@ -201,7 +200,7 @@ static std::string Uint64Key(uint64_t i) {
 }
 }  // namespace.
 
-TEST(CuckooTableDBTest, Uint64Comparator) {
+TEST_F(CuckooTableDBTest, Uint64Comparator) {
   Options options = CurrentOptions();
   options.comparator = test::Uint64Comparator();
   Reopen(&options);
@@ -228,7 +227,7 @@ TEST(CuckooTableDBTest, Uint64Comparator) {
   ASSERT_EQ("v4", Get(Uint64Key(4)));
 }
 
-TEST(CuckooTableDBTest, CompactionIntoMultipleFiles) {
+TEST_F(CuckooTableDBTest, CompactionIntoMultipleFiles) {
   // Create a big L0 file and check it compacts into multiple files in L1.
   Options options = CurrentOptions();
   options.write_buffer_size = 270 << 10;
@@ -251,7 +250,7 @@ TEST(CuckooTableDBTest, CompactionIntoMultipleFiles) {
   }
 }
 
-TEST(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
+TEST_F(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
   // Insert same key twice so that they go to different SST files. Then wait for
   // compaction and check if the latest value is stored and old value removed.
   Options options = CurrentOptions();
@@ -279,7 +278,7 @@ TEST(CuckooTableDBTest, SameKeyInsertedInTwoDifferentFilesAndCompacted) {
   }
 }
 
-TEST(CuckooTableDBTest, AdaptiveTable) {
+TEST_F(CuckooTableDBTest, AdaptiveTable) {
   Options options = CurrentOptions();
 
   // Write some keys using cuckoo table.
@@ -316,4 +315,7 @@ TEST(CuckooTableDBTest, AdaptiveTable) {
 }
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

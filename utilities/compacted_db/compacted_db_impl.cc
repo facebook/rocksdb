@@ -45,7 +45,8 @@ size_t CompactedDBImpl::FindFile(const Slice& key) {
 Status CompactedDBImpl::Get(const ReadOptions& options,
      ColumnFamilyHandle*, const Slice& key, std::string* value) {
   GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, key, value, nullptr, nullptr);
+                         GetContext::kNotFound, key, value, nullptr, nullptr,
+                         nullptr);
   LookupKey lkey(key, kMaxSequenceNumber);
   files_.files[FindFile(key)].fd.table_reader->Get(
       options, lkey.internal_key(), &get_context);
@@ -76,7 +77,7 @@ std::vector<Status> CompactedDBImpl::MultiGet(const ReadOptions& options,
     if (r != nullptr) {
       GetContext get_context(user_comparator_, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, keys[idx], &(*values)[idx],
-                             nullptr, nullptr);
+                             nullptr, nullptr, nullptr);
       LookupKey lkey(keys[idx], kMaxSequenceNumber);
       r->Get(options, lkey.internal_key(), &get_context);
       if (get_context.State() == GetContext::kFound) {
@@ -106,6 +107,9 @@ Status CompactedDBImpl::Init(const Options& options) {
   version_ = cfd_->GetSuperVersion()->current;
   user_comparator_ = cfd_->user_comparator();
   auto* vstorage = version_->storage_info();
+  if (vstorage->num_non_empty_levels() == 0) {
+    return Status::NotSupported("no file exists");
+  }
   const LevelFilesBrief& l0 = vstorage->LevelFilesBrief(0);
   // L0 should not have files
   if (l0.num_files > 1) {

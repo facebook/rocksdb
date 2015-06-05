@@ -13,7 +13,7 @@
 
 namespace rocksdb {
 
-class ReduceLevelTest {
+class ReduceLevelTest : public testing::Test {
 public:
   ReduceLevelTest() {
     dbname_ = test::TmpDir() + "/db_reduce_levels_test";
@@ -59,9 +59,8 @@ public:
 
   int FilesOnLevel(int level) {
     std::string property;
-    ASSERT_TRUE(
-        db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                         &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(level), &property));
     return atoi(property.c_str());
   }
 
@@ -95,7 +94,7 @@ bool ReduceLevelTest::ReduceLevels(int target_level) {
   return is_succeed;
 }
 
-TEST(ReduceLevelTest, Last_Level) {
+TEST_F(ReduceLevelTest, Last_Level) {
   // create files on all levels;
   ASSERT_OK(OpenDB(true, 4, 3));
   ASSERT_OK(Put("aaaa", "11111"));
@@ -114,7 +113,7 @@ TEST(ReduceLevelTest, Last_Level) {
   CloseDB();
 }
 
-TEST(ReduceLevelTest, Top_Level) {
+TEST_F(ReduceLevelTest, Top_Level) {
   // create files on all levels;
   ASSERT_OK(OpenDB(true, 5, 0));
   ASSERT_OK(Put("aaaa", "11111"));
@@ -135,7 +134,7 @@ TEST(ReduceLevelTest, Top_Level) {
   CloseDB();
 }
 
-TEST(ReduceLevelTest, All_Levels) {
+TEST_F(ReduceLevelTest, All_Levels) {
   // create files on all levels;
   ASSERT_OK(OpenDB(true, 5, 1));
   ASSERT_OK(Put("a", "a11111"));
@@ -195,5 +194,6 @@ TEST(ReduceLevelTest, All_Levels) {
 }
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

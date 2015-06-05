@@ -88,13 +88,13 @@ class SimulatedBackgroundTask {
   std::atomic<int> running_count_;
 };
 
-class ThreadListTest {
+class ThreadListTest : public testing::Test {
  public:
   ThreadListTest() {
   }
 };
 
-TEST(ThreadListTest, EventTables) {
+TEST_F(ThreadListTest, GlobalTables) {
   // verify the global tables for operations and states are properly indexed.
   for (int type = 0; type != ThreadStatus::NUM_OP_TYPES; ++type) {
     ASSERT_EQ(global_operation_table[type].type, type);
@@ -109,9 +109,16 @@ TEST(ThreadListTest, EventTables) {
               ThreadStatus::GetStateName(
                   ThreadStatus::StateType(type)));
   }
+
+  for (int stage = 0; stage != ThreadStatus::NUM_OP_STAGES; ++stage) {
+    ASSERT_EQ(global_op_stage_table[stage].stage, stage);
+    ASSERT_EQ(global_op_stage_table[stage].name,
+              ThreadStatus::GetOperationStageName(
+                  ThreadStatus::OperationStage(stage)));
+  }
 }
 
-TEST(ThreadListTest, SimpleColumnFamilyInfoTest) {
+TEST_F(ThreadListTest, SimpleColumnFamilyInfoTest) {
   Env* env = Env::Default();
   const int kHighPriorityThreads = 3;
   const int kLowPriorityThreads = 5;
@@ -204,7 +211,7 @@ namespace {
   }
 }  // namespace
 
-TEST(ThreadListTest, SimpleEventTest) {
+TEST_F(ThreadListTest, SimpleEventTest) {
   Env* env = Env::Default();
 
   // simulated tasks
@@ -331,12 +338,14 @@ TEST(ThreadListTest, SimpleEventTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
 
 #else
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
   return 0;
 }
 

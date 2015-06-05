@@ -26,8 +26,7 @@ public enum HistogramType {
   SOFT_RATE_LIMIT_DELAY_COUNT(16),
   NUM_FILES_IN_SINGLE_COMPACTION(17),
   DB_SEEK(18),
-  WRITE_STALL(19),
-  HISTOGRAM_ENUM_MAX(20);
+  WRITE_STALL(19);
 
   private final int value_;
 

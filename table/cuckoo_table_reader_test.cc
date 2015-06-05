@@ -28,6 +28,7 @@ int main() {
 #include "table/get_context.h"
 #include "util/arena.h"
 #include "util/random.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -64,8 +65,10 @@ uint64_t GetSliceHash(const Slice& s, uint32_t index,
 
 }  // namespace
 
-class CuckooReaderTest {
+class CuckooReaderTest : public testing::Test {
  public:
+  using testing::Test::SetUp;
+
   CuckooReaderTest() {
     options.allow_mmap_reads = true;
     env = options.env;
@@ -121,7 +124,7 @@ class CuckooReaderTest {
       std::string value;
       GetContext get_context(ucomp, nullptr, nullptr, nullptr,
                              GetContext::kNotFound, Slice(user_keys[i]), &value,
-                             nullptr, nullptr);
+                             nullptr, nullptr, nullptr);
       ASSERT_OK(reader.Get(ReadOptions(), Slice(keys[i]), &get_context));
       ASSERT_EQ(values[i], value);
     }
@@ -208,7 +211,7 @@ class CuckooReaderTest {
   EnvOptions env_options;
 };
 
-TEST(CuckooReaderTest, WhenKeyExists) {
+TEST_F(CuckooReaderTest, WhenKeyExists) {
   SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyExists";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -235,7 +238,7 @@ TEST(CuckooReaderTest, WhenKeyExists) {
   CreateCuckooFileAndCheckReader();
 }
 
-TEST(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
+TEST_F(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
   SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReaderUint64_WhenKeyExists";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -263,7 +266,7 @@ TEST(CuckooReaderTest, WhenKeyExistsWithUint64Comparator) {
   CreateCuckooFileAndCheckReader(test::Uint64Comparator());
 }
 
-TEST(CuckooReaderTest, CheckIterator) {
+TEST_F(CuckooReaderTest, CheckIterator) {
   SetUp(2*kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_CheckIterator";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -282,7 +285,7 @@ TEST(CuckooReaderTest, CheckIterator) {
   CheckIterator();
 }
 
-TEST(CuckooReaderTest, CheckIteratorUint64) {
+TEST_F(CuckooReaderTest, CheckIteratorUint64) {
   SetUp(2*kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_CheckIterator";
   for (uint64_t i = 0; i < num_items; i++) {
@@ -302,7 +305,7 @@ TEST(CuckooReaderTest, CheckIteratorUint64) {
   CheckIterator(test::Uint64Comparator());
 }
 
-TEST(CuckooReaderTest, WhenKeyNotFound) {
+TEST_F(CuckooReaderTest, WhenKeyNotFound) {
   // Add keys with colliding hash values.
   SetUp(kNumHashFunc);
   fname = test::TmpDir() + "/CuckooReader_WhenKeyNotFound";
@@ -334,7 +337,8 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
   AppendInternalKey(&not_found_key, ikey);
   std::string value;
   GetContext get_context(ucmp, nullptr, nullptr, nullptr, GetContext::kNotFound,
-                         Slice(not_found_key), &value, nullptr, nullptr);
+                         Slice(not_found_key), &value, nullptr, nullptr,
+                         nullptr);
   ASSERT_OK(reader.Get(ReadOptions(), Slice(not_found_key), &get_context));
   ASSERT_TRUE(value.empty());
   ASSERT_OK(reader.status());
@@ -346,7 +350,7 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
   AppendInternalKey(&not_found_key2, ikey2);
   GetContext get_context2(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(not_found_key2), &value,
-                          nullptr, nullptr);
+                          nullptr, nullptr, nullptr);
   ASSERT_OK(reader.Get(ReadOptions(), Slice(not_found_key2), &get_context2));
   ASSERT_TRUE(value.empty());
   ASSERT_OK(reader.status());
@@ -360,7 +364,7 @@ TEST(CuckooReaderTest, WhenKeyNotFound) {
       kNumHashFunc, kNumHashFunc);
   GetContext get_context3(ucmp, nullptr, nullptr, nullptr,
                           GetContext::kNotFound, Slice(unused_key), &value,
-                          nullptr, nullptr);
+                          nullptr, nullptr, nullptr);
   ASSERT_OK(reader.Get(ReadOptions(), Slice(unused_key), &get_context3));
   ASSERT_TRUE(value.empty());
   ASSERT_OK(reader.status());
@@ -431,7 +435,7 @@ void WriteFile(const std::vector<std::string>& keys,
   std::string value;
   // Assume only the fast path is triggered
   GetContext get_context(nullptr, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, Slice(), &value,
+                         GetContext::kNotFound, Slice(), &value, nullptr,
                          nullptr, nullptr);
   for (uint64_t i = 0; i < num; ++i) {
     value.clear();
@@ -477,7 +481,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
   std::string value;
   // Assume only the fast path is triggered
   GetContext get_context(nullptr, nullptr, nullptr, nullptr,
-                         GetContext::kNotFound, Slice(), &value,
+                         GetContext::kNotFound, Slice(), &value, nullptr,
                          nullptr, nullptr);
   uint64_t start_time = env->NowMicros();
   if (batch_size > 0) {
@@ -503,7 +507,7 @@ void ReadKeys(uint64_t num, uint32_t batch_size) {
 }
 }  // namespace.
 
-TEST(CuckooReaderTest, TestReadPerformance) {
+TEST_F(CuckooReaderTest, TestReadPerformance) {
   if (!FLAGS_enable_perf) {
     return;
   }
@@ -534,9 +538,9 @@ TEST(CuckooReaderTest, TestReadPerformance) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
   ParseCommandLineFlags(&argc, &argv, true);
-  rocksdb::test::RunAllTests();
-  return 0;
+  return RUN_ALL_TESTS();
 }
 
 #endif  // GFLAGS.

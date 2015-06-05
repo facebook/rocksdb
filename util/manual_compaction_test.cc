@@ -30,7 +30,7 @@ std::string Key2(int i) {
   return Key1(i) + "_xxx";
 }
 
-class ManualCompactionTest {
+class ManualCompactionTest : public testing::Test {
  public:
   ManualCompactionTest() {
     // Get rid of any state from an old run.
@@ -56,7 +56,7 @@ class DestroyAllCompactionFilter : public CompactionFilter {
   }
 };
 
-TEST(ManualCompactionTest, CompactTouchesAllKeys) {
+TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
   for (int iter = 0; iter < 2; ++iter) {
     DB* db;
     Options options;
@@ -92,8 +92,7 @@ TEST(ManualCompactionTest, CompactTouchesAllKeys) {
   }
 }
 
-TEST(ManualCompactionTest, Test) {
-
+TEST_F(ManualCompactionTest, Test) {
   // Open database.  Disable compression since it affects the creation
   // of layers and the code below is trying to test against a very
   // specific scenario.
@@ -150,5 +149,6 @@ TEST(ManualCompactionTest, Test) {
 }  // anonymous namespace
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

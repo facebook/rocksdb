@@ -90,12 +90,11 @@ fi
 COMMON_FLAGS="$COMMON_FLAGS ${CFLAGS}"
 CROSS_COMPILE=
 PLATFORM_CCFLAGS=
-PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS"
 PLATFORM_SHARED_EXT="so"
 PLATFORM_SHARED_LDFLAGS="-shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
-PLATFORM_SHARED_VERSIONED=false
+PLATFORM_SHARED_VERSIONED=true
 
 # generic port files (working on all platform by #ifdef) go directly in /port
 GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | tr "\n" " "`
@@ -115,6 +114,7 @@ case "$TARGET_OS" in
         PLATFORM_SHARED_EXT=dylib
         PLATFORM_SHARED_LDFLAGS="-dynamiclib -install_name "
         CROSS_COMPILE=true
+        PLATFORM_SHARED_VERSIONED=
         ;;
     Linux)
         PLATFORM=OS_LINUX
@@ -155,6 +155,16 @@ case "$TARGET_OS" in
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread"
         # PORT_FILES=port/dragonfly/dragonfly_specific.cc
         ;;
+    Cygwin)
+        PLATFORM=CYGWIN
+        PLATFORM_CXXFLAGS="-std=gnu++11"
+        COMMON_FLAGS="$COMMON_FLAGS -DCYGWIN"
+        if [ -z "$USE_CLANG" ]; then
+            COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp"
+        fi
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lpthread -lrt"
+        # PORT_FILES=port/linux/linux_specific.cc
+        ;;
     OS_ANDROID_CROSSCOMPILE)
         PLATFORM=OS_ANDROID
 	COMMON_FLAGS="$COMMON_FLAGS -fno-builtin-memcmp -D_REENTRANT -DOS_ANDROID -DLEVELDB_PLATFORM_POSIX"
@@ -167,50 +177,8 @@ case "$TARGET_OS" in
         exit 1
 esac
 
+PLATFORM_CXXFLAGS="$PLATFORM_CXXFLAGS ${CXXFLAGS}"
 JAVA_LDFLAGS="$PLATFORM_LDFLAGS"
-
-if test -z "$DO_NOT_RUN_BUILD_DETECT_VERSION"; then
-  "$PWD/build_tools/build_detect_version"
-fi
-
-# Filter out other platform files
-if [ "$PLATFORM" = "OS_WIN" ]; then
-  FILTER_OUT="_posix."
-else
-  FILTER_OUT="_win."
-fi
-
-# generic port files (working on all platform by #ifdef) go directly in /port
-GENERIC_PORT_FILES=`cd "$ROCKSDB_ROOT"; find port -name '*.cc' | grep -v $FILTER_OUT | tr "\n" " "`
-
-# We want to make a list of all cc files in $DIRS,
-# except for the test and benchmark files. By default, find will output a list
-# of all files matching either rule, so we need to append -print to make the
-# prune take effect.
-DIRS="util db table utilities"
-
-set -f # temporarily disable globbing so that our patterns arent expanded
-PRUNE_TEST="-name *test*.cc -prune"
-PRUNE_BENCH="-name *bench*.cc -prune"
-PRUNE_MOCK="-name *mock*.cc -prune"
-
-#### Despite being called portable the thread local storage file is posix specific
-PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cc' -print | grep -v $FILTER_OUT | sort | tr "\n" " "`
-PORTABLE_CPP=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o -name '*.cpp' -print | grep -v $FILTER_OUT | sort | tr "\n" " "`
-PORTABLE_FILES=`cd "$ROCKSDB_ROOT"; find $DIRS $PRUNE_TEST -o $PRUNE_BENCH -o $PRUNE_MOCK -o -name '*.cc' -print | sort | tr "\n" " "`
-MOCK_SOURCES=`cd "$ROCKSDB_ROOT"; find $DIRS -name '*mock*.cc' -print | grep -v "test" | sort | tr "\n" " "`
-set +f # re-enable globbing
-
-# If the generated util/build_version.cc is not on the list, add it:
-case $PORTABLE_FILES in
-    *util/build_version.cc*) ;;
-    *) PORTABLE_FILES="$PORTABLE_FILES util/build_version.cc" ;;
-esac
-
-# The sources consist of the portable files, plus the platform-specific port
-# file.
-echo "SOURCES=$PORTABLE_FILES $GENERIC_PORT_FILES $PORT_FILES" >> "$OUTPUT"
-echo "MOCK_SOURCES=$MOCK_SOURCES" >> "$OUTPUT"
 
 if [ "$CROSS_COMPILE" = "true" -o "$FBCODE_BUILD" = "true" ]; then
     # Cross-compiling; do not try any compilation tests.
@@ -220,9 +188,10 @@ else
     # Test whether fallocate is available
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
       #include <fcntl.h>
+      #include <linux/falloc.h>
       int main() {
-        int fd = open("/dev/null", 0);
-        fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
+	int fd = open("/dev/null", 0);
+  fallocate(fd, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE, 0, 1024);
       }
 EOF
     if [ "$?" = 0 ]; then
@@ -241,11 +210,10 @@ EOF
         JAVA_LDFLAGS="$JAVA_LDFLAGS -lsnappy"
     fi
 
-
     # Test whether gflags library is installed
     # http://code.google.com/p/gflags/
     # check if the namespace is gflags
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
       #include <gflags/gflags.h>
       using namespace gflags;
       int main() {}
@@ -253,17 +221,17 @@ EOF
     if [ "$?" = 0 ]; then
         COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=gflags"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
-    fi
-
-    # check if namespace is google
-    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
-      #include <gflags/gflags.h>
-      using namespace google;
-      int main() {}
+    else
+      # check if namespace is google
+      $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
+        #include <gflags/gflags.h>
+        using namespace google;
+        int main() {}
 EOF
-    if [ "$?" = 0 ]; then
-        COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+      if [ "$?" = 0 ]; then
+          COMMON_FLAGS="$COMMON_FLAGS -DGFLAGS=google"
+          PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lgflags"
+      fi
     fi
 
     # Test whether zlib library is installed
@@ -312,13 +280,18 @@ EOF
         JAVA_LDFLAGS="$JAVA_LDFLAGS -lnuma"
     fi
 
-    # Test whether tcmalloc is available
-    $CXX $CFLAGS -x c++ - -o /dev/null -ltcmalloc 2>/dev/null  <<EOF
-      int main() {}
-EOF
-    if [ "$?" = 0 ]; then
-        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
-        JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
+    # Test whether jemalloc is available
+    if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null -ljemalloc \
+      2>/dev/null; then 
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ljemalloc"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -ljemalloc"
+    else
+        # jemalloc is not available. Let's try tcmalloc
+        if echo 'int main() {}' | $CXX $CFLAGS -x c++ - -o /dev/null \
+          -ltcmalloc 2>/dev/null; then 
+            PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
+            JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
+        fi
     fi
 fi
 
@@ -342,7 +315,7 @@ if test "$USE_HDFS"; then
     exit 1
   fi
   HDFS_CCFLAGS="$HDFS_CCFLAGS -I$JAVA_HOME/include -I$JAVA_HOME/include/linux -DUSE_HDFS"
-  HDFS_LDFLAGS="$HDFS_LDFLAGS -Wl,--no-whole-archive -lhdfs -L$JAVA_HOME/jre/lib/amd64"
+  HDFS_LDFLAGS="$HDFS_LDFLAGS -lhdfs -L$JAVA_HOME/jre/lib/amd64"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -L$JAVA_HOME/jre/lib/amd64/server -L$GLIBC_RUNTIME_PATH/lib"
   HDFS_LDFLAGS="$HDFS_LDFLAGS -ldl -lverify -ljava -ljvm"
   COMMON_FLAGS="$COMMON_FLAGS $HDFS_CCFLAGS"

@@ -26,16 +26,16 @@ Status CuckooTableFactory::NewTableReader(const ImmutableCFOptions& ioptions,
 }
 
 TableBuilder* CuckooTableFactory::NewTableBuilder(
-    const ImmutableCFOptions& ioptions,
-    const InternalKeyComparator& internal_comparator, WritableFile* file,
-    const CompressionType, const CompressionOptions&,
-    const bool skip_filters) const {
+    const TableBuilderOptions& table_builder_options,
+    WritableFile* file) const {
   // Ignore the skipFIlters flag. Does not apply to this file format
   //
 
   // TODO: change builder to take the option struct
-  return new CuckooTableBuilder(file, table_options_.hash_table_ratio, 64,
-      table_options_.max_search_depth, internal_comparator.user_comparator(),
+  return new CuckooTableBuilder(
+      file, table_options_.hash_table_ratio, 64,
+      table_options_.max_search_depth,
+      table_builder_options.internal_comparator.user_comparator(),
       table_options_.cuckoo_block_size, table_options_.use_module_hash,
       table_options_.identity_as_first_hash, nullptr);
 }

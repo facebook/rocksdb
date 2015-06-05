@@ -68,6 +68,7 @@ struct ThreadStatusData {
     thread_type.store(ThreadStatus::USER);
     cf_key.store(nullptr);
     operation_type.store(ThreadStatus::OP_UNKNOWN);
+    op_start_time.store(0);
     state_type.store(ThreadStatus::STATE_UNKNOWN);
   }
 
@@ -85,6 +86,9 @@ struct ThreadStatusData {
   std::atomic<ThreadStatus::ThreadType> thread_type;
   std::atomic<void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
+  std::atomic<uint64_t> op_start_time;
+  std::atomic<ThreadStatus::OperationStage> operation_stage;
+  std::atomic<uint64_t> op_properties[ThreadStatus::kNumOperationProperties];
   std::atomic<ThreadStatus::StateType> state_type;
 #endif  // ROCKSDB_USING_THREAD_STATUS
 };
@@ -124,8 +128,34 @@ class ThreadStatusUpdater {
   // Update the thread operation of the current thread.
   void SetThreadOperation(const ThreadStatus::OperationType type);
 
+  // The start time of the current thread operation.  It is in the format
+  // of micro-seconds since some fixed point in time.
+  void SetOperationStartTime(const uint64_t start_time);
+
+  // Set the "i"th property of the current operation.
+  //
+  // NOTE: Our practice here is to set all the thread operation properties
+  //       and stage before we set thread operation, and thread operation
+  //       will be set in std::memory_order_release.  This is to ensure
+  //       whenever a thread operation is not OP_UNKNOWN, we will always
+  //       have a consistent information on its properties.
+  void SetThreadOperationProperty(
+      int i, uint64_t value);
+
+  // Increase the "i"th property of the current operation with
+  // the specified delta.
+  void IncreaseThreadOperationProperty(
+      int i, uint64_t delta);
+
+  // Update the thread operation stage of the current thread.
+  ThreadStatus::OperationStage SetThreadOperationStage(
+      const ThreadStatus::OperationStage stage);
+
   // Clear thread operation of the current thread.
   void ClearThreadOperation();
+
+  // Reset all thread-operation-properties to 0.
+  void ClearThreadOperationProperties();
 
   // Update the thread state of the current thread.
   void SetThreadState(const ThreadStatus::StateType type);

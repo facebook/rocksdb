@@ -13,7 +13,7 @@
 
 namespace rocksdb {
 
-class DocumentDBTest {
+class DocumentDBTest : public testing::Test {
  public:
   DocumentDBTest() {
     dbname_ = test::TmpDir() + "/document_db_test";
@@ -64,7 +64,7 @@ class DocumentDBTest {
   DocumentDB* db_;
 };
 
-TEST(DocumentDBTest, SimpleQueryTest) {
+TEST_F(DocumentDBTest, SimpleQueryTest) {
   DocumentDBOptions options;
   DocumentDB::IndexDescriptor index;
   index.description = Parse("{\"name\": 1}");
@@ -136,7 +136,7 @@ TEST(DocumentDBTest, SimpleQueryTest) {
   }
 }
 
-TEST(DocumentDBTest, ComplexQueryTest) {
+TEST_F(DocumentDBTest, ComplexQueryTest) {
   DocumentDBOptions options;
   DocumentDB::IndexDescriptor priority_index;
   priority_index.description = Parse("{'priority': 1}");
@@ -318,4 +318,7 @@ TEST(DocumentDBTest, ComplexQueryTest) {
 
 }  //  namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

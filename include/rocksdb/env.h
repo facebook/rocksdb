@@ -231,10 +231,12 @@ class Env {
   // added to the same Env may run concurrently in different threads.
   // I.e., the caller may not assume that background work items are
   // serialized.
-  virtual void Schedule(
-      void (*function)(void* arg),
-      void* arg,
-      Priority pri = LOW) = 0;
+  virtual void Schedule(void (*function)(void* arg), void* arg,
+                        Priority pri = LOW, void* tag = nullptr) = 0;
+
+  // Arrange to remove jobs for given arg from the queue_ if they are not
+  // already scheduled. Caller is expected to have exclusive lock on arg.
+  virtual int UnSchedule(void* arg, Priority pri) { return 0; }
 
   // Start a new thread, invoking "function(arg)" within the new thread.
   // When "function(arg)" returns, the thread will be destroyed.
@@ -304,7 +306,8 @@ class Env {
   // OptimizeForLogWrite will create a new EnvOptions object that is a copy of
   // the EnvOptions in the parameters, but is optimized for writing log files.
   // Default implementation returns the copy of the same object.
-  virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const;
+  virtual EnvOptions OptimizeForLogWrite(const EnvOptions& env_options,
+                                         const DBOptions& db_options) const;
   // OptimizeForManifestWrite will create a new EnvOptions object that is a copy
   // of the EnvOptions in the parameters, but is optimized for writing manifest
   // files. Default implementation returns the copy of the same object.
@@ -536,6 +539,8 @@ class WritableFile {
     return Status::OK();
   }
 
+  size_t preallocation_block_size() { return preallocation_block_size_; }
+
  private:
   size_t last_preallocated_block_;
   size_t preallocation_block_size_;
@@ -544,6 +549,8 @@ class WritableFile {
   void operator=(const WritableFile&);
 
  protected:
+  friend class WritableFileWrapper;
+
   Env::IOPriority io_priority_;
 };
 
@@ -810,10 +817,18 @@ class EnvWrapper : public Env {
   Status LockFile(const std::string& f, FileLock** l) override {
     return target_->LockFile(f, l);
   }
+
   Status UnlockFile(FileLock* l) override { return target_->UnlockFile(l); }
-  void Schedule(void (*f)(void*), void* a, Priority pri) override {
-    return target_->Schedule(f, a, pri);
+
+  void Schedule(void (*f)(void* arg), void* a, Priority pri,
+                void* tag = nullptr) override {
+    return target_->Schedule(f, a, pri, tag);
   }
+
+  int UnSchedule(void* tag, Priority pri) override {
+    return target_->UnSchedule(tag, pri);
+  }
+
   void StartThread(void (*f)(void*), void* a) override {
     return target_->StartThread(f, a);
   }
@@ -869,6 +884,47 @@ class EnvWrapper : public Env {
 
  private:
   Env* target_;
+};
+
+// An implementation of WritableFile that forwards all calls to another
+// WritableFile. May be useful to clients who wish to override just part of the
+// functionality of another WritableFile.
+// It's declared as friend of WritableFile to allow forwarding calls to
+// protected virtual methods.
+class WritableFileWrapper : public WritableFile {
+ public:
+  explicit WritableFileWrapper(WritableFile* t) : target_(t) { }
+
+  Status Append(const Slice& data) override { return target_->Append(data); }
+  Status Close() override { return target_->Close(); }
+  Status Flush() override { return target_->Flush(); }
+  Status Sync() override { return target_->Sync(); }
+  Status Fsync() override { return target_->Fsync(); }
+  void SetIOPriority(Env::IOPriority pri) override {
+    target_->SetIOPriority(pri);
+  }
+  uint64_t GetFileSize() override { return target_->GetFileSize(); }
+  void GetPreallocationStatus(size_t* block_size,
+                              size_t* last_allocated_block) override {
+    target_->GetPreallocationStatus(block_size, last_allocated_block);
+  }
+  size_t GetUniqueId(char* id, size_t max_size) const override {
+    return target_->GetUniqueId(id, max_size);
+  }
+  Status InvalidateCache(size_t offset, size_t length) override {
+    return target_->InvalidateCache(offset, length);
+  }
+
+ protected:
+  Status Allocate(off_t offset, off_t len) override {
+    return target_->Allocate(offset, len);
+  }
+  Status RangeSync(off_t offset, off_t nbytes) override {
+    return target_->RangeSync(offset, nbytes);
+  }
+
+ private:
+  WritableFile* target_;
 };
 
 // Returns a new environment that stores its data in memory and delegates

@@ -46,6 +46,8 @@ makestuff
 mv db_sanity_test new_db_sanity_test
 echo "Creating db based on the new commit --- $commit_new"
 ./new_db_sanity_test $dir_new create
+cp ./tools/db_sanity_test.cc $dir_new
+cp ./tools/auto_sanity_test.sh $dir_new
 
 echo "============================================================="
 echo "Making build $commit_old"
@@ -54,28 +56,36 @@ if [ $? -ne 0 ]; then
   echo "[ERROR] Can't checkout $commit_old"
   exit 1
 fi
+cp -f $dir_new/db_sanity_test.cc ./tools/.
+cp -f $dir_new/auto_sanity_test.sh ./tools/.
 makestuff
 mv db_sanity_test old_db_sanity_test
 echo "Creating db based on the old commit --- $commit_old"
 ./old_db_sanity_test $dir_old create
 
 echo "============================================================="
-echo "Verifying new db $dir_new using the old commit --- $commit_old"
-./old_db_sanity_test $dir_new verify
+echo "[Backward Compability Check]"
+echo "Verifying old db $dir_old using the new commit --- $commit_new"
+./new_db_sanity_test $dir_old verify
 if [ $? -ne 0 ]; then
-  echo "[ERROR] Verification of $dir_new using commit $commit_old failed."
+  echo "[ERROR] Backward Compability Check fails:"
+  echo "    Verification of $dir_old using commit $commit_new failed."
   exit 2
 fi
 
 echo "============================================================="
-echo "Verifying old db $dir_old using the new commit --- $commit_new"
-./new_db_sanity_test $dir_old verify
+echo "[Forward Compatibility Check]"
+echo "Verifying new db $dir_new using the old commit --- $commit_old"
+./old_db_sanity_test $dir_new verify
 if [ $? -ne 0 ]; then
-  echo "[ERROR] Verification of $dir_old using commit $commit_new failed."
+  echo "[ERROR] Forward Compability Check fails:"
+  echo "    $dir_new using commit $commit_old failed."
   exit 2
 fi
 
 rm old_db_sanity_test
 rm new_db_sanity_test
+rm -rf $dir_new
+rm -rf $dir_old
 
 echo "Auto sanity test passed!"

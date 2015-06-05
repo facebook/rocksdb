@@ -8,6 +8,8 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <vector>
+
 #include "rocksdb/db.h"
 
 namespace rocksdb {
@@ -69,13 +71,17 @@ class SnapshotList {
   }
 
   // retrieve all snapshot numbers. They are sorted in ascending order.
-  void getAll(std::vector<SequenceNumber>& ret) {
-    if (empty()) return;
+  std::vector<SequenceNumber> GetAll() {
+    std::vector<SequenceNumber> ret;
+    if (empty()) {
+      return ret;
+    }
     SnapshotImpl* s = &list_;
     while (s->next_ != &list_) {
       ret.push_back(s->next_->number_);
-      s = s ->next_;
+      s = s->next_;
     }
+    return ret;
   }
 
   // get the sequence number of the most recent snapshot

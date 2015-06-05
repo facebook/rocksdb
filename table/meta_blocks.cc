@@ -7,9 +7,10 @@
 #include <map>
 #include <string>
 
+#include "db/table_properties_collector.h"
+#include "table/block.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
-#include "table/block.h"
 #include "table/format.h"
 #include "table/table_properties_internal.h"
 #include "util/coding.h"
@@ -93,12 +94,12 @@ void LogPropertiesCollectionError(
 }
 
 bool NotifyCollectTableCollectorsOnAdd(
-    const Slice& key, const Slice& value,
-    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
+    const Slice& key, const Slice& value, uint64_t file_size,
+    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {
-    Status s = collector->Add(key, value);
+    Status s = collector->InternalAdd(key, value, file_size);
     all_succeeded = all_succeeded && s.ok();
     if (!s.ok()) {
       LogPropertiesCollectionError(info_log, "Add" /* method */,
@@ -109,7 +110,7 @@ bool NotifyCollectTableCollectorsOnAdd(
 }
 
 bool NotifyCollectTableCollectorsOnFinish(
-    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
+    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log, PropertyBlockBuilder* builder) {
   bool all_succeeded = true;
   for (auto& collector : collectors) {

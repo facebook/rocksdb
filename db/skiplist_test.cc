@@ -31,9 +31,9 @@ struct TestComparator {
   }
 };
 
-class SkipTest { };
+class SkipTest : public testing::Test {};
 
-TEST(SkipTest, Empty) {
+TEST_F(SkipTest, Empty) {
   Arena arena;
   TestComparator cmp;
   SkipList<Key, TestComparator> list(cmp, &arena);
@@ -49,7 +49,7 @@ TEST(SkipTest, Empty) {
   ASSERT_TRUE(!iter.Valid());
 }
 
-TEST(SkipTest, InsertAndLookup) {
+TEST_F(SkipTest, InsertAndLookup) {
   const int N = 2000;
   const int R = 5000;
   Random rnd(1000);
@@ -287,7 +287,7 @@ const uint32_t ConcurrentTest::K;
 
 // Simple test that does single-threaded testing of the ConcurrentTest
 // scaffolding.
-TEST(SkipTest, ConcurrentWithoutThreads) {
+TEST_F(SkipTest, ConcurrentWithoutThreads) {
   ConcurrentTest test;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 10000; i++) {
@@ -364,14 +364,15 @@ static void RunConcurrent(int run) {
   }
 }
 
-TEST(SkipTest, Concurrent1) { RunConcurrent(1); }
-TEST(SkipTest, Concurrent2) { RunConcurrent(2); }
-TEST(SkipTest, Concurrent3) { RunConcurrent(3); }
-TEST(SkipTest, Concurrent4) { RunConcurrent(4); }
-TEST(SkipTest, Concurrent5) { RunConcurrent(5); }
+TEST_F(SkipTest, Concurrent1) { RunConcurrent(1); }
+TEST_F(SkipTest, Concurrent2) { RunConcurrent(2); }
+TEST_F(SkipTest, Concurrent3) { RunConcurrent(3); }
+TEST_F(SkipTest, Concurrent4) { RunConcurrent(4); }
+TEST_F(SkipTest, Concurrent5) { RunConcurrent(5); }
 
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

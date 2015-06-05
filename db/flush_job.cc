@@ -20,6 +20,7 @@
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
+#include "db/event_helpers.h"
 #include "db/filename.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -40,6 +41,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
+#include "util/event_logger.h"
 #include "util/file_util.h"
 #include "util/logging.h"
 #include "util/log_buffer.h"
@@ -61,7 +63,8 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    SequenceNumber newest_snapshot, JobContext* job_context,
                    LogBuffer* log_buffer, Directory* db_directory,
                    Directory* output_file_directory,
-                   CompressionType output_compression, Statistics* stats)
+                   CompressionType output_compression, Statistics* stats,
+                   EventLogger* event_logger)
     : dbname_(dbname),
       cfd_(cfd),
       db_options_(db_options),
@@ -76,9 +79,46 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       db_directory_(db_directory),
       output_file_directory_(output_file_directory),
       output_compression_(output_compression),
-      stats_(stats) {}
+      stats_(stats),
+      event_logger_(event_logger) {
+  // Update the thread status to indicate flush.
+  ReportStartedFlush();
+  TEST_SYNC_POINT("FlushJob::FlushJob()");
+}
+
+FlushJob::~FlushJob() {
+  TEST_SYNC_POINT("FlushJob::~FlushJob()");
+  ThreadStatusUtil::ResetThreadStatus();
+}
+
+void FlushJob::ReportStartedFlush() {
+  ThreadStatusUtil::SetColumnFamily(cfd_);
+  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
+  ThreadStatusUtil::SetThreadOperationProperty(
+      ThreadStatus::COMPACTION_JOB_ID,
+      job_context_->job_id);
+  IOSTATS_RESET(bytes_written);
+}
+
+void FlushJob::ReportFlushInputSize(const autovector<MemTable*>& mems) {
+  uint64_t input_size = 0;
+  for (auto* mem : mems) {
+    input_size += mem->ApproximateMemoryUsage();
+  }
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
+      ThreadStatus::FLUSH_BYTES_MEMTABLES,
+      input_size);
+}
+
+void FlushJob::RecordFlushIOStats() {
+  ThreadStatusUtil::IncreaseThreadOperationProperty(
+      ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+  IOSTATS_RESET(bytes_written);
+}
 
 Status FlushJob::Run(uint64_t* file_number) {
+  AutoThreadOperationStageUpdater stage_run(
+      ThreadStatus::STAGE_FLUSH_RUN);
   // Save the contents of the earliest memtable as a new Table
   uint64_t fn;
   autovector<MemTable*> mems;
@@ -89,10 +129,7 @@ Status FlushJob::Run(uint64_t* file_number) {
     return Status::OK();
   }
 
-  // Update the thread status to indicate flush.
-  ThreadStatusUtil::SetColumnFamily(cfd_);
-  ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_FLUSH);
-  TEST_SYNC_POINT("FlushJob::Run:Start");
+  ReportFlushInputSize(mems);
 
   // entries mems are (implicitly) sorted in ascending order by their created
   // time. We will use the first memtable's `edit` to keep the meta info for
@@ -126,14 +163,26 @@ Status FlushJob::Run(uint64_t* file_number) {
   if (s.ok() && file_number != nullptr) {
     *file_number = fn;
   }
+  RecordFlushIOStats();
 
-  TEST_SYNC_POINT("FlushJob::Run:End");
-  ThreadStatusUtil::ResetThreadStatus();
+  auto stream = event_logger_->LogToBuffer(log_buffer_);
+  stream << "job" << job_context_->job_id << "event"
+         << "flush_finished";
+  stream << "lsm_state";
+  stream.StartArray();
+  auto vstorage = cfd_->current()->storage_info();
+  for (int level = 0; level < vstorage->num_levels(); ++level) {
+    stream << vstorage->NumLevelFiles(level);
+  }
+  stream.EndArray();
+
   return s;
 }
 
 Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                                   VersionEdit* edit, uint64_t* filenumber) {
+  AutoThreadOperationStageUpdater stage_updater(
+      ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
   FileMetaData meta;
@@ -155,12 +204,25 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
     ReadOptions ro;
     ro.total_order_seek = true;
     Arena arena;
+    uint64_t total_num_entries = 0, total_num_deletes = 0;
+    size_t total_memory_usage = 0;
     for (MemTable* m : mems) {
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Flushing memtable with next log file: %" PRIu64 "\n",
           cfd_->GetName().c_str(), job_context_->job_id, m->GetNextLogNumber());
       memtables.push_back(m->NewIterator(ro, &arena));
+      total_num_entries += m->num_entries();
+      total_num_deletes += m->num_deletes();
+      total_memory_usage += m->ApproximateMemoryUsage();
     }
+
+    event_logger_->Log() << "job" << job_context_->job_id << "event"
+                         << "flush_started"
+                         << "num_memtables" << mems.size() << "num_entries"
+                         << total_num_entries << "num_deletes"
+                         << total_num_deletes << "memory_usage"
+                         << total_memory_usage;
+    TableFileCreationInfo info;
     {
       ScopedArenaIterator iter(
           NewMergingIterator(&cfd_->internal_comparator(), &memtables[0],
@@ -169,17 +231,37 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
           cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber());
 
+      TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
+                               &output_compression_);
       s = BuildTable(dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
                      cfd_->table_cache(), iter.get(), &meta,
-                     cfd_->internal_comparator(), newest_snapshot_,
+                     cfd_->internal_comparator(),
+                     cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
                      earliest_seqno_in_memtable, output_compression_,
-                     cfd_->ioptions()->compression_opts, Env::IO_HIGH);
+                     cfd_->ioptions()->compression_opts,
+                     mutable_cf_options_.paranoid_file_checks, Env::IO_HIGH,
+                     &info.table_properties);
       LogFlush(db_options_.info_log);
     }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
         cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber(),
         meta.fd.GetFileSize(), s.ToString().c_str());
+
+    // output to event logger
+    if (s.ok()) {
+      info.db_name = dbname_;
+      info.cf_name = cfd_->GetName();
+      info.file_path = TableFileName(db_options_.db_paths,
+                                     meta.fd.GetNumber(),
+                                     meta.fd.GetPathId());
+      info.file_size = meta.fd.GetFileSize();
+      info.job_id = job_context_->job_id;
+      EventHelpers::LogAndNotifyTableFileCreation(
+          event_logger_, db_options_.listeners,
+          meta.fd, info);
+    }
+
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
       output_file_directory_->Fsync();
     }

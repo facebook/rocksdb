@@ -33,6 +33,7 @@
 #include "util/coding.h"
 #include "util/statistics.h"
 #include <stdexcept>
+#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -274,6 +275,27 @@ void WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
   WriteBatchInternal::Merge(this, GetColumnFamilyID(column_family), key, value);
 }
 
+void WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
+                               const SliceParts& key,
+                               const SliceParts& value) {
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeMerge));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
+  PutLengthPrefixedSliceParts(&b->rep_, value);
+}
+
+void WriteBatch::Merge(ColumnFamilyHandle* column_family,
+                       const SliceParts& key,
+                       const SliceParts& value) {
+  WriteBatchInternal::Merge(this, GetColumnFamilyID(column_family),
+                            key, value);
+}
+
 void WriteBatch::PutLogData(const Slice& blob) {
   rep_.push_back(static_cast<char>(kTypeLogData));
   PutLengthPrefixedSlice(&rep_, blob);
@@ -435,8 +457,17 @@ class MemTableInserter : public WriteBatch::Handler {
       std::deque<std::string> operands;
       operands.push_front(value.ToString());
       std::string new_value;
-      if (!merge_operator->FullMerge(key, &get_value_slice, operands,
-                                     &new_value, moptions->info_log)) {
+      bool merge_success = false;
+      {
+        StopWatchNano timer(Env::Default(), moptions->statistics != nullptr);
+        PERF_TIMER_GUARD(merge_operator_time_nanos);
+        merge_success = merge_operator->FullMerge(
+            key, &get_value_slice, operands, &new_value, moptions->info_log);
+        RecordTick(moptions->statistics, MERGE_OPERATION_TOTAL_TIME,
+                   timer.ElapsedNanos());
+      }
+
+      if (!merge_success) {
           // Failed to merge!
         RecordTick(moptions->statistics, NUMBER_MERGE_FAILURES);
 

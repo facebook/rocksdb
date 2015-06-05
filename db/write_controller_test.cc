@@ -9,18 +9,18 @@
 
 namespace rocksdb {
 
-class WriteControllerTest {};
+class WriteControllerTest : public testing::Test {};
 
-TEST(WriteControllerTest, SanityTest) {
+TEST_F(WriteControllerTest, SanityTest) {
   WriteController controller;
   auto stop_token_1 = controller.GetStopToken();
   auto stop_token_2 = controller.GetStopToken();
 
-  ASSERT_EQ(true, controller.IsStopped());
+  ASSERT_TRUE(controller.IsStopped());
   stop_token_1.reset();
-  ASSERT_EQ(true, controller.IsStopped());
+  ASSERT_TRUE(controller.IsStopped());
   stop_token_2.reset();
-  ASSERT_EQ(false, controller.IsStopped());
+  ASSERT_FALSE(controller.IsStopped());
 
   auto delay_token_1 = controller.GetDelayToken(5);
   ASSERT_EQ(static_cast<uint64_t>(5), controller.GetDelay());
@@ -32,9 +32,12 @@ TEST(WriteControllerTest, SanityTest) {
   delay_token_1.reset();
   ASSERT_EQ(static_cast<uint64_t>(0), controller.GetDelay());
   delay_token_1.reset();
-  ASSERT_EQ(false, controller.IsStopped());
+  ASSERT_FALSE(controller.IsStopped());
 }
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

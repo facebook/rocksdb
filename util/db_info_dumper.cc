@@ -34,11 +34,11 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
   uint64_t file_size;
   std::string file_info, wal_info;
 
-  Log(InfoLogLevel::INFO_LEVEL, options.info_log, "DB SUMMARY\n");
+  Warn(options.info_log, "DB SUMMARY\n");
   // Get files in dbname dir
   if (!env->GetChildren(dbname, &files).ok()) {
-    Log(InfoLogLevel::ERROR_LEVEL,
-        options.info_log, "Error when reading %s dir\n", dbname.c_str());
+    Error(options.info_log,
+          "Error when reading %s dir\n", dbname.c_str());
   }
   std::sort(files.begin(), files.end());
   for (std::string file : files) {
@@ -47,16 +47,16 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
     }
     switch (type) {
       case kCurrentFile:
-        Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        Warn(options.info_log,
             "CURRENT file:  %s\n", file.c_str());
         break;
       case kIdentityFile:
-        Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        Warn(options.info_log,
             "IDENTITY file:  %s\n", file.c_str());
         break;
       case kDescriptorFile:
         env->GetFileSize(dbname + "/" + file, &file_size);
-        Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+        Warn(options.info_log,
             "MANIFEST file:  %s size: %" PRIu64 " Bytes\n",
             file.c_str(), file_size);
         break;
@@ -81,7 +81,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
   for (auto& db_path : options.db_paths) {
     if (dbname.compare(db_path.path) != 0) {
       if (!env->GetChildren(db_path.path, &files).ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+        Error(options.info_log,
             "Error when reading %s dir\n",
             db_path.path.c_str());
         continue;
@@ -95,7 +95,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
         }
       }
     }
-    Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+    Warn(options.info_log,
         "SST files in %s dir, Total Num: %" PRIu64 ", files: %s\n",
         db_path.path.c_str(), file_num, file_info.c_str());
     file_num = 0;
@@ -105,7 +105,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
   // Get wal file in wal_dir
   if (dbname.compare(options.wal_dir) != 0) {
     if (!env->GetChildren(options.wal_dir, &files).ok()) {
-      Log(InfoLogLevel::ERROR_LEVEL, options.info_log,
+      Error(options.info_log,
           "Error when reading %s dir\n",
           options.wal_dir.c_str());
       return;
@@ -123,7 +123,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
       }
     }
   }
-  Log(InfoLogLevel::INFO_LEVEL, options.info_log,
+  Warn(options.info_log,
       "Write Ahead Log file in %s: %s\n",
       options.wal_dir.c_str(), wal_info.c_str());
 }

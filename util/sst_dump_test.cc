@@ -51,9 +51,14 @@ void createSST(const std::string& file_name,
 
   env->NewWritableFile(file_name, &file, env_options);
   opts.table_factory = tf;
-  tb.reset(opts.table_factory->NewTableBuilder(imoptions, ikc, file.get(),
-                                               CompressionType::kNoCompression,
-                                               CompressionOptions()));
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
+      int_tbl_prop_collector_factories;
+
+  tb.reset(opts.table_factory->NewTableBuilder(
+      TableBuilderOptions(imoptions, ikc, &int_tbl_prop_collector_factories,
+                          CompressionType::kNoCompression, CompressionOptions(),
+                          false),
+      file.get()));
 
   // Populate slightly more than 1K keys
   uint32_t num_keys = 1024;
@@ -74,7 +79,7 @@ void cleanup(const std::string& file_name) {
 }  // namespace
 
 // Test for sst dump tool "raw" mode
-class SSTDumpToolTest {
+class SSTDumpToolTest : public testing::Test {
  public:
   BlockBasedTableOptions table_options_;
 
@@ -83,7 +88,7 @@ class SSTDumpToolTest {
   ~SSTDumpToolTest() {}
 };
 
-TEST(SSTDumpToolTest, EmptyFilter) {
+TEST_F(SSTDumpToolTest, EmptyFilter) {
   std::string file_name = "rocksdb_sst_test.sst";
   createSST(file_name, table_options_);
 
@@ -104,7 +109,7 @@ TEST(SSTDumpToolTest, EmptyFilter) {
   }
 }
 
-TEST(SSTDumpToolTest, FilterBlock) {
+TEST_F(SSTDumpToolTest, FilterBlock) {
   table_options_.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, true));
   std::string file_name = "rocksdb_sst_test.sst";
   createSST(file_name, table_options_);
@@ -126,7 +131,7 @@ TEST(SSTDumpToolTest, FilterBlock) {
   }
 }
 
-TEST(SSTDumpToolTest, FullFilterBlock) {
+TEST_F(SSTDumpToolTest, FullFilterBlock) {
   table_options_.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
   std::string file_name = "rocksdb_sst_test.sst";
   createSST(file_name, table_options_);
@@ -148,7 +153,7 @@ TEST(SSTDumpToolTest, FullFilterBlock) {
   }
 }
 
-TEST(SSTDumpToolTest, GetProperties) {
+TEST_F(SSTDumpToolTest, GetProperties) {
   table_options_.filter_policy.reset(rocksdb::NewBloomFilterPolicy(10, false));
   std::string file_name = "rocksdb_sst_test.sst";
   createSST(file_name, table_options_);
@@ -171,4 +176,7 @@ TEST(SSTDumpToolTest, GetProperties) {
 }
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

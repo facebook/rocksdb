@@ -28,6 +28,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
+#include "util/event_logger.h"
 #include "util/instrumented_mutex.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
@@ -59,12 +60,16 @@ class FlushJob {
            SequenceNumber newest_snapshot, JobContext* job_context,
            LogBuffer* log_buffer, Directory* db_directory,
            Directory* output_file_directory, CompressionType output_compression,
-           Statistics* stats);
-  ~FlushJob() {}
+           Statistics* stats, EventLogger* event_logger);
+
+  ~FlushJob();
 
   Status Run(uint64_t* file_number = nullptr);
 
  private:
+  void ReportStartedFlush();
+  void ReportFlushInputSize(const autovector<MemTable*>& mems);
+  void RecordFlushIOStats();
   Status WriteLevel0Table(const autovector<MemTable*>& mems, VersionEdit* edit,
                           uint64_t* filenumber);
   const std::string& dbname_;
@@ -82,6 +87,7 @@ class FlushJob {
   Directory* output_file_directory_;
   CompressionType output_compression_;
   Statistics* stats_;
+  EventLogger* event_logger_;
 };
 
 }  // namespace rocksdb

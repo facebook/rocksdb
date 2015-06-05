@@ -14,6 +14,7 @@
 #include "util/coding.h"
 #include "util/crc32c.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "rocksdb/transaction_log.h"
 
 #ifndef __STDC_FORMAT_MACROS
@@ -251,7 +252,7 @@ class BackupEngineImpl : public BackupEngine {
                                        bool tmp = false,
                                        const std::string& file = "") const {
     assert(file.size() == 0 || file[0] != '/');
-    return GetPrivateDirRel() + "/" + std::to_string(backup_id) +
+    return GetPrivateDirRel() + "/" + rocksdb::ToString(backup_id) +
            (tmp ? ".tmp" : "") + "/" + file;
   }
   inline std::string GetSharedFileRel(const std::string& file = "",
@@ -270,8 +271,8 @@ class BackupEngineImpl : public BackupEngine {
     assert(file.size() == 0 || file[0] != '/');
     std::string file_copy = file;
     return file_copy.insert(file_copy.find_last_of('.'),
-                            "_" + std::to_string(checksum_value)
-                              + "_" + std::to_string(file_size));
+                            "_" + rocksdb::ToString(checksum_value) + "_" +
+                                rocksdb::ToString(file_size));
   }
   inline std::string GetFileFromChecksumFile(const std::string& file) const {
     assert(file.size() == 0 || file[0] != '/');
@@ -287,7 +288,7 @@ class BackupEngineImpl : public BackupEngine {
     return GetAbsolutePath("meta");
   }
   inline std::string GetBackupMetaFile(BackupID backup_id) const {
-    return GetBackupMetaDir() + "/" + std::to_string(backup_id);
+    return GetBackupMetaDir() + "/" + rocksdb::ToString(backup_id);
   }
 
   Status GetLatestBackupFileContents(uint32_t* latest_backup);
@@ -402,7 +403,7 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
     Log(options_.info_log, "Detected backup %s", file.c_str());
     BackupID backup_id = 0;
     sscanf(file.c_str(), "%u", &backup_id);
-    if (backup_id == 0 || file != std::to_string(backup_id)) {
+    if (backup_id == 0 || file != rocksdb::ToString(backup_id)) {
       if (!read_only_) {
         Log(options_.info_log, "Unrecognized meta file %s, deleting",
             file.c_str());
@@ -418,7 +419,7 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
                                       &backuped_file_infos_, backup_env_)))));
   }
 
-  if (options_.destroy_old_data) {  // Destory old data
+  if (options_.destroy_old_data) {  // Destroy old data
     assert(!read_only_);
     Log(options_.info_log,
         "Backup Engine started with destroy_old_data == true, deleting all "
@@ -633,8 +634,9 @@ Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
     Log(options_.info_log, "Backup failed -- %s", s.ToString().c_str());
     Log(options_.info_log, "Backup Statistics %s\n",
         backup_statistics_.ToString().c_str());
-    backups_.erase(new_backup_id);
-    (void) GarbageCollect();
+    // delete files that we might have already written
+    DeleteBackup(new_backup_id);
+    GarbageCollect();
     return s;
   }
 
@@ -1012,21 +1014,33 @@ Status BackupEngineImpl::BackupFile(BackupID backup_id, BackupMeta* backup,
 
   // if it's shared, we also need to check if it exists -- if it does,
   // no need to copy it again
+  bool need_to_copy = true;
   if (shared && backup_env_->FileExists(dst_path)) {
+    need_to_copy = false;
     if (shared_checksum) {
       Log(options_.info_log,
           "%s already present, with checksum %u and size %" PRIu64,
           src_fname.c_str(), checksum_value, size);
+    } else if (backuped_file_infos_.find(dst_relative) ==
+               backuped_file_infos_.end()) {
+      // file already exists, but it's not referenced by any backup. overwrite
+      // the file
+      Log(options_.info_log,
+          "%s already present, but not referenced by any backup. We will "
+          "overwrite the file.",
+          src_fname.c_str());
+      need_to_copy = true;
+      backup_env_->DeleteFile(dst_path);
     } else {
-      backup_env_->GetFileSize(dst_path, &size);  // Ignore error
+      // the file is present and referenced by a backup
+      db_env_->GetFileSize(src_dir + src_fname, &size);  // Ignore error
       Log(options_.info_log, "%s already present, calculate checksum",
           src_fname.c_str());
-      s = CalculateChecksum(src_dir + src_fname,
-                            db_env_,
-                            size_limit,
+      s = CalculateChecksum(src_dir + src_fname, db_env_, size_limit,
                             &checksum_value);
     }
-  } else {
+  }
+  if (need_to_copy) {
     Log(options_.info_log, "Copying %s to %s", src_fname.c_str(),
         dst_path_tmp.c_str());
     s = CopyFile(src_dir + src_fname,
@@ -1116,14 +1130,17 @@ Status BackupEngineImpl::GarbageCollect() {
                            &shared_children);
   for (auto& child : shared_children) {
     std::string rel_fname = GetSharedFileRel(child);
+    auto child_itr = backuped_file_infos_.find(rel_fname);
     // if it's not refcounted, delete it
-    if (backuped_file_infos_.find(rel_fname) == backuped_file_infos_.end()) {
+    if (child_itr == backuped_file_infos_.end() ||
+        child_itr->second->refs == 0) {
       // this might be a directory, but DeleteFile will just fail in that
       // case, so we're good
       Status s = backup_env_->DeleteFile(GetAbsolutePath(rel_fname));
       if (s.ok()) {
         Log(options_.info_log, "Deleted %s", rel_fname.c_str());
       }
+      backuped_file_infos_.erase(rel_fname);
     }
   }
 
@@ -1177,7 +1194,9 @@ Status BackupEngineImpl::BackupMeta::AddFile(
     }
   } else {
     if (itr->second->checksum_value != file_info->checksum_value) {
-      return Status::Corruption("Checksum mismatch for existing backup file");
+      return Status::Corruption(
+          "Checksum mismatch for existing backup file. Delete old backups and "
+          "try again.");
     }
     ++itr->second->refs;  // increase refcount if already present
   }
@@ -1264,7 +1283,7 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
       line.remove_prefix(checksum_prefix.size());
       checksum_value = static_cast<uint32_t>(
           strtoul(line.data(), nullptr, 10));
-      if (line != std::to_string(checksum_value)) {
+      if (line != rocksdb::ToString(checksum_value)) {
         return Status::Corruption("Invalid checksum value for " + filename +
                                   " in " + meta_filename_);
       }

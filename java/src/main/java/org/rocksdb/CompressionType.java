@@ -46,6 +46,26 @@ public enum CompressionType {
   }
 
   /**
+   * <p>Get the CompressionType enumeration value by
+   * passing the byte identifier to this method.</p>
+   *
+   * <p>If library cannot be found the enumeration
+   * value {@code NO_COMPRESSION} will be returned.</p>
+   *
+   * @param byteIdentifier of CompressionType.
+   *
+   * @return CompressionType instance.
+   */
+  public static CompressionType getCompressionType(byte byteIdentifier) {
+    for (CompressionType compressionType : CompressionType.values()) {
+      if (compressionType.getValue() == byteIdentifier) {
+        return compressionType;
+      }
+    }
+    return CompressionType.NO_COMPRESSION;
+  }
+
+  /**
    * <p>Returns the byte value of the enumerations value.</p>
    *
    * @return byte representation

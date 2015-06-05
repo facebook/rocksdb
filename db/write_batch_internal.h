@@ -76,6 +76,9 @@ class WriteBatchInternal {
   static void Merge(WriteBatch* batch, uint32_t column_family_id,
                     const Slice& key, const Slice& value);
 
+  static void Merge(WriteBatch* batch, uint32_t column_family_id,
+                    const SliceParts& key, const SliceParts& value);
+
   // Return the number of entries in the batch.
   static int Count(const WriteBatch* batch);
 

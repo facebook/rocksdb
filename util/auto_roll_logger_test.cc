@@ -20,7 +20,7 @@ using namespace std;
 
 namespace rocksdb {
 
-class AutoRollLoggerTest {
+class AutoRollLoggerTest : public testing::Test {
  public:
   static void InitTestDb() {
     string deleteCmd = "rm -rf " + kTestDir;
@@ -103,7 +103,7 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   uint64_t expected_create_time;
   uint64_t actual_create_time;
   uint64_t total_log_size;
-  ASSERT_OK(env->GetFileSize(kLogFile, &total_log_size));
+  EXPECT_OK(env->GetFileSize(kLogFile, &total_log_size));
   GetFileCreateTime(kLogFile, &expected_create_time);
   logger->SetCallNowMicrosEveryNRecords(0);
 
@@ -111,14 +111,14 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
   // to be finished before time.
   for (int i = 0; i < 10; ++i) {
      LogMessage(logger, log_message.c_str());
-     ASSERT_OK(logger->GetStatus());
+     EXPECT_OK(logger->GetStatus());
      // Make sure we always write to the same log file (by
      // checking the create time);
      GetFileCreateTime(kLogFile, &actual_create_time);
 
      // Also make sure the log size is increasing.
-     ASSERT_EQ(expected_create_time, actual_create_time);
-     ASSERT_GT(logger->GetLogFileSize(), total_log_size);
+     EXPECT_EQ(expected_create_time, actual_create_time);
+     EXPECT_GT(logger->GetLogFileSize(), total_log_size);
      total_log_size = logger->GetLogFileSize();
   }
 
@@ -132,14 +132,14 @@ uint64_t AutoRollLoggerTest::RollLogFileByTimeTest(
 
   // At this time, the new log file should be created.
   GetFileCreateTime(kLogFile, &actual_create_time);
-  ASSERT_GT(actual_create_time, expected_create_time);
-  ASSERT_LT(logger->GetLogFileSize(), total_log_size);
+  EXPECT_GT(actual_create_time, expected_create_time);
+  EXPECT_LT(logger->GetLogFileSize(), total_log_size);
   expected_create_time = actual_create_time;
 
   return expected_create_time;
 }
 
-TEST(AutoRollLoggerTest, RollLogFileBySize) {
+TEST_F(AutoRollLoggerTest, RollLogFileBySize) {
     InitTestDb();
     size_t log_max_size = 1024 * 5;
 
@@ -149,7 +149,7 @@ TEST(AutoRollLoggerTest, RollLogFileBySize) {
                           kSampleMessage + ":RollLogFileBySize");
 }
 
-TEST(AutoRollLoggerTest, RollLogFileByTime) {
+TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
     size_t time = 2;
     size_t log_size = 1024 * 5;
 
@@ -162,8 +162,7 @@ TEST(AutoRollLoggerTest, RollLogFileByTime) {
     RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
 }
 
-TEST(AutoRollLoggerTest,
-     OpenLogFilesMultipleTimesWithOptionLog_max_size) {
+TEST_F(AutoRollLoggerTest, OpenLogFilesMultipleTimesWithOptionLog_max_size) {
   // If only 'log_max_size' options is specified, then every time
   // when rocksdb is restarted, a new empty log file will be created.
   InitTestDb();
@@ -188,7 +187,7 @@ TEST(AutoRollLoggerTest,
   delete logger;
 }
 
-TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
+TEST_F(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
   size_t time = 2, log_max_size = 1024 * 5;
 
   InitTestDb();
@@ -207,7 +206,7 @@ TEST(AutoRollLoggerTest, CompositeRollByTimeAndSizeLogger) {
 
 #ifndef OS_WIN
 //TODO: does not build for Windows because of PosixLogger use below. Need to port
-TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
+TEST_F(AutoRollLoggerTest, CreateLoggerFromOptions) {
   DBOptions options;
   shared_ptr<Logger> logger;
 
@@ -253,7 +252,7 @@ TEST(AutoRollLoggerTest, CreateLoggerFromOptions) {
 }
 #endif
 
-TEST(AutoRollLoggerTest, InfoLogLevel) {
+TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   InitTestDb();
 
   size_t log_size = 8192;
@@ -332,7 +331,7 @@ static size_t GetLinesCount(const string& fname, const string& pattern) {
   return count;
 }
 
-TEST(AutoRollLoggerTest, LogHeaderTest) {
+TEST_F(AutoRollLoggerTest, LogHeaderTest) {
   static const size_t MAX_HEADERS = 10;
   static const size_t LOG_MAX_SIZE = 1024 * 5;
   static const std::string HEADER_STR = "Log header line";
@@ -375,7 +374,7 @@ TEST(AutoRollLoggerTest, LogHeaderTest) {
   }
 }
 
-TEST(AutoRollLoggerTest, LogFileExistence) {
+TEST_F(AutoRollLoggerTest, LogFileExistence) {
   rocksdb::DB* db;
   rocksdb::Options options;
   string deleteCmd = "rm -rf " + kTestDir;
@@ -390,5 +389,6 @@ TEST(AutoRollLoggerTest, LogFileExistence) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

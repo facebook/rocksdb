@@ -13,6 +13,8 @@
 #include "db/column_family.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/testharness.h"
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
 
 namespace rocksdb {
 
@@ -69,18 +71,10 @@ struct TestHandler : public WriteBatch::Handler {
 };
 }  // namespace anonymous
 
-class WriteBatchWithIndexTest {};
+class WriteBatchWithIndexTest : public testing::Test {};
 
-TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
-  Entry entries[] = {{"aaa", "0005", kPutRecord},
-                     {"b", "0002", kPutRecord},
-                     {"cdd", "0002", kMergeRecord},
-                     {"aab", "00001", kPutRecord},
-                     {"cc", "00005", kPutRecord},
-                     {"cdd", "0002", kPutRecord},
-                     {"aab", "0003", kPutRecord},
-                     {"cc", "00005", kDeleteRecord}, };
-
+void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
+                                     WriteBatchWithIndex* batch) {
   // In this test, we insert <key, value> to column family `data`, and
   // <value, key> to column family `index`. Then iterator them in order
   // and seek them by key.
@@ -94,32 +88,31 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
     index_map[e.value].push_back(&e);
   }
 
-  WriteBatchWithIndex batch(nullptr, 20);
   ColumnFamilyHandleImplDummy data(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy index(8, BytewiseComparator());
   for (auto& e : entries) {
     if (e.type == kPutRecord) {
-      batch.Put(&data, e.key, e.value);
-      batch.Put(&index, e.value, e.key);
+      batch->Put(&data, e.key, e.value);
+      batch->Put(&index, e.value, e.key);
     } else if (e.type == kMergeRecord) {
-      batch.Merge(&data, e.key, e.value);
-      batch.Put(&index, e.value, e.key);
+      batch->Merge(&data, e.key, e.value);
+      batch->Put(&index, e.value, e.key);
     } else {
       assert(e.type == kDeleteRecord);
-      std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&data));
+      std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&data));
       iter->Seek(e.key);
       ASSERT_OK(iter->status());
       auto& write_entry = iter->Entry();
       ASSERT_EQ(e.key, write_entry.key.ToString());
       ASSERT_EQ(e.value, write_entry.value.ToString());
-      batch.Delete(&data, e.key);
-      batch.Put(&index, e.value, "");
+      batch->Delete(&data, e.key);
+      batch->Put(&index, e.value, "");
     }
   }
 
   // Iterator all keys
   {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&data));
+    std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&data));
     for (int seek_to_first : {0, 1}) {
       if (seek_to_first) {
         iter->SeekToFirst();
@@ -160,7 +153,7 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
   // Iterator all indexes
   {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&index));
+    std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&index));
     for (int seek_to_first : {0, 1}) {
       if (seek_to_first) {
         iter->SeekToFirst();
@@ -202,7 +195,7 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
   // Seek to every key
   {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&data));
+    std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&data));
 
     // Seek the keys one by one in reverse order
     for (auto pair = data_map.rbegin(); pair != data_map.rend(); ++pair) {
@@ -224,7 +217,7 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
   // Seek to every index
   {
-    std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&index));
+    std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&index));
 
     // Seek the keys one by one in reverse order
     for (auto pair = index_map.rbegin(); pair != index_map.rend(); ++pair) {
@@ -246,12 +239,11 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
   // Verify WriteBatch can be iterated
   TestHandler handler;
-  batch.GetWriteBatch()->Iterate(&handler);
+  batch->GetWriteBatch()->Iterate(&handler);
 
   // Verify data column family
   {
-    ASSERT_EQ(sizeof(entries) / sizeof(Entry),
-              handler.seen[data.GetID()].size());
+    ASSERT_EQ(entries.size(), handler.seen[data.GetID()].size());
     size_t i = 0;
     for (auto e : handler.seen[data.GetID()]) {
       auto write_entry = entries[i++];
@@ -265,8 +257,7 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
 
   // Verify index column family
   {
-    ASSERT_EQ(sizeof(entries) / sizeof(Entry),
-              handler.seen[index.GetID()].size());
+    ASSERT_EQ(entries.size(), handler.seen[index.GetID()].size());
     size_t i = 0;
     for (auto e : handler.seen[index.GetID()]) {
       auto write_entry = entries[i++];
@@ -278,7 +269,43 @@ TEST(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
+TEST_F(WriteBatchWithIndexTest, TestValueAsSecondaryIndex) {
+  Entry entries[] = {
+      {"aaa", "0005", kPutRecord},
+      {"b", "0002", kPutRecord},
+      {"cdd", "0002", kMergeRecord},
+      {"aab", "00001", kPutRecord},
+      {"cc", "00005", kPutRecord},
+      {"cdd", "0002", kPutRecord},
+      {"aab", "0003", kPutRecord},
+      {"cc", "00005", kDeleteRecord},
+  };
+  std::vector<Entry> entries_list(entries, entries + 8);
+
+  WriteBatchWithIndex batch(nullptr, 20);
+
+  TestValueAsSecondaryIndexHelper(entries_list, &batch);
+
+  // Clear batch and re-run test with new values
+  batch.Clear();
+
+  Entry new_entries[] = {
+      {"aaa", "0005", kPutRecord},
+      {"e", "0002", kPutRecord},
+      {"add", "0002", kMergeRecord},
+      {"aab", "00001", kPutRecord},
+      {"zz", "00005", kPutRecord},
+      {"add", "0002", kPutRecord},
+      {"aab", "0003", kPutRecord},
+      {"zz", "00005", kDeleteRecord},
+  };
+
+  entries_list = std::vector<Entry>(new_entries, new_entries + 8);
+
+  TestValueAsSecondaryIndexHelper(entries_list, &batch);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestComparatorForCF) {
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
   ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
@@ -290,7 +317,11 @@ TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
   batch.Put(&cf1, "ccc", "");
   batch.Put(&reverse_cf, "a11", "");
   batch.Put(&cf1, "bbb", "");
-  batch.Put(&reverse_cf, "a33", "");
+
+  Slice key_slices[] = {"a", "3", "3"};
+  Slice value_slice = "";
+  batch.Put(&reverse_cf, SliceParts(key_slices, 3),
+            SliceParts(&value_slice, 1));
   batch.Put(&reverse_cf, "a22", "");
 
   {
@@ -361,7 +392,7 @@ TEST(WriteBatchWithIndexTest, TestComparatorForCF) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
+TEST_F(WriteBatchWithIndexTest, TestOverwriteKey) {
   ColumnFamilyHandleImplDummy cf1(6, nullptr);
   ColumnFamilyHandleImplDummy reverse_cf(66, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(88, BytewiseComparator());
@@ -379,7 +410,8 @@ TEST(WriteBatchWithIndexTest, TestOverwriteKey) {
   batch.Delete(&cf1, "ccc");
   batch.Put(&reverse_cf, "a33", "a33");
   batch.Put(&reverse_cf, "a11", "a11");
-  batch.Delete(&reverse_cf, "a33");
+  Slice slices[] = {"a", "3", "3"};
+  batch.Delete(&reverse_cf, SliceParts(slices, 3));
 
   {
     std::unique_ptr<WBWIIterator> iter(batch.NewIterator(&cf1));
@@ -515,7 +547,7 @@ void AssertItersEqual(Iterator* iter1, Iterator* iter2) {
 }
 }  // namespace
 
-TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
+TEST_F(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   std::vector<std::string> source_strings = {"a", "b", "c", "d", "e",
                                              "f", "g", "h", "i", "j"};
   for (int rand_seed = 301; rand_seed < 366; rand_seed++) {
@@ -628,7 +660,7 @@ TEST(WriteBatchWithIndexTest, TestRandomIteraratorWithBase) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   ColumnFamilyHandleImplDummy cf1(6, BytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, BytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
@@ -791,7 +823,7 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBase) {
   }
 }
 
-TEST(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
+TEST_F(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   ColumnFamilyHandleImplDummy cf1(6, ReverseBytewiseComparator());
   ColumnFamilyHandleImplDummy cf2(2, ReverseBytewiseComparator());
   WriteBatchWithIndex batch(BytewiseComparator(), 20, true);
@@ -877,6 +909,282 @@ TEST(WriteBatchWithIndexTest, TestIteraratorWithBaseReverseCmp) {
   }
 }
 
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatch) {
+  Options options;
+  WriteBatchWithIndex batch;
+  Status s;
+  std::string value;
+
+  s = batch.GetFromBatch(options, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Put("a", "a");
+  batch.Put("b", "b");
+  batch.Put("c", "c");
+  batch.Put("a", "z");
+  batch.Delete("c");
+  batch.Delete("d");
+  batch.Delete("e");
+  batch.Put("e", "e");
+
+  s = batch.GetFromBatch(options, "b", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b", value);
+
+  s = batch.GetFromBatch(options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("z", value);
+
+  s = batch.GetFromBatch(options, "c", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(options, "d", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatch(options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e", value);
+
+  batch.Merge("z", "z");
+
+  s = batch.GetFromBatch(options, "z", &value);
+  ASSERT_NOK(s);  // No merge operator specified.
+
+  s = batch.GetFromBatch(options, "b", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b", value);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
+  DB* db;
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  options.create_if_missing = true;
+
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  ColumnFamilyHandle* column_family = db->DefaultColumnFamily();
+  WriteBatchWithIndex batch;
+  std::string value;
+
+  s = batch.GetFromBatch(options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Put("x", "X");
+  std::string expected = "X";
+
+  for (int i = 0; i < 5; i++) {
+    batch.Merge("x", std::to_string(i));
+    expected = expected + "," + std::to_string(i);
+
+    if (i % 2 == 0) {
+      batch.Put("y", std::to_string(i / 2));
+    }
+
+    batch.Merge("z", "z");
+
+    s = batch.GetFromBatch(column_family, options, "x", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(expected, value);
+
+    s = batch.GetFromBatch(column_family, options, "y", &value);
+    ASSERT_OK(s);
+    ASSERT_EQ(std::to_string(i / 2), value);
+
+    s = batch.GetFromBatch(column_family, options, "z", &value);
+    ASSERT_TRUE(s.IsMergeInProgress());
+  }
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
+  DB* db;
+  Options options;
+  options.create_if_missing = true;
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  WriteBatchWithIndex batch;
+  ReadOptions read_options;
+  WriteOptions write_options;
+  std::string value;
+
+  s = db->Put(write_options, "a", "a");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "b", "b");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "c", "c");
+  ASSERT_OK(s);
+
+  batch.Put("a", "batch.a");
+  batch.Delete("b");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("batch.a", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "b", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatchAndDB(db, read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  db->Delete(write_options, "x");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  WriteBatchWithIndex batch;
+  ReadOptions read_options;
+  WriteOptions write_options;
+  std::string value;
+
+  s = db->Put(write_options, "a", "a0");
+  ASSERT_OK(s);
+
+  s = db->Put(write_options, "b", "b0");
+  ASSERT_OK(s);
+
+  s = db->Merge(write_options, "b", "b1");
+  ASSERT_OK(s);
+
+  s = db->Merge(write_options, "c", "c0");
+  ASSERT_OK(s);
+
+  s = db->Merge(write_options, "d", "d0");
+  ASSERT_OK(s);
+
+  batch.Merge("a", "a1");
+  batch.Merge("a", "a2");
+  batch.Merge("b", "b2");
+  batch.Merge("d", "d1");
+  batch.Merge("e", "e0");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0,a1,a2", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "b", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b0,b1,b2", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "d", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("d0,d1", value);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  s = db->Delete(write_options, "x");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "x", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  const Snapshot* snapshot = db->GetSnapshot();
+  ReadOptions snapshot_read_options;
+  snapshot_read_options.snapshot = snapshot;
+
+  s = db->Delete(write_options, "a");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a1,a2", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "a", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a0,a1,a2", value);
+
+  batch.Delete("a");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "a", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Merge(write_options, "c", "c1");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0,c1", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "c", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c0", value);
+
+  s = db->Put(write_options, "e", "e1");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e1,e0", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  s = db->Delete(write_options, "e");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  s = batch.GetFromBatchAndDB(db, snapshot_read_options, "e", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("e0", value);
+
+  db->ReleaseSnapshot(snapshot);
+  delete db;
+  DestroyDB(dbname, options);
+}
+
 }  // namespace
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

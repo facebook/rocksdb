@@ -20,6 +20,7 @@
 #include <linux/falloc.h>
 #endif
 #include "rocksdb/env.h"
+#include "util/iostats_context_imp.h"
 #include <atomic>
 
 namespace rocksdb {
@@ -60,6 +61,8 @@ class PosixLogger : public Logger {
 
   using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
+    IOSTATS_TIMER_GUARD(logger_nanos);
+
     const uint64_t thread_id = (*gettid_)();
 
     // We try twice: the first time with a fixed-size stack allocated buffer,
@@ -145,9 +148,7 @@ class PosixLogger : public Logger {
       uint64_t now_micros = static_cast<uint64_t>(now_tv.tv_sec) * 1000000 +
         now_tv.tv_usec;
       if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
-        flush_pending_ = false;
-        fflush(file_);
-        last_flush_micros_ = now_micros;
+        Flush();
       }
       if (base != buffer) {
         delete[] base;

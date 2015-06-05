@@ -29,6 +29,7 @@
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
@@ -37,7 +38,7 @@ using std::unique_ptr;
 
 namespace rocksdb {
 
-class PlainTableDBTest {
+class PlainTableDBTest : public testing::Test {
  protected:
  private:
   std::string dbname_;
@@ -49,14 +50,14 @@ class PlainTableDBTest {
  public:
   PlainTableDBTest() : env_(Env::Default()) {
     dbname_ = test::TmpDir() + "/plain_table_db_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
 
   ~PlainTableDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
   }
 
   // Return the current option configuration.
@@ -149,9 +150,8 @@ class PlainTableDBTest {
 
   int NumTableFilesAtLevel(int level) {
     std::string property;
-    ASSERT_TRUE(
-        db_->GetProperty("rocksdb.num-files-at-level" + NumberToString(level),
-                         &property));
+    EXPECT_TRUE(db_->GetProperty(
+        "rocksdb.num-files-at-level" + NumberToString(level), &property));
     return atoi(property.c_str());
   }
 
@@ -183,7 +183,7 @@ class PlainTableDBTest {
   }
 };
 
-TEST(PlainTableDBTest, Empty) {
+TEST_F(PlainTableDBTest, Empty) {
   ASSERT_TRUE(dbfull() != nullptr);
   ASSERT_EQ("NOT_FOUND", Get("0000000000000foo"));
 }
@@ -206,23 +206,23 @@ class TestPlainTableReader : public PlainTableReader {
                          encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
     Status s = MmapDataFile();
-    ASSERT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok());
 
     s = PopulateIndex(const_cast<TableProperties*>(table_properties),
                       bloom_bits_per_key, hash_table_ratio, index_sparseness,
                       2 * 1024 * 1024);
-    ASSERT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok());
 
     TableProperties* props = const_cast<TableProperties*>(table_properties);
     if (store_index_in_file) {
       auto bloom_version_ptr = props->user_collected_properties.find(
           PlainTablePropertyNames::kBloomVersion);
-      ASSERT_TRUE(bloom_version_ptr != props->user_collected_properties.end());
-      ASSERT_EQ(bloom_version_ptr->second, std::string("1"));
+      EXPECT_TRUE(bloom_version_ptr != props->user_collected_properties.end());
+      EXPECT_EQ(bloom_version_ptr->second, std::string("1"));
       if (ioptions.bloom_locality > 0) {
         auto num_blocks_ptr = props->user_collected_properties.find(
             PlainTablePropertyNames::kNumBloomBlocks);
-        ASSERT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
+        EXPECT_TRUE(num_blocks_ptr != props->user_collected_properties.end());
       }
     }
   }
@@ -233,9 +233,9 @@ class TestPlainTableReader : public PlainTableReader {
   virtual bool MatchBloom(uint32_t hash) const override {
     bool ret = PlainTableReader::MatchBloom(hash);
     if (*expect_bloom_not_match_) {
-      ASSERT_TRUE(!ret);
+      EXPECT_TRUE(!ret);
     } else {
-      ASSERT_TRUE(ret);
+      EXPECT_TRUE(ret);
     }
     return ret;
   }
@@ -262,20 +262,20 @@ class TestPlainTableFactory : public PlainTableFactory {
     TableProperties* props = nullptr;
     auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
                                  ioptions.env, ioptions.info_log, &props);
-    ASSERT_TRUE(s.ok());
+    EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
                         ioptions.env, BloomBlockBuilder::kBloomBlock,
                         &bloom_block_handle);
-      ASSERT_TRUE(s.ok());
+      EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
       s = FindMetaBlock(
           file.get(), file_size, kPlainTableMagicNumber, ioptions.env,
           PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_handle);
-      ASSERT_TRUE(s.ok());
+      EXPECT_TRUE(s.ok());
     }
 
     auto& user_props = props->user_collected_properties;
@@ -303,7 +303,7 @@ class TestPlainTableFactory : public PlainTableFactory {
   bool* expect_bloom_not_match_;
 };
 
-TEST(PlainTableDBTest, Flush) {
+TEST_F(PlainTableDBTest, Flush) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
@@ -390,7 +390,7 @@ TEST(PlainTableDBTest, Flush) {
   }
 }
 
-TEST(PlainTableDBTest, Flush2) {
+TEST_F(PlainTableDBTest, Flush2) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
@@ -470,7 +470,7 @@ TEST(PlainTableDBTest, Flush2) {
   }
 }
 
-TEST(PlainTableDBTest, Iterator) {
+TEST_F(PlainTableDBTest, Iterator) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (EncodingType encoding_type : {kPlain, kPrefix}) {
@@ -604,7 +604,7 @@ std::string MakeLongKey(size_t length, char c) {
 }
 }  // namespace
 
-TEST(PlainTableDBTest, IteratorLargeKeys) {
+TEST_F(PlainTableDBTest, IteratorLargeKeys) {
   Options options = CurrentOptions();
 
   PlainTableOptions plain_table_options;
@@ -654,7 +654,7 @@ std::string MakeLongKeyWithPrefix(size_t length, char c) {
 }
 }  // namespace
 
-TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
+TEST_F(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   Options options = CurrentOptions();
 
   PlainTableOptions plain_table_options;
@@ -696,7 +696,7 @@ TEST(PlainTableDBTest, IteratorLargeKeysWithPrefix) {
   delete iter;
 }
 
-TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
+TEST_F(PlainTableDBTest, IteratorReverseSuffixComparator) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
@@ -765,7 +765,7 @@ TEST(PlainTableDBTest, IteratorReverseSuffixComparator) {
   delete iter;
 }
 
-TEST(PlainTableDBTest, HashBucketConflict) {
+TEST_F(PlainTableDBTest, HashBucketConflict) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (unsigned char i = 1; i <= 3; i++) {
@@ -858,7 +858,7 @@ TEST(PlainTableDBTest, HashBucketConflict) {
   }
 }
 
-TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
+TEST_F(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
   for (size_t huge_page_tlb_size = 0; huge_page_tlb_size <= 2 * 1024 * 1024;
        huge_page_tlb_size += 2 * 1024 * 1024) {
     for (unsigned char i = 1; i <= 3; i++) {
@@ -951,7 +951,7 @@ TEST(PlainTableDBTest, HashBucketConflictReverseSuffixComparator) {
   }
 }
 
-TEST(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
+TEST_F(PlainTableDBTest, NonExistingKeyToNonEmptyBucket) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
   // Set only one bucket to force bucket conflict.
@@ -1007,7 +1007,7 @@ static std::string RandomString(Random* rnd, int len) {
   return r;
 }
 
-TEST(PlainTableDBTest, CompactionTrigger) {
+TEST_F(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100 << 10; //100KB
   options.num_levels = 3;
@@ -1041,7 +1041,7 @@ TEST(PlainTableDBTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
 }
 
-TEST(PlainTableDBTest, AdaptiveTable) {
+TEST_F(PlainTableDBTest, AdaptiveTable) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
 
@@ -1087,5 +1087,6 @@ TEST(PlainTableDBTest, AdaptiveTable) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

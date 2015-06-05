@@ -32,17 +32,24 @@ enum DBPropertyType : uint32_t {
   kStats,            // Return general statitistics of both DB and CF
   kSsTables,         // Return a human readable string of current SST files
   kStartIntTypes,    // ---- Dummy value to indicate the start of integer values
-  kNumImmutableMemTable,   // Return number of immutable mem tables
-  kMemtableFlushPending,   // Return 1 if mem table flushing is pending,
-                           // otherwise 0.
+  kNumImmutableMemTable,         // Return number of immutable mem tables that
+                                 // have not been flushed.
+  kNumImmutableMemTableFlushed,  // Return number of immutable mem tables
+                                 // in memory that have already been flushed
+  kMemtableFlushPending,         // Return 1 if mem table flushing is pending,
+                                 // otherwise 0.
   kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,       // Return accumulated background errors encountered.
   kCurSizeActiveMemTable,  // Return current size of the active memtable
   kCurSizeAllMemTables,    // Return current size of all (active + immutable)
                            // memtables
-  kNumEntriesInMutableMemtable,    // Return number of entries in the mutable
+  kNumEntriesInMutableMemtable,    // Return number of deletes in the mutable
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
+                                   // the immutable mem tables.
+  kNumDeletesInMutableMemtable,    // Return number of entries in the mutable
+                                   // memtable.
+  kNumDeletesInImmutableMemtable,  // Return sum of number of deletes in all
                                    // the immutable mem tables.
   kEstimatedNumKeys,  // Estimated total number of keys in the database.
   kEstimatedUsageByTableReaders,  // Estimated memory by table readers.
@@ -88,9 +95,7 @@ class InternalStats {
         cf_stats_value_(INTERNAL_CF_STATS_ENUM_MAX),
         cf_stats_count_(INTERNAL_CF_STATS_ENUM_MAX),
         comp_stats_(num_levels),
-        stall_leveln_slowdown_hard_(num_levels),
         stall_leveln_slowdown_count_hard_(num_levels),
-        stall_leveln_slowdown_soft_(num_levels),
         stall_leveln_slowdown_count_soft_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
@@ -105,9 +110,7 @@ class InternalStats {
       cf_stats_count_[i] = 0;
     }
     for (int i = 0; i < num_levels; ++i) {
-      stall_leveln_slowdown_hard_[i] = 0;
       stall_leveln_slowdown_count_hard_[i] = 0;
-      stall_leveln_slowdown_soft_[i] = 0;
       stall_leveln_slowdown_count_soft_[i] = 0;
     }
   }
@@ -211,12 +214,10 @@ class InternalStats {
     comp_stats_[level].bytes_moved += amount;
   }
 
-  void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {
+  void RecordLevelNSlowdown(int level, bool soft) {
     if (soft) {
-      stall_leveln_slowdown_soft_[level] += micros;
       ++stall_leveln_slowdown_count_soft_[level];
     } else {
-      stall_leveln_slowdown_hard_[level] += micros;
       ++stall_leveln_slowdown_count_hard_[level];
     }
   }
@@ -255,9 +256,7 @@ class InternalStats {
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
   // These count the number of microseconds for which MakeRoomForWrite stalls.
-  std::vector<uint64_t> stall_leveln_slowdown_hard_;
   std::vector<uint64_t> stall_leveln_slowdown_count_hard_;
-  std::vector<uint64_t> stall_leveln_slowdown_soft_;
   std::vector<uint64_t> stall_leveln_slowdown_count_soft_;
 
   // Used to compute per-interval statistics
@@ -265,13 +264,11 @@ class InternalStats {
     // ColumnFamily-level stats
     CompactionStats comp_stats;
     uint64_t ingest_bytes;            // Bytes written to L0
-    uint64_t stall_us;                // Stall time in micro-seconds
     uint64_t stall_count;             // Stall count
 
     CFStatsSnapshot()
         : comp_stats(0),
           ingest_bytes(0),
-          stall_us(0),
           stall_count(0) {}
   } cf_stats_snapshot_;
 
@@ -285,6 +282,10 @@ class InternalStats {
     // another thread.
     uint64_t write_other;
     uint64_t write_self;
+    // Stats from compaction jobs - bytes written, bytes read, duration.
+    uint64_t compact_bytes_write;
+    uint64_t compact_bytes_read;
+    uint64_t compact_micros;
     // Total number of keys written. write_self and write_other measure number
     // of write requests written, Each of the write request can contain updates
     // to multiple keys. num_keys_written is total number of keys updated by all
@@ -301,6 +302,9 @@ class InternalStats {
           write_with_wal(0),
           write_other(0),
           write_self(0),
+          compact_bytes_write(0),
+          compact_bytes_read(0),
+          compact_micros(0),
           num_keys_written(0),
           write_stall_micros(0),
           seconds_up(0) {}
@@ -372,7 +376,7 @@ class InternalStats {
 
   void IncBytesMoved(int level, uint64_t amount) {}
 
-  void RecordLevelNSlowdown(int level, uint64_t micros, bool soft) {}
+  void RecordLevelNSlowdown(int level, bool soft) {}
 
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 

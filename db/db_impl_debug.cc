@@ -141,5 +141,10 @@ void DBImpl::TEST_EndWrite(void* w) {
   delete writer;
 }
 
+size_t DBImpl::TEST_LogsToFreeSize() {
+  InstrumentedMutexLock l(&mutex_);
+  return logs_to_free_.size();
+}
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE

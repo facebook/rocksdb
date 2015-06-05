@@ -10,6 +10,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "util/hash.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "utilities/merge_operators.h"
@@ -248,7 +249,7 @@ class TwoStrComparator : public Comparator {
 };
 }  // namespace
 
-class ComparatorDBTest {
+class ComparatorDBTest : public testing::Test {
  private:
   std::string dbname_;
   Env* env_;
@@ -260,12 +261,12 @@ class ComparatorDBTest {
   ComparatorDBTest() : env_(Env::Default()), db_(nullptr) {
     comparator = BytewiseComparator();
     dbname_ = test::TmpDir() + "/comparator_db_test";
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   ~ComparatorDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
     comparator = BytewiseComparator();
   }
 
@@ -301,7 +302,7 @@ class ComparatorDBTest {
   }
 };
 
-TEST(ComparatorDBTest, Bytewise) {
+TEST_F(ComparatorDBTest, Bytewise) {
   for (int rand_seed = 301; rand_seed < 306; rand_seed++) {
     DestroyAndReopen();
     Random rnd(rand_seed);
@@ -311,7 +312,7 @@ TEST(ComparatorDBTest, Bytewise) {
   }
 }
 
-TEST(ComparatorDBTest, SimpleSuffixReverseComparator) {
+TEST_F(ComparatorDBTest, SimpleSuffixReverseComparator) {
   SetOwnedComparator(new test::SimpleSuffixReverseComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -337,7 +338,7 @@ TEST(ComparatorDBTest, SimpleSuffixReverseComparator) {
   }
 }
 
-TEST(ComparatorDBTest, Uint64Comparator) {
+TEST_F(ComparatorDBTest, Uint64Comparator) {
   SetOwnedComparator(test::Uint64Comparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -361,7 +362,7 @@ TEST(ComparatorDBTest, Uint64Comparator) {
   }
 }
 
-TEST(ComparatorDBTest, DoubleComparator) {
+TEST_F(ComparatorDBTest, DoubleComparator) {
   SetOwnedComparator(new DoubleComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -386,7 +387,7 @@ TEST(ComparatorDBTest, DoubleComparator) {
   }
 }
 
-TEST(ComparatorDBTest, HashComparator) {
+TEST_F(ComparatorDBTest, HashComparator) {
   SetOwnedComparator(new HashComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -405,7 +406,7 @@ TEST(ComparatorDBTest, HashComparator) {
   }
 }
 
-TEST(ComparatorDBTest, TwoStrComparator) {
+TEST_F(ComparatorDBTest, TwoStrComparator) {
   SetOwnedComparator(new TwoStrComparator());
 
   for (int rnd_seed = 301; rnd_seed < 316; rnd_seed++) {
@@ -433,4 +434,7 @@ TEST(ComparatorDBTest, TwoStrComparator) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

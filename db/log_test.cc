@@ -41,7 +41,7 @@ static std::string RandomSkewedString(int i, Random* rnd) {
   return BigString(NumberString(i), rnd->Skewed(17));
 }
 
-class LogTest {
+class LogTest : public testing::Test {
  private:
   class StringDest : public WritableFile {
    public:
@@ -57,7 +57,7 @@ class LogTest {
 
     virtual Status Close() override { return Status::OK(); }
     virtual Status Flush() override {
-      ASSERT_TRUE(reader_contents_.size() <= last_flush_);
+      EXPECT_TRUE(reader_contents_.size() <= last_flush_);
       size_t offset = last_flush_ - reader_contents_.size();
       reader_contents_ = Slice(
           contents_.data() + offset,
@@ -100,7 +100,7 @@ class LogTest {
       returned_partial_(false) { }
 
     virtual Status Read(size_t n, Slice* result, char* scratch) override {
-      ASSERT_TRUE(!returned_partial_) << "must not Read() after eof/error";
+      EXPECT_TRUE(!returned_partial_) << "must not Read() after eof/error";
 
       if (force_error_) {
         if (force_error_position_ >= n) {
@@ -329,12 +329,9 @@ uint64_t LogTest::initial_offset_last_record_offsets_[] =
      2 * (kHeaderSize + 10000) +
          (2 * log::kBlockSize - 1000) + 3 * kHeaderSize};
 
+TEST_F(LogTest, Empty) { ASSERT_EQ("EOF", Read()); }
 
-TEST(LogTest, Empty) {
-  ASSERT_EQ("EOF", Read());
-}
-
-TEST(LogTest, ReadWrite) {
+TEST_F(LogTest, ReadWrite) {
   Write("foo");
   Write("bar");
   Write("");
@@ -347,7 +344,7 @@ TEST(LogTest, ReadWrite) {
   ASSERT_EQ("EOF", Read());  // Make sure reads at eof work
 }
 
-TEST(LogTest, ManyBlocks) {
+TEST_F(LogTest, ManyBlocks) {
   for (int i = 0; i < 100000; i++) {
     Write(NumberString(i));
   }
@@ -357,7 +354,7 @@ TEST(LogTest, ManyBlocks) {
   ASSERT_EQ("EOF", Read());
 }
 
-TEST(LogTest, Fragmentation) {
+TEST_F(LogTest, Fragmentation) {
   Write("small");
   Write(BigString("medium", 50000));
   Write(BigString("large", 100000));
@@ -367,7 +364,7 @@ TEST(LogTest, Fragmentation) {
   ASSERT_EQ("EOF", Read());
 }
 
-TEST(LogTest, MarginalTrailer) {
+TEST_F(LogTest, MarginalTrailer) {
   // Make a trailer that is exactly the same length as an empty record.
   const int n = kBlockSize - 2*kHeaderSize;
   Write(BigString("foo", n));
@@ -380,7 +377,7 @@ TEST(LogTest, MarginalTrailer) {
   ASSERT_EQ("EOF", Read());
 }
 
-TEST(LogTest, MarginalTrailer2) {
+TEST_F(LogTest, MarginalTrailer2) {
   // Make a trailer that is exactly the same length as an empty record.
   const int n = kBlockSize - 2*kHeaderSize;
   Write(BigString("foo", n));
@@ -393,7 +390,7 @@ TEST(LogTest, MarginalTrailer2) {
   ASSERT_EQ("", ReportMessage());
 }
 
-TEST(LogTest, ShortTrailer) {
+TEST_F(LogTest, ShortTrailer) {
   const int n = kBlockSize - 2*kHeaderSize + 4;
   Write(BigString("foo", n));
   ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize + 4), WrittenBytes());
@@ -405,7 +402,7 @@ TEST(LogTest, ShortTrailer) {
   ASSERT_EQ("EOF", Read());
 }
 
-TEST(LogTest, AlignedEof) {
+TEST_F(LogTest, AlignedEof) {
   const int n = kBlockSize - 2*kHeaderSize + 4;
   Write(BigString("foo", n));
   ASSERT_EQ((unsigned int)(kBlockSize - kHeaderSize + 4), WrittenBytes());
@@ -413,7 +410,7 @@ TEST(LogTest, AlignedEof) {
   ASSERT_EQ("EOF", Read());
 }
 
-TEST(LogTest, RandomRead) {
+TEST_F(LogTest, RandomRead) {
   const int N = 500;
   Random write_rnd(301);
   for (int i = 0; i < N; i++) {
@@ -428,7 +425,7 @@ TEST(LogTest, RandomRead) {
 
 // Tests of all the error paths in log_reader.cc follow:
 
-TEST(LogTest, ReadError) {
+TEST_F(LogTest, ReadError) {
   Write("foo");
   ForceError();
   ASSERT_EQ("EOF", Read());
@@ -436,7 +433,7 @@ TEST(LogTest, ReadError) {
   ASSERT_EQ("OK", MatchError("read error"));
 }
 
-TEST(LogTest, BadRecordType) {
+TEST_F(LogTest, BadRecordType) {
   Write("foo");
   // Type is stored in header[6]
   IncrementByte(6, 100);
@@ -446,7 +443,7 @@ TEST(LogTest, BadRecordType) {
   ASSERT_EQ("OK", MatchError("unknown record type"));
 }
 
-TEST(LogTest, TruncatedTrailingRecordIsIgnored) {
+TEST_F(LogTest, TruncatedTrailingRecordIsIgnored) {
   Write("foo");
   ShrinkSize(4);   // Drop all payload as well as a header byte
   ASSERT_EQ("EOF", Read());
@@ -455,7 +452,7 @@ TEST(LogTest, TruncatedTrailingRecordIsIgnored) {
   ASSERT_EQ("", ReportMessage());
 }
 
-TEST(LogTest, BadLength) {
+TEST_F(LogTest, BadLength) {
   const int kPayloadSize = kBlockSize - kHeaderSize;
   Write(BigString("bar", kPayloadSize));
   Write("foo");
@@ -466,7 +463,7 @@ TEST(LogTest, BadLength) {
   ASSERT_EQ("OK", MatchError("bad record length"));
 }
 
-TEST(LogTest, BadLengthAtEndIsIgnored) {
+TEST_F(LogTest, BadLengthAtEndIsIgnored) {
   Write("foo");
   ShrinkSize(1);
   ASSERT_EQ("EOF", Read());
@@ -474,7 +471,7 @@ TEST(LogTest, BadLengthAtEndIsIgnored) {
   ASSERT_EQ("", ReportMessage());
 }
 
-TEST(LogTest, ChecksumMismatch) {
+TEST_F(LogTest, ChecksumMismatch) {
   Write("foo");
   IncrementByte(0, 10);
   ASSERT_EQ("EOF", Read());
@@ -482,7 +479,7 @@ TEST(LogTest, ChecksumMismatch) {
   ASSERT_EQ("OK", MatchError("checksum mismatch"));
 }
 
-TEST(LogTest, UnexpectedMiddleType) {
+TEST_F(LogTest, UnexpectedMiddleType) {
   Write("foo");
   SetByte(6, kMiddleType);
   FixChecksum(0, 3);
@@ -491,7 +488,7 @@ TEST(LogTest, UnexpectedMiddleType) {
   ASSERT_EQ("OK", MatchError("missing start"));
 }
 
-TEST(LogTest, UnexpectedLastType) {
+TEST_F(LogTest, UnexpectedLastType) {
   Write("foo");
   SetByte(6, kLastType);
   FixChecksum(0, 3);
@@ -500,7 +497,7 @@ TEST(LogTest, UnexpectedLastType) {
   ASSERT_EQ("OK", MatchError("missing start"));
 }
 
-TEST(LogTest, UnexpectedFullType) {
+TEST_F(LogTest, UnexpectedFullType) {
   Write("foo");
   Write("bar");
   SetByte(6, kFirstType);
@@ -511,7 +508,7 @@ TEST(LogTest, UnexpectedFullType) {
   ASSERT_EQ("OK", MatchError("partial record without end"));
 }
 
-TEST(LogTest, UnexpectedFirstType) {
+TEST_F(LogTest, UnexpectedFirstType) {
   Write("foo");
   Write(BigString("bar", 100000));
   SetByte(6, kFirstType);
@@ -522,7 +519,7 @@ TEST(LogTest, UnexpectedFirstType) {
   ASSERT_EQ("OK", MatchError("partial record without end"));
 }
 
-TEST(LogTest, MissingLastIsIgnored) {
+TEST_F(LogTest, MissingLastIsIgnored) {
   Write(BigString("bar", kBlockSize));
   // Remove the LAST block, including header.
   ShrinkSize(14);
@@ -531,7 +528,7 @@ TEST(LogTest, MissingLastIsIgnored) {
   ASSERT_EQ(0U, DroppedBytes());
 }
 
-TEST(LogTest, PartialLastIsIgnored) {
+TEST_F(LogTest, PartialLastIsIgnored) {
   Write(BigString("bar", kBlockSize));
   // Cause a bad record length in the LAST block.
   ShrinkSize(1);
@@ -540,7 +537,7 @@ TEST(LogTest, PartialLastIsIgnored) {
   ASSERT_EQ(0U, DroppedBytes());
 }
 
-TEST(LogTest, ErrorJoinsRecords) {
+TEST_F(LogTest, ErrorJoinsRecords) {
   // Consider two fragmented records:
   //    first(R1) last(R1) first(R2) last(R2)
   // where the middle two fragments disappear.  We do not want
@@ -563,61 +560,43 @@ TEST(LogTest, ErrorJoinsRecords) {
   ASSERT_GE(dropped, 2 * kBlockSize);
 }
 
-TEST(LogTest, ReadStart) {
-  CheckInitialOffsetRecord(0, 0);
-}
+TEST_F(LogTest, ReadStart) { CheckInitialOffsetRecord(0, 0); }
 
-TEST(LogTest, ReadSecondOneOff) {
-  CheckInitialOffsetRecord(1, 1);
-}
+TEST_F(LogTest, ReadSecondOneOff) { CheckInitialOffsetRecord(1, 1); }
 
-TEST(LogTest, ReadSecondTenThousand) {
-  CheckInitialOffsetRecord(10000, 1);
-}
+TEST_F(LogTest, ReadSecondTenThousand) { CheckInitialOffsetRecord(10000, 1); }
 
-TEST(LogTest, ReadSecondStart) {
-  CheckInitialOffsetRecord(10007, 1);
-}
+TEST_F(LogTest, ReadSecondStart) { CheckInitialOffsetRecord(10007, 1); }
 
-TEST(LogTest, ReadThirdOneOff) {
-  CheckInitialOffsetRecord(10008, 2);
-}
+TEST_F(LogTest, ReadThirdOneOff) { CheckInitialOffsetRecord(10008, 2); }
 
-TEST(LogTest, ReadThirdStart) {
-  CheckInitialOffsetRecord(20014, 2);
-}
+TEST_F(LogTest, ReadThirdStart) { CheckInitialOffsetRecord(20014, 2); }
 
-TEST(LogTest, ReadFourthOneOff) {
-  CheckInitialOffsetRecord(20015, 3);
-}
+TEST_F(LogTest, ReadFourthOneOff) { CheckInitialOffsetRecord(20015, 3); }
 
-TEST(LogTest, ReadFourthFirstBlockTrailer) {
+TEST_F(LogTest, ReadFourthFirstBlockTrailer) {
   CheckInitialOffsetRecord(log::kBlockSize - 4, 3);
 }
 
-TEST(LogTest, ReadFourthMiddleBlock) {
+TEST_F(LogTest, ReadFourthMiddleBlock) {
   CheckInitialOffsetRecord(log::kBlockSize + 1, 3);
 }
 
-TEST(LogTest, ReadFourthLastBlock) {
+TEST_F(LogTest, ReadFourthLastBlock) {
   CheckInitialOffsetRecord(2 * log::kBlockSize + 1, 3);
 }
 
-TEST(LogTest, ReadFourthStart) {
+TEST_F(LogTest, ReadFourthStart) {
   CheckInitialOffsetRecord(
       2 * (kHeaderSize + 1000) + (2 * log::kBlockSize - 1000) + 3 * kHeaderSize,
       3);
 }
 
-TEST(LogTest, ReadEnd) {
-  CheckOffsetPastEndReturnsNoRecords(0);
-}
+TEST_F(LogTest, ReadEnd) { CheckOffsetPastEndReturnsNoRecords(0); }
 
-TEST(LogTest, ReadPastEnd) {
-  CheckOffsetPastEndReturnsNoRecords(5);
-}
+TEST_F(LogTest, ReadPastEnd) { CheckOffsetPastEndReturnsNoRecords(5); }
 
-TEST(LogTest, ClearEofSingleBlock) {
+TEST_F(LogTest, ClearEofSingleBlock) {
   Write("foo");
   Write("bar");
   ForceEOF(3 + kHeaderSize + 2);
@@ -632,7 +611,7 @@ TEST(LogTest, ClearEofSingleBlock) {
   ASSERT_TRUE(IsEOF());
 }
 
-TEST(LogTest, ClearEofMultiBlock) {
+TEST_F(LogTest, ClearEofMultiBlock) {
   size_t num_full_blocks = 5;
   size_t n = (kBlockSize - kHeaderSize) * num_full_blocks + 25;
   Write(BigString("foo", n));
@@ -649,7 +628,7 @@ TEST(LogTest, ClearEofMultiBlock) {
   ASSERT_TRUE(IsEOF());
 }
 
-TEST(LogTest, ClearEofError) {
+TEST_F(LogTest, ClearEofError) {
   // If an error occurs during Read() in UnmarkEOF(), the records contained
   // in the buffer should be returned on subsequent calls of ReadRecord()
   // until no more full records are left, whereafter ReadRecord() should return
@@ -667,7 +646,7 @@ TEST(LogTest, ClearEofError) {
   ASSERT_EQ("EOF", Read());
 }
 
-TEST(LogTest, ClearEofError2) {
+TEST_F(LogTest, ClearEofError2) {
   Write("foo");
   Write("bar");
   UnmarkEOF();
@@ -685,5 +664,6 @@ TEST(LogTest, ClearEofError2) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

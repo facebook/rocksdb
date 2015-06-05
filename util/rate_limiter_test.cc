@@ -20,14 +20,13 @@
 
 namespace rocksdb {
 
-class RateLimiterTest {
-};
+class RateLimiterTest : public testing::Test {};
 
-TEST(RateLimiterTest, StartStop) {
+TEST_F(RateLimiterTest, StartStop) {
   std::unique_ptr<RateLimiter> limiter(new GenericRateLimiter(100, 100, 10));
 }
 
-TEST(RateLimiterTest, Rate) {
+TEST_F(RateLimiterTest, Rate) {
   auto* env = Env::Default();
   struct Arg {
     Arg(int32_t _target_rate, int _burst)
@@ -55,30 +54,42 @@ TEST(RateLimiterTest, Rate) {
     }
   };
 
-  for (int i = 1; i <= 16; i*=2) {
+  for (int i = 1; i <= 16; i *= 2) {
     int32_t target = i * 1024 * 10;
     Arg arg(target, i / 4 + 1);
-    auto start = env->NowMicros();
-    for (int t = 0; t < i; ++t) {
-      env->StartThread(writer, &arg);
+    int64_t old_total_bytes_through = 0;
+    for (int iter = 1; iter <= 2; ++iter) {
+      // second iteration changes the target dynamically
+      if (iter == 2) {
+        target *= 2;
+        arg.limiter->SetBytesPerSecond(target);
+      }
+      auto start = env->NowMicros();
+      for (int t = 0; t < i; ++t) {
+        env->StartThread(writer, &arg);
+      }
+      env->WaitForJoin();
+
+      auto elapsed = env->NowMicros() - start;
+      double rate =
+          (arg.limiter->GetTotalBytesThrough() - old_total_bytes_through) *
+          1000000.0 / elapsed;
+      old_total_bytes_through = arg.limiter->GetTotalBytesThrough();
+      fprintf(stderr,
+              "request size [1 - %" PRIi32 "], limit %" PRIi32
+              " KB/sec, actual rate: %lf KB/sec, elapsed %.2lf seconds\n",
+              arg.request_size - 1, target / 1024, rate / 1024,
+              elapsed / 1000000.0);
+
+      ASSERT_GE(rate / target, 0.9);
+      ASSERT_LE(rate / target, 1.1);
     }
-    env->WaitForJoin();
-
-    auto elapsed = env->NowMicros() - start;
-    double rate = arg.limiter->GetTotalBytesThrough()
-                  * 1000000.0 / elapsed;
-    fprintf(stderr, "request size [1 - %" PRIi32 "], limit %" PRIi32
-                    " KB/sec, actual rate: %lf KB/sec, elapsed %.2lf seconds\n",
-            arg.request_size - 1, target / 1024, rate / 1024,
-            elapsed / 1000000.0);
-
-    ASSERT_GE(rate / target, 0.95);
-    ASSERT_LE(rate / target, 1.05);
   }
 }
 
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

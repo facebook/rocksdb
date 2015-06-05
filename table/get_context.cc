@@ -4,27 +4,29 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "table/get_context.h"
+#include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/statistics.h"
+#include "util/perf_context_imp.h"
 #include "util/statistics.h"
 
 namespace rocksdb {
 
 GetContext::GetContext(const Comparator* ucmp,
-      const MergeOperator* merge_operator,
-      Logger* logger, Statistics* statistics,
-      GetState init_state, const Slice& user_key, std::string* ret_value,
-      bool* value_found, MergeContext* merge_context)
-  : ucmp_(ucmp),
-    merge_operator_(merge_operator),
-    logger_(logger),
-    statistics_(statistics),
-    state_(init_state),
-    user_key_(user_key),
-    value_(ret_value),
-    value_found_(value_found),
-    merge_context_(merge_context) {
-}
+                       const MergeOperator* merge_operator, Logger* logger,
+                       Statistics* statistics, GetState init_state,
+                       const Slice& user_key, std::string* ret_value,
+                       bool* value_found, MergeContext* merge_context, Env* env)
+    : ucmp_(ucmp),
+      merge_operator_(merge_operator),
+      logger_(logger),
+      statistics_(statistics),
+      state_(init_state),
+      user_key_(user_key),
+      value_(ret_value),
+      value_found_(value_found),
+      merge_context_(merge_context),
+      env_(env) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -58,9 +60,17 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         } else if (kMerge == state_) {
           assert(merge_operator_ != nullptr);
           state_ = kFound;
-          if (!merge_operator_->FullMerge(user_key_, &value,
-                                          merge_context_->GetOperands(),
-                                          value_, logger_)) {
+          bool merge_success = false;
+          {
+            StopWatchNano timer(env_, statistics_ != nullptr);
+            PERF_TIMER_GUARD(merge_operator_time_nanos);
+            merge_success = merge_operator_->FullMerge(
+                user_key_, &value, merge_context_->GetOperands(), value_,
+                logger_);
+            RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
+                       env_ != nullptr ? timer.ElapsedNanos() : 0);
+          }
+          if (!merge_success) {
             RecordTick(statistics_, NUMBER_MERGE_FAILURES);
             state_ = kCorrupt;
           }
@@ -73,9 +83,17 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
           state_ = kDeleted;
         } else if (kMerge == state_) {
           state_ = kFound;
-          if (!merge_operator_->FullMerge(user_key_, nullptr,
-                                          merge_context_->GetOperands(),
-                                          value_, logger_)) {
+          bool merge_success = false;
+          {
+            StopWatchNano timer(env_, statistics_ != nullptr);
+            PERF_TIMER_GUARD(merge_operator_time_nanos);
+            merge_success = merge_operator_->FullMerge(
+                user_key_, nullptr, merge_context_->GetOperands(), value_,
+                logger_);
+            RecordTick(statistics_, MERGE_OPERATION_TOTAL_TIME,
+                       env_ != nullptr ? timer.ElapsedNanos() : 0);
+          }
+          if (!merge_success) {
             RecordTick(statistics_, NUMBER_MERGE_FAILURES);
             state_ = kCorrupt;
           }

@@ -11,7 +11,7 @@
 
 namespace rocksdb {
 
-class GeoDBTest {
+class GeoDBTest : public testing::Test {
  public:
   static const std::string kDefaultDbName;
   static Options options;
@@ -20,7 +20,7 @@ class GeoDBTest {
 
   GeoDBTest() {
     GeoDBOptions geodb_options;
-    ASSERT_OK(DestroyDB(kDefaultDbName, options));
+    EXPECT_OK(DestroyDB(kDefaultDbName, options));
     options.create_if_missing = true;
     Status status = DB::Open(options, kDefaultDbName, &db);
     geodb =  new GeoDBImpl(db, geodb_options);
@@ -39,7 +39,7 @@ const std::string GeoDBTest::kDefaultDbName = test::TmpDir();
 Options GeoDBTest::options = Options();
 
 // Insert, Get and Remove
-TEST(GeoDBTest, SimpleTest) {
+TEST_F(GeoDBTest, SimpleTest) {
   GeoPosition pos1(100, 101);
   std::string id1("id1");
   std::string value1("value1");
@@ -90,7 +90,7 @@ TEST(GeoDBTest, SimpleTest) {
 
 // Search.
 // Verify distances via http://www.stevemorse.org/nearest/distance.php
-TEST(GeoDBTest, Search) {
+TEST_F(GeoDBTest, Search) {
   GeoPosition pos1(45, 45);
   std::string id1("mid1");
   std::string value1 = "midvalue1";
@@ -119,5 +119,6 @@ TEST(GeoDBTest, Search) {
 }  // namespace rocksdb
 
 int main(int argc, char* argv[]) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

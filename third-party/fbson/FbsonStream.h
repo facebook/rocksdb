@@ -62,7 +62,11 @@ class FbsonInBuffer : public std::streambuf {
 class FbsonOutStream : public std::ostream {
  public:
   explicit FbsonOutStream(uint32_t capacity = 1024)
-      : head_(nullptr), size_(0), capacity_(capacity), alloc_(true) {
+      : std::ostream(nullptr),
+        head_(nullptr),
+        size_(0),
+        capacity_(capacity),
+        alloc_(true) {
     if (capacity_ == 0) {
       capacity_ = 1024;
     }
@@ -71,7 +75,11 @@ class FbsonOutStream : public std::ostream {
   }
 
   FbsonOutStream(char* buffer, uint32_t capacity)
-      : head_(buffer), size_(0), capacity_(capacity), alloc_(false) {
+      : std::ostream(nullptr),
+        head_(buffer),
+        size_(0),
+        capacity_(capacity),
+        alloc_(false) {
     assert(buffer && capacity_ > 0);
   }
 

@@ -98,7 +98,7 @@ BlockHashIndex* CreateBlockHashIndexOnTheFly(
         pending_entry_index = current_restart_index;
       } else {
         // entry number increments when keys share the prefix reside in
-        // differnt data blocks.
+        // different data blocks.
         auto last_restart_index = pending_entry_index + pending_block_num - 1;
         assert(last_restart_index <= current_restart_index);
         if (last_restart_index != current_restart_index) {

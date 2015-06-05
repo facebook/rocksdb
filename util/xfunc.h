@@ -17,19 +17,22 @@ namespace rocksdb {
  *   with XFUNC only being set for debug builds.
  */
 #if defined(ROCKSDB_XFTEST_FORCE)
+#ifndef ROCKSDB_LITE
 #if (ROCKSDB_XFTEST_FORCE == 1)
 #define XFUNC
-#endif
-#elif NDEBUG
+#endif  // ROCKSDB_XFTEST_FORCE == 1
+#elif defined(NDEBUG)
 #else
 #define XFUNC
-#endif
+#endif  // defined(ROCKSDB_XFTEST_FORCE)
+#endif  // !ROCKSDB_LITE
 
 #ifndef XFUNC
 #define XFUNC_TEST(condition, location, lfname, fname, ...)
 #else
 
 struct Options;
+struct WriteOptions;
 class ManagedIterator;
 class DBImpl;
 void GetXFTestOptions(Options* options, int skip_policy);
@@ -38,6 +41,15 @@ void xf_manage_new(DBImpl* db, ReadOptions* readoptions,
                    bool is_snapshot_supported);
 void xf_manage_create(ManagedIterator* iter);
 void xf_manage_options(ReadOptions* read_options);
+void xf_transaction_set_memtable_history(
+    int32_t* max_write_buffer_number_to_maintain);
+void xf_transaction_clear_memtable_history(
+    int32_t* max_write_buffer_number_to_maintain);
+void xf_transaction_write(const WriteOptions& write_options,
+                          const DBOptions& db_options,
+                          class WriteBatch* my_batch,
+                          class WriteCallback* callback, DBImpl* db_impl,
+                          Status* success, bool* write_attempted);
 
 // This class provides the facility to run custom code to test a specific
 // feature typically with all existing unit tests.

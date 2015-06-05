@@ -10,11 +10,41 @@
 #pragma once
 
 #include <stdint.h>
+#include <string>
+#include <utility>
+#include <vector>
+#include "db/table_properties_collector.h"
+#include "rocksdb/options.h"
+#include "rocksdb/table_properties.h"
+#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
 class Slice;
 class Status;
+
+struct TableBuilderOptions {
+  TableBuilderOptions(
+      const ImmutableCFOptions& _ioptions,
+      const InternalKeyComparator& _internal_comparator,
+      const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+          _int_tbl_prop_collector_factories,
+      CompressionType _compression_type,
+      const CompressionOptions& _compression_opts, bool _skip_filters)
+      : ioptions(_ioptions),
+        internal_comparator(_internal_comparator),
+        int_tbl_prop_collector_factories(_int_tbl_prop_collector_factories),
+        compression_type(_compression_type),
+        compression_opts(_compression_opts),
+        skip_filters(_skip_filters) {}
+  const ImmutableCFOptions& ioptions;
+  const InternalKeyComparator& internal_comparator;
+  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
+      int_tbl_prop_collector_factories;
+  CompressionType compression_type;
+  const CompressionOptions& compression_opts;
+  bool skip_filters = false;
+};
 
 // TableBuilder provides the interface used to build a Table
 // (an immutable and sorted map from keys to values).
@@ -52,6 +82,9 @@ class TableBuilder {
   // Size of the file generated so far.  If invoked after a successful
   // Finish() call, returns the size of the final generated file.
   virtual uint64_t FileSize() const = 0;
+
+  // Returns table properties
+  virtual TableProperties GetTableProperties() const = 0;
 };
 
 }  // namespace rocksdb

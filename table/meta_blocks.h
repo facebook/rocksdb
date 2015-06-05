@@ -10,10 +10,10 @@
 #include <string>
 
 #include "db/builder.h"
+#include "db/table_properties_collector.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/table_properties.h"
 #include "table/block_builder.h"
 #include "table/format.h"
 
@@ -93,14 +93,14 @@ void LogPropertiesCollectionError(
 // NotifyCollectTableCollectorsOnAdd() triggers the `Add` event for all
 // property collectors.
 bool NotifyCollectTableCollectorsOnAdd(
-    const Slice& key, const Slice& value,
-    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
+    const Slice& key, const Slice& value, uint64_t file_size,
+    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log);
 
 // NotifyCollectTableCollectorsOnAdd() triggers the `Finish` event for all
 // property collectors. The collected properties will be added to `builder`.
 bool NotifyCollectTableCollectorsOnFinish(
-    const std::vector<std::unique_ptr<TablePropertiesCollector>>& collectors,
+    const std::vector<std::unique_ptr<IntTblPropCollector>>& collectors,
     Logger* info_log, PropertyBlockBuilder* builder);
 
 // Read the properties from the table.

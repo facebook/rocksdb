@@ -175,7 +175,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
                       unique_ptr<Directory>* result) override {
     unique_ptr<Directory> r;
     Status s = target()->NewDirectory(name, &r);
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     if (!s.ok()) {
       return s;
     }
@@ -207,7 +207,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
       fprintf(stderr, "Cannot delete file %s: %s\n", f.c_str(),
               s.ToString().c_str());
     }
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     if (s.ok()) {
       UntrackFile(f);
     }
@@ -407,7 +407,7 @@ Status TestWritableFile::Sync() {
   return Status::OK();
 }
 
-class FaultInjectionTest {
+class FaultInjectionTest : public testing::Test {
  protected:
   enum OptionConfig {
     kDefault,
@@ -448,10 +448,7 @@ class FaultInjectionTest {
         base_env_(nullptr),
         env_(NULL),
         db_(NULL) {
-    NewDB();
   }
-
-  ~FaultInjectionTest() { ASSERT_OK(TearDown()); }
 
   bool ChangeOptions() {
     option_config_++;
@@ -525,7 +522,7 @@ class FaultInjectionTest {
 
     dbname_ = test::TmpDir() + "/fault_test";
 
-    ASSERT_OK(DestroyDB(dbname_, options_));
+    EXPECT_OK(DestroyDB(dbname_, options_));
 
     options_.create_if_missing = true;
     Status s = OpenDB();
@@ -533,15 +530,9 @@ class FaultInjectionTest {
     return s;
   }
 
-  Status SetUp() {
-    Status s = TearDown();
-    if (s.ok()) {
-      s = NewDB();
-    }
-    return s;
-  }
+  void SetUp() override { ASSERT_OK(NewDB()); }
 
-  Status TearDown() {
+  void TearDown() override {
     CloseDB();
 
     Status s = DestroyDB(dbname_, options_);
@@ -551,7 +542,7 @@ class FaultInjectionTest {
 
     tiny_cache_.reset();
 
-    return s;
+    ASSERT_OK(s);
   }
 
   void Build(const WriteOptions& write_options, int start_idx, int num_vals) {
@@ -582,7 +573,7 @@ class FaultInjectionTest {
       Value(i, &value_space);
       s = ReadValue(i, &val);
       if (s.ok()) {
-        ASSERT_EQ(value_space, val);
+        EXPECT_EQ(value_space, val);
       }
       if (expected == kValExpectFound) {
         if (!s.ok()) {
@@ -697,10 +688,9 @@ class FaultInjectionTest {
   }
 };
 
-TEST(FaultInjectionTest, FaultTest) {
+TEST_F(FaultInjectionTest, FaultTest) {
   do {
     Random rnd(301);
-    ASSERT_OK(SetUp());
 
     for (size_t idx = 0; idx < kNumIterations; idx++) {
       int num_pre_sync = rnd.Uniform(kMaxNumValues);
@@ -737,8 +727,79 @@ TEST(FaultInjectionTest, FaultTest) {
   } while (ChangeOptions());
 }
 
+class SleepingBackgroundTask {
+ public:
+  SleepingBackgroundTask()
+      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
+  void DoSleep() {
+    MutexLock l(&mutex_);
+    while (should_sleep_) {
+      bg_cv_.Wait();
+    }
+    done_with_sleep_ = true;
+    bg_cv_.SignalAll();
+  }
+  void WakeUp() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    bg_cv_.SignalAll();
+    while (!done_with_sleep_) {
+      bg_cv_.Wait();
+    }
+  }
+
+  static void DoSleepTask(void* arg) {
+    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+  }
+
+ private:
+  port::Mutex mutex_;
+  port::CondVar bg_cv_;  // Signalled when background work finishes
+  bool should_sleep_;
+  bool done_with_sleep_;
+};
+
+// Disable the test because it is not passing.
+// Previous log file is not fsynced if sync is forced after log rolling.
+// TODO(FB internal task#6730880) Fix the bug
+TEST_F(FaultInjectionTest, DISABLED_WriteOptionSyncTest) {
+  SleepingBackgroundTask sleeping_task_low;
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  // Block the job queue to prevent flush job from running.
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::HIGH);
+
+  WriteOptions write_options;
+  write_options.sync = false;
+
+  std::string key_space, value_space;
+  ASSERT_OK(
+      db_->Put(write_options, Key(1, &key_space), Value(1, &value_space)));
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  ASSERT_OK(db_->Flush(flush_options));
+  write_options.sync = true;
+  ASSERT_OK(
+      db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
+
+  env_->SetFilesystemActive(false);
+  NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+  sleeping_task_low.WakeUp();
+
+  ASSERT_OK(OpenDB());
+  std::string val;
+  Value(2, &value_space);
+  ASSERT_OK(ReadValue(2, &val));
+  ASSERT_EQ(value_space, val);
+
+  Value(1, &value_space);
+  ASSERT_OK(ReadValue(1, &val));
+  ASSERT_EQ(value_space, val);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

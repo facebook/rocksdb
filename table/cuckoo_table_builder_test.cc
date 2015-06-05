@@ -25,7 +25,7 @@ uint64_t GetSliceHash(const Slice& s, uint32_t index,
 }
 }  // namespace
 
-class CuckooBuilderTest {
+class CuckooBuilderTest : public testing::Test {
  public:
   CuckooBuilderTest() {
     env_ = Env::Default();
@@ -129,7 +129,7 @@ class CuckooBuilderTest {
   const double kHashTableRatio = 0.9;
 };
 
-TEST(CuckooBuilderTest, SuccessWithEmptyFile) {
+TEST_F(CuckooBuilderTest, SuccessWithEmptyFile) {
   unique_ptr<WritableFile> writable_file;
   fname = test::TmpDir() + "/EmptyFile";
   ASSERT_OK(env_->NewWritableFile(fname, &writable_file, env_options_));
@@ -142,7 +142,7 @@ TEST(CuckooBuilderTest, SuccessWithEmptyFile) {
   CheckFileContents({}, {}, {}, "", 2, 2, false);
 }
 
-TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
+TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
@@ -186,7 +186,7 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
       expected_unused_bucket, expected_table_size, 2, false);
 }
 
-TEST(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
+TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
@@ -230,7 +230,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
       expected_unused_bucket, expected_table_size, 4, false);
 }
 
-TEST(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
+TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
@@ -276,7 +276,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
       expected_unused_bucket, expected_table_size, 3, false, cuckoo_block_size);
 }
 
-TEST(CuckooBuilderTest, WithCollisionPathFullKey) {
+TEST_F(CuckooBuilderTest, WithCollisionPathFullKey) {
   // Have two hash functions. Insert elements with overlapping hashes.
   // Finally insert an element with hash value somewhere in the middle
   // so that it displaces all the elements after that.
@@ -325,7 +325,7 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKey) {
       expected_unused_bucket, expected_table_size, 2, false);
 }
 
-TEST(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
+TEST_F(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   uint32_t num_hash_fun = 2;
   std::vector<std::string> user_keys = {"key01", "key02", "key03",
     "key04", "key05"};
@@ -371,7 +371,7 @@ TEST(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
       expected_unused_bucket, expected_table_size, 2, false, 2);
 }
 
-TEST(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
+TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
@@ -411,7 +411,7 @@ TEST(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
       expected_unused_bucket, expected_table_size, 2, true);
 }
 
-TEST(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
+TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
@@ -451,7 +451,7 @@ TEST(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
       expected_unused_bucket, expected_table_size, 4, true);
 }
 
-TEST(CuckooBuilderTest, WithCollisionPathUserKey) {
+TEST_F(CuckooBuilderTest, WithCollisionPathUserKey) {
   uint32_t num_hash_fun = 2;
   std::vector<std::string> user_keys = {"key01", "key02", "key03",
     "key04", "key05"};
@@ -493,7 +493,7 @@ TEST(CuckooBuilderTest, WithCollisionPathUserKey) {
       expected_unused_bucket, expected_table_size, 2, true);
 }
 
-TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
+TEST_F(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   // Have two hash functions. Insert elements with overlapping hashes.
   // Finally try inserting an element with hash value somewhere in the middle
   // and it should fail because the no. of elements to displace is too high.
@@ -526,11 +526,10 @@ TEST(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   ASSERT_OK(writable_file->Close());
 }
 
-TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
+TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
   // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
   std::unordered_map<std::string, std::vector<uint64_t>> hm = { { "repeatedkey", { 0, 1, 2, 3 } } };
   hash_map = std::move(hm);
-
   uint32_t num_hash_fun = 4;
   std::string user_key = "repeatedkey";
 
@@ -553,4 +552,7 @@ TEST(CuckooBuilderTest, FailWhenSameKeyInserted) {
 }
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

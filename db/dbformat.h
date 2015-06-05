@@ -71,7 +71,12 @@ inline size_t InternalKeyEncodingLength(const ParsedInternalKey& key) {
   return key.user_key.size() + 8;
 }
 
+// Pack a sequence number and a ValueType into a uint64_t
 extern uint64_t PackSequenceAndType(uint64_t seq, ValueType t);
+
+// Given the result of PackSequenceAndType, store the sequence number in *seq
+// and the ValueType in *t.
+extern void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t);
 
 // Append the serialization of "key" to *result.
 extern void AppendInternalKey(std::string* result,
@@ -133,6 +138,20 @@ class InternalKey {
   InternalKey() { }   // Leave rep_ as empty to indicate it is invalid
   InternalKey(const Slice& _user_key, SequenceNumber s, ValueType t) {
     AppendInternalKey(&rep_, ParsedInternalKey(_user_key, s, t));
+  }
+
+  // sets the internal key to be bigger or equal to all internal keys with this
+  // user key
+  void SetMaxPossibleForUserKey(const Slice& _user_key) {
+    AppendInternalKey(&rep_, ParsedInternalKey(_user_key, kMaxSequenceNumber,
+                                               kValueTypeForSeek));
+  }
+
+  // sets the internal key to be smaller or equal to all internal keys with this
+  // user key
+  void SetMinPossibleForUserKey(const Slice& _user_key) {
+    AppendInternalKey(
+        &rep_, ParsedInternalKey(_user_key, 0, static_cast<ValueType>(0)));
   }
 
   bool Valid() const {

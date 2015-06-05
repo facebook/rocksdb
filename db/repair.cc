@@ -7,24 +7,53 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 //
-// We recover the contents of the descriptor from the other files we find.
-// (1) Any log files are first converted to tables
-// (2) We scan every table to compute
-//     (a) smallest/largest for the table
-//     (b) largest sequence number in the table
-// (3) We generate descriptor contents:
-//      - log number is set to zero
-//      - next-file-number is set to 1 + largest file number we found
-//      - last-sequence-number is set to largest sequence# found across
-//        all tables (see 2c)
-//      - compaction pointers are cleared
-//      - every table file is added at level 0
+// Repairer does best effort recovery to recover as much data as possible after
+// a disaster without compromising consistency. It does not guarantee bringing
+// the database to a time consistent state.
+//
+// Repair process is broken into 4 phases:
+// (a) Find files
+// (b) Convert logs to tables
+// (c) Extract metadata
+// (d) Write Descriptor
+//
+// (a) Find files
+//
+// The repairer goes through all the files in the directory, and classifies them
+// based on their file name. Any file that cannot be identified by name will be
+// ignored.
+//
+// (b) Convert logs to table
+//
+// Every log file that is active is replayed. All sections of the file where the
+// checksum does not match is skipped over. We intentionally give preference to
+// data consistency.
+//
+// (c) Extract metadata
+//
+// We scan every table to compute
+// (1) smallest/largest for the table
+// (2) largest sequence number in the table
+//
+// If we are unable to scan the file, then we ignore the table.
+//
+// (d) Write Descriptor
+//
+// We generate descriptor contents:
+//  - log number is set to zero
+//  - next-file-number is set to 1 + largest file number we found
+//  - last-sequence-number is set to largest sequence# found across
+//    all tables (see 2c)
+//  - compaction pointers are cleared
+//  - every table file is added at level 0
 //
 // Possible optimization 1:
 //   (a) Compute total size and use to pick appropriate max-level M
 //   (b) Sort tables by largest sequence# in the table
 //   (c) For each table: if it overlaps earlier table, place in level-0,
 //       else place in level-M.
+//   (d) We can provide options for time consistent recovery and unsafe recovery
+//       (ignore checksum failure when applicable)
 // Possible optimization 2:
 //   Store per-table metadata (smallest, largest, largest-seq#, ...)
 //   in the table's meta section to speed up ScanTable.
@@ -69,9 +98,10 @@ class Repairer {
         raw_table_cache_(
             // TableCache can be small since we expect each table to be opened
             // once.
-            NewLRUCache(10, options_.table_cache_numshardbits,
-                        options_.table_cache_remove_scan_count_limit)),
+            NewLRUCache(10, options_.table_cache_numshardbits)),
         next_file_number_(1) {
+    GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories_);
+
     table_cache_ =
         new TableCache(ioptions_, env_options_, raw_table_cache_.get());
     edit_ = new VersionEdit();
@@ -116,6 +146,8 @@ class Repairer {
   std::string const dbname_;
   Env* const env_;
   const InternalKeyComparator icmp_;
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
+      int_tbl_prop_collector_factories_;
   const Options options_;
   const ImmutableCFOptions ioptions_;
   std::shared_ptr<Cache> raw_table_cache_;
@@ -214,7 +246,7 @@ class Repairer {
     // corruptions cause entire commits to be skipped instead of
     // propagating bad information (like overly large sequence
     // numbers).
-    log::Reader reader(std::move(lfile), &reporter, false/*do not checksum*/,
+    log::Reader reader(std::move(lfile), &reporter, true /*enable checksum*/,
                        0/*initial_offset*/);
 
     // Read all the records and add to a memtable
@@ -222,8 +254,9 @@ class Repairer {
     Slice record;
     WriteBatch batch;
     WriteBuffer wb(options_.db_write_buffer_size);
-    MemTable* mem = new MemTable(icmp_, ioptions_,
-                                 MutableCFOptions(options_, ioptions_), &wb);
+    MemTable* mem =
+        new MemTable(icmp_, ioptions_, MutableCFOptions(options_, ioptions_),
+                     &wb, kMaxSequenceNumber);
     auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem);
     mem->Ref();
     int counter = 0;
@@ -255,8 +288,9 @@ class Repairer {
       Arena arena;
       ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
       status = BuildTable(dbname_, env_, ioptions_, env_options_, table_cache_,
-                          iter.get(), &meta, icmp_, 0, 0, kNoCompression,
-                          CompressionOptions());
+                          iter.get(), &meta, icmp_,
+                          &int_tbl_prop_collector_factories_, 0, 0,
+                          kNoCompression, CompressionOptions(), false);
     }
     delete mem->Unref();
     delete cf_mems_default;

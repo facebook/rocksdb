@@ -30,10 +30,13 @@ int main() {
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
-#include <sys/types.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
+#include <chrono>
 #include <exception>
+#include <thread>
+
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -139,6 +142,20 @@ DEFINE_int32(min_write_buffer_number_to_merge,
              "writing less data to storage if there are duplicate records in"
              " each of these individual write buffers.");
 
+DEFINE_int32(max_write_buffer_number_to_maintain,
+             rocksdb::Options().max_write_buffer_number_to_maintain,
+             "The total maximum number of write buffers to maintain in memory "
+             "including copies of buffers that have already been flushed. "
+             "Unlike max_write_buffer_number, this parameter does not affect "
+             "flushing. This controls the minimum amount of write history "
+             "that will be available in memory for conflict checking when "
+             "Transactions are used. If this value is too low, some "
+             "transactions may fail at commit time due to not being able to "
+             "determine whether there were any write conflicts. Setting this "
+             "value to 0 will cause write buffers to be freed immediately "
+             "after they are flushed.  If this value is set to -1, "
+             "'max_write_buffer_number' will be used.");
+
 DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time "
              "(use default if == 0)");
@@ -174,7 +191,7 @@ DEFINE_int32(compaction_thread_pool_adjust_interval, 0,
              "The interval (in milliseconds) to adjust compaction thread pool "
              "size. Don't change it periodically if the value is 0.");
 
-DEFINE_int32(compaction_thread_pool_varations, 2,
+DEFINE_int32(compaction_thread_pool_variations, 2,
              "Range of bakground thread pool size variations when adjusted "
              "periodically.");
 
@@ -763,6 +780,118 @@ struct ThreadState {
       : tid(index), rand(1000 + index + _shared->GetSeed()), shared(_shared) {}
 };
 
+class DbStressListener : public EventListener {
+ public:
+  DbStressListener(
+      const std::string& db_name,
+      const std::vector<DbPath>& db_paths) :
+      db_name_(db_name),
+      db_paths_(db_paths),
+      rand_(301) {}
+  virtual ~DbStressListener() {}
+#ifndef ROCKSDB_LITE
+  virtual void OnFlushCompleted(
+      DB* db, const std::string& column_family_name,
+      const std::string& file_path,
+      bool triggered_writes_slowdown,
+      bool triggered_writes_stop) override {
+    assert(db);
+    assert(db->GetName() == db_name_);
+    assert(IsValidColumnFamilyName(column_family_name));
+    VerifyFilePath(file_path);
+    // pretending doing some work here
+    std::this_thread::sleep_for(
+        std::chrono::microseconds(rand_.Uniform(5000)));
+  }
+
+  virtual void OnCompactionCompleted(
+      DB *db, const CompactionJobInfo& ci) override {
+    assert(db);
+    assert(db->GetName() == db_name_);
+    assert(IsValidColumnFamilyName(ci.cf_name));
+    assert(ci.input_files.size() + ci.output_files.size() > 0U);
+    for (const auto& file_path : ci.input_files) {
+      VerifyFilePath(file_path);
+    }
+    for (const auto& file_path : ci.output_files) {
+      VerifyFilePath(file_path);
+    }
+    // pretending doing some work here
+    std::this_thread::sleep_for(
+        std::chrono::microseconds(rand_.Uniform(5000)));
+  }
+
+  virtual void OnTableFileCreated(
+      const TableFileCreationInfo& info) override {
+    assert(info.db_name == db_name_);
+    assert(IsValidColumnFamilyName(info.cf_name));
+    VerifyFilePath(info.file_path);
+    assert(info.file_size > 0);
+    assert(info.job_id > 0);
+    assert(info.table_properties.data_size > 0);
+    assert(info.table_properties.raw_key_size > 0);
+    assert(info.table_properties.num_entries > 0);
+  }
+
+ protected:
+  bool IsValidColumnFamilyName(const std::string& cf_name) const {
+    if (cf_name == kDefaultColumnFamilyName) {
+      return true;
+    }
+    // The column family names in the stress tests are numbers.
+    for (size_t i = 0; i < cf_name.size(); ++i) {
+      if (cf_name[i] < '0' || cf_name[i] > '9') {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void VerifyFileDir(const std::string& file_dir) {
+#ifndef NDEBUG
+    if (db_name_ == file_dir) {
+      return;
+    }
+    for (const auto& db_path : db_paths_) {
+      if (db_path.path == file_dir) {
+        return;
+      }
+    }
+    assert(false);
+#endif  // !NDEBUG
+  }
+
+  void VerifyFileName(const std::string& file_name) {
+#ifndef NDEBUG
+    uint64_t file_number;
+    FileType file_type;
+    bool result = ParseFileName(file_name, &file_number, &file_type);
+    assert(result);
+    assert(file_type == kTableFile);
+#endif  // !NDEBUG
+  }
+
+  void VerifyFilePath(const std::string& file_path) {
+#ifndef NDEBUG
+    size_t pos = file_path.find_last_of("/");
+    if (pos == std::string::npos) {
+      VerifyFileName(file_path);
+    } else {
+      if (pos > 0) {
+        VerifyFileDir(file_path.substr(0, pos));
+      }
+      VerifyFileName(file_path.substr(pos));
+    }
+#endif  // !NDEBUG
+  }
+#endif  // !ROCKSDB_LITE
+
+ private:
+  std::string db_name_;
+  std::vector<DbPath> db_paths_;
+  Random rand_;
+};
+
 }  // namespace
 
 class StressTest {
@@ -1063,7 +1192,7 @@ class StressTest {
       }
 
       auto thread_pool_size_base = FLAGS_max_background_compactions;
-      auto thread_pool_size_var = FLAGS_compaction_thread_pool_varations;
+      auto thread_pool_size_var = FLAGS_compaction_thread_pool_variations;
       int new_thread_pool_size =
           thread_pool_size_base - thread_pool_size_var +
           thread->rand.Next() % (thread_pool_size_var * 2 + 1);
@@ -1767,6 +1896,8 @@ class StressTest {
     options_.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options_.min_write_buffer_number_to_merge =
         FLAGS_min_write_buffer_number_to_merge;
+    options_.max_write_buffer_number_to_maintain =
+        FLAGS_max_write_buffer_number_to_maintain;
     options_.max_background_compactions = FLAGS_max_background_compactions;
     options_.max_background_flushes = FLAGS_max_background_flushes;
     options_.compaction_style =
@@ -1897,6 +2028,9 @@ class StressTest {
         cf_descriptors.emplace_back(name, ColumnFamilyOptions(options_));
         column_family_names_.push_back(name);
       }
+      options_.listeners.clear();
+      options_.listeners.emplace_back(
+          new DbStressListener(FLAGS_db, options_.db_paths));
       options_.create_missing_column_families = true;
       s = DB::Open(DBOptions(options_), FLAGS_db, cf_descriptors,
                    &column_families_, &db_);

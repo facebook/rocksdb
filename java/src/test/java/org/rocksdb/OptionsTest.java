@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import org.junit.ClassRule;
 import org.junit.Test;
@@ -193,6 +195,22 @@ public class OptionsTest {
       long longValue = rand.nextLong();
       opt.setMaxBytesForLevelBase(longValue);
       assertThat(opt.maxBytesForLevelBase()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void levelCompactionDynamicLevelBytes() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      final boolean boolValue = rand.nextBoolean();
+      opt.setLevelCompactionDynamicLevelBytes(boolValue);
+      assertThat(opt.levelCompactionDynamicLevelBytes())
+          .isEqualTo(boolValue);
     } finally {
       if (opt != null) {
         opt.dispose();
@@ -501,6 +519,21 @@ public class OptionsTest {
   }
 
   @Test
+  public void optimizeFiltersForHits() {
+    Options opt = null;
+    try {
+      boolean aBoolean = rand.nextBoolean();
+      opt = new Options();
+      opt.setOptimizeFiltersForHits(aBoolean);
+      assertThat(opt.optimizeFiltersForHits()).isEqualTo(aBoolean);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void createIfMissing() {
     Options opt = null;
     try {
@@ -782,22 +815,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void tableCacheRemoveScanCountLimit() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setTableCacheRemoveScanCountLimit(intValue);
-      assertThat(opt.tableCacheRemoveScanCountLimit()).
-          isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void walSizeLimitMB() {
     Options opt = null;
     try {
@@ -904,21 +921,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void skipLogErrorOnRecovery() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      boolean boolValue = rand.nextBoolean();
-      opt.setSkipLogErrorOnRecovery(boolValue);
-      assertThat(opt.skipLogErrorOnRecovery()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void statsDumpPeriodSec() {
     Options opt = null;
     try {
@@ -979,13 +981,13 @@ public class OptionsTest {
   }
 
   @Test
-  public void rocksEnv() {
+  public void env() {
     Options options = null;
     try {
       options = new Options();
-      RocksEnv rocksEnv = RocksEnv.getDefault();
-      options.setEnv(rocksEnv);
-      assertThat(options.getEnv()).isSameAs(rocksEnv);
+      Env env = Env.getDefault();
+      options.setEnv(env);
+      assertThat(options.getEnv()).isSameAs(env);
     } finally {
       if (options != null) {
         options.dispose();
@@ -1032,6 +1034,61 @@ public class OptionsTest {
   }
 
   @Test
+  public void compressionPerLevel() {
+    ColumnFamilyOptions columnFamilyOptions = null;
+    try {
+      columnFamilyOptions = new ColumnFamilyOptions();
+      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+      List<CompressionType> compressionTypeList =
+          new ArrayList<>();
+      for (int i=0; i < columnFamilyOptions.numLevels(); i++) {
+        compressionTypeList.add(CompressionType.NO_COMPRESSION);
+      }
+      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      for (final CompressionType compressionType : compressionTypeList) {
+        assertThat(compressionType).isEqualTo(
+            CompressionType.NO_COMPRESSION);
+      }
+    } finally {
+      if (columnFamilyOptions != null) {
+        columnFamilyOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void differentCompressionsPerLevel() {
+    ColumnFamilyOptions columnFamilyOptions = null;
+    try {
+      columnFamilyOptions = new ColumnFamilyOptions();
+      columnFamilyOptions.setNumLevels(3);
+
+      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+      List<CompressionType> compressionTypeList = new ArrayList<>();
+
+      compressionTypeList.add(CompressionType.BZLIB2_COMPRESSION);
+      compressionTypeList.add(CompressionType.SNAPPY_COMPRESSION);
+      compressionTypeList.add(CompressionType.LZ4_COMPRESSION);
+
+      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+
+      assertThat(compressionTypeList.size()).isEqualTo(3);
+      assertThat(compressionTypeList).
+          containsExactly(
+              CompressionType.BZLIB2_COMPRESSION,
+              CompressionType.SNAPPY_COMPRESSION,
+              CompressionType.LZ4_COMPRESSION);
+
+    } finally {
+      if (columnFamilyOptions != null) {
+        columnFamilyOptions.dispose();
+      }
+    }
+  }
+
+  @Test
   public void compactionStyles() {
     Options options = null;
     try {
@@ -1058,7 +1115,7 @@ public class OptionsTest {
     RateLimiterConfig rateLimiterConfig;
     try {
       options = new Options();
-      rateLimiterConfig = new GenericRateLimiterConfig(1000, 0, 1);
+      rateLimiterConfig = new GenericRateLimiterConfig(1000, 100 * 1000, 1);
       options.setRateLimiterConfig(rateLimiterConfig);
       // Test with parameter initialization
       anotherOptions = new Options();

@@ -19,7 +19,7 @@ namespace rocksdb {
 HistogramBucketMapper::HistogramBucketMapper()
     :
       // Add newer bucket index here.
-      // Should be alwyas added in sorted order.
+      // Should be always added in sorted order.
       // If you change this, you also need to change
       // size of array buckets_ in HistogramImpl
       bucketValues_(

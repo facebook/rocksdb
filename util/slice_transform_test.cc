@@ -18,9 +18,9 @@
 
 namespace rocksdb {
 
-class SliceTransformTest {};
+class SliceTransformTest : public testing::Test {};
 
-TEST(SliceTransformTest, CapPrefixTransform) {
+TEST_F(SliceTransformTest, CapPrefixTransform) {
   std::string s;
   s = "abcdefge";
 
@@ -45,7 +45,7 @@ TEST(SliceTransformTest, CapPrefixTransform) {
   ASSERT_EQ(transform->Transform("").ToString(), "");
 }
 
-class SliceTransformDBTest {
+class SliceTransformDBTest : public testing::Test {
  private:
   std::string dbname_;
   Env* env_;
@@ -54,12 +54,12 @@ class SliceTransformDBTest {
  public:
   SliceTransformDBTest() : env_(Env::Default()), db_(nullptr) {
     dbname_ = test::TmpDir() + "/slice_transform_db_test";
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   ~SliceTransformDBTest() {
     delete db_;
-    ASSERT_OK(DestroyDB(dbname_, last_options_));
+    EXPECT_OK(DestroyDB(dbname_, last_options_));
   }
 
   DB* db() { return db_; }
@@ -96,7 +96,7 @@ uint64_t TestGetTickerCount(const Options& options, Tickers ticker_type) {
 }
 }  // namespace
 
-TEST(SliceTransformDBTest, CapPrefix) {
+TEST_F(SliceTransformDBTest, CapPrefix) {
   last_options_.prefix_extractor.reset(NewCappedPrefixTransform(8));
   last_options_.statistics = rocksdb::CreateDBStatistics();
   BlockBasedTableOptions bbto;
@@ -147,4 +147,7 @@ TEST(SliceTransformDBTest, CapPrefix) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

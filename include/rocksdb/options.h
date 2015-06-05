@@ -59,6 +59,12 @@ enum CompressionType : char {
   kBZip2Compression = 0x3, kLZ4Compression = 0x4, kLZ4HCCompression = 0x5
 };
 
+// returns true if RocksDB was correctly linked with compression library and
+// supports the compression type
+extern bool CompressionTypeSupported(CompressionType compression_type);
+// Returns a human-readable name of the compression type
+extern const char* CompressionTypeToString(CompressionType compression_type);
+
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
@@ -236,6 +242,21 @@ struct ColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge;
 
+  // The total maximum number of write buffers to maintain in memory including
+  // copies of buffers that have already been flushed.  Unlike
+  // max_write_buffer_number, this parameter does not affect flushing.
+  // This controls the minimum amount of write history that will be available
+  // in memory for conflict checking when Transactions are used.
+  // If this value is too low, some transactions may fail at commit time due
+  // to not being able to determine whether there were any write conflicts.
+  //
+  // Setting this value to 0 will cause write buffers to be freed immediately
+  // after they are flushed.
+  // If this value is set to -1, 'max_write_buffer_number' will be used.
+  //
+  // Default: 0
+  int max_write_buffer_number_to_maintain;
+
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
@@ -259,6 +280,20 @@ struct ColumnFamilyOptions {
   // be slower. This array, if non-empty, should have an entry for
   // each level of the database; these override the value specified in
   // the previous field 'compression'.
+  //
+  // NOTICE if level_compaction_dynamic_level_bytes=true,
+  // compression_per_level[0] still determines L0, but other elements
+  // of the array are based on base level (the level L0 files are merged
+  // to), and may not match the level users see from info log for metadata.
+  // If L0 files are merged to level-n, then, for i>0, compression_per_level[i]
+  // determines compaction type for level n+i-1.
+  // For example, if we have three 5 levels, and we determine to merge L0
+  // data to L4 (which means L1..L3 will be empty), then the new files go to
+  // L4 uses compression type compression_per_level[1].
+  // If now L0 is merged to L2. Data goes to L2 will be compressed
+  // according to compression_per_level[1], L3 using compression_per_level[2]
+  // and L4 using compression_per_level[3]. Compaction for each level can
+  // change when data grows.
   std::vector<CompressionType> compression_per_level;
 
   // different options for compression algorithms
@@ -689,11 +724,9 @@ struct ColumnFamilyOptions {
   // Default: false
   bool optimize_filters_for_hits;
 
-#ifndef ROCKSDB_LITE
-  // A vector of EventListeners which call-back functions will be called
-  // when specific RocksDB event happens.
-  std::vector<std::shared_ptr<EventListener>> listeners;
-#endif  // ROCKSDB_LITE
+  // After writing every SST file, reopen it and read all the keys.
+  // Default: false
+  bool paranoid_file_checks;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -887,14 +920,8 @@ struct DBOptions {
   // Number of shards used for table cache.
   int table_cache_numshardbits;
 
-  // During data eviction of table's LRU cache, it would be inefficient
-  // to strictly follow LRU because this piece of memory will not really
-  // be released unless its refcount falls to zero. Instead, make two
-  // passes: the first pass will release items with refcount = 1,
-  // and if not enough space releases after scanning the number of
-  // elements specified by this parameter, we will remove items in LRU
-  // order.
-  int table_cache_remove_scan_count_limit;
+  // DEPRECATED
+  // int table_cache_remove_scan_count_limit;
 
   // The following two fields affect how archived logs will be deleted.
   // 1. If both set to 0, logs will be deleted asap and will not get into
@@ -934,7 +961,7 @@ struct DBOptions {
   bool skip_log_error_on_recovery;
 
   // if not zero, dump rocksdb.stats to LOG every stats_dump_period_sec
-  // Default: 3600 (1 hour)
+  // Default: 600 (10 min)
   unsigned int stats_dump_period_sec;
 
   // If set true, will hint the underlying file system that the file
@@ -987,7 +1014,17 @@ struct DBOptions {
   // You may consider using rate_limiter to regulate write rate to device.
   // When rate limiter is enabled, it automatically enables bytes_per_sync
   // to 1MB.
+  //
+  // This option applies to table files
   uint64_t bytes_per_sync;
+
+  // Same as bytes_per_sync, but applies to WAL files
+  // Default: 0, turned off
+  uint64_t wal_bytes_per_sync;
+
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
 
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.

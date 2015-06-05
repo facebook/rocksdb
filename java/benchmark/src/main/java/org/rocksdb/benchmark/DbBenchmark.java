@@ -40,6 +40,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.rocksdb.*;
+import org.rocksdb.RocksMemEnv;
 import org.rocksdb.util.SizeUnit;
 
 class Stats {
@@ -93,7 +94,7 @@ class Stats {
 
   void stop() {
     finish_ = System.nanoTime();
-    seconds_ = (double) (finish_ - start_) / 1000000;
+    seconds_ = (double) (finish_ - start_) * 1e-9;
   }
 
   void addMessage(String msg) {
@@ -139,15 +140,15 @@ class Stats {
     if (bytes_ > 0) {
       // Rate is computed on actual elapsed time, not the sum of per-thread
       // elapsed times.
-      double elapsed = (finish_ - start_) * 1e-6;
+      double elapsed = (finish_ - start_) * 1e-9;
       extra.append(String.format("%6.1f MB/s", (bytes_ / 1048576.0) / elapsed));
     }
     extra.append(message_.toString());
-    double elapsed = (finish_ - start_) * 1e-6;
-    double throughput = (double) done_ / elapsed;
+    double elapsed = (finish_ - start_);
+    double throughput = (double) done_ / (elapsed * 1e-9);
 
     System.out.format("%-12s : %11.3f micros/op %d ops/sec;%s%s\n",
-            name, elapsed * 1e6 / done_,
+            name, (elapsed * 1e-6) / done_,
             (long) throughput, (extra.length() == 0 ? "" : " "), extra.toString());
   }
 }
@@ -418,9 +419,11 @@ public class DbBenchmark {
         stats_.found_++;
         stats_.finishedSingleOp(iter.key().length + iter.value().length);
         if (isFinished()) {
+          iter.dispose();
           return;
         }
       }
+      iter.dispose();
     }
   }
 
@@ -443,6 +446,7 @@ public class DbBenchmark {
     keysPerPrefix_ = (Integer) flags.get(Flag.keys_per_prefix);
     hashBucketCount_ = (Long) flags.get(Flag.hash_bucket_count);
     usePlainTable_ = (Boolean) flags.get(Flag.use_plain_table);
+    useMemenv_ = (Boolean) flags.get(Flag.use_mem_env);
     flags_ = flags;
     finishLock_ = new Object();
     // options.setPrefixSize((Integer)flags_.get(Flag.prefix_size));
@@ -483,6 +487,9 @@ public class DbBenchmark {
       options.setCreateIfMissing(true);
     } else {
       options.setCreateIfMissing(false);
+    }
+    if (useMemenv_) {
+      options.setEnv(new RocksMemEnv());
     }
     switch (memtable_) {
       case "skip_list":
@@ -534,8 +541,6 @@ public class DbBenchmark {
         (Integer)flags_.get(Flag.max_background_flushes));
     options.setMaxOpenFiles(
         (Integer)flags_.get(Flag.open_files));
-    options.setTableCacheRemoveScanCountLimit(
-        (Integer)flags_.get(Flag.cache_remove_scan_count_limit));
     options.setDisableDataSync(
         (Boolean)flags_.get(Flag.disable_data_sync));
     options.setUseFsync(
@@ -1193,11 +1198,6 @@ public class DbBenchmark {
         return Integer.parseInt(value);
       }
     },
-    cache_remove_scan_count_limit(32,"") {
-      @Override public Object parseValue(String value) {
-        return Integer.parseInt(value);
-      }
-    },
     verify_checksum(false,"Verify checksum for every block read\n" +
         "\tfrom storage.") {
       @Override public Object parseValue(String value) {
@@ -1480,6 +1480,12 @@ public class DbBenchmark {
       @Override public Object parseValue(String value) {
         return value;
       }
+    },
+    use_mem_env(false, "Use RocksMemEnv instead of default filesystem based\n" +
+        "environment.") {
+      @Override public Object parseValue(String value) {
+        return parseBoolean(value);
+      }
     };
 
     private Flag(Object defaultValue, String desc) {
@@ -1591,6 +1597,9 @@ public class DbBenchmark {
   double compressionRatio_;
   RandomGenerator gen_;
   long startTime_;
+
+  // env
+  boolean useMemenv_;
 
   // memtable related
   final int maxWriteBufferNumber_;

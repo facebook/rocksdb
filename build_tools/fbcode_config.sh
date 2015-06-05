@@ -69,7 +69,7 @@ CFLAGS+=" -DGFLAGS=google"
 
 # location of jemalloc
 JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/include/"
-JEMALLOC_LIB=" -Wl,--whole-archive /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/lib/libjemalloc.a"
+JEMALLOC_LIB=" /mnt/gvfs/third-party2/jemalloc/bcd68e5e419efa4e61b9486d6854564d6d75a0b5/3.6.0/gcc-4.9-glibc-2.20/2aafc78/lib/libjemalloc.a"
 
 if test -z $PIC_BUILD; then
   # location of numa
@@ -92,8 +92,8 @@ DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_I
 GCC_BASE="/mnt/gvfs/third-party2/gcc/1c67a0b88f64d4d9ced0382d141c76aaa7d62fba/4.9.x/centos6-native/1317bc4"
 STDLIBS="-L $GCC_BASE/lib64"
 
-CLANG_BASE="/mnt/gvfs/third-party2/clang/ab6260de0ba0af5cb84eb2df1844e277c7d68fbd/dev"
-CLANG_BIN="$CLANG_BASE/centos6-native/165e05b/bin"
+CLANG_BASE="/mnt/gvfs/third-party2/clang/d81444dd214df3d2466734de45bb264a0486acc3/dev"
+CLANG_BIN="$CLANG_BASE/centos6-native/af4b1a0/bin"
 CLANG_ANALYZER="$CLANG_BIN/clang++"
 CLANG_SCAN_BUILD="$CLANG_BASE/src/clang/tools/scan-build/scan-build"
 
@@ -107,7 +107,7 @@ if [ -z "$USE_CLANG" ]; then
   CFLAGS+=" -isystem $LIBGCC_INCLUDE"
 else
   # clang 
-  CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/3ea62b1/lib/clang/dev/include/"
+  CLANG_INCLUDE="$CLANG_BASE/gcc-4.9-glibc-2.20/74c386f/lib/clang/dev/include/"
   CC="$CLANG_BIN/clang"
   CXX="$CLANG_BIN/clang++"
 
@@ -130,7 +130,8 @@ CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
 EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.9-glibc-2.20/lib/ld.so"
-EXEC_LDFLAGS+=" -Wl,--no-whole-archive $LIBUNWIND"
+EXEC_LDFLAGS+=" $LIBUNWIND"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-4.9-glibc-2.20/lib"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS $STDLIBS -lgcc -lstdc++"
 

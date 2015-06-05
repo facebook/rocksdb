@@ -21,11 +21,12 @@
 #include "rocksdb/utilities/backupable_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksjni/comparatorjnicallback.h"
+#include "rocksjni/loggerjnicallback.h"
 #include "rocksjni/writebatchhandlerjnicallback.h"
 
 namespace rocksdb {
 
-// detect if jlong overflows size_t
+// Detect if jlong overflows size_t
 inline Status check_if_jlong_fits_size_t(const jlong& jvalue) {
   Status s = Status::OK();
   if (static_cast<uint64_t>(jvalue) > std::numeric_limits<size_t>::max()) {
@@ -67,27 +68,18 @@ template<class PTR, class DERIVED> class RocksDBNativeClass {
   }
 };
 
-// The portal class for org.rocksdb.RocksDB
-class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+// Java Exception template
+template<class DERIVED> class RocksDBJavaException {
  public:
-  // Get the java class id of org.rocksdb.RocksDB.
-  static jclass getJClass(JNIEnv* env) {
-    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
-  }
-};
-
-// The portal class for org.rocksdb.RocksDBException
-class RocksDBExceptionJni {
- public:
-  // Get the jclass of org.rocksdb.RocksDBException
-  static jclass getJClass(JNIEnv* env) {
-    jclass jclazz = env->FindClass("org/rocksdb/RocksDBException");
+  // Get the java class id
+  static jclass getJClass(JNIEnv* env, const char* jclazz_name) {
+    jclass jclazz = env->FindClass(jclazz_name);
     assert(jclazz != nullptr);
     return jclazz;
   }
 
   // Create and throw a java exception by converting the input
-  // Status to an RocksDBException.
+  // Status.
   //
   // In case s.ok() is true, then this function will not throw any
   // exception.
@@ -98,12 +90,45 @@ class RocksDBExceptionJni {
     jstring msg = env->NewStringUTF(s.ToString().c_str());
     // get the constructor id of org.rocksdb.RocksDBException
     static jmethodID mid = env->GetMethodID(
-        getJClass(env), "<init>", "(Ljava/lang/String;)V");
+        DERIVED::getJClass(env), "<init>", "(Ljava/lang/String;)V");
     assert(mid != nullptr);
 
-    env->Throw((jthrowable)env->NewObject(getJClass(env), mid, msg));
+    env->Throw((jthrowable)env->NewObject(DERIVED::getJClass(env),
+        mid, msg));
   }
 };
+
+// The portal class for org.rocksdb.RocksDB
+class RocksDBJni : public RocksDBNativeClass<rocksdb::DB*, RocksDBJni> {
+ public:
+  // Get the java class id of org.rocksdb.RocksDB.
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env, "org/rocksdb/RocksDB");
+  }
+};
+
+// The portal class for org.rocksdb.RocksDBException
+class RocksDBExceptionJni :
+    public RocksDBJavaException<RocksDBExceptionJni> {
+ public:
+  // Get the java class id of java.lang.IllegalArgumentException
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBJavaException::getJClass(env,
+        "org/rocksdb/RocksDBException");
+  }
+};
+
+// The portal class for java.lang.IllegalArgumentException
+class IllegalArgumentExceptionJni :
+    public RocksDBJavaException<IllegalArgumentExceptionJni> {
+ public:
+  // Get the java class id of java.lang.IllegalArgumentException
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBJavaException::getJClass(env,
+        "java/lang/IllegalArgumentException");
+  }
+};
+
 
 // The portal class for org.rocksdb.Options
 class OptionsJni : public RocksDBNativeClass<
@@ -473,6 +498,24 @@ class ListJni {
   }
 };
 
+class ByteJni {
+ public:
+  // Get the java class id of java.lang.Byte.
+  static jclass getByteClass(JNIEnv* env) {
+    jclass jclazz = env->FindClass("java/lang/Byte");
+    assert(jclazz != nullptr);
+    return jclazz;
+  }
+
+  // Get the java method id of java.lang.Byte.byteValue.
+  static jmethodID getByteValueMethod(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getByteClass(env), "byteValue", "()B");
+    assert(mid != nullptr);
+    return mid;
+  }
+};
+
 class BackupInfoJni {
  public:
   // Get the java class id of org.rocksdb.BackupInfo.
@@ -653,6 +696,71 @@ class WriteEntryJni {
       assert(fid != nullptr);
       return fid;
     }
+};
+
+class InfoLogLevelJni {
+ public:
+    // Get the DEBUG_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject DEBUG_LEVEL(JNIEnv* env) {
+      return getEnum(env, "DEBUG_LEVEL");
+    }
+
+    // Get the INFO_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject INFO_LEVEL(JNIEnv* env) {
+      return getEnum(env, "INFO_LEVEL");
+    }
+
+    // Get the WARN_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject WARN_LEVEL(JNIEnv* env) {
+      return getEnum(env, "WARN_LEVEL");
+    }
+
+    // Get the ERROR_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject ERROR_LEVEL(JNIEnv* env) {
+      return getEnum(env, "ERROR_LEVEL");
+    }
+
+    // Get the FATAL_LEVEL enum field of org.rocksdb.InfoLogLevel
+    static jobject FATAL_LEVEL(JNIEnv* env) {
+      return getEnum(env, "FATAL_LEVEL");
+    }
+
+ private:
+    // Get the java class id of org.rocksdb.WBWIRocksIterator.WriteType.
+    static jclass getJClass(JNIEnv* env) {
+      jclass jclazz = env->FindClass("org/rocksdb/InfoLogLevel");
+      assert(jclazz != nullptr);
+      return jclazz;
+    }
+
+    // Get an enum field of org.rocksdb.WBWIRocksIterator.WriteType
+    static jobject getEnum(JNIEnv* env, const char name[]) {
+      jclass jclazz = getJClass(env);
+      jfieldID jfid =
+          env->GetStaticFieldID(jclazz, name,
+          "Lorg/rocksdb/InfoLogLevel;");
+      assert(jfid != nullptr);
+      return env->GetStaticObjectField(jclazz, jfid);
+    }
+};
+
+// The portal class for org.rocksdb.Logger
+class LoggerJni : public RocksDBNativeClass<
+    std::shared_ptr<rocksdb::LoggerJniCallback>*, LoggerJni> {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/Logger");
+  }
+
+  // Get the java method `name` of org.rocksdb.Logger.
+  static jmethodID getLogMethodId(JNIEnv* env) {
+    static jmethodID mid = env->GetMethodID(
+        getJClass(env), "log",
+        "(Lorg/rocksdb/InfoLogLevel;Ljava/lang/String;)V");
+    assert(mid != nullptr);
+    return mid;
+  }
 };
 
 class JniUtil {

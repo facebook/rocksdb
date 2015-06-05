@@ -1347,7 +1347,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
     Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
         "BlockBasedTableOptions::kHashSearch requires "
         "options.prefix_extractor to be set."
-        " Fall back to binary seach index.");
+        " Fall back to binary search index.");
     index_type_on_file = BlockBasedTableOptions::kBinarySearch;
   }
 
@@ -1367,7 +1367,7 @@ Status BlockBasedTable::CreateIndexReader(IndexReader** index_reader,
           // problem with prefix hash index loading.
           Log(InfoLogLevel::WARN_LEVEL, rep_->ioptions.info_log,
               "Unable to read the metaindex block."
-              " Fall back to binary seach index.");
+              " Fall back to binary search index.");
           return BinarySearchIndexReader::Create(
             file, footer, footer.index_handle(), env, comparator, index_reader);
         }
@@ -1586,7 +1586,7 @@ Status BlockBasedTable::DumpDataBlocks(WritableFile* out_file) {
     }
 
     out_file->Append("Data Block # ");
-    out_file->Append(std::to_string(block_id));
+    out_file->Append(rocksdb::ToString(block_id));
     out_file->Append(" @ ");
     out_file->Append(blockhandles_iter->value().ToString(true).c_str());
     out_file->Append("\n");

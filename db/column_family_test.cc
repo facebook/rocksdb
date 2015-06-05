@@ -12,8 +12,10 @@
 #include <string>
 
 #include "db/db_impl.h"
-#include "rocksdb/env.h"
 #include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/iterator.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/coding.h"
@@ -47,7 +49,7 @@ class EnvCounter : public EnvWrapper {
   int num_new_writable_file_;
 };
 
-class ColumnFamilyTest {
+class ColumnFamilyTest : public testing::Test {
  public:
   ColumnFamilyTest() : rnd_(139) {
     env_ = new EnvCounter(Env::Default());
@@ -115,8 +117,12 @@ class ColumnFamilyTest {
 
   int GetProperty(int cf, std::string property) {
     std::string value;
-    ASSERT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
+    EXPECT_TRUE(dbfull()->GetProperty(handles_[cf], property, &value));
+#ifndef CYGWIN
     return std::stoi(value);
+#else
+    return std::strtol(value.c_str(), 0);
+#endif
   }
 
   void Destroy() {
@@ -262,7 +268,7 @@ class ColumnFamilyTest {
     VectorLogPtr wal_files;
     Status s;
     // GetSortedWalFiles is a flakey function -- it gets all the wal_dir
-    // children files and then later checks for their existance. if some of the
+    // children files and then later checks for their existence. if some of the
     // log files doesn't exist anymore, it reports an error. it does all of this
     // without DB mutex held, so if a background process deletes the log file
     // while the function is being executed, it returns an error. We retry the
@@ -274,7 +280,7 @@ class ColumnFamilyTest {
         break;
       }
     }
-    ASSERT_OK(s);
+    EXPECT_OK(s);
     for (const auto& wal : wal_files) {
       if (wal->Type() == kAliveLogFile) {
         ++ret;
@@ -333,7 +339,7 @@ class DumbLogger : public Logger {
   virtual size_t GetLogFileSize() const override { return 0; }
 };
 
-TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
+TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
     Open();
     CreateColumnFamilies({"one", "two", "three"});
@@ -360,8 +366,7 @@ TEST(ColumnFamilyTest, DontReuseColumnFamilyID) {
   }
 }
 
-
-TEST(ColumnFamilyTest, AddDrop) {
+TEST_F(ColumnFamilyTest, AddDrop) {
   Open();
   CreateColumnFamilies({"one", "two", "three"});
   ASSERT_EQ("NOT_FOUND", Get(1, "fodor"));
@@ -387,7 +392,7 @@ TEST(ColumnFamilyTest, AddDrop) {
               std::vector<std::string>({"default", "four", "three"}));
 }
 
-TEST(ColumnFamilyTest, DropTest) {
+TEST_F(ColumnFamilyTest, DropTest) {
   // first iteration - dont reopen DB before dropping
   // second iteration - reopen DB before dropping
   for (int iter = 0; iter < 2; ++iter) {
@@ -411,7 +416,7 @@ TEST(ColumnFamilyTest, DropTest) {
   }
 }
 
-TEST(ColumnFamilyTest, WriteBatchFailure) {
+TEST_F(ColumnFamilyTest, WriteBatchFailure) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   WriteBatch batch;
@@ -429,7 +434,7 @@ TEST(ColumnFamilyTest, WriteBatchFailure) {
   Close();
 }
 
-TEST(ColumnFamilyTest, ReadWrite) {
+TEST_F(ColumnFamilyTest, ReadWrite) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   ASSERT_OK(Put(0, "foo", "v1"));
@@ -453,7 +458,7 @@ TEST(ColumnFamilyTest, ReadWrite) {
   Close();
 }
 
-TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
+TEST_F(ColumnFamilyTest, IgnoreRecoveredLog) {
   std::string backup_logs = dbname_ + "/backup_logs";
 
   // delete old files in backup_logs directory
@@ -528,7 +533,7 @@ TEST(ColumnFamilyTest, IgnoreRecoveredLog) {
   }
 }
 
-TEST(ColumnFamilyTest, FlushTest) {
+TEST_F(ColumnFamilyTest, FlushTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two"});
   ASSERT_OK(Put(0, "foo", "v1"));
@@ -547,9 +552,9 @@ TEST(ColumnFamilyTest, FlushTest) {
 
     for (int i = 0; i < 3; ++i) {
       uint64_t max_total_in_memory_state =
-          dbfull()->TEST_max_total_in_memory_state();
+          dbfull()->TEST_MaxTotalInMemoryState();
       Flush(i);
-      ASSERT_EQ(dbfull()->TEST_max_total_in_memory_state(),
+      ASSERT_EQ(dbfull()->TEST_MaxTotalInMemoryState(),
                 max_total_in_memory_state);
     }
     ASSERT_OK(Put(1, "foofoo", "bar"));
@@ -577,7 +582,7 @@ TEST(ColumnFamilyTest, FlushTest) {
 }
 
 // Makes sure that obsolete log files get deleted
-TEST(ColumnFamilyTest, LogDeletionTest) {
+TEST_F(ColumnFamilyTest, LogDeletionTest) {
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   column_family_options_.write_buffer_size = 100000;  // 100KB
   Open();
@@ -644,7 +649,7 @@ TEST(ColumnFamilyTest, LogDeletionTest) {
 }
 
 // Makes sure that obsolete log files get deleted
-TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
+TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   // disable flushing stale column families
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   Open();
@@ -658,15 +663,19 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   default_cf.write_buffer_size = 100000;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
+  default_cf.max_write_buffer_number_to_maintain = 0;
   one.write_buffer_size = 200000;
   one.max_write_buffer_number = 10;
   one.min_write_buffer_number_to_merge = 2;
+  one.max_write_buffer_number_to_maintain = 1;
   two.write_buffer_size = 1000000;
   two.max_write_buffer_number = 10;
   two.min_write_buffer_number_to_merge = 3;
+  two.max_write_buffer_number_to_maintain = 2;
   three.write_buffer_size = 90000;
   three.max_write_buffer_number = 10;
   three.min_write_buffer_number_to_merge = 4;
+  three.max_write_buffer_number_to_maintain = -1;
 
   Reopen({default_cf, one, two, three});
 
@@ -719,7 +728,9 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 1});
   ASSERT_EQ(CountLiveLogFiles(), 5);
-  PutRandomData(3, 90*6, 1000);
+  PutRandomData(3, 240, 1000);
+  WaitForFlush(3);
+  PutRandomData(3, 300, 1000);
   WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   ASSERT_EQ(CountLiveLogFiles(), 12);
@@ -738,7 +749,7 @@ TEST(ColumnFamilyTest, DifferentWriteBufferSizes) {
   Close();
 }
 
-TEST(ColumnFamilyTest, MemtableNotSupportSnapshot) {
+TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
   Open();
   auto* s1 = dbfull()->GetSnapshot();
   ASSERT_TRUE(s1 != nullptr);
@@ -759,7 +770,7 @@ TEST(ColumnFamilyTest, MemtableNotSupportSnapshot) {
   Close();
 }
 
-TEST(ColumnFamilyTest, DifferentMergeOperators) {
+TEST_F(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
   CreateColumnFamilies({"first", "second"});
   ColumnFamilyOptions default_cf, first, second;
@@ -789,7 +800,7 @@ TEST(ColumnFamilyTest, DifferentMergeOperators) {
   Close();
 }
 
-TEST(ColumnFamilyTest, DifferentCompactionStyles) {
+TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   Open();
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
@@ -806,6 +817,7 @@ TEST(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   one.compaction_style = kCompactionStyleUniversal;
+  one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
   one.write_buffer_size = 100000;
@@ -864,7 +876,7 @@ std::string IterStatus(Iterator* iter) {
 }
 }  // anonymous namespace
 
-TEST(ColumnFamilyTest, NewIteratorsTest) {
+TEST_F(ColumnFamilyTest, NewIteratorsTest) {
   // iter == 0 -- no tailing
   // iter == 2 -- tailing
   for (int iter = 0; iter < 2; ++iter) {
@@ -909,7 +921,7 @@ TEST(ColumnFamilyTest, NewIteratorsTest) {
   }
 }
 
-TEST(ColumnFamilyTest, ReadOnlyDBTest) {
+TEST_F(ColumnFamilyTest, ReadOnlyDBTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
   ASSERT_OK(Put(0, "a", "b"));
@@ -959,7 +971,7 @@ TEST(ColumnFamilyTest, ReadOnlyDBTest) {
   ASSERT_TRUE(!s.ok());
 }
 
-TEST(ColumnFamilyTest, DontRollEmptyLogs) {
+TEST_F(ColumnFamilyTest, DontRollEmptyLogs) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
 
@@ -981,7 +993,7 @@ TEST(ColumnFamilyTest, DontRollEmptyLogs) {
   Close();
 }
 
-TEST(ColumnFamilyTest, FlushStaleColumnFamilies) {
+TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Open();
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
@@ -1010,7 +1022,7 @@ TEST(ColumnFamilyTest, FlushStaleColumnFamilies) {
   Close();
 }
 
-TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
+TEST_F(ColumnFamilyTest, CreateMissingColumnFamilies) {
   Status s = TryOpen({"one", "two"});
   ASSERT_TRUE(!s.ok());
   db_options_.create_missing_column_families = true;
@@ -1019,30 +1031,102 @@ TEST(ColumnFamilyTest, CreateMissingColumnFamilies) {
   Close();
 }
 
-TEST(ColumnFamilyTest, SanitizeOptions) {
+TEST_F(ColumnFamilyTest, SanitizeOptions) {
   DBOptions db_options;
-  for (int i = 1; i <= 3; i++) {
-    for (int j = 1; j <= 3; j++) {
-      for (int k = 1; k <= 3; k++) {
-        ColumnFamilyOptions original;
-        original.level0_stop_writes_trigger = i;
-        original.level0_slowdown_writes_trigger = j;
-        original.level0_file_num_compaction_trigger = k;
-        ColumnFamilyOptions result =
-            SanitizeOptions(db_options, nullptr, original);
-        ASSERT_TRUE(result.level0_stop_writes_trigger >=
-                    result.level0_slowdown_writes_trigger);
-        ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
-                    result.level0_file_num_compaction_trigger);
-        ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
-                    original.level0_file_num_compaction_trigger);
+  for (int s = kCompactionStyleLevel; s <= kCompactionStyleUniversal; ++s) {
+    for (int l = 0; l <= 2; l++) {
+      for (int i = 1; i <= 3; i++) {
+        for (int j = 1; j <= 3; j++) {
+          for (int k = 1; k <= 3; k++) {
+            ColumnFamilyOptions original;
+            original.compaction_style = static_cast<CompactionStyle>(s);
+            original.num_levels = l;
+            original.level0_stop_writes_trigger = i;
+            original.level0_slowdown_writes_trigger = j;
+            original.level0_file_num_compaction_trigger = k;
+            ColumnFamilyOptions result =
+                SanitizeOptions(db_options, nullptr, original);
+            ASSERT_TRUE(result.level0_stop_writes_trigger >=
+                        result.level0_slowdown_writes_trigger);
+            ASSERT_TRUE(result.level0_slowdown_writes_trigger >=
+                        result.level0_file_num_compaction_trigger);
+            ASSERT_TRUE(result.level0_file_num_compaction_trigger ==
+                        original.level0_file_num_compaction_trigger);
+            if (s == kCompactionStyleLevel) {
+              ASSERT_GE(result.num_levels, 2);
+            } else {
+              ASSERT_GE(result.num_levels, 1);
+              if (original.num_levels >= 1) {
+                ASSERT_EQ(result.num_levels, original.num_levels);
+              }
+            }
+          }
+        }
       }
     }
+  }
+}
+
+TEST_F(ColumnFamilyTest, ReadDroppedColumnFamily) {
+  // iter 0 -- drop CF, don't reopen
+  // iter 1 -- delete CF, reopen
+  for (int iter = 0; iter < 2; ++iter) {
+    db_options_.create_missing_column_families = true;
+    db_options_.max_open_files = 20;
+    // delete obsolete files always
+    db_options_.delete_obsolete_files_period_micros = 0;
+    Open({"default", "one", "two"});
+    ColumnFamilyOptions options;
+    options.level0_file_num_compaction_trigger = 100;
+    options.level0_slowdown_writes_trigger = 200;
+    options.level0_stop_writes_trigger = 200;
+    options.write_buffer_size = 100000;  // small write buffer size
+    Reopen({options, options, options});
+
+    // 1MB should create ~10 files for each CF
+    int kKeysNum = 10000;
+    PutRandomData(0, kKeysNum, 100);
+    PutRandomData(1, kKeysNum, 100);
+    PutRandomData(2, kKeysNum, 100);
+
+    if (iter == 0) {
+      // Drop CF two
+      ASSERT_OK(db_->DropColumnFamily(handles_[2]));
+    } else {
+      // delete CF two
+      delete handles_[2];
+      handles_[2] = nullptr;
+    }
+
+    // Add bunch more data to other CFs
+    PutRandomData(0, kKeysNum, 100);
+    PutRandomData(1, kKeysNum, 100);
+
+    if (iter == 1) {
+      Reopen();
+    }
+
+    // Since we didn't delete CF handle, RocksDB's contract guarantees that
+    // we're still able to read dropped CF
+    for (int i = 0; i < 3; ++i) {
+      std::unique_ptr<Iterator> iterator(
+          db_->NewIterator(ReadOptions(), handles_[i]));
+      int count = 0;
+      for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+        ASSERT_OK(iterator->status());
+        ++count;
+      }
+      ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
+    }
+
+    Close();
+    Destroy();
   }
 }
 
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

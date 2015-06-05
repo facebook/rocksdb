@@ -319,6 +319,8 @@ class DB {
   //  "rocksdb.cur-size-all-mem-tables"
   //  "rocksdb.num-entries-active-mem-table"
   //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.num-deletes-active-mem-table"
+  //  "rocksdb.num-deletes-imm-mem-tables"
   //  "rocksdb.estimate-num-keys" - estimated keys in the column family
   //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
   //      SST tables, that is not counted as a part of block cache.
@@ -329,6 +331,32 @@ class DB {
   //      See version_set.h for details. More live versions often mean more SST
   //      files are held from being deleted, by iterators or unfinished
   //      compactions.
+#ifndef ROCKSDB_LITE
+  struct Properties {
+    static const std::string kNumFilesAtLevelPrefix;
+    static const std::string kStats;
+    static const std::string kSSTables;
+    static const std::string kCFStats;
+    static const std::string kDBStats;
+    static const std::string kNumImmutableMemTable;
+    static const std::string kMemTableFlushPending;
+    static const std::string kCompactionPending;
+    static const std::string kBackgroundErrors;
+    static const std::string kCurSizeActiveMemTable;
+    static const std::string kCurSizeAllMemTables;
+    static const std::string kNumEntriesActiveMemTable;
+    static const std::string kNumEntriesImmMemTables;
+    static const std::string kNumDeletesActiveMemTable;
+    static const std::string kNumDeletesImmMemTables;
+    static const std::string kEstimateNumKeys;
+    static const std::string kEstimateTableReadersMem;
+    static const std::string kIsFileDeletionsEnabled;
+    static const std::string kNumSnapshots;
+    static const std::string kOldestSnapshotTime;
+    static const std::string kNumLiveVersions;
+  };
+#endif /* ROCKSDB_LITE */
+
   virtual bool GetProperty(ColumnFamilyHandle* column_family,
                            const Slice& property, std::string* value) = 0;
   virtual bool GetProperty(const Slice& property, std::string* value) {
@@ -346,6 +374,8 @@ class DB {
   //  "rocksdb.cur-size-all-mem-tables"
   //  "rocksdb.num-entries-active-mem-table"
   //  "rocksdb.num-entries-imm-mem-tables"
+  //  "rocksdb.num-deletes-active-mem-table"
+  //  "rocksdb.num-deletes-imm-mem-tables"
   //  "rocksdb.estimate-num-keys"
   //  "rocksdb.estimate-table-readers-mem"
   //  "rocksdb.is-file-deletions-enabled"
@@ -387,19 +417,19 @@ class DB {
   // Note that after the entire database is compacted, all data are pushed
   // down to the last level containing any data. If the total data size
   // after compaction is reduced, that level might not be appropriate for
-  // hosting all the files. In this case, client could set reduce_level
+  // hosting all the files. In this case, client could set change_level
   // to true, to move the files back to the minimum level capable of holding
   // the data set or a given level (specified by non-negative target_level).
   // Compaction outputs should be placed in options.db_paths[target_path_id].
   // Behavior is undefined if target_path_id is out of range.
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
+                              bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) = 0;
   virtual Status CompactRange(const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
+                              bool change_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) {
-    return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
+    return CompactRange(DefaultColumnFamily(), begin, end, change_level,
                         target_level, target_path_id);
   }
   virtual Status SetOptions(ColumnFamilyHandle* column_family,
@@ -455,12 +485,17 @@ class DB {
   // Get Env object from the DB
   virtual Env* GetEnv() const = 0;
 
-  // Get DB Options that we use
+  // Get DB Options that we use.  During the process of opening the
+  // column family, the options provided when calling DB::Open() or
+  // DB::CreateColumnFamily() will have been "sanitized" and transformed
+  // in an implementation-defined manner.
   virtual const Options& GetOptions(ColumnFamilyHandle* column_family)
       const = 0;
   virtual const Options& GetOptions() const {
     return GetOptions(DefaultColumnFamily());
   }
+
+  virtual const DBOptions& GetDBOptions() const = 0;
 
   // Flush all mem-table data.
   virtual Status Flush(const FlushOptions& options,
@@ -492,8 +527,6 @@ class DB {
 
   // GetLiveFiles followed by GetSortedWalFiles can generate a lossless backup
 
-  // THIS METHOD IS DEPRECATED. Use the GetLiveFilesMetaData to get more
-  // detailed information on the live files.
   // Retrieve the list of all files in the database. The files are
   // relative to the dbname and are not absolute paths. The valid size of the
   // manifest file is returned in manifest_file_size. The manifest file is an
@@ -559,7 +592,7 @@ class DB {
   // Sets the globally unique ID created at database creation time by invoking
   // Env::GenerateUniqueId(), in identity. Returns Status::OK if identity could
   // be set properly
-  virtual Status GetDbIdentity(std::string& identity) = 0;
+  virtual Status GetDbIdentity(std::string& identity) const = 0;
 
   // Returns default column family handle
   virtual ColumnFamilyHandle* DefaultColumnFamily() const = 0;
@@ -571,6 +604,9 @@ class DB {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
 #endif  // ROCKSDB_LITE
+
+  // Needed for StackableDB
+  virtual DB* GetRootDB() { return this; }
 
  private:
   // No copying allowed

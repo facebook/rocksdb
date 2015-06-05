@@ -11,6 +11,7 @@
 #include "db/file_indexer.h"
 #include "db/dbformat.h"
 #include "db/version_edit.h"
+#include "port/stack_trace.h"
 #include "rocksdb/comparator.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -41,7 +42,7 @@ class IntComparator : public Comparator {
   void FindShortSuccessor(std::string* key) const override {}
 };
 
-struct FileIndexerTest {
+class FileIndexerTest : public testing::Test {
  public:
   FileIndexerTest()
       : kNumLevels(4), files(new std::vector<FileMetaData*>[kNumLevels]) {}
@@ -90,7 +91,7 @@ struct FileIndexerTest {
 };
 
 // Case 0: Empty
-TEST(FileIndexerTest, Empty) {
+TEST_F(FileIndexerTest, Empty) {
   Arena arena;
   indexer = new FileIndexer(&ucmp);
   indexer->UpdateIndex(&arena, 0, files);
@@ -98,7 +99,7 @@ TEST(FileIndexerTest, Empty) {
 }
 
 // Case 1: no overlap, files are on the left of next level files
-TEST(FileIndexerTest, no_overlap_left) {
+TEST_F(FileIndexerTest, no_overlap_left) {
   Arena arena;
   indexer = new FileIndexer(&ucmp);
   // level 1
@@ -138,7 +139,7 @@ TEST(FileIndexerTest, no_overlap_left) {
 }
 
 // Case 2: no overlap, files are on the right of next level files
-TEST(FileIndexerTest, no_overlap_right) {
+TEST_F(FileIndexerTest, no_overlap_right) {
   Arena arena;
   indexer = new FileIndexer(&ucmp);
   // level 1
@@ -180,7 +181,7 @@ TEST(FileIndexerTest, no_overlap_right) {
 }
 
 // Case 3: empty L2
-TEST(FileIndexerTest, empty_L2) {
+TEST_F(FileIndexerTest, empty_L2) {
   Arena arena;
   indexer = new FileIndexer(&ucmp);
   for (uint32_t i = 1; i < kNumLevels; ++i) {
@@ -220,7 +221,7 @@ TEST(FileIndexerTest, empty_L2) {
 }
 
 // Case 4: mixed
-TEST(FileIndexerTest, mixed) {
+TEST_F(FileIndexerTest, mixed) {
   Arena arena;
   indexer = new FileIndexer(&ucmp);
   // level 1
@@ -343,5 +344,7 @@ TEST(FileIndexerTest, mixed) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  rocksdb::port::InstallStackTraceHandler();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

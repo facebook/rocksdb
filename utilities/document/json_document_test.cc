@@ -48,7 +48,7 @@ void AssertField(const JSONDocument& json, const std::string& field,
 }
 }  // namespace
 
-class JSONDocumentTest {
+class JSONDocumentTest : public testing::Test {
  public:
   JSONDocumentTest()
   : rnd_(101)
@@ -104,14 +104,14 @@ class JSONDocumentTest {
   Random rnd_;
 };
 
-TEST(JSONDocumentTest, MakeNullTest) {
+TEST_F(JSONDocumentTest, MakeNullTest) {
   JSONDocument x;
   ASSERT_TRUE(x.IsNull());
   ASSERT_TRUE(x.IsOwner());
   ASSERT_TRUE(!x.IsBool());
 }
 
-TEST(JSONDocumentTest, MakeBoolTest) {
+TEST_F(JSONDocumentTest, MakeBoolTest) {
   {
     JSONDocument x(true);
     ASSERT_TRUE(x.IsOwner());
@@ -129,7 +129,7 @@ TEST(JSONDocumentTest, MakeBoolTest) {
   }
 }
 
-TEST(JSONDocumentTest, MakeInt64Test) {
+TEST_F(JSONDocumentTest, MakeInt64Test) {
   JSONDocument x(static_cast<int64_t>(16));
   ASSERT_TRUE(x.IsInt64());
   ASSERT_TRUE(x.IsInt64());
@@ -138,7 +138,7 @@ TEST(JSONDocumentTest, MakeInt64Test) {
   ASSERT_EQ(x.GetInt64(), 16);
 }
 
-TEST(JSONDocumentTest, MakeStringTest) {
+TEST_F(JSONDocumentTest, MakeStringTest) {
   JSONDocument x("string");
   ASSERT_TRUE(x.IsOwner());
   ASSERT_TRUE(x.IsString());
@@ -146,7 +146,7 @@ TEST(JSONDocumentTest, MakeStringTest) {
   ASSERT_EQ(x.GetString(), "string");
 }
 
-TEST(JSONDocumentTest, MakeDoubleTest) {
+TEST_F(JSONDocumentTest, MakeDoubleTest) {
   JSONDocument x(5.6);
   ASSERT_TRUE(x.IsOwner());
   ASSERT_TRUE(x.IsDouble());
@@ -154,7 +154,7 @@ TEST(JSONDocumentTest, MakeDoubleTest) {
   ASSERT_EQ(x.GetDouble(), 5.6);
 }
 
-TEST(JSONDocumentTest, MakeByTypeTest) {
+TEST_F(JSONDocumentTest, MakeByTypeTest) {
   {
     JSONDocument x(JSONDocument::kNull);
     ASSERT_TRUE(x.IsNull());
@@ -185,7 +185,7 @@ TEST(JSONDocumentTest, MakeByTypeTest) {
   }
 }
 
-TEST(JSONDocumentTest, Parsing) {
+TEST_F(JSONDocumentTest, Parsing) {
   std::unique_ptr<JSONDocument> parsed_json(
           JSONDocument::ParseJSON(kSampleJSON.c_str()));
   ASSERT_TRUE(parsed_json->IsOwner());
@@ -208,7 +208,7 @@ TEST(JSONDocumentTest, Parsing) {
   ASSERT_TRUE(JSONDocument::ParseJSON(kFaultyJSON.c_str()) == nullptr);
 }
 
-TEST(JSONDocumentTest, Serialization) {
+TEST_F(JSONDocumentTest, Serialization) {
   std::unique_ptr<JSONDocument> parsed_json(
             JSONDocument::ParseJSON(kSampleJSON.c_str()));
   ASSERT_TRUE(parsed_json != nullptr);
@@ -226,7 +226,7 @@ TEST(JSONDocumentTest, Serialization) {
                   Slice(serialized.data(), serialized.size() - 10)) == nullptr);
 }
 
-TEST(JSONDocumentTest, OperatorEqualsTest) {
+TEST_F(JSONDocumentTest, OperatorEqualsTest) {
   // kNull
   ASSERT_TRUE(JSONDocument() == JSONDocument());
 
@@ -274,7 +274,7 @@ TEST(JSONDocumentTest, OperatorEqualsTest) {
   ASSERT_TRUE(JSONDocument(15.) == JSONDocument(15.));
 }
 
-TEST(JSONDocumentTest, JSONDocumentBuilderTest) {
+TEST_F(JSONDocumentTest, JSONDocumentBuilderTest) {
   unique_ptr<JSONDocument> parsedArray(
     JSONDocument::ParseJSON("[1, [123, \"a\", \"b\"], {\"b\":\"c\"}]"));
   ASSERT_TRUE(parsedArray != nullptr);
@@ -298,7 +298,7 @@ TEST(JSONDocumentTest, JSONDocumentBuilderTest) {
   ASSERT_TRUE(*parsedArray == builder.GetJSONDocument());
 }
 
-TEST(JSONDocumentTest, OwnershipTest) {
+TEST_F(JSONDocumentTest, OwnershipTest) {
   std::unique_ptr<JSONDocument> parsed(
           JSONDocument::ParseJSON(kSampleJSON.c_str()));
   ASSERT_TRUE(parsed != nullptr);
@@ -323,4 +323,7 @@ TEST(JSONDocumentTest, OwnershipTest) {
 
 }  //  namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

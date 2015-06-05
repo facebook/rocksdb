@@ -5,7 +5,7 @@ before_install:
 # which needs the following ugly dependency incantations to build RocksDB:
  - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
  - sudo apt-get update -qq
- - sudo apt-get install -y -qq gcc-4.9 g++-4.9 zlib1g-dev libbz2-dev libsnappy-dev libjemalloc-dev
+ - sudo apt-get install -y -qq gcc-4.9 g++-4.9 zlib1g-dev libbz2-dev libsnappy-dev
  - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 50
  - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.9 50
  - wget https://gflags.googlecode.com/files/libgflags0_2.0-1_amd64.deb
@@ -14,6 +14,6 @@ before_install:
  - sudo dpkg -i libgflags-dev_2.0-1_amd64.deb
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
-script: OPT=-DTRAVIS V=1 make unity && make clean && OPT=-DTRAVIS V=1 make check
+script: OPT=-DTRAVIS V=1 make unity && make clean && OPT=-DTRAVIS V=1 make db_test && ./db_test
 notifications:
     email: false

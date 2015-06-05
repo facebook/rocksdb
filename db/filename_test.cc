@@ -16,9 +16,9 @@
 
 namespace rocksdb {
 
-class FileNameTest { };
+class FileNameTest : public testing::Test {};
 
-TEST(FileNameTest, Parse) {
+TEST_F(FileNameTest, Parse) {
   Slice db;
   FileType type;
   uint64_t number;
@@ -105,7 +105,7 @@ TEST(FileNameTest, Parse) {
   };
 }
 
-TEST(FileNameTest, InfoLogFileName) {
+TEST_F(FileNameTest, InfoLogFileName) {
   std::string dbname = ("/data/rocksdb");
   std::string db_absolute_path;
   Env::Default()->GetAbsolutePath(dbname, &db_absolute_path);
@@ -121,7 +121,7 @@ TEST(FileNameTest, InfoLogFileName) {
       OldInfoLogFileName(dbname, 666u, db_absolute_path, "/data/rocksdb_log"));
 }
 
-TEST(FileNameTest, Construction) {
+TEST_F(FileNameTest, Construction) {
   uint64_t number;
   FileType type;
   std::string fname;
@@ -175,5 +175,6 @@ TEST(FileNameTest, Construction) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

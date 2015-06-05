@@ -47,7 +47,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   rocksdb::MemTable* mem = new rocksdb::MemTable(
       cmp, rocksdb::ImmutableCFOptions(options),
       rocksdb::MutableCFOptions(options, rocksdb::ImmutableCFOptions(options)),
-      &wb);
+      &wb, rocksdb::kMaxSequenceNumber);
   mem->Ref();
   std::string state;
   rocksdb::ColumnFamilyMemTablesDefault cf_mems_default(mem);
@@ -60,7 +60,7 @@ jbyteArray Java_org_rocksdb_WriteBatchTest_getContents(
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     rocksdb::ParsedInternalKey ikey;
     memset(reinterpret_cast<void*>(&ikey), 0, sizeof(ikey));
-    ASSERT_TRUE(rocksdb::ParseInternalKey(iter->key(), &ikey));
+    assert(rocksdb::ParseInternalKey(iter->key(), &ikey));
     switch (ikey.type) {
       case rocksdb::kTypeValue:
         state.append("Put(");

@@ -18,6 +18,7 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/scoped_arena_iterator.h"
 
@@ -30,8 +31,9 @@ static std::string PrintContents(WriteBatch* b) {
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
   WriteBuffer wb(options.db_write_buffer_size);
-  MemTable* mem = new MemTable(cmp, ioptions,
-                               MutableCFOptions(options, ioptions), &wb);
+  MemTable* mem =
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
+                   kMaxSequenceNumber);
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);
@@ -42,7 +44,7 @@ static std::string PrintContents(WriteBatch* b) {
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     memset((void *)&ikey, 0, sizeof(ikey));
-    ASSERT_TRUE(ParseInternalKey(iter->key(), &ikey));
+    EXPECT_TRUE(ParseInternalKey(iter->key(), &ikey));
     switch (ikey.type) {
       case kTypeValue:
         state.append("Put(");
@@ -82,16 +84,16 @@ static std::string PrintContents(WriteBatch* b) {
   return state;
 }
 
-class WriteBatchTest { };
+class WriteBatchTest : public testing::Test {};
 
-TEST(WriteBatchTest, Empty) {
+TEST_F(WriteBatchTest, Empty) {
   WriteBatch batch;
   ASSERT_EQ("", PrintContents(&batch));
   ASSERT_EQ(0, WriteBatchInternal::Count(&batch));
   ASSERT_EQ(0, batch.Count());
 }
 
-TEST(WriteBatchTest, Multiple) {
+TEST_F(WriteBatchTest, Multiple) {
   WriteBatch batch;
   batch.Put(Slice("foo"), Slice("bar"));
   batch.Delete(Slice("box"));
@@ -106,7 +108,7 @@ TEST(WriteBatchTest, Multiple) {
   ASSERT_EQ(3, batch.Count());
 }
 
-TEST(WriteBatchTest, Corruption) {
+TEST_F(WriteBatchTest, Corruption) {
   WriteBatch batch;
   batch.Put(Slice("foo"), Slice("bar"));
   batch.Delete(Slice("box"));
@@ -119,7 +121,7 @@ TEST(WriteBatchTest, Corruption) {
             PrintContents(&batch));
 }
 
-TEST(WriteBatchTest, Append) {
+TEST_F(WriteBatchTest, Append) {
   WriteBatch b1, b2;
   WriteBatchInternal::SetSequence(&b1, 200);
   WriteBatchInternal::SetSequence(&b2, 300);
@@ -188,7 +190,7 @@ namespace {
   };
 }
 
-TEST(WriteBatchTest, MergeNotImplemented) {
+TEST_F(WriteBatchTest, MergeNotImplemented) {
   WriteBatch batch;
   batch.Merge(Slice("foo"), Slice("bar"));
   ASSERT_EQ(1, batch.Count());
@@ -199,7 +201,7 @@ TEST(WriteBatchTest, MergeNotImplemented) {
   ASSERT_OK(batch.Iterate(&handler));
 }
 
-TEST(WriteBatchTest, PutNotImplemented) {
+TEST_F(WriteBatchTest, PutNotImplemented) {
   WriteBatch batch;
   batch.Put(Slice("k1"), Slice("v1"));
   ASSERT_EQ(1, batch.Count());
@@ -210,7 +212,7 @@ TEST(WriteBatchTest, PutNotImplemented) {
   ASSERT_OK(batch.Iterate(&handler));
 }
 
-TEST(WriteBatchTest, DeleteNotImplemented) {
+TEST_F(WriteBatchTest, DeleteNotImplemented) {
   WriteBatch batch;
   batch.Delete(Slice("k2"));
   ASSERT_EQ(1, batch.Count());
@@ -221,7 +223,7 @@ TEST(WriteBatchTest, DeleteNotImplemented) {
   ASSERT_OK(batch.Iterate(&handler));
 }
 
-TEST(WriteBatchTest, Blob) {
+TEST_F(WriteBatchTest, Blob) {
   WriteBatch batch;
   batch.Put(Slice("k1"), Slice("v1"));
   batch.Put(Slice("k2"), Slice("v2"));
@@ -251,7 +253,7 @@ TEST(WriteBatchTest, Blob) {
             handler.seen);
 }
 
-TEST(WriteBatchTest, Continue) {
+TEST_F(WriteBatchTest, Continue) {
   WriteBatch batch;
 
   struct Handler : public TestHandler {
@@ -293,7 +295,7 @@ TEST(WriteBatchTest, Continue) {
             handler.seen);
 }
 
-TEST(WriteBatchTest, PutGatherSlices) {
+TEST_F(WriteBatchTest, PutGatherSlices) {
   WriteBatch batch;
   batch.Put(Slice("foo"), Slice("bar"));
 
@@ -336,7 +338,7 @@ class ColumnFamilyHandleImplDummy : public ColumnFamilyHandleImpl {
 };
 }  // namespace anonymous
 
-TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
+TEST_F(WriteBatchTest, ColumnFamiliesBatchTest) {
   WriteBatch batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
   batch.Put(&zero, Slice("foo"), Slice("bar"));
@@ -360,7 +362,7 @@ TEST(WriteBatchTest, ColumnFamiliesBatchTest) {
       handler.seen);
 }
 
-TEST(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
+TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
   WriteBatchWithIndex batch;
   ColumnFamilyHandleImplDummy zero(0), two(2), three(3), eight(8);
   batch.Put(&zero, Slice("foo"), Slice("bar"));
@@ -445,5 +447,6 @@ TEST(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

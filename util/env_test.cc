@@ -8,12 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 
 #include <iostream>
 #include <unordered_set>
 #include <atomic>
+#include <list>
 
 #ifdef OS_LINUX
+#include <linux/fs.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -28,13 +32,14 @@
 #include "util/coding.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
 
 static const int kDelayMicros = 100000;
 
-class EnvPosixTest {
+class EnvPosixTest : public testing::Test {
  private:
   port::Mutex mu_;
   std::string events_;
@@ -49,14 +54,89 @@ static void SetBool(void* ptr) {
       ->store(true, std::memory_order_relaxed);
 }
 
-TEST(EnvPosixTest, RunImmediately) {
+class SleepingBackgroundTask {
+ public:
+  explicit SleepingBackgroundTask()
+      : bg_cv_(&mutex_), should_sleep_(true), sleeping_(false) {}
+  void DoSleep() {
+    MutexLock l(&mutex_);
+    sleeping_ = true;
+    while (should_sleep_) {
+      bg_cv_.Wait();
+    }
+    sleeping_ = false;
+    bg_cv_.SignalAll();
+  }
+
+  void WakeUp() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    bg_cv_.SignalAll();
+
+    while (sleeping_) {
+      bg_cv_.Wait();
+    }
+  }
+
+  bool IsSleeping() {
+    MutexLock l(&mutex_);
+    return sleeping_;
+  }
+
+  static void DoSleepTask(void* arg) {
+    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+  }
+
+ private:
+  port::Mutex mutex_;
+  port::CondVar bg_cv_;  // Signalled when background work finishes
+  bool should_sleep_;
+  bool sleeping_;
+};
+
+TEST_F(EnvPosixTest, RunImmediately) {
   std::atomic<bool> called(false);
   env_->Schedule(&SetBool, &called);
   Env::Default()->SleepForMicroseconds(kDelayMicros);
   ASSERT_TRUE(called.load(std::memory_order_relaxed));
 }
 
-TEST(EnvPosixTest, RunMany) {
+TEST_F(EnvPosixTest, UnSchedule) {
+  std::atomic<bool> called(false);
+  env_->SetBackgroundThreads(1, Env::LOW);
+
+  /* Block the low priority queue */
+  SleepingBackgroundTask sleeping_task, sleeping_task1;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::LOW);
+
+  /* Schedule another task */
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task1,
+                 Env::Priority::LOW, &sleeping_task1);
+
+  /* Remove it with a different tag  */
+  ASSERT_EQ(0, env_->UnSchedule(&called, Env::Priority::LOW));
+
+  /* Remove it from the queue with the right tag */
+  ASSERT_EQ(1, env_->UnSchedule(&sleeping_task1, Env::Priority::LOW));
+
+  // Unblock background thread
+  sleeping_task.WakeUp();
+
+  /* Schedule another task */
+  env_->Schedule(&SetBool, &called);
+  for (int i = 0; i < kDelayMicros; i++) {
+    if (called.load(std::memory_order_relaxed)) {
+      break;
+    }
+    Env::Default()->SleepForMicroseconds(1);
+  }
+  ASSERT_TRUE(called.load(std::memory_order_relaxed));
+
+  ASSERT_TRUE(!sleeping_task.IsSleeping() && !sleeping_task1.IsSleeping());
+}
+
+TEST_F(EnvPosixTest, RunMany) {
   std::atomic<int> last_id(0);
 
   struct CB {
@@ -102,7 +182,7 @@ static void ThreadBody(void* arg) {
   s->mu.Unlock();
 }
 
-TEST(EnvPosixTest, StartThread) {
+TEST_F(EnvPosixTest, StartThread) {
   State state;
   state.val = 0;
   state.num_running = 3;
@@ -121,8 +201,7 @@ TEST(EnvPosixTest, StartThread) {
   ASSERT_EQ(state.val, 3);
 }
 
-TEST(EnvPosixTest, TwoPools) {
-
+TEST_F(EnvPosixTest, TwoPools) {
   class CB {
    public:
     CB(const std::string& pool_name, int pool_size)
@@ -239,47 +318,7 @@ TEST(EnvPosixTest, TwoPools) {
   env_->SetBackgroundThreads(kHighPoolSize, Env::Priority::HIGH);
 }
 
-TEST(EnvPosixTest, DecreaseNumBgThreads) {
-  class SleepingBackgroundTask {
-   public:
-    explicit SleepingBackgroundTask()
-        : bg_cv_(&mutex_), should_sleep_(true), sleeping_(false) {}
-    void DoSleep() {
-      MutexLock l(&mutex_);
-      sleeping_ = true;
-      while (should_sleep_) {
-        bg_cv_.Wait();
-      }
-      sleeping_ = false;
-      bg_cv_.SignalAll();
-    }
-
-    void WakeUp() {
-      MutexLock l(&mutex_);
-      should_sleep_ = false;
-      bg_cv_.SignalAll();
-
-      while (sleeping_) {
-        bg_cv_.Wait();
-      }
-    }
-
-    bool IsSleeping() {
-      MutexLock l(&mutex_);
-      return sleeping_;
-    }
-
-    static void DoSleepTask(void* arg) {
-      reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
-    }
-
-   private:
-    port::Mutex mutex_;
-    port::CondVar bg_cv_;  // Signalled when background work finishes
-    bool should_sleep_;
-    bool sleeping_;
-  };
-
+TEST_F(EnvPosixTest, DecreaseNumBgThreads) {
   std::vector<SleepingBackgroundTask> tasks(10);
 
   // Set number of thread to 1 first.
@@ -434,15 +473,7 @@ TEST(EnvPosixTest, DecreaseNumBgThreads) {
 // Travis doesn't support fallocate or getting unique ID from files for whatever
 // reason.
 #ifndef TRAVIS
-// To make sure the Env::GetUniqueId() related tests work correctly, The files
-// should be stored in regular storage like "hard disk" or "flash device".
-// Otherwise we cannot get the correct id.
-//
-// The following function act as the replacement of test::TmpDir() that may be
-// customized by user to be on a storage that doesn't work with GetUniqueId().
-//
-// TODO(kailiu) This function still assumes /tmp/<test-dir> reside in regular
-// storage system.
+
 namespace {
 bool IsSingleVarint(const std::string& s) {
   Slice slice(s);
@@ -462,22 +493,100 @@ bool IsUniqueIDValid(const std::string& s) {
 const size_t MAX_ID_SIZE = 100;
 char temp_id[MAX_ID_SIZE];
 
-std::string GetOnDiskTestDir() {
-  char base[100];
-  snprintf(base, sizeof(base), "/tmp/rocksdbtest-%d",
-           static_cast<int>(geteuid()));
-  // Directory may already exist
-  Env::Default()->CreateDirIfMissing(base);
 
-  return base;
-}
 }  // namespace
 
+// Determine whether we can use the FS_IOC_GETVERSION ioctl
+// on a file in directory DIR.  Create a temporary file therein,
+// try to apply the ioctl (save that result), cleanup and
+// return the result.  Return true if it is supported, and
+// false if anything fails.
+// Note that this function "knows" that dir has just been created
+// and is empty, so we create a simply-named test file: "f".
+bool ioctl_support__FS_IOC_GETVERSION(const std::string& dir) {
+  const std::string file = dir + "/f";
+  int fd;
+  do {
+    fd = open(file.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
+  } while (fd < 0 && errno == EINTR);
+  long int version;
+  bool ok = (fd >= 0 && ioctl(fd, FS_IOC_GETVERSION, &version) >= 0);
+
+  close(fd);
+  unlink(file.c_str());
+
+  return ok;
+}
+
+// To ensure that Env::GetUniqueId-related tests work correctly, the files
+// should be stored in regular storage like "hard disk" or "flash device",
+// and not on a tmpfs file system (like /dev/shm and /tmp on some systems).
+// Otherwise we cannot get the correct id.
+//
+// This function serves as the replacement for test::TmpDir(), which may be
+// customized to be on a file system that doesn't work with GetUniqueId().
+
+class IoctlFriendlyTmpdir {
+ public:
+  explicit IoctlFriendlyTmpdir() {
+    char dir_buf[100];
+    std::list<std::string> candidate_dir_list = {"/var/tmp", "/tmp"};
+
+    const char *fmt = "%s/rocksdb.XXXXXX";
+    const char *tmp = getenv("TEST_IOCTL_FRIENDLY_TMPDIR");
+    // If $TEST_IOCTL_FRIENDLY_TMPDIR/rocksdb.XXXXXX fits, use
+    // $TEST_IOCTL_FRIENDLY_TMPDIR; subtract 2 for the "%s", and
+    // add 1 for the trailing NUL byte.
+    if (tmp && strlen(tmp) + strlen(fmt) - 2 + 1 <= sizeof dir_buf) {
+      // use $TEST_IOCTL_FRIENDLY_TMPDIR value
+      candidate_dir_list.push_front(tmp);
+    }
+
+    for (const std::string& d : candidate_dir_list) {
+      snprintf(dir_buf, sizeof dir_buf, fmt, d.c_str());
+      if (mkdtemp(dir_buf)) {
+        if (ioctl_support__FS_IOC_GETVERSION(dir_buf)) {
+          dir_ = dir_buf;
+          return;
+        } else {
+          // Diagnose ioctl-related failure only if this is the
+          // directory specified via that envvar.
+          if (tmp == d) {
+            fprintf(stderr, "TEST_IOCTL_FRIENDLY_TMPDIR-specified directory is "
+                    "not suitable: %s\n", d.c_str());
+          }
+          rmdir(dir_buf);  // ignore failure
+        }
+      } else {
+        // mkdtemp failed: diagnose it, but don't give up.
+        fprintf(stderr, "mkdtemp(%s/...) failed: %s\n", d.c_str(),
+                strerror(errno));
+      }
+    }
+
+    fprintf(stderr, "failed to find an ioctl-friendly temporary directory;"
+            " specify one via the TEST_IOCTL_FRIENDLY_TMPDIR envvar\n");
+    std::abort();
+  }
+
+  ~IoctlFriendlyTmpdir() {
+    rmdir(dir_.c_str());
+  }
+  const std::string& name() {
+    return dir_;
+  }
+
+ private:
+  std::string dir_;
+};
+
+
 // Only works in linux platforms
-TEST(EnvPosixTest, RandomAccessUniqueID) {
+TEST_F(EnvPosixTest, RandomAccessUniqueID) {
   // Create file.
   const EnvOptions soptions;
-  std::string fname = GetOnDiskTestDir() + "/" + "testfile";
+  IoctlFriendlyTmpdir ift;
+  std::string fname = ift.name() + "/testfile";
   unique_ptr<WritableFile> wfile;
   ASSERT_OK(env_->NewWritableFile(fname, &wfile, soptions));
 
@@ -515,13 +624,13 @@ TEST(EnvPosixTest, RandomAccessUniqueID) {
 
 // only works in linux platforms
 #ifdef ROCKSDB_FALLOCATE_PRESENT
-TEST(EnvPosixTest, AllocateTest) {
-  std::string fname = GetOnDiskTestDir() + "/preallocate_testfile";
+TEST_F(EnvPosixTest, AllocateTest) {
+  IoctlFriendlyTmpdir ift;
+  std::string fname = ift.name() + "/preallocate_testfile";
 
   // Try fallocate in a file to see whether the target file system supports it.
   // Skip the test if fallocate is not supported.
-  std::string fname_test_fallocate =
-      GetOnDiskTestDir() + "/preallocate_testfile_2";
+  std::string fname_test_fallocate = ift.name() + "/preallocate_testfile_2";
   int fd = -1;
   do {
     fd = open(fname_test_fallocate.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
@@ -594,15 +703,15 @@ bool HasPrefix(const std::unordered_set<std::string>& ss) {
 }
 
 // Only works in linux platforms
-TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
+TEST_F(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
   // Check whether a bunch of concurrently existing files have unique IDs.
   const EnvOptions soptions;
 
   // Create the files
+  IoctlFriendlyTmpdir ift;
   std::vector<std::string> fnames;
   for (int i = 0; i < 1000; ++i) {
-    fnames.push_back(
-        GetOnDiskTestDir() + "/" + "testfile" + ToString(i));
+    fnames.push_back(ift.name() + "/" + "testfile" + ToString(i));
 
     // Create file.
     unique_ptr<WritableFile> wfile;
@@ -633,10 +742,11 @@ TEST(EnvPosixTest, RandomAccessUniqueIDConcurrent) {
 }
 
 // Only works in linux platforms
-TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
+TEST_F(EnvPosixTest, RandomAccessUniqueIDDeletes) {
   const EnvOptions soptions;
 
-  std::string fname = GetOnDiskTestDir() + "/" + "testfile";
+  IoctlFriendlyTmpdir ift;
+  std::string fname = ift.name() + "/" + "testfile";
 
   // Check that after file is deleted we don't get same ID again in a new file.
   std::unordered_set<std::string> ids;
@@ -669,7 +779,7 @@ TEST(EnvPosixTest, RandomAccessUniqueIDDeletes) {
 }
 
 // Only works in linux platforms
-TEST(EnvPosixTest, InvalidateCache) {
+TEST_F(EnvPosixTest, InvalidateCache) {
   const EnvOptions soptions;
   std::string fname = test::TmpDir() + "/" + "testfile";
 
@@ -711,7 +821,7 @@ TEST(EnvPosixTest, InvalidateCache) {
 #endif  // not TRAVIS
 #endif  // OS_LINUX
 
-TEST(EnvPosixTest, PosixRandomRWFileTest) {
+TEST_F(EnvPosixTest, PosixRandomRWFileTest) {
   EnvOptions soptions;
   soptions.use_mmap_writes = soptions.use_mmap_reads = false;
   std::string fname = test::TmpDir() + "/" + "testfile";
@@ -776,7 +886,7 @@ class TestLogger : public Logger {
   int char_0_count;
 };
 
-TEST(EnvPosixTest, LogBufferTest) {
+TEST_F(EnvPosixTest, LogBufferTest) {
   TestLogger test_logger;
   test_logger.SetInfoLogLevel(InfoLogLevel::INFO_LEVEL);
   test_logger.log_count = 0;
@@ -834,7 +944,7 @@ class TestLogger2 : public Logger {
   size_t max_log_size_;
 };
 
-TEST(EnvPosixTest, LogBufferMaxSizeTest) {
+TEST_F(EnvPosixTest, LogBufferMaxSizeTest) {
   char bytes9000[9000];
   std::fill_n(bytes9000, sizeof(bytes9000), '1');
   bytes9000[sizeof(bytes9000) - 1] = '\0';
@@ -849,7 +959,7 @@ TEST(EnvPosixTest, LogBufferMaxSizeTest) {
   }
 }
 
-TEST(EnvPosixTest, Preallocation) {
+TEST_F(EnvPosixTest, Preallocation) {
   const std::string src = test::TmpDir() + "/" + "testfile";
   unique_ptr<WritableFile> srcfile;
   const EnvOptions soptions;
@@ -879,8 +989,90 @@ TEST(EnvPosixTest, Preallocation) {
   ASSERT_EQ(last_allocated_block, 7UL);
 }
 
+// Test that all WritableFileWrapper forwards all calls to WritableFile.
+TEST_F(EnvPosixTest, WritableFileWrapper) {
+  class Base : public WritableFile {
+   public:
+    mutable int *step_;
+
+    void inc(int x) const {
+      EXPECT_EQ(x, (*step_)++);
+    }
+
+    explicit Base(int* step) : step_(step) {
+      inc(0);
+    }
+
+    Status Append(const Slice& data) override { inc(1); return Status::OK(); }
+    Status Close() override { inc(2); return Status::OK(); }
+    Status Flush() override { inc(3); return Status::OK(); }
+    Status Sync() override { inc(4); return Status::OK(); }
+    Status Fsync() override { inc(5); return Status::OK(); }
+    void SetIOPriority(Env::IOPriority pri) override { inc(6); }
+    uint64_t GetFileSize() override { inc(7); return 0; }
+    void GetPreallocationStatus(size_t* block_size,
+                                size_t* last_allocated_block) override {
+      inc(8);
+    }
+    size_t GetUniqueId(char* id, size_t max_size) const override {
+      inc(9);
+      return 0;
+    }
+    Status InvalidateCache(size_t offset, size_t length) override {
+      inc(10);
+      return Status::OK();
+    }
+
+   protected:
+    Status Allocate(off_t offset, off_t len) override {
+      inc(11);
+      return Status::OK();
+    }
+    Status RangeSync(off_t offset, off_t nbytes) override {
+      inc(12);
+      return Status::OK();
+    }
+
+   public:
+    ~Base() {
+      inc(13);
+    }
+  };
+
+  class Wrapper : public WritableFileWrapper {
+   public:
+    explicit Wrapper(WritableFile* target) : WritableFileWrapper(target) {}
+
+    void CallProtectedMethods() {
+      Allocate(0, 0);
+      RangeSync(0, 0);
+    }
+  };
+
+  int step = 0;
+
+  {
+    Base b(&step);
+    Wrapper w(&b);
+    w.Append(Slice());
+    w.Close();
+    w.Flush();
+    w.Sync();
+    w.Fsync();
+    w.SetIOPriority(Env::IOPriority::IO_HIGH);
+    w.GetFileSize();
+    w.GetPreallocationStatus(nullptr, nullptr);
+    w.GetUniqueId(nullptr, 0);
+    w.InvalidateCache(0, 0);
+    w.CallProtectedMethods();
+  }
+
+  EXPECT_EQ(14, step);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

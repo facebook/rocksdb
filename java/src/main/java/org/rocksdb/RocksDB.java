@@ -1270,7 +1270,10 @@ public class RocksDB extends RocksObject {
    * @return The handle of the default column family
    */
   public ColumnFamilyHandle getDefaultColumnFamily() {
-    return new ColumnFamilyHandle(this, getDefaultColumnFamily(nativeHandle_));
+    ColumnFamilyHandle cfHandle = new ColumnFamilyHandle(this,
+        getDefaultColumnFamily(nativeHandle_));
+    cfHandle.disOwnNativeHandle();
+    return cfHandle;
   }
 
   /**

@@ -64,14 +64,9 @@ Status AdaptiveTableFactory::NewTableReader(
 }
 
 TableBuilder* AdaptiveTableFactory::NewTableBuilder(
-    const ImmutableCFOptions& ioptions,
-    const InternalKeyComparator& internal_comparator, WritableFile* file,
-    const CompressionType compression_type,
-    const CompressionOptions& compression_opts,
-    const bool skip_filters = false) const {
-  return table_factory_to_write_->NewTableBuilder(
-      ioptions, internal_comparator, file, compression_type, compression_opts,
-      skip_filters);
+    const TableBuilderOptions& table_builder_options,
+    WritableFile* file) const {
+  return table_factory_to_write_->NewTableBuilder(table_builder_options, file);
 }
 
 std::string AdaptiveTableFactory::GetPrintableTableOptions() const {

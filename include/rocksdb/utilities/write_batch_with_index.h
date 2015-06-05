@@ -11,16 +11,22 @@
 
 #pragma once
 
+#include <string>
+
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch.h"
+#include "rocksdb/write_batch_base.h"
 
 namespace rocksdb {
 
 class ColumnFamilyHandle;
 class Comparator;
+class DB;
+struct ReadOptions;
+struct DBOptions;
 
 enum WriteType { kPutRecord, kMergeRecord, kDeleteRecord, kLogDataRecord };
 
@@ -61,7 +67,7 @@ class WBWIIterator {
 // By calling GetWriteBatch(), a user will get the WriteBatch for the data
 // they inserted, which can be used for DB::Write().
 // A user can call NewIterator() to create an iterator.
-class WriteBatchWithIndex {
+class WriteBatchWithIndex : public WriteBatchBase {
  public:
   // backup_index_comparator: the backup comparator used to compare keys
   // within the same column family, if column family is not given in the
@@ -76,22 +82,30 @@ class WriteBatchWithIndex {
       size_t reserved_bytes = 0, bool overwrite_key = false);
   virtual ~WriteBatchWithIndex();
 
-  WriteBatch* GetWriteBatch();
-
+  using WriteBatchBase::Put;
   void Put(ColumnFamilyHandle* column_family, const Slice& key,
-           const Slice& value);
+           const Slice& value) override;
 
-  void Put(const Slice& key, const Slice& value);
+  void Put(const Slice& key, const Slice& value) override;
 
+  using WriteBatchBase::Merge;
   void Merge(ColumnFamilyHandle* column_family, const Slice& key,
-             const Slice& value);
+             const Slice& value) override;
 
-  void Merge(const Slice& key, const Slice& value);
+  void Merge(const Slice& key, const Slice& value) override;
 
-  void PutLogData(const Slice& blob);
+  using WriteBatchBase::Delete;
+  void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  void Delete(const Slice& key) override;
 
-  void Delete(ColumnFamilyHandle* column_family, const Slice& key);
-  void Delete(const Slice& key);
+  using WriteBatchBase::PutLogData;
+  void PutLogData(const Slice& blob) override;
+
+  using WriteBatchBase::Clear;
+  void Clear() override;
+
+  using WriteBatchBase::GetWriteBatch;
+  WriteBatch* GetWriteBatch() override;
 
   // Create an iterator of a column family. User can call iterator.Seek() to
   // search to the next entry of or after a key. Keys will be iterated in the
@@ -108,6 +122,37 @@ class WriteBatchWithIndex {
                                 Iterator* base_iterator);
   // default column family
   Iterator* NewIteratorWithBase(Iterator* base_iterator);
+
+  // Similar to DB::Get() but will only read the key from this batch.
+  // If the batch does not have enough data to resolve Merge operations,
+  // MergeInProgress status may be returned.
+  Status GetFromBatch(ColumnFamilyHandle* column_family,
+                      const DBOptions& options, const Slice& key,
+                      std::string* value);
+
+  // Similar to previous function but does not require a column_family.
+  // Note:  An InvalidArgument status will be returned if there are any Merge
+  // operators for this key.
+  Status GetFromBatch(const DBOptions& options, const Slice& key,
+                      std::string* value) {
+    return GetFromBatch(nullptr, options, key, value);
+  }
+
+  // Similar to DB::Get() but will also read writes from this batch.
+  //
+  // This function will query both this batch and the DB and then merge
+  // the results using the DB's merge operator (if the batch contains any
+  // merge requests).
+  //
+  // Setting read_options.snapshot will affect what is read from the DB
+  // but will NOT change which keys are read from the batch (the keys in
+  // this batch do not yet belong to any snapshot and will be fetched
+  // regardless).
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           const Slice& key, std::string* value);
+  Status GetFromBatchAndDB(DB* db, const ReadOptions& read_options,
+                           ColumnFamilyHandle* column_family, const Slice& key,
+                           std::string* value);
 
  private:
   struct Rep;

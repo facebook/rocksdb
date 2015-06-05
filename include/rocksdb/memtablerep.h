@@ -84,7 +84,9 @@ class MemTableRep {
   virtual bool Contains(const char* key) const = 0;
 
   // Notify this table rep that it will no longer be added to. By default, does
-  // nothing.
+  // nothing.  After MarkReadOnly() is called, this table rep will not be
+  // written to (ie No more calls to Allocate(), Insert(), or any writes done
+  // directly to entries accessed through the iterator.)
   virtual void MarkReadOnly() { }
 
   // Look up key from the mem table, since the first key in the mem table whose

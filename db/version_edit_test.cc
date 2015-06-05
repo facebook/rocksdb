@@ -22,9 +22,9 @@ static void TestEncodeDecode(const VersionEdit& edit) {
   ASSERT_EQ(encoded, encoded2);
 }
 
-class VersionEditTest { };
+class VersionEditTest : public testing::Test {};
 
-TEST(VersionEditTest, EncodeDecode) {
+TEST_F(VersionEditTest, EncodeDecode) {
   static const uint64_t kBig = 1ull << 50;
   static const uint32_t kBig32Bit = 1ull << 30;
 
@@ -45,7 +45,7 @@ TEST(VersionEditTest, EncodeDecode) {
   TestEncodeDecode(edit);
 }
 
-TEST(VersionEditTest, EncodeEmptyFile) {
+TEST_F(VersionEditTest, EncodeEmptyFile) {
   VersionEdit edit;
   edit.AddFile(0, 0, 0, 0,
                InternalKey(),
@@ -55,7 +55,7 @@ TEST(VersionEditTest, EncodeEmptyFile) {
   ASSERT_TRUE(!edit.EncodeTo(&buffer));
 }
 
-TEST(VersionEditTest, ColumnFamilyTest) {
+TEST_F(VersionEditTest, ColumnFamilyTest) {
   VersionEdit edit;
   edit.SetColumnFamily(2);
   edit.AddColumnFamily("column_family");
@@ -71,5 +71,6 @@ TEST(VersionEditTest, ColumnFamilyTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }

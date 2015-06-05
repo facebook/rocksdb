@@ -27,6 +27,7 @@
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/sync_point.h"
 #include "util/testutil.h"
@@ -35,11 +36,11 @@
 
 namespace rocksdb {
 
-class EventListenerTest {
+class EventListenerTest : public testing::Test {
  public:
   EventListenerTest() {
     dbname_ = test::TmpDir() + "/listener_test";
-    ASSERT_OK(DestroyDB(dbname_, Options()));
+    EXPECT_OK(DestroyDB(dbname_, Options()));
     db_ = nullptr;
     Reopen();
   }
@@ -51,7 +52,7 @@ class EventListenerTest {
     options.db_paths.emplace_back(dbname_ + "_2", 0);
     options.db_paths.emplace_back(dbname_ + "_3", 0);
     options.db_paths.emplace_back(dbname_ + "_4", 0);
-    ASSERT_OK(DestroyDB(dbname_, options));
+    EXPECT_OK(DestroyDB(dbname_, options));
   }
 
   void CreateColumnFamilies(const std::vector<std::string>& cfs,
@@ -91,7 +92,7 @@ class EventListenerTest {
       const std::vector<std::string>& cfs,
       const std::vector<const Options*>& options) {
     Close();
-    ASSERT_EQ(cfs.size(), options.size());
+    EXPECT_EQ(cfs.size(), options.size());
     std::vector<ColumnFamilyDescriptor> column_families;
     for (size_t i = 0; i < cfs.size(); ++i) {
       column_families.push_back(ColumnFamilyDescriptor(cfs[i], *options[i]));
@@ -151,13 +152,17 @@ class EventListenerTest {
 class TestCompactionListener : public EventListener {
  public:
   void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) override {
+    std::lock_guard<std::mutex> lock(mutex_);
     compacted_dbs_.push_back(db);
+    ASSERT_GT(ci.input_files.size(), 0U);
+    ASSERT_GT(ci.output_files.size(), 0U);
   }
 
   std::vector<DB*> compacted_dbs_;
+  std::mutex mutex_;
 };
 
-TEST(EventListenerTest, OnSingleDBCompactionTest) {
+TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
@@ -203,6 +208,7 @@ TEST(EventListenerTest, OnSingleDBCompactionTest) {
   }
 }
 
+// This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
 
@@ -211,28 +217,46 @@ class TestFlushListener : public EventListener {
      stop_count(0)
    {}
 
+  void OnTableFileCreated(
+      const TableFileCreationInfo& info) override {
+    db_name_ = info.db_name;
+    cf_name_ = info.cf_name;
+    ASSERT_GT(info.table_properties.raw_key_size, 0U);
+    ASSERT_GT(info.table_properties.raw_value_size, 0U);
+    ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+    ASSERT_GT(info.table_properties.num_entries, 0U);
+  }
+
   void OnFlushCompleted(
-      DB* db, const std::string& name,
+      DB* db, const std::string& cf_name,
       const std::string& file_path,
       bool triggered_writes_slowdown,
       bool triggered_writes_stop) override {
     flushed_dbs_.push_back(db);
-    flushed_column_family_names_.push_back(name);
+    flushed_column_family_names_.push_back(cf_name);
     if (triggered_writes_slowdown) {
       slowdown_count++;
     }
     if (triggered_writes_stop) {
       stop_count++;
     }
+    // verify the file created matches the flushed file.
+    ASSERT_EQ(db_name_, db->GetName());
+    ASSERT_EQ(cf_name_, cf_name);
+    ASSERT_GT(file_path.size(), 0U);
+    ASSERT_EQ(file_path, file_path_);
   }
 
   std::vector<std::string> flushed_column_family_names_;
   std::vector<DB*> flushed_dbs_;
   int slowdown_count;
   int stop_count;
+  std::string db_name_;
+  std::string cf_name_;
+  std::string file_path_;
 };
 
-TEST(EventListenerTest, OnSingleDBFlushTest) {
+TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
   options.write_buffer_size = 100000;
   TestFlushListener* listener = new TestFlushListener();
@@ -263,7 +287,7 @@ TEST(EventListenerTest, OnSingleDBFlushTest) {
   }
 }
 
-TEST(EventListenerTest, MultiCF) {
+TEST_F(EventListenerTest, MultiCF) {
   Options options;
   options.write_buffer_size = 100000;
   TestFlushListener* listener = new TestFlushListener();
@@ -293,7 +317,7 @@ TEST(EventListenerTest, MultiCF) {
   }
 }
 
-TEST(EventListenerTest, MultiDBMultiListeners) {
+TEST_F(EventListenerTest, MultiDBMultiListeners) {
   std::vector<TestFlushListener*> listeners;
   const int kNumDBs = 5;
   const int kNumListeners = 10;
@@ -369,7 +393,7 @@ TEST(EventListenerTest, MultiDBMultiListeners) {
   }
 }
 
-TEST(EventListenerTest, DisableBGCompaction) {
+TEST_F(EventListenerTest, DisableBGCompaction) {
   Options options;
   TestFlushListener* listener = new TestFlushListener();
   const int kSlowdownTrigger = 5;
@@ -402,6 +426,7 @@ TEST(EventListenerTest, DisableBGCompaction) {
 #endif  // ROCKSDB_LITE
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
 

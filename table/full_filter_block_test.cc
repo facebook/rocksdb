@@ -93,7 +93,7 @@ class TestHashFilter : public FilterPolicy {
   }
 };
 
-class PluginFullFilterBlockTest {
+class PluginFullFilterBlockTest : public testing::Test {
  public:
   BlockBasedTableOptions table_options_;
 
@@ -102,7 +102,7 @@ class PluginFullFilterBlockTest {
   }
 };
 
-TEST(PluginFullFilterBlockTest, PluginEmptyBuilder) {
+TEST_F(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   FullFilterBlockBuilder builder(
       nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
   Slice block = builder.Finish();
@@ -115,7 +115,7 @@ TEST(PluginFullFilterBlockTest, PluginEmptyBuilder) {
   ASSERT_TRUE(reader.KeyMayMatch("foo"));
 }
 
-TEST(PluginFullFilterBlockTest, PluginSingleChunk) {
+TEST_F(PluginFullFilterBlockTest, PluginSingleChunk) {
   FullFilterBlockBuilder builder(
       nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
   builder.Add("foo");
@@ -136,7 +136,7 @@ TEST(PluginFullFilterBlockTest, PluginSingleChunk) {
   ASSERT_TRUE(!reader.KeyMayMatch("other"));
 }
 
-class FullFilterBlockTest {
+class FullFilterBlockTest : public testing::Test {
  public:
   BlockBasedTableOptions table_options_;
 
@@ -147,7 +147,7 @@ class FullFilterBlockTest {
   ~FullFilterBlockTest() {}
 };
 
-TEST(FullFilterBlockTest, EmptyBuilder) {
+TEST_F(FullFilterBlockTest, EmptyBuilder) {
   FullFilterBlockBuilder builder(
       nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
   Slice block = builder.Finish();
@@ -160,7 +160,7 @@ TEST(FullFilterBlockTest, EmptyBuilder) {
   ASSERT_TRUE(reader.KeyMayMatch("foo"));
 }
 
-TEST(FullFilterBlockTest, SingleChunk) {
+TEST_F(FullFilterBlockTest, SingleChunk) {
   FullFilterBlockBuilder builder(
       nullptr, true, table_options_.filter_policy->GetFilterBitsBuilder());
   builder.Add("foo");
@@ -183,4 +183,7 @@ TEST(FullFilterBlockTest, SingleChunk) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

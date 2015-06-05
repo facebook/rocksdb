@@ -190,16 +190,16 @@ class autovector {
 
   bool empty() const { return size() == 0; }
 
-  // will not check boundry
   const_reference operator[](size_type n) const {
+    assert(n < size());
     return n < kSize ? values_[n] : vect_[n - kSize];
   }
 
   reference operator[](size_type n) {
+    assert(n < size());
     return n < kSize ? values_[n] : vect_[n - kSize];
   }
 
-  // will check boundry
   const_reference at(size_type n) const {
     assert(n < size());
     return (*this)[n];

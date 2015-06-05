@@ -27,6 +27,7 @@ class WriteThread {
     bool disableWAL;
     bool in_batch_group;
     bool done;
+    bool has_callback;
     uint64_t timeout_hint_us;
     InstrumentedCondVar cv;
 
@@ -36,6 +37,7 @@ class WriteThread {
           disableWAL(false),
           in_batch_group(false),
           done(false),
+          has_callback(false),
           timeout_hint_us(kNoTimeOut),
           cv(mu) {}
   };

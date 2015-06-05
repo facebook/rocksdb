@@ -10,6 +10,7 @@
 #include "rocksdb/slice.h"
 #include <string>
 #include <deque>
+#include "rocksdb/env.h"
 
 namespace rocksdb {
 
@@ -34,6 +35,15 @@ class MergeHelper {
         operands_(),
         success_(false) {}
 
+  // Wrapper around MergeOperator::FullMerge() that records perf statistics.
+  // Result of merge will be written to result if status returned is OK.
+  // If operands is empty, the value will simply be copied to result.
+  static Status TimedFullMerge(const Slice& key, const Slice* value,
+                               const std::deque<std::string>& operands,
+                               const MergeOperator* merge_operator,
+                               Statistics* statistics, Env* env, Logger* logger,
+                               std::string* result);
+
   // Merge entries until we hit
   //     - a corrupted key
   //     - a Put/Delete,
@@ -48,7 +58,7 @@ class MergeHelper {
   //                   we could reach the start of the history of this user key.
   void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
                   bool at_bottom = false, Statistics* stats = nullptr,
-                  int* steps = nullptr);
+                  int* steps = nullptr, Env* env_ = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call

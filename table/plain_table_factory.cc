@@ -27,19 +27,17 @@ Status PlainTableFactory::NewTableReader(const ImmutableCFOptions& ioptions,
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
-    const ImmutableCFOptions& ioptions,
-    const InternalKeyComparator& internal_comparator, WritableFile* file,
-    const CompressionType, const CompressionOptions&,
-    const bool skip_filters) const {
-
+    const TableBuilderOptions& table_builder_options,
+    WritableFile* file) const {
   // Ignore the skip_filters flag. PlainTable format is optimized for small
   // in-memory dbs. The skip_filters optimization is not useful for plain
   // tables
   //
-  return new PlainTableBuilder(ioptions, file, user_key_len_, encoding_type_,
-                               index_sparseness_, bloom_bits_per_key_, 6,
-                               huge_page_tlb_size_, hash_table_ratio_,
-                               store_index_in_file_);
+  return new PlainTableBuilder(
+      table_builder_options.ioptions,
+      table_builder_options.int_tbl_prop_collector_factories, file,
+      user_key_len_, encoding_type_, index_sparseness_, bloom_bits_per_key_, 6,
+      huge_page_tlb_size_, hash_table_ratio_, store_index_in_file_);
 }
 
 std::string PlainTableFactory::GetPrintableTableOptions() const {

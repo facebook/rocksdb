@@ -6,44 +6,46 @@
 // This file implements the "bridge" between Java and C++ and enables
 // calling c++ rocksdb::Env methods from Java side.
 
+#include "include/org_rocksdb_Env.h"
 #include "include/org_rocksdb_RocksEnv.h"
+#include "include/org_rocksdb_RocksMemEnv.h"
 #include "rocksdb/env.h"
 
 /*
- * Class:     org_rocksdb_RocksEnv
+ * Class:     org_rocksdb_Env
  * Method:    getDefaultEnvInternal
  * Signature: ()J
  */
-jlong Java_org_rocksdb_RocksEnv_getDefaultEnvInternal(
+jlong Java_org_rocksdb_Env_getDefaultEnvInternal(
     JNIEnv* env, jclass jclazz) {
   return reinterpret_cast<jlong>(rocksdb::Env::Default());
 }
 
 /*
- * Class:     org_rocksdb_RocksEnv
+ * Class:     org_rocksdb_Env
  * Method:    setBackgroundThreads
  * Signature: (JII)V
  */
-void Java_org_rocksdb_RocksEnv_setBackgroundThreads(
+void Java_org_rocksdb_Env_setBackgroundThreads(
     JNIEnv* env, jobject jobj, jlong jhandle,
     jint num, jint priority) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
   switch (priority) {
-    case org_rocksdb_RocksEnv_FLUSH_POOL:
+    case org_rocksdb_Env_FLUSH_POOL:
       rocks_env->SetBackgroundThreads(num, rocksdb::Env::Priority::LOW);
       break;
-    case org_rocksdb_RocksEnv_COMPACTION_POOL:
+    case org_rocksdb_Env_COMPACTION_POOL:
       rocks_env->SetBackgroundThreads(num, rocksdb::Env::Priority::HIGH);
       break;
   }
 }
 
 /*
- * Class:     org_rocksdb_RocksEnv
+ * Class:     org_rocksdb_sEnv
  * Method:    getThreadPoolQueueLen
  * Signature: (JI)I
  */
-jint Java_org_rocksdb_RocksEnv_getThreadPoolQueueLen(
+jint Java_org_rocksdb_Env_getThreadPoolQueueLen(
     JNIEnv* env, jobject jobj, jlong jhandle, jint pool_id) {
   auto* rocks_env = reinterpret_cast<rocksdb::Env*>(jhandle);
   switch (pool_id) {
@@ -56,11 +58,22 @@ jint Java_org_rocksdb_RocksEnv_getThreadPoolQueueLen(
 }
 
 /*
- * Class:     org_rocksdb_RocksEnv
+ * Class:     org_rocksdb_RocksMemEnv
+ * Method:    createMemEnv
+ * Signature: ()J
+ */
+jlong Java_org_rocksdb_RocksMemEnv_createMemEnv(
+    JNIEnv* env, jclass jclazz) {
+  return reinterpret_cast<jlong>(rocksdb::NewMemEnv(
+      rocksdb::Env::Default()));
+}
+
+/*
+ * Class:     org_rocksdb_RocksMemEnv
  * Method:    disposeInternal
  * Signature: (J)V
  */
-void Java_org_rocksdb_RocksEnv_disposeInternal(
+void Java_org_rocksdb_RocksMemEnv_disposeInternal(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   delete reinterpret_cast<rocksdb::Env*>(jhandle);
 }

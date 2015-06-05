@@ -18,6 +18,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/perf_context_imp.h"
+#include "util/string_util.h"
 #include "util/xxhash.h"
 
 namespace rocksdb {
@@ -196,15 +197,15 @@ std::string Footer::ToString() const {
   if (legacy) {
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
-                  "\n  ");
+    result.append("table_magic_number: " +
+                  rocksdb::ToString(table_magic_number_) + "\n  ");
   } else {
-    result.append("checksum: " + std::to_string(checksum_) + "\n  ");
+    result.append("checksum: " + rocksdb::ToString(checksum_) + "\n  ");
     result.append("metaindex handle: " + metaindex_handle_.ToString() + "\n  ");
     result.append("index handle: " + index_handle_.ToString() + "\n  ");
-    result.append("footer version: " + std::to_string(version_) + "\n  ");
-    result.append("table_magic_number: " + std::to_string(table_magic_number_) +
-                  "\n  ");
+    result.append("footer version: " + rocksdb::ToString(version_) + "\n  ");
+    result.append("table_magic_number: " +
+                  rocksdb::ToString(table_magic_number_) + "\n  ");
   }
   return result;
 }

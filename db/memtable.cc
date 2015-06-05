@@ -54,7 +54,7 @@ MemTableOptions::MemTableOptions(
 MemTable::MemTable(const InternalKeyComparator& cmp,
                    const ImmutableCFOptions& ioptions,
                    const MutableCFOptions& mutable_cf_options,
-                   WriteBuffer* write_buffer)
+                   WriteBuffer* write_buffer, SequenceNumber earliest_seq)
     : comparator_(cmp),
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
@@ -65,16 +65,20 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
           comparator_, &allocator_, ioptions.prefix_extractor,
           ioptions.info_log)),
       num_entries_(0),
+      num_deletes_(0),
       flush_in_progress_(false),
       flush_completed_(false),
       file_number_(0),
       first_seqno_(0),
+      earliest_seqno_(earliest_seq),
       mem_next_logfile_number_(0),
-      locks_(moptions_.inplace_update_support ?
-             moptions_.inplace_update_num_locks : 0),
+      locks_(moptions_.inplace_update_support
+                 ? moptions_.inplace_update_num_locks
+                 : 0),
       prefix_extractor_(ioptions.prefix_extractor),
       should_flush_(ShouldFlushNow()),
-      flush_scheduled_(false) {
+      flush_scheduled_(false),
+      env_(ioptions.env) {
   // if should_flush_ == true without an entry inserted, something must have
   // gone wrong already.
   assert(!should_flush_);
@@ -306,13 +310,17 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;
-  EncodeFixed64(p, (s << 8) | type);
+  uint64_t packed = PackSequenceAndType(s, type);
+  EncodeFixed64(p, packed);
   p += 8;
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(handle);
   num_entries_++;
+  if (type == kTypeDeletion) {
+    num_deletes_++;
+  }
 
   if (prefix_bloom_) {
     assert(prefix_extractor_);
@@ -323,6 +331,11 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   assert(first_seqno_ == 0 || s > first_seqno_);
   if (first_seqno_ == 0) {
     first_seqno_ = s;
+
+    if (earliest_seqno_ == kMaxSequenceNumber) {
+      earliest_seqno_ = first_seqno_;
+    }
+    assert(first_seqno_ >= earliest_seqno_);
   }
 
   should_flush_ = ShouldFlushNow();
@@ -337,6 +350,7 @@ struct Saver {
   bool* found_final_value;  // Is value set correctly? Used by KeyMayExist
   bool* merge_in_progress;
   std::string* value;
+  SequenceNumber seq;
   const MergeOperator* merge_operator;
   // the merge operations encountered;
   MergeContext* merge_context;
@@ -344,6 +358,7 @@ struct Saver {
   Logger* logger;
   Statistics* statistics;
   bool inplace_update_support;
+  Env* env_;
 };
 }  // namespace
 
@@ -369,7 +384,10 @@ static bool SaveValue(void* arg, const char* entry) {
           Slice(key_ptr, key_length - 8), s->key->user_key()) == 0) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
-    switch (static_cast<ValueType>(tag & 0xff)) {
+    ValueType type;
+    UnPackSequenceAndType(tag, &s->seq, &type);
+
+    switch (type) {
       case kTypeValue: {
         if (s->inplace_update_support) {
           s->mem->GetLock(s->key->user_key())->ReadLock();
@@ -378,9 +396,17 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->status) = Status::OK();
         if (*(s->merge_in_progress)) {
           assert(merge_operator);
-          if (!merge_operator->FullMerge(s->key->user_key(), &v,
-                                         merge_context->GetOperands(), s->value,
-                                         s->logger)) {
+          bool merge_success = false;
+          {
+            StopWatchNano timer(s->env_, s->statistics != nullptr);
+            PERF_TIMER_GUARD(merge_operator_time_nanos);
+            merge_success = merge_operator->FullMerge(
+                s->key->user_key(), &v, merge_context->GetOperands(), s->value,
+                s->logger);
+            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
+                       timer.ElapsedNanos());
+          }
+          if (!merge_success) {
             RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
             *(s->status) =
                 Status::Corruption("Error: Could not perform merge.");
@@ -398,9 +424,17 @@ static bool SaveValue(void* arg, const char* entry) {
         if (*(s->merge_in_progress)) {
           assert(merge_operator);
           *(s->status) = Status::OK();
-          if (!merge_operator->FullMerge(s->key->user_key(), nullptr,
-                                         merge_context->GetOperands(), s->value,
-                                         s->logger)) {
+          bool merge_success = false;
+          {
+            StopWatchNano timer(s->env_, s->statistics != nullptr);
+            PERF_TIMER_GUARD(merge_operator_time_nanos);
+            merge_success = merge_operator->FullMerge(
+                s->key->user_key(), nullptr, merge_context->GetOperands(),
+                s->value, s->logger);
+            RecordTick(s->statistics, MERGE_OPERATION_TOTAL_TIME,
+                       timer.ElapsedNanos());
+          }
+          if (!merge_success) {
             RecordTick(s->statistics, NUMBER_MERGE_FAILURES);
             *(s->status) =
                 Status::Corruption("Error: Could not perform merge.");
@@ -438,7 +472,7 @@ static bool SaveValue(void* arg, const char* entry) {
 }
 
 bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
-                   MergeContext* merge_context) {
+                   MergeContext* merge_context, SequenceNumber* seq) {
   // The sequence number is updated synchronously in version_set.h
   if (IsEmpty()) {
     // Avoiding recording stats for speed.
@@ -453,6 +487,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
   if (prefix_bloom_ &&
       !prefix_bloom_->MayContain(prefix_extractor_->Transform(user_key))) {
     // iter is null if prefix bloom says the key does not exist
+    *seq = kMaxSequenceNumber;
   } else {
     Saver saver;
     saver.status = s;
@@ -460,14 +495,17 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
     saver.merge_in_progress = &merge_in_progress;
     saver.key = &key;
     saver.value = value;
-    saver.status = s;
+    saver.seq = kMaxSequenceNumber;
     saver.mem = this;
     saver.merge_context = merge_context;
     saver.merge_operator = moptions_.merge_operator;
     saver.logger = moptions_.info_log;
     saver.inplace_update_support = moptions_.inplace_update_support;
     saver.statistics = moptions_.statistics;
+    saver.env_ = env_;
     table_->Get(key, &saver, SaveValue);
+
+    *seq = saver.seq;
   }
 
   // No change to value, since we have not yet found a Put/Delete
@@ -505,7 +543,10 @@ void MemTable::Update(SequenceNumber seq,
         Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
-      switch (static_cast<ValueType>(tag & 0xff)) {
+      ValueType type;
+      SequenceNumber unused;
+      UnPackSequenceAndType(tag, &unused, &type);
+      switch (type) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
           uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
@@ -563,7 +604,10 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
         Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
-      switch (static_cast<ValueType>(tag & 0xff)) {
+      ValueType type;
+      uint64_t unused;
+      UnPackSequenceAndType(tag, &unused, &type);
+      switch (type) {
         case kTypeValue: {
           Slice prev_value = GetLengthPrefixedSlice(key_ptr + key_length);
           uint32_t prev_size = static_cast<uint32_t>(prev_value.size());
@@ -633,7 +677,10 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
     }
 
     const uint64_t tag = DecodeFixed64(iter_key_ptr + key_length - 8);
-    if (static_cast<ValueType>(tag & 0xff) != kTypeMerge) {
+    ValueType type;
+    uint64_t unused;
+    UnPackSequenceAndType(tag, &unused, &type);
+    if (type != kTypeMerge) {
       break;
     }
 

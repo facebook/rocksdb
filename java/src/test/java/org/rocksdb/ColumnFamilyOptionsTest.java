@@ -8,6 +8,8 @@ package org.rocksdb;
 import org.junit.ClassRule;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 import java.util.Random;
 
@@ -231,6 +233,22 @@ public class ColumnFamilyOptionsTest {
       long longValue = rand.nextLong();
       opt.setMaxBytesForLevelBase(longValue);
       assertThat(opt.maxBytesForLevelBase()).isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void levelCompactionDynamicLevelBytes() {
+    ColumnFamilyOptions opt = null;
+    try {
+      opt = new ColumnFamilyOptions();
+      final boolean boolValue = rand.nextBoolean();
+      opt.setLevelCompactionDynamicLevelBytes(boolValue);
+      assertThat(opt.levelCompactionDynamicLevelBytes())
+          .isEqualTo(boolValue);
     } finally {
       if (opt != null) {
         opt.dispose();
@@ -539,6 +557,21 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
+  public void optimizeFiltersForHits() {
+    ColumnFamilyOptions opt = null;
+    try {
+      boolean aBoolean = rand.nextBoolean();
+      opt = new ColumnFamilyOptions();
+      opt.setOptimizeFiltersForHits(aBoolean);
+      assertThat(opt.optimizeFiltersForHits()).isEqualTo(aBoolean);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void memTable() throws RocksDBException {
     ColumnFamilyOptions opt = null;
     try {
@@ -599,20 +632,74 @@ public class ColumnFamilyOptionsTest {
 
   @Test
   public void compressionTypes() {
-    ColumnFamilyOptions ColumnFamilyOptions = null;
+    ColumnFamilyOptions columnFamilyOptions = null;
     try {
-      ColumnFamilyOptions = new ColumnFamilyOptions();
+      columnFamilyOptions = new ColumnFamilyOptions();
       for (CompressionType compressionType :
           CompressionType.values()) {
-        ColumnFamilyOptions.setCompressionType(compressionType);
-        assertThat(ColumnFamilyOptions.compressionType()).
+        columnFamilyOptions.setCompressionType(compressionType);
+        assertThat(columnFamilyOptions.compressionType()).
             isEqualTo(compressionType);
         assertThat(CompressionType.valueOf("NO_COMPRESSION")).
             isEqualTo(CompressionType.NO_COMPRESSION);
       }
     } finally {
-      if (ColumnFamilyOptions != null) {
-        ColumnFamilyOptions.dispose();
+      if (columnFamilyOptions != null) {
+        columnFamilyOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void compressionPerLevel() {
+    ColumnFamilyOptions columnFamilyOptions = null;
+    try {
+      columnFamilyOptions = new ColumnFamilyOptions();
+      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+      List<CompressionType> compressionTypeList = new ArrayList<>();
+      for (int i=0; i < columnFamilyOptions.numLevels(); i++) {
+        compressionTypeList.add(CompressionType.NO_COMPRESSION);
+      }
+      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+      for (CompressionType compressionType : compressionTypeList) {
+        assertThat(compressionType).isEqualTo(
+            CompressionType.NO_COMPRESSION);
+      }
+    } finally {
+      if (columnFamilyOptions != null) {
+        columnFamilyOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void differentCompressionsPerLevel() {
+    ColumnFamilyOptions columnFamilyOptions = null;
+    try {
+      columnFamilyOptions = new ColumnFamilyOptions();
+      columnFamilyOptions.setNumLevels(3);
+
+      assertThat(columnFamilyOptions.compressionPerLevel()).isEmpty();
+      List<CompressionType> compressionTypeList = new ArrayList<>();
+
+      compressionTypeList.add(CompressionType.BZLIB2_COMPRESSION);
+      compressionTypeList.add(CompressionType.SNAPPY_COMPRESSION);
+      compressionTypeList.add(CompressionType.LZ4_COMPRESSION);
+
+      columnFamilyOptions.setCompressionPerLevel(compressionTypeList);
+      compressionTypeList = columnFamilyOptions.compressionPerLevel();
+
+      assertThat(compressionTypeList.size()).isEqualTo(3);
+      assertThat(compressionTypeList).
+          containsExactly(
+              CompressionType.BZLIB2_COMPRESSION,
+              CompressionType.SNAPPY_COMPRESSION,
+              CompressionType.LZ4_COMPRESSION);
+
+    } finally {
+      if (columnFamilyOptions != null) {
+        columnFamilyOptions.dispose();
       }
     }
   }

@@ -20,10 +20,11 @@ void ThreadStatusUtil::TEST_SetStateDelay(
   states_delay[state].store(micro, std::memory_order_relaxed);
 }
 
-void ThreadStatusUtil::TEST_StateDelay(
-    const ThreadStatus::StateType state) {
-  Env::Default()->SleepForMicroseconds(
-      states_delay[state].load(std::memory_order_relaxed));
+void ThreadStatusUtil::TEST_StateDelay(const ThreadStatus::StateType state) {
+  auto delay = states_delay[state].load(std::memory_order_relaxed);
+  if (delay > 0) {
+    Env::Default()->SleepForMicroseconds(delay);
+  }
 }
 
 #endif  // !NDEBUG

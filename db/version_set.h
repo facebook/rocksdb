@@ -18,13 +18,15 @@
 // synchronization on all accesses.
 
 #pragma once
+#include <atomic>
+#include <deque>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
+#include <utility>
 #include <vector>
-#include <deque>
-#include <atomic>
-#include <limits>
+
 #include "db/dbformat.h"
 #include "db/version_builder.h"
 #include "db/version_edit.h"
@@ -36,6 +38,7 @@
 #include "db/log_reader.h"
 #include "db/file_indexer.h"
 #include "db/write_controller.h"
+#include "rocksdb/env.h"
 #include "util/instrumented_mutex.h"
 
 namespace rocksdb {
@@ -118,6 +121,10 @@ class VersionStorageInfo {
       const MutableCFOptions& mutable_cf_options,
       const CompactionOptionsFIFO& compaction_options_fifo);
 
+  // This computes files_marked_for_compaction_ and is called by
+  // ComputeCompactionScore()
+  void ComputeFilesMarkedForCompaction();
+
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
   // Sort all files for this version based on their file size and
@@ -188,6 +195,14 @@ class VersionStorageInfo {
     return num_non_empty_levels_;
   }
 
+  // REQUIRES: This version has been finalized.
+  // (CalculateBaseBytes() is called)
+  // This may or may not return number of level files. It is to keep backward
+  // compatible behavior in universal compaction.
+  int l0_delay_trigger_count() const { return l0_delay_trigger_count_; }
+
+  void set_l0_delay_trigger_count(int v) { l0_delay_trigger_count_ = v; }
+
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
   int NumLevelFiles(int level) const {
     assert(finalized_);
@@ -211,6 +226,14 @@ class VersionStorageInfo {
   const std::vector<int>& FilesBySize(int level) const {
     assert(finalized_);
     return files_by_size_[level];
+  }
+
+  // REQUIRES: This version has been saved (see VersionSet::SaveTo)
+  // REQUIRES: DB mutex held during access
+  const autovector<std::pair<int, FileMetaData*>>& FilesMarkedForCompaction()
+      const {
+    assert(finalized_);
+    return files_marked_for_compaction_;
   }
 
   int base_level() const { return base_level_; }
@@ -311,7 +334,7 @@ class VersionStorageInfo {
   std::vector<FileMetaData*>* files_;
 
   // Level that L0 data should be compacted to. All levels < base_level_ should
-  // be empty.
+  // be empty. -1 if it is not level-compaction so it's not applicable.
   int base_level_;
 
   // A list for the same set of files that are stored in files_,
@@ -331,6 +354,11 @@ class VersionStorageInfo {
   // seconds/minutes (because of concurrent compactions).
   static const size_t number_of_files_to_sort_ = 50;
 
+  // This vector contains list of files marked for compaction and also not
+  // currently being compacted. It is protected by DB mutex. It is calculated in
+  // ComputeCompactionScore()
+  autovector<std::pair<int, FileMetaData*>> files_marked_for_compaction_;
+
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
@@ -340,6 +368,8 @@ class VersionStorageInfo {
   std::vector<int> compaction_level_;
   double max_compaction_score_ = 0.0;   // max score in l1 to ln-1
   int max_compaction_score_level_ = 0;  // level on which max score occurs
+  int l0_delay_trigger_count_ = 0;  // Count used to trigger slow down and stop
+                                    // for number of L0 files.
 
   // the following are the sampled temporary stats.
   // the current accumulated size of sampled files.
@@ -435,6 +465,7 @@ class Version {
   void GetColumnFamilyMetaData(ColumnFamilyMetaData* cf_meta);
 
  private:
+  Env* env_;
   friend class VersionSet;
 
   const InternalKeyComparator* internal_comparator() const {
@@ -587,9 +618,8 @@ class VersionSet {
   // Add all files listed in any live version to *live.
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
-  // Return the approximate offset in the database of the data for
-  // "key" as of version "v".
-  uint64_t ApproximateOffsetOf(Version* v, const InternalKey& key);
+  // Return the approximate size of data to be scanned for range [start, end)
+  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
@@ -625,6 +655,13 @@ class VersionSet {
       if (this->status->ok()) *this->status = s;
     }
   };
+
+  // ApproximateSize helper
+  uint64_t ApproximateSizeLevel0(Version* v, const LevelFilesBrief& files_brief,
+                                 const Slice& start, const Slice& end);
+
+  uint64_t ApproximateSize(Version* v, const FdWithKeyRange& f,
+                           const Slice& key);
 
   // Save current contents to *log
   Status WriteSnapshot(log::Writer* log);

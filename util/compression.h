@@ -34,6 +34,34 @@
 
 namespace rocksdb {
 
+inline bool Snappy_Supported() {
+#ifdef SNAPPY
+  return true;
+#endif
+  return false;
+}
+
+inline bool Zlib_Supported() {
+#ifdef ZLIB
+  return true;
+#endif
+  return false;
+}
+
+inline bool BZip2_Supported() {
+#ifdef BZIP2
+  return true;
+#endif
+  return false;
+}
+
+inline bool LZ4_Supported() {
+#ifdef LZ4
+  return true;
+#endif
+  return false;
+}
+
 // compress_format_version can have two values:
 // 1 -- decompressed sizes for BZip2 and Zlib are not included in the compressed
 // block. Also, decompressed sizes for LZ4 are encoded in platform-dependent

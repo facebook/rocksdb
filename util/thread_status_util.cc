@@ -54,7 +54,50 @@ void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
     return;
   }
 
+  if (op != ThreadStatus::OP_UNKNOWN) {
+    uint64_t current_time = Env::Default()->NowMicros();
+    thread_updater_local_cache_->SetOperationStartTime(current_time);
+  } else {
+    // TDOO(yhchiang): we could report the time when we set operation to
+    // OP_UNKNOWN once the whole instrumentation has been done.
+    thread_updater_local_cache_->SetOperationStartTime(0);
+  }
   thread_updater_local_cache_->SetThreadOperation(op);
+}
+
+ThreadStatus::OperationStage ThreadStatusUtil::SetThreadOperationStage(
+    ThreadStatus::OperationStage stage) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return ThreadStatus::STAGE_UNKNOWN;
+  }
+
+  return thread_updater_local_cache_->SetThreadOperationStage(stage);
+}
+
+void ThreadStatusUtil::SetThreadOperationProperty(
+    int code, uint64_t value) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return;
+  }
+
+  thread_updater_local_cache_->SetThreadOperationProperty(
+      code, value);
+}
+
+void ThreadStatusUtil::IncreaseThreadOperationProperty(
+    int code, uint64_t delta) {
+  if (thread_updater_local_cache_ == nullptr) {
+    // thread_updater_local_cache_ must be set in SetColumnFamily
+    // or other ThreadStatusUtil functions.
+    return;
+  }
+
+  thread_updater_local_cache_->IncreaseThreadOperationProperty(
+      code, delta);
 }
 
 void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
@@ -109,6 +152,15 @@ bool ThreadStatusUtil::MaybeInitThreadLocalUpdater(const Env* env) {
   return (thread_updater_local_cache_ != nullptr);
 }
 
+AutoThreadOperationStageUpdater::AutoThreadOperationStageUpdater(
+    ThreadStatus::OperationStage stage) {
+  prev_stage_ = ThreadStatusUtil::SetThreadOperationStage(stage);
+}
+
+AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {
+  ThreadStatusUtil::SetThreadOperationStage(prev_stage_);
+}
+
 #else
 
 ThreadStatusUpdater* ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
@@ -122,6 +174,14 @@ void ThreadStatusUtil::SetColumnFamily(const ColumnFamilyData* cfd) {
 }
 
 void ThreadStatusUtil::SetThreadOperation(ThreadStatus::OperationType op) {
+}
+
+void ThreadStatusUtil::SetThreadOperationProperty(
+    int code, uint64_t value) {
+}
+
+void ThreadStatusUtil::IncreaseThreadOperationProperty(
+    int code, uint64_t delta) {
 }
 
 void ThreadStatusUtil::SetThreadState(ThreadStatus::StateType state) {
@@ -139,6 +199,13 @@ void ThreadStatusUtil::EraseDatabaseInfo(const DB* db) {
 }
 
 void ThreadStatusUtil::ResetThreadStatus() {
+}
+
+AutoThreadOperationStageUpdater::AutoThreadOperationStageUpdater(
+    ThreadStatus::OperationStage stage) {
+}
+
+AutoThreadOperationStageUpdater::~AutoThreadOperationStageUpdater() {
 }
 
 #endif  // ROCKSDB_USING_THREAD_STATUS

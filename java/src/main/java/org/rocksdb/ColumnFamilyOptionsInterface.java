@@ -5,6 +5,8 @@
 
 package org.rocksdb;
 
+import java.util.List;
+
 public interface ColumnFamilyOptionsInterface {
 
   /**
@@ -152,11 +154,10 @@ public interface ColumnFamilyOptionsInterface {
    * Default: 4MB
    * @param writeBufferSize the size of write buffer.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setWriteBufferSize(long writeBufferSize)
-      throws RocksDBException;
+  Object setWriteBufferSize(long writeBufferSize);
 
   /**
    * Return size of write buffer size.
@@ -248,6 +249,62 @@ public interface ColumnFamilyOptionsInterface {
    * @return Compression type.
    */
   CompressionType compressionType();
+
+  /**
+   * <p>Different levels can have different compression
+   * policies. There are cases where most lower levels
+   * would like to use quick compression algorithms while
+   * the higher levels (which have more data) use
+   * compression algorithms that have better compression
+   * but could be slower. This array, if non-empty, should
+   * have an entry for each level of the database;
+   * these override the value specified in the previous
+   * field 'compression'.</p>
+   *
+   * <strong>NOTICE</strong>
+   * <p>If {@code level_compaction_dynamic_level_bytes=true},
+   * {@code compression_per_level[0]} still determines {@code L0},
+   * but other elements of the array are based on base level
+   * (the level {@code L0} files are merged to), and may not
+   * match the level users see from info log for metadata.
+   * </p>
+   * <p>If {@code L0} files are merged to {@code level - n},
+   * then, for {@code i&gt;0}, {@code compression_per_level[i]}
+   * determines compaction type for level {@code n+i-1}.</p>
+   *
+   * <strong>Example</strong>
+   * <p>For example, if we have 5 levels, and we determine to
+   * merge {@code L0} data to {@code L4} (which means {@code L1..L3}
+   * will be empty), then the new files go to {@code L4} uses
+   * compression type {@code compression_per_level[1]}.</p>
+   *
+   * <p>If now {@code L0} is merged to {@code L2}. Data goes to
+   * {@code L2} will be compressed according to
+   * {@code compression_per_level[1]}, {@code L3} using
+   * {@code compression_per_level[2]}and {@code L4} using
+   * {@code compression_per_level[3]}. Compaction for each
+   * level can change when data grows.</p>
+   *
+   * <p><strong>Default:</strong> empty</p>
+   *
+   * @param compressionLevels list of
+   *     {@link org.rocksdb.CompressionType} instances.
+   *
+   * @return the reference to the current option.
+   */
+  Object setCompressionPerLevel(
+      List<CompressionType> compressionLevels);
+
+  /**
+   * <p>Return the currently set {@link org.rocksdb.CompressionType}
+   * per instances.</p>
+   *
+   * <p>See: {@link #setCompressionPerLevel(java.util.List)}</p>
+   *
+   * @return list of {@link org.rocksdb.CompressionType}
+   *     instances.
+   */
+  List<CompressionType> compressionPerLevel();
 
   /**
    * Set the number of levels for this database
@@ -435,10 +492,97 @@ public interface ColumnFamilyOptionsInterface {
    * and total file size for level-3 will be 2GB.
    * by default 'maxBytesForLevelBase' is 10MB.
    *
-   * @return the upper-bound of the total size of leve-1 files in bytes.
+   * @return the upper-bound of the total size of level-1 files
+   *     in bytes.
    * @see #maxBytesForLevelMultiplier()
    */
   long maxBytesForLevelBase();
+
+  /**
+   * <p>If {@code true}, RocksDB will pick target size of each level
+   * dynamically. We will pick a base level b &gt;= 1. L0 will be
+   * directly merged into level b, instead of always into level 1.
+   * Level 1 to b-1 need to be empty. We try to pick b and its target
+   * size so that</p>
+   *
+   * <ol>
+   * <li>target size is in the range of
+   *   (max_bytes_for_level_base / max_bytes_for_level_multiplier,
+   *    max_bytes_for_level_base]</li>
+   * <li>target size of the last level (level num_levels-1) equals to extra size
+   *    of the level.</li>
+   * </ol>
+   *
+   * <p>At the same time max_bytes_for_level_multiplier and
+   * max_bytes_for_level_multiplier_additional are still satisfied.</p>
+   *
+   * <p>With this option on, from an empty DB, we make last level the base
+   * level, which means merging L0 data into the last level, until it exceeds
+   * max_bytes_for_level_base. And then we make the second last level to be
+   * base level, to start to merge L0 data to second last level, with its
+   * target size to be {@code 1/max_bytes_for_level_multiplier} of the last
+   * levels extra size. After the data accumulates more so that we need to
+   * move the base level to the third last one, and so on.</p>
+   *
+   * <h2>Example</h2>
+   * <p>For example, assume {@code max_bytes_for_level_multiplier=10},
+   * {@code num_levels=6}, and {@code max_bytes_for_level_base=10MB}.</p>
+   *
+   * <p>Target sizes of level 1 to 5 starts with:</p>
+   * {@code [- - - - 10MB]}
+   * <p>with base level is level. Target sizes of level 1 to 4 are not applicable
+   * because they will not be used.
+   * Until the size of Level 5 grows to more than 10MB, say 11MB, we make
+   * base target to level 4 and now the targets looks like:</p>
+   * {@code [- - - 1.1MB 11MB]}
+   * <p>While data are accumulated, size targets are tuned based on actual data
+   * of level 5. When level 5 has 50MB of data, the target is like:</p>
+   * {@code [- - - 5MB 50MB]}
+   * <p>Until level 5's actual size is more than 100MB, say 101MB. Now if we
+   * keep level 4 to be the base level, its target size needs to be 10.1MB,
+   * which doesn't satisfy the target size range. So now we make level 3
+   * the target size and the target sizes of the levels look like:</p>
+   * {@code [- - 1.01MB 10.1MB 101MB]}
+   * <p>In the same way, while level 5 further grows, all levels' targets grow,
+   * like</p>
+   * {@code [- - 5MB 50MB 500MB]}
+   * <p>Until level 5 exceeds 1000MB and becomes 1001MB, we make level 2 the
+   * base level and make levels' target sizes like this:</p>
+   * {@code [- 1.001MB 10.01MB 100.1MB 1001MB]}
+   * <p>and go on...</p>
+   *
+   * <p>By doing it, we give {@code max_bytes_for_level_multiplier} a priority
+   * against {@code max_bytes_for_level_base}, for a more predictable LSM tree
+   * shape. It is useful to limit worse case space amplification.</p>
+   *
+   * <p>{@code max_bytes_for_level_multiplier_additional} is ignored with
+   * this flag on.</p>
+   *
+   * <p>Turning this feature on or off for an existing DB can cause unexpected
+   * LSM tree structure so it's not recommended.</p>
+   *
+   * <p><strong>Caution</strong>: this option is experimental</p>
+   *
+   * <p>Default: false</p>
+   *
+   * @param enableLevelCompactionDynamicLevelBytes boolean value indicating
+   *     if {@code LevelCompactionDynamicLevelBytes} shall be enabled.
+   * @return the reference to the current option.
+   */
+  Object setLevelCompactionDynamicLevelBytes(
+      boolean enableLevelCompactionDynamicLevelBytes);
+
+  /**
+   * <p>Return if {@code LevelCompactionDynamicLevelBytes} is enabled.
+   * </p>
+   *
+   * <p>For further information see
+   * {@link #setLevelCompactionDynamicLevelBytes(boolean)}</p>
+   *
+   * @return boolean value indicating if
+   *    {@code levelCompactionDynamicLevelBytes} is enabled.
+   */
+  boolean levelCompactionDynamicLevelBytes();
 
   /**
    * The ratio between the total size of level-(L+1) files and the total
@@ -618,11 +762,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param arenaBlockSize the size of an arena block
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setArenaBlockSize(long arenaBlockSize)
-      throws RocksDBException;
+  Object setArenaBlockSize(long arenaBlockSize);
 
   /**
    * The size of one block in arena memory allocation.
@@ -767,11 +910,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param config the mem-table config.
    * @return the instance of the current Object.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setMemTableConfig(MemTableConfig config)
-      throws RocksDBException;
+  Object setMemTableConfig(MemTableConfig config);
 
   /**
    * Returns the name of the current mem table representation.
@@ -832,11 +974,10 @@ public interface ColumnFamilyOptionsInterface {
    * @param inplaceUpdateNumLocks the number of locks used for
    *     inplace updates.
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setInplaceUpdateNumLocks(long inplaceUpdateNumLocks)
-      throws RocksDBException;
+  Object setInplaceUpdateNumLocks(long inplaceUpdateNumLocks);
 
   /**
    * Number of locks used for inplace update
@@ -927,11 +1068,10 @@ public interface ColumnFamilyOptionsInterface {
    *
    * @param maxSuccessiveMerges the maximum number of successive merges.
    * @return the reference to the current option.
-   * @throws org.rocksdb.RocksDBException thrown on 32-Bit platforms while
-   *    overflowing the underlying platform specific value.
+   * @throws java.lang.IllegalArgumentException thrown on 32-Bit platforms
+   *   while overflowing the underlying platform specific value.
    */
-  Object setMaxSuccessiveMerges(long maxSuccessiveMerges)
-      throws RocksDBException;
+  Object setMaxSuccessiveMerges(long maxSuccessiveMerges);
 
   /**
    * Maximum number of successive merge operations on a key in the memtable.
@@ -974,6 +1114,38 @@ public interface ColumnFamilyOptionsInterface {
    * @return min partial merge operands
    */
   int minPartialMergeOperands();
+
+  /**
+   * <p>This flag specifies that the implementation should optimize the filters
+   * mainly for cases where keys are found rather than also optimize for keys
+   * missed. This would be used in cases where the application knows that
+   * there are very few misses or the performance in the case of misses is not
+   * important.</p>
+   *
+   * <p>For now, this flag allows us to not store filters for the last level i.e
+   * the largest level which contains data of the LSM store. For keys which
+   * are hits, the filters in this level are not useful because we will search
+   * for the data anyway.</p>
+   *
+   * <p><strong>NOTE</strong>: the filters in other levels are still useful
+   * even for key hit because they tell us whether to look in that level or go
+   * to the higher level.</p>
+   *
+   * <p>Default: false<p>
+   *
+   * @param optimizeFiltersForHits boolean value indicating if this flag is set.
+   * @return the reference to the current option.
+   */
+  Object setOptimizeFiltersForHits(boolean optimizeFiltersForHits);
+
+  /**
+   * <p>Returns the current state of the {@code optimize_filters_for_hits}
+   * setting.</p>
+   *
+   * @return boolean value indicating if the flag
+   *     {@code optimize_filters_for_hits} was set.
+   */
+  boolean optimizeFiltersForHits();
 
   /**
    * Default memtable memory budget used with the following methods:

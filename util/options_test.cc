@@ -16,12 +16,12 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
+#include "util/random.h"
 #include "util/testharness.h"
 
 #ifndef GFLAGS
@@ -34,7 +34,7 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 
 namespace rocksdb {
 
-class OptionsTest {};
+class OptionsTest : public testing::Test {};
 
 class StderrLogger : public Logger {
  public:
@@ -70,7 +70,7 @@ Options PrintAndGetOptions(size_t total_write_buffer_limit,
   return options;
 }
 
-TEST(OptionsTest, LooseCondition) {
+TEST_F(OptionsTest, LooseCondition) {
   Options options;
   PrintAndGetOptions(static_cast<size_t>(10) * 1024 * 1024 * 1024, 100, 100);
 
@@ -92,11 +92,12 @@ TEST(OptionsTest, LooseCondition) {
 }
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromMap is not supported in ROCKSDB_LITE
-TEST(OptionsTest, GetOptionsFromMapTest) {
+TEST_F(OptionsTest, GetOptionsFromMapTest) {
   std::unordered_map<std::string, std::string> cf_options_map = {
       {"write_buffer_size", "1"},
       {"max_write_buffer_number", "2"},
       {"min_write_buffer_number_to_merge", "3"},
+      {"max_write_buffer_number_to_maintain", "99"},
       {"compression", "kSnappyCompression"},
       {"compression_per_level",
        "kNoCompression:"
@@ -161,7 +162,6 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
     {"keep_log_file_num", "39"},
     {"max_manifest_file_size", "40"},
     {"table_cache_numshardbits", "41"},
-    {"table_cache_remove_scan_count_limit", "42"},
     {"WAL_ttl_seconds", "43"},
     {"WAL_size_limit_MB", "44"},
     {"manifest_preallocation_size", "45"},
@@ -174,6 +174,7 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
     {"advise_random_on_open", "true"},
     {"use_adaptive_mutex", "false"},
     {"bytes_per_sync", "47"},
+    {"wal_bytes_per_sync", "48"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -183,6 +184,7 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.write_buffer_size, 1U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 2);
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number_to_maintain, 99);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level.size(), 6U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);
@@ -268,7 +270,6 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.keep_log_file_num, 39U);
   ASSERT_EQ(new_db_opt.max_manifest_file_size, static_cast<uint64_t>(40));
   ASSERT_EQ(new_db_opt.table_cache_numshardbits, 41);
-  ASSERT_EQ(new_db_opt.table_cache_remove_scan_count_limit, 42);
   ASSERT_EQ(new_db_opt.WAL_ttl_seconds, static_cast<uint64_t>(43));
   ASSERT_EQ(new_db_opt.WAL_size_limit_MB, static_cast<uint64_t>(44));
   ASSERT_EQ(new_db_opt.manifest_preallocation_size, 45U);
@@ -281,12 +282,13 @@ TEST(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
+  ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
 }
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetColumnFamilyOptionsFromString is not supported in
                       // ROCKSDB_LITE
-TEST(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
+TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ColumnFamilyOptions base_cf_opt;
   ColumnFamilyOptions new_cf_opt;
   base_cf_opt.table_factory.reset();
@@ -434,7 +436,7 @@ TEST(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetBlockBasedTableOptionsFromString is not supported
-TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
+TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
   BlockBasedTableOptions table_opt;
   BlockBasedTableOptions new_opt;
   // make sure default values are overwritten by something else
@@ -489,7 +491,7 @@ TEST(OptionsTest, GetBlockBasedTableOptionsFromString) {
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetPlainTableOptionsFromString is not supported
-TEST(OptionsTest, GetPlainTableOptionsFromString){
+TEST_F(OptionsTest, GetPlainTableOptionsFromString){
   PlainTableOptions table_opt;
   PlainTableOptions new_opt;
   // make sure default values are overwritten by something else
@@ -554,7 +556,7 @@ TEST(OptionsTest, GetMemTableRepFactoryFromString) {
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetOptionsFromString is not supported in RocksDB Lite
-TEST(OptionsTest, GetOptionsFromStringTest) {
+TEST_F(OptionsTest, GetOptionsFromStringTest) {
   Options base_options, new_options;
   base_options.write_buffer_size = 20;
   base_options.min_write_buffer_number_to_merge = 15;
@@ -566,7 +568,7 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
       base_options,
       "write_buffer_size=10;max_write_buffer_number=16;"
       "block_based_table_factory={block_cache=1M;block_size=4;};"
-      "create_if_missing=true;max_open_files=1",
+      "create_if_missing=true;max_open_files=1;rate_limiter_bytes_per_sec=1024",
       &new_options));
 
   ASSERT_EQ(new_options.write_buffer_size, 10U);
@@ -581,6 +583,7 @@ TEST(OptionsTest, GetOptionsFromStringTest) {
 
   ASSERT_EQ(new_options.create_if_missing, true);
   ASSERT_EQ(new_options.max_open_files, 1);
+  ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
 }
 #endif  // !ROCKSDB_LITE
 
@@ -590,7 +593,7 @@ Status StringToMap(
     std::unordered_map<std::string, std::string>* opts_map);
 
 #ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
-TEST(OptionsTest, StringToMapTest) {
+TEST_F(OptionsTest, StringToMapTest) {
   std::unordered_map<std::string, std::string> opts_map;
   // Regular options
   ASSERT_OK(StringToMap("k1=v1;k2=v2;k3=v3", &opts_map));
@@ -709,7 +712,7 @@ TEST(OptionsTest, StringToMapTest) {
 #endif  // ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // StringToMap is not supported in ROCKSDB_LITE
-TEST(OptionsTest, StringToMapRandomTest) {
+TEST_F(OptionsTest, StringToMapRandomTest) {
   std::unordered_map<std::string, std::string> opts_map;
   // Make sure segfault is not hit by semi-random strings
 
@@ -755,7 +758,7 @@ TEST(OptionsTest, StringToMapRandomTest) {
 }
 #endif  // !ROCKSDB_LITE
 
-TEST(OptionsTest, ConvertOptionsTest) {
+TEST_F(OptionsTest, ConvertOptionsTest) {
   LevelDBOptions leveldb_opt;
   Options converted_opt = ConvertOptions(leveldb_opt);
 
@@ -786,8 +789,9 @@ TEST(OptionsTest, ConvertOptionsTest) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
 #ifdef GFLAGS
   ParseCommandLineFlags(&argc, &argv, true);
 #endif  // GFLAGS
-  return rocksdb::test::RunAllTests();
+  return RUN_ALL_TESTS();
 }

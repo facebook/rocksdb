@@ -72,7 +72,7 @@ public class NativeLibraryLoader {
    *
    * @throws java.io.IOException if a filesystem operation fails.
    */
-  private void loadLibraryFromJar(final String tmpDir)
+  void loadLibraryFromJar(final String tmpDir)
       throws IOException {
     if (!initialized) {
       final File temp;
@@ -80,6 +80,10 @@ public class NativeLibraryLoader {
         temp = File.createTempFile(tempFilePrefix, tempFileSuffix);
       } else {
         temp = new File(tmpDir, jniLibraryFileName);
+        if (!temp.createNewFile()) {
+          throw new RuntimeException("File: " + temp.getAbsolutePath()
+              + " could not be created.");
+        }
       }
 
       if (!temp.exists()) {

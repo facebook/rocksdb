@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/db.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "table/mock_table.h"
@@ -20,20 +21,20 @@
 namespace rocksdb {
 
 // TODO(icanadi) Make it simpler once we mock out VersionSet
-class CompactionJobTest {
+class CompactionJobTest : public testing::Test {
  public:
   CompactionJobTest()
       : env_(Env::Default()),
         dbname_(test::TmpDir() + "/compaction_job_test"),
         mutable_cf_options_(Options(), ImmutableCFOptions(Options())),
-        table_cache_(NewLRUCache(50000, 16, 8)),
+        table_cache_(NewLRUCache(50000, 16)),
         write_buffer_(db_options_.db_write_buffer_size),
         versions_(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_,
                                  &write_controller_)),
         shutting_down_(false),
         mock_table_factory_(new mock::MockTableFactory()) {
-    ASSERT_OK(env_->CreateDirIfMissing(dbname_));
+    EXPECT_OK(env_->CreateDirIfMissing(dbname_));
     db_options_.db_paths.emplace_back(dbname_,
                                       std::numeric_limits<uint64_t>::max());
     NewDB();
@@ -41,8 +42,7 @@ class CompactionJobTest {
     cf_options_.table_factory = mock_table_factory_;
     column_families.emplace_back(kDefaultColumnFamilyName, cf_options_);
 
-
-    ASSERT_OK(versions_->Recover(column_families, false));
+    EXPECT_OK(versions_->Recover(column_families, false));
   }
 
   std::string GenerateFileName(uint64_t file_number) {
@@ -66,6 +66,9 @@ class CompactionJobTest {
         auto key = ToString(i * (kKeysPerFile / 2) + k);
         auto value = ToString(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
+        // This is how the key will look like once it's written in bottommost
+        // file
+        InternalKey bottommost_internal_key(key, 0, kTypeValue);
         if (k == 0) {
           smallest = internal_key;
           smallest_seqno = sequence_number;
@@ -74,7 +77,7 @@ class CompactionJobTest {
           largest_seqno = sequence_number;
         }
         std::pair<std::string, std::string> key_value(
-            {internal_key.Encode().ToString(), value});
+            {bottommost_internal_key.Encode().ToString(), value});
         contents.insert(key_value);
         if (i == 1 || k < kKeysPerFile / 2) {
           expected_results.insert(key_value);
@@ -82,7 +85,7 @@ class CompactionJobTest {
       }
 
       uint64_t file_number = versions_->NewFileNumber();
-      ASSERT_OK(mock_table_factory_->CreateMockTable(
+      EXPECT_OK(mock_table_factory_->CreateMockTable(
           env_, GenerateFileName(file_number), std::move(contents)));
 
       VersionEdit edit;
@@ -135,7 +138,7 @@ class CompactionJobTest {
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 };
 
-TEST(CompactionJobTest, Simple) {
+TEST_F(CompactionJobTest, Simple) {
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
   auto expected_results = CreateTwoFiles();
@@ -143,16 +146,15 @@ TEST(CompactionJobTest, Simple) {
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   ASSERT_EQ(2U, files.size());
 
-  std::unique_ptr<Compaction> compaction(Compaction::TEST_NewCompaction(
-      7, 0, 1, 1024 * 1024, 10, 0, kNoCompression));
+  CompactionInputFiles compaction_input_files;
+  compaction_input_files.level = 0;
+  compaction_input_files.files.push_back(files[0]);
+  compaction_input_files.files.push_back(files[1]);
+  std::unique_ptr<Compaction> compaction(new Compaction(
+      cfd->current()->storage_info(), *cfd->GetLatestMutableCFOptions(),
+      {compaction_input_files}, 1, 1024 * 1024, 10, 0, kNoCompression, {}));
   compaction->SetInputVersion(cfd->current());
 
-  auto compaction_input_files = compaction->TEST_GetInputFiles(0);
-  compaction_input_files->level = 0;
-  compaction_input_files->files.push_back(files[0]);
-  compaction_input_files->files.push_back(files[1]);
-
-  SnapshotList snapshots;
   int yield_callback_called = 0;
   std::function<uint64_t()> yield_callback = [&]() {
     yield_callback_called++;
@@ -160,17 +162,20 @@ TEST(CompactionJobTest, Simple) {
   };
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   mutex_.Lock();
-  CompactionJob compaction_job(0, compaction.get(), db_options_,
-                               *cfd->GetLatestMutableCFOptions(), env_options_,
+  EventLogger event_logger(db_options_.info_log.get());
+  std::string db_name = "dbname";
+  CompactionJob compaction_job(0, compaction.get(), db_options_, env_options_,
                                versions_.get(), &shutting_down_, &log_buffer,
-                               nullptr, nullptr, nullptr, &snapshots, true,
-                               table_cache_, std::move(yield_callback));
+                               nullptr, nullptr, nullptr, {}, table_cache_,
+                               std::move(yield_callback), &event_logger, false,
+                               db_name);
+
   compaction_job.Prepare();
   mutex_.Unlock();
   ASSERT_OK(compaction_job.Run());
   mutex_.Lock();
   Status s;
-  compaction_job.Install(&s, &mutex_);
+  compaction_job.Install(&s, *cfd->GetLatestMutableCFOptions(), &mutex_);
   ASSERT_OK(s);
   mutex_.Unlock();
 
@@ -180,4 +185,7 @@ TEST(CompactionJobTest, Simple) {
 
 }  // namespace rocksdb
 
-int main(int argc, char** argv) { return rocksdb::test::RunAllTests(); }
+int main(int argc, char** argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
+}

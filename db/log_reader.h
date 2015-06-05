@@ -22,6 +22,12 @@ using std::unique_ptr;
 
 namespace log {
 
+/**
+ * Reader is a general purpose log stream reader implementation. The actual job
+ * of reading from the device is implemented by the SequentialFile interface.
+ *
+ * Please see Writer for details on the file and record layout.
+ */
 class Reader {
  public:
   // Interface for reporting errors.

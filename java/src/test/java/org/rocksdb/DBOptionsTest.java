@@ -368,22 +368,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void tableCacheRemoveScanCountLimit() {
-    DBOptions opt = null;
-    try {
-      opt = new DBOptions();
-      int intValue = rand.nextInt();
-      opt.setTableCacheRemoveScanCountLimit(intValue);
-      assertThat(opt.tableCacheRemoveScanCountLimit()).
-          isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void walSizeLimitMB() {
     DBOptions opt = null;
     try {
@@ -490,21 +474,6 @@ public class DBOptionsTest {
   }
 
   @Test
-  public void skipLogErrorOnRecovery() {
-    DBOptions opt = null;
-    try {
-      opt = new DBOptions();
-      boolean boolValue = rand.nextBoolean();
-      opt.setSkipLogErrorOnRecovery(boolValue);
-      assertThat(opt.skipLogErrorOnRecovery()).isEqualTo(boolValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void statsDumpPeriodSec() {
     DBOptions opt = null;
     try {
@@ -571,7 +540,7 @@ public class DBOptionsTest {
     try {
       options = new DBOptions();
       RateLimiterConfig rateLimiterConfig =
-          new GenericRateLimiterConfig(1000, 0, 1);
+          new GenericRateLimiterConfig(1000, 100 * 1000, 1);
       options.setRateLimiterConfig(rateLimiterConfig);
       // Test with parameter initialization
       anotherOptions = new DBOptions();

@@ -49,9 +49,9 @@ static void TestKey(const std::string& key,
   ASSERT_TRUE(!ParseInternalKey(Slice("bar"), &decoded));
 }
 
-class FormatTest { };
+class FormatTest : public testing::Test {};
 
-TEST(FormatTest, InternalKey_EncodeDecode) {
+TEST_F(FormatTest, InternalKey_EncodeDecode) {
   const char* keys[] = { "", "k", "hello", "longggggggggggggggggggggg" };
   const uint64_t seq[] = {
     1, 2, 3,
@@ -67,7 +67,7 @@ TEST(FormatTest, InternalKey_EncodeDecode) {
   }
 }
 
-TEST(FormatTest, InternalKeyShortSeparator) {
+TEST_F(FormatTest, InternalKeyShortSeparator) {
   // When user keys are same
   ASSERT_EQ(IKey("foo", 100, kTypeValue),
             Shorten(IKey("foo", 100, kTypeValue),
@@ -103,14 +103,14 @@ TEST(FormatTest, InternalKeyShortSeparator) {
                     IKey("foo", 200, kTypeValue)));
 }
 
-TEST(FormatTest, InternalKeyShortestSuccessor) {
+TEST_F(FormatTest, InternalKeyShortestSuccessor) {
   ASSERT_EQ(IKey("g", kMaxSequenceNumber, kValueTypeForSeek),
             ShortSuccessor(IKey("foo", 100, kTypeValue)));
   ASSERT_EQ(IKey("\xff\xff", 100, kTypeValue),
             ShortSuccessor(IKey("\xff\xff", 100, kTypeValue)));
 }
 
-TEST(FormatTest, IterKeyOperation) {
+TEST_F(FormatTest, IterKeyOperation) {
   IterKey k;
   const char p[] = "abcdefghijklmnopqrstuvwxyz";
   const char q[] = "0123456789";
@@ -152,5 +152,6 @@ TEST(FormatTest, IterKeyOperation) {
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
-  return rocksdb::test::RunAllTests();
+  ::testing::InitGoogleTest(&argc, argv);
+  return RUN_ALL_TESTS();
 }
