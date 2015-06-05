@@ -13238,57 +13238,6 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
 }
-TEST_F(DBTest, TrivialMoveTargetLevel) {
-  int32_t trivial_move = 0;
-  int32_t non_trivial_move = 0;
-/*
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:TrivialMove",
-      [&](void* arg) { trivial_move++;printf("trivial\n"); });
-  rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial",
-      [&](void* arg) { non_trivial_move++;printf("non-trivial\n"); });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-*/
-  Options options = CurrentOptions();
-  options.disable_auto_compactions = true;
-  options.write_buffer_size = 10 * 1024 * 1024;
-  options.num_levels = 5;
-
-  DestroyAndReopen(options);
-  int32_t value_size = 10 * 1024;  // 10 KB
-
-  // Add 2 non-overlapping files
-  Random rnd(301);
-  std::map<int32_t, std::string> values;
-  for (int32_t i = 0; i <= 100; i++) {
-    values[i] = RandomString(&rnd, value_size);
-    ASSERT_OK(Put(Key(i), values[i]));
-  }
-  ASSERT_OK(Flush());
-
-  for (int32_t i = 300; i <= 700; i++) {
-    values[i] = RandomString(&rnd, value_size);
-    ASSERT_OK(Put(Key(i), values[i]));
-  }
-  ASSERT_OK(Flush());
-
-  ASSERT_EQ("2", FilesPerLevel(0));
-  printf("Compact\n");
-  db_->CompactRange(db_->DefaultColumnFamily(), nullptr, nullptr, true, 1, 0);
-  printf("Done\n");
-  ASSERT_EQ("0,0,0,2", FilesPerLevel(0));
-
-  ASSERT_EQ(trivial_move, 3);
-  ASSERT_EQ(non_trivial_move, 0);
-
-  for (int32_t i = 0; i <= 100; i++) {
-    ASSERT_EQ(Get(Key(i)), values[i]);
-  }
-  for (int32_t i = 300; i <= 700; i++) {
-    ASSERT_EQ(Get(Key(i)), values[i]);
-  }
-}
 
 }  // namespace rocksdb
 
