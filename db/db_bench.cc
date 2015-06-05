@@ -3388,7 +3388,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg),
              "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
-             PRIu64 " maxlength:%zu)",
+             PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }

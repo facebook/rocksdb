@@ -178,9 +178,9 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
     for (size_t level = 0; level < src.compression_per_level.size(); ++level) {
       if (!CompressionTypeSupported(src.compression_per_level[level])) {
         Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
-            "Compression type chosen for level %zu is not supported: %s. "
+            "Compression type chosen for level %" ROCKSDB_PRIszt " is not supported: %s. "
             "RocksDB "
-            "will not compress data on level %zu.",
+            "will not compress data on level %" ROCKSDB_PRIszt,
             level, CompressionTypeToString(src.compression_per_level[level]),
             level);
       }

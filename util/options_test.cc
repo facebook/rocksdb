@@ -53,7 +53,7 @@ Options PrintAndGetOptions(size_t total_write_buffer_limit,
 
   if (FLAGS_enable_print) {
     printf(
-        "---- total_write_buffer_limit: %zu "
+        "---- total_write_buffer_limit: %" ROCKSDB_PRIszt " "
         "read_amplification_threshold: %d write_amplification_threshold: %d "
         "target_db_size %" PRIu64 " ----\n",
         total_write_buffer_limit, read_amplification_threshold,
