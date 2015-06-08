@@ -408,6 +408,19 @@ extern void rocksdb_writebatch_put_cf(
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen,
     const char* val, size_t vlen);
+extern void rocksdb_writebatch_putv(
+    rocksdb_writebatch_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
+extern void rocksdb_writebatch_putv_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
 extern void rocksdb_writebatch_merge(
     rocksdb_writebatch_t*,
     const char* key, size_t klen,
@@ -417,6 +430,19 @@ extern void rocksdb_writebatch_merge_cf(
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen,
     const char* val, size_t vlen);
+extern void rocksdb_writebatch_mergev(
+    rocksdb_writebatch_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
+extern void rocksdb_writebatch_mergev_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes,
+    int num_values, const char* const* values_list,
+    const size_t* values_list_sizes);
 extern void rocksdb_writebatch_delete(
     rocksdb_writebatch_t*,
     const char* key, size_t klen);
@@ -424,6 +450,15 @@ extern void rocksdb_writebatch_delete_cf(
     rocksdb_writebatch_t*,
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen);
+void rocksdb_writebatch_deletev(
+    rocksdb_writebatch_t* b,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes);
+void rocksdb_writebatch_deletev_cf(
+    rocksdb_writebatch_t* b,
+    rocksdb_column_family_handle_t* column_family,
+    int num_keys, const char* const* keys_list,
+    const size_t* keys_list_sizes);
 extern void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t*,
     void* state,

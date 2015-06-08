@@ -465,6 +465,24 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_destroy(wb);
   }
 
+  StartPhase("writebatch_vectors");
+  {
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    const char* k_list[2] = { "z", "ap" };
+    const size_t k_sizes[2] = { 1, 2 };
+    const char* v_list[3] = { "x", "y", "z" };
+    const size_t v_sizes[3] = { 1, 1, 1 };
+    rocksdb_writebatch_putv(wb, 2, k_list, k_sizes, 3, v_list, v_sizes);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", "xyz");
+    rocksdb_writebatch_delete(wb, "zap", 3);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", NULL);
+    rocksdb_writebatch_destroy(wb);
+  }
+
   StartPhase("writebatch_rep");
   {
     rocksdb_writebatch_t* wb1 = rocksdb_writebatch_create();
