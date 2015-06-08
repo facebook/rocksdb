@@ -305,7 +305,13 @@ class TtlTest : public testing::Test {
       size_t pos = key_string.find_first_of(search_str);
       int num_key_end;
       if (pos != std::string::npos) {
-        num_key_end = stoi(key_string.substr(pos, key.size() - pos));
+        auto key_substr = key_string.substr(pos, key.size() - pos);
+#ifndef CYGWIN
+        num_key_end = std::stoi(key_substr);
+#else
+        num_key_end = std::strtol(key_substr.c_str(), 0, 10);
+#endif
+
       } else {
         return false; // Keep keys not matching the format "key<NUMBER>"
       }

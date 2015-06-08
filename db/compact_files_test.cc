@@ -9,6 +9,7 @@
 
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -76,9 +77,8 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   // create couple files
   for (int i = 1000; i < 2000; ++i) {
-    db->Put(WriteOptions(),
-        std::to_string(i),
-        std::string(kWriteBufferSize / 10, 'a' + (i % 26)));
+    db->Put(WriteOptions(), ToString(i),
+            std::string(kWriteBufferSize / 10, 'a' + (i % 26)));
   }
 
   auto l0_files = collector->GetFlushedFiles();

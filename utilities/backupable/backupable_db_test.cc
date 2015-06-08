@@ -18,6 +18,7 @@
 #include "util/testharness.h"
 #include "util/random.h"
 #include "util/mutexlock.h"
+#include "util/string_util.h"
 #include "util/testutil.h"
 #include "util/auto_roll_logger.h"
 
@@ -323,8 +324,8 @@ class FileManager : public EnvWrapper {
 static size_t FillDB(DB* db, int from, int to) {
   size_t bytes_written = 0;
   for (int i = from; i < to; ++i) {
-    std::string key = "testkey" + std::to_string(i);
-    std::string value = "testvalue" + std::to_string(i);
+    std::string key = "testkey" + ToString(i);
+    std::string value = "testvalue" + ToString(i);
     bytes_written += key.size() + value.size();
 
     EXPECT_OK(db->Put(WriteOptions(), Slice(key), Slice(value)));
@@ -334,17 +335,17 @@ static size_t FillDB(DB* db, int from, int to) {
 
 static void AssertExists(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
-    std::string key = "testkey" + std::to_string(i);
+    std::string key = "testkey" + ToString(i);
     std::string value;
     Status s = db->Get(ReadOptions(), Slice(key), &value);
-    ASSERT_EQ(value, "testvalue" + std::to_string(i));
+    ASSERT_EQ(value, "testvalue" + ToString(i));
   }
 }
 
 static void AssertEmpty(DB* db, int from, int to) {
   for (int i = from; i < to; ++i) {
-    std::string key = "testkey" + std::to_string(i);
-    std::string value = "testvalue" + std::to_string(i);
+    std::string key = "testkey" + ToString(i);
+    std::string value = "testvalue" + ToString(i);
 
     Status s = db->Get(ReadOptions(), Slice(key), &value);
     ASSERT_TRUE(s.IsNotFound());

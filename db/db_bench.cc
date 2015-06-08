@@ -3665,7 +3665,11 @@ int main(int argc, char** argv) {
       FLAGS_max_bytes_for_level_multiplier_additional, ',');
   for (unsigned int j= 0; j < fanout.size(); j++) {
     FLAGS_max_bytes_for_level_multiplier_additional_v.push_back(
-      std::stoi(fanout[j]));
+#ifndef CYGWIN
+        std::stoi(fanout[j]));
+#else
+        stoi(fanout[j]));
+#endif
   }
 
   FLAGS_compression_type_e =

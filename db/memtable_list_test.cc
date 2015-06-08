@@ -13,6 +13,7 @@
 #include "db/writebuffer.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
@@ -415,11 +416,11 @@ TEST_F(MemTableListTest, FlushPendingTest) {
     std::string value;
     MergeContext merge_context;
 
-    mem->Add(++seq, kTypeValue, "key1", std::to_string(i));
-    mem->Add(++seq, kTypeValue, "keyN" + std::to_string(i), "valueN");
-    mem->Add(++seq, kTypeValue, "keyX" + std::to_string(i), "value");
-    mem->Add(++seq, kTypeValue, "keyM" + std::to_string(i), "valueM");
-    mem->Add(++seq, kTypeDeletion, "keyX" + std::to_string(i), "");
+    mem->Add(++seq, kTypeValue, "key1", ToString(i));
+    mem->Add(++seq, kTypeValue, "keyN" + ToString(i), "valueN");
+    mem->Add(++seq, kTypeValue, "keyX" + ToString(i), "value");
+    mem->Add(++seq, kTypeValue, "keyM" + ToString(i), "valueM");
+    mem->Add(++seq, kTypeDeletion, "keyX" + ToString(i), "");
 
     tables.push_back(mem);
   }

@@ -121,7 +121,7 @@ class ColumnFamilyTest : public testing::Test {
 #ifndef CYGWIN
     return std::stoi(value);
 #else
-    return std::strtol(value.c_str(), 0);
+    return std::strtol(value.c_str(), 0 /* off */, 10 /* base */);
 #endif
   }
 

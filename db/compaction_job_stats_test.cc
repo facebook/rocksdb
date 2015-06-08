@@ -573,7 +573,7 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
       snprintf(buf, kBufSize, "%d", ++num_L0_files);
       ASSERT_EQ(std::string(buf), FilesPerLevel(1));
     }
-    ASSERT_EQ(std::to_string(num_L0_files), FilesPerLevel(1));
+    ASSERT_EQ(ToString(num_L0_files), FilesPerLevel(1));
 
     // 2nd Phase: perform L0 -> L1 compaction.
     int L0_compaction_count = 6;

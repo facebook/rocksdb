@@ -12,6 +12,7 @@
 #include <map>
 #include "db/column_family.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
@@ -981,11 +982,11 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   std::string expected = "X";
 
   for (int i = 0; i < 5; i++) {
-    batch.Merge("x", std::to_string(i));
-    expected = expected + "," + std::to_string(i);
+    batch.Merge("x", ToString(i));
+    expected = expected + "," + ToString(i);
 
     if (i % 2 == 0) {
-      batch.Put("y", std::to_string(i / 2));
+      batch.Put("y", ToString(i / 2));
     }
 
     batch.Merge("z", "z");
@@ -996,7 +997,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
 
     s = batch.GetFromBatch(column_family, options, "y", &value);
     ASSERT_OK(s);
-    ASSERT_EQ(std::to_string(i / 2), value);
+    ASSERT_EQ(ToString(i / 2), value);
 
     s = batch.GetFromBatch(column_family, options, "z", &value);
     ASSERT_TRUE(s.IsMergeInProgress());

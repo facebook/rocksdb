@@ -13282,7 +13282,7 @@ TEST_F(DBTest, LargeBatchWithColumnFamilies) {
               pass);
       for (;;) {
         std::string data(3000, j++ % 127 + 20);
-        data += std::to_string(j);
+        data += ToString(j);
         batch.Put(handles_[0], Slice(data), Slice(data));
         if (batch.GetDataSize() > write_size) {
           break;
