@@ -653,7 +653,6 @@ Status GetBlockBasedTableOptionsFromMap(
       } else {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       }
-    } catch (std::exception& e) {
     } catch (const std::exception& e) {
       return Status::InvalidArgument("error parsing " + o.first + ":" +
                                      std::string(e.what()));

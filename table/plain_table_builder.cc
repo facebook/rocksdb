@@ -59,34 +59,31 @@ extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
-    const ImmutableCFOptions& ioptions,
-    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
-        int_tbl_prop_collector_factories,
-    WritableFile* file, uint32_t user_key_len, EncodingType encoding_type,
-    size_t index_sparseness, uint32_t bloom_bits_per_key, uint32_t num_probes,
-    size_t huge_page_tlb_size, double hash_table_ratio,
-    bool store_index_in_file)
+    const ImmutableCFOptions& ioptions, const PlainTableOptions& table_options,
+    WritableFile* file, uint32_t num_probes)
     : ioptions_(ioptions),
       bloom_block_(num_probes),
       file_(file),
-      bloom_bits_per_key_(bloom_bits_per_key),
-      huge_page_tlb_size_(huge_page_tlb_size),
-      encoder_(encoding_type, user_key_len, ioptions.prefix_extractor,
-               index_sparseness),
-      store_index_in_file_(store_index_in_file),
+      bloom_bits_per_key_(table_options.bloom_bits_per_key),
+      huge_page_tlb_size_(table_options.huge_page_tlb_size),
+      encoder_(table_options.encoding_type, table_options.user_key_len, 
+               ioptions.prefix_extractor, table_options.index_sparseness),
+      store_index_in_file_(table_options.store_index_in_file),
       prefix_extractor_(ioptions.prefix_extractor) {
   // Build index block and save it in the file if hash_table_ratio > 0
   if (store_index_in_file_) {
-    assert(hash_table_ratio > 0 || IsTotalOrderMode());
+    assert(table_options.hash_table_ratio > 0 || IsTotalOrderMode());
     index_builder_.reset(
-        new PlainTableIndexBuilder(&arena_, ioptions, index_sparseness,
-                                   hash_table_ratio, huge_page_tlb_size_));
+        new PlainTableIndexBuilder(&arena_, ioptions,
+                                   table_options.index_sparseness,
+                                   table_options.hash_table_ratio,
+                                   huge_page_tlb_size_));
     assert(bloom_bits_per_key_ > 0);
     properties_.user_collected_properties
         [PlainTablePropertyNames::kBloomVersion] = "1";  // For future use
   }
 
-  properties_.fixed_key_len = user_key_len;
+  properties_.fixed_key_len = table_options.user_key_len;
 
   // for plain table, we put all the data in a big chuck.
   properties_.num_data_blocks = 1;
@@ -95,7 +92,7 @@ PlainTableBuilder::PlainTableBuilder(
   properties_.filter_size = 0;
   // To support roll-back to previous version, now still use version 0 for
   // plain encoding.
-  properties_.format_version = (encoding_type == kPlain) ? 0 : 1;
+  properties_.format_version = (table_options.encoding_type == kPlain) ? 0 : 1;
 
   if (ioptions_.prefix_extractor) {
     properties_.user_collected_properties
