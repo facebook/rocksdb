@@ -189,13 +189,13 @@ struct ColumnFamilyOptions {
   // compaction is being used, each created CompactionFilter will only be used
   // from a single thread and so does not need to be thread-safe.
   //
-  // Default: a factory that doesn't provide any object
+  // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
   // Version TWO of the compaction_filter_factory
   // It supports rolling compaction
   //
-  // Default: a factory that doesn't provide any object
+  // Default: nullptr
   std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------

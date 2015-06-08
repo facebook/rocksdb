@@ -160,10 +160,8 @@ bool Compaction::IsTrivialMove() const {
 
   if (is_manual_compaction_ &&
       (cfd_->ioptions()->compaction_filter != nullptr ||
-       !dynamic_cast<DefaultCompactionFilterFactory*>(
-           cfd_->ioptions()->compaction_filter_factory) ||
-       !dynamic_cast<DefaultCompactionFilterFactoryV2*>(
-           cfd_->ioptions()->compaction_filter_factory_v2))) {
+       cfd_->ioptions()->compaction_filter_factory != nullptr ||
+       cfd_->ioptions()->compaction_filter_factory_v2 != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
     return false;
@@ -360,6 +358,10 @@ uint64_t Compaction::OutputFilePreallocationSize() {
 }
 
 std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
+  if (!cfd_->ioptions()->compaction_filter_factory) {
+    return nullptr;
+  }
+
   CompactionFilter::Context context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;
@@ -369,6 +371,10 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
 
 std::unique_ptr<CompactionFilterV2>
     Compaction::CreateCompactionFilterV2() const {
+  if (!cfd_->ioptions()->compaction_filter_factory_v2) {
+    return nullptr;
+  }
+
   CompactionFilterContext context;
   context.is_full_compaction = is_full_compaction_;
   context.is_manual_compaction = is_manual_compaction_;

@@ -78,9 +78,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
       merge_operator(nullptr),
       compaction_filter(nullptr),
-      compaction_filter_factory(std::shared_ptr<CompactionFilterFactory>(
-          new DefaultCompactionFilterFactory())),
-      compaction_filter_factory_v2(new DefaultCompactionFilterFactoryV2()),
+      compaction_filter_factory(nullptr),
+      compaction_filter_factory_v2(nullptr),
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
@@ -366,9 +365,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   Warn(log, "       Options.compaction_filter: %s",
       compaction_filter ? compaction_filter->Name() : "None");
   Warn(log, "       Options.compaction_filter_factory: %s",
-      compaction_filter_factory->Name());
+      compaction_filter_factory ? compaction_filter_factory->Name() : "None");
   Warn(log, "       Options.compaction_filter_factory_v2: %s",
-      compaction_filter_factory_v2->Name());
+       compaction_filter_factory_v2 ? compaction_filter_factory_v2->Name()
+                                    : "None");
   Warn(log, "        Options.memtable_factory: %s", memtable_factory->Name());
   Warn(log, "           Options.table_factory: %s", table_factory->Name());
   Warn(log, "           table_factory options: %s",
