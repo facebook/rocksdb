@@ -823,7 +823,7 @@ int main(int argc, char** argv) {
     CheckGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
-    const char* keys[3] = { "box", "box", "bar" };
+    const char* keys[3] = { "box", "box", "barfooxx" };
     const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
     const size_t keys_sizes[3] = { 3, 3, 8 };
     char* vals[3];
