@@ -3212,16 +3212,24 @@ Status DBImpl::NewIterators(
 const Snapshot* DBImpl::GetSnapshot() {
   int64_t unix_time = 0;
   env_->GetCurrentTime(&unix_time);  // Ignore error
+  SnapshotImpl* s = new SnapshotImpl;
 
   InstrumentedMutexLock l(&mutex_);
   // returns null if the underlying memtable does not support snapshot.
-  if (!is_snapshot_supported_) return nullptr;
-  return snapshots_.New(versions_->LastSequence(), unix_time);
+  if (!is_snapshot_supported_) {
+    delete s;
+    return nullptr;
+  }
+  return snapshots_.New(s, versions_->LastSequence(), unix_time);
 }
 
 void DBImpl::ReleaseSnapshot(const Snapshot* s) {
-  InstrumentedMutexLock l(&mutex_);
-  snapshots_.Delete(reinterpret_cast<const SnapshotImpl*>(s));
+  const SnapshotImpl* casted_s = reinterpret_cast<const SnapshotImpl*>(s);
+  {
+    InstrumentedMutexLock l(&mutex_);
+    snapshots_.Delete(casted_s);
+  }
+  delete casted_s;
 }
 
 // Convenience methods
