@@ -20,7 +20,6 @@
 #include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
-#include "table/plain_table_factory.h"
 #include "util/random.h"
 #include "util/testharness.h"
 
@@ -97,7 +96,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"write_buffer_size", "1"},
       {"max_write_buffer_number", "2"},
       {"min_write_buffer_number_to_merge", "3"},
-      {"max_write_buffer_number_to_maintain", "99"},
       {"compression", "kSnappyCompression"},
       {"compression_per_level",
        "kNoCompression:"
@@ -184,7 +182,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.write_buffer_size, 1U);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number, 2);
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
-  ASSERT_EQ(new_cf_opt.max_write_buffer_number_to_maintain, 99);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level.size(), 6U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);

@@ -70,9 +70,15 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
           options.level_compaction_dynamic_level_bytes),
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       num_levels(options.num_levels),
-      optimize_filters_for_hits(options.optimize_filters_for_hits),
+      optimize_filters_for_hits(options.optimize_filters_for_hits)
+#ifndef ROCKSDB_LITE
+      ,
       listeners(options.listeners) {
 }
+#else  // ROCKSDB_LITE
+{
+}
+#endif  // ROCKSDB_LITE
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
@@ -84,7 +90,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
-      max_write_buffer_number_to_maintain(0),
       compression(kSnappyCompression),
       prefix_extractor(nullptr),
       num_levels(7),
@@ -124,7 +129,13 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_successive_merges(0),
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false),
-      paranoid_file_checks(false) {
+      paranoid_file_checks(false)
+#ifndef ROCKSDB_LITE
+      ,
+      listeners() {
+#else  // ROCKSDB_LITE
+{
+#endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -138,8 +149,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
           options.min_write_buffer_number_to_merge),
-      max_write_buffer_number_to_maintain(
-          options.max_write_buffer_number_to_maintain),
       compression(options.compression),
       compression_per_level(options.compression_per_level),
       compression_opts(options.compression_opts),
@@ -190,7 +199,13 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
-      paranoid_file_checks(options.paranoid_file_checks) {
+      paranoid_file_checks(options.paranoid_file_checks)
+#ifndef ROCKSDB_LITE
+      ,
+      listeners(options.listeners) {
+#else   // ROCKSDB_LITE
+{
+#endif  // ROCKSDB_LITE
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -241,7 +256,6 @@ DBOptions::DBOptions()
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
-      listeners(),
       enable_thread_tracking(false) {
 }
 
@@ -286,7 +300,6 @@ DBOptions::DBOptions(const Options& options)
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
-      listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking) {}
 
 static const char* const access_hints[] = {
@@ -294,14 +307,13 @@ static const char* const access_hints[] = {
 };
 
 void DBOptions::Dump(Logger* log) const {
-
-    Warn(log,"         Options.error_if_exists: %d", error_if_exists);
-    Warn(log,"       Options.create_if_missing: %d", create_if_missing);
-    Warn(log,"         Options.paranoid_checks: %d", paranoid_checks);
-    Warn(log,"                     Options.env: %p", env);
-    Warn(log,"                Options.info_log: %p", info_log.get());
-    Warn(log,"          Options.max_open_files: %d", max_open_files);
-    Warn(log,"      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
+    Warn(log, "         Options.error_if_exists: %d", error_if_exists);
+    Warn(log, "       Options.create_if_missing: %d", create_if_missing);
+    Warn(log, "         Options.paranoid_checks: %d", paranoid_checks);
+    Warn(log, "                     Options.env: %p", env);
+    Warn(log, "                Options.info_log: %p", info_log.get());
+    Warn(log, "          Options.max_open_files: %d", max_open_files);
+    Warn(log, "      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Warn(log, "       Options.disableDataSync: %d", disableDataSync);
     Warn(log, "             Options.use_fsync: %d", use_fsync);
     Warn(log, "     Options.max_log_file_size: %" ROCKSDB_PRIszt, max_log_file_size);
@@ -392,8 +404,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         min_write_buffer_number_to_merge);
     Warn(log, "        Options.purge_redundant_kvs_while_flush: %d",
          purge_redundant_kvs_while_flush);
-    Warn(log, "    Options.max_write_buffer_number_to_maintain: %d",
-         max_write_buffer_number_to_maintain);
     Warn(log, "           Options.compression_opts.window_bits: %d",
         compression_opts.window_bits);
     Warn(log, "                 Options.compression_opts.level: %d",

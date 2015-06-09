@@ -10,16 +10,13 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
-#include "rocksdb/memtablerep.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
-#include "table/plain_table_factory.h"
 #include "util/logging.h"
 #include "util/options_helper.h"
-#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -417,8 +414,6 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       new_options->memtable_factory.reset(new_mem_factory);
     } else if (name == "min_write_buffer_number_to_merge") {
       new_options->min_write_buffer_number_to_merge = ParseInt(value);
-    } else if (name == "max_write_buffer_number_to_maintain") {
-      new_options->max_write_buffer_number_to_maintain = ParseInt(value);
     } else if (name == "compression") {
       new_options->compression = ParseCompressionType(value);
     } else if (name == "compression_per_level") {
