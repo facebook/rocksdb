@@ -1,0 +1,4 @@
+add_library(rocksdb_utilities_backupable backupable_db.cc)
+
+add_executable(backupable_db_test backupable_db_test.cc)
+target_link_libraries(backupable_db_test rocksdb_utilities_backupable ${LIBS})
