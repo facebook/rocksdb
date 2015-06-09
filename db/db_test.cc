@@ -11097,6 +11097,13 @@ TEST_F(DBTest, PreShutdownCompactionMiddle) {
 
 #endif  // ROCKSDB_USING_THREAD_STATUS
 
+TEST_F(DBTest, FlushOnDestroy) {
+  WriteOptions wo;
+  wo.disableWAL = true;
+  ASSERT_OK(Put("foo", "v1", wo));
+  CancelAllBackgroundWork(db_);
+}
+
 TEST_F(DBTest, DynamicLevelMaxBytesBase) {
   // Use InMemoryEnv, or it would be too slow.
   unique_ptr<Env> env(new MockEnv(env_));

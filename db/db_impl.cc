@@ -288,7 +288,7 @@ DBImpl::~DBImpl() {
   EraseThreadStatusDbInfo();
   mutex_.Lock();
 
-  if (flush_on_destroy_) {
+  if (!shutting_down_.load(std::memory_order_acquire) && flush_on_destroy_) {
     for (auto cfd : *versions_->GetColumnFamilySet()) {
       if (!cfd->IsDropped() && !cfd->mem()->IsEmpty()) {
         cfd->Ref();
