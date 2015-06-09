@@ -15,7 +15,7 @@ Two different use cases at Linkedin are using RocksDB as a storage engine:
 Learn more about those use cases in a Tech Talk by Ankit Gupta and Naveen Somasundaram: http://www.youtube.com/watch?v=plqVp_OnSzg
 
 ## Yahoo
-Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa.
+Yahoo is using RocksDB as a storage engine for their biggest distributed data store Sherpa. Learn more about it here: http://yahooeng.tumblr.com/post/120730204806/sherpa-scales-new-heights
 
 ## CockroachDB
 CockroachDB is an open-source geo-replicated transactional database (still in development). They are using RocksDB as their storage engine. Check out their github: https://github.com/cockroachdb/cockroach
