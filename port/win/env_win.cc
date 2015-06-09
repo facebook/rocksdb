@@ -1907,7 +1907,9 @@ public:
     return result;
   }
 
-  virtual void Schedule(void (*function)(void*), void* arg, Priority pri = LOW) override;
+  virtual void Schedule(void (*function)(void*), void* arg, Priority pri = LOW, void* tag = nullptr) override;
+  
+  virtual int UnSchedule(void* arg, Priority pri) override;
 
   virtual void StartThread(void (*function)(void* arg), void* arg) override;
 
@@ -2127,9 +2129,10 @@ public:
     return result;
   }
 
-  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const  {
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
+    optimized.bytes_per_sync = db_options.wal_bytes_per_sync;
     optimized.use_os_buffer = true; // This is because we flush only whole pages on unbuffered io and the last records are not guaranteed to be flushed.
     // TODO(icanadi) it's faster if fallocate_with_keep_size is false, but it
     // breaks TransactionLogIteratorStallAtLastRecord unit test. Fix the unit
@@ -2138,7 +2141,7 @@ public:
     return optimized;
   }
 
-  EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const {
+  EnvOptions OptimizeForManifestWrite(const EnvOptions& env_options) const override{
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
     optimized.use_os_buffer = true;
@@ -2343,7 +2346,7 @@ public:
         }
       }
 
-      void Schedule(void (*function)(void*), void* arg) {
+      void Schedule(void (*function)(void* arg1), void* arg, void* tag) {
 
         std::lock_guard<std::mutex> lg(mu_);
 
@@ -2357,6 +2360,7 @@ public:
         queue_.push_back(BGItem());
         queue_.back().function = function;
         queue_.back().arg = arg;
+        queue_.back().arg = tag;
         queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
         if (!HasExcessiveThread()) {
@@ -2368,6 +2372,28 @@ public:
             WakeUpAllThreads();
         }
       }
+      
+      int UnSchedule(void* arg) {
+        int count = 0;
+        
+        std::lock_guard<std::mutex> lg(mu_);
+
+
+        // Remove from priority queue
+        BGQueue::iterator it = queue_.begin();
+        while (it != queue_.end()) {
+          if (arg == (*it).tag) {
+            it = queue_.erase(it);
+            count++;
+          } else {
+            ++it;
+          }
+        }
+        
+        queue_len_.store(queue_.size(), std::memory_order_relaxed);
+
+        return count;
+    }      
 
       unsigned int GetQueueLen() const  {
         return static_cast<unsigned int>(queue_len_.load(std::memory_order_relaxed));
@@ -2375,10 +2401,12 @@ public:
 
     private:
       // Entry per Schedule() call
-      struct BGItem  { 
-          void* arg; void (*function)(void*); 
+      struct BGItem {
+        void* arg;
+        void (*function)(void*);
+        void* tag;
       };
-        
+
       typedef std::deque<BGItem> BGQueue;
 
       std::mutex                mu_;
@@ -2435,9 +2463,13 @@ WinEnv::WinEnv() :
   thread_status_updater_ = CreateThreadStatusUpdater();
 }
 
-void WinEnv::Schedule(void(*function)(void*), void* arg, Priority pri) {
+void WinEnv::Schedule(void(*function)(void*), void* arg, Priority pri, void* tag) {
   assert(pri >= Priority::LOW && pri <= Priority::HIGH);
-  thread_pools_[pri].Schedule(function, arg);
+  thread_pools_[pri].Schedule(function, arg, tag);
+}
+
+int WinEnv::UnSchedule(void* arg, Priority pri) {
+  return thread_pools_[pri].UnSchedule(arg);
 }
 
 unsigned int WinEnv::GetThreadPoolQueueLen(Priority pri) const {
