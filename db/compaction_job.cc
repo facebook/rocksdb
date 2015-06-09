@@ -1067,9 +1067,11 @@ Status CompactionJob::FinishCompactionOutputFile(Iterator* input) {
       info.job_id = job_id_;
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Generated table #%" PRIu64 ": %" PRIu64
-          " keys, %" PRIu64 " bytes",
+          " keys, %" PRIu64 " bytes%s",
           cfd->GetName().c_str(), job_id_, output_number, current_entries,
-          current_bytes);
+          current_bytes,
+          compact_->current_output()->need_compaction ? " (need compaction)"
+                                                      : "");
       EventHelpers::LogAndNotifyTableFileCreation(
           event_logger_, cfd->ioptions()->listeners, fd, info);
     }

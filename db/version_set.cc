@@ -1551,8 +1551,15 @@ const char* VersionStorageInfo::LevelSummary(
     // overwrite the last space
     --len;
   }
-  snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
-           "] max score %.2f", compaction_score_[0]);
+  len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+                  "] max score %.2f", compaction_score_[0]);
+
+  if (!files_marked_for_compaction_.empty()) {
+    snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
+             " (%zu files need compaction)",
+             files_marked_for_compaction_.size());
+  }
+
   return scratch->buffer;
 }
 

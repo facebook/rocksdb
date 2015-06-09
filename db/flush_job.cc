@@ -244,9 +244,12 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
       LogFlush(db_options_.info_log);
     }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64 " bytes %s",
+        "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
+        " bytes %s"
+        "%s",
         cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber(),
-        meta.fd.GetFileSize(), s.ToString().c_str());
+        meta.fd.GetFileSize(), s.ToString().c_str(),
+        meta.marked_for_compaction ? " (needs compaction)" : "");
 
     // output to event logger
     if (s.ok()) {
