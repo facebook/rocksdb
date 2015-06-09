@@ -43,21 +43,4 @@ void WriteBatchBase::Delete(const SliceParts& key) {
   Delete(key_slice);
 }
 
-void WriteBatchBase::Merge(ColumnFamilyHandle* column_family,
-                         const SliceParts& key, const SliceParts& value) {
-  std::string key_buf, value_buf;
-  Slice key_slice(key, &key_buf);
-  Slice value_slice(value, &value_buf);
-
-  Merge(column_family, key_slice, value_slice);
-}
-
-void WriteBatchBase::Merge(const SliceParts& key, const SliceParts& value) {
-  std::string key_buf, value_buf;
-  Slice key_slice(key, &key_buf);
-  Slice value_slice(value, &value_buf);
-
-  Merge(key_slice, value_slice);
-}
-
 }  // namespace rocksdb

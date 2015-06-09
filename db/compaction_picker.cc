@@ -341,8 +341,7 @@ bool CompactionPicker::SetupOtherInputs(
                                      &expanded1, *parent_index, parent_index);
       if (expanded1.size() == output_level_inputs->size() &&
           !FilesInCompaction(expanded1)) {
-
-          Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
+        Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
             "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64 "+%" PRIu64
             " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 "bytes)\n",
             cf_name.c_str(), input_level, inputs->size(),

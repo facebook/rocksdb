@@ -223,13 +223,10 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
-  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
 
-  // See Memtable constructor for explanation of earliest_seq param.
-  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
-                                 SequenceNumber earliest_seq);
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
-                         SequenceNumber earliest_seq);
+  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options);
+  void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
+  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);
 
   TableCache* table_cache() const { return table_cache_.get(); }
 
@@ -294,6 +291,13 @@ class ColumnFamilyData {
                                     InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
+
+  void NotifyOnCompactionCompleted(DB* db, Compaction* c, const Status& status);
+
+  void NotifyOnFlushCompleted(
+      DB* db, const std::string& file_path,
+      bool triggered_flush_slowdown,
+      bool triggered_flush_stop);
 
   // Protected by DB mutex
   void set_pending_flush(bool value) { pending_flush_ = value; }

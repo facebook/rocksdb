@@ -267,8 +267,8 @@ class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
-extern const uint64_t kBlockBasedTableMagicNumber;
-extern const uint64_t kPlainTableMagicNumber;
+extern uint64_t kBlockBasedTableMagicNumber;
+extern uint64_t kPlainTableMagicNumber;
 namespace {
 void TestCustomizedTablePropertiesCollector(
     bool backward_mode, uint64_t magic_number, bool test_int_tbl_prop_collector,

@@ -97,8 +97,7 @@ TEST_F(FlushJobTest, Empty) {
 TEST_F(FlushJobTest, NonEmpty) {
   JobContext job_context(0);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
-                                           kMaxSequenceNumber);
+  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions());
   new_mem->Ref();
   std::map<std::string, std::string> inserted_keys;
   for (int i = 1; i < 10000; ++i) {
@@ -108,12 +107,7 @@ TEST_F(FlushJobTest, NonEmpty) {
     InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
     inserted_keys.insert({internal_key.Encode().ToString(), value});
   }
-
-  autovector<MemTable*> to_delete;
-  cfd->imm()->Add(new_mem, &to_delete);
-  for (auto& m : to_delete) {
-    delete m;
-  }
+  cfd->imm()->Add(new_mem);
 
   EventLogger event_logger(db_options_.info_log.get());
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),

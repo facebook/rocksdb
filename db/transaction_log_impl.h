@@ -86,17 +86,18 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   unique_ptr<log::Reader> currentLogReader_;
   Status OpenLogFile(const LogFile* logFile, unique_ptr<SequentialFile>* file);
 
-struct LogReporter : public log::Reader::Reporter {
-  Env* env;
-  Logger* info_log;
-  virtual void Corruption(size_t bytes, const Status& s) override {
+  struct LogReporter : public log::Reader::Reporter {
+    Env* env;
+    Logger* info_log;
+    virtual void Corruption(size_t bytes, const Status& s) override {
          Log(InfoLogLevel::ERROR_LEVEL, info_log, "dropping %" ROCKSDB_PRIszt " bytes; %s", bytes,
-            s.ToString().c_str());
-  }
-  virtual void Info(const char* s) {
-    Log(InfoLogLevel::INFO_LEVEL, info_log, "%s", s);
-  }
-} reporter_;
+          s.ToString().c_str());
+    }
+    virtual void Info(const char* s) {
+      Log(InfoLogLevel::INFO_LEVEL, info_log, "%s", s);
+    }
+  } reporter_;
+
   SequenceNumber currentBatchSeq_; // sequence number at start of current batch
   SequenceNumber currentLastSeq_; // last sequence in the current batch
   // Used only to get latest seq. num

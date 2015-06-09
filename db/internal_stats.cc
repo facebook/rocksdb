@@ -92,8 +92,6 @@ static const std::string cfstats = "cfstats";
 static const std::string dbstats = "dbstats";
 static const std::string levelstats = "levelstats";
 static const std::string num_immutable_mem_table = "num-immutable-mem-table";
-static const std::string num_immutable_mem_table_flushed =
-    "num-immutable-mem-table-flushed";
 static const std::string mem_table_flush_pending = "mem-table-flush-pending";
 static const std::string compaction_pending = "compaction-pending";
 static const std::string background_errors = "background-errors";
@@ -187,8 +185,6 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
   *is_int_property = true;
   if (in == num_immutable_mem_table) {
     return kNumImmutableMemTable;
-  } else if (in == num_immutable_mem_table_flushed) {
-    return kNumImmutableMemTableFlushed;
   } else if (in == mem_table_flush_pending) {
     return kMemtableFlushPending;
   } else if (in == compaction_pending) {
@@ -311,10 +307,7 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
 
   switch (property_type) {
     case kNumImmutableMemTable:
-      *value = cfd_->imm()->NumNotFlushed();
-      return true;
-    case kNumImmutableMemTableFlushed:
-      *value = cfd_->imm()->NumFlushed();
+      *value = cfd_->imm()->size();
       return true;
     case kMemtableFlushPending:
       // Return number of mem tables that are ready to flush (made immutable)

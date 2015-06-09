@@ -254,9 +254,8 @@ class Repairer {
     Slice record;
     WriteBatch batch;
     WriteBuffer wb(options_.db_write_buffer_size);
-    MemTable* mem =
-        new MemTable(icmp_, ioptions_, MutableCFOptions(options_, ioptions_),
-                     &wb, kMaxSequenceNumber);
+    MemTable* mem = new MemTable(icmp_, ioptions_,
+                                 MutableCFOptions(options_, ioptions_), &wb);
     auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem);
     mem->Ref();
     int counter = 0;

@@ -163,12 +163,10 @@ TEST_F(CompactionJobTest, Simple) {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   mutex_.Lock();
   EventLogger event_logger(db_options_.info_log.get());
-  std::string db_name = "dbname";
   CompactionJob compaction_job(0, compaction.get(), db_options_, env_options_,
                                versions_.get(), &shutting_down_, &log_buffer,
                                nullptr, nullptr, nullptr, {}, table_cache_,
-                               std::move(yield_callback), &event_logger, false,
-                               db_name);
+                               std::move(yield_callback), &event_logger, false);
 
   compaction_job.Prepare();
   mutex_.Unlock();
