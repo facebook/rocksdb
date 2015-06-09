@@ -80,10 +80,6 @@ class Status {
   static Status Aborted(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kAborted, msg, msg2);
   }
-  static Status Busy() { return Status(kBusy); }
-  static Status Busy(const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kBusy, msg, msg2);
-  }
 
   // Returns true iff the status indicates success.
   bool ok() const { return code() == kOk; }
@@ -116,10 +112,6 @@ class Status {
 
   bool IsAborted() const { return code() == kAborted; }
 
-  // Returns true iff the status indicates that a resource is Busy and
-  // temporarily could not be acquired.
-  bool IsBusy() const { return code() == kBusy; }
-
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -135,8 +127,7 @@ class Status {
     kIncomplete = 7,
     kShutdownInProgress = 8,
     kTimedOut = 9,
-    kAborted = 10,
-    kBusy = 11,
+    kAborted = 10
   };
 
   Code code() const {

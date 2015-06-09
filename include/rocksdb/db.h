@@ -417,19 +417,19 @@ class DB {
   // Note that after the entire database is compacted, all data are pushed
   // down to the last level containing any data. If the total data size
   // after compaction is reduced, that level might not be appropriate for
-  // hosting all the files. In this case, client could set change_level
+  // hosting all the files. In this case, client could set reduce_level
   // to true, to move the files back to the minimum level capable of holding
   // the data set or a given level (specified by non-negative target_level).
   // Compaction outputs should be placed in options.db_paths[target_path_id].
   // Behavior is undefined if target_path_id is out of range.
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool change_level = false, int target_level = -1,
+                              bool reduce_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) = 0;
   virtual Status CompactRange(const Slice* begin, const Slice* end,
-                              bool change_level = false, int target_level = -1,
+                              bool reduce_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) {
-    return CompactRange(DefaultColumnFamily(), begin, end, change_level,
+    return CompactRange(DefaultColumnFamily(), begin, end, reduce_level,
                         target_level, target_path_id);
   }
   virtual Status SetOptions(ColumnFamilyHandle* column_family,
@@ -604,9 +604,6 @@ class DB {
     return GetPropertiesOfAllTables(DefaultColumnFamily(), props);
   }
 #endif  // ROCKSDB_LITE
-
-  // Needed for StackableDB
-  virtual DB* GetRootDB() { return this; }
 
  private:
   // No copying allowed

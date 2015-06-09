@@ -4,38 +4,16 @@
 
 #pragma once
 
+#ifndef ROCKSDB_LITE
 
 #include <string>
 #include <vector>
 #include "rocksdb/status.h"
-#include "rocksdb/table_properties.h"
 
 namespace rocksdb {
 
 class DB;
 class Status;
-
-struct TableFileCreationInfo {
-  TableFileCreationInfo() = default;
-  explicit TableFileCreationInfo(TableProperties&& prop) :
-      table_properties(prop) {}
-  // the name of the database where the file was created
-  std::string db_name;
-  // the name of the column family where the file was created.
-  std::string cf_name;
-  // the path to the created file.
-  std::string file_path;
-  // the size of the file.
-  uint64_t file_size;
-  // the id of the job (which could be flush or compaction) that
-  // created the file.
-  int job_id;
-  // Detailed properties of the created file.
-  TableProperties table_properties;
-};
-
-
-#ifndef ROCKSDB_LITE
 
 struct CompactionJobInfo {
   // the name of the column family where the compaction happened.
@@ -121,29 +99,9 @@ class EventListener {
   //  after this function is returned, and must be copied if it is needed
   //  outside of this function.
   virtual void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) {}
-
-  // A call-back function for RocksDB which will be called whenever
-  // a SST file is created.  Different from OnCompactionCompleted and
-  // OnFlushCompleted, this call-back is designed for external logging
-  // service and thus only provide string parameters instead
-  // of a pointer to DB.  Applications that build logic basic based
-  // on file creations and deletions is suggested to implement
-  // OnFlushCompleted and OnCompactionCompleted.
-  //
-  // Note that if applications would like to use the passed reference
-  // outside this function call, they should make copies from these
-  // returned value.
-  virtual void OnTableFileCreated(
-      const TableFileCreationInfo& info) {}
-
   virtual ~EventListener() {}
 };
 
-#else
-
-class EventListener {
-};
+}  // namespace rocksdb
 
 #endif  // ROCKSDB_LITE
-
-}  // namespace rocksdb

@@ -22,8 +22,6 @@ class StackableDB : public DB {
     return db_;
   }
 
-  virtual DB* GetRootDB() override { return db_->GetRootDB(); }
-
   virtual Status CreateColumnFamily(const ColumnFamilyOptions& options,
                                     const std::string& column_family_name,
                                     ColumnFamilyHandle** handle) override {
@@ -129,9 +127,9 @@ class StackableDB : public DB {
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,
-                              bool change_level = false, int target_level = -1,
+                              bool reduce_level = false, int target_level = -1,
                               uint32_t target_path_id = 0) override {
-    return db_->CompactRange(column_family, begin, end, change_level,
+    return db_->CompactRange(column_family, begin, end, reduce_level,
                              target_level, target_path_id);
   }
 

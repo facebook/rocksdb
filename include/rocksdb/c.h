@@ -123,6 +123,11 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only(
     unsigned char error_if_log_file_exist,
     char** errptr);
 
+extern ROCKSDB_LIBRARY_API rocksdb_backup_engine_t* rocksdb_backup_engine_open(
+    const rocksdb_options_t* options,
+    const char* path,
+    char** errptr);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_backup_engine_create_new_backup(
     rocksdb_backup_engine_t* be,
     rocksdb_t* db,
@@ -439,21 +444,6 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_cache_comp
     rocksdb_block_based_table_options_t* options,
     rocksdb_cache_t* block_cache_compressed);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_whole_key_filtering(
-    rocksdb_block_based_table_options_t*, unsigned char);
-extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_format_version(
-    rocksdb_block_based_table_options_t*, int);
-enum {
-  rocksdb_block_based_table_index_type_binary_search = 0,
-  rocksdb_block_based_table_index_type_hash_search = 1,
-};
-extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_index_type(
-    rocksdb_block_based_table_options_t*, int); // uses one of the above enums
-extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_hash_index_allow_collision(
-    rocksdb_block_based_table_options_t*, unsigned char);
-extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
-    rocksdb_block_based_table_options_t*, unsigned char);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
-extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_cache_index_and_filter_blocks(
     rocksdb_block_based_table_options_t*, unsigned char);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_block_based_table_factory(
     rocksdb_options_t *opt, rocksdb_block_based_table_options_t* table_options);

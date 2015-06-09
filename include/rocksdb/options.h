@@ -242,21 +242,6 @@ struct ColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge;
 
-  // The total maximum number of write buffers to maintain in memory including
-  // copies of buffers that have already been flushed.  Unlike
-  // max_write_buffer_number, this parameter does not affect flushing.
-  // This controls the minimum amount of write history that will be available
-  // in memory for conflict checking when Transactions are used.
-  // If this value is too low, some transactions may fail at commit time due
-  // to not being able to determine whether there were any write conflicts.
-  //
-  // Setting this value to 0 will cause write buffers to be freed immediately
-  // after they are flushed.
-  // If this value is set to -1, 'max_write_buffer_number' will be used.
-  //
-  // Default: 0
-  int max_write_buffer_number_to_maintain;
-
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
@@ -728,6 +713,12 @@ struct ColumnFamilyOptions {
   // Default: false
   bool paranoid_file_checks;
 
+#ifndef ROCKSDB_LITE
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+#endif  // ROCKSDB_LITE
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -1021,10 +1012,6 @@ struct DBOptions {
   // Same as bytes_per_sync, but applies to WAL files
   // Default: 0, turned off
   uint64_t wal_bytes_per_sync;
-
-  // A vector of EventListeners which call-back functions will be called
-  // when specific RocksDB event happens.
-  std::vector<std::shared_ptr<EventListener>> listeners;
 
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
