@@ -86,7 +86,7 @@ struct Node {
   std::atomic<Node*> next_;
 
  public:
-  char key[0];
+  char key[1];
 };
 
 // Memory structure of the mem table:

@@ -10,13 +10,16 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/logging.h"
 #include "util/options_helper.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
