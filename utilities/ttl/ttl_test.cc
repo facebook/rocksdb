@@ -357,7 +357,7 @@ class TtlTest : public testing::Test {
 
 
   // Choose carefully so that Put, Gets & Compaction complete in 1 second buffer
-  const int64_t kSampleSize_ = 100;
+  static const int64_t kSampleSize_ = 100;
   std::string dbname_;
   DBWithTTL* db_ttl_;
   unique_ptr<SpecialTimeEnv> env_;
