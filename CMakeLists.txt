@@ -8,6 +8,7 @@ add_definitions(-DWIN32 -DOS_WIN)
 include_directories(${PROJECT_SOURCE_DIR})
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/port)
+include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
 set (ROCKSDBLIBS rocksdblib rocksdb_port_win rocksdb_table rocksdb_util)
 set (THIRDPARTYLIBS )

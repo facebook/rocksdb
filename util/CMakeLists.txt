@@ -2,7 +2,6 @@ add_library(rocksdb_util
                 arena.cc
                 auto_roll_logger.cc
                 bloom.cc
-                benchharness.cc
 #                build_version_$(Configuration).cc
                 cache.cc
                 coding.cc
