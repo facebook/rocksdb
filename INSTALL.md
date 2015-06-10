@@ -75,7 +75,7 @@ your make commands, like this: `PORTABLE=1 make static_lib`
         * Update XCode:  run `xcode-select --install` (or install it from XCode App's settting).
         * Install via [homebrew](http://brew.sh/).
             * If you're first time developer in MacOS, you still need to run: `xcode-select --install` in your command line.
-            * run `brew tap homebrew/dupes; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
+            * run `brew tap homebrew/versions; brew install gcc47 --use-llvm` to install gcc 4.7 (or higher).
     * run `brew install rocksdb`
 
 * **iOS**:
