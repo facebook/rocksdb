@@ -59,7 +59,9 @@ extern const uint64_t kPlainTableMagicNumber = 0x8242229663bf9564ull;
 extern const uint64_t kLegacyPlainTableMagicNumber = 0x4f3418eb7a8f13b8ull;
 
 PlainTableBuilder::PlainTableBuilder(
-    const ImmutableCFOptions& ioptions, const PlainTableOptions& table_options,
+    const ImmutableCFOptions& ioptions,
+    const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>* int_tbl_prop_collector_factories,
+    const PlainTableOptions& table_options,
     WritableFile* file, uint32_t num_probes)
     : ioptions_(ioptions),
       bloom_block_(num_probes),

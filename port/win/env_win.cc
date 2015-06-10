@@ -2129,7 +2129,7 @@ public:
     return result;
   }
 
-  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options) const override {
+  EnvOptions OptimizeForLogWrite(const EnvOptions& env_options, const DBOptions& db_options) const override {
     EnvOptions optimized = env_options;
     optimized.use_mmap_writes = false;
     optimized.bytes_per_sync = db_options.wal_bytes_per_sync;

@@ -31,7 +31,9 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   // in-memory dbs. The skip_filters optimization is not useful for plain
   // tables
   //
-  return new PlainTableBuilder(table_builder_options.ioptions, table_options_, file, 6);
+  return new PlainTableBuilder(table_builder_options.ioptions, 
+         table_builder_options.int_tbl_prop_collector_factories,
+         table_options_, file, 6);
 }
 
 std::string PlainTableFactory::GetPrintableTableOptions() const {
