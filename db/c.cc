@@ -1266,6 +1266,12 @@ void rocksdb_writebatch_deletev_cf(
   b->rep.Delete(column_family->rep, SliceParts(key_slices.data(), num_keys));
 }
 
+void rocksdb_writebatch_put_log_data(
+    rocksdb_writebatch_t* b,
+    const char* blob, size_t len) {
+  b->rep.PutLogData(Slice(blob, len));
+}
+
 void rocksdb_writebatch_iterate(
     rocksdb_writebatch_t* b,
     void* state,
