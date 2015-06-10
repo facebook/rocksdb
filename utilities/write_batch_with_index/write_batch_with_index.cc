@@ -235,7 +235,7 @@ class BaseDeltaIterator : public Iterator {
           // Finished
           return;
         }
-        if (delta_entry.type == kDeleteRecord()) {
+        if (delta_entry.type == kDeleteRecord) {
           AdvanceDelta();
         } else {
           current_at_base_ = false;
@@ -253,7 +253,7 @@ class BaseDeltaIterator : public Iterator {
           if (compare == 0) {
             equal_keys_ = true;
           }
-          if (delta_entry.type == kDeleteRecord()) {
+          if (delta_entry.type == kDeleteRecord) {
             current_at_base_ = false;
             return;
           }
