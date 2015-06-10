@@ -11,6 +11,7 @@
 #include <memory>
 #include <map>
 #include "db/column_family.h"
+#include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
@@ -103,7 +104,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&data));
       iter->Seek(e.key);
       ASSERT_OK(iter->status());
-      auto& write_entry = iter->Entry();
+      auto write_entry = iter->Entry();
       ASSERT_EQ(e.key, write_entry.key.ToString());
       ASSERT_EQ(e.value, write_entry.value.ToString());
       batch->Delete(&data, e.key);
@@ -124,7 +125,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
         for (auto v : pair.second) {
           ASSERT_OK(iter->status());
           ASSERT_TRUE(iter->Valid());
-          auto& write_entry = iter->Entry();
+          auto write_entry = iter->Entry();
           ASSERT_EQ(pair.first, write_entry.key.ToString());
           ASSERT_EQ(v->type, write_entry.type);
           if (write_entry.type != kDeleteRecord) {
@@ -140,7 +141,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       for (auto v = pair->second.rbegin(); v != pair->second.rend(); v++) {
         ASSERT_OK(iter->status());
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         ASSERT_EQ((*v)->type, write_entry.type);
         if (write_entry.type != kDeleteRecord) {
@@ -165,7 +166,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
         for (auto v : pair.second) {
           ASSERT_OK(iter->status());
           ASSERT_TRUE(iter->Valid());
-          auto& write_entry = iter->Entry();
+          auto write_entry = iter->Entry();
           ASSERT_EQ(pair.first, write_entry.key.ToString());
           if (v->type != kDeleteRecord) {
             ASSERT_EQ(v->key, write_entry.value.ToString());
@@ -182,7 +183,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       for (auto v = pair->second.rbegin(); v != pair->second.rend(); v++) {
         ASSERT_OK(iter->status());
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         if ((*v)->type != kDeleteRecord) {
           ASSERT_EQ((*v)->key, write_entry.value.ToString());
@@ -204,7 +205,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       ASSERT_OK(iter->status());
       for (auto v : pair->second) {
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         ASSERT_EQ(v->type, write_entry.type);
         if (write_entry.type != kDeleteRecord) {
@@ -226,7 +227,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       ASSERT_OK(iter->status());
       for (auto v : pair->second) {
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         ASSERT_EQ(v->value, write_entry.key.ToString());
         if (v->type != kDeleteRecord) {
@@ -1268,9 +1269,6 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseCorrectnessTest) {
   AssertIterKey("mm", iter.get());
   AssertIterValue("kk", iter.get());
   batch.Delete("mm");
-  // still mm even though it's deleted
-  AssertIterKey("mm", iter.get());
-  AssertIterValue("kk", iter.get());
   iter->Next();
   AssertIterKey("n", iter.get());
   iter->Prev();
@@ -1368,6 +1366,7 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseStressTest) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }

@@ -89,7 +89,8 @@ class BaseDeltaIterator : public Iterator {
         AdvanceBase();
       }
       if (DeltaValid() && BaseValid()) {
-        if (Compare() == 0) {
+        if (comparator_->Compare(delta_iterator_->Entry().key,
+                                 base_iterator_->key()) == 0) {
           equal_keys_ = true;
         }
       }
@@ -123,7 +124,8 @@ class BaseDeltaIterator : public Iterator {
         AdvanceBase();
       }
       if (DeltaValid() && BaseValid()) {
-        if (Compare() == 0) {
+        if (comparator_->Compare(delta_iterator_->Entry().key,
+                                 base_iterator_->key()) == 0) {
           equal_keys_ = true;
         }
       }
@@ -153,23 +155,6 @@ class BaseDeltaIterator : public Iterator {
   }
 
  private:
-  // -1 -- delta less advanced than base
-  // 0 -- delta == base
-  // 1 -- delta more advanced than base
-  int Compare() const {
-    assert(delta_iterator_->Valid() && base_iterator_->Valid());
-    int cmp = comparator_->Compare(delta_iterator_->Entry().key,
-                                   base_iterator_->key());
-    if (forward_) {
-      return cmp;
-    } else {
-      return -cmp;
-    }
-  }
-  bool IsDeltaDelete() {
-    assert(DeltaValid());
-    return delta_iterator_->Entry().type == kDeleteRecord;
-  }
   void AssertInvariants() {
 #ifndef NDEBUG
     if (!Valid()) {
@@ -239,6 +224,10 @@ class BaseDeltaIterator : public Iterator {
   bool DeltaValid() const { return delta_iterator_->Valid(); }
   void UpdateCurrent() {
     while (true) {
+      WriteEntry delta_entry;
+      if (DeltaValid()) {
+        delta_entry = delta_iterator_->Entry();
+      }
       equal_keys_ = false;
       if (!BaseValid()) {
         // Base has finished.
@@ -246,7 +235,7 @@ class BaseDeltaIterator : public Iterator {
           // Finished
           return;
         }
-        if (IsDeltaDelete()) {
+        if (delta_entry.type == kDeleteRecord) {
           AdvanceDelta();
         } else {
           current_at_base_ = false;
@@ -257,12 +246,14 @@ class BaseDeltaIterator : public Iterator {
         current_at_base_ = true;
         return;
       } else {
-        int compare = Compare();
+        int compare =
+            (forward_ ? 1 : -1) *
+            comparator_->Compare(delta_entry.key, base_iterator_->key());
         if (compare <= 0) {  // delta bigger or equal
           if (compare == 0) {
             equal_keys_ = true;
           }
-          if (!IsDeltaDelete()) {
+          if (delta_entry.type != kDeleteRecord) {
             current_at_base_ = false;
             return;
           }
@@ -300,23 +291,26 @@ class WBWIIteratorImpl : public WBWIIterator {
                    const ReadableWriteBatch* write_batch)
       : column_family_id_(column_family_id),
         skip_list_iter_(skip_list),
-        write_batch_(write_batch),
-        valid_(false) {}
+        write_batch_(write_batch) {}
 
   virtual ~WBWIIteratorImpl() {}
 
-  virtual bool Valid() const override { return valid_; }
+  virtual bool Valid() const override {
+    if (!skip_list_iter_.Valid()) {
+      return false;
+    }
+    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+    return (iter_entry != nullptr &&
+            iter_entry->column_family == column_family_id_);
+  }
 
   virtual void SeekToFirst() override {
-    valid_ = true;
     WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
                                       column_family_id_);
     skip_list_iter_.Seek(&search_entry);
-    ReadEntry();
   }
 
   virtual void SeekToLast() override {
-    valid_ = true;
     WriteBatchIndexEntry search_entry(WriteBatchIndexEntry::kFlagMin,
                                       column_family_id_ + 1);
     skip_list_iter_.Seek(&search_entry);
@@ -325,29 +319,37 @@ class WBWIIteratorImpl : public WBWIIterator {
     } else {
       skip_list_iter_.Prev();
     }
-    ReadEntry();
   }
 
   virtual void Seek(const Slice& key) override {
-    valid_ = true;
     WriteBatchIndexEntry search_entry(&key, column_family_id_);
     skip_list_iter_.Seek(&search_entry);
-    ReadEntry();
   }
 
-  virtual void Next() override {
-    skip_list_iter_.Next();
-    ReadEntry();
+  virtual void Next() override { skip_list_iter_.Next(); }
+
+  virtual void Prev() override { skip_list_iter_.Prev(); }
+
+  virtual WriteEntry Entry() const override {
+    WriteEntry ret;
+    Slice blob;
+    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
+    // this is guaranteed with Valid()
+    assert(iter_entry != nullptr &&
+           iter_entry->column_family == column_family_id_);
+    auto s = write_batch_->GetEntryFromDataOffset(iter_entry->offset, &ret.type,
+                                                  &ret.key, &ret.value, &blob);
+    assert(s.ok());
+    assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
+           ret.type == kMergeRecord);
+    return ret;
   }
 
-  virtual void Prev() override {
-    skip_list_iter_.Prev();
-    ReadEntry();
+  virtual Status status() const override {
+    // this is in-memory data structure, so the only way status can be non-ok is
+    // through memory corruption
+    return Status::OK();
   }
-
-  virtual const WriteEntry& Entry() const override { return current_; }
-
-  virtual Status status() const override { return status_; }
 
   const WriteBatchIndexEntry* GetRawEntry() const {
     return skip_list_iter_.key();
@@ -357,33 +359,6 @@ class WBWIIteratorImpl : public WBWIIterator {
   uint32_t column_family_id_;
   WriteBatchEntrySkipList::Iterator skip_list_iter_;
   const ReadableWriteBatch* write_batch_;
-  Status status_;
-  bool valid_;
-  WriteEntry current_;
-
-  void ReadEntry() {
-    if (!status_.ok() || !skip_list_iter_.Valid()) {
-      valid_ = false;
-      return;
-    }
-    const WriteBatchIndexEntry* iter_entry = skip_list_iter_.key();
-    if (iter_entry == nullptr ||
-        iter_entry->column_family != column_family_id_) {
-      valid_ = false;
-      return;
-    }
-    Slice blob;
-    status_ = write_batch_->GetEntryFromDataOffset(
-        iter_entry->offset, &current_.type, &current_.key, &current_.value,
-        &blob);
-    if (!status_.ok()) {
-      valid_ = false;
-    } else if (current_.type != kPutRecord && current_.type != kDeleteRecord &&
-               current_.type != kMergeRecord) {
-      valid_ = false;
-      status_ = Status::Corruption("write batch index is corrupted");
-    }
-  }
 };
 
 struct WriteBatchWithIndex::Rep {
