@@ -55,7 +55,9 @@ class WBWIIterator {
 
   virtual void Prev() = 0;
 
-  virtual const WriteEntry& Entry() const = 0;
+  // the return WriteEntry is only valid until the next mutation of
+  // WriteBatchWithIndex
+  virtual WriteEntry Entry() const = 0;
 
   virtual Status status() const = 0;
 };
