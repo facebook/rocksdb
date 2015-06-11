@@ -13357,7 +13357,6 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
   // iter == 1 -- leveled, but throw in a flush between two levels compacting
   // iter == 2 -- universal
   for (int iter = 0; iter < 3; ++iter) {
-    printf("iter %d\n", iter);
     Options options = CurrentOptions();
     if (iter < 2) {
       options.compaction_style = kCompactionStyleLevel;
@@ -13445,6 +13444,56 @@ TEST_F(DBTest, UniversalCompactionTargetLevel) {
   // Compact all files into 1 file and put it in L4
   db_->CompactRange(nullptr, nullptr, true, 4);
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
+}
+
+// This tests for a bug that could cause two level0 compactions running
+// concurrently
+TEST_F(DBTest, SuggestCompactRangeNoTwoLevel0Compactions) {
+  Options options = CurrentOptions();
+  options.compaction_style = kCompactionStyleLevel;
+  options.write_buffer_size = 110 << 10;
+  options.level0_file_num_compaction_trigger = 4;
+  options.num_levels = 4;
+  options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 450 << 10;
+  options.target_file_size_base = 98 << 10;
+  options.max_write_buffer_number = 2;
+  options.max_background_compactions = 2;
+
+  DestroyAndReopen(options);
+
+  // fill up the DB
+  Random rnd(301);
+  for (int num = 0; num < 10; num++) {
+    GenerateNewRandomFile(&rnd);
+  }
+  db_->CompactRange(nullptr, nullptr);
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"CompactionJob::Run():Start",
+        "DBTest::SuggestCompactRangeNoTwoLevel0Compactions:1"},
+       {"DBTest::SuggestCompactRangeNoTwoLevel0Compactions:2",
+        "CompactionJob::Run():End"}});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  // trigger L0 compaction
+  for (int num = 0; num < options.level0_file_num_compaction_trigger + 1;
+       num++) {
+    GenerateNewRandomFile(&rnd, /* nowait */ true);
+  }
+
+  TEST_SYNC_POINT("DBTest::SuggestCompactRangeNoTwoLevel0Compactions:1");
+
+  GenerateNewRandomFile(&rnd, /* nowait */ true);
+  dbfull()->TEST_WaitForFlushMemTable();
+  ASSERT_OK(experimental::SuggestCompactRange(db_, nullptr, nullptr));
+  for (int num = 0; num < options.level0_file_num_compaction_trigger + 1;
+       num++) {
+    GenerateNewRandomFile(&rnd, /* nowait */ true);
+  }
+
+  TEST_SYNC_POINT("DBTest::SuggestCompactRangeNoTwoLevel0Compactions:2");
 }
 
 }  // namespace rocksdb
