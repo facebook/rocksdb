@@ -64,15 +64,14 @@ struct ConstantColumnFamilyInfo {
 // status of a thread using a set of atomic pointers.
 struct ThreadStatusData {
 #if ROCKSDB_USING_THREAD_STATUS
-  explicit ThreadStatusData() : thread_id(0), enable_tracking(false) {
+  explicit ThreadStatusData() : enable_tracking(false) {
+    thread_id.store(0);
     thread_type.store(ThreadStatus::USER);
     cf_key.store(nullptr);
     operation_type.store(ThreadStatus::OP_UNKNOWN);
     op_start_time.store(0);
     state_type.store(ThreadStatus::STATE_UNKNOWN);
   }
-
-  uint64_t thread_id;
 
   // A flag to indicate whether the thread tracking is enabled
   // in the current thread.  This value will be updated based on whether
@@ -83,6 +82,7 @@ struct ThreadStatusData {
   // will be no-op.
   bool enable_tracking;
 
+  std::atomic<uint64_t> thread_id;
   std::atomic<ThreadStatus::ThreadType> thread_type;
   std::atomic<const void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
@@ -115,7 +115,8 @@ class ThreadStatusUpdater {
   // ColumnFamilyInfoKey, ThreadOperation, and ThreadState.
   void ResetThreadStatus();
 
-  uint64_t GetThreadID();
+  // Set the id of the current thread.
+  void SetThreadID(uint64_t thread_id);
 
   // Set the thread type of the current thread.
   void SetThreadType(ThreadStatus::ThreadType ttype);

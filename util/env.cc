@@ -9,7 +9,9 @@
 
 #include "rocksdb/env.h"
 
+#include <thread>
 #include <sys/time.h>
+
 #include "rocksdb/options.h"
 #include "util/arena.h"
 #include "util/autovector.h"
@@ -17,6 +19,11 @@
 namespace rocksdb {
 
 Env::~Env() {
+}
+
+uint64_t Env::GetThreadID() const {
+  std::hash<std::thread::id> hasher;
+  return hasher(std::this_thread::get_id());
 }
 
 SequentialFile::~SequentialFile() {

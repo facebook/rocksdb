@@ -15,11 +15,6 @@ namespace rocksdb {
 
 __thread ThreadStatusData* ThreadStatusUpdater::thread_status_data_ = nullptr;
 
-uint64_t ThreadStatusUpdater::GetThreadID() {
-  auto* data = InitAndGet();
-  return data->thread_id;
-}
-
 void ThreadStatusUpdater::UnregisterThread() {
   if (thread_status_data_ != nullptr) {
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
@@ -27,6 +22,11 @@ void ThreadStatusUpdater::UnregisterThread() {
     delete thread_status_data_;
     thread_status_data_ = nullptr;
   }
+}
+
+void ThreadStatusUpdater::SetThreadID(uint64_t thread_id) {
+  auto* data = InitAndGet();
+  data->thread_id.store(thread_id, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetThreadType(
@@ -173,6 +173,8 @@ Status ThreadStatusUpdater::GetThreadList(
   std::lock_guard<std::mutex> lck(thread_list_mutex_);
   for (auto* thread_data : thread_data_set_) {
     assert(thread_data);
+    auto thread_id = thread_data->thread_id.load(
+        std::memory_order_relaxed);
     auto thread_type = thread_data->thread_type.load(
         std::memory_order_relaxed);
     // Since any change to cf_info_map requires thread_list_mutex,
@@ -181,7 +183,6 @@ Status ThreadStatusUpdater::GetThreadList(
     auto cf_key = thread_data->cf_key.load(
         std::memory_order_relaxed);
     auto iter = cf_info_map_.find(cf_key);
-    assert(cf_key == 0 || iter != cf_info_map_.end());
     auto* cf_info = iter != cf_info_map_.end() ?
         iter->second.get() : nullptr;
     const std::string* db_name = nullptr;
@@ -211,7 +212,7 @@ Status ThreadStatusUpdater::GetThreadList(
       }
     }
     thread_list->emplace_back(
-        thread_data->thread_id, thread_type,
+        thread_id, thread_type,
         db_name ? *db_name : "",
         cf_name ? *cf_name : "",
         op_type, op_elapsed_micros, op_stage, op_props,
@@ -224,8 +225,6 @@ Status ThreadStatusUpdater::GetThreadList(
 ThreadStatusData* ThreadStatusUpdater::InitAndGet() {
   if (UNLIKELY(thread_status_data_ == nullptr)) {
     thread_status_data_ = new ThreadStatusData();
-    thread_status_data_->thread_id = reinterpret_cast<uint64_t>(
-        thread_status_data_);
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
     thread_data_set_.insert(thread_status_data_);
   }
@@ -297,8 +296,7 @@ void ThreadStatusUpdater::UnregisterThread() {
 void ThreadStatusUpdater::ResetThreadStatus() {
 }
 
-uint64_t ThreadStatusUpdater::GetThreadID() {
-  return 0;
+void ThreadStatusUpdater::SetThreadID(uint64_t thread_id) {
 }
 
 void ThreadStatusUpdater::SetThreadType(

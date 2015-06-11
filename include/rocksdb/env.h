@@ -17,12 +17,12 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_ENV_H_
 #define STORAGE_ROCKSDB_INCLUDE_ENV_H_
 
-#include <cstdarg>
-#include <string>
-#include <memory>
-#include <limits>
-#include <vector>
 #include <stdint.h>
+#include <cstdarg>
+#include <limits>
+#include <memory>
+#include <string>
+#include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
 
@@ -319,6 +319,9 @@ class Env {
   virtual ThreadStatusUpdater* GetThreadStatusUpdater() const {
     return thread_status_updater_;
   }
+
+  // Returns the ID of the current thread.
+  virtual uint64_t GetThreadID() const;
 
  protected:
   // The pointer to an internal structure that will update the
@@ -874,6 +877,10 @@ class EnvWrapper : public Env {
 
   ThreadStatusUpdater* GetThreadStatusUpdater() const override {
     return target_->GetThreadStatusUpdater();
+  }
+
+  uint64_t GetThreadID() const override {
+    return target_->GetThreadID();
   }
 
  private:

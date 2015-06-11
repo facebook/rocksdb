@@ -285,7 +285,6 @@ void DBImpl::CancelAllBackgroundWork(bool wait) {
 }
 
 DBImpl::~DBImpl() {
-  EraseThreadStatusDbInfo();
   mutex_.Lock();
 
   if (!shutting_down_.load(std::memory_order_acquire) && flush_on_destroy_) {
@@ -316,6 +315,7 @@ DBImpl::~DBImpl() {
   while (bg_compaction_scheduled_ || bg_flush_scheduled_) {
     bg_cv_.Wait();
   }
+  EraseThreadStatusDbInfo();
   flush_scheduler_.Clear();
 
   while (!flush_queue_.empty()) {
@@ -1310,7 +1310,7 @@ void DBImpl::NotifyOnFlushCompleted(
     //                 go to L0 in the future.
     info.file_path = MakeTableFileName(db_options_.db_paths[0].path,
                                        file_number);
-    info.thread_id = ThreadStatusUtil::GetThreadID();
+    info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
@@ -1621,7 +1621,7 @@ void DBImpl::NotifyOnCompactionCompleted(
     CompactionJobInfo info;
     info.cf_name = cfd->GetName();
     info.status = st;
-    info.thread_id = ThreadStatusUtil::GetThreadID();
+    info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.base_input_level = c->start_level();
     info.output_level = c->output_level();

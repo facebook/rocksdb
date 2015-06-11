@@ -164,6 +164,10 @@ class HdfsEnv : public Env {
     return (uint64_t)pthread_self();
   }
 
+  virtual uint64_t GetThreadID() const override {
+    return HdfsEnv::gettid();
+  }
+
  private:
   std::string fsname_;  // string of the form "hdfs://hostname:port/"
   hdfsFS fileSys_;      //  a single FileSystem object for all files
@@ -360,6 +364,10 @@ class HdfsEnv : public Env {
   virtual void IncBackgroundThreadsIfNeeded(int number, Priority pri) override {
   }
   virtual std::string TimeToString(uint64_t number) override { return ""; }
+
+  virtual uint64_t GetThreadID() const override {
+    return 0;
+  }
 };
 }
 
