@@ -8,7 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
+#ifndef OS_WIN
+#  include <sys/ioctl.h>
+#endif
+
 
 #include <iostream>
 #include <unordered_set>

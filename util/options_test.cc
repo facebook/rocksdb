@@ -16,10 +16,12 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/random.h"
 #include "util/testharness.h"
 

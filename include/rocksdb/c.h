@@ -606,8 +606,13 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_disable_data_sync(rocksdb_op
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_disable_auto_compactions(rocksdb_options_t*, int);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_delete_obsolete_files_period_micros(
     rocksdb_options_t*, uint64_t);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_bytes_for_level_base(rocksdb_options_t* opt, uint64_t n);
-extern ROCKSDB_LIBRARY_API void rocksdb_options_set_stats_dump_period_sec(rocksdb_options_t* opt, unsigned int sec);
+
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_source_compaction_factor(rocksdb_options_t*, int);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_prepare_for_bulk_load(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_vector_rep(rocksdb_options_t*);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_skip_list_rep(rocksdb_options_t*, size_t, int32_t, int32_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_hash_link_list_rep(rocksdb_options_t*, size_t);
+extern ROCKSDB_LIBRARY_API void rocksdb_options_set_plain_table_factory(rocksdb_options_t*, uint32_t, int, double, size_t);
 
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_level_to_compress(rocksdb_options_t* opt, int level);
 
@@ -615,6 +620,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_prefix_bloom_bits(
     rocksdb_options_t*, uint32_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_memtable_prefix_bloom_probes(
     rocksdb_options_t*, uint32_t);
+
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_max_successive_merges(
     rocksdb_options_t*, size_t);
 extern ROCKSDB_LIBRARY_API void rocksdb_options_set_min_partial_merge_operands(

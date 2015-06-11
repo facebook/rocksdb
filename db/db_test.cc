@@ -10,7 +10,9 @@
 #include <algorithm>
 #include <iostream>
 #include <set>
-#include <unistd.h>
+#ifndef OS_WIN
+#  include <unistd.h>
+#endif
 #include <thread>
 #include <unordered_set>
 #include <utility>
