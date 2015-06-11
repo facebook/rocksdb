@@ -1435,7 +1435,7 @@ class PosixEnv : public Env {
     return gettid(tid);
   }
 
-  virtual uint64_t GetThreadID() const {
+  virtual uint64_t GetThreadID() const override {
     return gettid(pthread_self());
   }
 
