@@ -83,7 +83,7 @@ set(TESTS
 set(EXES ${APPS} ${TESTS})
 
 foreach(sourcefile ${EXES})
-    string(REPLACE ".*" "" exename ${sourcefile})
+    string(REPLACE ".cc" "" exename ${sourcefile})
     add_executable(${exename} ${sourcefile})
     target_link_libraries(${exename} ${LIBS})
 endforeach(sourcefile ${EXES})
