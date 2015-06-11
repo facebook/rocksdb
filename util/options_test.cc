@@ -521,7 +521,7 @@ TEST_F(OptionsTest, GetPlainTableOptionsFromString){
 #endif  // !ROCKSDB_LITE
 
 #ifndef ROCKSDB_LITE  // GetMemTableRepFactoryFromString is not supported
-TEST(OptionsTest, GetMemTableRepFactoryFromString) {  
+TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
   MemTableRepFactory* new_mem_factory = nullptr;
 
   ASSERT_OK(GetMemTableRepFactoryFromString(
