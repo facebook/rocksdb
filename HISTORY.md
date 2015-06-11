@@ -1,5 +1,11 @@
 # Rocksdb Change Log
 
+## 3.11.2 (6/11/2015)
+
+### Fixes
+* Adjust the way we compensate for tombstones when chosing compactions. Previous heuristics led to pathological behavior in some cases.
+* Don't let two L0->L1 compactions run in parallel (only affected through experimental feature SuggestCompactRange)
+
 ## 3.11.1 (6/1/2015)
 
 ### Changes
