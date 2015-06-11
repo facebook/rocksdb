@@ -3895,6 +3895,60 @@ TEST_F(DBTest, TrivialMoveNonOverlappingFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest, TrivialMoveTargetLevel) {
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.write_buffer_size = 10 * 1024 * 1024;
+  options.num_levels = 7;
+
+  DestroyAndReopen(options);
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  // Add 2 non-overlapping files
+  Random rnd(301);
+  std::map<int32_t, std::string> values;
+
+  // file 1 [0 => 300]
+  for (int32_t i = 0; i <= 300; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  // file 2 [600 => 700]
+  for (int32_t i = 600; i <= 700; i++) {
+    values[i] = RandomString(&rnd, value_size);
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  // 2 files in L0
+  ASSERT_EQ("2", FilesPerLevel(0));
+  ASSERT_OK(db_->CompactRange(nullptr, nullptr, true, 6));
+  // 2 files in L6
+  ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel(0));
+
+  ASSERT_EQ(trivial_move, 1);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  for (int32_t i = 0; i <= 300; i++) {
+    ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+  for (int32_t i = 600; i <= 700; i++) {
+    ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+}
+
 TEST_F(DBTest, CompactionTrigger) {
   Options options;
   options.write_buffer_size = 100<<10; //100KB
@@ -13359,6 +13413,38 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
     }
     rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
+}
+
+TEST_F(DBTest, UniversalCompactionTargetLevel) {
+  Options options;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.write_buffer_size = 100 << 10;     // 100KB
+  options.num_levels = 7;
+  options.disable_auto_compactions = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  // Generate 3 overlapping files
+  Random rnd(301);
+  for (int i = 0; i < 210; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 200; i < 300; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+  }
+  ASSERT_OK(Flush());
+
+  for (int i = 250; i < 260; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 100)));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("3", FilesPerLevel(0));
+  // Compact all files into 1 file and put it in L4
+  db_->CompactRange(nullptr, nullptr, true, 4);
+  ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
 }
 
 }  // namespace rocksdb

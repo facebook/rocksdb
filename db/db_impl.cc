@@ -1353,14 +1353,17 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     }
   }
 
+  int final_output_level = 0;
   if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal &&
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
                             cfd->NumberLevels() - 1, target_path_id, begin,
                             end);
+    final_output_level = cfd->NumberLevels() - 1;
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
+      int output_level;
       // in case the compaction is unversal or if we're compacting the
       // bottom-most level, the output level will be the same as input one.
       // level 0 can never be the bottommost level (i.e. if all files are in
@@ -1368,19 +1371,24 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO ||
           (level == max_level_with_files && level > 0)) {
-        s = RunManualCompaction(cfd, level, level, target_path_id, begin, end);
+        output_level = level;
       } else {
-        int output_level = level + 1;
+        output_level = level + 1;
         if (cfd->ioptions()->compaction_style == kCompactionStyleLevel &&
             cfd->ioptions()->level_compaction_dynamic_level_bytes &&
             level == 0) {
           output_level = ColumnFamilyData::kCompactToBaseLevel;
         }
-        s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
-                                end);
       }
+      s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
+                              end);
       if (!s.ok()) {
         break;
+      }
+      if (output_level == ColumnFamilyData::kCompactToBaseLevel) {
+        final_output_level = cfd->NumberLevels() - 1;
+      } else if (output_level > final_output_level) {
+        final_output_level = output_level;
       }
       TEST_SYNC_POINT("DBImpl::RunManualCompaction()::1");
       TEST_SYNC_POINT("DBImpl::RunManualCompaction()::2");
@@ -1392,7 +1400,7 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
   }
 
   if (change_level) {
-    s = ReFitLevel(cfd, max_level_with_files, target_level);
+    s = ReFitLevel(cfd, final_output_level, target_level);
   }
   LogFlush(db_options_.info_log);
 
