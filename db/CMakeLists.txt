@@ -9,9 +9,11 @@ add_library(rocksdblib
                 db_filesnapshot.cc
                 db_impl.cc
                 db_impl_debug.cc
+                db_impl_experimental.cc
                 db_impl_readonly.cc
                 db_iter.cc
                 event_logger_helpers.cc
+                experimental.cc
                 filename.cc
                 file_indexer.cc
                 flush_job.cc

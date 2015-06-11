@@ -16,8 +16,11 @@ include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
 set (ROCKSDBLIBS rocksdblib rocksdb_port_win rocksdb_table rocksdb_util)
 set (ROCKSDBUTILITIESLIBS
+        rocksdb_utilities_backupable
+        rocksdb_utilities_checkpoint
         rocksdb_utilities_compacted_db
         rocksdb_utilities_convenience
+        rocksdb_utilities_leveldb_options
         rocksdb_utilities_merge_operators
         rocksdb_utilities_ttl
         rocksdb_utilities_write_batch_with_index)
