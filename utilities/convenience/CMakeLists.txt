@@ -1,0 +1,1 @@
+add_library(rocksdb_utilities_convenience convenience.cc)

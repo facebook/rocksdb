@@ -11,6 +11,7 @@ add_library(rocksdblib
                 db_impl_debug.cc
                 db_impl_readonly.cc
                 db_iter.cc
+                event_logger_helpers.cc
                 filename.cc
                 file_indexer.cc
                 flush_job.cc
@@ -26,6 +27,7 @@ add_library(rocksdblib
                 merge_helper.cc
                 merge_operator.cc
                 repair.cc
+                slice.cc
                 table_cache.cc
                 table_properties_collector.cc
                 transaction_log_impl.cc
@@ -34,6 +36,7 @@ add_library(rocksdblib
                 version_set.cc
                 wal_manager.cc
                 write_batch.cc
+                write_batch_base.cc
                 write_controller.cc
                 write_thread.cc
             )

@@ -1,5 +1,6 @@
 add_subdirectory(backupable)
 add_subdirectory(checkpoint)
+add_subdirectory(convenience)
 add_subdirectory(compacted_db)
 add_subdirectory(geodb)
 add_subdirectory(leveldb_options)

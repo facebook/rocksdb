@@ -15,9 +15,19 @@ include_directories(${PROJECT_SOURCE_DIR}/port)
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
 set (ROCKSDBLIBS rocksdblib rocksdb_port_win rocksdb_table rocksdb_util)
-set (THIRDPARTYLIBS )
-set (LIBS ${ROCKSDBLIBS} ${THIRDPARTYLIBS})
+set (ROCKSDBUTILITIESLIBS
+        rocksdb_utilities_compacted_db
+        rocksdb_utilities_convenience
+        rocksdb_utilities_merge_operators
+        rocksdb_utilities_ttl
+        rocksdb_utilities_write_batch_with_index)
+set (THIRDPARTYLIBS gtest)
+set (SYSTEMLIBS ${SDK_LIB_PATH}/Shlwapi.lib ${SDK_LIB_PATH}/Rpcrt4.lib)
 
+
+set (LIBS ${ROCKSDBLIBS} ${ROCKSDBUTILITIESLIBS} ${THIRDPARTYLIBS} ${SYSTEMLIBS})
+
+add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 add_subdirectory(db)
 add_subdirectory(port)
 add_subdirectory(table)

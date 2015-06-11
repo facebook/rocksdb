@@ -2,7 +2,7 @@ add_library(rocksdb_util
                 arena.cc
                 auto_roll_logger.cc
                 bloom.cc
-#                build_version_$(Configuration).cc
+                build_version.cc
                 cache.cc
                 coding.cc
                 comparator.cc
@@ -11,6 +11,7 @@ add_library(rocksdb_util
                 dynamic_bloom.cc
                 env.cc
                 env_hdfs.cc
+                event_logger.cc
                 file_util.cc
                 filter_policy.cc
                 hash.cc
