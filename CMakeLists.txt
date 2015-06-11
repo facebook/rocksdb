@@ -1,7 +1,17 @@
 cmake_minimum_required(VERSION 2.6)
 project(ROCKSDB)
 
+# Set environment variable PACKAGES_HOME to point to your Pacman packages root (Unix style dir separators)
 # Use cmake -G "Visual Studio 12 Win64" for project file generation for Windows
+
+set(GFLAGS_HOME $ENV{PACKAGES_HOME}/Gflags.Library)
+set(GFLAGS_CXX_FLAGS -DGFLAGS=gflags)
+set(GFLAGS_INCLUDE ${GFLAGS_HOME}/inc/include)
+set(GFLAGS_LIBS ${GFLAGS_HOME}/bin/debug/amd64/gflags.lib)
+
+add_definitions(${GFLAGS_CXX_FLAGS})
+include_directories(${GFLAGS_INCLUDE})
+set (THIRDPARTY_LIBS ${GFLAGS_LIBS})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /W3 /WX /Od /Gm /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Gd /TP /errorReport:queue")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996" )
@@ -14,8 +24,8 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/port)
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
-set (ROCKSDBLIBS rocksdblib rocksdb_port_win rocksdb_table rocksdb_util)
-set (ROCKSDBUTILITIESLIBS
+set (ROCKSDB_LIBS rocksdblib rocksdb_port_win rocksdb_table rocksdb_util)
+set (ROCKSDB_UTILITIES_LIBS
         rocksdb_utilities_backupable
         rocksdb_utilities_checkpoint
         rocksdb_utilities_compacted_db
@@ -24,11 +34,11 @@ set (ROCKSDBUTILITIESLIBS
         rocksdb_utilities_merge_operators
         rocksdb_utilities_ttl
         rocksdb_utilities_write_batch_with_index)
-set (THIRDPARTYLIBS gtest)
-set (SYSTEMLIBS ${SDK_LIB_PATH}/Shlwapi.lib ${SDK_LIB_PATH}/Rpcrt4.lib)
+set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
+set (SYSTEM_LIBS Shlwapi.lib Rpcrt4.lib)
 
 
-set (LIBS ${ROCKSDBLIBS} ${ROCKSDBUTILITIESLIBS} ${THIRDPARTYLIBS} ${SYSTEMLIBS})
+set (LIBS ${ROCKSDB_LIBS} ${ROCKSDB_UTILITIES_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 add_subdirectory(db)
