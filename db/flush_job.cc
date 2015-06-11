@@ -116,11 +116,11 @@ void FlushJob::RecordFlushIOStats() {
   IOSTATS_RESET(bytes_written);
 }
 
-Status FlushJob::Run(uint64_t* file_number) {
+Status FlushJob::Run(FileMetaData* file_meta) {
   AutoThreadOperationStageUpdater stage_run(
       ThreadStatus::STAGE_FLUSH_RUN);
   // Save the contents of the earliest memtable as a new Table
-  uint64_t fn;
+  FileMetaData meta;
   autovector<MemTable*> mems;
   cfd_->imm()->PickMemtablesToFlush(&mems);
   if (mems.empty()) {
@@ -143,7 +143,7 @@ Status FlushJob::Run(uint64_t* file_number) {
   edit->SetColumnFamily(cfd_->GetID());
 
   // This will release and re-acquire the mutex.
-  Status s = WriteLevel0Table(mems, edit, &fn);
+  Status s = WriteLevel0Table(mems, edit, &meta);
 
   if (s.ok() &&
       (shutting_down_->load(std::memory_order_acquire) || cfd_->IsDropped())) {
@@ -152,16 +152,17 @@ Status FlushJob::Run(uint64_t* file_number) {
   }
 
   if (!s.ok()) {
-    cfd_->imm()->RollbackMemtableFlush(mems, fn);
+    cfd_->imm()->RollbackMemtableFlush(mems, meta.fd.GetNumber());
   } else {
     // Replace immutable memtable with the generated Table
     s = cfd_->imm()->InstallMemtableFlushResults(
-        cfd_, mutable_cf_options_, mems, versions_, db_mutex_, fn,
-        &job_context_->memtables_to_free, db_directory_, log_buffer_);
+        cfd_, mutable_cf_options_, mems, versions_, db_mutex_,
+        meta.fd.GetNumber(), &job_context_->memtables_to_free, db_directory_,
+        log_buffer_);
   }
 
-  if (s.ok() && file_number != nullptr) {
-    *file_number = fn;
+  if (s.ok() && file_meta != nullptr) {
+    *file_meta = meta;
   }
   RecordFlushIOStats();
 
@@ -180,15 +181,13 @@ Status FlushJob::Run(uint64_t* file_number) {
 }
 
 Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
-                                  VersionEdit* edit, uint64_t* filenumber) {
+                                  VersionEdit* edit, FileMetaData* meta) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_FLUSH_WRITE_L0);
   db_mutex_->AssertHeld();
   const uint64_t start_micros = db_options_.env->NowMicros();
-  FileMetaData meta;
   // path 0 for level 0 file.
-  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
-  *filenumber = meta.fd.GetNumber();
+  meta->fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
 
   const SequenceNumber earliest_seqno_in_memtable =
       mems[0]->GetFirstSequenceNumber();
@@ -229,12 +228,12 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                              static_cast<int>(memtables.size()), &arena));
       Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
           "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": started",
-          cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber());
+          cfd_->GetName().c_str(), job_context_->job_id, meta->fd.GetNumber());
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
       s = BuildTable(dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
-                     cfd_->table_cache(), iter.get(), &meta,
+                     cfd_->table_cache(), iter.get(), meta,
                      cfd_->internal_comparator(),
                      cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
                      earliest_seqno_in_memtable, output_compression_,
@@ -247,22 +246,22 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         "[%s] [JOB %d] Level-0 flush table #%" PRIu64 ": %" PRIu64
         " bytes %s"
         "%s",
-        cfd_->GetName().c_str(), job_context_->job_id, meta.fd.GetNumber(),
-        meta.fd.GetFileSize(), s.ToString().c_str(),
-        meta.marked_for_compaction ? " (needs compaction)" : "");
+        cfd_->GetName().c_str(), job_context_->job_id, meta->fd.GetNumber(),
+        meta->fd.GetFileSize(), s.ToString().c_str(),
+        meta->marked_for_compaction ? " (needs compaction)" : "");
 
     // output to event logger
     if (s.ok()) {
       info.db_name = dbname_;
       info.cf_name = cfd_->GetName();
       info.file_path = TableFileName(db_options_.db_paths,
-                                     meta.fd.GetNumber(),
-                                     meta.fd.GetPathId());
-      info.file_size = meta.fd.GetFileSize();
+                                     meta->fd.GetNumber(),
+                                     meta->fd.GetPathId());
+      info.file_size = meta->fd.GetFileSize();
       info.job_id = job_context_->job_id;
       EventHelpers::LogAndNotifyTableFileCreation(
           event_logger_, db_options_.listeners,
-          meta.fd, info);
+          meta->fd, info);
     }
 
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {
@@ -278,9 +277,9 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
   int level = 0;
-  if (s.ok() && meta.fd.GetFileSize() > 0) {
-    const Slice min_user_key = meta.smallest.user_key();
-    const Slice max_user_key = meta.largest.user_key();
+  if (s.ok() && meta->fd.GetFileSize() > 0) {
+    const Slice min_user_key = meta->smallest.user_key();
+    const Slice max_user_key = meta->largest.user_key();
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
@@ -297,19 +296,19 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
         level = 0;
       }
     }
-    edit->AddFile(level, meta.fd.GetNumber(), meta.fd.GetPathId(),
-                  meta.fd.GetFileSize(), meta.smallest, meta.largest,
-                  meta.smallest_seqno, meta.largest_seqno,
-                  meta.marked_for_compaction);
+    edit->AddFile(level, meta->fd.GetNumber(), meta->fd.GetPathId(),
+                  meta->fd.GetFileSize(), meta->smallest, meta->largest,
+                  meta->smallest_seqno, meta->largest_seqno,
+                  meta->marked_for_compaction);
   }
 
   InternalStats::CompactionStats stats(1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
-  stats.bytes_written = meta.fd.GetFileSize();
+  stats.bytes_written = meta->fd.GetFileSize();
   cfd_->internal_stats()->AddCompactionStats(level, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
-                                     meta.fd.GetFileSize());
-  RecordTick(stats_, COMPACT_WRITE_BYTES, meta.fd.GetFileSize());
+                                     meta->fd.GetFileSize());
+  RecordTick(stats_, COMPACT_WRITE_BYTES, meta->fd.GetFileSize());
   return s;
 }
 

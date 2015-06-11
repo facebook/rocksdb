@@ -64,14 +64,14 @@ class FlushJob {
 
   ~FlushJob();
 
-  Status Run(uint64_t* file_number = nullptr);
+  Status Run(FileMetaData* file_meta = nullptr);
 
  private:
   void ReportStartedFlush();
   void ReportFlushInputSize(const autovector<MemTable*>& mems);
   void RecordFlushIOStats();
   Status WriteLevel0Table(const autovector<MemTable*>& mems, VersionEdit* edit,
-                          uint64_t* filenumber);
+                          FileMetaData* meta);
   const std::string& dbname_;
   ColumnFamilyData* cfd_;
   const DBOptions& db_options_;

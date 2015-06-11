@@ -1236,7 +1236,7 @@ Status DBImpl::FlushMemTableToOutputFile(
                      GetCompressionFlush(*cfd->ioptions()), stats_,
                      &event_logger_);
 
-  uint64_t file_number;
+  FileMetaData file_meta;
 
   // Within flush_job.Run, rocksdb may call event listener to notify
   // file creation and deletion.
@@ -1244,7 +1244,7 @@ Status DBImpl::FlushMemTableToOutputFile(
   // Note that flush_job.Run will unlock and lock the db_mutex,
   // and EventListener callback will be called when the db_mutex
   // is unlocked by the current thread.
-  Status s = flush_job.Run(&file_number);
+  Status s = flush_job.Run(&file_meta);
 
   if (s.ok()) {
     InstallSuperVersionBackground(cfd, job_context, mutable_cf_options);
@@ -1277,7 +1277,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 #ifndef ROCKSDB_LITE
   if (s.ok()) {
     // may temporarily unlock and lock the mutex.
-    NotifyOnFlushCompleted(cfd, file_number, mutable_cf_options,
+    NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
                            job_context->job_id);
   }
 #endif  // ROCKSDB_LITE
@@ -1285,7 +1285,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 }
 
 void DBImpl::NotifyOnFlushCompleted(
-    ColumnFamilyData* cfd, uint64_t file_number,
+    ColumnFamilyData* cfd, FileMetaData* file_meta,
     const MutableCFOptions& mutable_cf_options, int job_id) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
@@ -1309,11 +1309,13 @@ void DBImpl::NotifyOnFlushCompleted(
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
     info.file_path = MakeTableFileName(db_options_.db_paths[0].path,
-                                       file_number);
+                                       file_meta->fd.GetNumber());
     info.thread_id = env_->GetThreadID();
     info.job_id = job_id;
     info.triggered_writes_slowdown = triggered_writes_slowdown;
     info.triggered_writes_stop = triggered_writes_stop;
+    info.smallest_seqno = file_meta->smallest_seqno;
+    info.largest_seqno = file_meta->largest_seqno;
     for (auto listener : db_options_.listeners) {
       listener->OnFlushCompleted(this, info);
     }

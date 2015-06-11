@@ -68,6 +68,10 @@ struct FlushJobInfo {
   // files in level 0.  Compactions should try to compact L0 files down
   // to lower levels as soon as possible.
   bool triggered_writes_stop;
+  // The smallest sequence number in the newly created file
+  SequenceNumber smallest_seqno;
+  // The largest sequence number in the newly created file
+  SequenceNumber largest_seqno;
 };
 
 struct CompactionJobInfo {
