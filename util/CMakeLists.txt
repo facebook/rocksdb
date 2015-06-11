@@ -53,3 +53,37 @@ add_library(rocksdb_util
                 xxhash.cc
                 thread_local.cc
             )
+
+set(APPS )
+
+set(TESTS
+        arena_test.cc
+        autovector_test.cc
+        auto_roll_logger_test.cc
+        bloom_test.cc
+        cache_test.cc
+        coding_test.cc
+        crc32c_test.cc
+        dynamic_bloom_test.cc
+        env_test.cc
+        event_logger_test.cc
+        filelock_test.cc
+        histogram_test.cc
+        manual_compaction_test.cc
+        memenv_test.cc
+        mock_env_test.cc
+        options_test.cc
+        rate_limiter_test.cc
+        slice_transform_test.cc
+        sst_dump_test.cc
+        thread_list_test.cc
+        thread_local_test.cc
+)
+
+set(EXES ${APPS} ${TESTS})
+
+foreach(sourcefile ${EXES})
+    string(REPLACE ".*" "" exename ${sourcefile})
+    add_executable(${exename} ${sourcefile})
+    target_link_libraries(${exename} ${LIBS})
+endforeach(sourcefile ${EXES})

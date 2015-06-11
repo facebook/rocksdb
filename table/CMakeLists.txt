@@ -28,3 +28,24 @@ add_library(rocksdb_table
                 table_properties.cc
                 two_level_iterator.cc
             )
+
+set(APPS )
+
+set(TESTS
+        block_based_filter_block_test.cc
+        block_hash_index_test.cc
+        block_test.cc
+        cuckoo_table_builder_test.cc
+        cuckoo_table_reader_test.cc
+        full_filter_block_test.cc
+        merger_test.cc
+        table_test.cc
+)
+
+set(EXES ${APPS} ${TESTS})
+
+foreach(sourcefile ${EXES})
+    string(REPLACE ".*" "" exename ${sourcefile})
+    add_executable(${exename} ${sourcefile})
+    target_link_libraries(${exename} ${LIBS})
+endforeach(sourcefile ${EXES})

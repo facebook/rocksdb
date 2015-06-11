@@ -40,3 +40,48 @@ add_library(rocksdblib
                 write_controller.cc
                 write_thread.cc
             )
+
+set(APPS db_bench.cc)
+
+set(TESTS
+        c_test.c
+        column_family_test.cc
+        compact_files_test.cc
+        compaction_job_test.cc
+        compaction_picker_test.cc
+        comparator_db_test.cc
+        corruption_test.cc
+        cuckoo_table_db_test.cc
+        db_iter_test.cc
+        db_test.cc
+        dbformat_test.cc
+        deletefile_test.cc
+        fault_injection_test.cc
+        file_indexer_test.cc
+        filename_test.cc
+        flush_job_test.cc
+        listener_test.cc
+        log_test.cc
+        memtable_list_test.cc
+        merge_test.cc
+        perf_context_test.cc
+        plain_table_db_test.cc
+        prefix_test.cc
+        skiplist_test.cc
+        table_properties_collector_test.cc
+        version_builder_test.cc
+        version_edit_test.cc
+        version_set_test.cc
+        wal_manager_test.cc
+        write_batch_test.cc
+        write_controller_test.cc
+)
+
+set(EXES ${APPS} ${TESTS})
+
+foreach(sourcefile ${EXES})
+    string(REPLACE ".*" "" exename ${sourcefile})
+    add_executable(${exename} ${sourcefile})
+    target_link_libraries(${exename} ${LIBS})
+endforeach(sourcefile ${EXES})
+
