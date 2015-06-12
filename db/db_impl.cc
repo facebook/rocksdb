@@ -1373,16 +1373,8 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
       // level 0 can never be the bottommost level (i.e. if all files are in
       // level 0, we will compact to level 1)
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
-        output_level = level;
-      } else if (level == max_level_with_files && level > 0) {
-        if (cfd->ioptions()->compaction_filter == nullptr &&
-            cfd->ioptions()->compaction_filter_factory == nullptr &&
-            cfd->ioptions()->compaction_filter_factory_v2 == nullptr) {
-          // If there is no compaction filter we can skip the compaction of
-          // the bottommost level
-          continue;
-        }
+          cfd->ioptions()->compaction_style == kCompactionStyleFIFO ||
+          (level == max_level_with_files && level > 0)) {
         output_level = level;
       } else {
         output_level = level + 1;
