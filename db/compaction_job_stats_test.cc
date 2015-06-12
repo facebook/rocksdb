@@ -371,11 +371,9 @@ class CompactionJobStatsChecker : public EventListener {
 
   // A helper function which verifies whether two CompactionJobStats
   // match.  The verification of all compaction stats are done by
-  // ASSERT_EQ except the following stats, which we use ASSERT_GE
-  // and ASSERT_LE with a reasonable (< 15%) bias:
-  // 1. write-amplication
-  // 2. actual bytes input and output, which relies on the compression
-  //    ratio and the implementation of table formats.
+  // ASSERT_EQ except for the total input / output bytes, which we
+  // use ASSERT_GE and ASSERT_LE with a reasonable bias ---
+  // 10% in uncompressed case and 20% when compression is used.
   void Verify(const CompactionJobStats& current_stats,
               const CompactionJobStats& stats) {
     // time
@@ -397,7 +395,7 @@ class CompactionJobStatsChecker : public EventListener {
         stats.is_manual_compaction);
 
     // file size
-    double kFileSizeBias = 0.15;
+    double kFileSizeBias = compression_enabled_ ? 0.20 : 0.10;
     ASSERT_GE(current_stats.total_input_bytes * (1.00 + kFileSizeBias),
               stats.total_input_bytes);
     ASSERT_LE(current_stats.total_input_bytes,
@@ -569,7 +567,7 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
       MakeTableWithKeyValues(
           &rnd, start_key, start_key + key_base - 1,
           kKeySize, kValueSize, key_interval,
-          kCompressionRatio, 1);
+          compression_ratio, 1);
       snprintf(buf, kBufSize, "%d", ++num_L0_files);
       ASSERT_EQ(std::string(buf), FilesPerLevel(1));
     }
@@ -627,7 +625,7 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
           &rnd, start_key, start_key + key_base * sparseness - 1,
           kKeySize, kValueSize,
           key_base * sparseness / num_keys_per_L0_file,
-          kCompressionRatio, 1);
+          compression_ratio, 1);
       snprintf(buf, kBufSize, "%d,%d", ++num_L0_files, num_L1_files);
       ASSERT_EQ(std::string(buf), FilesPerLevel(1));
     }
