@@ -1,1 +1,0 @@
-add_library(rocksdb_utilities_checkpoint checkpoint.cc)

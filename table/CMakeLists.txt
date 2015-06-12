@@ -29,7 +29,7 @@ add_library(rocksdb_table
                 two_level_iterator.cc
             )
 
-set(APPS )
+set(APPS table_reader_bench.cc)
 
 set(TESTS
         block_based_filter_block_test.cc

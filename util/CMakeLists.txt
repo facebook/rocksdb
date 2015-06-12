@@ -54,7 +54,7 @@ add_library(rocksdb_util
                 thread_local.cc
             )
 
-set(APPS )
+set(APPS cache_bench.cc)
 
 set(TESTS
         arena_test.cc

@@ -1,1 +1,0 @@
-add_library(rocksdb_utilities_compacted_db compacted_db_impl.cc)

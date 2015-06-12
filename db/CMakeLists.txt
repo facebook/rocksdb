@@ -43,7 +43,7 @@ add_library(rocksdblib
                 write_thread.cc
             )
 
-set(APPS db_bench.cc)
+set(APPS db_bench.cc memtablerep_bench.cc)
 
 set(TESTS
         c_test.c
