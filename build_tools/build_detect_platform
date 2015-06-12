@@ -157,6 +157,7 @@ case "$TARGET_OS" in
         ;;
     Cygwin)
         PLATFORM=CYGWIN
+        PLATFORM_SHARED_CFLAGS=""
         PLATFORM_CXXFLAGS="-std=gnu++11"
         COMMON_FLAGS="$COMMON_FLAGS -DCYGWIN"
         if [ -z "$USE_CLANG" ]; then
