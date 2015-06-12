@@ -62,6 +62,10 @@ int main() {
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
 
+#ifdef OS_WIN
+#include <io.h> // open/close
+#endif
+
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
 using GFLAGS::SetUsageMessage;
