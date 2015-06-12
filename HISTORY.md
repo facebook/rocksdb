@@ -2,6 +2,7 @@
 
 ### New Features
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
+* Added a new way to report QPS from db_bench (check out --report_file and --report_interval_seconds)
 
 ### Public API changes
 * EventListener::OnFlushCompleted() now passes FlushJobInfo instead of a list of parameters.
