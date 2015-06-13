@@ -3881,27 +3881,26 @@ ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
 }
 
 void DBImpl::GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                 const Range* range, int n, uint64_t* sizes) {
+                                 const Range* range, int n, uint64_t* sizes,
+                                 bool include_memtable) {
   Version* v;
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   auto cfd = cfh->cfd();
-  {
-    InstrumentedMutexLock l(&mutex_);
-    v = cfd->current();
-    v->Ref();
-  }
+  SuperVersion* sv = GetAndRefSuperVersion(cfd);
+  v = sv->current;
 
   for (int i = 0; i < n; i++) {
     // Convert user_key into a corresponding internal key.
     InternalKey k1(range[i].start, kMaxSequenceNumber, kValueTypeForSeek);
     InternalKey k2(range[i].limit, kMaxSequenceNumber, kValueTypeForSeek);
     sizes[i] = versions_->ApproximateSize(v, k1.Encode(), k2.Encode());
+    if (include_memtable) {
+      sizes[i] += sv->mem->ApproximateSize(k1.Encode(), k2.Encode());
+      sizes[i] += sv->imm->ApproximateSize(k1.Encode(), k2.Encode());
+    }
   }
 
-  {
-    InstrumentedMutexLock l(&mutex_);
-    v->Unref();
-  }
+  ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
 std::list<uint64_t>::iterator

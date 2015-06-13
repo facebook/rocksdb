@@ -397,10 +397,12 @@ class DB {
   //
   // The results may not include the sizes of recently written data.
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n,
-                                   uint64_t* sizes) = 0;
-  virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
-    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes);
+                                   const Range* range, int n, uint64_t* sizes,
+                                   bool include_memtable = false) = 0;
+  virtual void GetApproximateSizes(const Range* range, int n, uint64_t* sizes,
+                                   bool include_memtable = false) {
+    GetApproximateSizes(DefaultColumnFamily(), range, n, sizes,
+                        include_memtable);
   }
 
   // Compact the underlying storage for the key range [*begin,*end].

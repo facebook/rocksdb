@@ -15,6 +15,7 @@
 * WBWIIterator::Entry() now returns WriteEntry instead of `const WriteEntry&`
 * options.hard_rate_limit is deprecated.
 * When options.soft_rate_limit or options.level0_slowdown_writes_trigger is triggered, the way to slow down writes is changed to: write rate to DB is limited to to options.delayed_write_rate.
+* DB::GetApproximateSizes() adds a parameter to allow the estimation to include data in mem table, with default to be not to include. It is now only supported in skip list mem table.
 
 ## 3.11.0 (5/19/2015)
 ### New Features

@@ -149,6 +149,15 @@ uint64_t MemTableListVersion::GetTotalNumEntries() const {
   return total_num;
 }
 
+uint64_t MemTableListVersion::ApproximateSize(const Slice& start_ikey,
+                                              const Slice& end_ikey) {
+  uint64_t total_size = 0;
+  for (auto& m : memlist_) {
+    total_size += m->ApproximateSize(start_ikey, end_ikey);
+  }
+  return total_size;
+}
+
 uint64_t MemTableListVersion::GetTotalNumDeletes() const {
   uint64_t total_num = 0;
   for (auto& m : memlist_) {

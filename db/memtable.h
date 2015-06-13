@@ -212,7 +212,9 @@ class MemTable {
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  uint64_t num_entries() const { return num_entries_; }
+  uint64_t num_entries() const {
+    return num_entries_.load(std::memory_order_relaxed);
+  }
 
   // Get total number of deletes in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
@@ -275,6 +277,8 @@ class MemTable {
     return table_->IsSnapshotSupported() && !moptions_.inplace_update_support;
   }
 
+  uint64_t ApproximateSize(const Slice& start_ikey, const Slice& end_ikey);
+
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
 
@@ -300,7 +304,9 @@ class MemTable {
   MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
 
-  uint64_t num_entries_;
+  // Total data size of all data inserted
+  std::atomic<uint64_t> data_size_;
+  std::atomic<uint64_t> num_entries_;
   uint64_t num_deletes_;
 
   // These are used to manage memtable flushes to storage

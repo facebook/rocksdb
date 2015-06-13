@@ -64,6 +64,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
           ioptions.info_log)),
+      data_size_(0),
       num_entries_(0),
       num_deletes_(0),
       flush_in_progress_(false),
@@ -290,6 +291,26 @@ port::RWMutex* MemTable::GetLock(const Slice& key) {
   return &locks_[hash(key) % locks_.size()];
 }
 
+uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
+                                   const Slice& end_ikey) {
+  uint64_t entry_count = table_->ApproximateNumEntries(start_ikey, end_ikey);
+  if (entry_count == 0) {
+    return 0;
+  }
+  uint64_t n = num_entries_.load(std::memory_order_relaxed);
+  if (n == 0) {
+    return 0;
+  }
+  if (entry_count > n) {
+    // table_->ApproximateNumEntries() is just an estimate so it can be larger
+    // than actual entries we have. Cap it to entries we have to limit the
+    // inaccuracy.
+    entry_count = n;
+  }
+  uint64_t data_size = data_size_.load(std::memory_order_relaxed);
+  return entry_count * (data_size / n);
+}
+
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
                    const Slice& value) {
@@ -317,7 +338,10 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
   table_->Insert(handle);
-  num_entries_++;
+  num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+                     std::memory_order_relaxed);
+  data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
+                   std::memory_order_relaxed);
   if (type == kTypeDeletion) {
     num_deletes_++;
   }

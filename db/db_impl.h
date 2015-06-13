@@ -122,8 +122,8 @@ class DBImpl : public DB {
                               const Slice& property, uint64_t* value) override;
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n,
-                                   uint64_t* sizes) override;
+                                   const Range* range, int n, uint64_t* sizes,
+                                   bool include_memtable = false) override;
   using DB::CompactRange;
   virtual Status CompactRange(ColumnFamilyHandle* column_family,
                               const Slice* begin, const Slice* end,

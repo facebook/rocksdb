@@ -6577,6 +6577,112 @@ static bool Between(uint64_t val, uint64_t low, uint64_t high) {
   return result;
 }
 
+TEST_F(DBTest, ApproximateSizesMemTable) {
+  Options options;
+  options.write_buffer_size = 100000000;  // Large write buffer
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  const int N = 128;
+  Random rnd(301);
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+  }
+
+  uint64_t size;
+  std::string start = Key(50);
+  std::string end = Key(60);
+  Range r(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_GT(size, 6000);
+  ASSERT_LT(size, 204800);
+  // Zero if not including mem table
+  db_->GetApproximateSizes(&r, 1, &size, false);
+  ASSERT_EQ(size, 0);
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_EQ(size, 0);
+
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(1000 + i), RandomString(&rnd, 1024)));
+  }
+
+  start = Key(500);
+  end = Key(600);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_EQ(size, 0);
+
+  start = Key(100);
+  end = Key(1020);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_GT(size, 6000);
+
+  options.max_write_buffer_number = 8;
+  options.min_write_buffer_number_to_merge = 5;
+  options.write_buffer_size = 1024 * N;  // Not very large
+  DestroyAndReopen(options);
+
+  int keys[N * 3];
+  for (int i = 0; i < N; i++) {
+    keys[i * 3] = i * 5;
+    keys[i * 3 + 1] = i * 5 + 1;
+    keys[i * 3 + 2] = i * 5 + 2;
+  }
+  std::random_shuffle(std::begin(keys), std::end(keys));
+
+  for (int i = 0; i < N * 3; i++) {
+    ASSERT_OK(Put(Key(keys[i] + 1000), RandomString(&rnd, 1024)));
+  }
+
+  start = Key(100);
+  end = Key(300);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_EQ(size, 0);
+
+  start = Key(1050);
+  end = Key(1080);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_GT(size, 6000);
+
+  start = Key(2100);
+  end = Key(2300);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size, true);
+  ASSERT_EQ(size, 0);
+
+  start = Key(1050);
+  end = Key(1080);
+  r = Range(start, end);
+  uint64_t size_with_mt, size_without_mt;
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
+  ASSERT_GT(size_with_mt, 6000);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  ASSERT_EQ(size_without_mt, 0);
+
+  Flush();
+
+  for (int i = 0; i < N; i++) {
+    ASSERT_OK(Put(Key(i + 1000), RandomString(&rnd, 1024)));
+  }
+
+  start = Key(1050);
+  end = Key(1080);
+  r = Range(start, end);
+  db_->GetApproximateSizes(&r, 1, &size_with_mt, true);
+  db_->GetApproximateSizes(&r, 1, &size_without_mt, false);
+  ASSERT_GT(size_with_mt, size_without_mt);
+  ASSERT_GT(size_without_mt, 6000);
+}
+
 TEST_F(DBTest, ApproximateSizes) {
   do {
     Options options;
@@ -8948,8 +9054,8 @@ class ModelDB: public DB {
   }
   using DB::GetApproximateSizes;
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
-                                   const Range* range, int n,
-                                   uint64_t* sizes) override {
+                                   const Range* range, int n, uint64_t* sizes,
+                                   bool include_memtable) override {
     for (int i = 0; i < n; i++) {
       sizes[i] = 0;
     }

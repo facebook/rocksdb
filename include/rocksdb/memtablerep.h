@@ -103,6 +103,11 @@ class MemTableRep {
   virtual void Get(const LookupKey& k, void* callback_args,
                    bool (*callback_func)(void* arg, const char* entry));
 
+  virtual uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                         const Slice& end_key) {
+    return 0;
+  }
+
   // Report an approximation of how much memory has been used other than memory
   // that was allocated through the allocator.
   virtual size_t ApproximateMemoryUsage() = 0;
