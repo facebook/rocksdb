@@ -70,6 +70,29 @@ enum CompactionStyle : char {
   kCompactionStyleNone = 0x3,
 };
 
+enum class WALRecoveryMode : char {
+  // Original levelDB recovery
+  // We tolerate incomplete record in trailing data on all logs
+  // Use case : This is legacy behavior (default)
+  kTolerateCorruptedTailRecords = 0x00,
+  // Recover from clean shutdown
+  // We don't expect to find any corruption in the WAL
+  // Use case : This is ideal for unit tests and rare applications that
+  // can require high consistency gaurantee
+  kAbsoluteConsistency = 0x01,
+  // Recover to point-in-time consistency
+  // We stop the WAL playback on discovering WAL inconsistency
+  // Use case : Ideal for systems that have disk controller cache like
+  // hard disk, SSD without super capacitor that store related data
+  kPointInTimeRecovery = 0x02,
+  // Recovery after a disaster
+  // We ignore any corruption in the  WAL and try to salvage as much data as
+  // possible
+  // Use case : Ideal for last ditch effort to recover data or systems that
+  // operate with low grade unrelated data
+  kSkipAnyCorruptedRecords = 0x03,
+};
+
 struct CompactionOptionsFIFO {
   // once the total sum of table files reaches this, we will delete the oldest
   // table file
@@ -1028,6 +1051,10 @@ struct DBOptions {
   //
   // Default: 1MB/s
   uint64_t delayed_write_rate;
+
+  // Recovery mode to control the consistency while replaying WAL
+  // Default: kTolerateCorruptedTailRecords
+  WALRecoveryMode wal_recovery_mode;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)

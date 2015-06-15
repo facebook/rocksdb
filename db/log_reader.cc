@@ -61,7 +61,8 @@ bool Reader::SkipToInitialBlock() {
   return true;
 }
 
-bool Reader::ReadRecord(Slice* record, std::string* scratch) {
+bool Reader::ReadRecord(Slice* record, std::string* scratch,
+                        const bool report_eof_inconsistency) {
   if (last_record_offset_ < initial_offset_) {
     if (!SkipToInitialBlock()) {
       return false;
@@ -78,7 +79,8 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
   Slice fragment;
   while (true) {
     uint64_t physical_record_offset = end_of_buffer_offset_ - buffer_.size();
-    const unsigned int record_type = ReadPhysicalRecord(&fragment);
+    const unsigned int record_type =
+        ReadPhysicalRecord(&fragment, report_eof_inconsistency);
     switch (record_type) {
       case kFullType:
         if (in_fragmented_record && !scratch->empty()) {
@@ -130,6 +132,9 @@ bool Reader::ReadRecord(Slice* record, std::string* scratch) {
 
       case kEof:
         if (in_fragmented_record) {
+          if (report_eof_inconsistency) {
+            ReportCorruption(scratch->size(), "error reading trailing data");
+          }
           // This can be caused by the writer dying immediately after
           //  writing a physical record but before completing the next; don't
           //  treat it as a corruption, just ignore the entire logical record.
@@ -238,7 +243,8 @@ void Reader::ReportDrop(size_t bytes, const Status& reason) {
   }
 }
 
-unsigned int Reader::ReadPhysicalRecord(Slice* result) {
+unsigned int Reader::ReadPhysicalRecord(Slice* result,
+                                        const bool report_eof_inconsistency) {
   while (true) {
     if (buffer_.size() < (size_t)kHeaderSize) {
       if (!eof_ && !read_error_) {
@@ -259,8 +265,11 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       } else {
         // Note that if buffer_ is non-empty, we have a truncated header at the
         //  end of the file, which can be caused by the writer crashing in the
-        //  middle of writing the header. Instead of considering this an error,
-        //  just report EOF.
+        //  middle of writing the header. Unless explicitly requested we don't
+        //  considering this an error, just report EOF.
+        if (buffer_.size() && report_eof_inconsistency) {
+          ReportCorruption(buffer_.size(), "truncated header");
+        }
         buffer_.clear();
         return kEof;
       }
@@ -281,7 +290,10 @@ unsigned int Reader::ReadPhysicalRecord(Slice* result) {
       }
       // If the end of the file has been reached without reading |length| bytes
       // of payload, assume the writer died in the middle of writing the record.
-      // Don't report a corruption.
+      // Don't report a corruption unless requested.
+      if (drop_size && report_eof_inconsistency) {
+        ReportCorruption(drop_size, "truncated header");
+      }
       return kEof;
     }
 

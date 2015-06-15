@@ -14,6 +14,7 @@
 #include <thread>
 #include <unordered_set>
 #include <utility>
+#include <fcntl.h>
 
 #include "db/filename.h"
 #include "db/dbformat.h"
@@ -8626,6 +8627,188 @@ TEST_F(DBTest, TransactionLogIteratorCorruptedLog) {
     auto iter2 = OpenTransactionLogIter(last_sequence_read + 1);
     ExpectRecords(1, iter2);
   } while (ChangeCompactOptions());
+}
+
+//
+// Test WAL recovery for the various modes available
+// TODO krad:
+// 1. Add tests when there are more than one log file
+//
+class RecoveryTestHelper {
+ public:
+  // Recreate and fill the store with some data
+  static size_t FillData(DBTest* test, const Options& options) {
+    size_t count = 0;
+
+    test->DestroyAndReopen(options);
+
+    for (int i = 0; i < 1024; i++) {
+      test->Put("key" + ToString(i), test->DummyString(10));
+      ++count;
+    }
+    return count;
+  }
+
+  // Read back all the keys we wrote and return the number of keys found
+  static size_t GetData(DBTest* test) {
+    size_t count = 0;
+    for (size_t i = 0; i < 1024; i++) {
+      if (test->Get("key" + ToString(i)) != "NOT_FOUND") {
+        ++count;
+      }
+    }
+    return count;
+  }
+
+  // Overwrite data with 'a' from offset for length len
+  static void InduceCorruption(const std::string& filename, uint32_t offset,
+                               uint32_t len) {
+    ASSERT_GT(len, 0);
+
+    int fd = open(filename.c_str(), O_RDWR);
+
+    ASSERT_GT(fd, 0);
+    ASSERT_EQ(offset, lseek(fd, offset, SEEK_SET));
+
+    char buf[len];
+    memset(buf, 'a', len);
+    ASSERT_EQ(len, write(fd, buf, len));
+
+    close(fd);
+  }
+
+  // Corrupt the last WAL file from (filesize * off) for length (filesize * len)
+  static void CorruptWAL(DBTest* test, const double off, const double len,
+                         const bool trunc = false) {
+    rocksdb::VectorLogPtr wal_files;
+    ASSERT_OK(test->dbfull()->GetSortedWalFiles(wal_files));
+    ASSERT_EQ(wal_files.size(), 1);
+    const auto logfile_path =
+        test->dbname_ + "/" + wal_files.front()->PathName();
+    auto size = wal_files.front()->SizeFileBytes();
+
+    if (trunc) {
+      ASSERT_EQ(0, truncate(logfile_path.c_str(), size * off));
+    } else {
+      InduceCorruption(logfile_path, size * off, size * len);
+    }
+  }
+};
+
+// Test scope:
+// - We expect to open the data store when there is incomplete trailing writes
+// at the end of any of the logs
+// - We do not expect to open the data store for corruption
+TEST_F(DBTest, kTolerateCorruptedTailRecords) {
+  for (auto trunc : {true, false}) {
+    for (int i = 0; i < 4; i++) {
+      // Fill data for testing
+      Options options = CurrentOptions();
+      const size_t row_count = RecoveryTestHelper::FillData(this, options);
+
+      // test checksum failure or parsing
+      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+
+      if (trunc) {
+        options.wal_recovery_mode =
+            WALRecoveryMode::kTolerateCorruptedTailRecords;
+        ASSERT_OK(TryReopen(options));
+        const size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+        ASSERT_TRUE(i == 0 || recovered_row_count > 0);
+        ASSERT_LT(recovered_row_count, row_count);
+      } else {
+        options.wal_recovery_mode =
+            WALRecoveryMode::kTolerateCorruptedTailRecords;
+        ASSERT_NOK(TryReopen(options));
+      }
+    }
+  }
+}
+
+// Test scope:
+// We don't expect the data store to be opened if there is any corruption
+// (leading, middle or trailing -- incomplete writes or corruption)
+TEST_F(DBTest, kAbsoluteConsistency) {
+  Options options = CurrentOptions();
+  const size_t row_count = RecoveryTestHelper::FillData(this, options);
+  options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+  ASSERT_OK(TryReopen(options));
+  ASSERT_EQ(RecoveryTestHelper::GetData(this), row_count);
+
+  for (auto trunc : {true, false}) {
+    for (int i = 0; i < 4; i++) {
+      if (trunc && i == 0) {
+        continue;
+      }
+      options = CurrentOptions();
+      RecoveryTestHelper::FillData(this, options);
+
+      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+      options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+      ASSERT_NOK(TryReopen(options));
+    }
+  }
+}
+
+// Test scope:
+// - We expect to open data store under all circumstances
+// - We expect only data upto the point where the first error was encountered
+TEST_F(DBTest, kPointInTimeRecovery) {
+  for (auto trunc : {true, false}) {
+    for (int i = 0; i < 4; i++) {
+      // Fill data for testing
+      Options options = CurrentOptions();
+      const size_t row_count = RecoveryTestHelper::FillData(this, options);
+
+      // test checksum failure or parsing
+      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+
+      options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+
+      ASSERT_OK(TryReopen(options));
+
+      size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+      ASSERT_LT(recovered_row_count, row_count);
+
+      // verify that the keys are sequential and there is no break
+      bool expect_data = true;
+      for (size_t j = 0; j < 1024; ++j) {
+        bool found = Get("key" + ToString(i)) != "NOT_FOUND";
+        if (expect_data && !found) {
+          expect_data = false;
+        }
+        ASSERT_EQ(found, expect_data);
+      }
+
+      ASSERT_TRUE(i != 0 || recovered_row_count == 0);
+      ASSERT_TRUE(i != 1 || recovered_row_count < row_count / 2);
+    }
+  }
+}
+
+// Test scope:
+// - We expect to open the data store under all scenarios
+// - We expect to have recovered records past the corruption zone
+TEST_F(DBTest, kSkipAnyCorruptedRecords) {
+  for (auto trunc : {true, false}) {
+    for (int i = 0; i < 4; i++) {
+      // Fill data for testing
+      Options options = CurrentOptions();
+      const size_t row_count = RecoveryTestHelper::FillData(this, options);
+
+      // induce leading corruption
+      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+
+      options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
+      ASSERT_OK(TryReopen(options));
+      size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+      ASSERT_LT(recovered_row_count, row_count);
+
+      if (!trunc) {
+        ASSERT_TRUE(i != 0 || recovered_row_count > 0);
+      }
+    }
+  }
 }
 
 TEST_F(DBTest, TransactionLogIteratorBatchOperations) {

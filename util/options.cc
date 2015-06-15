@@ -242,7 +242,8 @@ DBOptions::DBOptions()
       wal_bytes_per_sync(0),
       listeners(),
       enable_thread_tracking(false),
-      delayed_write_rate(1024U * 1024U) {
+      delayed_write_rate(1024U * 1024U),
+      wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords) {
 }
 
 DBOptions::DBOptions(const Options& options)
@@ -288,7 +289,8 @@ DBOptions::DBOptions(const Options& options)
       wal_bytes_per_sync(options.wal_bytes_per_sync),
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
-      delayed_write_rate(options.delayed_write_rate) {}
+      delayed_write_rate(options.delayed_write_rate),
+      wal_recovery_mode(options.wal_recovery_mode) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
