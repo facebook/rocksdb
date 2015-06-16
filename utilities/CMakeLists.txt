@@ -29,12 +29,12 @@ set(APPS )
 
 set(TESTS
         backupable/backupable_db_test.cc
-#        document/document_db_test.cc
-#        document/json_document_test.cc
+        document/document_db_test.cc
+        document/json_document_test.cc
         geodb/geodb_test.cc
         merge_operators/string_append/stringappend_test.cc
         redis/redis_lists_test.cc
-#        spatialdb/spatial_db_test.cc
+        spatialdb/spatial_db_test.cc
         ttl/ttl_test.cc
         write_batch_with_index/write_batch_with_index_test.cc
 )
