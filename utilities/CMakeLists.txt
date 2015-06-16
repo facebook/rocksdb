@@ -25,36 +25,28 @@ add_library(rocksdb_utilities ${SOURCES})
 add_library(rocksdb_utilities_je ${SOURCES})
 set_target_properties(rocksdb_utilities_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
 
-#
-# Refactor it!
-#
+set(APPS )
 
-add_executable(backupable_db_test backupable/backupable_db_test.cc)
-target_link_libraries(backupable_db_test ${LIBS})
-add_executable(backupable_db_test_je backupable/backupable_db_test.cc)
-set_target_properties(backupable_db_test_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
-target_link_libraries(backupable_db_test_je ${LIBS_JE})
+set(TESTS
+        backupable/backupable_db_test.cc
+#        document/document_db_test.cc
+#        document/json_document_test.cc
+        geodb/geodb_test.cc
+        merge_operators/string_append/stringappend_test.cc
+        redis/redis_lists_test.cc
+#        spatialdb/spatial_db_test.cc
+        ttl/ttl_test.cc
+        write_batch_with_index/write_batch_with_index_test.cc
+)
 
-#add_executable(document_db_test document/document_db_test.cc)
-#target_link_libraries(document_db_test ${LIBS})
+set(EXES ${APPS} ${TESTS})
 
-#add_executable(json_document_test document/json_document_test.cc)
-#target_link_libraries(json_document_test ${LIBS})
-
-add_executable(geodb_test geodb/geodb_test.cc)
-target_link_libraries(geodb_test ${LIBS})
-
-add_executable(stringappend_test merge_operators/string_append/stringappend_test.cc)
-target_link_libraries(stringappend_test ${LIBS})
-
-add_executable(redis_lists_test redis/redis_lists_test.cc)
-target_link_libraries(redis_lists_test ${LIBS})
-
-#add_executable(spatial_db_test spatialdb/spatial_db_test.cc)
-#target_link_libraries(spatial_db_test ${LIBS})
-
-add_executable(ttl_test ttl/ttl_test.cc)
-target_link_libraries(ttl_test ${LIBS})
-
-add_executable(write_batch_with_index_test write_batch_with_index/write_batch_with_index_test.cc)
-target_link_libraries(write_batch_with_index_test ${LIBS})
+foreach(sourcefile ${EXES})
+    string(REPLACE ".cc" "" exename ${sourcefile})
+    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
+    add_executable(${exename} ${sourcefile})
+    target_link_libraries(${exename} ${LIBS})
+    add_executable(${exename}_je ${sourcefile})
+    set_target_properties(${exename}_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
+    target_link_libraries(${exename}_je ${LIBS_JE})
+endforeach(sourcefile ${EXES})
