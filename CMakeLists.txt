@@ -17,9 +17,14 @@ set(SNAPPY_CXX_FLAGS -DSNAPPY)
 set(SNAPPY_INCLUDE ${SNAPPY_HOME}/inc/inc)
 set(SNAPPY_LIBS debug ${SNAPPY_HOME}/bin/debug/amd64/snappy.lib optimized ${SNAPPY_HOME}/bin/retail/amd64/snappy.lib)
 
+set(JEMALLOC_HOME $ENV{PACKAGES_HOME}/Jemalloc.Library)
+set(JEMALLOC_CXX_FLAGS -DJEMALLOC)
+set(JEMALLOC_INCLUDE ${JEMALLOC_HOME}/inc/include)
+set(JEMALLOC_LIBS debug ${JEMALLOC_HOME}/bin/debug/amd64/jemalloc.lib optimized ${JEMALLOC_HOME}/bin/retail/amd64/jemalloc.lib)
+
 add_definitions(${GFLAGS_CXX_FLAGS} ${SNAPPY_CXX_FLAGS})
-include_directories(${GFLAGS_INCLUDE} ${SNAPPY_INCLUDE})
-set (THIRDPARTY_LIBS ${GFLAGS_LIBS} ${SNAPPY_LIBS})
+include_directories(${GFLAGS_INCLUDE} ${SNAPPY_INCLUDE} ${JEMALLOC_INCLUDE})
+set (THIRDPARTY_LIBS ${GFLAGS_LIBS} ${SNAPPY_LIBS} ${JEMALLOC_LIBS})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /W3 /WX /EHsc /GS /fp:precise /Zc:wchar_t /Zc:forScope /Gd /TP /errorReport:queue")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996" )
@@ -35,10 +40,12 @@ include_directories(${PROJECT_SOURCE_DIR}/port)
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
 set (ROCKSDB_LIBS rocksdblib rocksdb_port_win rocksdb_table rocksdb_util rocksdb_utilities)
+set (ROCKSDB_LIBS_JE rocksdblib_je rocksdb_port_win_je rocksdb_table_je rocksdb_util_je rocksdb_utilities_je)
 set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
 set (SYSTEM_LIBS Shlwapi.lib Rpcrt4.lib)
 
 set (LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+set (LIBS_JE ${ROCKSDB_LIBS_JE} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 add_subdirectory(db)
