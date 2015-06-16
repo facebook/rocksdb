@@ -82,8 +82,15 @@ struct Node {
 
   void NoBarrier_SetNext(Node* x) { next_.store(x, std::memory_order_relaxed); }
 
+  // Needed for placement new below which is fine
+  Node() {}
+
  private:
   std::atomic<Node*> next_;
+
+  // Prohibit copying due to the below
+  Node(const Node&) = delete;
+  Node& operator=(const Node&) = delete;
 
  public:
   char key[1];
