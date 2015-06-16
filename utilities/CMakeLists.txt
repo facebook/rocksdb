@@ -3,9 +3,9 @@ set(SOURCES
         checkpoint/checkpoint.cc
         compacted_db/compacted_db_impl.cc
         convenience/convenience.cc
-#        document/document_db.cc
-#        document/json_document.cc
-#        document/json_document_builder.cc
+        document/document_db.cc
+        document/json_document.cc
+        document/json_document_builder.cc
         flashcache/flashcache.cc
         geodb/geodb_impl.cc
         leveldb_options/leveldb_options.cc
@@ -14,7 +14,7 @@ set(SOURCES
         merge_operators/put.cc
         merge_operators/uint64add.cc
         redis/redis_lists.cc
-#        spatialdb/spatial_db.cc
+        spatialdb/spatial_db.cc
         ttl/db_ttl_impl.cc
         write_batch_with_index/write_batch_with_index.cc
         write_batch_with_index/write_batch_with_index_internal.cc
