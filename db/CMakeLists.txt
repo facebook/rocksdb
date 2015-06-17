@@ -48,6 +48,10 @@ add_library(rocksdblib ${SOURCES})
 add_library(rocksdblib_je ${SOURCES})
 set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
 
+add_library(rocksdb SHARED ${SOURCES})
+set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+target_link_libraries(rocksdb ${LIBS})
+
 set(APPS db_bench.cc memtablerep_bench.cc)
 
 set(TESTS
