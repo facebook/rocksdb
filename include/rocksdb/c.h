@@ -602,6 +602,9 @@ extern void rocksdb_options_set_max_bytes_for_level_multiplier_additional(
     rocksdb_options_t*, int* level_values, size_t num_levels);
 extern void rocksdb_options_enable_statistics(rocksdb_options_t*);
 
+/* returns a pointer to a malloc()-ed, null terminated string */
+extern char *rocksdb_options_statistics_get_string(rocksdb_options_t *opt);
+
 extern void rocksdb_options_set_max_write_buffer_number(rocksdb_options_t*, int);
 extern void rocksdb_options_set_min_write_buffer_number_to_merge(rocksdb_options_t*, int);
 extern void rocksdb_options_set_max_write_buffer_number_to_maintain(
