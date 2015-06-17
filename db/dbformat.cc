@@ -8,6 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/dbformat.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <stdio.h>
 #include "port/port.h"
 #include "util/coding.h"
@@ -36,9 +41,8 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
 
 std::string ParsedInternalKey::DebugString(bool hex) const {
   char buf[50];
-  snprintf(buf, sizeof(buf), "' @ %llu : %d",
-           (unsigned long long) sequence,
-           int(type));
+  snprintf(buf, sizeof(buf), "' @ %" PRIu64 ": %d", sequence,
+           static_cast<int>(type));
   std::string result = "'";
   result += user_key.ToString(hex);
   result += buf;
