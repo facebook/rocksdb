@@ -3748,7 +3748,7 @@ class Benchmark {
 
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
-    db->CompactRange(nullptr, nullptr);
+    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   }
 
   void PrintStats(const char* key) {

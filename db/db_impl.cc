@@ -1328,11 +1328,10 @@ void DBImpl::NotifyOnFlushCompleted(
 #endif  // ROCKSDB_LITE
 }
 
-Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
-                            const Slice* begin, const Slice* end,
-                            bool change_level, int target_level,
-                            uint32_t target_path_id) {
-  if (target_path_id >= db_options_.db_paths.size()) {
+Status DBImpl::CompactRange(const CompactRangeOptions& options,
+                            ColumnFamilyHandle* column_family,
+                            const Slice* begin, const Slice* end) {
+  if (options.target_path_id >= db_options_.db_paths.size()) {
     return Status::InvalidArgument("Invalid target path ID");
   }
 
@@ -1362,8 +1361,8 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
       cfd->NumberLevels() > 1) {
     // Always compact all files together.
     s = RunManualCompaction(cfd, ColumnFamilyData::kCompactAllLevels,
-                            cfd->NumberLevels() - 1, target_path_id, begin,
-                            end);
+                            cfd->NumberLevels() - 1, options.target_path_id,
+                            begin, end);
     final_output_level = cfd->NumberLevels() - 1;
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
@@ -1384,8 +1383,8 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
           output_level = ColumnFamilyData::kCompactToBaseLevel;
         }
       }
-      s = RunManualCompaction(cfd, level, output_level, target_path_id, begin,
-                              end);
+      s = RunManualCompaction(cfd, level, output_level, options.target_path_id,
+                              begin, end);
       if (!s.ok()) {
         break;
       }
@@ -1403,8 +1402,8 @@ Status DBImpl::CompactRange(ColumnFamilyHandle* column_family,
     return s;
   }
 
-  if (change_level) {
-    s = ReFitLevel(cfd, final_output_level, target_level);
+  if (options.change_level) {
+    s = ReFitLevel(cfd, final_output_level, options.target_level);
   }
   LogFlush(db_options_.info_log);
 

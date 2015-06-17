@@ -441,7 +441,7 @@ void CompactorCommand::DoCommand() {
     end = new Slice(to_);
   }
 
-  db_->CompactRange(begin, end);
+  db_->CompactRange(CompactRangeOptions(), begin, end);
   exec_state_ = LDBCommandExecuteResult::Succeed("");
 
   delete begin;
@@ -519,7 +519,7 @@ void DBLoaderCommand::DoCommand() {
     cout << "Warning: " << bad_lines << " bad lines ignored." << endl;
   }
   if (compact_) {
-    db_->CompactRange(nullptr, nullptr);
+    db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   }
 }
 
@@ -1204,7 +1204,7 @@ void ReduceDBLevelsCommand::DoCommand() {
   }
   // Compact the whole DB to put all files to the highest level.
   fprintf(stdout, "Compacting the db...\n");
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   CloseDB();
 
   EnvOptions soptions;
@@ -1309,9 +1309,10 @@ void ChangeCompactionStyleCommand::DoCommand() {
           files_per_level.c_str());
 
   // manual compact into a single file and move the file to level 0
-  db_->CompactRange(nullptr, nullptr,
-                    true /* reduce level */,
-                    0    /* reduce to level 0 */);
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 0;
+  db_->CompactRange(compact_options, nullptr, nullptr);
 
   // verify compaction result
   files_per_level = "";

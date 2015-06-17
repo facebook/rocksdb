@@ -659,7 +659,7 @@ class FaultInjectionTest : public testing::Test {
 
     Build(write_options, 0, num_pre_sync);
     if (sync_use_compact_) {
-      db_->CompactRange(nullptr, nullptr);
+      db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     }
     write_options.sync = false;
     Build(write_options, num_pre_sync, num_post_sync);

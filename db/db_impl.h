@@ -125,10 +125,9 @@ class DBImpl : public DB {
                                    const Range* range, int n, uint64_t* sizes,
                                    bool include_memtable = false) override;
   using DB::CompactRange;
-  virtual Status CompactRange(ColumnFamilyHandle* column_family,
-                              const Slice* begin, const Slice* end,
-                              bool change_level = false, int target_level = -1,
-                              uint32_t target_path_id = 0) override;
+  virtual Status CompactRange(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end) override;
 
   using DB::CompactFiles;
   virtual Status CompactFiles(const CompactionOptions& compact_options,

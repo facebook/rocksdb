@@ -1476,13 +1476,15 @@ void rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
     jint jtarget_level, jint jtarget_path_id) {
 
   rocksdb::Status s;
+  rocksdb::CompactRangeOptions compact_options;
+  compact_options.change_level = jreduce_level;
+  compact_options.target_level = jtarget_level;
+  compact_options.target_path_id = static_cast<uint32_t>(jtarget_path_id);
   if (cf_handle != nullptr) {
-    s = db->CompactRange(cf_handle, nullptr, nullptr, jreduce_level,
-        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+    s = db->CompactRange(compact_options, cf_handle, nullptr, nullptr);
   } else {
     // backwards compatibility
-    s = db->CompactRange(nullptr, nullptr, jreduce_level,
-        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+    s = db->CompactRange(compact_options, nullptr, nullptr);
   }
 
   if (s.ok()) {
@@ -1533,13 +1535,15 @@ void rocksdb_compactrange_helper(JNIEnv* env, rocksdb::DB* db,
   const rocksdb::Slice end_slice(reinterpret_cast<char*>(end), jend_len);
 
   rocksdb::Status s;
+  rocksdb::CompactRangeOptions compact_options;
+  compact_options.change_level = jreduce_level;
+  compact_options.target_level = jtarget_level;
+  compact_options.target_path_id = static_cast<uint32_t>(jtarget_path_id);
   if (cf_handle != nullptr) {
-    s = db->CompactRange(cf_handle, &begin_slice, &end_slice, jreduce_level,
-        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+    s = db->CompactRange(compact_options, cf_handle, &begin_slice, &end_slice);
   } else {
     // backwards compatibility
-    s = db->CompactRange(&begin_slice, &end_slice, jreduce_level,
-        jtarget_level, static_cast<uint32_t>(jtarget_path_id));
+    s = db->CompactRange(compact_options, &begin_slice, &end_slice);
   }
 
   env->ReleaseByteArrayElements(jbegin, begin, JNI_ABORT);
