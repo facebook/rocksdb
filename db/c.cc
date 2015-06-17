@@ -2435,4 +2435,4 @@ extern void rocksdb_livefiles_destroy(
 
 }  // end extern "C"
 
-#endif  // ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
