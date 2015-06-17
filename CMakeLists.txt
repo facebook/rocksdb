@@ -32,6 +32,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd41
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Oi /Gm- /Gy /MD")
 
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /DEBUG")
+
 add_definitions(-DWIN32 -DOS_WIN -D_MBCS -DWIN64)
 
 include_directories(${PROJECT_SOURCE_DIR})
@@ -215,6 +217,9 @@ set(APPS
         db/db_bench.cc
         db/memtablerep_bench.cc
         table/table_reader_bench.cc
+        tools/db_stress.cc
+        tools/db_repl_stress.cc
+        tools/sst_dump.cc
         util/cache_bench.cc
 )
 
@@ -258,6 +263,8 @@ set(TESTS
         table/full_filter_block_test.cc
         table/merger_test.cc
         table/table_test.cc
+        tools/db_sanity_test.cc
+        tools/reduce_levels_test.cc
         util/arena_test.cc
         util/autovector_test.cc
         util/auto_roll_logger_test.cc
