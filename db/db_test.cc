@@ -7,6 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+// Introduction of SyncPoint effectively disabled building and running this test in Release build.
+// which is a pity, it is a good test
+#if !(defined NDEBUG) || !defined (OS_WIN)
+
 #include <algorithm>
 #include <iostream>
 #include <set>
@@ -12957,8 +12961,14 @@ TEST_F(DBTest, FlushesInParallelWithCompactRange) {
 
 }  // namespace rocksdb
 
+#endif
+
 int main(int argc, char** argv) {
+#if !(defined NDEBUG) || !defined(OS_WIN)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+#else
+  return 0;
+#endif
 }
