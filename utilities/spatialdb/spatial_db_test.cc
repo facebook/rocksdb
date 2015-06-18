@@ -8,6 +8,7 @@
 #include <set>
 
 #include "rocksdb/utilities/spatial_db.h"
+#include "util/compression.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/random.h"
@@ -47,6 +48,9 @@ class SpatialDBTest : public testing::Test {
 };
 
 TEST_F(SpatialDBTest, FeatureSetSerializeTest) {
+  if (!LZ4_Supported()) {
+    return;
+  }
   FeatureSet fs;
 
   fs.Set("a", std::string("b"));
@@ -94,6 +98,9 @@ TEST_F(SpatialDBTest, FeatureSetSerializeTest) {
 }
 
 TEST_F(SpatialDBTest, TestNextID) {
+  if (!LZ4_Supported()) {
+    return;
+  }
   ASSERT_OK(SpatialDB::Create(
       SpatialDBOptions(), dbname_,
       {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)}));
@@ -117,6 +124,9 @@ TEST_F(SpatialDBTest, TestNextID) {
 }
 
 TEST_F(SpatialDBTest, FeatureSetTest) {
+  if (!LZ4_Supported()) {
+    return;
+  }
   ASSERT_OK(SpatialDB::Create(
       SpatialDBOptions(), dbname_,
       {SpatialIndexOptions("simple", BoundingBox<double>(0, 0, 100, 100), 2)}));
@@ -151,6 +161,9 @@ TEST_F(SpatialDBTest, FeatureSetTest) {
 }
 
 TEST_F(SpatialDBTest, SimpleTest) {
+  if (!LZ4_Supported()) {
+    return;
+  }
   // iter 0 -- not read only
   // iter 1 -- read only
   for (int iter = 0; iter < 2; ++iter) {
@@ -227,6 +240,9 @@ BoundingBox<double> ScaleBB(BoundingBox<int> b, double step) {
 }  // namespace
 
 TEST_F(SpatialDBTest, RandomizedTest) {
+  if (!LZ4_Supported()) {
+    return;
+  }
   Random rnd(301);
   std::vector<std::pair<std::string, BoundingBox<int>>> elements;
 

@@ -84,7 +84,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
       max_write_buffer_number_to_maintain(0),
-      compression(kSnappyCompression),
+      compression(Snappy_Supported() ? kSnappyCompression : kNoCompression),
       prefix_extractor(nullptr),
       num_levels(7),
       level0_file_num_compaction_trigger(4),
@@ -380,11 +380,11 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
         Warn(log, "       Options.compression[%d]: %s", i,
-            CompressionTypeToString(compression_per_level[i]));
+            CompressionTypeToString(compression_per_level[i]).c_str());
       }
     } else {
       Warn(log, "         Options.compression: %s",
-          CompressionTypeToString(compression));
+          CompressionTypeToString(compression).c_str());
     }
     Warn(log, "      Options.prefix_extractor: %s",
         prefix_extractor == nullptr ? "nullptr" : prefix_extractor->Name());
@@ -544,46 +544,6 @@ Options::PrepareForBulkLoad()
   // The compaction would create large files in L1.
   target_file_size_base = 256 * 1024 * 1024;
   return this;
-}
-
-const char* CompressionTypeToString(CompressionType compression_type) {
-  switch (compression_type) {
-    case kNoCompression:
-      return "NoCompression";
-    case kSnappyCompression:
-      return "Snappy";
-    case kZlibCompression:
-      return "Zlib";
-    case kBZip2Compression:
-      return "BZip2";
-    case kLZ4Compression:
-      return "LZ4";
-    case kLZ4HCCompression:
-      return "LZ4HC";
-    default:
-      assert(false);
-      return "";
-  }
-}
-
-bool CompressionTypeSupported(CompressionType compression_type) {
-  switch (compression_type) {
-    case kNoCompression:
-      return true;
-    case kSnappyCompression:
-      return Snappy_Supported();
-    case kZlibCompression:
-      return Zlib_Supported();
-    case kBZip2Compression:
-      return BZip2_Supported();
-    case kLZ4Compression:
-      return LZ4_Supported();
-    case kLZ4HCCompression:
-      return LZ4_Supported();
-    default:
-      assert(false);
-      return false;
-  }
 }
 
 #ifndef ROCKSDB_LITE

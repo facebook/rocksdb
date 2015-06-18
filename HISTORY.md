@@ -19,6 +19,7 @@
 * DB::CompactRange() now accept CompactRangeOptions instead of multiple paramters. CompactRangeOptions is defined in include/rocksdb/options.h.
 * Add force_bottommost_level_compaction option to CompactRangeOptions, which prevent compaction from skipping compacting bottommost level.
 * Add Cache.GetPinnedUsage() to get the size of memory occupied by entries that are in use by the system.
+* DB:Open() will fail if the compression specified in Options is not linked with the binary. If you see this failure, recompile RocksDB with compression libraries present on your system. Also, previously our default compression was snappy. This behavior is now changed. Now, the default compression is snappy only if it's available on the system. If it isn't we change the default to kNoCompression.
 
 ## 3.11.0 (5/19/2015)
 ### New Features

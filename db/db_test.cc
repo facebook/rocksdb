@@ -11354,6 +11354,9 @@ TEST_F(DBTest, FlushOnDestroy) {
 }
 
 TEST_F(DBTest, DynamicLevelMaxBytesBase) {
+  if (!Snappy_Supported() || !LZ4_Supported()) {
+    return;
+  }
   // Use InMemoryEnv, or it would be too slow.
   unique_ptr<Env> env(new MockEnv(env_));
 
@@ -11925,6 +11928,9 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel) {
 }
 
 TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
+  if (!Snappy_Supported() || !LZ4_Supported() || !Zlib_Supported()) {
+    return;
+  }
   const int kNKeys = 500;
   int keys[kNKeys];
   for (int i = 0; i < kNKeys; i++) {
@@ -12707,6 +12713,9 @@ TEST_F(DBTest, EncodeDecompressedBlockSizeTest) {
   CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
                                     kLZ4Compression,  kLZ4HCCompression};
   for (int iter = 0; iter < 4; ++iter) {
+    if (!CompressionTypeSupported(compressions[iter])) {
+      continue;
+    }
     // first_table_version 1 -- generate with table_version == 1, read with
     // table_version == 2
     // first_table_version 2 -- generate with table_version == 2, read with
@@ -13857,6 +13866,26 @@ TEST_F(DBTest, ForceBottommostLevelCompaction) {
   }
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
+  CompressionType compressions[] = {kZlibCompression, kBZip2Compression,
+                                    kLZ4Compression,  kLZ4HCCompression};
+  for (int iter = 0; iter < 4; ++iter) {
+    if (!CompressionTypeSupported(compressions[iter])) {
+      // not supported, we should fail the Open()
+      Options options = CurrentOptions();
+      options.compression = compressions[iter];
+      ASSERT_TRUE(!TryReopen(options).ok());
+      // Try if CreateColumnFamily also fails
+      options.compression = kNoCompression;
+      ASSERT_OK(TryReopen(options));
+      ColumnFamilyOptions cf_options(options);
+      cf_options.compression = compressions[iter];
+      ColumnFamilyHandle* handle;
+      ASSERT_TRUE(!db_->CreateColumnFamily(cf_options, "name", &handle).ok());
+    }
+  }
 }
 
 }  // namespace rocksdb

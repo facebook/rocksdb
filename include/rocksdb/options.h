@@ -55,12 +55,6 @@ enum CompressionType : char {
   kBZip2Compression = 0x3, kLZ4Compression = 0x4, kLZ4HCCompression = 0x5
 };
 
-// returns true if RocksDB was correctly linked with compression library and
-// supports the compression type
-extern bool CompressionTypeSupported(CompressionType compression_type);
-// Returns a human-readable name of the compression type
-extern const char* CompressionTypeToString(CompressionType compression_type);
-
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
@@ -260,8 +254,8 @@ struct ColumnFamilyOptions {
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
-  // Default: kSnappyCompression, which gives lightweight but fast
-  // compression.
+  // Default: kSnappyCompression, if it's supported. If snappy is not linked
+  // with the library, the default is kNoCompression.
   //
   // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
   //    ~200-500MB/s compression

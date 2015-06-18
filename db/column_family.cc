@@ -29,6 +29,7 @@
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "util/autovector.h"
+#include "util/compression.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/options_helper.h"
 #include "util/thread_status_util.h"
@@ -87,6 +88,28 @@ void GetIntTblPropCollectorFactory(
       new InternalKeyPropertiesCollectorFactory);
 }
 
+Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
+  if (!cf_options.compression_per_level.empty()) {
+    for (size_t level = 0; level < cf_options.compression_per_level.size();
+         ++level) {
+      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
+        return Status::InvalidArgument(
+            "Compression type " +
+            CompressionTypeToString(cf_options.compression_per_level[level]) +
+            " is not linked with the binary.");
+      }
+    }
+  } else {
+    if (!CompressionTypeSupported(cf_options.compression)) {
+      return Status::InvalidArgument(
+          "Compression type " +
+          CompressionTypeToString(cf_options.compression) +
+          " is not linked with the binary.");
+    }
+  }
+  return Status::OK();
+}
+
 ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                     const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
@@ -139,24 +162,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
         name.compare("HashLinkListRepFactory") == 0) {
       result.memtable_factory = std::make_shared<SkipListFactory>();
     }
-  }
-
-  if (!src.compression_per_level.empty()) {
-    for (size_t level = 0; level < src.compression_per_level.size(); ++level) {
-      if (!CompressionTypeSupported(src.compression_per_level[level])) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
-            "Compression type chosen for level %zu is not supported: %s. "
-            "RocksDB "
-            "will not compress data on level %zu.",
-            level, CompressionTypeToString(src.compression_per_level[level]),
-            level);
-      }
-    }
-  } else if (!CompressionTypeSupported(src.compression)) {
-    Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
-        "Compression type chosen is not supported: %s. RocksDB will not "
-        "compress data.",
-        CompressionTypeToString(src.compression));
   }
 
   if (result.compaction_style == kCompactionStyleFIFO) {

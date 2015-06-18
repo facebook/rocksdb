@@ -2918,6 +2918,12 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   ColumnFamilyHandle** handle) {
   Status s;
   *handle = nullptr;
+
+  s = CheckCompressionSupported(cf_options);
+  if (!s.ok()) {
+    return s;
+  }
+
   {
     InstrumentedMutexLock l(&mutex_);
 
@@ -4154,8 +4160,12 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     return s;
   }
 
-  if (db_options.db_paths.size() > 1) {
-    for (auto& cfd : column_families) {
+  for (auto& cfd : column_families) {
+    s = CheckCompressionSupported(cfd.options);
+    if (!s.ok()) {
+      return s;
+    }
+    if (db_options.db_paths.size() > 1) {
       if ((cfd.options.compaction_style != kCompactionStyleUniversal) &&
           (cfd.options.compaction_style != kCompactionStyleLevel)) {
         return Status::NotSupported(
@@ -4163,11 +4173,11 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
             "universal and level compaction styles. ");
       }
     }
+  }
 
-    if (db_options.db_paths.size() > 4) {
-      return Status::NotSupported(
-          "More than four DB paths are not supported yet. ");
-    }
+  if (db_options.db_paths.size() > 4) {
+    return Status::NotSupported(
+        "More than four DB paths are not supported yet. ");
   }
 
   *dbptr = nullptr;

@@ -130,6 +130,8 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 };
 
+extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
+
 extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
