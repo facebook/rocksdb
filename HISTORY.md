@@ -18,6 +18,7 @@
 * DB::GetApproximateSizes() adds a parameter to allow the estimation to include data in mem table, with default to be not to include. It is now only supported in skip list mem table.
 * DB::CompactRange() now accept CompactRangeOptions instead of multiple paramters. CompactRangeOptions is defined in include/rocksdb/options.h.
 * Add force_bottommost_level_compaction option to CompactRangeOptions, which prevent compaction from skipping compacting bottommost level.
+* Add Cache.GetPinnedUsage() to get the size of memory occupied by entries that are in use by the system.
 
 ## 3.11.0 (5/19/2015)
 ### New Features
