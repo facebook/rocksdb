@@ -120,26 +120,26 @@ class InternalStats {
   struct CompactionStats {
     uint64_t micros;
 
-    // Bytes read from level N during compaction between levels N and N+1
-    uint64_t bytes_readn;
+    // The number of bytes read from all non-output levels
+    uint64_t bytes_read_non_output_levels;
 
-    // Bytes read from level N+1 during compaction between levels N and N+1
-    uint64_t bytes_readnp1;
+    // The number of bytes read from the compaction output level.
+    uint64_t bytes_read_output_level;
 
-    // Total bytes written during compaction between levels N and N+1
+    // Total number of bytes written during compaction
     uint64_t bytes_written;
 
-    // Total bytes moved to this level
+    // Total number of bytes moved to the output level
     uint64_t bytes_moved;
 
-    // Files read from level N during compaction between levels N and N+1
-    int files_in_leveln;
+    // The number of compaction input files in all non-output levels.
+    int num_input_files_in_non_output_levels;
 
-    // Files read from level N+1 during compaction between levels N and N+1
-    int files_in_levelnp1;
+    // The number of compaction input files in the output level.
+    int num_input_files_in_output_level;
 
-    // Files written during compaction between levels N and N+1
-    int files_out_levelnp1;
+    // The number of compaction output files.
+    int num_output_files;
 
     // Total incoming entries during compaction between levels N and N+1
     uint64_t num_input_records;
@@ -153,39 +153,43 @@ class InternalStats {
 
     explicit CompactionStats(int _count = 0)
         : micros(0),
-          bytes_readn(0),
-          bytes_readnp1(0),
+          bytes_read_non_output_levels(0),
+          bytes_read_output_level(0),
           bytes_written(0),
           bytes_moved(0),
-          files_in_leveln(0),
-          files_in_levelnp1(0),
-          files_out_levelnp1(0),
+          num_input_files_in_non_output_levels(0),
+          num_input_files_in_output_level(0),
+          num_output_files(0),
           num_input_records(0),
           num_dropped_records(0),
           count(_count) {}
 
     explicit CompactionStats(const CompactionStats& c)
         : micros(c.micros),
-          bytes_readn(c.bytes_readn),
-          bytes_readnp1(c.bytes_readnp1),
+          bytes_read_non_output_levels(c.bytes_read_non_output_levels),
+          bytes_read_output_level(c.bytes_read_output_level),
           bytes_written(c.bytes_written),
           bytes_moved(c.bytes_moved),
-          files_in_leveln(c.files_in_leveln),
-          files_in_levelnp1(c.files_in_levelnp1),
-          files_out_levelnp1(c.files_out_levelnp1),
+          num_input_files_in_non_output_levels(
+              c.num_input_files_in_non_output_levels),
+          num_input_files_in_output_level(
+              c.num_input_files_in_output_level),
+          num_output_files(c.num_output_files),
           num_input_records(c.num_input_records),
           num_dropped_records(c.num_dropped_records),
           count(c.count) {}
 
     void Add(const CompactionStats& c) {
       this->micros += c.micros;
-      this->bytes_readn += c.bytes_readn;
-      this->bytes_readnp1 += c.bytes_readnp1;
+      this->bytes_read_non_output_levels += c.bytes_read_non_output_levels;
+      this->bytes_read_output_level += c.bytes_read_output_level;
       this->bytes_written += c.bytes_written;
       this->bytes_moved += c.bytes_moved;
-      this->files_in_leveln += c.files_in_leveln;
-      this->files_in_levelnp1 += c.files_in_levelnp1;
-      this->files_out_levelnp1 += c.files_out_levelnp1;
+      this->num_input_files_in_non_output_levels +=
+          c.num_input_files_in_non_output_levels;
+      this->num_input_files_in_output_level +=
+          c.num_input_files_in_output_level;
+      this->num_output_files += c.num_output_files;
       this->num_input_records += c.num_input_records;
       this->num_dropped_records += c.num_dropped_records;
       this->count += c.count;
@@ -193,13 +197,15 @@ class InternalStats {
 
     void Subtract(const CompactionStats& c) {
       this->micros -= c.micros;
-      this->bytes_readn -= c.bytes_readn;
-      this->bytes_readnp1 -= c.bytes_readnp1;
+      this->bytes_read_non_output_levels -= c.bytes_read_non_output_levels;
+      this->bytes_read_output_level -= c.bytes_read_output_level;
       this->bytes_written -= c.bytes_written;
       this->bytes_moved -= c.bytes_moved;
-      this->files_in_leveln -= c.files_in_leveln;
-      this->files_in_levelnp1 -= c.files_in_levelnp1;
-      this->files_out_levelnp1 -= c.files_out_levelnp1;
+      this->num_input_files_in_non_output_levels -=
+          c.num_input_files_in_non_output_levels;
+      this->num_input_files_in_output_level -=
+          c.num_input_files_in_output_level;
+      this->num_output_files -= c.num_output_files;
       this->num_input_records -= c.num_input_records;
       this->num_dropped_records -= c.num_dropped_records;
       this->count -= c.count;
@@ -352,13 +358,13 @@ class InternalStats {
 
   struct CompactionStats {
     uint64_t micros;
-    uint64_t bytes_readn;
-    uint64_t bytes_readnp1;
+    uint64_t bytes_read_non_output_levels;
+    uint64_t bytes_read_output_level;
     uint64_t bytes_written;
     uint64_t bytes_moved;
-    int files_in_leveln;
-    int files_in_levelnp1;
-    int files_out_levelnp1;
+    int num_input_files_in_non_output_levels;
+    int num_input_files_in_output_level;
+    int num_output_files;
     uint64_t num_input_records;
     uint64_t num_dropped_records;
     int count;

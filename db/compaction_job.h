@@ -105,6 +105,10 @@ class CompactionJob {
                          int64_t* key_drop_newer_entry,
                          int64_t* key_drop_obsolete);
 
+  void UpdateCompactionInputStats();
+  void UpdateCompactionInputStatsHelper(
+      int* num_files, uint64_t* bytes_read, int input_level);
+
   int job_id_;
 
   // CompactionJob state
