@@ -1049,6 +1049,8 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
 
   void Dump(Logger* log) const;
 
+  void DumpCFOptions(Logger* log) const;
+
   // Set appropriate parameters for bulk loading.
   // The reason that this is a function that returns "this" instead of a
   // constructor is to enable chaining of multiple similar calls in the future.

@@ -497,6 +497,10 @@ void Options::Dump(Logger* log) const {
   ColumnFamilyOptions::Dump(log);
 }   // Options::Dump
 
+void Options::DumpCFOptions(Logger* log) const {
+  ColumnFamilyOptions::Dump(log);
+}  // Options::DumpCFOptions
+
 //
 // The goal of this method is to create a configuration that
 // allows an application to write all files into L0 and
