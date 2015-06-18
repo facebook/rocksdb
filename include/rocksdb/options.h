@@ -1251,6 +1251,10 @@ struct CompactRangeOptions {
   // Compaction outputs will be placed in options.db_paths[target_path_id].
   // Behavior is undefined if target_path_id is out of range.
   uint32_t target_path_id = 0;
+  // By default compaction will try to skip compacting bottommost level if
+  // possible, setting this flag to true will force compaction to compact
+  // the bottomost level.
+  bool force_bottommost_level_compaction = false;
 };
 }  // namespace rocksdb
 

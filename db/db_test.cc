@@ -3964,6 +3964,64 @@ TEST_F(DBTest, TrivialMoveTargetLevel) {
   }
 }
 
+TEST_F(DBTest, TrivialMoveToLastLevelWithFiles) {
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.write_buffer_size = 100000000;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  Random rnd(301);
+  std::vector<std::string> values;
+  // File with keys [ 0 => 99 ]
+  for (int i = 0; i < 100; i++) {
+    values.push_back(RandomString(&rnd, value_size));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("1", FilesPerLevel(0));
+  // Compaction will do L0=>L1 (trivial move) then move L1 files to L3
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 3;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
+  ASSERT_EQ(trivial_move, 1);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  // File with keys [ 100 => 199 ]
+  for (int i = 100; i < 200; i++) {
+    values.push_back(RandomString(&rnd, value_size));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("1,0,0,1", FilesPerLevel(0));
+  // Compaction will do L0=>L1 L1=>L2 L2=>L3 (3 trivial moves)
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,0,0,2", FilesPerLevel(0));
+  ASSERT_EQ(trivial_move, 4);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  for (int i = 0; i < 200; i++) {
+    ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest, CompactionTrigger) {
   Options options;
   options.write_buffer_size = 100<<10; //100KB
@@ -5431,6 +5489,7 @@ TEST_F(DBTest, ConvertCompactionStyle) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 0;
+  compact_options.force_bottommost_level_compaction = true;
   dbfull()->CompactRange(compact_options, handles_[1], nullptr, nullptr);
 
   // Only 1 file in L0
@@ -13736,6 +13795,67 @@ TEST_F(DBTest, SoftLimit) {
     Put(Key(i), std::string(100, 'x'));
   }
   ASSERT_EQ(sleep_count.load(), 0);
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, ForceBottommostLevelCompaction) {
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options;
+  options.write_buffer_size = 100000000;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  int32_t value_size = 10 * 1024;  // 10 KB
+
+  Random rnd(301);
+  std::vector<std::string> values;
+  // File with keys [ 0 => 99 ]
+  for (int i = 0; i < 100; i++) {
+    values.push_back(RandomString(&rnd, value_size));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("1", FilesPerLevel(0));
+  // Compaction will do L0=>L1 (trivial move) then move L1 files to L3
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 3;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
+  ASSERT_EQ(trivial_move, 1);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  // File with keys [ 100 => 199 ]
+  for (int i = 100; i < 200; i++) {
+    values.push_back(RandomString(&rnd, value_size));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("1,0,0,1", FilesPerLevel(0));
+  // Compaction will do L0=>L1 L1=>L2 L2=>L3 (3 trivial moves)
+  // then compacte the bottommost level L3=>L3 (non trivial move)
+  compact_options = CompactRangeOptions();
+  compact_options.force_bottommost_level_compaction = true;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
+  ASSERT_EQ(trivial_move, 4);
+  ASSERT_EQ(non_trivial_move, 1);
+
+  for (int i = 0; i < 200; i++) {
+    ASSERT_EQ(Get(Key(i)), values[i]);
+  }
+
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 

@@ -1372,8 +1372,18 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
       // level 0 can never be the bottommost level (i.e. if all files are in
       // level 0, we will compact to level 1)
       if (cfd->ioptions()->compaction_style == kCompactionStyleUniversal ||
-          cfd->ioptions()->compaction_style == kCompactionStyleFIFO ||
-          (level == max_level_with_files && level > 0)) {
+          cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
+        output_level = level;
+      } else if (level == max_level_with_files && level > 0) {
+        if (options.force_bottommost_level_compaction == false &&
+            cfd->ioptions()->compaction_filter == nullptr &&
+            cfd->ioptions()->compaction_filter_factory == nullptr &&
+            cfd->ioptions()->compaction_filter_factory_v2 == nullptr) {
+          // If we are not forced to compact the bottommost level and there is
+          // no compaction filter we can skip the compaction of
+          // the bottommost level
+          continue;
+        }
         output_level = level;
       } else {
         output_level = level + 1;

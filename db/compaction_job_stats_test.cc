@@ -668,17 +668,9 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
             1, num_keys_per_L0_file * 2,
             compression_ratio,
             num_keys_per_L0_file));
-    // In the second sub-compaction, we expect L1 compaction.
-    stats_checker->AddExpectedStats(
-        NewManualCompactionJobStats(
-            smallest_key, largest_key,
-            4, 4, num_keys_per_L0_file * 8,
-            kKeySize, kValueSize,
-            1, num_keys_per_L0_file * 8,
-            compression_ratio, 0));
-    ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 2U);
+    ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
     Compact(1, smallest_key, largest_key);
-    ASSERT_EQ("0,1", FilesPerLevel(1));
+    ASSERT_EQ("0,4", FilesPerLevel(1));
     options.compression = GetAnyCompression();
     if (options.compression == kNoCompression) {
       break;
