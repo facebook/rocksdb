@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <memory>
@@ -638,3 +640,4 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
 }
 
 }  // namespace rocksdb
+#endif  // !ROCKSDB_LITE

@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/column_family.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -241,3 +243,5 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
 }
 
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE
