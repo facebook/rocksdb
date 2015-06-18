@@ -18,8 +18,17 @@ namespace rocksdb {
 using namespace std;
 
 class AutoVectorTest : public testing::Test {};
-
 const unsigned long kSize = 8;
+
+namespace {
+template <class T>
+void AssertAutoVectorOnlyInStack(autovector<T, kSize>* vec, bool result) {
+#ifndef ROCKSDB_LITE
+  ASSERT_EQ(vec->only_in_stack(), result);
+#endif  // !ROCKSDB_LITE
+}
+}  // namespace
+
 TEST_F(AutoVectorTest, PushBackAndPopBack) {
   autovector<size_t, kSize> vec;
   ASSERT_TRUE(vec.empty());
@@ -29,9 +38,9 @@ TEST_F(AutoVectorTest, PushBackAndPopBack) {
     vec.push_back(i);
     ASSERT_TRUE(!vec.empty());
     if (i < kSize) {
-      ASSERT_TRUE(vec.only_in_stack());
+      AssertAutoVectorOnlyInStack(&vec, true);
     } else {
-      ASSERT_TRUE(!vec.only_in_stack());
+      AssertAutoVectorOnlyInStack(&vec, false);
     }
     ASSERT_EQ(i + 1, vec.size());
     ASSERT_EQ(i, vec[i]);
@@ -42,7 +51,7 @@ TEST_F(AutoVectorTest, PushBackAndPopBack) {
   while (size != 0) {
     vec.pop_back();
     // will always be in heap
-    ASSERT_TRUE(!vec.only_in_stack());
+    AssertAutoVectorOnlyInStack(&vec, false);
     ASSERT_EQ(--size, vec.size());
   }
 
@@ -57,9 +66,9 @@ TEST_F(AutoVectorTest, EmplaceBack) {
     vec.emplace_back(i, ToString(i + 123));
     ASSERT_TRUE(!vec.empty());
     if (i < kSize) {
-      ASSERT_TRUE(vec.only_in_stack());
+      AssertAutoVectorOnlyInStack(&vec, true);
     } else {
-      ASSERT_TRUE(!vec.only_in_stack());
+      AssertAutoVectorOnlyInStack(&vec, false);
     }
 
     ASSERT_EQ(i + 1, vec.size());
@@ -69,20 +78,20 @@ TEST_F(AutoVectorTest, EmplaceBack) {
 
   vec.clear();
   ASSERT_TRUE(vec.empty());
-  ASSERT_TRUE(!vec.only_in_stack());
+  AssertAutoVectorOnlyInStack(&vec, false);
 }
 
 TEST_F(AutoVectorTest, Resize) {
   autovector<size_t, kSize> vec;
 
   vec.resize(kSize);
-  ASSERT_TRUE(vec.only_in_stack());
+  AssertAutoVectorOnlyInStack(&vec, true);
   for (size_t i = 0; i < kSize; ++i) {
     vec[i] = i;
   }
 
   vec.resize(kSize * 2);
-  ASSERT_TRUE(!vec.only_in_stack());
+  AssertAutoVectorOnlyInStack(&vec, false);
   for (size_t i = 0; i < kSize; ++i) {
     ASSERT_EQ(vec[i], i);
   }
@@ -99,7 +108,9 @@ void AssertEqual(
     const autovector<size_t, kSize>& a, const autovector<size_t, kSize>& b) {
   ASSERT_EQ(a.size(), b.size());
   ASSERT_EQ(a.empty(), b.empty());
+#ifndef ROCKSDB_LITE
   ASSERT_EQ(a.only_in_stack(), b.only_in_stack());
+#endif  // !ROCKSDB_LITE
   for (size_t i = 0; i < a.size(); ++i) {
     ASSERT_EQ(a[i], b[i]);
   }
