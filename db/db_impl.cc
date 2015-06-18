@@ -1215,7 +1215,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   InternalStats::CompactionStats stats(1);
   stats.micros = env_->NowMicros() - start_micros;
   stats.bytes_written = meta.fd.GetFileSize();
-  stats.files_out_levelnp1 = 1;
+  stats.num_output_files = 1;
   cfd->internal_stats()->AddCompactionStats(level, stats);
   cfd->internal_stats()->AddCFStats(
       InternalStats::BYTES_FLUSHED, meta.fd.GetFileSize());

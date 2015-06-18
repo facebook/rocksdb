@@ -475,7 +475,8 @@ CompactionJobStats NewManualCompactionJobStats(
     size_t num_input_files, size_t num_input_files_at_output_level,
     uint64_t num_input_records, size_t key_size, size_t value_size,
     size_t num_output_files, uint64_t num_output_records,
-    double compression_ratio, uint64_t num_records_replaced) {
+    double compression_ratio, uint64_t num_records_replaced,
+    bool is_manual = true) {
   CompactionJobStats stats;
   stats.Reset();
 
@@ -499,7 +500,7 @@ CompactionJobStats NewManualCompactionJobStats(
   stats.total_input_raw_value_bytes =
       num_input_records * value_size;
 
-  stats.is_manual_compaction = true;
+  stats.is_manual_compaction = is_manual;
 
   stats.num_records_replaced = num_records_replaced;
 
@@ -671,7 +672,7 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
     stats_checker->AddExpectedStats(
         NewManualCompactionJobStats(
             smallest_key, largest_key,
-            4, 0, num_keys_per_L0_file * 8,
+            4, 4, num_keys_per_L0_file * 8,
             kKeySize, kValueSize,
             1, num_keys_per_L0_file * 8,
             compression_ratio, 0));
@@ -684,6 +685,90 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
     }
     stats_checker->EnableCompression(true);
     compression_ratio = kCompressionRatio;
+  }
+  ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
+}
+
+namespace {
+int GetUniversalCompactionInputUnits(uint32_t num_flushes) {
+  uint32_t compaction_input_units;
+  for (compaction_input_units = 1;
+       num_flushes >= compaction_input_units;
+       compaction_input_units *= 2) {
+    if ((num_flushes & compaction_input_units) != 0) {
+      return compaction_input_units > 1 ? compaction_input_units : 0;
+    }
+  }
+  return 0;
+}
+}  // namespace
+
+TEST_F(CompactionJobStatsTest, UniversalCompactionTest) {
+  Random rnd(301);
+  uint64_t key_base = 100000000l;
+  // Note: key_base must be multiple of num_keys_per_L0_file
+  int num_keys_per_table = 100;
+  const uint32_t kTestScale = 8;
+  const int kKeySize = 10;
+  const int kValueSize = 900;
+  double compression_ratio = 1.0;
+  uint64_t key_interval = key_base / num_keys_per_table;
+
+  auto* stats_checker = new CompactionJobStatsChecker();
+  Options options;
+  options.listeners.emplace_back(stats_checker);
+  options.create_if_missing = true;
+  options.max_background_flushes = 0;
+  options.max_mem_compaction_level = 0;
+  options.num_levels = 3;
+  options.compression = kNoCompression;
+  options.level0_file_num_compaction_trigger = 2;
+  options.target_file_size_base = num_keys_per_table * 1000;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.size_ratio = 1;
+  options.compaction_options_universal.max_size_amplification_percent = 1000;
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Generates the expected CompactionJobStats for each compaction
+  for (uint32_t num_flushes = 2; num_flushes <= kTestScale; num_flushes++) {
+    // Here we treat one newly flushed file as an unit.
+    //
+    // For example, if a newly flushed file is 100k, and a compaction has
+    // 4 input units, then this compaction inputs 400k.
+    uint32_t num_input_units = GetUniversalCompactionInputUnits(num_flushes);
+    if (num_input_units == 0) {
+      continue;
+    }
+    // The following statement determines the expected smallest key
+    // based on whether it is a full compaction.  A full compaction only
+    // happens when the number of flushes equals to the number of compaction
+    // input runs.
+    uint64_t smallest_key =
+        (num_flushes == num_input_units) ?
+            key_base : key_base * (num_flushes - 1);
+
+    stats_checker->AddExpectedStats(
+        NewManualCompactionJobStats(
+            Key(smallest_key, 10),
+            Key(smallest_key + key_base * num_input_units - key_interval, 10),
+            num_input_units,
+            num_input_units > 2 ? num_input_units / 2 : 0,
+            num_keys_per_table * num_input_units,
+            kKeySize, kValueSize,
+            num_input_units,
+            num_keys_per_table * num_input_units,
+            1.0, 0, false));
+  }
+  ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 4U);
+
+  for (uint64_t start_key = key_base;
+                start_key <= key_base * kTestScale;
+                start_key += key_base) {
+    MakeTableWithKeyValues(
+        &rnd, start_key, start_key + key_base - 1,
+        kKeySize, kValueSize, key_interval,
+        compression_ratio, 1);
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }
