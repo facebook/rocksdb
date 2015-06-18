@@ -806,9 +806,6 @@ listener_test: db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS)
 thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
