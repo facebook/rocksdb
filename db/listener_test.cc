@@ -201,7 +201,8 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
     ASSERT_OK(Flush(static_cast<int>(i)));
     const Slice kStart = "a";
     const Slice kEnd = "z";
-    ASSERT_OK(dbfull()->CompactRange(handles_[i], &kStart, &kEnd));
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[i],
+                                     &kStart, &kEnd));
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }

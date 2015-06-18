@@ -201,8 +201,11 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   // 2 ssts, 1 manifest
   CheckFileTypeCounts(dbname_, 0, 2, 1);
   std::string first("0"), last("999999");
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 2;
   Slice first_slice(first), last_slice(last);
-  db_->CompactRange(&first_slice, &last_slice, true, 2);
+  db_->CompactRange(compact_options, &first_slice, &last_slice);
   // 1 sst after compaction
   CheckFileTypeCounts(dbname_, 0, 1, 1);
 
@@ -211,7 +214,7 @@ TEST_F(DeleteFileTest, PurgeObsoleteFilesTest) {
   Iterator *itr = 0;
   CreateTwoLevels();
   itr = db_->NewIterator(ReadOptions());
-  db_->CompactRange(&first_slice, &last_slice, true, 2);
+  db_->CompactRange(compact_options, &first_slice, &last_slice);
   // 3 sst after compaction with live iterator
   CheckFileTypeCounts(dbname_, 0, 3, 1);
   delete itr;

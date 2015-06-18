@@ -567,6 +567,10 @@ DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
 
 DEFINE_uint64(rate_limiter_bytes_per_sec, 0, "Set options.rate_limiter value.");
 
+DEFINE_uint64(
+    benchmark_write_rate_limit, 0,
+    "If non-zero, db_bench will rate-limit the writes going into RocksDB");
+
 DEFINE_int32(max_grandparent_overlap_factor, 10, "Control maximum bytes of "
              "overlaps in grandparent (i.e., level+2) before we stop building a"
              " single file in a level->level+1 compaction.");
@@ -1288,6 +1292,7 @@ struct SharedState {
   port::CondVar cv;
   int total;
   int perf_level;
+  std::shared_ptr<RateLimiter> write_rate_limiter;
 
   // Each thread goes through the following states:
   //    (1) initializing
@@ -1400,7 +1405,7 @@ class Benchmark {
             (((FLAGS_key_size + FLAGS_value_size * FLAGS_compression_ratio)
               * num_)
              / 1048576.0));
-    fprintf(stdout, "Write rate limit: %d\n", FLAGS_writes_per_second);
+    fprintf(stdout, "Writes per second: %d\n", FLAGS_writes_per_second);
     if (FLAGS_enable_numa) {
       fprintf(stderr, "Running in NUMA enabled mode.\n");
 #ifndef NUMA
@@ -1950,6 +1955,10 @@ class Benchmark {
     shared.num_initialized = 0;
     shared.num_done = 0;
     shared.start = false;
+    if (FLAGS_benchmark_write_rate_limit > 0) {
+      shared.write_rate_limiter.reset(
+          NewGenericRateLimiter(FLAGS_benchmark_write_rate_limit));
+    }
 
     std::unique_ptr<ReporterAgent> reporter_agent;
     if (FLAGS_report_interval_seconds > 0) {
@@ -2646,6 +2655,10 @@ class Benchmark {
       DBWithColumnFamilies* db_with_cfh = SelectDBWithCfh(id);
       batch.Clear();
       for (int64_t j = 0; j < entries_per_batch_; j++) {
+        if (thread->shared->write_rate_limiter.get() != nullptr) {
+          thread->shared->write_rate_limiter->Request(value_size_ + key_size_,
+                                                      Env::IO_HIGH);
+        }
         int64_t rand_num = key_gens[id]->Next();
         GenerateKeyFromInt(rand_num, FLAGS_num, &key);
         if (FLAGS_num_column_families <= 1) {
@@ -3748,7 +3761,7 @@ class Benchmark {
 
   void Compact(ThreadState* thread) {
     DB* db = SelectDB(thread);
-    db->CompactRange(nullptr, nullptr);
+    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   }
 
   void PrintStats(const char* key) {

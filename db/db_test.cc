@@ -1092,16 +1092,18 @@ class DBTest : public testing::Test {
 
   void Compact(int cf, const Slice& start, const Slice& limit,
                uint32_t target_path_id) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit, false, -1,
-                                target_path_id));
+    CompactRangeOptions compact_options;
+    compact_options.target_path_id = target_path_id;
+    ASSERT_OK(db_->CompactRange(compact_options, handles_[cf], &start, &limit));
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit));
+    ASSERT_OK(
+        db_->CompactRange(CompactRangeOptions(), handles_[cf], &start, &limit));
   }
 
   void Compact(const Slice& start, const Slice& limit) {
-    ASSERT_OK(db_->CompactRange(&start, &limit));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &limit));
   }
 
   // Do n memtable compactions, each of which produces an sstable
@@ -1524,7 +1526,7 @@ TEST_F(DBTest, CompactedDB) {
   ASSERT_OK(Put("hhh", DummyString(kFileSize / 2, 'h')));
   ASSERT_OK(Put("iii", DummyString(kFileSize / 2, 'i')));
   ASSERT_OK(Put("jjj", DummyString(kFileSize / 2, 'j')));
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(3, NumTableFilesAtLevel(1));
   Close();
 
@@ -2339,7 +2341,7 @@ TEST_F(DBTest, WholeKeyFilterProp) {
   // ranges.
   ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
   ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   // Reopen with both of whole key off and prefix extractor enabled.
   // Still no bloom filter should be used.
@@ -2362,7 +2364,7 @@ TEST_F(DBTest, WholeKeyFilterProp) {
   // ranges.
   ASSERT_OK(dbfull()->Put(wo, "aaa", ""));
   ASSERT_OK(dbfull()->Put(wo, "zzz", ""));
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   options.prefix_extractor.reset();
   bbto.whole_key_filtering = true;
@@ -3790,7 +3792,7 @@ TEST_F(DBTest, TrivialMoveOneFile) {
   LiveFileMetaData level0_file = metadata[0];  // L0 file meta
 
   // Compaction will initiate a trivial move from L0 to L1
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   // File moved From L0 to L1
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);  // 0 files in L0
@@ -3855,7 +3857,7 @@ TEST_F(DBTest, TrivialMoveNonOverlappingFiles) {
 
   // Since data is non-overlapping we expect compaction to initiate
   // a trivial move
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // We expect that all the files were trivially moved from L0 to L1
   ASSERT_EQ(NumTableFilesAtLevel(0, 0), 0);
   ASSERT_EQ(NumTableFilesAtLevel(1, 0) /* level1_files */, level0_files);
@@ -3892,7 +3894,7 @@ TEST_F(DBTest, TrivialMoveNonOverlappingFiles) {
     ASSERT_OK(Flush());
   }
 
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   for (uint32_t i = 0; i < ranges.size(); i++) {
     for (int32_t j = ranges[i].first; j <= ranges[i].second; j++) {
@@ -3944,7 +3946,10 @@ TEST_F(DBTest, TrivialMoveTargetLevel) {
 
   // 2 files in L0
   ASSERT_EQ("2", FilesPerLevel(0));
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr, true, 6));
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 6;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   // 2 files in L6
   ASSERT_EQ("0,0,0,0,0,0,2", FilesPerLevel(0));
 
@@ -5423,17 +5428,13 @@ TEST_F(DBTest, ConvertCompactionStyle) {
   options = CurrentOptions(options);
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
-  dbfull()->CompactRange(handles_[1], nullptr, nullptr, true /* reduce level */,
-                         0 /* reduce to level 0 */);
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 0;
+  dbfull()->CompactRange(compact_options, handles_[1], nullptr, nullptr);
 
-  for (int i = 0; i < options.num_levels; i++) {
-    int num = NumTableFilesAtLevel(i, 1);
-    if (i == 0) {
-      ASSERT_EQ(num, 1);
-    } else {
-      ASSERT_EQ(num, 0);
-    }
-  }
+  // Only 1 file in L0
+  ASSERT_EQ("1", FilesPerLevel(1));
 
   // Stage 4: re-open in universal compaction style and do some db operations
   options = CurrentOptions();
@@ -5548,8 +5549,10 @@ TEST_F(DBTest, IncreaseUniversalCompactionNumLevels) {
   options.target_file_size_base = INT_MAX;
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   // Compact all to level 0
-  dbfull()->CompactRange(handles_[1], nullptr, nullptr, true /* reduce level */,
-                         0 /* reduce to level 0 */);
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 0;
+  dbfull()->CompactRange(compact_options, handles_[1], nullptr, nullptr);
   // Need to restart it once to remove higher level records in manifest.
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
   // Final reopen
@@ -6021,7 +6024,7 @@ TEST_F(DBTest, CompactionFilterDeletesAll) {
   }
 
   // this will produce empty file (delete compaction filter)
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(0U, CountLiveFiles());
 
   Reopen(options);
@@ -6062,7 +6065,8 @@ TEST_F(DBTest, CompactionFilterWithValueChange) {
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
       dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     } else {
-      dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                             nullptr);
     }
 
     // re-write all data again
@@ -6079,7 +6083,8 @@ TEST_F(DBTest, CompactionFilterWithValueChange) {
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
       dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     } else {
-      dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+      dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                             nullptr);
     }
 
     // verify that all keys now have the new value that
@@ -6120,7 +6125,7 @@ TEST_F(DBTest, CompactionFilterWithMergeOperator) {
   ASSERT_OK(Flush());
   std::string newvalue = Get("foo");
   ASSERT_EQ(newvalue, three);
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   newvalue = Get("foo");
   ASSERT_EQ(newvalue, three);
 
@@ -6128,12 +6133,12 @@ TEST_F(DBTest, CompactionFilterWithMergeOperator) {
   // merge keys.
   ASSERT_OK(db_->Put(WriteOptions(), "bar", two));
   ASSERT_OK(Flush());
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   newvalue = Get("bar");
   ASSERT_EQ("NOT_FOUND", newvalue);
   ASSERT_OK(db_->Merge(WriteOptions(), "bar", two));
   ASSERT_OK(Flush());
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   newvalue = Get("bar");
   ASSERT_EQ(two, two);
 
@@ -6144,7 +6149,7 @@ TEST_F(DBTest, CompactionFilterWithMergeOperator) {
   ASSERT_OK(Flush());
   newvalue = Get("foobar");
   ASSERT_EQ(newvalue, three);
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   newvalue = Get("foobar");
   ASSERT_EQ(newvalue, three);
 
@@ -6157,7 +6162,7 @@ TEST_F(DBTest, CompactionFilterWithMergeOperator) {
   ASSERT_OK(Flush());
   newvalue = Get("barfoo");
   ASSERT_EQ(newvalue, four);
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   newvalue = Get("barfoo");
   ASSERT_EQ(newvalue, four);
 }
@@ -6191,7 +6196,7 @@ TEST_F(DBTest, CompactionFilterContextManual) {
   filter->expect_manual_compaction_.store(true);
   filter->expect_full_compaction_.store(false);  // Manual compaction always
                                                  // set this flag.
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(cfilter_count, 700);
   ASSERT_EQ(NumSortedRuns(0), 1);
 
@@ -6939,7 +6944,8 @@ TEST_F(DBTest, CompactBetweenSnapshots) {
     // After a compaction, "second", "third" and "fifth" should
     // be removed
     FillLevels("a", "z", 1);
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
     ASSERT_EQ("first", Get(1, "foo", snapshot1));
@@ -6948,7 +6954,8 @@ TEST_F(DBTest, CompactBetweenSnapshots) {
     // after we release the snapshot1, only two values left
     db_->ReleaseSnapshot(snapshot1);
     FillLevels("a", "z", 1);
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
 
     // We have only one valid snapshot snapshot2. Since snapshot1 is
     // not valid anymore, "first" should be removed by a compaction.
@@ -6959,7 +6966,8 @@ TEST_F(DBTest, CompactBetweenSnapshots) {
     // after we release the snapshot2, only one value should be left
     db_->ReleaseSnapshot(snapshot2);
     FillLevels("a", "z", 1);
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth ]");
     // skip HashCuckooRep as it does not support snapshot
@@ -7256,7 +7264,7 @@ TEST_F(DBTest, ManualCompaction) {
     // Compact all
     MakeTables(1, "a", "z", 1);
     ASSERT_EQ("0,1,2", FilesPerLevel(1));
-    db_->CompactRange(handles_[1], nullptr, nullptr);
+    db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
     if (iter == 0) {
@@ -7294,7 +7302,9 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[1].path));
 
   // Full compaction to DB path 0
-  db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 1);
+  CompactRangeOptions compact_options;
+  compact_options.target_path_id = 1;
+  db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
   ASSERT_EQ(1, TotalLiveFiles(1));
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
@@ -7315,13 +7325,15 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
 
   // Full compaction to DB path 0
-  db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 0);
+  compact_options.target_path_id = 0;
+  db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
   ASSERT_EQ(1, TotalLiveFiles(1));
   ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[1].path));
 
   // Fail when compacting to an invalid path ID
-  ASSERT_TRUE(db_->CompactRange(handles_[1], nullptr, nullptr, false, -1, 2)
+  compact_options.target_path_id = 2;
+  ASSERT_TRUE(db_->CompactRange(compact_options, handles_[1], nullptr, nullptr)
                   .IsInvalidArgument());
 }
 
@@ -7378,7 +7390,9 @@ TEST_F(DBTest, ManualLevelCompactionOutputPathId) {
     ASSERT_EQ("1,2", FilesPerLevel(1));
     ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
-    db_->CompactRange(handles_[1], nullptr, nullptr, false, 1, 1);
+    CompactRangeOptions compact_options;
+    compact_options.target_path_id = 1;
+    db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
     ASSERT_EQ("0,1", FilesPerLevel(1));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
@@ -7447,7 +7461,7 @@ TEST_F(DBTest, DBOpen_Change_NumLevels) {
 
   ASSERT_OK(Put(1, "a", "123"));
   ASSERT_OK(Put(1, "b", "234"));
-  db_->CompactRange(handles_[1], nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
   Close();
 
   options.create_if_missing = false;
@@ -7518,7 +7532,7 @@ TEST_F(DBTest, DropWrites) {
                                       true /* disallow trivial move */);
         }
       } else {
-        dbfull()->CompactRange(nullptr, nullptr);
+        dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
       }
     }
 
@@ -8076,7 +8090,8 @@ TEST_F(DBTest, CompactOnFlush) {
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, v1 ]");
 
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2 ]");
 
     // Case 2: Delete followed by another delete
@@ -8085,7 +8100,8 @@ TEST_F(DBTest, CompactOnFlush) {
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, DEL, v2 ]");
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v2 ]");
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 3: Put followed by a delete
@@ -8094,7 +8110,8 @@ TEST_F(DBTest, CompactOnFlush) {
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL, v3 ]");
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ DEL ]");
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 4: Put followed by another Put
@@ -8103,12 +8120,14 @@ TEST_F(DBTest, CompactOnFlush) {
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5, v4 ]");
     ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5 ]");
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ v5 ]");
 
     // clear database
     Delete(1, "foo");
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 5: Put followed by snapshot followed by another Put
@@ -8122,7 +8141,8 @@ TEST_F(DBTest, CompactOnFlush) {
 
     // clear database
     Delete(1, "foo");
-    dbfull()->CompactRange(handles_[1], nullptr, nullptr);
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ ]");
 
     // Case 5: snapshot followed by a put followed by another Put
@@ -9061,10 +9081,9 @@ class ModelDB: public DB {
     }
   }
   using DB::CompactRange;
-  virtual Status CompactRange(ColumnFamilyHandle* column_family,
-                              const Slice* start, const Slice* end,
-                              bool reduce_level, int target_level,
-                              uint32_t output_path_id) override {
+  virtual Status CompactRange(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* start, const Slice* end) override {
     return Status::NotSupported("Not supported operation.");
   }
 
@@ -9432,7 +9451,8 @@ void PrefixScanInit(DBTest *dbtest) {
   keystr = std::string(buf);
   ASSERT_OK(dbtest->Put(keystr, keystr));
   dbtest->Flush();
-  dbtest->dbfull()->CompactRange(nullptr, nullptr); // move to level 1
+  dbtest->dbfull()->CompactRange(CompactRangeOptions(), nullptr,
+                                 nullptr);  // move to level 1
 
   // GROUP 1
   for (int i = 1; i <= small_range_sstfiles; i++) {
@@ -9685,7 +9705,7 @@ TEST_F(DBTest, TailingIteratorIncomplete) {
   // we either see the entry or it's not in cache
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
 
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   iter->SeekToFirst();
   // should still be true after compaction
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
@@ -9910,7 +9930,7 @@ TEST_F(DBTest, ManagedTailingIteratorIncomplete) {
   // we either see the entry or it's not in cache
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
 
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   iter->SeekToFirst();
   // should still be true after compaction
   ASSERT_TRUE(iter->Valid() || iter->status().IsIncomplete());
@@ -10039,7 +10059,7 @@ TEST_F(DBTest, FIFOCompactionTest) {
     if (iter == 0) {
       ASSERT_OK(dbfull()->TEST_WaitForCompact());
     } else {
-      ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
     }
     // only 5 files should survive
     ASSERT_EQ(NumTableFilesAtLevel(0), 5);
@@ -10760,7 +10780,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   ASSERT_GT(SizeAtLevel(0), k64KB - k5KB);
 
   // Clean up L0
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   // Increase buffer size
@@ -10818,7 +10838,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
     {"max_write_buffer_number", "8"},
   }));
   // Clean up memtable and L0
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   SleepingBackgroundTask sleeping_task_low2;
   env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
@@ -10839,7 +10859,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
     {"max_write_buffer_number", "4"},
   }));
   // Clean up memtable and L0
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   SleepingBackgroundTask sleeping_task_low3;
   env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low3,
@@ -11077,7 +11097,7 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
     MakeTables(1, "a", "z", 1);
     ASSERT_EQ("0,1,2", FilesPerLevel(1));
     CancelAllBackgroundWork(db_);
-    db_->CompactRange(handles_[1], nullptr, nullptr);
+    db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
     ASSERT_EQ("0,1,2", FilesPerLevel(1));
 
     if (iter == 0) {
@@ -11349,7 +11369,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesBase) {
       }
 
       // Test compact range works
-      dbfull()->CompactRange(nullptr, nullptr);
+      dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
       // All data should be in the last level.
       ColumnFamilyMetaData cf_meta;
       db_->GetColumnFamilyMetaData(&cf_meta);
@@ -11542,7 +11562,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesCompactRange) {
   DestroyAndReopen(options);
 
   // Compact against empty DB
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   uint64_t int_prop;
   std::string str_prop;
@@ -11583,7 +11603,7 @@ TEST_F(DBTest, DynamicLevelMaxBytesCompactRange) {
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(output_levels.size(), 2);
   ASSERT_TRUE(output_levels.find(3) != output_levels.end());
   ASSERT_TRUE(output_levels.find(4) != output_levels.end());
@@ -11701,7 +11721,10 @@ TEST_F(DBTest, MigrateToDynamicLevelMaxBytesBase) {
   // Issue manual compaction in one thread and still verify DB state
   // in main thread.
   std::thread t([&]() {
-    dbfull()->CompactRange(nullptr, nullptr, true, options.num_levels - 1);
+    CompactRangeOptions compact_options;
+    compact_options.change_level = true;
+    compact_options.target_level = options.num_levels - 1;
+    dbfull()->CompactRange(compact_options, nullptr, nullptr);
     compaction_finished.store(true);
   });
   do {
@@ -12080,7 +12103,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   // Clean up memtable and L0. Block compaction threads. If continue to write
   // and flush memtables. We should see put timeout after 8 memtable flushes
   // since level0_stop_writes_trigger = 8
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Block compaction
   SleepingBackgroundTask sleeping_task_low1;
   env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
@@ -12106,7 +12129,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_OK(dbfull()->SetOptions({
     {"level0_stop_writes_trigger", "6"}
   }));
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   // Block compaction
@@ -12131,7 +12154,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_OK(dbfull()->SetOptions({
     {"disable_auto_compactions", "true"}
   }));
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   for (int i = 0; i < 4; ++i) {
@@ -12147,7 +12170,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_OK(dbfull()->SetOptions({
     {"disable_auto_compactions", "false"}
   }));
-  dbfull()->CompactRange(nullptr, nullptr);
+  dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
   for (int i = 0; i < 4; ++i) {
@@ -12924,7 +12947,7 @@ TEST_F(DBTest, FilterCompactionTimeTest) {
     Flush();
   }
 
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ(0U, CountLiveFiles());
 
   Reopen(options);
@@ -13338,7 +13361,7 @@ TEST_F(DBTest, PromoteL0Failure) {
   status = experimental::PromoteL0(db_, db_->DefaultColumnFamily());
   ASSERT_TRUE(status.IsInvalidArgument());
 
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   // Now there is a file in L1.
   ASSERT_GE(NumTableFilesAtLevel(1, 0), 1);
 
@@ -13365,7 +13388,7 @@ TEST_F(DBTest, HugeNumberOfLevels) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
   }
 
-  ASSERT_OK(db_->CompactRange(nullptr, nullptr));
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
 }
 
 // Github issue #595
@@ -13491,7 +13514,10 @@ TEST_F(DBTest, UniversalCompactionTargetLevel) {
 
   ASSERT_EQ("3", FilesPerLevel(0));
   // Compact all files into 1 file and put it in L4
-  db_->CompactRange(nullptr, nullptr, true, 4);
+  CompactRangeOptions compact_options;
+  compact_options.change_level = true;
+  compact_options.target_level = 4;
+  db_->CompactRange(compact_options, nullptr, nullptr);
   ASSERT_EQ("0,0,0,0,1", FilesPerLevel(0));
 }
 
@@ -13516,7 +13542,7 @@ TEST_F(DBTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   for (int num = 0; num < 10; num++) {
     GenerateNewRandomFile(&rnd);
   }
-  db_->CompactRange(nullptr, nullptr);
+  db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency(
       {{"CompactionJob::Run():Start",

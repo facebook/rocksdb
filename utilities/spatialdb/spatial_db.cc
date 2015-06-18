@@ -589,7 +589,7 @@ class SpatialDBImpl : public SpatialDB {
 
           Status t = Flush(FlushOptions(), cfh);
           if (t.ok()) {
-            t = CompactRange(cfh, nullptr, nullptr);
+            t = CompactRange(CompactRangeOptions(), cfh, nullptr, nullptr);
           }
 
           {

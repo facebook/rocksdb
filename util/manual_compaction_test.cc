@@ -77,7 +77,7 @@ TEST_F(ManualCompactionTest, CompactTouchesAllKeys) {
     db->Put(WriteOptions(), Slice("key4"), Slice("destroy"));
 
     Slice key4("key4");
-    db->CompactRange(nullptr, &key4);
+    db->CompactRange(CompactRangeOptions(), nullptr, &key4);
     Iterator* itr = db->NewIterator(ReadOptions());
     itr->SeekToFirst();
     ASSERT_TRUE(itr->Valid());
@@ -130,7 +130,7 @@ TEST_F(ManualCompactionTest, Test) {
   rocksdb::Slice greatest(end_key.data(), end_key.size());
 
   // commenting out the line below causes the example to work correctly
-  db->CompactRange(&least, &greatest);
+  db->CompactRange(CompactRangeOptions(), &least, &greatest);
 
   // count the keys
   rocksdb::Iterator* iter = db->NewIterator(rocksdb::ReadOptions());

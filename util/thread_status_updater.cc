@@ -15,6 +15,19 @@ namespace rocksdb {
 
 __thread ThreadStatusData* ThreadStatusUpdater::thread_status_data_ = nullptr;
 
+void ThreadStatusUpdater::RegisterThread(
+    ThreadStatus::ThreadType ttype, uint64_t thread_id) {
+  if (UNLIKELY(thread_status_data_ == nullptr)) {
+    thread_status_data_ = new ThreadStatusData();
+    thread_status_data_->thread_type = ttype;
+    thread_status_data_->thread_id = thread_id;
+    std::lock_guard<std::mutex> lck(thread_list_mutex_);
+    thread_data_set_.insert(thread_status_data_);
+  }
+
+  ClearThreadOperationProperties();
+}
+
 void ThreadStatusUpdater::UnregisterThread() {
   if (thread_status_data_ != nullptr) {
     std::lock_guard<std::mutex> lck(thread_list_mutex_);
@@ -22,18 +35,6 @@ void ThreadStatusUpdater::UnregisterThread() {
     delete thread_status_data_;
     thread_status_data_ = nullptr;
   }
-}
-
-void ThreadStatusUpdater::SetThreadID(uint64_t thread_id) {
-  auto* data = InitAndGet();
-  data->thread_id.store(thread_id, std::memory_order_relaxed);
-}
-
-void ThreadStatusUpdater::SetThreadType(
-    ThreadStatus::ThreadType ttype) {
-  auto* data = InitAndGet();
-  data->thread_type.store(ttype, std::memory_order_relaxed);
-  ClearThreadOperationProperties();
 }
 
 void ThreadStatusUpdater::ResetThreadStatus() {
@@ -44,7 +45,10 @@ void ThreadStatusUpdater::ResetThreadStatus() {
 
 void ThreadStatusUpdater::SetColumnFamilyInfoKey(
     const void* cf_key) {
-  auto* data = InitAndGet();
+  auto* data = Get();
+  if (data == nullptr) {
+    return;
+  }
   // set the tracking flag based on whether cf_key is non-null or not.
   // If enable_thread_tracking is set to false, the input cf_key
   // would be nullptr.
@@ -53,8 +57,8 @@ void ThreadStatusUpdater::SetColumnFamilyInfoKey(
 }
 
 const void* ThreadStatusUpdater::GetColumnFamilyInfoKey() {
-  auto* data = InitAndGet();
-  if (data->enable_tracking == false) {
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return nullptr;
   }
   return data->cf_key.load(std::memory_order_relaxed);
@@ -62,9 +66,8 @@ const void* ThreadStatusUpdater::GetColumnFamilyInfoKey() {
 
 void ThreadStatusUpdater::SetThreadOperation(
     const ThreadStatus::OperationType type) {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   // NOTE: Our practice here is to set all the thread operation properties
@@ -82,9 +85,8 @@ void ThreadStatusUpdater::SetThreadOperation(
 
 void ThreadStatusUpdater::SetThreadOperationProperty(
     int i, uint64_t value) {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   data->op_properties[i].store(value, std::memory_order_relaxed);
@@ -92,27 +94,24 @@ void ThreadStatusUpdater::SetThreadOperationProperty(
 
 void ThreadStatusUpdater::IncreaseThreadOperationProperty(
     int i, uint64_t delta) {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   data->op_properties[i].fetch_add(delta, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::SetOperationStartTime(const uint64_t start_time) {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   data->op_start_time.store(start_time, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::ClearThreadOperation() {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   data->operation_stage.store(ThreadStatus::STAGE_UNKNOWN,
@@ -123,9 +122,8 @@ void ThreadStatusUpdater::ClearThreadOperation() {
 }
 
 void ThreadStatusUpdater::ClearThreadOperationProperties() {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   for (int i = 0; i < ThreadStatus::kNumOperationProperties; ++i) {
@@ -135,9 +133,8 @@ void ThreadStatusUpdater::ClearThreadOperationProperties() {
 
 ThreadStatus::OperationStage ThreadStatusUpdater::SetThreadOperationStage(
     ThreadStatus::OperationStage stage) {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return ThreadStatus::STAGE_UNKNOWN;
   }
   return data->operation_stage.exchange(
@@ -146,18 +143,16 @@ ThreadStatus::OperationStage ThreadStatusUpdater::SetThreadOperationStage(
 
 void ThreadStatusUpdater::SetThreadState(
     const ThreadStatus::StateType type) {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   data->state_type.store(type, std::memory_order_relaxed);
 }
 
 void ThreadStatusUpdater::ClearThreadState() {
-  auto* data = InitAndGet();
-  if (!data->enable_tracking) {
-    assert(data->cf_key.load(std::memory_order_relaxed) == nullptr);
+  auto* data = GetLocalThreadStatus();
+  if (data == nullptr) {
     return;
   }
   data->state_type.store(
@@ -222,11 +217,14 @@ Status ThreadStatusUpdater::GetThreadList(
   return Status::OK();
 }
 
-ThreadStatusData* ThreadStatusUpdater::InitAndGet() {
-  if (UNLIKELY(thread_status_data_ == nullptr)) {
-    thread_status_data_ = new ThreadStatusData();
-    std::lock_guard<std::mutex> lck(thread_list_mutex_);
-    thread_data_set_.insert(thread_status_data_);
+ThreadStatusData* ThreadStatusUpdater::GetLocalThreadStatus() {
+  if (thread_status_data_ == nullptr) {
+    return nullptr;
+  }
+  if (!thread_status_data_->enable_tracking) {
+    assert(thread_status_data_->cf_key.load(
+        std::memory_order_relaxed) == nullptr);
+    return nullptr;
   }
   return thread_status_data_;
 }
@@ -290,17 +288,14 @@ void ThreadStatusUpdater::EraseDatabaseInfo(const void* db_key) {
 
 #else
 
+void ThreadStatusUpdater::RegisterThread(
+    ThreadStatus::ThreadType ttype, uint64_t thread_id) {
+}
+
 void ThreadStatusUpdater::UnregisterThread() {
 }
 
 void ThreadStatusUpdater::ResetThreadStatus() {
-}
-
-void ThreadStatusUpdater::SetThreadID(uint64_t thread_id) {
-}
-
-void ThreadStatusUpdater::SetThreadType(
-    ThreadStatus::ThreadType ttype) {
 }
 
 void ThreadStatusUpdater::SetColumnFamilyInfoKey(

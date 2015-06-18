@@ -309,16 +309,18 @@ class CompactionJobStatsTest : public testing::Test {
 
   void Compact(int cf, const Slice& start, const Slice& limit,
                uint32_t target_path_id) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit, false, -1,
-                                target_path_id));
+    CompactRangeOptions compact_options;
+    compact_options.target_path_id = target_path_id;
+    ASSERT_OK(db_->CompactRange(compact_options, handles_[cf], &start, &limit));
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit));
+    ASSERT_OK(
+        db_->CompactRange(CompactRangeOptions(), handles_[cf], &start, &limit));
   }
 
   void Compact(const Slice& start, const Slice& limit) {
-    ASSERT_OK(db_->CompactRange(&start, &limit));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), &start, &limit));
   }
 
   void TEST_Compact(int level, int cf, const Slice& start, const Slice& limit) {

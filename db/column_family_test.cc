@@ -215,11 +215,13 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   void CompactAll(int cf) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], nullptr, nullptr));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf], nullptr,
+                                nullptr));
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit));
+    ASSERT_OK(
+        db_->CompactRange(CompactRangeOptions(), handles_[cf], &start, &limit));
   }
 
   int NumTableFilesAtLevel(int level, int cf) {

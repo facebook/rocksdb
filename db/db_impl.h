@@ -125,10 +125,9 @@ class DBImpl : public DB {
                                    const Range* range, int n, uint64_t* sizes,
                                    bool include_memtable = false) override;
   using DB::CompactRange;
-  virtual Status CompactRange(ColumnFamilyHandle* column_family,
-                              const Slice* begin, const Slice* end,
-                              bool change_level = false, int target_level = -1,
-                              uint32_t target_path_id = 0) override;
+  virtual Status CompactRange(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end) override;
 
   using DB::CompactFiles;
   virtual Status CompactFiles(const CompactionOptions& compact_options,
@@ -440,8 +439,7 @@ class DBImpl : public DB {
 
   Status ScheduleFlushes(WriteContext* context);
 
-  Status SetNewMemtableAndNewLogFile(ColumnFamilyData* cfd,
-                                     WriteContext* context);
+  Status SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context);
 
   // Force current memtable contents to be flushed.
   Status FlushMemTable(ColumnFamilyData* cfd, const FlushOptions& options);
@@ -719,21 +717,16 @@ class DBImpl : public DB {
   // the InstallSuperVersion() function. Background threads carry
   // job_context which can have new_superversion already
   // allocated.
-  void InstallSuperVersionBackground(
+  void InstallSuperVersionAndScheduleWorkWrapper(
       ColumnFamilyData* cfd, JobContext* job_context,
       const MutableCFOptions& mutable_cf_options);
 
   // All ColumnFamily state changes go through this function. Here we analyze
   // the new state and we schedule background work if we detect that the new
   // state needs flush or compaction.
-  // If dont_schedule_bg_work == true, then caller asks us to not schedule flush
-  // or compaction here, but it also promises to schedule needed background
-  // work. We use this to  scheduling background compactions when we are in the
-  // write thread, which is very performance critical. Caller schedules
-  // background work as soon as it exits the write thread
-  SuperVersion* InstallSuperVersion(ColumnFamilyData* cfd, SuperVersion* new_sv,
-                                    const MutableCFOptions& mutable_cf_options,
-                                    bool dont_schedule_bg_work = false);
+  SuperVersion* InstallSuperVersionAndScheduleWork(
+      ColumnFamilyData* cfd, SuperVersion* new_sv,
+      const MutableCFOptions& mutable_cf_options);
 
 #ifndef ROCKSDB_LITE
   using DB::GetPropertiesOfAllTables;

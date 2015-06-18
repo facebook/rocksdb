@@ -1766,7 +1766,7 @@ class PosixEnv : public Env {
       ThreadPool* tp = meta->thread_pool_;
 #if ROCKSDB_USING_THREAD_STATUS
       // for thread-status
-      ThreadStatusUtil::SetThreadType(tp->env_,
+      ThreadStatusUtil::RegisterThread(tp->env_,
           (tp->GetThreadPriority() == Env::Priority::HIGH ?
               ThreadStatus::HIGH_PRIORITY :
               ThreadStatus::LOW_PRIORITY));
