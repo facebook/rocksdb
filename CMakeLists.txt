@@ -1,11 +1,31 @@
-cmake_minimum_required(VERSION 2.6)
-project(ROCKSDB)
-
 # This cmake build is for Windows only
 # Set environment variable PACKAGES_HOME to point to your Pacman packages root (Unix style dir separators)
 # Use cmake -G "Visual Studio 12 Win64" for project file generation for Windows
 # Then use msbuild ALL_BUILD.vcxproj to build the debug version of the software or
 # msbuild ALL_BUILD.vcxproj /p:Configuration=Release to build the release version
+
+cmake_minimum_required(VERSION 2.6)
+project(rocksdb)
+
+execute_process(COMMAND $ENV{COMSPEC} " /C date /T" OUTPUT_VARIABLE DATE)
+execute_process(COMMAND $ENV{COMSPEC} " /C time /T" OUTPUT_VARIABLE TIME)
+string(REGEX REPLACE "(..)/(..)/..(..).*" "\\1/\\2/\\3" DATE ${DATE})
+string(REGEX REPLACE "(..):(.....).*" " \\1:\\2" TIME ${TIME})
+string(CONCAT GIT_DATE_TIME ${DATE} ${TIME})
+
+execute_process(COMMAND $ENV{COMSPEC} " /C git rev-parse HEAD 2>nil" OUTPUT_VARIABLE GIT_SHA)
+string(REGEX REPLACE "[^0-9a-f]+" "" GIT_SHA ${GIT_SHA})
+
+set(BUILD_VERSION_CC ${CMAKE_CURRENT_SOURCE_DIR}/util/build_version.cc)
+
+add_custom_command(OUTPUT ${BUILD_VERSION_CC}
+    COMMAND echo "#include \"build_version.h\"" > ${BUILD_VERSION_CC}
+    COMMAND echo "const char* rocksdb_build_git_sha = \"rocksdb_build_git_sha:${GIT_SHA}\";" >> ${BUILD_VERSION_CC}
+    COMMAND echo "const char* rocksdb_build_git_datetime = \"rocksdb_build_git_datetime:${GIT_DATE_TIME}\";" >> ${BUILD_VERSION_CC}
+    COMMAND echo const char* rocksdb_build_compile_date = __DATE__\; >> ${BUILD_VERSION_CC}
+)
+
+add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
 
 set(GFLAGS_HOME $ENV{PACKAGES_HOME}/Gflags.Library)
 set(GFLAGS_CXX_FLAGS -DGFLAGS=gflags)
@@ -41,13 +61,13 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/port)
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
-set (ROCKSDB_LIBS rocksdblib)
-set (ROCKSDB_LIBS_JE rocksdblib_je)
-set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
-set (SYSTEM_LIBS Shlwapi.lib Rpcrt4.lib)
+set(ROCKSDB_LIBS rocksdblib)
+set(ROCKSDB_LIBS_JE rocksdblib_je)
+set(THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
+set(SYSTEM_LIBS Shlwapi.lib Rpcrt4.lib)
 
-set (LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-set (LIBS_JE ${ROCKSDB_LIBS_JE} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+set(LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
+set(LIBS_JE ${ROCKSDB_LIBS_JE} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 
@@ -201,16 +221,20 @@ set(SOURCES
 )
 
 add_library(rocksdblib ${SOURCES})
+add_dependencies(rocksdblib GenerateBuildVersion)
 
 add_library(rocksdblib_je ${SOURCES})
 set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
+add_dependencies(rocksdblib_je GenerateBuildVersion)
 
 add_library(rocksdb SHARED ${SOURCES})
 set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+add_dependencies(rocksdb GenerateBuildVersion)
 target_link_libraries(rocksdb ${LIBS})
 
 add_library(rocksdb_je SHARED ${SOURCES})
 set_target_properties(rocksdb_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} -DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+add_dependencies(rocksdb_je GenerateBuildVersion)
 target_link_libraries(rocksdb_je ${LIBS_JE})
 
 set(APPS
