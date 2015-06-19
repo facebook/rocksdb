@@ -1863,63 +1863,6 @@ TEST_F(DBTest, GetSnapshot) {
   } while (ChangeOptions());
 }
 
-TEST_F(DBTest, GetSnapshotLink) {
-  do {
-    Options options;
-    const std::string snapshot_name = test::TmpDir(env_) + "/snapshot";
-    DB* snapshotDB;
-    ReadOptions roptions;
-    std::string result;
-    Checkpoint* checkpoint;
-
-    options = CurrentOptions(options);
-    delete db_;
-    db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, options));
-    ASSERT_OK(DestroyDB(snapshot_name, options));
-    env_->DeleteDir(snapshot_name);
-
-    // Create a database
-    Status s;
-    options.create_if_missing = true;
-    ASSERT_OK(DB::Open(options, dbname_, &db_));
-    std::string key = std::string("foo");
-    ASSERT_OK(Put(key, "v1"));
-    // Take a snapshot
-    ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
-    ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
-    ASSERT_OK(Put(key, "v2"));
-    ASSERT_EQ("v2", Get(key));
-    ASSERT_OK(Flush());
-    ASSERT_EQ("v2", Get(key));
-    // Open snapshot and verify contents while DB is running
-    options.create_if_missing = false;
-    ASSERT_OK(DB::Open(options, snapshot_name, &snapshotDB));
-    ASSERT_OK(snapshotDB->Get(roptions, key, &result));
-    ASSERT_EQ("v1", result);
-    delete snapshotDB;
-    snapshotDB = nullptr;
-    delete db_;
-    db_ = nullptr;
-
-    // Destroy original DB
-    ASSERT_OK(DestroyDB(dbname_, options));
-
-    // Open snapshot and verify contents
-    options.create_if_missing = false;
-    dbname_ = snapshot_name;
-    ASSERT_OK(DB::Open(options, dbname_, &db_));
-    ASSERT_EQ("v1", Get(key));
-    delete db_;
-    db_ = nullptr;
-    ASSERT_OK(DestroyDB(dbname_, options));
-    delete checkpoint;
-
-    // Restore DB name
-    dbname_ = test::TmpDir(env_) + "/db_test";
-  } while (ChangeOptions());
-}
-
 TEST_F(DBTest, GetLevel0Ordering) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());

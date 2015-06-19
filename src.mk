@@ -211,6 +211,7 @@ TEST_BENCH_SOURCES =                                                    \
   util/filelock_test.cc                                                 \
   util/histogram_test.cc                                                \
   utilities/backupable/backupable_db_test.cc                            \
+  utilities/checkpoint/checkpoint_test.cc                               \
   utilities/document/document_db_test.cc                                \
   utilities/document/json_document_test.cc                              \
   utilities/geodb/geodb_test.cc                                         \

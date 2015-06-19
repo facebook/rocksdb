@@ -231,6 +231,7 @@ TESTS = \
 	dynamic_bloom_test \
 	c_test \
 	cache_test \
+	checkpoint_test \
 	coding_test \
 	corruption_test \
 	crc32c_test \
@@ -693,6 +694,9 @@ prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_V_CCLD)$(CXX) $^ $(EXEC_LDFLAGS) -o $@ $(LDFLAGS)
 
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
