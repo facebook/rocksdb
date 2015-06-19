@@ -9,6 +9,7 @@
 
 #include "rocksdb/cache.h"
 
+#include <forward_list>
 #include <vector>
 #include <string>
 #include <iostream>
@@ -150,6 +151,8 @@ TEST_F(CacheTest, PinnedUsageTest) {
   size_t pinned_usage = 0;
   const char* value = "abcdef";
 
+  std::forward_list<Cache::Handle*> unreleased_handles;
+
   // Add entries. Unpin some of them after insertion. Then, pin some of them
   // again. Check GetPinnedUsage().
   for (int i = 1; i < 100; ++i) {
@@ -162,9 +165,11 @@ TEST_F(CacheTest, PinnedUsageTest) {
       cache->Release(handle);
       pinned_usage -= kv_size;
       ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
+    } else {
+      unreleased_handles.push_front(handle);
     }
     if (i % 3 == 0) {
-      cache->Lookup(key);
+      unreleased_handles.push_front(cache->Lookup(key));
       // If i % 2 == 0, then the entry was unpinned before Lookup, so pinned
       // usage increased
       if (i % 2 == 0) {
@@ -181,6 +186,11 @@ TEST_F(CacheTest, PinnedUsageTest) {
         cache->Insert(key, (void*)value, key.size() + 5, dumbDeleter));
   }
   ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
+
+  // release handles for pinned entries to prevent memory leaks
+  for (auto handle : unreleased_handles) {
+    cache->Release(handle);
+  }
 }
 
 TEST_F(CacheTest, HitAndMiss) {
