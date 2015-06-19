@@ -13053,6 +13053,9 @@ TEST_F(DBTest, EmptyCompactedDB) {
 }
 
 TEST_F(DBTest, CompressLevelCompaction) {
+  if (!Zlib_Supported()) {
+    return;
+  }
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 100 << 10;  // 100KB
