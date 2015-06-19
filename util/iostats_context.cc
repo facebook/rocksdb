@@ -20,6 +20,7 @@ void IOStatsContext::Reset() {
   open_nanos = 0;
   allocate_nanos = 0;
   write_nanos = 0;
+  read_nanos = 0;
   range_sync_nanos = 0;
   logger_nanos = 0;
 }
@@ -34,6 +35,7 @@ std::string IOStatsContext::ToString() const {
      << OUTPUT(open_nanos)
      << OUTPUT(allocate_nanos)
      << OUTPUT(write_nanos)
+     << OUTPUT(read_nanos)
      << OUTPUT(range_sync_nanos)
      << OUTPUT(logger_nanos);
 

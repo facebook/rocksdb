@@ -34,6 +34,8 @@ struct IOStatsContext {
   uint64_t allocate_nanos;
   // time spent in write() and pwrite().
   uint64_t write_nanos;
+  // time spent in read() and pread()
+  uint64_t read_nanos;
   // time spent in sync_file_range().
   uint64_t range_sync_nanos;
 

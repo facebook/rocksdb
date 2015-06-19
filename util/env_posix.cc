@@ -256,7 +256,11 @@ class PosixRandomAccessFile: public RandomAccessFile {
     size_t left = n;
     char* ptr = scratch;
     while (left > 0) {
-      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      {
+        IOSTATS_TIMER_GUARD(read_nanos);
+        r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      }
+
       if (r <= 0) {
         if (errno == EINTR) {
           continue;
@@ -975,7 +979,11 @@ class PosixRandomRWFile : public RandomRWFile {
     size_t left = n;
     char* ptr = scratch;
     while (left > 0) {
-      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      {
+        IOSTATS_TIMER_GUARD(read_nanos);
+        r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      }
+
       if (r <= 0) {
         if (errno == EINTR) {
           continue;
