@@ -33,6 +33,8 @@ package/
 .phutil_module_cache
 unity
 tags
+rocksdb_dump
+rocksdb_undump
 
 java/out
 java/target

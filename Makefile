@@ -300,7 +300,9 @@ TOOLS = \
 	db_sanity_test \
 	db_stress \
 	ldb \
-	db_repl_stress
+	db_repl_stress \
+	rocksdb_dump \
+	rocksdb_undump
 
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
@@ -516,6 +518,8 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+	python tools/ldb_test.py
+	sh tools/rocksdb_dump_test.sh
 
 check_some: $(SUBSET) ldb_tests
 	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
@@ -793,6 +797,12 @@ deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+rocksdb_dump: tools/dump/rocksdb_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+rocksdb_undump: tools/dump/rocksdb_undump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
 cuckoo_table_builder_test: table/cuckoo_table_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
