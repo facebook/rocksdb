@@ -518,7 +518,6 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
-	python tools/ldb_test.py
 	sh tools/rocksdb_dump_test.sh
 
 check_some: $(SUBSET) ldb_tests
