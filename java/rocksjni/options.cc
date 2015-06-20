@@ -1136,6 +1136,27 @@ jbyte Java_org_rocksdb_Options_compactionStyle(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setMaxTableFilesSizeFIFO
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setMaxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_table_files_size) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_options_fifo.max_table_files_size =
+    static_cast<long>(jmax_table_files_size);
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxTableFilesSizeFIFO
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_Options_maxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)->compaction_options_fifo.max_table_files_size;
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    numLevels
  * Signature: (J)I
  */
@@ -2269,6 +2290,27 @@ jbyte Java_org_rocksdb_ColumnFamilyOptions_compactionStyle(
     JNIEnv* env, jobject jobj, jlong jhandle) {
   return reinterpret_cast<rocksdb::ColumnFamilyOptions*>
       (jhandle)->compaction_style;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMaxTableFilesSizeFIFO
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMaxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jmax_table_files_size) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->compaction_options_fifo.max_table_files_size =
+    static_cast<long>(jmax_table_files_size);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    maxTableFilesSizeFIFO
+ * Signature: (J)J
+ */
+jlong Java_org_rocksdb_ColumnFamilyOptions_maxTableFilesSizeFIFO(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->compaction_options_fifo.max_table_files_size;
 }
 
 /*
