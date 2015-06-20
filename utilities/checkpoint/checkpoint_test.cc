@@ -298,6 +298,7 @@ TEST_F(DBTest, CheckpointCF) {
     Checkpoint* checkpoint;
     ASSERT_OK(Checkpoint::Create(db_, &checkpoint));
     ASSERT_OK(checkpoint->CreateCheckpoint(snapshot_name));
+    delete checkpoint;
   });
   TEST_SYNC_POINT("DBTest::CheckpointCF:1");
   ASSERT_OK(Put(0, "Default", "Default1"));
