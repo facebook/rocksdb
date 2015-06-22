@@ -2479,15 +2479,15 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     for (size_t i = 0; i < c->num_input_files(0); i++) {
       FileMetaData* f = c->input(0, i);
       c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-      c->edit()->AddFile(c->level() + 1, f->fd.GetNumber(), f->fd.GetPathId(),
-                         f->fd.GetFileSize(), f->smallest, f->largest,
-                         f->smallest_seqno, f->largest_seqno,
+      c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
+                         f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
+                         f->largest, f->smallest_seqno, f->largest_seqno,
                          f->marked_for_compaction);
 
       LogToBuffer(log_buffer,
                   "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
                   c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-                  c->level() + 1, f->fd.GetFileSize());
+                  c->output_level(), f->fd.GetFileSize());
       ++moved_files;
       moved_bytes += f->fd.GetFileSize();
     }
@@ -2499,20 +2499,20 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         c->column_family_data(), job_context, *c->mutable_cf_options());
 
     VersionStorageInfo::LevelSummaryStorage tmp;
-    c->column_family_data()->internal_stats()->IncBytesMoved(c->level() + 1,
+    c->column_family_data()->internal_stats()->IncBytesMoved(c->output_level(),
                                                              moved_bytes);
     {
       event_logger_.LogToBuffer(log_buffer)
           << "job" << job_context->job_id << "event"
           << "trivial_move"
-          << "destination_level" << c->level() + 1 << "files" << moved_files
+          << "destination_level" << c->output_level() << "files" << moved_files
           << "total_files_size" << moved_bytes;
     }
     LogToBuffer(
         log_buffer,
         "[%s] Moved #%d files to level-%d %" PRIu64 " bytes %s: %s\n",
-        c->column_family_data()->GetName().c_str(), moved_files, c->level() + 1,
-        moved_bytes, status.ToString().c_str(),
+        c->column_family_data()->GetName().c_str(), moved_files,
+        c->output_level(), moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
     *madeProgress = true;
 
