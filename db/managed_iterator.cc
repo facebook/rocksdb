@@ -104,9 +104,7 @@ void ManagedIterator::SeekToLast() {
   }
   assert(mutable_iter_ != nullptr);
   mutable_iter_->SeekToLast();
-  if (mutable_iter_->status().ok()) {
-    UpdateCurrent();
-  }
+  UpdateCurrent();
 }
 
 void ManagedIterator::SeekToFirst() {
@@ -154,12 +152,7 @@ void ManagedIterator::Prev() {
     }
   }
   mutable_iter_->Prev();
-  if (mutable_iter_->status().ok()) {
-    UpdateCurrent();
-    status_ = Status::OK();
-  } else {
-    status_ = mutable_iter_->status();
-  }
+  UpdateCurrent();
 }
 
 void ManagedIterator::Next() {
