@@ -28,7 +28,7 @@ your make commands, like this: `PORTABLE=1 make static_lib`
       data compression.
 
 * All our tools depend on:
-  - [gflags](https://code.google.com/p/gflags/) - a library that handles
+  - [gflags](https://gflags.github.io/gflags/) - a library that handles
       command line flags processing. You can compile rocksdb library even
       if you don't have gflags installed.
 
