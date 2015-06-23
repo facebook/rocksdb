@@ -57,6 +57,11 @@ class CorruptionTest : public testing::Test {
      DestroyDB(dbname_, Options());
   }
 
+  void CloseDb() {
+    delete db_;
+    db_ = nullptr;
+  }
+
   Status TryReopen(Options* options = nullptr) {
     delete db_;
     db_ = nullptr;
@@ -229,6 +234,16 @@ class CorruptionTest : public testing::Test {
 TEST_F(CorruptionTest, Recovery) {
   Build(100);
   Check(100, 100);
+#ifdef OS_WIN
+  // On Wndows OS Disk cache does not behave properly
+  // We do not call FlushBuffers on every Flush. If we do not close
+  // the log file prior to the corruption we end up with the first
+  // block not corrupted but only the second. However, under the debugger
+  // things work just fine but never pass when running normally
+  // For that reason people may want to run with unbuffered I/O. That option
+  // is not available for WAL though.
+  CloseDb();
+#endif
   Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
   Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
   ASSERT_TRUE(!TryReopen().ok());
