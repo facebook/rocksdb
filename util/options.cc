@@ -71,8 +71,8 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       num_levels(options.num_levels),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
-      listeners(options.listeners) {
-}
+      listeners(options.listeners),
+      row_cache(options.row_cache) {}
 
 ColumnFamilyOptions::ColumnFamilyOptions()
     : comparator(BytewiseComparator()),
@@ -290,7 +290,8 @@ DBOptions::DBOptions(const Options& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       delayed_write_rate(options.delayed_write_rate),
-      wal_recovery_mode(options.wal_recovery_mode) {}
+      wal_recovery_mode(options.wal_recovery_mode),
+      row_cache(options.row_cache) {}
 
 static const char* const access_hints[] = {
   "NONE", "NORMAL", "SEQUENTIAL", "WILLNEED"
@@ -360,6 +361,12 @@ void DBOptions::Dump(Logger* log) const {
         wal_bytes_per_sync);
     Warn(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
+    if (row_cache) {
+      Warn(log, "                               Options.row_cache: %" PRIu64,
+           row_cache->GetCapacity());
+    } else {
+      Warn(log, "                               Options.row_cache: None");
+    }
 }  // DBOptions::Dump
 
 void ColumnFamilyOptions::Dump(Logger* log) const {

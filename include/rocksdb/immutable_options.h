@@ -98,6 +98,8 @@ struct ImmutableCFOptions {
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
+
+  std::shared_ptr<Cache> row_cache;
 };
 
 }  // namespace rocksdb

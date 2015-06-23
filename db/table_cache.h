@@ -94,6 +94,7 @@ class TableCache {
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
+  std::string row_cache_id_;
 };
 
 }  // namespace rocksdb

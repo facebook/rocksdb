@@ -417,7 +417,8 @@ class DBTest : public testing::Test {
     kxxHashChecksum = 25,
     kFIFOCompaction = 26,
     kOptimizeFiltersForHits = 27,
-    kEnd = 28
+    kRowCache = 28,
+    kEnd = 29
   };
   int option_config_;
 
@@ -705,6 +706,10 @@ class DBTest : public testing::Test {
       case kOptimizeFiltersForHits: {
         options.optimize_filters_for_hits = true;
         set_block_based_table_factory = true;
+        break;
+      }
+      case kRowCache: {
+        options.row_cache = NewLRUCache(1024 * 1024);
         break;
       }
 
@@ -14015,6 +14020,25 @@ TEST_F(DBTest, FailWhenCompressionNotSupportedTest) {
       ASSERT_TRUE(!db_->CreateColumnFamily(cf_options, "name", &handle).ok());
     }
   }
+}
+
+TEST_F(DBTest, RowCache) {
+  Options options = CurrentOptions();
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.row_cache = NewLRUCache(8192);
+  DestroyAndReopen(options);
+
+  ASSERT_OK(Put("foo", "bar"));
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 0);
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 0);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+  ASSERT_EQ(Get("foo"), "bar");
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
+  ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
 
 }  // namespace rocksdb

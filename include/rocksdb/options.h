@@ -1055,6 +1055,11 @@ struct DBOptions {
   // Recovery mode to control the consistency while replaying WAL
   // Default: kTolerateCorruptedTailRecords
   WALRecoveryMode wal_recovery_mode;
+
+  // A global cache for table-level rows.
+  // Default: nullptr (disabled)
+  // Not supported in ROCKSDB_LITE mode!
+  std::shared_ptr<Cache> row_cache;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
