@@ -1266,6 +1266,18 @@ struct CompactionOptions {
         output_file_size_limit(std::numeric_limits<uint64_t>::max()) {}
 };
 
+// For level based compaction, we can configure if we want to skip/force
+// bottommost level compaction.
+enum class BottommostLevelCompaction {
+  // Skip bottommost level compaction
+  kSkip,
+  // Only compact bottommost level if there is a compaction filter
+  // This is the default option
+  kIfHaveCompactionFilter,
+  // Always compact bottommost level
+  kForce,
+};
+
 // CompactRangeOptions is used by CompactRange() call.
 struct CompactRangeOptions {
   // If true, compacted files will be moved to the minimum level capable
@@ -1277,10 +1289,10 @@ struct CompactRangeOptions {
   // Compaction outputs will be placed in options.db_paths[target_path_id].
   // Behavior is undefined if target_path_id is out of range.
   uint32_t target_path_id = 0;
-  // By default compaction will try to skip compacting bottommost level if
-  // possible, setting this flag to true will force compaction to compact
-  // the bottomost level.
-  bool force_bottommost_level_compaction = false;
+  // By default level based compaction will only compact the bottommost level
+  // if there is a compaction filter
+  BottommostLevelCompaction bottommost_level_compaction =
+      BottommostLevelCompaction::kIfHaveCompactionFilter;
 };
 }  // namespace rocksdb
 

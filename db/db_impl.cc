@@ -1429,13 +1429,17 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
           cfd->ioptions()->compaction_style == kCompactionStyleFIFO) {
         output_level = level;
       } else if (level == max_level_with_files && level > 0) {
-        if (options.force_bottommost_level_compaction == false &&
-            cfd->ioptions()->compaction_filter == nullptr &&
-            cfd->ioptions()->compaction_filter_factory == nullptr &&
-            cfd->ioptions()->compaction_filter_factory_v2 == nullptr) {
-          // If we are not forced to compact the bottommost level and there is
-          // no compaction filter we can skip the compaction of
-          // the bottommost level
+        if (options.bottommost_level_compaction ==
+            BottommostLevelCompaction::kSkip) {
+          // Skip bottommost level compaction
+          continue;
+        } else if (options.bottommost_level_compaction ==
+                       BottommostLevelCompaction::kIfHaveCompactionFilter &&
+                   cfd->ioptions()->compaction_filter == nullptr &&
+                   cfd->ioptions()->compaction_filter_factory == nullptr &&
+                   cfd->ioptions()->compaction_filter_factory_v2 == nullptr) {
+          // Skip bottommost level compaction since we dont have
+          // compaction filter
           continue;
         }
         output_level = level;

@@ -5438,7 +5438,8 @@ TEST_F(DBTest, ConvertCompactionStyle) {
   CompactRangeOptions compact_options;
   compact_options.change_level = true;
   compact_options.target_level = 0;
-  compact_options.force_bottommost_level_compaction = true;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
   dbfull()->CompactRange(compact_options, handles_[1], nullptr, nullptr);
 
   // Only 1 file in L0
@@ -13989,13 +13990,34 @@ TEST_F(DBTest, ForceBottommostLevelCompaction) {
   // Compaction will do L0=>L1 L1=>L2 L2=>L3 (3 trivial moves)
   // then compacte the bottommost level L3=>L3 (non trivial move)
   compact_options = CompactRangeOptions();
-  compact_options.force_bottommost_level_compaction = true;
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,0,0,1", FilesPerLevel(0));
   ASSERT_EQ(trivial_move, 4);
   ASSERT_EQ(non_trivial_move, 1);
 
-  for (int i = 0; i < 200; i++) {
+  // File with keys [ 200 => 299 ]
+  for (int i = 200; i < 300; i++) {
+    values.push_back(RandomString(&rnd, value_size));
+    ASSERT_OK(Put(Key(i), values[i]));
+  }
+  ASSERT_OK(Flush());
+
+  ASSERT_EQ("1,0,0,1", FilesPerLevel(0));
+  trivial_move = 0;
+  non_trivial_move = 0;
+  compact_options = CompactRangeOptions();
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kSkip;
+  // Compaction will do L0=>L1 L1=>L2 L2=>L3 (3 trivial moves)
+  // and will skip bottommost level compaction
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ("0,0,0,2", FilesPerLevel(0));
+  ASSERT_EQ(trivial_move, 3);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  for (int i = 0; i < 300; i++) {
     ASSERT_EQ(Get(Key(i)), values[i]);
   }
 
