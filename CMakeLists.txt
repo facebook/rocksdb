@@ -1,17 +1,20 @@
-# This cmake build is for Windows only
-# Set environment variable PACKAGES_HOME to point to your Pacman packages root (Unix style dir separators)
-# Create a new directory for build artifacts
+# This cmake build is for Windows only. It is as easy as 1-2-3-4-5:
+#
+# 1. Update paths to thirdparty libraries in thirdparty.cmake file
+# 2. Create a new directory for build artifacts
 #        mkdir build
 #        cd build
-# Run cmake to generate project files for Windows
+# 3. Run cmake to generate project files for Windows
 #        cmake -G "Visual Studio 12 Win64" ..
-# Then build the project (in debug mode)
+# 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
 #        msbuild ALL_BUILD.vcxproj
-# and release mode
+# 5. And release mode (/m:<N> is also supported)
 #        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
 
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 
 execute_process(COMMAND $ENV{COMSPEC} " /C date /T" OUTPUT_VARIABLE DATE)
 execute_process(COMMAND $ENV{COMSPEC} " /C time /T" OUTPUT_VARIABLE TIME)
@@ -32,21 +35,6 @@ add_custom_command(OUTPUT ${BUILD_VERSION_CC}
 )
 
 add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
-
-set(GFLAGS_HOME $ENV{PACKAGES_HOME}/Gflags.Library)
-set(GFLAGS_CXX_FLAGS -DGFLAGS=gflags)
-set(GFLAGS_INCLUDE ${GFLAGS_HOME}/inc/include)
-set(GFLAGS_LIBS debug ${GFLAGS_HOME}/bin/debug/amd64/gflags.lib optimized ${GFLAGS_HOME}/bin/retail/amd64/gflags.lib)
-
-set(SNAPPY_HOME $ENV{PACKAGES_HOME}/Snappy.Library)
-set(SNAPPY_CXX_FLAGS -DSNAPPY)
-set(SNAPPY_INCLUDE ${SNAPPY_HOME}/inc/inc)
-set(SNAPPY_LIBS debug ${SNAPPY_HOME}/bin/debug/amd64/snappy.lib optimized ${SNAPPY_HOME}/bin/retail/amd64/snappy.lib)
-
-set(JEMALLOC_HOME $ENV{PACKAGES_HOME}/Jemalloc.Library)
-set(JEMALLOC_CXX_FLAGS -DJEMALLOC)
-set(JEMALLOC_INCLUDE ${JEMALLOC_HOME}/inc/include)
-set(JEMALLOC_LIBS debug ${JEMALLOC_HOME}/bin/debug/amd64/jemalloc.lib optimized ${JEMALLOC_HOME}/bin/retail/amd64/jemalloc.lib)
 
 add_definitions(${GFLAGS_CXX_FLAGS} ${SNAPPY_CXX_FLAGS})
 include_directories(${GFLAGS_INCLUDE} ${SNAPPY_INCLUDE} ${JEMALLOC_INCLUDE})
