@@ -368,11 +368,19 @@ void Java_org_rocksdb_WBWIRocksIterator_entry1(
   const rocksdb::WriteEntry& we = it->Entry();
   jobject jwe = rocksdb::WBWIRocksIteratorJni::getWriteEntry(env, jobj);
   rocksdb::WriteEntryJni::setWriteType(env, jwe, we.type);
-  rocksdb::WriteEntryJni::setKey(env, jwe, &we.key);
+
+  char* buf = new char[we.key.size()];
+  memcpy(buf, we.key.data(), we.key.size());
+  auto* key_slice = new rocksdb::Slice(buf, we.key.size());
+  rocksdb::WriteEntryJni::setKey(env, jwe, key_slice);
+
   if (we.type == rocksdb::kDeleteRecord || we.type == rocksdb::kLogDataRecord) {
     // set native handle of value slice to null if no value available
-    rocksdb::WriteEntryJni::setValue(env, jwe, NULL);
+    rocksdb::WriteEntryJni::setValue(env, jwe, nullptr);
   } else {
-    rocksdb::WriteEntryJni::setValue(env, jwe, &we.value);
+    char* value_buf = new char[we.value.size()];
+    memcpy(value_buf, we.value.data(), we.value.size());
+    auto* value_slice = new rocksdb::Slice(value_buf, we.value.size());
+    rocksdb::WriteEntryJni::setValue(env, jwe, value_slice);
   }
 }
