@@ -10811,6 +10811,19 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     // should stop here...
     ASSERT_TRUE(!iter->Valid());
   }
+  // Testing SeekToLast with iterate_upper_bound set
+  {
+    ReadOptions ro;
+
+    Slice prefix("foo");
+    ro.iterate_upper_bound = &prefix;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("a")), 0);
+  }
 
   // prefix is the first letter of the key
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
