@@ -1,8 +1,14 @@
 # This cmake build is for Windows only
 # Set environment variable PACKAGES_HOME to point to your Pacman packages root (Unix style dir separators)
-# Use cmake -G "Visual Studio 12 Win64" for project file generation for Windows
-# Then use msbuild ALL_BUILD.vcxproj to build the debug version of the software or
-# msbuild ALL_BUILD.vcxproj /p:Configuration=Release to build the release version
+# Create a new directory for build artifacts
+#        mkdir build
+#        cd build
+# Run cmake to generate project files for Windows
+#        cmake -G "Visual Studio 12 Win64" ..
+# Then build the project (in debug mode)
+#        msbuild ALL_BUILD.vcxproj
+# and release mode
+#        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
 
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
@@ -47,7 +53,7 @@ include_directories(${GFLAGS_INCLUDE} ${SNAPPY_INCLUDE} ${JEMALLOC_INCLUDE})
 set (THIRDPARTY_LIBS ${GFLAGS_LIBS} ${SNAPPY_LIBS} ${JEMALLOC_LIBS})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /W3 /WX /EHsc /GS /fp:precise /Zc:wchar_t /Zc:forScope /Gd /TP /errorReport:queue")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996" )
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996")
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Oi /Gm- /Gy /MD")
@@ -221,19 +227,20 @@ set(SOURCES
 )
 
 add_library(rocksdblib ${SOURCES})
+set_target_properties(rocksdblib PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib.pdb")
 add_dependencies(rocksdblib GenerateBuildVersion)
 
 add_library(rocksdblib_je ${SOURCES})
-set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
+set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} /Fd${CMAKE_CFG_INTDIR}/rocksdblib_je.pdb")
 add_dependencies(rocksdblib_je GenerateBuildVersion)
 
 add_library(rocksdb SHARED ${SOURCES})
-set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb.pdb")
 add_dependencies(rocksdb GenerateBuildVersion)
 target_link_libraries(rocksdb ${LIBS})
 
 add_library(rocksdb_je SHARED ${SOURCES})
-set_target_properties(rocksdb_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} -DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+set_target_properties(rocksdb_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} -DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb_je.pdb")
 add_dependencies(rocksdb_je GenerateBuildVersion)
 target_link_libraries(rocksdb_je ${LIBS_JE})
 
