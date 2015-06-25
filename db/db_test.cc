@@ -11315,6 +11315,17 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
   }
 }
 
+TEST_F(DBTest, PreShutdownFlush) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "key", "value"));
+  CancelAllBackgroundWork(db_);
+  Status s =
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_TRUE(s.IsShutdownInProgress());
+}
+
 TEST_F(DBTest, PreShutdownMultipleCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
