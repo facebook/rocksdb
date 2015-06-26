@@ -7,6 +7,7 @@
 #include <memory>
 #include <iostream>
 
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -41,6 +42,7 @@ class CountMergeOperator : public AssociativeMergeOperator {
                      const Slice& value,
                      std::string* new_value,
                      Logger* logger) const override {
+    assert(new_value->empty());
     ++num_merge_operator_calls;
     if (existing_value == nullptr) {
       new_value->assign(value.data(), value.size());
@@ -59,6 +61,7 @@ class CountMergeOperator : public AssociativeMergeOperator {
                                  const std::deque<Slice>& operand_list,
                                  std::string* new_value,
                                  Logger* logger) const override {
+    assert(new_value->empty());
     ++num_partial_merge_calls;
     return mergeOperator_->PartialMergeMulti(key, operand_list, new_value,
                                              logger);
@@ -498,6 +501,7 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
 
 int main(int argc, char *argv[]) {
   //TODO: Make this test like a general rocksdb unit-test
+  rocksdb::port::InstallStackTraceHandler();
   runTest(argc, test::TmpDir() + "/merge_testdb");
   runTest(argc, test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
   printf("Passed all tests!\n");
