@@ -359,7 +359,7 @@ void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
 }
 
 size_t Block::ApproximateMemoryUsage() const {
-  size_t usage = size();
+  size_t usage = usable_size();
   if (hash_index_) {
     usage += hash_index_->ApproximateMemoryUsage();
   }

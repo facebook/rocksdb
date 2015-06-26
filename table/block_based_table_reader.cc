@@ -147,6 +147,8 @@ class BlockBasedTable::IndexReader {
 
   // The size of the index.
   virtual size_t size() const = 0;
+  // Memory usage of the index block
+  virtual size_t usable_size() const = 0;
 
   // Report an approximation of how much memory has been used other than memory
   // that was allocated in block cache.
@@ -187,6 +189,9 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
   virtual size_t size() const override { return index_block_->size(); }
+  virtual size_t usable_size() const override {
+    return index_block_->usable_size();
+  }
 
   virtual size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
@@ -295,6 +300,9 @@ class HashIndexReader : public IndexReader {
   }
 
   virtual size_t size() const override { return index_block_->size(); }
+  virtual size_t usable_size() const override {
+    return index_block_->usable_size();
+  }
 
   virtual size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
@@ -702,9 +710,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
     assert(block->value->compression_type() == kNoCompression);
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {
-      block->cache_handle =
-          block_cache->Insert(block_cache_key, block->value,
-                              block->value->size(), &DeleteCachedEntry<Block>);
+      block->cache_handle = block_cache->Insert(block_cache_key, block->value,
+                                                block->value->usable_size(),
+                                                &DeleteCachedEntry<Block>);
       assert(reinterpret_cast<Block*>(
                  block_cache->Value(block->cache_handle)) == block->value);
     }
@@ -747,7 +755,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr && raw_block != nullptr &&
       raw_block->cachable()) {
     auto cache_handle = block_cache_compressed->Insert(
-        compressed_block_cache_key, raw_block, raw_block->size(),
+        compressed_block_cache_key, raw_block, raw_block->usable_size(),
         &DeleteCachedEntry<Block>);
     block_cache_compressed->Release(cache_handle);
     RecordTick(statistics, BLOCK_CACHE_COMPRESSED_MISS);
@@ -759,9 +767,9 @@ Status BlockBasedTable::PutDataBlockToCache(
   // insert into uncompressed block cache
   assert((block->value->compression_type() == kNoCompression));
   if (block_cache != nullptr && block->value->cachable()) {
-    block->cache_handle =
-        block_cache->Insert(block_cache_key, block->value, block->value->size(),
-                            &DeleteCachedEntry<Block>);
+    block->cache_handle = block_cache->Insert(block_cache_key, block->value,
+                                              block->value->usable_size(),
+                                              &DeleteCachedEntry<Block>);
     RecordTick(statistics, BLOCK_CACHE_ADD);
     assert(reinterpret_cast<Block*>(block_cache->Value(block->cache_handle)) ==
            block->value);
@@ -913,8 +921,9 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
       }
     }
 
-    cache_handle = block_cache->Insert(key, index_reader, index_reader->size(),
-                                       &DeleteCachedEntry<IndexReader>);
+    cache_handle =
+        block_cache->Insert(key, index_reader, index_reader->usable_size(),
+                            &DeleteCachedEntry<IndexReader>);
     RecordTick(statistics, BLOCK_CACHE_ADD);
   }
 
