@@ -3,7 +3,7 @@
 if test -z $ROCKSDB_PATH; then
   ROCKSDB_PATH=~/rocksdb
 fi
-source $ROCKSDB_PATH/build_tools/fbcode_config.sh
+source $ROCKSDB_PATH/build_tools/fbcode_config4.8.1.sh
 
 EXTRA_LDFLAGS=""
 
@@ -16,11 +16,12 @@ elif [[ $ALLOC == "jemalloc" ]]; then
 fi
 
 # we need to force mongo to use static library, not shared
-TEMP_COMPILE_DIR=`mktemp -d /tmp/tmp.mongo_compile.XXX`
-ln -s $SNAPPY_LIBS $TEMP_COMPILE_DIR
-ln -s $LZ4_LIBS $TEMP_COMPILE_DIR
+STATIC_LIB_DEP_DIR='build/static_library_dependencies'
+test -d $STATIC_LIB_DEP_DIR || mkdir $STATIC_LIB_DEP_DIR
+test -h $STATIC_LIB_DEP_DIR/`basename $SNAPPY_LIBS` || ln -s $SNAPPY_LIBS $STATIC_LIB_DEP_DIR
+test -h $STATIC_LIB_DEP_DIR/`basename $LZ4_LIBS` || ln -s $LZ4_LIBS $STATIC_LIB_DEP_DIR
 
-EXTRA_LDFLAGS+=" -L $TEMP_COMPILE_DIR"
+EXTRA_LDFLAGS+=" -L $STATIC_LIB_DEP_DIR"
 
 set -x
 
@@ -37,7 +38,7 @@ fi
 
 scons \
   LINKFLAGS="$EXTRA_LDFLAGS $EXEC_LDFLAGS $PLATFORM_LDFLAGS" \
-  CCFLAGS="$CXXFLAGS -L $TEMP_COMPILE_DIR" \
+  CCFLAGS="$CXXFLAGS -L $STATIC_LIB_DEP_DIR" \
   LIBS="lz4 gcc stdc++" \
   LIBPATH="$ROCKSDB_PATH" \
   CPPPATH="$ROCKSDB_PATH/include" \
@@ -45,9 +46,7 @@ scons \
   --allocator=$ALLOC \
   --nostrip \
   --opt=on \
+  --disable-minimum-compiler-version-enforcement \
   --use-system-snappy \
   --disable-warnings-as-errors \
   $EXTRA_CMD $*
-
-set +x
-rm -rf $TEMP_COMPILE_DIR
