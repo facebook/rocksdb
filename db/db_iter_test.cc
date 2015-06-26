@@ -1668,6 +1668,81 @@ TEST_F(DBIteratorTest, DBIterator8) {
   ASSERT_EQ(db_iter->value().ToString(), "0");
 }
 
+TEST_F(DBIteratorTest, DBIterator9) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  {
+    TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+    internal_iter->AddMerge("a", "merge_1");
+    internal_iter->AddMerge("a", "merge_2");
+    internal_iter->AddMerge("b", "merge_3");
+    internal_iter->AddMerge("b", "merge_4");
+    internal_iter->AddMerge("d", "merge_5");
+    internal_iter->AddMerge("d", "merge_6");
+    internal_iter->Finish();
+
+    std::unique_ptr<Iterator> db_iter(NewDBIterator(
+        env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+        10, options.max_sequential_skip_in_iterations));
+
+    db_iter->SeekToLast();
+    ASSERT_TRUE(db_iter->Valid());
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+    db_iter->Next();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_5,merge_6");
+
+    db_iter->Seek("b");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "a");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_1,merge_2");
+
+    db_iter->Seek("c");
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "d");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_5,merge_6");
+    db_iter->Prev();
+    ASSERT_TRUE(db_iter->Valid());
+    ASSERT_EQ(db_iter->key().ToString(), "b");
+    ASSERT_EQ(db_iter->value().ToString(), "merge_3,merge_4");
+  }
+}
+
+TEST_F(DBIteratorTest, DBIterator10) {
+  Options options;
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->AddPut("c", "3");
+  internal_iter->AddPut("d", "4");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+      10, options.max_sequential_skip_in_iterations));
+
+  db_iter->Seek("c");
+  ASSERT_TRUE(db_iter->Valid());
+  db_iter->Prev();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "c");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

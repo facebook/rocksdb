@@ -14109,6 +14109,29 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
 }
 
+TEST_F(DBTest, PrevAfterMerge) {
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  DestroyAndReopen(options);
+
+  // write three entries with different keys using Merge()
+  WriteOptions wopts;
+  db_->Merge(wopts, "1", "data1");
+  db_->Merge(wopts, "2", "data2");
+  db_->Merge(wopts, "3", "data3");
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+
+  it->Seek("2");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("2", it->key().ToString());
+
+  it->Prev();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("1", it->key().ToString());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
