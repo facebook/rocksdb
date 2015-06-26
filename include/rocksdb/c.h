@@ -511,7 +511,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_block_cache_comp
     rocksdb_cache_t* block_cache_compressed);
 extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_whole_key_filtering(
     rocksdb_block_based_table_options_t*, unsigned char);
-extern void rocksdb_block_based_options_set_format_version(
+extern ROCKSDB_LIBRARY_API void rocksdb_block_based_options_set_format_version(
     rocksdb_block_based_table_options_t*, int);
 enum {
   rocksdb_block_based_table_index_type_binary_search = 0,
