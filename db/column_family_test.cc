@@ -121,7 +121,7 @@ class ColumnFamilyTest : public testing::Test {
 #ifndef CYGWIN
     return std::stoi(value);
 #else
-    return std::strtol(value.c_str(), 0);
+    return std::strtol(value.c_str(), 0 /* off */, 10 /* base */);
 #endif
   }
 
@@ -215,11 +215,13 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   void CompactAll(int cf) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], nullptr, nullptr));
+    ASSERT_OK(db_->CompactRange(CompactRangeOptions(), handles_[cf], nullptr,
+                                nullptr));
   }
 
   void Compact(int cf, const Slice& start, const Slice& limit) {
-    ASSERT_OK(db_->CompactRange(handles_[cf], &start, &limit));
+    ASSERT_OK(
+        db_->CompactRange(CompactRangeOptions(), handles_[cf], &start, &limit));
   }
 
   int NumTableFilesAtLevel(int level, int cf) {

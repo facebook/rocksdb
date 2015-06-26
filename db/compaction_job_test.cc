@@ -90,7 +90,7 @@ class CompactionJobTest : public testing::Test {
 
       VersionEdit edit;
       edit.AddFile(0, file_number, 0, 10, smallest, largest, smallest_seqno,
-                   largest_seqno);
+                   largest_seqno, false);
 
       mutex_.Lock();
       versions_->LogAndApply(versions_->GetColumnFamilySet()->GetDefault(),
@@ -138,6 +138,45 @@ class CompactionJobTest : public testing::Test {
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
 };
 
+namespace {
+void VerifyInitializationOfCompactionJobStats(
+      const CompactionJobStats& compaction_job_stats) {
+#if !defined(IOS_CROSS_COMPILE)
+  ASSERT_EQ(compaction_job_stats.elapsed_micros, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_input_records, 0U);
+  ASSERT_EQ(compaction_job_stats.num_input_files, 0U);
+  ASSERT_EQ(compaction_job_stats.num_input_files_at_output_level, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
+  ASSERT_EQ(compaction_job_stats.num_output_files, 0U);
+
+  ASSERT_EQ(compaction_job_stats.is_manual_compaction, 0U);
+
+  ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
+  ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
+
+  ASSERT_EQ(compaction_job_stats.total_input_raw_key_bytes, 0U);
+  ASSERT_EQ(compaction_job_stats.total_input_raw_value_bytes, 0U);
+
+  ASSERT_EQ(compaction_job_stats.smallest_output_key_prefix[0], 0);
+  ASSERT_EQ(compaction_job_stats.largest_output_key_prefix[0], 0);
+
+  ASSERT_EQ(compaction_job_stats.num_records_replaced, 0U);
+#endif  // !defined(IOS_CROSS_COMPILE)
+}
+
+void VerifyCompactionJobStats(
+    const CompactionJobStats& compaction_job_stats,
+    const std::vector<FileMetaData*>& files,
+    size_t num_output_files,
+    uint64_t min_elapsed_time) {
+  ASSERT_GE(compaction_job_stats.elapsed_micros, min_elapsed_time);
+  ASSERT_EQ(compaction_job_stats.num_input_files, files.size());
+  ASSERT_EQ(compaction_job_stats.num_output_files, num_output_files);
+}
+}  // namespace
+
 TEST_F(CompactionJobTest, Simple) {
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
@@ -163,10 +202,16 @@ TEST_F(CompactionJobTest, Simple) {
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
   mutex_.Lock();
   EventLogger event_logger(db_options_.info_log.get());
+  std::string db_name = "dbname";
+  CompactionJobStats compaction_job_stats;
   CompactionJob compaction_job(0, compaction.get(), db_options_, env_options_,
                                versions_.get(), &shutting_down_, &log_buffer,
                                nullptr, nullptr, nullptr, {}, table_cache_,
-                               std::move(yield_callback), &event_logger, false);
+                               std::move(yield_callback), &event_logger, false,
+                               db_name, &compaction_job_stats);
+
+  auto start_micros = Env::Default()->NowMicros();
+  VerifyInitializationOfCompactionJobStats(compaction_job_stats);
 
   compaction_job.Prepare();
   mutex_.Unlock();
@@ -176,6 +221,10 @@ TEST_F(CompactionJobTest, Simple) {
   compaction_job.Install(&s, *cfd->GetLatestMutableCFOptions(), &mutex_);
   ASSERT_OK(s);
   mutex_.Unlock();
+
+  VerifyCompactionJobStats(
+      compaction_job_stats,
+      files, 1, (Env::Default()->NowMicros() - start_micros) / 2);
 
   mock_table_factory_->AssertLatestFile(expected_results);
   ASSERT_EQ(yield_callback_called, 20000);

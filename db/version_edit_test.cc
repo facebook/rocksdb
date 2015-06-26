@@ -34,7 +34,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
     edit.AddFile(3, kBig + 300 + i, kBig32Bit + 400 + i, 0,
                  InternalKey("foo", kBig + 500 + i, kTypeValue),
                  InternalKey("zoo", kBig + 600 + i, kTypeDeletion),
-                 kBig + 500 + i, kBig + 600 + i);
+                 kBig + 500 + i, kBig + 600 + i, false);
     edit.DeleteFile(4, kBig + 700 + i);
   }
 
@@ -47,10 +47,7 @@ TEST_F(VersionEditTest, EncodeDecode) {
 
 TEST_F(VersionEditTest, EncodeEmptyFile) {
   VersionEdit edit;
-  edit.AddFile(0, 0, 0, 0,
-               InternalKey(),
-               InternalKey(),
-               0, 0);
+  edit.AddFile(0, 0, 0, 0, InternalKey(), InternalKey(), 0, 0, false);
   std::string buffer;
   ASSERT_TRUE(!edit.EncodeTo(&buffer));
 }

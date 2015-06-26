@@ -254,8 +254,9 @@ class Repairer {
     Slice record;
     WriteBatch batch;
     WriteBuffer wb(options_.db_write_buffer_size);
-    MemTable* mem = new MemTable(icmp_, ioptions_,
-                                 MutableCFOptions(options_, ioptions_), &wb);
+    MemTable* mem =
+        new MemTable(icmp_, ioptions_, MutableCFOptions(options_, ioptions_),
+                     &wb, kMaxSequenceNumber);
     auto cf_mems_default = new ColumnFamilyMemTablesDefault(mem);
     mem->Ref();
     int counter = 0;
@@ -400,7 +401,8 @@ class Repairer {
       const TableInfo& t = tables_[i];
       edit_->AddFile(0, t.meta.fd.GetNumber(), t.meta.fd.GetPathId(),
                      t.meta.fd.GetFileSize(), t.meta.smallest, t.meta.largest,
-                     t.min_sequence, t.max_sequence);
+                     t.min_sequence, t.max_sequence,
+                     t.meta.marked_for_compaction);
     }
 
     //fprintf(stderr, "NewDescriptor:\n%s\n", edit_.DebugString().c_str());

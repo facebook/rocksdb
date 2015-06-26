@@ -98,6 +98,8 @@ Status DBImpl::GetLiveFiles(std::vector<std::string>& ret,
       cfd->Ref();
       mutex_.Unlock();
       status = FlushMemTable(cfd, FlushOptions());
+      TEST_SYNC_POINT("DBImpl::GetLiveFiles:1");
+      TEST_SYNC_POINT("DBImpl::GetLiveFiles:2");
       mutex_.Lock();
       cfd->Unref();
       if (!status.ok()) {

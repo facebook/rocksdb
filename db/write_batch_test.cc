@@ -31,8 +31,9 @@ static std::string PrintContents(WriteBatch* b) {
   options.memtable_factory = factory;
   ImmutableCFOptions ioptions(options);
   WriteBuffer wb(options.db_write_buffer_size);
-  MemTable* mem = new MemTable(cmp, ioptions,
-                               MutableCFOptions(options, ioptions), &wb);
+  MemTable* mem =
+      new MemTable(cmp, ioptions, MutableCFOptions(options, ioptions), &wb,
+                   kMaxSequenceNumber);
   mem->Ref();
   std::string state;
   ColumnFamilyMemTablesDefault cf_mems_default(mem);

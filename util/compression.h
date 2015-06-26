@@ -62,6 +62,46 @@ inline bool LZ4_Supported() {
   return false;
 }
 
+inline bool CompressionTypeSupported(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return true;
+    case kSnappyCompression:
+      return Snappy_Supported();
+    case kZlibCompression:
+      return Zlib_Supported();
+    case kBZip2Compression:
+      return BZip2_Supported();
+    case kLZ4Compression:
+      return LZ4_Supported();
+    case kLZ4HCCompression:
+      return LZ4_Supported();
+    default:
+      assert(false);
+      return false;
+  }
+}
+
+inline std::string CompressionTypeToString(CompressionType compression_type) {
+  switch (compression_type) {
+    case kNoCompression:
+      return "NoCompression";
+    case kSnappyCompression:
+      return "Snappy";
+    case kZlibCompression:
+      return "Zlib";
+    case kBZip2Compression:
+      return "BZip2";
+    case kLZ4Compression:
+      return "LZ4";
+    case kLZ4HCCompression:
+      return "LZ4HC";
+    default:
+      assert(false);
+      return "";
+  }
+}
+
 // compress_format_version can have two values:
 // 1 -- decompressed sizes for BZip2 and Zlib are not included in the compressed
 // block. Also, decompressed sizes for LZ4 are encoded in platform-dependent

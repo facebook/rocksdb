@@ -25,45 +25,17 @@
 #include "db/version_set.h"
 #include "db/writebuffer.h"
 #include "db/internal_stats.h"
-#include "db/job_context.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
 #include "util/autovector.h"
+#include "util/compression.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/options_helper.h"
+#include "util/thread_status_util.h"
+#include "util/xfunc.h"
 
 namespace rocksdb {
-
-namespace {
-// This function computes the amount of time in microseconds by which a write
-// should be delayed based on the number of level-0 files according to the
-// following formula:
-// if n < bottom, return 0;
-// if n >= top, return 1000;
-// otherwise, let r = (n - bottom) /
-//                    (top - bottom)
-//  and return r^2 * 1000.
-// The goal of this formula is to gradually increase the rate at which writes
-// are slowed. We also tried linear delay (r * 1000), but it seemed to do
-// slightly worse. There is no other particular reason for choosing quadratic.
-uint64_t SlowdownAmount(int n, double bottom, double top) {
-  uint64_t delay;
-  if (n >= top) {
-    delay = 1000;
-  } else if (n < bottom) {
-    delay = 0;
-  } else {
-    // If we are here, we know that:
-    //   level0_start_slowdown <= n < level0_slowdown
-    // since the previous two conditions are false.
-    double how_much = static_cast<double>(n - bottom) / (top - bottom);
-    delay = std::max(how_much * how_much * 1000, 100.0);
-  }
-  assert(delay <= 1000);
-  return delay;
-}
-}  // namespace
 
 ColumnFamilyHandleImpl::ColumnFamilyHandleImpl(
     ColumnFamilyData* column_family_data, DBImpl* db, InstrumentedMutex* mutex)
@@ -116,6 +88,28 @@ void GetIntTblPropCollectorFactory(
       new InternalKeyPropertiesCollectorFactory);
 }
 
+Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options) {
+  if (!cf_options.compression_per_level.empty()) {
+    for (size_t level = 0; level < cf_options.compression_per_level.size();
+         ++level) {
+      if (!CompressionTypeSupported(cf_options.compression_per_level[level])) {
+        return Status::InvalidArgument(
+            "Compression type " +
+            CompressionTypeToString(cf_options.compression_per_level[level]) +
+            " is not linked with the binary.");
+      }
+    }
+  } else {
+    if (!CompressionTypeSupported(cf_options.compression)) {
+      return Status::InvalidArgument(
+          "Compression type " +
+          CompressionTypeToString(cf_options.compression) +
+          " is not linked with the binary.");
+    }
+  }
+  return Status::OK();
+}
+
 ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                     const InternalKeyComparator* icmp,
                                     const ColumnFamilyOptions& src) {
@@ -146,12 +140,21 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   if (result.max_mem_compaction_level >= result.num_levels) {
     result.max_mem_compaction_level = result.num_levels - 1;
   }
-  if (result.soft_rate_limit > result.hard_rate_limit) {
-    result.soft_rate_limit = result.hard_rate_limit;
-  }
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }
+  if (result.max_write_buffer_number_to_maintain < 0) {
+    result.max_write_buffer_number_to_maintain = result.max_write_buffer_number;
+  }
+  XFUNC_TEST("memtablelist_history", "transaction_xftest_SanitizeOptions",
+             xf_transaction_set_memtable_history1,
+             xf_transaction_set_memtable_history,
+             &result.max_write_buffer_number_to_maintain);
+  XFUNC_TEST("memtablelist_history_clear", "transaction_xftest_SanitizeOptions",
+             xf_transaction_clear_memtable_history1,
+             xf_transaction_clear_memtable_history,
+             &result.max_write_buffer_number_to_maintain);
+
   if (!result.prefix_extractor) {
     assert(result.memtable_factory);
     Slice name = result.memtable_factory->Name();
@@ -159,24 +162,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
         name.compare("HashLinkListRepFactory") == 0) {
       result.memtable_factory = std::make_shared<SkipListFactory>();
     }
-  }
-
-  if (!src.compression_per_level.empty()) {
-    for (size_t level = 0; level < src.compression_per_level.size(); ++level) {
-      if (!CompressionTypeSupported(src.compression_per_level[level])) {
-        Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
-            "Compression type chosen for level %" ROCKSDB_PRIszt " is not supported: %s. "
-            "RocksDB "
-            "will not compress data on level %" ROCKSDB_PRIszt,
-            level, CompressionTypeToString(src.compression_per_level[level]),
-            level);
-      }
-    }
-  } else if (!CompressionTypeSupported(src.compression)) {
-    Log(InfoLogLevel::WARN_LEVEL, db_options.info_log,
-        "Compression type chosen is not supported: %s. RocksDB will not "
-        "compress data.",
-        CompressionTypeToString(src.compression));
   }
 
   if (result.compaction_style == kCompactionStyleFIFO) {
@@ -309,7 +294,8 @@ ColumnFamilyData::ColumnFamilyData(
       mutable_cf_options_(options_, ioptions_),
       write_buffer_(write_buffer),
       mem_(nullptr),
-      imm_(options_.min_write_buffer_number_to_merge),
+      imm_(options_.min_write_buffer_number_to_merge,
+           options_.max_write_buffer_number_to_maintain),
       super_version_(nullptr),
       super_version_number_(0),
       local_sv_(new ThreadLocalPtr(&SuperVersionUnrefHandle)),
@@ -359,7 +345,7 @@ ColumnFamilyData::ColumnFamilyData(
     if (column_family_set_->NumberOfColumnFamilies() < 10) {
       Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
           "--------------- Options for column family [%s]:\n", name.c_str());
-      options_.Dump(ioptions_.info_log);
+      options_.DumpCFOptions(ioptions_.info_log);
     } else {
       Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
           "\t(skipping printing options)\n");
@@ -442,16 +428,15 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     auto* vstorage = current_->storage_info();
     const double score = vstorage->max_compaction_score();
     const int max_level = vstorage->max_compaction_score_level();
-
     auto write_controller = column_family_set_->write_controller_;
 
-    if (imm()->size() >= mutable_cf_options.max_write_buffer_number) {
+    if (imm()->NumNotFlushed() >= mutable_cf_options.max_write_buffer_number) {
       write_controller_token_ = write_controller->GetStopToken();
       internal_stats_->AddCFStats(InternalStats::MEMTABLE_COMPACTION, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d immutable memtables "
           "(waiting for flush), max_write_buffer_number is set to %d",
-          name_.c_str(), imm()->size(),
+          name_.c_str(), imm()->NumNotFlushed(),
           mutable_cf_options.max_write_buffer_number);
     } else if (vstorage->l0_delay_trigger_count() >=
                mutable_cf_options.level0_stop_writes_trigger) {
@@ -463,37 +448,18 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
-      uint64_t slowdown =
-          SlowdownAmount(vstorage->l0_delay_trigger_count(),
-                         mutable_cf_options.level0_slowdown_writes_trigger,
-                         mutable_cf_options.level0_stop_writes_trigger);
-      write_controller_token_ = write_controller->GetDelayToken(slowdown);
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, slowdown);
+      write_controller_token_ = write_controller->GetDelayToken();
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, 1);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we have %d level-0 files (%" PRIu64
-          "us)",
-          name_.c_str(), vstorage->l0_delay_trigger_count(), slowdown);
-    } else if (mutable_cf_options.hard_rate_limit > 1.0 &&
-               score > mutable_cf_options.hard_rate_limit) {
-      uint64_t kHardLimitSlowdown = 1000;
-      write_controller_token_ =
-          write_controller->GetDelayToken(kHardLimitSlowdown);
-      internal_stats_->RecordLevelNSlowdown(max_level, false);
-      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we hit hard limit on level %d. "
-          "(%" PRIu64 "us)",
-          name_.c_str(), max_level, kHardLimitSlowdown);
+          "[%s] Stalling writes because we have %d level-0 files",
+          name_.c_str(), vstorage->l0_delay_trigger_count());
     } else if (mutable_cf_options.soft_rate_limit > 0.0 &&
                score > mutable_cf_options.soft_rate_limit) {
-      uint64_t slowdown = SlowdownAmount(score,
-          mutable_cf_options.soft_rate_limit,
-          mutable_cf_options.hard_rate_limit);
-      write_controller_token_ = write_controller->GetDelayToken(slowdown);
+      write_controller_token_ = write_controller->GetDelayToken();
       internal_stats_->RecordLevelNSlowdown(max_level, true);
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
-          "[%s] Stalling writes because we hit soft limit on level %d (%" PRIu64
-          "us)",
-          name_.c_str(), max_level, slowdown);
+          "[%s] Stalling writes because we hit soft limit on level %d",
+          name_.c_str(), max_level);
     } else {
       write_controller_token_.reset();
     }
@@ -513,18 +479,18 @@ uint64_t ColumnFamilyData::GetNumLiveVersions() const {
 }
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   assert(current_ != nullptr);
-  return new MemTable(internal_comparator_, ioptions_,
-                      mutable_cf_options, write_buffer_);
+  return new MemTable(internal_comparator_, ioptions_, mutable_cf_options,
+                      write_buffer_, earliest_seq);
 }
 
 void ColumnFamilyData::CreateNewMemtable(
-    const MutableCFOptions& mutable_cf_options) {
+    const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   if (mem_ != nullptr) {
     delete mem_->Unref();
   }
-  SetMemtable(ConstructNewMemtable(mutable_cf_options));
+  SetMemtable(ConstructNewMemtable(mutable_cf_options, earliest_seq));
   mem_->Ref();
 }
 
@@ -632,51 +598,6 @@ bool ColumnFamilyData::ReturnThreadLocalSuperVersion(SuperVersion* sv) {
     assert(expected == SuperVersion::kSVObsolete);
   }
   return false;
-}
-
-void ColumnFamilyData::NotifyOnCompactionCompleted(
-    DB* db, Compaction* c, const Status& status) {
-#ifndef ROCKSDB_LITE
-  auto listeners = ioptions()->listeners;
-  assert(listeners.size() > 0U);
-  CompactionJobInfo info;
-  info.cf_name = c->column_family_data()->GetName();
-  info.status = status;
-  info.output_level = c->output_level();
-  for (size_t i = 0; i < c->num_input_levels(); ++i) {
-    for (const auto fmd : *c->inputs(i)) {
-      info.input_files.push_back(
-          TableFileName(options_.db_paths,
-                        fmd->fd.GetNumber(),
-                        fmd->fd.GetPathId()));
-    }
-  }
-  for (const auto newf : c->edit()->GetNewFiles()) {
-    info.output_files.push_back(
-        TableFileName(options_.db_paths,
-                      newf.second.fd.GetNumber(),
-                      newf.second.fd.GetPathId()));
-  }
-  for (auto listener : listeners) {
-    listener->OnCompactionCompleted(db, info);
-  }
-#endif  // ROCKSDB_LITE
-}
-
-void ColumnFamilyData::NotifyOnFlushCompleted(
-    DB* db, const std::string& file_path,
-    bool triggered_flush_slowdown,
-    bool triggered_flush_stop) {
-
-#ifndef ROCKSDB_LITE
-  auto listeners = ioptions()->listeners;
-  for (auto listener : listeners) {
-    listener->OnFlushCompleted(
-        db, GetName(), file_path,
-        // Use path 0 as fulled memtables are first flushed into path 0.
-        triggered_flush_slowdown, triggered_flush_stop);
-  }
-#endif  // ROCKSDB_LITE
 }
 
 SuperVersion* ColumnFamilyData::InstallSuperVersion(

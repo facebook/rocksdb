@@ -73,7 +73,8 @@ uint64_t DBImpl::TEST_Current_Manifest_FileNo() {
 
 Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
                                  const Slice* end,
-                                 ColumnFamilyHandle* column_family) {
+                                 ColumnFamilyHandle* column_family,
+                                 bool disallow_trivial_move) {
   ColumnFamilyData* cfd;
   if (column_family == nullptr) {
     cfd = default_cf_handle_->cfd();
@@ -86,7 +87,8 @@ Status DBImpl::TEST_CompactRange(int level, const Slice* begin,
        cfd->ioptions()->compaction_style == kCompactionStyleFIFO)
           ? level
           : level + 1;
-  return RunManualCompaction(cfd, level, output_level, 0, begin, end);
+  return RunManualCompaction(cfd, level, output_level, 0, begin, end,
+                             disallow_trivial_move);
 }
 
 Status DBImpl::TEST_FlushMemTable(bool wait) {

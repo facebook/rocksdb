@@ -31,6 +31,11 @@ class GetContext {
   bool SaveValue(const ParsedInternalKey& parsed_key, const Slice& value);
   GetState State() const { return state_; }
 
+  // If a non-null string is passed, all the SaveValue calls will be
+  // logged into the string. The operations can then be replayed on
+  // another GetContext with replayGetContextLog.
+  void SetReplayLog(std::string* replay_log) { replay_log_ = replay_log; }
+
  private:
   const Comparator* ucmp_;
   const MergeOperator* merge_operator_;
@@ -44,6 +49,10 @@ class GetContext {
   bool* value_found_;  // Is value set correctly? Used by KeyMayExist
   MergeContext* merge_context_;
   Env* env_;
+  std::string* replay_log_;
 };
+
+void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+                         GetContext* get_context);
 
 }  // namespace rocksdb

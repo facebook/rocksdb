@@ -54,10 +54,9 @@ class CompactedDBImpl : public DBImpl {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
   using DBImpl::CompactRange;
-  virtual Status CompactRange(ColumnFamilyHandle* column_family,
-                              const Slice* begin, const Slice* end,
-                              bool reduce_level = false, int target_level = -1,
-                              uint32_t target_path_id = 0) override {
+  virtual Status CompactRange(const CompactRangeOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice* begin, const Slice* end) override {
     return Status::NotSupported("Not supported in compacted db mode.");
   }
 

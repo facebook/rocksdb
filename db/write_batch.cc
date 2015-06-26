@@ -275,6 +275,27 @@ void WriteBatch::Merge(ColumnFamilyHandle* column_family, const Slice& key,
   WriteBatchInternal::Merge(this, GetColumnFamilyID(column_family), key, value);
 }
 
+void WriteBatchInternal::Merge(WriteBatch* b, uint32_t column_family_id,
+                               const SliceParts& key,
+                               const SliceParts& value) {
+  WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
+  if (column_family_id == 0) {
+    b->rep_.push_back(static_cast<char>(kTypeMerge));
+  } else {
+    b->rep_.push_back(static_cast<char>(kTypeColumnFamilyMerge));
+    PutVarint32(&b->rep_, column_family_id);
+  }
+  PutLengthPrefixedSliceParts(&b->rep_, key);
+  PutLengthPrefixedSliceParts(&b->rep_, value);
+}
+
+void WriteBatch::Merge(ColumnFamilyHandle* column_family,
+                       const SliceParts& key,
+                       const SliceParts& value) {
+  WriteBatchInternal::Merge(this, GetColumnFamilyID(column_family),
+                            key, value);
+}
+
 void WriteBatch::PutLogData(const Slice& blob) {
   rep_.push_back(static_cast<char>(kTypeLogData));
   PutLengthPrefixedSlice(&rep_, blob);

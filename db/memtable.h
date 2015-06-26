@@ -80,10 +80,17 @@ class MemTable {
 
   // MemTables are reference counted.  The initial reference count
   // is zero and the caller must call Ref() at least once.
+  //
+  // earliest_seq should be the current SequenceNumber in the db such that any
+  // key inserted into this memtable will have an equal or larger seq number.
+  // (When a db is first created, the earliest sequence number will be 0).
+  // If the earliest sequence number is not known, kMaxSequenceNumber may be
+  // used, but this may prevent some transactions from succeeding until the
+  // first key is inserted into the memtable.
   explicit MemTable(const InternalKeyComparator& comparator,
                     const ImmutableCFOptions& ioptions,
                     const MutableCFOptions& mutable_cf_options,
-                    WriteBuffer* write_buffer);
+                    WriteBuffer* write_buffer, SequenceNumber earliest_seq);
 
   // Do not delete this MemTable unless Unref() indicates it not in use.
   ~MemTable();
@@ -153,8 +160,19 @@ class MemTable {
   //   prepend the current merge operand to *operands.
   //   store MergeInProgress in s, and return false.
   // Else, return false.
+  // If any operation was found, its most recent sequence number
+  // will be stored in *seq on success (regardless of whether true/false is
+  // returned).  Otherwise, *seq will be set to kMaxSequenceNumber.
+  // On success, *s may be set to OK, NotFound, or MergeInProgress.  Any other
+  // status returned indicates a corruption or other unexpected error.
   bool Get(const LookupKey& key, std::string* value, Status* s,
-           MergeContext* merge_context);
+           MergeContext* merge_context, SequenceNumber* seq);
+
+  bool Get(const LookupKey& key, std::string* value, Status* s,
+           MergeContext* merge_context) {
+    SequenceNumber seq;
+    return Get(key, value, s, merge_context, &seq);
+  }
 
   // Attempts to update the new_value inplace, else does normal Add
   // Pseudocode
@@ -194,7 +212,9 @@ class MemTable {
   // Get total number of entries in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
-  uint64_t num_entries() const { return num_entries_; }
+  uint64_t num_entries() const {
+    return num_entries_.load(std::memory_order_relaxed);
+  }
 
   // Get total number of deletes in the mem table.
   // REQUIRES: external synchronization to prevent simultaneous
@@ -214,6 +234,15 @@ class MemTable {
   // REQUIRES: external synchronization to prevent simultaneous
   // operations on the same MemTable (unless this Memtable is immutable).
   SequenceNumber GetFirstSequenceNumber() { return first_seqno_; }
+
+  // Returns the sequence number that is guaranteed to be smaller than or equal
+  // to the sequence number of any key that could be inserted into this
+  // memtable. It can then be assumed that any write with a larger(or equal)
+  // sequence number will be present in this memtable or a later memtable.
+  //
+  // If the earliest sequence number could not be determined,
+  // kMaxSequenceNumber will be returned.
+  SequenceNumber GetEarliestSequenceNumber() { return earliest_seqno_; }
 
   // Returns the next active logfile number when this memtable is about to
   // be flushed to storage
@@ -248,6 +277,8 @@ class MemTable {
     return table_->IsSnapshotSupported() && !moptions_.inplace_update_support;
   }
 
+  uint64_t ApproximateSize(const Slice& start_ikey, const Slice& end_ikey);
+
   // Get the lock associated for the key
   port::RWMutex* GetLock(const Slice& key);
 
@@ -273,7 +304,9 @@ class MemTable {
   MemTableAllocator allocator_;
   unique_ptr<MemTableRep> table_;
 
-  uint64_t num_entries_;
+  // Total data size of all data inserted
+  std::atomic<uint64_t> data_size_;
+  std::atomic<uint64_t> num_entries_;
   uint64_t num_deletes_;
 
   // These are used to manage memtable flushes to storage
@@ -287,6 +320,10 @@ class MemTable {
 
   // The sequence number of the kv that was inserted first
   SequenceNumber first_seqno_;
+
+  // The db sequence number at the time of creation or kMaxSequenceNumber
+  // if not set.
+  SequenceNumber earliest_seqno_;
 
   // The log files earlier than this number can be deleted.
   uint64_t mem_next_logfile_number_;

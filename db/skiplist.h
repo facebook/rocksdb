@@ -59,6 +59,9 @@ class SkipList {
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const Key& key) const;
 
+  // Return estimated number of entries smaller than `key`.
+  uint64_t EstimateCount(const Key& key) const;
+
   // Iteration over the contents of a skip list
   class Iterator {
    public:
@@ -354,10 +357,34 @@ typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::FindLast()
   }
 }
 
-template<typename Key, class Comparator>
+template <typename Key, class Comparator>
+uint64_t SkipList<Key, Comparator>::EstimateCount(const Key& key) const {
+  uint64_t count = 0;
+
+  Node* x = head_;
+  int level = GetMaxHeight() - 1;
+  while (true) {
+    assert(x == head_ || compare_(x->key, key) < 0);
+    Node* next = x->Next(level);
+    if (next == nullptr || compare_(next->key, key) >= 0) {
+      if (level == 0) {
+        return count;
+      } else {
+        // Switch to next list
+        count *= kBranching_;
+        level--;
+      }
+    } else {
+      x = next;
+      count++;
+    }
+  }
+}
+
+template <typename Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(const Comparator cmp, Allocator* allocator,
-                                   int32_t max_height,
-                                   int32_t branching_factor)
+                                    int32_t max_height,
+                                    int32_t branching_factor)
     : kMaxHeight_(max_height),
       kBranching_(branching_factor),
       compare_(cmp),

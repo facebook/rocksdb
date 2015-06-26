@@ -294,7 +294,7 @@ void testCounters(Counters& counters, DB* db, bool test_compaction) {
     db->Flush(o);
 
     cout << "Compaction started ...\n";
-    db->CompactRange(nullptr, nullptr);
+    db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     cout << "Compaction ended\n";
 
     dumpDb(db);
@@ -341,7 +341,7 @@ void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
     tmp_sum += i;
   }
   db->Flush(o);
-  db->CompactRange(nullptr, nullptr);
+  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(tmp_sum, counters->assert_get("b"));
   if (count > max_merge) {
     // in this case, FullMerge should be called instead.
@@ -360,7 +360,7 @@ void testPartialMerge(Counters* counters, DB* db, size_t max_merge,
     tmp_sum += i;
   }
   db->Flush(o);
-  db->CompactRange(nullptr, nullptr);
+  db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(tmp_sum, counters->assert_get("c"));
   ASSERT_EQ(num_partial_merge_calls, 0U);
 }
@@ -467,7 +467,7 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
       counters.add("test-key", 1);
       counters.add("test-key", 1);
       counters.add("test-key", 1);
-      db->CompactRange(nullptr, nullptr);
+      db->CompactRange(CompactRangeOptions(), nullptr, nullptr);
     }
 
     DB* reopen_db;

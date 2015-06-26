@@ -52,6 +52,15 @@ public:
     }
   }
 
+  uint64_t ApproximateNumEntries(const Slice& start_ikey,
+                                 const Slice& end_ikey) override {
+    std::string tmp;
+    uint64_t start_count =
+        skip_list_.EstimateCount(EncodeKey(&tmp, start_ikey));
+    uint64_t end_count = skip_list_.EstimateCount(EncodeKey(&tmp, end_ikey));
+    return (end_count >= start_count) ? (end_count - start_count) : 0;
+  }
+
   virtual ~SkipListRep() override { }
 
   // Iteration over the contents of a skip list

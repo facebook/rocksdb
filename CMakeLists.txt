@@ -85,7 +85,7 @@ set(SOURCES
         db/db_impl_experimental.cc
         db/db_impl_readonly.cc
         db/db_iter.cc
-        db/event_logger_helpers.cc
+        db/event_helpers.cc
         db/experimental.cc
         db/filename.cc
         db/file_indexer.cc
@@ -152,6 +152,7 @@ set(SOURCES
         util/build_version.cc
         util/cache.cc
         util/coding.cc
+        util/compaction_job_stats_impl.cc
         util/comparator.cc
         util/crc32c.cc
         util/db_info_dumper.cc
@@ -180,6 +181,7 @@ set(SOURCES
         util/options_builder.cc
         util/options_helper.cc
         util/perf_context.cc
+        util/perf_level.cc
         util/rate_limiter.cc
         util/skiplistrep.cc
         util/slice.cc
@@ -215,6 +217,8 @@ set(SOURCES
         utilities/merge_operators/uint64add.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
+        utilities/transactions/optimistic_transaction_db_impl.cc
+        utilities/transactions/optimistic_transaction_impl.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
@@ -244,6 +248,8 @@ set(APPS
         tools/db_stress.cc
         tools/db_repl_stress.cc
         tools/sst_dump.cc
+        tools/dump/rocksdb_dump.cc
+        tools/dump/rocksdb_undump.cc
         util/cache_bench.cc
 )
 
@@ -252,6 +258,7 @@ set(TESTS
         db/column_family_test.cc
         db/compact_files_test.cc
         db/compaction_job_test.cc
+        db/compaction_job_stats_test.cc
         db/compaction_picker_test.cc
         db/comparator_db_test.cc
         db/corruption_test.cc
@@ -278,6 +285,7 @@ set(TESTS
         db/version_set_test.cc
         db/wal_manager_test.cc
         db/write_batch_test.cc
+        db/write_callback_test.cc
         db/write_controller_test.cc
         table/block_based_filter_block_test.cc
         table/block_hash_index_test.cc
@@ -311,12 +319,14 @@ set(TESTS
         util/thread_list_test.cc
         util/thread_local_test.cc
         utilities/backupable/backupable_db_test.cc
+        utilities/checkpoint/checkpoint_test.cc
         utilities/document/document_db_test.cc
         utilities/document/json_document_test.cc
         utilities/geodb/geodb_test.cc
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
+        utilities/transactions/optimistic_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
 )

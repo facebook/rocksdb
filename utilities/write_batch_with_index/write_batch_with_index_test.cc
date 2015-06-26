@@ -7,11 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
 
 #include <memory>
 #include <map>
 #include "db/column_family.h"
+#include "port/stack_trace.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "util/string_util.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"
 #include "utilities/merge_operators/string_append/stringappend.h"
@@ -102,7 +105,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       std::unique_ptr<WBWIIterator> iter(batch->NewIterator(&data));
       iter->Seek(e.key);
       ASSERT_OK(iter->status());
-      auto& write_entry = iter->Entry();
+      auto write_entry = iter->Entry();
       ASSERT_EQ(e.key, write_entry.key.ToString());
       ASSERT_EQ(e.value, write_entry.value.ToString());
       batch->Delete(&data, e.key);
@@ -123,7 +126,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
         for (auto v : pair.second) {
           ASSERT_OK(iter->status());
           ASSERT_TRUE(iter->Valid());
-          auto& write_entry = iter->Entry();
+          auto write_entry = iter->Entry();
           ASSERT_EQ(pair.first, write_entry.key.ToString());
           ASSERT_EQ(v->type, write_entry.type);
           if (write_entry.type != kDeleteRecord) {
@@ -139,7 +142,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       for (auto v = pair->second.rbegin(); v != pair->second.rend(); v++) {
         ASSERT_OK(iter->status());
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         ASSERT_EQ((*v)->type, write_entry.type);
         if (write_entry.type != kDeleteRecord) {
@@ -164,7 +167,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
         for (auto v : pair.second) {
           ASSERT_OK(iter->status());
           ASSERT_TRUE(iter->Valid());
-          auto& write_entry = iter->Entry();
+          auto write_entry = iter->Entry();
           ASSERT_EQ(pair.first, write_entry.key.ToString());
           if (v->type != kDeleteRecord) {
             ASSERT_EQ(v->key, write_entry.value.ToString());
@@ -181,7 +184,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       for (auto v = pair->second.rbegin(); v != pair->second.rend(); v++) {
         ASSERT_OK(iter->status());
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         if ((*v)->type != kDeleteRecord) {
           ASSERT_EQ((*v)->key, write_entry.value.ToString());
@@ -203,7 +206,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       ASSERT_OK(iter->status());
       for (auto v : pair->second) {
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         ASSERT_EQ(v->type, write_entry.type);
         if (write_entry.type != kDeleteRecord) {
@@ -225,7 +228,7 @@ void TestValueAsSecondaryIndexHelper(std::vector<Entry> entries,
       ASSERT_OK(iter->status());
       for (auto v : pair->second) {
         ASSERT_TRUE(iter->Valid());
-        auto& write_entry = iter->Entry();
+        auto write_entry = iter->Entry();
         ASSERT_EQ(pair->first, write_entry.key.ToString());
         ASSERT_EQ(v->value, write_entry.key.ToString());
         if (v->type != kDeleteRecord) {
@@ -981,11 +984,11 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   std::string expected = "X";
 
   for (int i = 0; i < 5; i++) {
-    batch.Merge("x", std::to_string(i));
-    expected = expected + "," + std::to_string(i);
+    batch.Merge("x", ToString(i));
+    expected = expected + "," + ToString(i);
 
     if (i % 2 == 0) {
-      batch.Put("y", std::to_string(i / 2));
+      batch.Put("y", ToString(i / 2));
     }
 
     batch.Merge("z", "z");
@@ -996,7 +999,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
 
     s = batch.GetFromBatch(column_family, options, "y", &value);
     ASSERT_OK(s);
-    ASSERT_EQ(std::to_string(i / 2), value);
+    ASSERT_EQ(ToString(i / 2), value);
 
     s = batch.GetFromBatch(column_family, options, "z", &value);
     ASSERT_TRUE(s.IsMergeInProgress());
@@ -1182,9 +1185,199 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
   DestroyDB(dbname, options);
 }
 
+void AssertKey(std::string key, WBWIIterator* iter) {
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key, iter->Entry().key.ToString());
+}
+
+void AssertValue(std::string value, WBWIIterator* iter) {
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value, iter->Entry().value.ToString());
+}
+
+// Tests that we can write to the WBWI while we iterate (from a single thread).
+// iteration should see the newest writes
+TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingCorrectnessTest) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+  for (char c = 'a'; c <= 'z'; ++c) {
+    batch.Put(std::string(1, c), std::string(1, c));
+  }
+
+  std::unique_ptr<WBWIIterator> iter(batch.NewIterator());
+  iter->Seek("k");
+  AssertKey("k", iter.get());
+  iter->Next();
+  AssertKey("l", iter.get());
+  batch.Put("ab", "cc");
+  iter->Next();
+  AssertKey("m", iter.get());
+  batch.Put("mm", "kk");
+  iter->Next();
+  AssertKey("mm", iter.get());
+  AssertValue("kk", iter.get());
+  batch.Delete("mm");
+
+  iter->Next();
+  AssertKey("n", iter.get());
+  iter->Prev();
+  AssertKey("mm", iter.get());
+  ASSERT_EQ(kDeleteRecord, iter->Entry().type);
+
+  iter->Seek("ab");
+  AssertKey("ab", iter.get());
+  batch.Delete("x");
+  iter->Seek("x");
+  AssertKey("x", iter.get());
+  ASSERT_EQ(kDeleteRecord, iter->Entry().type);
+  iter->Prev();
+  AssertKey("w", iter.get());
+}
+
+void AssertIterKey(std::string key, Iterator* iter) {
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(key, iter->key().ToString());
+}
+
+void AssertIterValue(std::string value, Iterator* iter) {
+  ASSERT_TRUE(iter->Valid());
+  ASSERT_EQ(value, iter->value().ToString());
+}
+
+// same thing as above, but testing IteratorWithBase
+TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseCorrectnessTest) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+  for (char c = 'a'; c <= 'z'; ++c) {
+    batch.Put(std::string(1, c), std::string(1, c));
+  }
+
+  KVMap map;
+  map["aa"] = "aa";
+  map["cc"] = "cc";
+  map["ee"] = "ee";
+  map["em"] = "me";
+
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(new KVIter(&map)));
+  iter->Seek("k");
+  AssertIterKey("k", iter.get());
+  iter->Next();
+  AssertIterKey("l", iter.get());
+  batch.Put("ab", "cc");
+  iter->Next();
+  AssertIterKey("m", iter.get());
+  batch.Put("mm", "kk");
+  iter->Next();
+  AssertIterKey("mm", iter.get());
+  AssertIterValue("kk", iter.get());
+  batch.Delete("mm");
+  iter->Next();
+  AssertIterKey("n", iter.get());
+  iter->Prev();
+  // "mm" is deleted, so we're back at "m"
+  AssertIterKey("m", iter.get());
+
+  iter->Seek("ab");
+  AssertIterKey("ab", iter.get());
+  iter->Prev();
+  AssertIterKey("aa", iter.get());
+  iter->Prev();
+  AssertIterKey("a", iter.get());
+  batch.Delete("aa");
+  iter->Next();
+  AssertIterKey("ab", iter.get());
+  iter->Prev();
+  AssertIterKey("a", iter.get());
+
+  batch.Delete("x");
+  iter->Seek("x");
+  AssertIterKey("y", iter.get());
+  iter->Next();
+  AssertIterKey("z", iter.get());
+  iter->Prev();
+  iter->Prev();
+  AssertIterKey("w", iter.get());
+
+  batch.Delete("e");
+  iter->Seek("e");
+  AssertIterKey("ee", iter.get());
+  AssertIterValue("ee", iter.get());
+  batch.Put("ee", "xx");
+  // still the same value
+  AssertIterValue("ee", iter.get());
+  iter->Next();
+  AssertIterKey("em", iter.get());
+  iter->Prev();
+  // new value
+  AssertIterValue("xx", iter.get());
+}
+
+// stress testing mutations with IteratorWithBase
+TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseStressTest) {
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+  for (char c = 'a'; c <= 'z'; ++c) {
+    batch.Put(std::string(1, c), std::string(1, c));
+  }
+
+  KVMap map;
+  for (char c = 'a'; c <= 'z'; ++c) {
+    map[std::string(2, c)] = std::string(2, c);
+  }
+
+  std::unique_ptr<Iterator> iter(
+      batch.NewIteratorWithBase(new KVIter(&map)));
+
+  Random rnd(301);
+  for (int i = 0; i < 1000000; ++i) {
+    int random = rnd.Uniform(8);
+    char c = static_cast<char>(rnd.Uniform(26) + 'a');
+    switch (random) {
+      case 0:
+        batch.Put(std::string(1, c), "xxx");
+        break;
+      case 1:
+        batch.Put(std::string(2, c), "xxx");
+        break;
+      case 2:
+        batch.Delete(std::string(1, c));
+        break;
+      case 3:
+        batch.Delete(std::string(2, c));
+        break;
+      case 4:
+        iter->Seek(std::string(1, c));
+        break;
+      case 5:
+        iter->Seek(std::string(2, c));
+        break;
+      case 6:
+        if (iter->Valid()) {
+          iter->Next();
+        }
+        break;
+      case 7:
+        if (iter->Valid()) {
+          iter->Prev();
+        }
+        break;
+      default:
+        assert(false);
+    }
+  }
+}
 }  // namespace
 
 int main(int argc, char** argv) {
+  rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main() {
+  fprintf(stderr, "SKIPPED\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

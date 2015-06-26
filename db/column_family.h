@@ -14,15 +14,16 @@
 #include <vector>
 #include <atomic>
 
-#include "rocksdb/options.h"
-#include "rocksdb/db.h"
-#include "rocksdb/env.h"
 #include "db/memtable_list.h"
 #include "db/write_batch_internal.h"
 #include "db/write_controller.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
 #include "db/flush_scheduler.h"
+#include "rocksdb/compaction_job_stats.h"
+#include "rocksdb/db.h"
+#include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
 #include "util/thread_local.h"
@@ -129,6 +130,8 @@ struct SuperVersion {
   autovector<MemTable*> to_delete;
 };
 
+extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
+
 extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
@@ -223,10 +226,13 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
-
-  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options);
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
-  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options);
+
+  // See Memtable constructor for explanation of earliest_seq param.
+  MemTable* ConstructNewMemtable(const MutableCFOptions& mutable_cf_options,
+                                 SequenceNumber earliest_seq);
+  void CreateNewMemtable(const MutableCFOptions& mutable_cf_options,
+                         SequenceNumber earliest_seq);
 
   TableCache* table_cache() const { return table_cache_.get(); }
 
@@ -291,13 +297,6 @@ class ColumnFamilyData {
                                     InstrumentedMutex* db_mutex);
 
   void ResetThreadLocalSuperVersions();
-
-  void NotifyOnCompactionCompleted(DB* db, Compaction* c, const Status& status);
-
-  void NotifyOnFlushCompleted(
-      DB* db, const std::string& file_path,
-      bool triggered_flush_slowdown,
-      bool triggered_flush_stop);
 
   // Protected by DB mutex
   void set_pending_flush(bool value) { pending_flush_ = value; }

@@ -243,7 +243,8 @@ TEST_F(CuckooTableDBTest, CompactionIntoMultipleFiles) {
   dbfull()->TEST_WaitForFlushMemTable();
   ASSERT_EQ("1", FilesPerLevel());
 
-  dbfull()->TEST_CompactRange(0, nullptr, nullptr);
+  dbfull()->TEST_CompactRange(0, nullptr, nullptr, nullptr,
+                              true /* disallow trivial move */);
   ASSERT_EQ("0,2", FilesPerLevel());
   for (int idx = 0; idx < 28; ++idx) {
     ASSERT_EQ(std::string(10000, 'a' + idx), Get(Key(idx)));

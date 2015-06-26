@@ -90,6 +90,7 @@ class CompactionPickerTest : public testing::Test {
     vstorage_->GenerateFileIndexer();
     vstorage_->GenerateLevelFilesBrief();
     vstorage_->ComputeCompactionScore(mutable_cf_options_, fifo_options_);
+    vstorage_->GenerateLevel0NonOverlapping();
     vstorage_->SetFinalized();
   }
 };

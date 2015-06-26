@@ -2,12 +2,25 @@
 
 ### New Features
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
+* Added a new way to report QPS from db_bench (check out --report_file and --report_interval_seconds)
+* Added a cache for individual rows. See DBOptions::row_cache for more info.
 
 ### Public API changes
+* EventListener::OnFlushCompleted() now passes FlushJobInfo instead of a list of parameters.
 * DB::GetDbIdentity() is now a const function.  If this function is overridden in your application, be sure to also make GetDbIdentity() const to avoid compile error.
 * Move listeners from ColumnFamilyOptions to DBOptions.
 * Add max_write_buffer_number_to_maintain option
 * DB::CompactRange()'s parameter reduce_level is changed to change_level, to allow users to move levels to lower levels if allowed. It can be used to migrate a DB from options.level_compaction_dynamic_level_bytes=false to options.level_compaction_dynamic_level_bytes.true.
+* Change default value for options.compaction_filter_factory and options.compaction_filter_factory_v2 to nullptr instead of DefaultCompactionFilterFactory and DefaultCompactionFilterFactoryV2.
+* If CancelAllBackgroundWork is called without doing a flush after doing loads with WAL disabled, the changes which haven't been flushed before the call to CancelAllBackgroundWork will be lost.
+* WBWIIterator::Entry() now returns WriteEntry instead of `const WriteEntry&`
+* options.hard_rate_limit is deprecated.
+* When options.soft_rate_limit or options.level0_slowdown_writes_trigger is triggered, the way to slow down writes is changed to: write rate to DB is limited to to options.delayed_write_rate.
+* DB::GetApproximateSizes() adds a parameter to allow the estimation to include data in mem table, with default to be not to include. It is now only supported in skip list mem table.
+* DB::CompactRange() now accept CompactRangeOptions instead of multiple paramters. CompactRangeOptions is defined in include/rocksdb/options.h.
+* CompactRange() will now skip bottommost level compaction for level based compaction if there is no compaction filter, bottommost_level_compaction is introduced in CompactRangeOptions to control when it's possbile to skip bottommost level compaction. This mean that if you want the compaction to produce a single file you need to set bottommost_level_compaction to BottommostLevelCompaction::kForce.
+* Add Cache.GetPinnedUsage() to get the size of memory occupied by entries that are in use by the system.
+* DB:Open() will fail if the compression specified in Options is not linked with the binary. If you see this failure, recompile RocksDB with compression libraries present on your system. Also, previously our default compression was snappy. This behavior is now changed. Now, the default compression is snappy only if it's available on the system. If it isn't we change the default to kNoCompression.
 
 ## 3.11.0 (5/19/2015)
 ### New Features

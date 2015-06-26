@@ -15,13 +15,14 @@ __thread ThreadStatusUpdater*
     ThreadStatusUtil::thread_updater_local_cache_ = nullptr;
 __thread bool ThreadStatusUtil::thread_updater_initialized_ = false;
 
-void ThreadStatusUtil::SetThreadType(
+void ThreadStatusUtil::RegisterThread(
     const Env* env, ThreadStatus::ThreadType thread_type) {
   if (!MaybeInitThreadLocalUpdater(env)) {
     return;
   }
   assert(thread_updater_local_cache_);
-  thread_updater_local_cache_->SetThreadType(thread_type);
+  thread_updater_local_cache_->RegisterThread(
+      thread_type, env->GetThreadID());
 }
 
 void ThreadStatusUtil::UnregisterThread() {

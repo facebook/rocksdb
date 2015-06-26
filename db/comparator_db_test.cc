@@ -177,8 +177,13 @@ class DoubleComparator : public Comparator {
   virtual const char* Name() const override { return "DoubleComparator"; }
 
   virtual int Compare(const Slice& a, const Slice& b) const override {
+#ifndef CYGWIN
     double da = std::stod(a.ToString());
     double db = std::stod(b.ToString());
+#else
+    double da = std::strtod(a.ToString().c_str(), 0 /* endptr */);
+    double db = std::strtod(a.ToString().c_str(), 0 /* endptr */);
+#endif
     if (da == db) {
       return a.compare(b);
     } else if (da > db) {

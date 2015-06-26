@@ -2,6 +2,8 @@
    Use of this source code is governed by a BSD-style license that can be
    found in the LICENSE file. See the AUTHORS file for names of contributors. */
 
+#ifndef ROCKSDB_LITE  // Lite does not support C API
+
 #include "rocksdb/c.h"
 
 #include <stddef.h>
@@ -487,6 +489,24 @@ int main(int argc, char** argv) {
     rocksdb_writebatch_destroy(wb);
   }
 
+  StartPhase("writebatch_vectors");
+  {
+    rocksdb_writebatch_t* wb = rocksdb_writebatch_create();
+    const char* k_list[2] = { "z", "ap" };
+    const size_t k_sizes[2] = { 1, 2 };
+    const char* v_list[3] = { "x", "y", "z" };
+    const size_t v_sizes[3] = { 1, 1, 1 };
+    rocksdb_writebatch_putv(wb, 2, k_list, k_sizes, 3, v_list, v_sizes);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", "xyz");
+    rocksdb_writebatch_delete(wb, "zap", 3);
+    rocksdb_write(db, woptions, wb, &err);
+    CheckNoError(err);
+    CheckGet(db, roptions, "zap", NULL);
+    rocksdb_writebatch_destroy(wb);
+  }
+
   StartPhase("writebatch_rep");
   {
     rocksdb_writebatch_t* wb1 = rocksdb_writebatch_create();
@@ -525,6 +545,33 @@ int main(int argc, char** argv) {
     rocksdb_iter_get_error(iter, &err);
     CheckNoError(err);
     rocksdb_iter_destroy(iter);
+  }
+
+  StartPhase("multiget");
+  {
+    const char* keys[3] = { "box", "foo", "notfound" };
+    const size_t keys_sizes[3] = { 3, 3, 8 };
+    char* vals[3];
+    size_t vals_sizes[3];
+    char* errs[3];
+    rocksdb_multi_get(db, roptions, 3, keys, keys_sizes, vals, vals_sizes, errs);
+
+    int i;
+    for (i = 0; i < 3; i++) {
+      CheckEqual(NULL, errs[i], 0);
+      switch (i) {
+      case 0:
+        CheckEqual("c", vals[i], vals_sizes[i]);
+        break;
+      case 1:
+        CheckEqual("hello", vals[i], vals_sizes[i]);
+        break;
+      case 2:
+        CheckEqual(NULL, vals[i], vals_sizes[i]);
+        break;
+      }
+      Free(&vals[i]);
+    }
   }
 
   StartPhase("approximate_sizes");
@@ -800,12 +847,36 @@ int main(int argc, char** argv) {
     CheckGetCF(db, roptions, handles[1], "box", "c");
     rocksdb_writebatch_destroy(wb);
 
+    const char* keys[3] = { "box", "box", "barfooxx" };
+    const rocksdb_column_family_handle_t* get_handles[3] = { handles[0], handles[1], handles[1] };
+    const size_t keys_sizes[3] = { 3, 3, 8 };
+    char* vals[3];
+    size_t vals_sizes[3];
+    char* errs[3];
+    rocksdb_multi_get_cf(db, roptions, get_handles, 3, keys, keys_sizes, vals, vals_sizes, errs);
+
+    int i;
+    for (i = 0; i < 3; i++) {
+      CheckEqual(NULL, errs[i], 0);
+      switch (i) {
+      case 0:
+        CheckEqual(NULL, vals[i], vals_sizes[i]); // wrong cf
+        break;
+      case 1:
+        CheckEqual("c", vals[i], vals_sizes[i]); // bingo
+        break;
+      case 2:
+        CheckEqual(NULL, vals[i], vals_sizes[i]); // normal not found
+        break;
+      }
+      Free(&vals[i]);
+    }
+
     rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db, roptions, handles[1]);
     CheckCondition(!rocksdb_iter_valid(iter));
     rocksdb_iter_seek_to_first(iter);
     CheckCondition(rocksdb_iter_valid(iter));
 
-    int i;
     for (i = 0; rocksdb_iter_valid(iter) != 0; rocksdb_iter_next(iter)) {
       i++;
     }
@@ -960,3 +1031,13 @@ int main(int argc, char** argv) {
   fprintf(stderr, "PASS\n");
   return 0;
 }
+
+#else
+#include <stdio.h>
+
+int main() {
+  fprintf(stderr, "SKIPPED\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

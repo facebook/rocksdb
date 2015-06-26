@@ -59,12 +59,6 @@ enum CompressionType : char {
   kBZip2Compression = 0x3, kLZ4Compression = 0x4, kLZ4HCCompression = 0x5
 };
 
-// returns true if RocksDB was correctly linked with compression library and
-// supports the compression type
-extern bool CompressionTypeSupported(CompressionType compression_type);
-// Returns a human-readable name of the compression type
-extern const char* CompressionTypeToString(CompressionType compression_type);
-
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
@@ -78,6 +72,29 @@ enum CompactionStyle : char {
   // via CompactFiles().
   // Not supported in ROCKSDB_LITE
   kCompactionStyleNone = 0x3,
+};
+
+enum class WALRecoveryMode : char {
+  // Original levelDB recovery
+  // We tolerate incomplete record in trailing data on all logs
+  // Use case : This is legacy behavior (default)
+  kTolerateCorruptedTailRecords = 0x00,
+  // Recover from clean shutdown
+  // We don't expect to find any corruption in the WAL
+  // Use case : This is ideal for unit tests and rare applications that
+  // can require high consistency gaurantee
+  kAbsoluteConsistency = 0x01,
+  // Recover to point-in-time consistency
+  // We stop the WAL playback on discovering WAL inconsistency
+  // Use case : Ideal for systems that have disk controller cache like
+  // hard disk, SSD without super capacitor that store related data
+  kPointInTimeRecovery = 0x02,
+  // Recovery after a disaster
+  // We ignore any corruption in the  WAL and try to salvage as much data as
+  // possible
+  // Use case : Ideal for last ditch effort to recover data or systems that
+  // operate with low grade unrelated data
+  kSkipAnyCorruptedRecords = 0x03,
 };
 
 struct CompactionOptionsFIFO {
@@ -193,13 +210,13 @@ struct ColumnFamilyOptions {
   // compaction is being used, each created CompactionFilter will only be used
   // from a single thread and so does not need to be thread-safe.
   //
-  // Default: a factory that doesn't provide any object
+  // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
   // Version TWO of the compaction_filter_factory
   // It supports rolling compaction
   //
-  // Default: a factory that doesn't provide any object
+  // Default: nullptr
   std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
@@ -242,11 +259,30 @@ struct ColumnFamilyOptions {
   // individual write buffers.  Default: 1
   int min_write_buffer_number_to_merge;
 
+  // The total maximum number of write buffers to maintain in memory including
+  // copies of buffers that have already been flushed.  Unlike
+  // max_write_buffer_number, this parameter does not affect flushing.
+  // This controls the minimum amount of write history that will be available
+  // in memory for conflict checking when Transactions are used.
+  // If this value is too low, some transactions may fail at commit time due
+  // to not being able to determine whether there were any write conflicts.
+  //
+  // Setting this value to 0 will cause write buffers to be freed immediately
+  // after they are flushed.
+  // If this value is set to -1, 'max_write_buffer_number' will be used.
+  //
+  // Default:
+  // If using an OptimisticTransactionDB, the default value will be set to the
+  // value
+  // of 'max_write_buffer_number' if it is not explicitly set by the user.
+  // Otherwise, the default is 0.
+  int max_write_buffer_number_to_maintain;
+
   // Compress blocks using the specified compression algorithm.  This
   // parameter can be changed dynamically.
   //
-  // Default: kSnappyCompression, which gives lightweight but fast
-  // compression.
+  // Default: kSnappyCompression, if it's supported. If snappy is not linked
+  // with the library, the default is kNoCompression.
   //
   // Typical speeds of kSnappyCompression on an Intel(R) Core(TM)2 2.4GHz:
   //    ~200-500MB/s compression
@@ -465,8 +501,8 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int max_grandparent_overlap_factor;
 
-  // Puts are delayed 0-1 ms when any level has a compaction score that exceeds
-  // soft_rate_limit. This is ignored when == 0.0.
+  // Puts are delayed to options.delayed_write_rate when any level has a
+  // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
   // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
   // hold, RocksDB will set soft_rate_limit = hard_rate_limit
   //
@@ -475,12 +511,7 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   double soft_rate_limit;
 
-  // Puts are delayed 1ms at a time when any level has a compaction score that
-  // exceeds hard_rate_limit. This is ignored when <= 1.0.
-  //
-  // Default: 0 (disabled)
-  //
-  // Dynamically changeable through SetOptions() API
+  // DEPRECATED -- this options is no longer usde
   double hard_rate_limit;
 
   // DEPRECATED -- this options is no longer used
@@ -712,12 +743,6 @@ struct ColumnFamilyOptions {
   // After writing every SST file, reopen it and read all the keys.
   // Default: false
   bool paranoid_file_checks;
-
-#ifndef ROCKSDB_LITE
-  // A vector of EventListeners which call-back functions will be called
-  // when specific RocksDB event happens.
-  std::vector<std::shared_ptr<EventListener>> listeners;
-#endif  // ROCKSDB_LITE
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
@@ -1013,11 +1038,32 @@ struct DBOptions {
   // Default: 0, turned off
   uint64_t wal_bytes_per_sync;
 
+  // A vector of EventListeners which call-back functions will be called
+  // when specific RocksDB event happens.
+  std::vector<std::shared_ptr<EventListener>> listeners;
+
   // If true, then the status of the threads involved in this DB will
   // be tracked and available via GetThreadList() API.
   //
   // Default: false
   bool enable_thread_tracking;
+
+  // The limited write rate to DB if soft_rate_limit or
+  // level0_slowdown_writes_trigger is triggered. It is calcualted using
+  // size of user write requests before compression.
+  // Unit: byte per second.
+  //
+  // Default: 1MB/s
+  uint64_t delayed_write_rate;
+
+  // Recovery mode to control the consistency while replaying WAL
+  // Default: kTolerateCorruptedTailRecords
+  WALRecoveryMode wal_recovery_mode;
+
+  // A global cache for table-level rows.
+  // Default: nullptr (disabled)
+  // Not supported in ROCKSDB_LITE mode!
+  std::shared_ptr<Cache> row_cache;
 };
 
 // Options to control the behavior of a database (passed to DB::Open)
@@ -1032,6 +1078,8 @@ struct Options : public DBOptions, public ColumnFamilyOptions {
       : DBOptions(db_options), ColumnFamilyOptions(column_family_options) {}
 
   void Dump(Logger* log) const;
+
+  void DumpCFOptions(Logger* log) const;
 
   // Set appropriate parameters for bulk loading.
   // The reason that this is a function that returns "this" instead of a
@@ -1220,6 +1268,35 @@ struct CompactionOptions {
   CompactionOptions()
       : compression(kSnappyCompression),
         output_file_size_limit(std::numeric_limits<uint64_t>::max()) {}
+};
+
+// For level based compaction, we can configure if we want to skip/force
+// bottommost level compaction.
+enum class BottommostLevelCompaction {
+  // Skip bottommost level compaction
+  kSkip,
+  // Only compact bottommost level if there is a compaction filter
+  // This is the default option
+  kIfHaveCompactionFilter,
+  // Always compact bottommost level
+  kForce,
+};
+
+// CompactRangeOptions is used by CompactRange() call.
+struct CompactRangeOptions {
+  // If true, compacted files will be moved to the minimum level capable
+  // of holding the data or given level (specified non-negative target_level).
+  bool change_level = false;
+  // If change_level is true and target_level have non-negative value, compacted
+  // files will be moved to target_level.
+  int target_level = -1;
+  // Compaction outputs will be placed in options.db_paths[target_path_id].
+  // Behavior is undefined if target_path_id is out of range.
+  uint32_t target_path_id = 0;
+  // By default level based compaction will only compact the bottommost level
+  // if there is a compaction filter
+  BottommostLevelCompaction bottommost_level_compaction =
+      BottommostLevelCompaction::kIfHaveCompactionFilter;
 };
 }  // namespace rocksdb
 

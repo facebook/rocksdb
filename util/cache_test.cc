@@ -9,6 +9,7 @@
 
 #include "rocksdb/cache.h"
 
+#include <forward_list>
 #include <vector>
 #include <string>
 #include <iostream>
@@ -140,6 +141,56 @@ TEST_F(CacheTest, UsageTest) {
   // the usage should be close to the capacity
   ASSERT_GT(kCapacity, cache->GetUsage());
   ASSERT_LT(kCapacity * 0.95, cache->GetUsage());
+}
+
+TEST_F(CacheTest, PinnedUsageTest) {
+  // cache is shared_ptr and will be automatically cleaned up.
+  const uint64_t kCapacity = 100000;
+  auto cache = NewLRUCache(kCapacity, 8);
+
+  size_t pinned_usage = 0;
+  const char* value = "abcdef";
+
+  std::forward_list<Cache::Handle*> unreleased_handles;
+
+  // Add entries. Unpin some of them after insertion. Then, pin some of them
+  // again. Check GetPinnedUsage().
+  for (int i = 1; i < 100; ++i) {
+    std::string key(i, 'a');
+    auto kv_size = key.size() + 5;
+    auto handle = cache->Insert(key, (void*)value, kv_size, dumbDeleter);
+    pinned_usage += kv_size;
+    ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
+    if (i % 2 == 0) {
+      cache->Release(handle);
+      pinned_usage -= kv_size;
+      ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
+    } else {
+      unreleased_handles.push_front(handle);
+    }
+    if (i % 3 == 0) {
+      unreleased_handles.push_front(cache->Lookup(key));
+      // If i % 2 == 0, then the entry was unpinned before Lookup, so pinned
+      // usage increased
+      if (i % 2 == 0) {
+        pinned_usage += kv_size;
+      }
+      ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
+    }
+  }
+
+  // check that overloading the cache does not change the pinned usage
+  for (uint64_t i = 1; i < 2 * kCapacity; ++i) {
+    auto key = ToString(i);
+    cache->Release(
+        cache->Insert(key, (void*)value, key.size() + 5, dumbDeleter));
+  }
+  ASSERT_EQ(pinned_usage, cache->GetPinnedUsage());
+
+  // release handles for pinned entries to prevent memory leaks
+  for (auto handle : unreleased_handles) {
+    cache->Release(handle);
+  }
 }
 
 TEST_F(CacheTest, HitAndMiss) {

@@ -19,8 +19,10 @@
 #include <algorithm>
 #include <string>
 #include "db/filename.h"
+#include "db/wal_manager.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
+#include "rocksdb/transaction_log.h"
 #include "util/file_util.h"
 
 namespace rocksdb {
@@ -60,6 +62,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   uint64_t manifest_file_size = 0;
   uint64_t sequence_number = db_->GetLatestSequenceNumber();
   bool same_fs = true;
+  VectorLogPtr live_wal_files;
 
   if (db_->GetEnv()->FileExists(checkpoint_dir)) {
     return Status::InvalidArgument("Directory exists");
@@ -70,11 +73,16 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
     // this will return live_files prefixed with "/"
     s = db_->GetLiveFiles(live_files, &manifest_file_size, true);
   }
+  // if we have more than one column family, we need to also get WAL files
+  if (s.ok()) {
+    s = db_->GetSortedWalFiles(live_wal_files);
+  }
   if (!s.ok()) {
     db_->EnableFileDeletions(false);
     return s;
   }
 
+  size_t wal_size = live_wal_files.size();
   Log(db_->GetOptions().info_log,
       "Started the snapshot process -- creating snapshot in directory %s",
       checkpoint_dir.c_str());
@@ -117,6 +125,44 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
       s = CopyFile(db_->GetEnv(), db_->GetName() + src_fname,
                    full_private_path + src_fname,
                    (type == kDescriptorFile) ? manifest_file_size : 0);
+    }
+  }
+  Log(db_->GetOptions().info_log, "Number of log files %ld",
+      live_wal_files.size());
+
+  // Link WAL files. Copy exact size of last one because it is the only one
+  // that has changes after the last flush.
+  for (size_t i = 0; s.ok() && i < wal_size; ++i) {
+    if ((live_wal_files[i]->Type() == kAliveLogFile) &&
+        (live_wal_files[i]->StartSequence() >= sequence_number)) {
+      if (i + 1 == wal_size) {
+        Log(db_->GetOptions().info_log, "Copying %s",
+            live_wal_files[i]->PathName().c_str());
+        s = CopyFile(db_->GetEnv(),
+                     db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
+                     full_private_path + live_wal_files[i]->PathName(),
+                     live_wal_files[i]->SizeFileBytes());
+        break;
+      }
+      if (same_fs) {
+        // we only care about live log files
+        Log(db_->GetOptions().info_log, "Hard Linking %s",
+            live_wal_files[i]->PathName().c_str());
+        s = db_->GetEnv()->LinkFile(
+            db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
+            full_private_path + live_wal_files[i]->PathName());
+        if (s.IsNotSupported()) {
+          same_fs = false;
+          s = Status::OK();
+        }
+      }
+      if (!same_fs) {
+        Log(db_->GetOptions().info_log, "Copying %s",
+            live_wal_files[i]->PathName().c_str());
+        s = CopyFile(db_->GetEnv(),
+                     db_->GetOptions().wal_dir + live_wal_files[i]->PathName(),
+                     full_private_path + live_wal_files[i]->PathName(), 0);
+      }
     }
   }
 

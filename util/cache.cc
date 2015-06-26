@@ -203,12 +203,20 @@ class LRUCache {
   Cache::Handle* Lookup(const Slice& key, uint32_t hash);
   void Release(Cache::Handle* handle);
   void Erase(const Slice& key, uint32_t hash);
+
   // Although in some platforms the update of size_t is atomic, to make sure
-  // GetUsage() works correctly under any platforms, we'll protect this
-  // function with mutex.
+  // GetUsage() and GetPinnedUsage() work correctly under any platform, we'll
+  // protect them with mutex_.
+
   size_t GetUsage() const {
     MutexLock l(&mutex_);
     return usage_;
+  }
+
+  size_t GetPinnedUsage() const {
+    MutexLock l(&mutex_);
+    assert(usage_ >= lru_usage_);
+    return usage_ - lru_usage_;
   }
 
   void ApplyToAllCacheEntries(void (*callback)(void*, size_t),
@@ -231,11 +239,16 @@ class LRUCache {
   // Initialized before use.
   size_t capacity_;
 
+  // Memory size for entries residing in the cache
+  size_t usage_;
+
+  // Memory size for entries residing only in the LRU list
+  size_t lru_usage_;
+
   // mutex_ protects the following state.
   // We don't count mutex_ as the cache's internal state so semantically we
   // don't mind mutex_ invoking the non-const actions.
   mutable port::Mutex mutex_;
-  size_t usage_;
 
   // Dummy head of LRU list.
   // lru.prev is newest entry, lru.next is oldest entry.
@@ -245,8 +258,7 @@ class LRUCache {
   HandleTable table_;
 };
 
-LRUCache::LRUCache()
-    : usage_(0) {
+LRUCache::LRUCache() : usage_(0), lru_usage_(0) {
   // Make empty circular linked list
   lru_.next = &lru_;
   lru_.prev = &lru_;
@@ -281,6 +293,7 @@ void LRUCache::LRU_Remove(LRUHandle* e) {
   e->next->prev = e->prev;
   e->prev->next = e->next;
   e->prev = e->next = nullptr;
+  lru_usage_ -= e->charge;
 }
 
 void LRUCache::LRU_Append(LRUHandle* e) {
@@ -291,6 +304,7 @@ void LRUCache::LRU_Append(LRUHandle* e) {
   e->prev = lru_.prev;
   e->prev->next = e;
   e->next->prev = e;
+  lru_usage_ += e->charge;
 }
 
 void LRUCache::EvictFromLRU(size_t charge,
@@ -519,11 +533,19 @@ class ShardedLRUCache : public Cache {
 
   virtual size_t GetUsage() const override {
     // We will not lock the cache when getting the usage from shards.
-    // for (size_t i = 0; i < num_shard_bits_; ++i)
     int num_shards = 1 << num_shard_bits_;
     size_t usage = 0;
     for (int s = 0; s < num_shards; s++) {
       usage += shards_[s].GetUsage();
+    }
+    return usage;
+  }
+  virtual size_t GetPinnedUsage() const override {
+    // We will not lock the cache when getting the usage from shards.
+    int num_shards = 1 << num_shard_bits_;
+    size_t usage = 0;
+    for (int s = 0; s < num_shards; s++) {
+      usage += shards_[s].GetPinnedUsage();
     }
     return usage;
   }

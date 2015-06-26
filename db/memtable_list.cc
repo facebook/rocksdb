@@ -27,15 +27,26 @@ class InternalKeyComparator;
 class Mutex;
 class VersionSet;
 
-MemTableListVersion::MemTableListVersion(MemTableListVersion* old) {
+MemTableListVersion::MemTableListVersion(MemTableListVersion* old)
+    : max_write_buffer_number_to_maintain_(
+          old->max_write_buffer_number_to_maintain_) {
   if (old != nullptr) {
     memlist_ = old->memlist_;
-    size_ = old->size_;
     for (auto& m : memlist_) {
+      m->Ref();
+    }
+
+    memlist_history_ = old->memlist_history_;
+    for (auto& m : memlist_history_) {
       m->Ref();
     }
   }
 }
+
+MemTableListVersion::MemTableListVersion(
+    int max_write_buffer_number_to_maintain)
+    : max_write_buffer_number_to_maintain_(
+          max_write_buffer_number_to_maintain) {}
 
 void MemTableListVersion::Ref() { ++refs_; }
 
@@ -52,25 +63,62 @@ void MemTableListVersion::Unref(autovector<MemTable*>* to_delete) {
         to_delete->push_back(x);
       }
     }
+    for (const auto& m : memlist_history_) {
+      MemTable* x = m->Unref();
+      if (x != nullptr) {
+        to_delete->push_back(x);
+      }
+    }
     delete this;
   }
 }
 
-int MemTableListVersion::size() const { return size_; }
+int MemTableList::NumNotFlushed() const {
+  int size = static_cast<int>(current_->memlist_.size());
+  assert(num_flush_not_started_ <= size);
+  return size;
+}
 
-// Returns the total number of memtables in the list
-int MemTableList::size() const {
-  assert(num_flush_not_started_ <= current_->size_);
-  return current_->size_;
+int MemTableList::NumFlushed() const {
+  return static_cast<int>(current_->memlist_history_.size());
 }
 
 // Search all the memtables starting from the most recent one.
 // Return the most recent value found, if any.
 // Operands stores the list of merge operations to apply, so far.
 bool MemTableListVersion::Get(const LookupKey& key, std::string* value,
-                              Status* s, MergeContext* merge_context) {
-  for (auto& memtable : memlist_) {
-    if (memtable->Get(key, value, s, merge_context)) {
+                              Status* s, MergeContext* merge_context,
+                              SequenceNumber* seq) {
+  return GetFromList(&memlist_, key, value, s, merge_context, seq);
+}
+
+bool MemTableListVersion::GetFromHistory(const LookupKey& key,
+                                         std::string* value, Status* s,
+                                         MergeContext* merge_context,
+                                         SequenceNumber* seq) {
+  return GetFromList(&memlist_history_, key, value, s, merge_context, seq);
+}
+
+bool MemTableListVersion::GetFromList(std::list<MemTable*>* list,
+                                      const LookupKey& key, std::string* value,
+                                      Status* s, MergeContext* merge_context,
+                                      SequenceNumber* seq) {
+  *seq = kMaxSequenceNumber;
+
+  for (auto& memtable : *list) {
+    SequenceNumber current_seq = kMaxSequenceNumber;
+
+    bool done = memtable->Get(key, value, s, merge_context, &current_seq);
+    if (*seq == kMaxSequenceNumber) {
+      // Store the most recent sequence number of any operation on this key.
+      // Since we only care about the most recent change, we only need to
+      // return the first operation found when searching memtables in
+      // reverse-chronological order.
+      *seq = current_seq;
+    }
+
+    if (done) {
+      assert(*seq != kMaxSequenceNumber);
       return true;
     }
   }
@@ -101,6 +149,15 @@ uint64_t MemTableListVersion::GetTotalNumEntries() const {
   return total_num;
 }
 
+uint64_t MemTableListVersion::ApproximateSize(const Slice& start_ikey,
+                                              const Slice& end_ikey) {
+  uint64_t total_size = 0;
+  for (auto& m : memlist_) {
+    total_size += m->ApproximateSize(start_ikey, end_ikey);
+  }
+  return total_size;
+}
+
 uint64_t MemTableListVersion::GetTotalNumDeletes() const {
   uint64_t total_num = 0;
   for (auto& m : memlist_) {
@@ -109,18 +166,53 @@ uint64_t MemTableListVersion::GetTotalNumDeletes() const {
   return total_num;
 }
 
-// caller is responsible for referencing m
-void MemTableListVersion::Add(MemTable* m) {
-  assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
-  memlist_.push_front(m);
-  ++size_;
+SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
+    bool include_history) const {
+  if (include_history && !memlist_history_.empty()) {
+    return memlist_history_.back()->GetEarliestSequenceNumber();
+  } else if (!memlist_.empty()) {
+    return memlist_.back()->GetEarliestSequenceNumber();
+  } else {
+    return kMaxSequenceNumber;
+  }
 }
 
-// caller is responsible for unreferencing m
-void MemTableListVersion::Remove(MemTable* m) {
+// caller is responsible for referencing m
+void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+  assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
+  memlist_.push_front(m);
+
+  TrimHistory(to_delete);
+}
+
+// Removes m from list of memtables not flushed.  Caller should NOT Unref m.
+void MemTableListVersion::Remove(MemTable* m,
+                                 autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
   memlist_.remove(m);
-  --size_;
+
+  if (max_write_buffer_number_to_maintain_ > 0) {
+    memlist_history_.push_front(m);
+    TrimHistory(to_delete);
+  } else {
+    if (m->Unref()) {
+      to_delete->push_back(m);
+    }
+  }
+}
+
+// Make sure we don't use up too much space in history
+void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
+  while (memlist_.size() + memlist_history_.size() >
+             static_cast<size_t>(max_write_buffer_number_to_maintain_) &&
+         !memlist_history_.empty()) {
+    MemTable* x = memlist_history_.back();
+    memlist_history_.pop_back();
+
+    if (x->Unref()) {
+      to_delete->push_back(x);
+    }
+  }
 }
 
 // Returns true if there is at least one memtable on which flush has
@@ -229,12 +321,8 @@ Status MemTableList::InstallMemtableFlushResults(
         LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
                                 ": memtable #%" PRIu64 " done",
                     cfd->GetName().c_str(), m->file_number_, mem_id);
-        current_->Remove(m);
         assert(m->file_number_ > 0);
-
-        if (m->Unref() != nullptr) {
-          to_delete->push_back(m);
-        }
+        current_->Remove(m, to_delete);
       } else {
         //commit failed. setup state so that we can flush again.
         LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
@@ -256,15 +344,15 @@ Status MemTableList::InstallMemtableFlushResults(
 }
 
 // New memtables are inserted at the front of the list.
-void MemTableList::Add(MemTable* m) {
-  assert(current_->size_ >= num_flush_not_started_);
+void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
+  assert(static_cast<int>(current_->memlist_.size()) >= num_flush_not_started_);
   InstallNewVersion();
   // this method is used to move mutable memtable into an immutable list.
   // since mutable memtable is already refcounted by the DBImpl,
   // and when moving to the imutable list we don't unref it,
   // we don't have to ref the memtable here. we just take over the
   // reference from the DBImpl.
-  current_->Add(m);
+  current_->Add(m, to_delete);
   m->MarkImmutable();
   num_flush_not_started_++;
   if (num_flush_not_started_ == 1) {

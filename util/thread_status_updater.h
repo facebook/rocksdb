@@ -64,15 +64,14 @@ struct ConstantColumnFamilyInfo {
 // status of a thread using a set of atomic pointers.
 struct ThreadStatusData {
 #if ROCKSDB_USING_THREAD_STATUS
-  explicit ThreadStatusData() : thread_id(0), enable_tracking(false) {
+  explicit ThreadStatusData() : enable_tracking(false) {
+    thread_id.store(0);
     thread_type.store(ThreadStatus::USER);
     cf_key.store(nullptr);
     operation_type.store(ThreadStatus::OP_UNKNOWN);
     op_start_time.store(0);
     state_type.store(ThreadStatus::STATE_UNKNOWN);
   }
-
-  uint64_t thread_id;
 
   // A flag to indicate whether the thread tracking is enabled
   // in the current thread.  This value will be updated based on whether
@@ -83,6 +82,7 @@ struct ThreadStatusData {
   // will be no-op.
   bool enable_tracking;
 
+  std::atomic<uint64_t> thread_id;
   std::atomic<ThreadStatus::ThreadType> thread_type;
   std::atomic<void*> cf_key;
   std::atomic<ThreadStatus::OperationType> operation_type;
@@ -115,8 +115,11 @@ class ThreadStatusUpdater {
   // ColumnFamilyInfoKey, ThreadOperation, and ThreadState.
   void ResetThreadStatus();
 
-  // Set the thread type of the current thread.
-  void SetThreadType(ThreadStatus::ThreadType ttype);
+  // Set the id of the current thread.
+  void SetThreadID(uint64_t thread_id);
+
+  // Register the current thread for tracking.
+  void RegisterThread(ThreadStatus::ThreadType ttype, uint64_t thread_id);
 
   // Update the column-family info of the current thread by setting
   // its thread-local pointer of ThreadStateInfo to the correct entry.
@@ -195,9 +198,15 @@ class ThreadStatusUpdater {
   // The thread-local variable for storing thread status.
   static __thread ThreadStatusData* thread_status_data_;
 
-  // Obtain the pointer to the thread status data.  It also performs
-  // initialization when necessary.
-  ThreadStatusData* InitAndGet();
+  // Returns the pointer to the thread status data only when the
+  // thread status data is non-null and has enable_tracking == true.
+  ThreadStatusData* GetLocalThreadStatus();
+
+  // Directly returns the pointer to thread_status_data_ without
+  // checking whether enabling_tracking is true of not.
+  ThreadStatusData* Get() {
+    return thread_status_data_;
+  }
 
   // The mutex that protects cf_info_map and db_key_map.
   std::mutex thread_list_mutex_;

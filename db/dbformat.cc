@@ -8,6 +8,11 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #include "db/dbformat.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <stdio.h>
 #include "port/port.h"
 #include "util/coding.h"
@@ -21,6 +26,14 @@ uint64_t PackSequenceAndType(uint64_t seq, ValueType t) {
   return (seq << 8) | t;
 }
 
+void UnPackSequenceAndType(uint64_t packed, uint64_t* seq, ValueType* t) {
+  *seq = packed >> 8;
+  *t = static_cast<ValueType>(packed & 0xff);
+
+  assert(*seq <= kMaxSequenceNumber);
+  assert(*t <= kValueTypeForSeek);
+}
+
 void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
   result->append(key.user_key.data(), key.user_key.size());
   PutFixed64(result, PackSequenceAndType(key.sequence, key.type));
@@ -28,9 +41,8 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key) {
 
 std::string ParsedInternalKey::DebugString(bool hex) const {
   char buf[50];
-  snprintf(buf, sizeof(buf), "' @ %llu : %d",
-           (unsigned long long) sequence,
-           int(type));
+  snprintf(buf, sizeof(buf), "' @ %" PRIu64 ": %d", sequence,
+           static_cast<int>(type));
   std::string result = "'";
   result += user_key.ToString(hex);
   result += buf;

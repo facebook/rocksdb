@@ -27,8 +27,8 @@ class ColumnFamilyData;
 // all function calls to ThreadStatusUtil will be no-op.
 class ThreadStatusUtil {
  public:
-  // Set the thread type of the current thread.
-  static void SetThreadType(
+  // Register the current thread for tracking.
+  static void RegisterThread(
       const Env* env, ThreadStatus::ThreadType thread_type);
 
   // Unregister the current thread.

@@ -208,10 +208,10 @@ class LogTest : public testing::Test {
     return dest_contents().size();
   }
 
-  std::string Read() {
+  std::string Read(const bool report_eof_inconsistency = false) {
     std::string scratch;
     Slice record;
-    if (reader_.ReadRecord(&record, &scratch)) {
+    if (reader_.ReadRecord(&record, &scratch, report_eof_inconsistency)) {
       return record.ToString();
     } else {
       return "EOF";
@@ -452,6 +452,15 @@ TEST_F(LogTest, TruncatedTrailingRecordIsIgnored) {
   ASSERT_EQ("", ReportMessage());
 }
 
+TEST_F(LogTest, TruncatedTrailingRecordIsNotIgnored) {
+  Write("foo");
+  ShrinkSize(4);  // Drop all payload as well as a header byte
+  ASSERT_EQ("EOF", Read(/*report_eof_inconsistency*/ true));
+  // Truncated last record is ignored, not treated as an error
+  ASSERT_GT(DroppedBytes(), 0U);
+  ASSERT_EQ("OK", MatchError("Corruption: truncated header"));
+}
+
 TEST_F(LogTest, BadLength) {
   const int kPayloadSize = kBlockSize - kHeaderSize;
   Write(BigString("bar", kPayloadSize));
@@ -469,6 +478,14 @@ TEST_F(LogTest, BadLengthAtEndIsIgnored) {
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ(0U, DroppedBytes());
   ASSERT_EQ("", ReportMessage());
+}
+
+TEST_F(LogTest, BadLengthAtEndIsNotIgnored) {
+  Write("foo");
+  ShrinkSize(1);
+  ASSERT_EQ("EOF", Read(/*report_eof_inconsistency=*/true));
+  ASSERT_GT(DroppedBytes(), 0U);
+  ASSERT_EQ("OK", MatchError("Corruption: truncated header"));
 }
 
 TEST_F(LogTest, ChecksumMismatch) {
@@ -528,6 +545,15 @@ TEST_F(LogTest, MissingLastIsIgnored) {
   ASSERT_EQ(0U, DroppedBytes());
 }
 
+TEST_F(LogTest, MissingLastIsNotIgnored) {
+  Write(BigString("bar", kBlockSize));
+  // Remove the LAST block, including header.
+  ShrinkSize(14);
+  ASSERT_EQ("EOF", Read(/*report_eof_inconsistency=*/true));
+  ASSERT_GT(DroppedBytes(), 0U);
+  ASSERT_EQ("OK", MatchError("Corruption: error reading trailing data"));
+}
+
 TEST_F(LogTest, PartialLastIsIgnored) {
   Write(BigString("bar", kBlockSize));
   // Cause a bad record length in the LAST block.
@@ -535,6 +561,17 @@ TEST_F(LogTest, PartialLastIsIgnored) {
   ASSERT_EQ("EOF", Read());
   ASSERT_EQ("", ReportMessage());
   ASSERT_EQ(0U, DroppedBytes());
+}
+
+TEST_F(LogTest, PartialLastIsNotIgnored) {
+  Write(BigString("bar", kBlockSize));
+  // Cause a bad record length in the LAST block.
+  ShrinkSize(1);
+  ASSERT_EQ("EOF", Read(/*report_eof_inconsistency=*/true));
+  ASSERT_GT(DroppedBytes(), 0U);
+  ASSERT_EQ("OK", MatchError(
+                      "Corruption: truncated headerCorruption: "
+                      "error reading trailing data"));
 }
 
 TEST_F(LogTest, ErrorJoinsRecords) {

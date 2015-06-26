@@ -321,15 +321,18 @@ public:
 
     while (left > 0) {
 
+      {
+        IOSTATS_TIMER_GUARD(read_nanos);
         r = pread(hFile_, ptr, n, offset);
+      }
 
-        if (r <= 0) {
-            break;
-        }
+      if (r <= 0) {
+          break;
+      }
 
-        ptr += r;
-        offset += r;
-        left -= r;
+      ptr += r;
+      offset += r;
+      left -= r;
     }
 
     IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
@@ -1013,8 +1016,12 @@ public:
         } else {
           buffer_.Clear();
         }
-
-        SSIZE_T read = pread(hFile_, buffer_.GetDestination(), actual_bytes_toread, start_page_start);
+        
+        SSIZE_T read = 0;
+        {
+          IOSTATS_TIMER_GUARD(read_nanos);
+          read = pread(hFile_, buffer_.GetDestination(), actual_bytes_toread, start_page_start);
+        }
 
         if (read > 0) {
           buffer_.SetSize(read);
@@ -1957,6 +1964,10 @@ public:
     uint64_t thread_id = GetCurrentThreadId();
     return thread_id;
   }
+  
+  virtual uint64_t GetThreadID() const override {
+    return gettid();
+  }  
 
   virtual Status NewLogger(const std::string& fname, std::shared_ptr<Logger>* result) override {
 
@@ -2297,7 +2308,7 @@ public:
 
 #if ROCKSDB_USING_THREAD_STATUS
       // for thread-status
-      ThreadStatusUtil::SetThreadType(tp->env_,
+      ThreadStatusUtil::RegisterThread(tp->env_,
         (tp->GetThreadPriority() == Env::Priority::HIGH ?
         ThreadStatus::HIGH_PRIORITY :
         ThreadStatus::LOW_PRIORITY));

@@ -27,6 +27,7 @@ class WriteThread {
     bool disableWAL;
     bool in_batch_group;
     bool done;
+    bool has_callback;
     uint64_t timeout_hint_us;
     InstrumentedCondVar cv;
 
@@ -36,6 +37,7 @@ class WriteThread {
           disableWAL(false),
           in_batch_group(false),
           done(false),
+          has_callback(false),
           timeout_hint_us(kNoTimeOut),
           cv(mu) {}
   };
@@ -70,8 +72,9 @@ class WriteThread {
   // REQUIRES: db mutex held
   void ExitWriteThread(Writer* w, Writer* last_writer, Status status);
 
-  void BuildBatchGroup(Writer** last_writer,
-                       autovector<WriteBatch*>* write_batch_group);
+  // return total batch group size
+  size_t BuildBatchGroup(Writer** last_writer,
+                         autovector<WriteBatch*>* write_batch_group);
 
  private:
   // Queue of writers.

@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/column_family.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -10,6 +12,7 @@
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/coding.h"
+#include "util/string_util.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
@@ -187,7 +190,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
       default: {
         result = WriteBatchWithIndexInternal::Result::kError;
         (*s) = Status::Corruption("Unexpected entry in WriteBatchWithIndex:",
-                                  std::to_string(entry.type));
+                                  ToString(entry.type));
         break;
       }
     }
@@ -240,3 +243,5 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
 }
 
 }  // namespace rocksdb
+
+#endif  // !ROCKSDB_LITE

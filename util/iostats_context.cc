@@ -17,6 +17,12 @@ void IOStatsContext::Reset() {
   thread_pool_id = Env::Priority::TOTAL;
   bytes_read = 0;
   bytes_written = 0;
+  open_nanos = 0;
+  allocate_nanos = 0;
+  write_nanos = 0;
+  read_nanos = 0;
+  range_sync_nanos = 0;
+  logger_nanos = 0;
 }
 
 #define OUTPUT(counter) #counter << " = " << counter << ", "
@@ -25,7 +31,14 @@ std::string IOStatsContext::ToString() const {
   std::ostringstream ss;
   ss << OUTPUT(thread_pool_id)
      << OUTPUT(bytes_read)
-     << OUTPUT(bytes_written);
+     << OUTPUT(bytes_written)
+     << OUTPUT(open_nanos)
+     << OUTPUT(allocate_nanos)
+     << OUTPUT(write_nanos)
+     << OUTPUT(read_nanos)
+     << OUTPUT(range_sync_nanos)
+     << OUTPUT(logger_nanos);
+
   return ss.str();
 }
 

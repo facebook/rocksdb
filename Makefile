@@ -231,6 +231,7 @@ TESTS = \
 	dynamic_bloom_test \
 	c_test \
 	cache_test \
+	checkpoint_test \
 	coding_test \
 	corruption_test \
 	crc32c_test \
@@ -289,7 +290,8 @@ TESTS = \
 	compact_files_test \
 	perf_context_test \
 	optimistic_transaction_test \
-	write_callback_test
+	write_callback_test \
+	compaction_job_stats_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -298,7 +300,9 @@ TOOLS = \
 	db_sanity_test \
 	db_stress \
 	ldb \
-	db_repl_stress
+	db_repl_stress \
+	rocksdb_dump \
+	rocksdb_undump
 
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
@@ -344,7 +348,8 @@ $(SHARED3): $(SHARED4)
 endif
 
 $(SHARED4):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) $(LDFLAGS) -o $@
+	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) \
+		$(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
@@ -513,6 +518,7 @@ check: all
 	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
 	fi
 	rm -rf $(TMPD)
+	sh tools/rocksdb_dump_test.sh
 
 check_some: $(SUBSET) ldb_tests
 	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
@@ -693,6 +699,9 @@ prefix_test: db/prefix_test.o $(LIBOBJECTS) $(TESTHARNESS)
 backupable_db_test: utilities/backupable/backupable_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+checkpoint_test: utilities/checkpoint/checkpoint_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 document_db_test: utilities/document/document_db_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -712,6 +721,9 @@ flush_job_test: db/flush_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compaction_job_test: db/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+compaction_job_stats_test: db/compaction_job_stats_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -786,6 +798,12 @@ deletefile_test: db/deletefile_test.o $(LIBOBJECTS) $(TESTHARNESS)
 geodb_test: utilities/geodb/geodb_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+rocksdb_dump: tools/dump/rocksdb_dump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
+rocksdb_undump: tools/dump/rocksdb_undump.o $(LIBOBJECTS)
+	$(AM_LINK)
+
 cuckoo_table_builder_test: table/cuckoo_table_builder_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -799,9 +817,6 @@ listener_test: db/listener_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 thread_list_test: util/thread_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
-
-compactor_test: utilities/compaction/compactor_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compact_files_test: db/compact_files_test.o $(LIBOBJECTS) $(TESTHARNESS)

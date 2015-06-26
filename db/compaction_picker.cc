@@ -763,6 +763,10 @@ void LevelCompactionPicker::PickFilesMarkedForCompactionExperimental(
     *level = level_file.first;
     *output_level = (*level == 0) ? vstorage->base_level() : *level + 1;
 
+    if (*level == 0 && !level0_compactions_in_progress_.empty()) {
+      return false;
+    }
+
     inputs->files = {level_file.second};
     inputs->level = *level;
     return ExpandWhileOverlapping(cf_name, vstorage, inputs);

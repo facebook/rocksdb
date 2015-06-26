@@ -156,6 +156,8 @@ class TestCompactionListener : public EventListener {
     compacted_dbs_.push_back(db);
     ASSERT_GT(ci.input_files.size(), 0U);
     ASSERT_GT(ci.output_files.size(), 0U);
+    ASSERT_EQ(db->GetEnv()->GetThreadID(), ci.thread_id);
+    ASSERT_GT(ci.thread_id, 0U);
   }
 
   std::vector<DB*> compacted_dbs_;
@@ -177,7 +179,9 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   options.max_bytes_for_level_base = options.target_file_size_base * 2;
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
+#if ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
+#endif  // ROCKSDB_USING_THREAD_STATUS
   options.level0_file_num_compaction_trigger = kNumL0Files;
 
   TestCompactionListener* listener = new TestCompactionListener();
@@ -197,7 +201,8 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
     ASSERT_OK(Flush(static_cast<int>(i)));
     const Slice kStart = "a";
     const Slice kEnd = "z";
-    ASSERT_OK(dbfull()->CompactRange(handles_[i], &kStart, &kEnd));
+    ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[i],
+                                     &kStart, &kEnd));
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();
   }
@@ -208,40 +213,88 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   }
 }
 
+// This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
+  explicit TestFlushListener(Env* env) :
+      slowdown_count(0),
+      stop_count(0),
+      db_closed(),
+      env_(env) {
+    db_closed = false;
+  }
+  void OnTableFileCreated(
+      const TableFileCreationInfo& info) override {
+    // remember the info for later checking the FlushJobInfo.
+    prev_fc_info_ = info;
+    ASSERT_GT(info.db_name.size(), 0U);
+    ASSERT_GT(info.cf_name.size(), 0U);
+    ASSERT_GT(info.file_path.size(), 0U);
+    ASSERT_GT(info.job_id, 0);
+    ASSERT_GT(info.table_properties.data_size, 0U);
+    ASSERT_GT(info.table_properties.raw_key_size, 0U);
+    ASSERT_GT(info.table_properties.raw_value_size, 0U);
+    ASSERT_GT(info.table_properties.num_data_blocks, 0U);
+    ASSERT_GT(info.table_properties.num_entries, 0U);
 
-   TestFlushListener() :
-     slowdown_count(0),
-     stop_count(0)
-   {}
-
+#if ROCKSDB_USING_THREAD_STATUS
+    // Verify the id of the current thread that created this table
+    // file matches the id of any active flush or compaction thread.
+    uint64_t thread_id = env_->GetThreadID();
+    std::vector<ThreadStatus> thread_list;
+    ASSERT_OK(env_->GetThreadList(&thread_list));
+    bool found_match = false;
+    for (auto thread_status : thread_list) {
+      if (thread_status.operation_type == ThreadStatus::OP_FLUSH ||
+          thread_status.operation_type == ThreadStatus::OP_COMPACTION) {
+        if (thread_id == thread_status.thread_id) {
+          found_match = true;
+          break;
+        }
+      }
+    }
+    ASSERT_TRUE(found_match);
+#endif  // ROCKSDB_USING_THREAD_STATUS
+  }
 
   void OnFlushCompleted(
-      DB* db, const std::string& name,
-      const std::string& file_path,
-      bool triggered_writes_slowdown,
-      bool triggered_writes_stop) override {
+      DB* db, const FlushJobInfo& info) override {
     flushed_dbs_.push_back(db);
-    flushed_column_family_names_.push_back(name);
-    if (triggered_writes_slowdown) {
+    flushed_column_family_names_.push_back(info.cf_name);
+    if (info.triggered_writes_slowdown) {
       slowdown_count++;
     }
-    if (triggered_writes_stop) {
+    if (info.triggered_writes_stop) {
       stop_count++;
     }
+    // verify whether the previously created file matches the flushed file.
+    ASSERT_EQ(prev_fc_info_.db_name, db->GetName());
+    ASSERT_EQ(prev_fc_info_.cf_name, info.cf_name);
+    ASSERT_EQ(prev_fc_info_.job_id, info.job_id);
+    ASSERT_EQ(prev_fc_info_.file_path, info.file_path);
+    ASSERT_EQ(db->GetEnv()->GetThreadID(), info.thread_id);
+    ASSERT_GT(info.thread_id, 0U);
   }
 
   std::vector<std::string> flushed_column_family_names_;
   std::vector<DB*> flushed_dbs_;
   int slowdown_count;
   int stop_count;
+  bool db_closing;
+  std::atomic_bool db_closed;
+  TableFileCreationInfo prev_fc_info_;
+
+ protected:
+  Env* env_;
 };
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
   options.write_buffer_size = 100000;
-  TestFlushListener* listener = new TestFlushListener();
+#if ROCKSDB_USING_THREAD_STATUS
+  options.enable_thread_tracking = true;
+#endif  // ROCKSDB_USING_THREAD_STATUS
+  TestFlushListener* listener = new TestFlushListener(options.env);
   options.listeners.emplace_back(listener);
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
@@ -272,7 +325,10 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 TEST_F(EventListenerTest, MultiCF) {
   Options options;
   options.write_buffer_size = 100000;
-  TestFlushListener* listener = new TestFlushListener();
+#if ROCKSDB_USING_THREAD_STATUS
+  options.enable_thread_tracking = true;
+#endif  // ROCKSDB_USING_THREAD_STATUS
+  TestFlushListener* listener = new TestFlushListener(options.env);
   options.listeners.emplace_back(listener);
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
@@ -300,18 +356,21 @@ TEST_F(EventListenerTest, MultiCF) {
 }
 
 TEST_F(EventListenerTest, MultiDBMultiListeners) {
+  Options options;
+#if ROCKSDB_USING_THREAD_STATUS
+  options.enable_thread_tracking = true;
+#endif  // ROCKSDB_USING_THREAD_STATUS
   std::vector<TestFlushListener*> listeners;
   const int kNumDBs = 5;
   const int kNumListeners = 10;
   for (int i = 0; i < kNumListeners; ++i) {
-    listeners.emplace_back(new TestFlushListener());
+    listeners.emplace_back(new TestFlushListener(options.env));
   }
 
   std::vector<std::string> cf_names = {
       "pikachu", "ilya", "muromec", "dobrynia",
       "nikitich", "alyosha", "popovich"};
 
-  Options options;
   options.create_if_missing = true;
   for (int i = 0; i < kNumListeners; ++i) {
     options.listeners.emplace_back(listeners[i]);
@@ -362,6 +421,7 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
     }
   }
 
+
   for (auto handles : vec_handles) {
     for (auto h : handles) {
       delete h;
@@ -377,7 +437,10 @@ TEST_F(EventListenerTest, MultiDBMultiListeners) {
 
 TEST_F(EventListenerTest, DisableBGCompaction) {
   Options options;
-  TestFlushListener* listener = new TestFlushListener();
+#if ROCKSDB_USING_THREAD_STATUS
+  options.enable_thread_tracking = true;
+#endif  // ROCKSDB_USING_THREAD_STATUS
+  TestFlushListener* listener = new TestFlushListener(options.env);
   const int kSlowdownTrigger = 5;
   const int kStopTrigger = 10;
   options.level0_slowdown_writes_trigger = kSlowdownTrigger;
@@ -397,6 +460,7 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   // keep writing until writes are forced to stop.
   for (int i = 0; static_cast<int>(cf_meta.file_count) < kStopTrigger; ++i) {
     Put(1, ToString(i), std::string(100000, 'x'), wopts);
+    db_->Flush(FlushOptions());
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
   ASSERT_GE(listener->slowdown_count, kStopTrigger - kSlowdownTrigger);

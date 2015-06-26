@@ -27,6 +27,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
@@ -58,7 +59,9 @@ class CompactionJob {
                 std::vector<SequenceNumber> existing_snapshots,
                 std::shared_ptr<Cache> table_cache,
                 std::function<uint64_t()> yield_callback,
-                EventLogger* event_logger, bool paranoid_file_checks);
+                EventLogger* event_logger, bool paranoid_file_checks,
+                const std::string& dbname,
+                CompactionJobStats* compaction_job_stats);
 
   ~CompactionJob();
 
@@ -96,12 +99,22 @@ class CompactionJob {
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile();
   void CleanupCompaction(const Status& status);
+  void UpdateCompactionJobStats(
+    const InternalStats::CompactionStats& stats) const;
+  void RecordDroppedKeys(int64_t* key_drop_user,
+                         int64_t* key_drop_newer_entry,
+                         int64_t* key_drop_obsolete);
+
+  void UpdateCompactionInputStats();
+  void UpdateCompactionInputStatsHelper(
+      int* num_files, uint64_t* bytes_read, int input_level);
 
   int job_id_;
 
   // CompactionJob state
   struct CompactionState;
   CompactionState* compact_;
+  CompactionJobStats* compaction_job_stats_;
 
   bool bottommost_level_;
   SequenceNumber earliest_snapshot_;
@@ -111,6 +124,7 @@ class CompactionJob {
   InternalStats::CompactionStats compaction_stats_;
 
   // DBImpl state
+  const std::string& dbname_;
   const DBOptions& db_options_;
   const EnvOptions& env_options_;
   Env* env_;

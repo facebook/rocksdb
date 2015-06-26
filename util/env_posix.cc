@@ -256,7 +256,11 @@ class PosixRandomAccessFile: public RandomAccessFile {
     size_t left = n;
     char* ptr = scratch;
     while (left > 0) {
-      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      {
+        IOSTATS_TIMER_GUARD(read_nanos);
+        r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      }
+
       if (r <= 0) {
         if (errno == EINTR) {
           continue;
@@ -953,7 +957,11 @@ class PosixRandomRWFile : public RandomRWFile {
     size_t left = n;
     char* ptr = scratch;
     while (left > 0) {
-      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      {
+        IOSTATS_TIMER_GUARD(read_nanos);
+        r = pread(fd_, ptr, left, static_cast<off_t>(offset));
+      }
+
       if (r <= 0) {
         if (errno == EINTR) {
           continue;
@@ -1394,6 +1402,10 @@ class PosixEnv : public Env {
     return gettid(tid);
   }
 
+  virtual uint64_t GetThreadID() const override {
+    return gettid(pthread_self());
+  }
+
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result) override {
     FILE* f = fopen(fname.c_str(), "w");
@@ -1717,7 +1729,7 @@ class PosixEnv : public Env {
       ThreadPool* tp = meta->thread_pool_;
 #if ROCKSDB_USING_THREAD_STATUS
       // for thread-status
-      ThreadStatusUtil::SetThreadType(tp->env_,
+      ThreadStatusUtil::RegisterThread(tp->env_,
           (tp->GetThreadPriority() == Env::Priority::HIGH ?
               ThreadStatus::HIGH_PRIORITY :
               ThreadStatus::LOW_PRIORITY));
