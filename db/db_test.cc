@@ -94,8 +94,11 @@ class AtomicCounter {
     while (count_ < count) {
       uint64_t now = env_->NowMicros();
       cond_count_.TimedWait(now + /*1s*/ 1 * 000 * 000);
-      if (env_->NowMicros() - start > /*1s*/ 1 * 000 * 000) {
+      if (env_->NowMicros() - start > /*10s*/ 10 * 000 * 000) {
         return false;
+      }
+      if (count_ < count) {
+        GTEST_LOG_(WARNING) << "WaitFor is taking more time than usual";
       }
     }
 
@@ -7553,6 +7556,7 @@ TEST_F(DBTest, DropWrites) {
     // Force out-of-space errors
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
+    env_->no_sleep_ = true;
     for (int i = 0; i < 5; i++) {
       if (option_config_ != kUniversalCompactionMultiLevel) {
         for (int level = 0; level < dbfull()->NumberLevels(); level++) {
