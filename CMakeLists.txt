@@ -1,11 +1,20 @@
-# This cmake build is for Windows only
-# Set environment variable PACKAGES_HOME to point to your Pacman packages root (Unix style dir separators)
-# Use cmake -G "Visual Studio 12 Win64" for project file generation for Windows
-# Then use msbuild ALL_BUILD.vcxproj to build the debug version of the software or
-# msbuild ALL_BUILD.vcxproj /p:Configuration=Release to build the release version
+# This cmake build is for Windows only. It is as easy as 1-2-3-4-5:
+#
+# 1. Update paths to thirdparty libraries in thirdparty.cmake file
+# 2. Create a new directory for build artifacts
+#        mkdir build
+#        cd build
+# 3. Run cmake to generate project files for Windows
+#        cmake -G "Visual Studio 12 Win64" ..
+# 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
+#        msbuild ALL_BUILD.vcxproj
+# 5. And release mode (/m:<N> is also supported)
+#        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
 
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
+
+include(${CMAKE_CURRENT_SOURCE_DIR}/thirdparty.inc)
 
 execute_process(COMMAND $ENV{COMSPEC} " /C date /T" OUTPUT_VARIABLE DATE)
 execute_process(COMMAND $ENV{COMSPEC} " /C time /T" OUTPUT_VARIABLE TIME)
@@ -27,27 +36,12 @@ add_custom_command(OUTPUT ${BUILD_VERSION_CC}
 
 add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
 
-set(GFLAGS_HOME $ENV{PACKAGES_HOME}/Gflags.Library)
-set(GFLAGS_CXX_FLAGS -DGFLAGS=gflags)
-set(GFLAGS_INCLUDE ${GFLAGS_HOME}/inc/include)
-set(GFLAGS_LIBS debug ${GFLAGS_HOME}/bin/debug/amd64/gflags.lib optimized ${GFLAGS_HOME}/bin/retail/amd64/gflags.lib)
-
-set(SNAPPY_HOME $ENV{PACKAGES_HOME}/Snappy.Library)
-set(SNAPPY_CXX_FLAGS -DSNAPPY)
-set(SNAPPY_INCLUDE ${SNAPPY_HOME}/inc/inc)
-set(SNAPPY_LIBS debug ${SNAPPY_HOME}/bin/debug/amd64/snappy.lib optimized ${SNAPPY_HOME}/bin/retail/amd64/snappy.lib)
-
-set(JEMALLOC_HOME $ENV{PACKAGES_HOME}/Jemalloc.Library)
-set(JEMALLOC_CXX_FLAGS -DJEMALLOC)
-set(JEMALLOC_INCLUDE ${JEMALLOC_HOME}/inc/include)
-set(JEMALLOC_LIBS debug ${JEMALLOC_HOME}/bin/debug/amd64/jemalloc.lib optimized ${JEMALLOC_HOME}/bin/retail/amd64/jemalloc.lib)
-
 add_definitions(${GFLAGS_CXX_FLAGS} ${SNAPPY_CXX_FLAGS})
 include_directories(${GFLAGS_INCLUDE} ${SNAPPY_INCLUDE} ${JEMALLOC_INCLUDE})
 set (THIRDPARTY_LIBS ${GFLAGS_LIBS} ${SNAPPY_LIBS} ${JEMALLOC_LIBS})
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /W3 /WX /EHsc /GS /fp:precise /Zc:wchar_t /Zc:forScope /Gd /TP /errorReport:queue")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996" )
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996")
 
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /Oi /Gm- /Gy /MD")
@@ -225,19 +219,20 @@ set(SOURCES
 )
 
 add_library(rocksdblib ${SOURCES})
+set_target_properties(rocksdblib PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib.pdb")
 add_dependencies(rocksdblib GenerateBuildVersion)
 
 add_library(rocksdblib_je ${SOURCES})
-set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
+set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} /Fd${CMAKE_CFG_INTDIR}/rocksdblib_je.pdb")
 add_dependencies(rocksdblib_je GenerateBuildVersion)
 
 add_library(rocksdb SHARED ${SOURCES})
-set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb.pdb")
 add_dependencies(rocksdb GenerateBuildVersion)
 target_link_libraries(rocksdb ${LIBS})
 
 add_library(rocksdb_je SHARED ${SOURCES})
-set_target_properties(rocksdb_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} -DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS")
+set_target_properties(rocksdb_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} -DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb_je.pdb")
 add_dependencies(rocksdb_je GenerateBuildVersion)
 target_link_libraries(rocksdb_je ${LIBS_JE})
 
