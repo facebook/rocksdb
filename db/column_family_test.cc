@@ -98,10 +98,12 @@ class ColumnFamilyTest : public testing::Test {
                                &db_);
   }
 
+#ifndef ROCKSDB_LITE  // ReadOnlyDB is not supported
   void AssertOpenReadOnly(std::vector<std::string> cf,
                     std::vector<ColumnFamilyOptions> options = {}) {
     ASSERT_OK(OpenReadOnly(cf, options));
   }
+#endif  // !ROCKSDB_LITE
 
 
   void Open(std::vector<std::string> cf,
@@ -186,10 +188,28 @@ class ColumnFamilyTest : public testing::Test {
   }
 
   void WaitForFlush(int cf) {
+#ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
     ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable(handles_[cf]));
+#endif  // !ROCKSDB_LITE
   }
 
-  void WaitForCompaction() { ASSERT_OK(dbfull()->TEST_WaitForCompact()); }
+  void WaitForCompaction() {
+#ifndef ROCKSDB_LITE  // TEST functions are not supported in lite
+    ASSERT_OK(dbfull()->TEST_WaitForCompact());
+#endif  // !ROCKSDB_LITE
+  }
+
+  uint64_t MaxTotalInMemoryState() {
+#ifndef ROCKSDB_LITE
+    return dbfull()->TEST_MaxTotalInMemoryState();
+#else
+    return 0;
+#endif  // !ROCKSDB_LITE
+  }
+
+  void AssertMaxTotalInMemoryState(uint64_t value) {
+    ASSERT_EQ(value, MaxTotalInMemoryState());
+  }
 
   Status Put(int cf, const std::string& key, const std::string& value) {
     return db_->Put(WriteOptions(), handles_[cf], Slice(key), Slice(value));
@@ -229,6 +249,7 @@ class ColumnFamilyTest : public testing::Test {
                        "rocksdb.num-files-at-level" + ToString(level));
   }
 
+#ifndef ROCKSDB_LITE
   // Return spread of files per level
   std::string FilesPerLevel(int cf) {
     std::string result;
@@ -245,11 +266,26 @@ class ColumnFamilyTest : public testing::Test {
     result.resize(last_non_zero_offset);
     return result;
   }
+#endif
 
+  void AssertFilesPerLevel(const std::string& value, int cf) {
+#ifndef ROCKSDB_LITE
+    ASSERT_EQ(value, FilesPerLevel(cf));
+#endif
+  }
+
+#ifndef ROCKSDB_LITE  // GetLiveFilesMetaData is not supported
   int CountLiveFiles() {
     std::vector<LiveFileMetaData> metadata;
     db_->GetLiveFilesMetaData(&metadata);
     return static_cast<int>(metadata.size());
+  }
+#endif  // !ROCKSDB_LITE
+
+  void AssertCountLiveFiles(int expected_value) {
+#ifndef ROCKSDB_LITE
+    ASSERT_EQ(expected_value, CountLiveFiles());
+#endif
   }
 
   // Do n memtable flushes, each of which produces an sstable
@@ -263,6 +299,7 @@ class ColumnFamilyTest : public testing::Test {
     }
   }
 
+#ifndef ROCKSDB_LITE  // GetSortedWalFiles is not supported
   int CountLiveLogFiles() {
     int micros_wait_for_log_deletion = 20000;
     env_->SleepForMicroseconds(micros_wait_for_log_deletion);
@@ -289,15 +326,25 @@ class ColumnFamilyTest : public testing::Test {
       }
     }
     return ret;
+    return 0;
+  }
+#endif  // !ROCKSDB_LITE
+
+  void AssertCountLiveLogFiles(int value) {
+#ifndef ROCKSDB_LITE  // GetSortedWalFiles is not supported
+    ASSERT_EQ(value, CountLiveLogFiles());
+#endif  // !ROCKSDB_LITE
   }
 
   void AssertNumberOfImmutableMemtables(std::vector<int> num_per_cf) {
     assert(num_per_cf.size() == handles_.size());
 
+#ifndef ROCKSDB_LITE  // GetProperty is not supported in lite
     for (size_t i = 0; i < num_per_cf.size(); ++i) {
       ASSERT_EQ(num_per_cf[i], GetProperty(static_cast<int>(i),
                                            "rocksdb.num-immutable-mem-table"));
     }
+#endif  // !ROCKSDB_LITE
   }
 
   void CopyFile(const std::string& source, const std::string& destination,
@@ -410,10 +457,10 @@ TEST_F(ColumnFamilyTest, DropTest) {
     }
     ASSERT_EQ("bar1", Get(1, "1"));
 
-    ASSERT_EQ(CountLiveFiles(), 1);
+    AssertCountLiveFiles(1);
     DropColumnFamilies({1});
     // make sure that all files are deleted when we drop the column family
-    ASSERT_EQ(CountLiveFiles(), 0);
+    AssertCountLiveFiles(0);
     Destroy();
   }
 }
@@ -554,10 +601,9 @@ TEST_F(ColumnFamilyTest, FlushTest) {
 
     for (int i = 0; i < 3; ++i) {
       uint64_t max_total_in_memory_state =
-          dbfull()->TEST_MaxTotalInMemoryState();
+          MaxTotalInMemoryState();
       Flush(i);
-      ASSERT_EQ(dbfull()->TEST_MaxTotalInMemoryState(),
-                max_total_in_memory_state);
+      AssertMaxTotalInMemoryState(max_total_in_memory_state);
     }
     ASSERT_OK(Put(1, "foofoo", "bar"));
     ASSERT_OK(Put(0, "foofoo", "bar"));
@@ -592,7 +638,7 @@ TEST_F(ColumnFamilyTest, LogDeletionTest) {
   // Each bracket is one log file. if number is in (), it means
   // we don't need it anymore (it's been flushed)
   // []
-  ASSERT_EQ(CountLiveLogFiles(), 0);
+  AssertCountLiveLogFiles(0);
   PutRandomData(0, 1, 100);
   // [0]
   PutRandomData(1, 1, 100);
@@ -600,53 +646,53 @@ TEST_F(ColumnFamilyTest, LogDeletionTest) {
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [1]
-  ASSERT_EQ(CountLiveLogFiles(), 2);
+  AssertCountLiveLogFiles(2);
   PutRandomData(0, 1, 100);
   // [0, (1)] [0, 1]
-  ASSERT_EQ(CountLiveLogFiles(), 2);
+  AssertCountLiveLogFiles(2);
   PutRandomData(2, 1, 100);
   // [0, (1)] [0, 1, 2]
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [2]
-  ASSERT_EQ(CountLiveLogFiles(), 3);
+  AssertCountLiveLogFiles(3);
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [0, (1)] [0, 1, (2)] [(2)] [2]
-  ASSERT_EQ(CountLiveLogFiles(), 4);
+  AssertCountLiveLogFiles(4);
   PutRandomData(3, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [2, 3]
   PutRandomData(1, 1, 100);
   // [0, (1)] [0, 1, (2)] [(2)] [1, 2, 3]
-  ASSERT_EQ(CountLiveLogFiles(), 4);
+  AssertCountLiveLogFiles(4);
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [0, (1)] [0, (1), (2)] [(2)] [(1), 2, 3] [1]
-  ASSERT_EQ(CountLiveLogFiles(), 5);
+  AssertCountLiveLogFiles(5);
   PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(0), (1)] [(0), (1), (2)] [(2)] [(1), 2, 3] [1, (0)] [0]
   // delete obsolete logs -->
   // [(1), 2, 3] [1, (0)] [0]
-  ASSERT_EQ(CountLiveLogFiles(), 3);
+  AssertCountLiveLogFiles(3);
   PutRandomData(0, 1000, 100);
   WaitForFlush(0);
   // [(1), 2, 3] [1, (0)], [(0)] [0]
-  ASSERT_EQ(CountLiveLogFiles(), 4);
+  AssertCountLiveLogFiles(4);
   PutRandomData(1, 1000, 100);
   WaitForFlush(1);
   // [(1), 2, 3] [(1), (0)] [(0)] [0, (1)] [1]
-  ASSERT_EQ(CountLiveLogFiles(), 5);
+  AssertCountLiveLogFiles(5);
   PutRandomData(2, 1000, 100);
   WaitForFlush(2);
   // [(1), (2), 3] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2]
-  ASSERT_EQ(CountLiveLogFiles(), 6);
+  AssertCountLiveLogFiles(6);
   PutRandomData(3, 1000, 100);
   WaitForFlush(3);
   // [(1), (2), (3)] [(1), (0)] [(0)] [0, (1)] [1, (2)], [2, (3)] [3]
   // delete obsolete logs -->
   // [0, (1)] [1, (2)], [2, (3)] [3]
-  ASSERT_EQ(CountLiveLogFiles(), 4);
+  AssertCountLiveLogFiles(4);
   Close();
 }
 
@@ -685,72 +731,73 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   PutRandomData(0, 100, 1000);
   WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 1);
+  AssertCountLiveLogFiles(1);
   PutRandomData(1, 200, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 2);
+  AssertCountLiveLogFiles(2);
   PutRandomData(2, 1000, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 1, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 3);
+  AssertCountLiveLogFiles(3);
   PutRandomData(2, 1000, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 4);
+  AssertCountLiveLogFiles(4);
   PutRandomData(3, 90, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 1});
-  ASSERT_EQ(CountLiveLogFiles(), 5);
+  AssertCountLiveLogFiles(5);
   PutRandomData(3, 90, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 2});
-  ASSERT_EQ(CountLiveLogFiles(), 6);
+  AssertCountLiveLogFiles(6);
   PutRandomData(3, 90, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 3});
-  ASSERT_EQ(CountLiveLogFiles(), 7);
+  AssertCountLiveLogFiles(7);
   PutRandomData(0, 100, 1000);
   WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 1, 2, 3});
-  ASSERT_EQ(CountLiveLogFiles(), 8);
+  AssertCountLiveLogFiles(8);
   PutRandomData(2, 100, 10000);
   WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 1, 0, 3});
-  ASSERT_EQ(CountLiveLogFiles(), 9);
+  AssertCountLiveLogFiles(9);
   PutRandomData(3, 90, 1000);
   WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 1, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 10);
+  AssertCountLiveLogFiles(10);
   PutRandomData(3, 90, 1000);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 0, 1});
-  ASSERT_EQ(CountLiveLogFiles(), 11);
+  AssertCountLiveLogFiles(11);
   PutRandomData(1, 200, 1000);
   WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 1});
-  ASSERT_EQ(CountLiveLogFiles(), 5);
+  AssertCountLiveLogFiles(5);
   PutRandomData(3, 240, 1000);
   WaitForFlush(3);
   PutRandomData(3, 300, 1000);
   WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 12);
+  AssertCountLiveLogFiles(12);
   PutRandomData(0, 100, 1000);
   WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 12);
+  AssertCountLiveLogFiles(12);
   PutRandomData(2, 3*100, 10000);
   WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 12);
+  AssertCountLiveLogFiles(12);
   PutRandomData(1, 2*200, 1000);
   WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
-  ASSERT_EQ(CountLiveLogFiles(), 7);
+  AssertCountLiveLogFiles(7);
   Close();
 }
 
+#ifndef ROCKSDB_LITE  // Cuckoo is not supported in lite
 TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
   Open();
   auto* s1 = dbfull()->GetSnapshot();
@@ -771,6 +818,7 @@ TEST_F(ColumnFamilyTest, MemtableNotSupportSnapshot) {
   ASSERT_TRUE(s3 == nullptr);
   Close();
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(ColumnFamilyTest, DifferentMergeOperators) {
   Open();
@@ -819,6 +867,7 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   default_cf.table_factory.reset(NewBlockBasedTableFactory(table_options));
 
   one.compaction_style = kCompactionStyleUniversal;
+
   one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
@@ -836,14 +885,14 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
     PutRandomData(1, 11, 10000);
     WaitForFlush(1);
-    ASSERT_EQ(ToString(i + 1), FilesPerLevel(1));
+    AssertFilesPerLevel(ToString(i + 1), 1);
   }
 
   // SETUP column family "two" -- level style with 4 levels
   for (int i = 0; i < two.level0_file_num_compaction_trigger - 1; ++i) {
     PutRandomData(2, 15, 10000);
     WaitForFlush(2);
-    ASSERT_EQ(ToString(i + 1), FilesPerLevel(2));
+    AssertFilesPerLevel(ToString(i + 1), 2);
   }
 
   // TRIGGER compaction "one"
@@ -856,16 +905,17 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   WaitForCompaction();
 
   // VERIFY compaction "one"
-  ASSERT_EQ("1", FilesPerLevel(1));
+  AssertFilesPerLevel("1", 1);
 
   // VERIFY compaction "two"
-  ASSERT_EQ("0,1", FilesPerLevel(2));
+  AssertFilesPerLevel("0,1", 2);
   CompactAll(2);
-  ASSERT_EQ("0,1", FilesPerLevel(2));
+  AssertFilesPerLevel("0,1", 2);
 
   Close();
 }
 
+#ifndef ROCKSDB_LITE  // Tailing interator not supported
 namespace {
 std::string IterStatus(Iterator* iter) {
   std::string result;
@@ -922,7 +972,9 @@ TEST_F(ColumnFamilyTest, NewIteratorsTest) {
     Destroy();
   }
 }
+#endif  // !ROCKSDB_LITE
 
+#ifndef ROCKSDB_LITE  // ReadOnlyDB is not supported
 TEST_F(ColumnFamilyTest, ReadOnlyDBTest) {
   Open();
   CreateColumnFamiliesAndReopen({"one", "two", "three", "four"});
@@ -972,6 +1024,7 @@ TEST_F(ColumnFamilyTest, ReadOnlyDBTest) {
   s = OpenReadOnly({"one", "four"});
   ASSERT_TRUE(!s.ok());
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(ColumnFamilyTest, DontRollEmptyLogs) {
   Open();
@@ -987,7 +1040,7 @@ TEST_F(ColumnFamilyTest, DontRollEmptyLogs) {
   }
 
   for (int i = 0; i < 4; ++i) {
-    dbfull()->TEST_WaitForFlushMemTable(handles_[i]);
+    WaitForFlush(i);
   }
   int total_new_writable_files =
       env_->GetNumberOfNewWritableFileCalls() - num_writable_file_start;
@@ -1011,7 +1064,8 @@ TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   for (int i = 0; i < 2; ++i) {
     PutRandomData(0, 100, 1000);  // flush
     WaitForFlush(0);
-    ASSERT_EQ(i + 1, CountLiveFiles());
+
+    AssertCountLiveFiles(i + 1);
   }
   // third flush. now, CF [two] should be detected as stale and flushed
   // column family 1 should not be flushed since it's empty
@@ -1020,7 +1074,7 @@ TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   WaitForFlush(2);
   // 3 files for default column families, 1 file for column family [two], zero
   // files for column family [one], because it's empty
-  ASSERT_EQ(4, CountLiveFiles());
+  AssertCountLiveFiles(4);
   Close();
 }
 
