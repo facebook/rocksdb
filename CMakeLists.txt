@@ -1,5 +1,11 @@
-# This cmake build is for Windows only. It is as easy as 1-2-3-4-5:
+# This cmake build is for Windows only.
 #
+# Prerequisites:
+#     You must have Visual Studio 2013 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
+#
+# To build Rocksdb for Windows is as easy as 1-2-3-4-5:
+# 
 # 1. Update paths to thirdparty libraries in thirdparty.cmake file
 # 2. Create a new directory for build artifacts
 #        mkdir build
@@ -10,6 +16,7 @@
 #        msbuild ALL_BUILD.vcxproj
 # 5. And release mode (/m:<N> is also supported)
 #        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
+#
 
 cmake_minimum_required(VERSION 2.6)
 project(rocksdb)
@@ -186,6 +193,7 @@ set(SOURCES
         util/sync_point.cc
         util/testharness.cc
         util/testutil.cc
+        util/thread_local.cc
         util/thread_status_impl.cc
         util/thread_status_updater.cc
         util/thread_status_updater_debug.cc
@@ -194,7 +202,6 @@ set(SOURCES
         util/vectorrep.cc
         util/xfunc.cc
         util/xxhash.cc
-        util/thread_local.cc
         utilities/backupable/backupable_db.cc
         utilities/checkpoint/checkpoint.cc
         utilities/compacted_db/compacted_db_impl.cc
