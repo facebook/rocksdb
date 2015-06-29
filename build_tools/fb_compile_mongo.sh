@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# fail early
+set -e
+
 if test -z $ROCKSDB_PATH; then
   ROCKSDB_PATH=~/rocksdb
 fi
