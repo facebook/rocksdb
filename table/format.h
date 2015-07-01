@@ -191,6 +191,18 @@ struct BlockContents {
         cachable(_cachable),
         compression_type(_compression_type),
         allocation(std::move(_data)) {}
+
+  BlockContents(BlockContents&& other) {
+      *this = std::move(other);
+  }
+
+  BlockContents& operator=(BlockContents&& other) {
+      data = std::move(other.data);
+      cachable = other.cachable;
+      compression_type = other.compression_type;
+      allocation = std::move(other.allocation);
+      return *this;
+  }
 };
 
 // Read the block identified by "handle" from "file".  On failure

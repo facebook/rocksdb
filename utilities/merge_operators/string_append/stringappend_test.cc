@@ -23,7 +23,7 @@ using namespace rocksdb;
 namespace rocksdb {
 
 // Path to the database on file system
-const std::string kDbName = "/tmp/mergetestdb";
+const std::string kDbName = test::TmpDir();
 
 namespace {
 // OpenDb opens a (possibly new) rocksdb database with a StringAppendOperator

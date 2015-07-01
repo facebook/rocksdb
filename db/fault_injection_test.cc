@@ -77,9 +77,12 @@ Status Truncate(Env* env, const std::string& filename, uint64_t length) {
     return s;
   }
 
-  char* scratch = new char[length];
+  std::unique_ptr<char[]> scratch(new char[length]);
   rocksdb::Slice result;
-  s = orig_file->Read(length, &result, scratch);
+  s = orig_file->Read(length, &result, scratch.get());
+#ifdef OS_WIN
+  orig_file.reset();
+#endif
   if (s.ok()) {
     std::string tmp_name = GetDirName(filename) + "/truncate.tmp";
     unique_ptr<WritableFile> tmp_file;
@@ -99,8 +102,6 @@ Status Truncate(Env* env, const std::string& filename, uint64_t length) {
     fprintf(stderr, "Cannot truncate file %s: %s\n", filename.c_str(),
             s.ToString().c_str());
   }
-
-  delete[] scratch;
 
   return s;
 }

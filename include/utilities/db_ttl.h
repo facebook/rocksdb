@@ -4,5 +4,9 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #pragma once
-#warning This file was moved to rocksdb/utilities/db_ttl.h
+
+#include "pragma_error.h"
+
+ROCKSDB_WARNING("This file was moved to rocksdb/utilities/db_ttl.h")
+
 #include "rocksdb/utilities/db_ttl.h"

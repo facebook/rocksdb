@@ -357,7 +357,13 @@ private:
    * Otherwise an exception is thrown.
    */
   bool StringToBool(string val) {
-    std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+      
+    std::transform(val.begin(), val.end(), val.begin(),
+                   [](char ch) -> char
+                   {
+                       return ::tolower(ch);
+                   });
+                   
     if (val == "true") {
       return true;
     } else if (val == "false") {

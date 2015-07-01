@@ -6,6 +6,7 @@
 
 #include <sstream>
 #include "util/perf_level_imp.h"
+#include "port/port.h"
 
 namespace rocksdb {
 

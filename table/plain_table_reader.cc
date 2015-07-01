@@ -90,7 +90,7 @@ class PlainTableIterator : public Iterator {
 
 extern const uint64_t kPlainTableMagicNumber;
 PlainTableReader::PlainTableReader(const ImmutableCFOptions& ioptions,
-                                   unique_ptr<RandomAccessFile>&& file,
+                                   std::unique_ptr<RandomAccessFile>&& file,
                                    const EnvOptions& storage_options,
                                    const InternalKeyComparator& icomparator,
                                    EncodingType encoding_type,
@@ -114,13 +114,11 @@ PlainTableReader::~PlainTableReader() {
 
 Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
                               const EnvOptions& env_options,
+                              const PlainTableOptions& table_options,
                               const InternalKeyComparator& internal_comparator,
-                              unique_ptr<RandomAccessFile>&& file,
+                              std::unique_ptr<RandomAccessFile>&& file,
                               uint64_t file_size,
-                              unique_ptr<TableReader>* table_reader,
-                              const int bloom_bits_per_key,
-                              double hash_table_ratio, size_t index_sparseness,
-                              size_t huge_page_tlb_size, bool full_scan_mode) {
+                              std::unique_ptr<TableReader>* table_reader) {
   assert(ioptions.allow_mmap_reads);
   if (file_size > PlainTableIndex::kMaxFileSize) {
     return Status::NotSupported("File is too large for PlainTableReader!");
@@ -133,12 +131,12 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
     return s;
   }
 
-  assert(hash_table_ratio >= 0.0);
+  assert(table_options.hash_table_ratio >= 0.0);
   auto& user_props = props->user_collected_properties;
   auto prefix_extractor_in_file =
       user_props.find(PlainTablePropertyNames::kPrefixExtractorName);
 
-  if (!full_scan_mode && prefix_extractor_in_file != user_props.end()) {
+  if (!table_options.full_scan_mode && prefix_extractor_in_file != user_props.end()) {
     if (!ioptions.prefix_extractor) {
       return Status::InvalidArgument(
           "Prefix extractor is missing when opening a PlainTable built "
@@ -168,9 +166,11 @@ Status PlainTableReader::Open(const ImmutableCFOptions& ioptions,
     return s;
   }
 
-  if (!full_scan_mode) {
-    s = new_reader->PopulateIndex(props, bloom_bits_per_key, hash_table_ratio,
-                                  index_sparseness, huge_page_tlb_size);
+  if (!table_options.full_scan_mode) {
+    s = new_reader->PopulateIndex(props, table_options.bloom_bits_per_key, 
+                                  table_options.hash_table_ratio,
+                                  table_options.index_sparseness, 
+                                  table_options.huge_page_tlb_size);
     if (!s.ok()) {
       return s;
     }

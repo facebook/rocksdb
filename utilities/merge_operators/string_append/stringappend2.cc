@@ -33,7 +33,7 @@ bool StringAppendTESTOperator::FullMerge(
   new_value->clear();
 
   // Compute the space needed for the final result.
-  int numBytes = 0;
+  size_t numBytes = 0;
   for(auto it = operands.begin(); it != operands.end(); ++it) {
     numBytes += it->size() + 1;   // Plus 1 for the delimiter
   }

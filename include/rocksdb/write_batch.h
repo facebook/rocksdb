@@ -26,6 +26,7 @@
 #define STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
 
 #include <string>
+#include <stdint.h>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 

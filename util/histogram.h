@@ -52,6 +52,9 @@ class HistogramBucketMapper {
 
 class HistogramImpl {
  public:
+  HistogramImpl() {
+    memset(buckets_, 0, sizeof(buckets_));
+  }
   virtual void Clear();
   virtual bool Empty();
   virtual void Add(uint64_t value);
@@ -75,7 +78,7 @@ class HistogramImpl {
   double num_ = 0;
   double sum_ = 0;
   double sum_squares_ = 0;
-  uint64_t buckets_[138] = {0};  // this is BucketMapper::BucketCount()
+  uint64_t buckets_[138];  // this is BucketMapper::BucketCount()
 };
 
 }  // namespace rocksdb

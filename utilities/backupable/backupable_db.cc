@@ -1330,7 +1330,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
                   sequence_number_);
-  len += snprintf(buf.get() + len, buf_size - len, "%zu\n", files_.size());
+  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n", files_.size());
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",

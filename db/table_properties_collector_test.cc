@@ -267,8 +267,8 @@ class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
-extern uint64_t kBlockBasedTableMagicNumber;
-extern uint64_t kPlainTableMagicNumber;
+extern const uint64_t kBlockBasedTableMagicNumber;
+extern const uint64_t kPlainTableMagicNumber;
 namespace {
 void TestCustomizedTablePropertiesCollector(
     bool backward_mode, uint64_t magic_number, bool test_int_tbl_prop_collector,
@@ -383,6 +383,7 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
                                            kBlockBasedTableMagicNumber,
                                            encode_as_internal, options, ikc);
 
+#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
     // test plain table
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 8;
@@ -394,6 +395,7 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
     TestCustomizedTablePropertiesCollector(backward_mode_,
                                            kPlainTableMagicNumber,
                                            encode_as_internal, options, ikc);
+#endif  // !ROCKSDB_LITE
   }
 }
 
@@ -495,6 +497,7 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
         std::make_shared<BlockBasedTableFactory>());
   }
 
+#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
   plain_table_options.bloom_bits_per_key = 8;
@@ -503,6 +506,7 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
   TestInternalKeyPropertiesCollector(
       backward_mode_, kPlainTableMagicNumber, false /* not sanitize */,
       std::make_shared<PlainTableFactory>(plain_table_options));
+#endif  // !ROCKSDB_LITE
 }
 
 INSTANTIATE_TEST_CASE_P(InternalKeyPropertiesCollector, TablePropertiesTest,

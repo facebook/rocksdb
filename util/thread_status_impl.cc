@@ -100,7 +100,7 @@ std::map<std::string, uint64_t>
       property_map.insert(
           {"BaseInputLevel", op_properties[i] >> 32});
       property_map.insert(
-          {"OutputLevel", op_properties[i] % (1LU << 32)});
+          {"OutputLevel", op_properties[i] % (uint64_t(1) << 32U)});
     } else if (op_type == OP_COMPACTION &&
                i == COMPACTION_PROP_FLAGS) {
       property_map.insert(

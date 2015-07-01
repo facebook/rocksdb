@@ -26,6 +26,9 @@ class BlockHandle;
 class WritableFile;
 struct BlockBasedTableOptions;
 
+extern const uint64_t kBlockBasedTableMagicNumber;
+extern const uint64_t kLegacyBlockBasedTableMagicNumber;
+
 class BlockBasedTableBuilder : public TableBuilder {
  public:
   // Create a builder that will store the contents of the table it is

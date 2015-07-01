@@ -628,8 +628,12 @@ class SharedState {
     }
     fprintf(stdout, "Creating %ld locks\n", num_locks * FLAGS_column_families);
     key_locks_.resize(FLAGS_column_families);
+
     for (int i = 0; i < FLAGS_column_families; ++i) {
-      key_locks_[i] = std::vector<port::Mutex>(num_locks);
+      key_locks_[i].resize(num_locks);
+      for (auto& ptr : key_locks_[i]) {
+        ptr.reset(new port::Mutex);
+      }
     }
   }
 
@@ -708,18 +712,18 @@ class SharedState {
   bool HasVerificationFailedYet() { return verification_failure_.load(); }
 
   port::Mutex* GetMutexForKey(int cf, long key) {
-    return &key_locks_[cf][key >> log2_keys_per_lock_];
+    return key_locks_[cf][key >> log2_keys_per_lock_].get();
   }
 
   void LockColumnFamily(int cf) {
     for (auto& mutex : key_locks_[cf]) {
-      mutex.Lock();
+      mutex->Lock();
     }
   }
 
   void UnlockColumnFamily(int cf) {
     for (auto& mutex : key_locks_[cf]) {
-      mutex.Unlock();
+      mutex->Unlock();
     }
   }
 
@@ -764,7 +768,9 @@ class SharedState {
   std::atomic<bool> verification_failure_;
 
   std::vector<std::vector<uint32_t>> values_;
-  std::vector<std::vector<port::Mutex>> key_locks_;
+  // Has to make it owned by a smart ptr as port::Mutex is not copyable
+  // and storing it in the container may require copying depending on the impl.
+  std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
 };
 
 const uint32_t SharedState::SENTINEL = 0xffffffff;
@@ -930,7 +936,8 @@ class StressTest {
     if (FLAGS_set_options_one_in <= 0) {
       return true;
     }
-    options_table_ = {
+
+    std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
       {"write_buffer_size",
         {
           ToString(FLAGS_write_buffer_size),
@@ -1040,6 +1047,9 @@ class StressTest {
       {"max_mem_compaction_level", {"0", "1", "2"}},
       {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
     };
+
+    options_table_ = std::move(options_tbl);
+
     for (const auto& iter : options_table_) {
       options_index_.push_back(iter.first);
     }

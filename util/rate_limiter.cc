@@ -32,13 +32,13 @@ GenericRateLimiter::GenericRateLimiter(int64_t rate_bytes_per_sec,
       stop_(false),
       exit_cv_(&request_mutex_),
       requests_to_wait_(0),
-      total_requests_{0, 0},
-      total_bytes_through_{0, 0},
       available_bytes_(0),
       next_refill_us_(env_->NowMicros()),
       fairness_(fairness > 100 ? 100 : fairness),
       rnd_((uint32_t)time(nullptr)),
       leader_(nullptr) {
+  total_requests_[0] = 0;
+  total_requests_[1] = 0;
   total_bytes_through_[0] = 0;
   total_bytes_through_[1] = 0;
 }

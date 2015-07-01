@@ -25,6 +25,11 @@
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "port/port.h"
+
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
 
 namespace rocksdb {
 
@@ -39,6 +44,7 @@ class Directory;
 struct DBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
+struct ThreadStatus;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -158,6 +164,7 @@ class Env {
   virtual Status GetChildren(const std::string& dir,
                              std::vector<std::string>* result) = 0;
 
+#undef DeleteFile
   // Delete the named file.
   virtual Status DeleteFile(const std::string& fname) = 0;
 
@@ -546,8 +553,6 @@ class WritableFile {
   void operator=(const WritableFile&);
 
  protected:
-  friend class WritableFileWrapper;
-
   Env::IOPriority io_priority_;
 };
 
@@ -885,47 +890,6 @@ class EnvWrapper : public Env {
 
  private:
   Env* target_;
-};
-
-// An implementation of WritableFile that forwards all calls to another
-// WritableFile. May be useful to clients who wish to override just part of the
-// functionality of another WritableFile.
-// It's declared as friend of WritableFile to allow forwarding calls to
-// protected virtual methods.
-class WritableFileWrapper : public WritableFile {
- public:
-  explicit WritableFileWrapper(WritableFile* t) : target_(t) { }
-
-  Status Append(const Slice& data) override { return target_->Append(data); }
-  Status Close() override { return target_->Close(); }
-  Status Flush() override { return target_->Flush(); }
-  Status Sync() override { return target_->Sync(); }
-  Status Fsync() override { return target_->Fsync(); }
-  void SetIOPriority(Env::IOPriority pri) override {
-    target_->SetIOPriority(pri);
-  }
-  uint64_t GetFileSize() override { return target_->GetFileSize(); }
-  void GetPreallocationStatus(size_t* block_size,
-                              size_t* last_allocated_block) override {
-    target_->GetPreallocationStatus(block_size, last_allocated_block);
-  }
-  size_t GetUniqueId(char* id, size_t max_size) const override {
-    return target_->GetUniqueId(id, max_size);
-  }
-  Status InvalidateCache(size_t offset, size_t length) override {
-    return target_->InvalidateCache(offset, length);
-  }
-
- protected:
-  Status Allocate(off_t offset, off_t len) override {
-    return target_->Allocate(offset, len);
-  }
-  Status RangeSync(off_t offset, off_t nbytes) override {
-    return target_->RangeSync(offset, nbytes);
-  }
-
- private:
-  WritableFile* target_;
 };
 
 // Returns a new environment that stores its data in memory and delegates

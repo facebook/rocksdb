@@ -8,6 +8,7 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 
 #include <memory>
+#include <limits>
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
