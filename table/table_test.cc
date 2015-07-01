@@ -23,6 +23,7 @@
 #include "db/writebuffer.h"
 
 #include "rocksdb/cache.h"
+#include "rocksdb/compression.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"

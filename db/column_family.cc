@@ -28,6 +28,7 @@
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
+#include "rocksdb/compression.h"
 #include "util/autovector.h"
 #include "util/compression.h"
 #include "util/hash_skiplist_rep.h"
