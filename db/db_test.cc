@@ -78,21 +78,42 @@ static std::string RandomString(Random* rnd, int len) {
 namespace anon {
 class AtomicCounter {
  private:
+  Env* env_;
   port::Mutex mu_;
+  port::CondVar cond_count_;
   int count_;
  public:
-  AtomicCounter() : count_(0) { }
+  AtomicCounter(Env* env = NULL) : env_(env), cond_count_(&mu_), count_(0) {}
   void Increment() {
     MutexLock l(&mu_);
     count_++;
+    cond_count_.SignalAll();
   }
   int Read() {
     MutexLock l(&mu_);
     return count_;
   }
+  bool WaitFor(int count) {
+    MutexLock l(&mu_);
+
+    uint64_t start = env_->NowMicros();
+    while (count_ < count) {
+      uint64_t now = env_->NowMicros();
+      cond_count_.TimedWait(now + /*1s*/ 1 * 000 * 000);
+      if (env_->NowMicros() - start > /*10s*/ 10 * 000 * 000) {
+        return false;
+      }
+      if (count_ < count) {
+        GTEST_LOG_(WARNING) << "WaitFor is taking more time than usual";
+      }
+    }
+
+    return true;
+  }
   void Reset() {
     MutexLock l(&mu_);
     count_ = 0;
+    cond_count_.SignalAll();
   }
 };
 
@@ -165,7 +186,11 @@ class SpecialEnv : public EnvWrapper {
   bool no_sleep_;
 
   explicit SpecialEnv(Env* base)
-      : EnvWrapper(base), rnd_(301), addon_time_(0), no_sleep_(false) {
+      : EnvWrapper(base),
+        rnd_(301),
+        sleep_counter_(this),
+        addon_time_(0),
+        no_sleep_(false) {
     delay_sstable_sync_.store(false, std::memory_order_release);
     drop_writes_.store(false, std::memory_order_release);
     no_space_.store(false, std::memory_order_release);
@@ -7537,6 +7562,7 @@ TEST_F(DBTest, DropWrites) {
     // Force out-of-space errors
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
+    env_->no_sleep_ = true;
     for (int i = 0; i < 5; i++) {
       if (option_config_ != kUniversalCompactionMultiLevel) {
         for (int level = 0; level < dbfull()->NumberLevels(); level++) {
@@ -7559,7 +7585,7 @@ TEST_F(DBTest, DropWrites) {
     ASSERT_LT(CountFiles(), num_files + 3);
 
     // Check that compaction attempts slept after errors
-    ASSERT_GE(env_->sleep_counter_.Read(), 5);
+    ASSERT_TRUE(env_->sleep_counter_.WaitFor(5));
   } while (ChangeCompactOptions());
 }
 
@@ -10817,6 +10843,19 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     // should stop here...
     ASSERT_TRUE(!iter->Valid());
   }
+  // Testing SeekToLast with iterate_upper_bound set
+  {
+    ReadOptions ro;
+
+    Slice prefix("foo");
+    ro.iterate_upper_bound = &prefix;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("a")), 0);
+  }
 
   // prefix is the first letter of the key
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -11314,6 +11353,17 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
       CreateAndReopenWithCF({"pikachu"}, options);
     }
   }
+}
+
+TEST_F(DBTest, PreShutdownFlush) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "key", "value"));
+  CancelAllBackgroundWork(db_);
+  Status s =
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_TRUE(s.IsShutdownInProgress());
 }
 
 TEST_F(DBTest, PreShutdownMultipleCompaction) {
@@ -14076,6 +14126,29 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(Get("foo"), "bar");
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+}
+
+TEST_F(DBTest, PrevAfterMerge) {
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  DestroyAndReopen(options);
+
+  // write three entries with different keys using Merge()
+  WriteOptions wopts;
+  db_->Merge(wopts, "1", "data1");
+  db_->Merge(wopts, "2", "data2");
+  db_->Merge(wopts, "3", "data3");
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+
+  it->Seek("2");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("2", it->key().ToString());
+
+  it->Prev();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("1", it->key().ToString());
 }
 
 }  // namespace rocksdb

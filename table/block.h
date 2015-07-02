@@ -10,6 +10,9 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#include <malloc.h>
+#endif
 
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -37,6 +40,14 @@ class Block {
   size_t size() const { return size_; }
   const char* data() const { return data_; }
   bool cachable() const { return contents_.cachable; }
+  size_t usable_size() const {
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+    if (contents_.allocation.get() != nullptr) {
+      return malloc_usable_size(contents_.allocation.get());
+    }
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
+    return size_;
+  }
   uint32_t NumRestarts() const;
   CompressionType compression_type() const {
     return contents_.compression_type;

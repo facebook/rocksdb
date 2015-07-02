@@ -11,6 +11,11 @@ int main() {
 }
 #else
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <gflags/gflags.h>
 #include <iostream>
 
@@ -87,7 +92,7 @@ int main(int argc, char** argv) {
     status = env->GetAbsolutePath(argv[1], &abspath);
     snprintf(json, sizeof(json),
              "{ \"database-path\": \"%s\", \"hostname\": \"%s\", "
-             "\"creation-time\": %ld }",
+             "\"creation-time\": %" PRIi64 " }",
              abspath.c_str(), hostname, timesec);
   }
 

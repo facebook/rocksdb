@@ -20,11 +20,11 @@ bool MergeOperator::PartialMergeMulti(const Slice& key,
                                       Logger* logger) const {
   assert(operand_list.size() >= 2);
   // Simply loop through the operands
-  std::string temp_value;
   Slice temp_slice(operand_list[0]);
 
   for (size_t i = 1; i < operand_list.size(); ++i) {
     auto& operand = operand_list[i];
+    std::string temp_value;
     if (!PartialMerge(key, temp_slice, operand, &temp_value, logger)) {
       return false;
     }
@@ -48,9 +48,9 @@ bool AssociativeMergeOperator::FullMerge(
 
   // Simply loop through the operands
   Slice temp_existing;
-  std::string temp_value;
   for (const auto& operand : operand_list) {
     Slice value(operand);
+    std::string temp_value;
     if (!Merge(key, existing_value, value, &temp_value, logger)) {
       return false;
     }
