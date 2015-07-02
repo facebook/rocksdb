@@ -7,8 +7,8 @@
 #include <string>
 #include <set>
 
+#include "rocksdb/compression.h"
 #include "rocksdb/utilities/spatial_db.h"
-#include "util/compression.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/random.h"

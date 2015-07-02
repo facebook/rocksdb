@@ -53,6 +53,7 @@
 #include "rocksdb/cache.h"
 #include "port/likely.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/compression.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
