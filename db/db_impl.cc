@@ -527,6 +527,24 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   versions_->GetObsoleteFiles(&job_context->sst_delete_files,
                               job_context->min_pending_output);
 
+  uint64_t min_log_number = versions_->MinLogNumber();
+  if (!alive_log_files_.empty()) {
+    // find newly obsoleted log files
+    while (alive_log_files_.begin()->number < min_log_number) {
+      auto& earliest = *alive_log_files_.begin();
+      job_context->log_delete_files.push_back(earliest.number);
+      total_log_size_ -= earliest.size;
+      alive_log_files_.pop_front();
+      // Current log should always stay alive since it can't have
+      // number < MinLogNumber().
+      assert(alive_log_files_.size());
+    }
+  }
+
+  // We're just cleaning up for DB::Write().
+  job_context->logs_to_free = logs_to_free_;
+  logs_to_free_.clear();
+
   // store the current filenum, lognum, etc
   job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
@@ -1309,17 +1327,6 @@ Status DBImpl::FlushMemTableToOutputFile(
     VersionStorageInfo::LevelSummaryStorage tmp;
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
                 cfd->current()->storage_info()->LevelSummary(&tmp));
-
-    if (disable_delete_obsolete_files_ == 0) {
-      // add to deletion state
-      while (alive_log_files_.size() &&
-             alive_log_files_.begin()->number < versions_->MinLogNumber()) {
-        const auto& earliest = *alive_log_files_.begin();
-        job_context->log_delete_files.push_back(earliest.number);
-        total_log_size_ -= earliest.size;
-        alive_log_files_.pop_front();
-      }
-    }
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && db_options_.paranoid_checks &&
@@ -2145,7 +2152,9 @@ void DBImpl::RecordFlushIOStats() {
 
 void DBImpl::BGWorkFlush(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
+  TEST_SYNC_POINT("DBImpl::BGWorkFlush");
   reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
+  TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
 void DBImpl::BGWorkCompaction(void* db) {
@@ -2238,10 +2247,6 @@ void DBImpl::BackgroundCallFlush() {
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
-    // We're just cleaning up for DB::Write()
-    job_context.logs_to_free = logs_to_free_;
-    logs_to_free_.clear();
-
     // If flush failed, we want to delete all temporary files that we might have
     // created. Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
@@ -2307,10 +2312,6 @@ void DBImpl::BackgroundCallCompaction() {
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
-
-    // We're just cleaning up for DB::Write()
-    job_context.logs_to_free = logs_to_free_;
-    logs_to_free_.clear();
 
     // If compaction failed, we want to delete all temporary files that we might
     // have created (they might not be all recorded in job_context in case of a
