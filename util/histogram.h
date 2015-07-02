@@ -15,6 +15,8 @@
 #include <vector>
 #include <map>
 
+#include <string.h>
+
 namespace rocksdb {
 
 class HistogramBucketMapper {
