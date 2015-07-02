@@ -38,7 +38,6 @@
 
 namespace rocksdb {
 
-namespace {
 class BackupRateLimiter {
  public:
   BackupRateLimiter(Env* env, uint64_t max_bytes_per_second,
@@ -79,7 +78,6 @@ class BackupRateLimiter {
   uint64_t bytes_since_start_;
   static const uint64_t kMicrosInSecond = 1000 * 1000LL;
 };
-}  // namespace
 
 void BackupStatistics::IncrementNumberSuccessBackup() {
   number_success_backup++;
