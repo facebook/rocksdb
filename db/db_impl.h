@@ -290,6 +290,8 @@ class DBImpl : public DB {
 
   size_t TEST_LogsToFreeSize();
 
+  uint64_t TEST_LogfileNumber();
+
 #endif  // ROCKSDB_LITE
 
   // Returns the list of live files in 'live' and the list

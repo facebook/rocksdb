@@ -8540,7 +8540,6 @@ TEST_F(DBTest, TransactionLogIterator) {
   } while (ChangeCompactOptions());
 }
 
-#ifndef NDEBUG // sync point is not included with DNDEBUG build
 TEST_F(DBTest, TransactionLogIteratorRace) {
   static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
   static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] = {
@@ -8595,7 +8594,6 @@ TEST_F(DBTest, TransactionLogIteratorRace) {
     } while (ChangeCompactOptions());
   }
 }
-#endif
 
 TEST_F(DBTest, TransactionLogIteratorStallAtLastRecord) {
   do {
@@ -14134,6 +14132,40 @@ TEST_F(DBTest, PrevAfterMerge) {
   it->Prev();
   ASSERT_TRUE(it->Valid());
   ASSERT_EQ("1", it->key().ToString());
+}
+
+TEST_F(DBTest, DeletingOldWalAfterDrop) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      { { "Test:AllowFlushes", "DBImpl::BGWorkFlush" },
+        { "DBImpl::BGWorkFlush:done", "Test:WaitForFlush"} });
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Options options = CurrentOptions();
+  options.max_total_wal_size = 8192;
+  options.compression = kNoCompression;
+  options.write_buffer_size = 1 << 20;
+  options.level0_file_num_compaction_trigger = (1<<30);
+  options.level0_slowdown_writes_trigger = (1<<30);
+  options.level0_stop_writes_trigger = (1<<30);
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  ASSERT_OK(Put(0, "key1", DummyString(8192)));
+  ASSERT_OK(Put(0, "key2", DummyString(8192)));
+  // the oldest wal should now be getting_flushed
+  ASSERT_OK(db_->DropColumnFamily(handles_[0]));
+  // all flushes should now do nothing because their CF is dropped
+  TEST_SYNC_POINT("Test:AllowFlushes");
+  TEST_SYNC_POINT("Test:WaitForFlush");
+  uint64_t lognum1 = dbfull()->TEST_LogfileNumber();
+  ASSERT_OK(Put(1, "key3", DummyString(8192)));
+  ASSERT_OK(Put(1, "key4", DummyString(8192)));
+  // new wal should have been created
+  uint64_t lognum2 = dbfull()->TEST_LogfileNumber();
+  EXPECT_GT(lognum2, lognum1);
 }
 
 }  // namespace rocksdb

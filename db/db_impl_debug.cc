@@ -148,5 +148,10 @@ size_t DBImpl::TEST_LogsToFreeSize() {
   return logs_to_free_.size();
 }
 
+uint64_t DBImpl::TEST_LogfileNumber() {
+  InstrumentedMutexLock l(&mutex_);
+  return logfile_number_;
+}
+
 }  // namespace rocksdb
 #endif  // ROCKSDB_LITE
