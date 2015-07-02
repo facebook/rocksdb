@@ -208,6 +208,19 @@ class MergingIterator : public Iterator {
           } else {
             // Child has no entries >= key().  Position at last entry.
             child.SeekToLast();
+            if (child.Valid() && comparator_->Compare(child.key(), key()) > 0) {
+              // Prefix bloom or prefix hash may return !Valid() if one of the
+              // following condition happens:  1. when prefix doesn't match.
+              // 2. Does not exist any row larger than the key within the prefix
+              // while SeekToLast() may return larger keys.
+              //
+              // Temporarily remove this child to avoid Prev() to return a key
+              // larger than the original keys. However, this can cause missing
+              // rows.
+              //
+              // TODO(3.13): need to fix.
+              continue;
+            }
           }
           if (child.Valid()) {
             maxHeap_.push(&child);
