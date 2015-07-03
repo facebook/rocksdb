@@ -51,7 +51,7 @@ Arena::~Arena() {
   for (const auto& block : blocks_) {
     delete[] block;
   }
-#ifdef MAP_HUGETLB
+#ifndef OS_WIN
   for (const auto& mmap_info : huge_blocks_) {
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
     if (ret != 0) {

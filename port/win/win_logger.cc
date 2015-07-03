@@ -20,6 +20,7 @@
 #include "rocksdb/env.h"
 #include "port/win/win_logger.h"
 #include "port/sys_time.h"
+#include "util/iostats_context_imp.h"
 
 namespace rocksdb {
 
@@ -62,6 +63,7 @@ void WinLogger::Flush() {
 void WinLogger::Logv(const char* format, va_list ap) {
     const uint64_t thread_id = (*gettid_)();
 
+    IOSTATS_TIMER_GUARD(logger_nanos);
     // We try twice: the first time with a fixed-size stack allocated buffer,
     // and the second time with a much larger dynamically allocated buffer.
     char buffer[500];

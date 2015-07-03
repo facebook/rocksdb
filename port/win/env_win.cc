@@ -296,7 +296,11 @@ public:
 
     pending_fsync_ = true;
 
-    SSIZE_T done = pwrite(hFile_, src, left, offset);
+    SSIZE_T done = 0;
+    {
+      IOSTATS_TIMER_GUARD(write_nanos);
+      done = pwrite(hFile_, src, left, offset);
+    }
 
     if (done < 0) {
         return IOErrorFromWindowsError("pwrite failed to: " + filename_, GetLastError());
@@ -370,6 +374,11 @@ public:
     }
     pending_fsync_ = false;
     return Status::OK();
+  }
+  
+  virtual Status Allocate(off_t offset, off_t len) override {
+    IOSTATS_TIMER_GUARD(allocate_nanos);
+    return fallocate(filename_, hFile_, len);
   }
 };
 
@@ -459,6 +468,7 @@ private:
   // Normally it does not present a problem since in memory mapped files
   // we do not disable buffering
   Status ReserveFileSpace(uint64_t toSize) {
+    IOSTATS_TIMER_GUARD(allocate_nanos);
     return fallocate(filename_, hFile_, toSize);
   }
 
@@ -1281,6 +1291,7 @@ public:
       return status;
     }
 
+    IOSTATS_TIMER_GUARD(allocate_nanos);
     status = fallocate(filename_, hFile_, spaceToReserve);
     if (status.ok()) {
       reservedsize_ = spaceToReserve;
@@ -1500,13 +1511,17 @@ public:
     // Corruption test needs to rename and delete files of these kind
     // while they are still open with another handle. For that reason we
     // allow share_write and delete(allows rename).
-    HANDLE hFile = CreateFileA(fname.c_str(),
-      GENERIC_READ,
-      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-      NULL,
-      OPEN_EXISTING,         // Original fopen mode is "rb"
-      FILE_ATTRIBUTE_NORMAL,
-      NULL);
+    HANDLE hFile = 0;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      hFile = CreateFileA(fname.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        NULL,
+        OPEN_EXISTING,         // Original fopen mode is "rb"
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    }
 
     if (hFile == INVALID_HANDLE_VALUE) {
       auto lastError = GetLastError();
@@ -1549,15 +1564,19 @@ public:
     }
 
     /// Shared access is necessary for corruption test to pass
-    // almost all tests wwould work with a possible exception of fault_injection
-    HANDLE hFile = CreateFileA(
-        fname.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        NULL,
-        OPEN_EXISTING,
-        fileFlags,
-        NULL);
+    // almost all tests would work with a possible exception of fault_injection
+    HANDLE hFile;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      hFile = CreateFileA(
+          fname.c_str(),
+          GENERIC_READ,
+          FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+          NULL,
+          OPEN_EXISTING,
+          fileFlags,
+          NULL);
+    }
 
     if (INVALID_HANDLE_VALUE == hFile) {
       auto lastError = GetLastError();
@@ -1649,14 +1668,18 @@ public:
       shared_mode |= (FILE_SHARE_WRITE | FILE_SHARE_DELETE);
     }
 
-    HANDLE hFile = CreateFileA(fname.c_str(),
-      desired_access,    // Access desired
-      shared_mode,
-      NULL,             // Security attributes
-      CREATE_ALWAYS,    // Posix env says O_CREAT | O_RDWR | O_TRUNC
-      fileFlags,       // Flags
-      NULL);            // Template File
-
+    HANDLE hFile = 0;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      hFile = CreateFileA(fname.c_str(),
+        desired_access,    // Access desired
+        shared_mode,
+        NULL,             // Security attributes
+        CREATE_ALWAYS,    // Posix env says O_CREAT | O_RDWR | O_TRUNC
+        fileFlags,       // Flags
+        NULL);            // Template File
+    }
+    
     if (INVALID_HANDLE_VALUE == hFile) {
       auto lastError = GetLastError();
       return IOErrorFromWindowsError("Failed to create a NewWriteableFile: " + fname, lastError);
@@ -1683,14 +1706,18 @@ public:
 
     Status s;
 
-    HANDLE hFile = CreateFileA(fname.c_str(),
-                                GENERIC_READ | GENERIC_WRITE,
-                                FILE_SHARE_READ,
-                                NULL,
-                                OPEN_ALWAYS,         // Posix env specifies O_CREAT, it will open existing file or create new
-                                FILE_ATTRIBUTE_NORMAL,
-                                NULL);
-
+    HANDLE hFile = 0;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      hFile = CreateFileA(fname.c_str(),
+                                  GENERIC_READ | GENERIC_WRITE,
+                                  FILE_SHARE_READ,
+                                  NULL,
+                                  OPEN_ALWAYS,         // Posix env specifies O_CREAT, it will open existing file or create new
+                                  FILE_ATTRIBUTE_NORMAL,
+                                  NULL);
+    }
+    
     if (hFile == INVALID_HANDLE_VALUE) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError("Failed to Open/Create NewRandomRWFile" + fname, lastError);
@@ -1710,6 +1737,7 @@ public:
     if (!DirExists(name)) {
       s = IOError("Directory does not exist: " + name, EEXIST);
     } else {
+      IOSTATS_TIMER_GUARD(open_nanos);
       result->reset(new WinDirectory);
     }
     return s;
@@ -1889,9 +1917,12 @@ public:
     // Obtain exclusive access to the LOCK file
     // Previously, instead of NORMAL attr we set DELETE on close and that worked
     // well except with fault_injection test that insists on deleting it.
-    HANDLE hFile = CreateFileA(lockFname.c_str(), (GENERIC_READ | GENERIC_WRITE),
-      ExclusiveAccessON, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-
+    HANDLE hFile = 0;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      hFile = CreateFileA(lockFname.c_str(), (GENERIC_READ | GENERIC_WRITE),
+        ExclusiveAccessON, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    }
 
     if (INVALID_HANDLE_VALUE == hFile) {
       auto lastError = GetLastError();
@@ -1975,13 +2006,17 @@ public:
 
     result->reset();
 
-    HANDLE hFile = CreateFileA(fname.c_str(),
-      GENERIC_WRITE,
-      FILE_SHARE_READ | FILE_SHARE_DELETE, // In RocksDb log files are renamed and deleted before they are closed. This enables doing so.
-      NULL,
-      CREATE_ALWAYS,         // Original fopen mode is "w"
-      FILE_ATTRIBUTE_NORMAL,
-      NULL);
+    HANDLE hFile = 0;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      hFile = CreateFileA(fname.c_str(),
+        GENERIC_WRITE,
+        FILE_SHARE_READ | FILE_SHARE_DELETE, // In RocksDb log files are renamed and deleted before they are closed. This enables doing so.
+        NULL,
+        CREATE_ALWAYS,         // Original fopen mode is "w"
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    }
 
     if (hFile == INVALID_HANDLE_VALUE) {
       auto lastError = GetLastError();

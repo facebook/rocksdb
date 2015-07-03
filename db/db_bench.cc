@@ -54,6 +54,8 @@ int main() {
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/utilities/flashcache.h"
+#include "rocksdb/utilities/optimistic_transaction.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "port/port.h"
 #include "port/stack_trace.h"
 #include "util/crc32c.h"
@@ -106,7 +108,8 @@ DEFINE_string(benchmarks,
               "compress,"
               "uncompress,"
               "acquireload,"
-              "fillseekseq,",
+              "fillseekseq,"
+              "randomtransaction",
 
               "Comma-separated list of operations to run in the specified order"
               "Actual benchmarks:\n"
@@ -157,6 +160,8 @@ DEFINE_string(benchmarks,
               "\tacquireload   -- load N*1000 times\n"
               "\tfillseekseq   -- write N values in sequential key, then read "
               "them by seeking to each key\n"
+              "\trandomtransaction     -- execute N random transactions and "
+              "verify correctness\n"
               "Meta operations:\n"
               "\tcompact     -- Compact the entire DB\n"
               "\tstats       -- Print DB stats\n"
@@ -262,6 +267,20 @@ DEFINE_int32(min_write_buffer_number_to_merge,
              " in all of these files. Also, an in-memory merge may result in"
              " writing less data to storage if there are duplicate records "
              " in each of these individual write buffers.");
+
+DEFINE_int32(max_write_buffer_number_to_maintain,
+             rocksdb::Options().max_write_buffer_number_to_maintain,
+             "The total maximum number of write buffers to maintain in memory "
+             "including copies of buffers that have already been flushed. "
+             "Unlike max_write_buffer_number, this parameter does not affect "
+             "flushing. This controls the minimum amount of write history "
+             "that will be available in memory for conflict checking when "
+             "Transactions are used. If this value is too low, some "
+             "transactions may fail at commit time due to not being able to "
+             "determine whether there were any write conflicts. Setting this "
+             "value to 0 will cause write buffers to be freed immediately "
+             "after they are flushed.  If this value is set to -1, "
+             "'max_write_buffer_number' will be used.");
 
 DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
@@ -424,6 +443,18 @@ DEFINE_int32(deletepercent, 2, "Percentage of deletes out of reads/writes/"
 
 DEFINE_uint64(delete_obsolete_files_period_micros, 0,
               "Ignored. Left here for backward compatibility");
+
+DEFINE_bool(transaction_db, false,
+            "Open a OptimisticTransactionDB instance. "
+            "Required for randomtransaction benchmark.");
+
+DEFINE_uint64(transaction_sets, 2,
+              "Number of keys each transaction will "
+              "modify (use in RandomTransaction only).  Max: 9999");
+
+DEFINE_int32(transaction_sleep, 0,
+             "Max microseconds to sleep in between "
+             "reading and writing a value (used in RandomTransaction only). ");
 
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
@@ -884,6 +915,7 @@ static void AppendWithSpace(std::string* str, Slice msg) {
 struct DBWithColumnFamilies {
   std::vector<ColumnFamilyHandle*> cfh;
   DB* db;
+  OptimisticTransactionDB* txn_db;
   std::atomic<size_t> num_created;  // Need to be updated after all the
                                     // new entries in cfh are set.
   size_t num_hot;  // Number of column families to be queried at each moment.
@@ -891,7 +923,7 @@ struct DBWithColumnFamilies {
                    // Column families will be created and used to be queried.
   port::Mutex create_cf_mutex;  // Only one thread can execute CreateNewCf()
 
-  DBWithColumnFamilies() : db(nullptr) {
+  DBWithColumnFamilies() : db(nullptr), txn_db(nullptr) {
     cfh.clear();
     num_created = 0;
     num_hot = 0;
@@ -900,8 +932,22 @@ struct DBWithColumnFamilies {
   DBWithColumnFamilies(const DBWithColumnFamilies& other)
       : cfh(other.cfh),
         db(other.db),
+        txn_db(other.txn_db),
         num_created(other.num_created.load()),
         num_hot(other.num_hot) {}
+
+  void DeleteDBs() {
+    std::for_each(cfh.begin(), cfh.end(),
+                  [](ColumnFamilyHandle* cfhi) { delete cfhi; });
+    cfh.clear();
+    if (txn_db) {
+      delete txn_db;
+      txn_db = nullptr;
+    } else {
+      delete db;
+    }
+    db = nullptr;
+  }
 
   ColumnFamilyHandle* GetCfh(int64_t rand_num) {
     assert(num_hot > 0);
@@ -1604,9 +1650,7 @@ class Benchmark {
   }
 
   ~Benchmark() {
-    std::for_each(db_.cfh.begin(), db_.cfh.end(),
-                  [](ColumnFamilyHandle* cfh) { delete cfh; });
-    delete db_.db;
+    db_.DeleteDBs();
     delete prefix_extractor_;
     if (cache_.get() != nullptr) {
       // this will leak, but we're shutting down so nobody cares
@@ -1710,6 +1754,8 @@ class Benchmark {
       write_options_.disableWAL = FLAGS_disable_wal;
 
       void (Benchmark::*method)(ThreadState*) = nullptr;
+      void (Benchmark::*post_process_method)() = nullptr;
+
       bool fresh_db = false;
       int num_threads = FLAGS_threads;
 
@@ -1825,6 +1871,9 @@ class Benchmark {
         method = &Benchmark::Compress;
       } else if (name == Slice("uncompress")) {
         method = &Benchmark::Uncompress;
+      } else if (name == Slice("randomtransaction")) {
+        method = &Benchmark::RandomTransaction;
+        post_process_method = &Benchmark::RandomTransactionVerify;
       } else if (name == Slice("stats")) {
         PrintStats("rocksdb.stats");
       } else if (name == Slice("levelstats")) {
@@ -1845,11 +1894,7 @@ class Benchmark {
           method = nullptr;
         } else {
           if (db_.db != nullptr) {
-            std::for_each(db_.cfh.begin(), db_.cfh.end(),
-                          [](ColumnFamilyHandle* cfh) { delete cfh; });
-            delete db_.db;
-            db_.db = nullptr;
-            db_.cfh.clear();
+            db_.DeleteDBs();
             DestroyDB(FLAGS_db, open_options_);
           }
           for (size_t i = 0; i < multi_dbs_.size(); i++) {
@@ -1864,6 +1909,9 @@ class Benchmark {
       if (method != nullptr) {
         fprintf(stdout, "DB path: [%s]\n", FLAGS_db.c_str());
         RunBenchmark(num_threads, name, method);
+      }
+      if (post_process_method != nullptr) {
+        (this->*post_process_method)();
       }
     }
     if (FLAGS_statistics) {
@@ -2175,6 +2223,8 @@ class Benchmark {
     options.max_write_buffer_number = FLAGS_max_write_buffer_number;
     options.min_write_buffer_number_to_merge =
       FLAGS_min_write_buffer_number_to_merge;
+    options.max_write_buffer_number_to_maintain =
+        FLAGS_max_write_buffer_number_to_maintain;
     options.max_background_compactions = FLAGS_max_background_compactions;
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
@@ -2428,6 +2478,11 @@ class Benchmark {
           NewGenericRateLimiter(FLAGS_rate_limiter_bytes_per_sec));
     }
 
+    if (FLAGS_readonly && FLAGS_transaction_db) {
+      fprintf(stderr, "Cannot use readonly flag with transaction_db\n");
+      exit(1);
+    }
+
     if (FLAGS_num_multi_db <= 1) {
       OpenDb(options, FLAGS_db, &db_);
     } else {
@@ -2462,15 +2517,25 @@ class Benchmark {
       if (FLAGS_readonly) {
         s = DB::OpenForReadOnly(options, db_name, column_families,
             &db->cfh, &db->db);
+      } else if (FLAGS_transaction_db) {
+        s = OptimisticTransactionDB::Open(options, db_name, column_families,
+                                          &db->cfh, &db->txn_db);
+        if (s.ok()) {
+          db->db = db->txn_db->GetBaseDB();
+        }
       } else {
         s = DB::Open(options, db_name, column_families, &db->cfh, &db->db);
       }
       db->cfh.resize(FLAGS_num_column_families);
       db->num_created = num_hot;
       db->num_hot = num_hot;
-
     } else if (FLAGS_readonly) {
       s = DB::OpenForReadOnly(options, db_name, &db->db);
+    } else if (FLAGS_transaction_db) {
+      s = OptimisticTransactionDB::Open(options, db_name, &db->txn_db);
+      if (s.ok()) {
+        db->db = db->txn_db->GetBaseDB();
+      }
     } else {
       s = DB::Open(options, db_name, &db->db);
     }
@@ -3513,6 +3578,203 @@ class Benchmark {
       assert(iter->Valid() && iter->key() == key);
       thread->stats.FinishedOps(nullptr, db, 1);
     }
+  }
+
+  // This benchmark stress tests Transactions.  For a given --duration (or
+  // total number of --writes, a Transaction will perform a read-modify-write
+  // to increment the value of a key in each of N(--transaction-sets) sets of
+  // keys (where each set has --num keys).  If --threads is set, this will be
+  // done in parallel.
+  //
+  // To test transactions, use --transaction_db=true.  Not setting this
+  // parameter
+  // will run the same benchmark without transactions.
+  //
+  // RandomTransactionVerify() will then validate the correctness of the results
+  // by checking if the sum of all keys in each set is the same.
+  void RandomTransaction(ThreadState* thread) {
+    ReadOptions options(FLAGS_verify_checksum, true);
+    Duration duration(FLAGS_duration, readwrites_);
+    ReadOptions read_options(FLAGS_verify_checksum, true);
+    std::string value;
+    DB* db = db_.db;
+    uint64_t transactions_done = 0;
+    uint64_t transactions_aborted = 0;
+    Status s;
+    uint64_t num_prefix_ranges = FLAGS_transaction_sets;
+    bool use_txn = FLAGS_transaction_db;
+
+    if (num_prefix_ranges == 0 || num_prefix_ranges > 9999) {
+      fprintf(stderr, "invalid value for transaction_sets\n");
+      abort();
+    }
+
+    if (FLAGS_num_multi_db > 1) {
+      fprintf(stderr,
+              "Cannot run RandomTransaction benchmark with "
+              "FLAGS_multi_db > 1.");
+      abort();
+    }
+
+    while (!duration.Done(1)) {
+      OptimisticTransaction* txn = nullptr;
+      WriteBatch* batch = nullptr;
+
+      if (use_txn) {
+        txn = db_.txn_db->BeginTransaction(write_options_);
+        assert(txn);
+      } else {
+        batch = new WriteBatch();
+      }
+
+      // pick a random number to use to increment a key in each set
+      uint64_t incr = (thread->rand.Next() % 100) + 1;
+
+      // For each set, pick a key at random and increment it
+      for (uint8_t i = 0; i < num_prefix_ranges; i++) {
+        uint64_t int_value;
+        char prefix_buf[5];
+
+        // key format:  [SET#][random#]
+        std::string rand_key = ToString(thread->rand.Next() % FLAGS_num);
+        Slice base_key(rand_key);
+
+        // Pad prefix appropriately so we can iterate over each set
+        snprintf(prefix_buf, sizeof(prefix_buf), "%04d", i + 1);
+        std::string full_key = std::string(prefix_buf) + base_key.ToString();
+        Slice key(full_key);
+
+        if (use_txn) {
+          s = txn->Get(read_options, key, &value);
+        } else {
+          s = db->Get(read_options, key, &value);
+        }
+
+        if (s.ok()) {
+          int_value = std::stoull(value);
+
+          if (int_value == 0 || int_value == ULONG_MAX) {
+            fprintf(stderr, "Get returned unexpected value: %s\n",
+                    value.c_str());
+            abort();
+          }
+        } else if (s.IsNotFound()) {
+          int_value = 0;
+        } else {
+          fprintf(stderr, "Get returned an error: %s\n", s.ToString().c_str());
+          abort();
+        }
+
+        if (FLAGS_transaction_sleep > 0) {
+          FLAGS_env->SleepForMicroseconds(thread->rand.Next() %
+                                          FLAGS_transaction_sleep);
+        }
+
+        std::string sum = ToString(int_value + incr);
+        if (use_txn) {
+          txn->Put(key, sum);
+        } else {
+          batch->Put(key, sum);
+        }
+      }
+
+      if (use_txn) {
+        s = txn->Commit();
+      } else {
+        s = db->Write(write_options_, batch);
+      }
+
+      if (!s.ok()) {
+        // Ideally, we'd want to run this stress test with enough concurrency
+        // on a small enough set of keys that we get some failed transactions
+        // due to conflicts.
+        if (use_txn && s.IsBusy()) {
+          transactions_aborted++;
+        } else {
+          fprintf(stderr, "Unexpected write error: %s\n", s.ToString().c_str());
+          abort();
+        }
+      }
+
+      if (txn) {
+        delete txn;
+      }
+      if (batch) {
+        delete batch;
+      }
+
+      transactions_done++;
+    }
+
+    char msg[100];
+    if (use_txn) {
+      snprintf(msg, sizeof(msg),
+               "( transactions:%" PRIu64 " aborts:%" PRIu64 ")",
+               transactions_done, transactions_aborted);
+    } else {
+      snprintf(msg, sizeof(msg), "( batches:%" PRIu64 " )", transactions_done);
+    }
+    thread->stats.AddMessage(msg);
+
+    if (FLAGS_perf_level > 0) {
+      thread->stats.AddMessage(perf_context.ToString());
+    }
+  }
+
+  // Verifies consistency of data after RandomTransaction() has been run.
+  // Since each iteration of RandomTransaction() incremented a key in each set
+  // by the same value, the sum of the keys in each set should be the same.
+  void RandomTransactionVerify() {
+    if (!FLAGS_transaction_db) {
+      // transactions not used, nothing to verify.
+      return;
+    }
+
+    uint64_t prev_total = 0;
+
+    // For each set of keys with the same prefix, sum all the values
+    for (uint32_t i = 0; i < FLAGS_transaction_sets; i++) {
+      char prefix_buf[5];
+      snprintf(prefix_buf, sizeof(prefix_buf), "%04u", i + 1);
+      uint64_t total = 0;
+
+      Iterator* iter = db_.db->NewIterator(ReadOptions());
+
+      for (iter->Seek(Slice(prefix_buf, 4)); iter->Valid(); iter->Next()) {
+        Slice key = iter->key();
+
+        // stop when we reach a different prefix
+        if (key.ToString().compare(0, 4, prefix_buf) != 0) {
+          break;
+        }
+
+        Slice value = iter->value();
+        uint64_t int_value = std::stoull(value.ToString());
+        if (int_value == 0 || int_value == ULONG_MAX) {
+          fprintf(stderr, "Iter returned unexpected value: %s\n",
+                  value.ToString().c_str());
+          abort();
+        }
+
+        total += int_value;
+      }
+      delete iter;
+
+      if (i > 0) {
+        if (total != prev_total) {
+          fprintf(stderr,
+                  "RandomTransactionVerify found inconsistent totals. "
+                  "Set[%" PRIu32 "]: %" PRIu64 ", Set[%" PRIu32 "]: %" PRIu64
+                  " \n",
+                  i - 1, prev_total, i, total);
+          abort();
+        }
+      }
+      prev_total = total;
+    }
+
+    fprintf(stdout, "RandomTransactionVerify Success! Total:%" PRIu64 "\n",
+            prev_total);
   }
 
   void Compact(ThreadState* thread) {

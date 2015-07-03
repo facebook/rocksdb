@@ -711,15 +711,19 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   default_cf.write_buffer_size = 100000;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
+  default_cf.max_write_buffer_number_to_maintain = 0;
   one.write_buffer_size = 200000;
   one.max_write_buffer_number = 10;
   one.min_write_buffer_number_to_merge = 2;
+  one.max_write_buffer_number_to_maintain = 1;
   two.write_buffer_size = 1000000;
   two.max_write_buffer_number = 10;
   two.min_write_buffer_number_to_merge = 3;
+  two.max_write_buffer_number_to_maintain = 2;
   three.write_buffer_size = 90000;
   three.max_write_buffer_number = 10;
   three.min_write_buffer_number_to_merge = 4;
+  three.max_write_buffer_number_to_maintain = -1;
 
   Reopen({default_cf, one, two, three});
 

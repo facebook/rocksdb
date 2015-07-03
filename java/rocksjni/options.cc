@@ -993,6 +993,30 @@ void Java_org_rocksdb_Options_setMinWriteBufferNumberToMerge(
       jhandle)->min_write_buffer_number_to_merge =
           static_cast<int>(jmin_write_buffer_number_to_merge);
 }
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    maxWriteBufferNumberToMaintain
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_Options_maxWriteBufferNumberToMaintain(JNIEnv* env,
+                                                             jobject jobj,
+                                                             jlong jhandle) {
+  return reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->max_write_buffer_number_to_maintain;
+}
+
+/*
+ * Class:     org_rocksdb_Options
+ * Method:    setMaxWriteBufferNumberToMaintain
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_setMaxWriteBufferNumberToMaintain(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jmax_write_buffer_number_to_maintain) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)
+      ->max_write_buffer_number_to_maintain =
+      static_cast<int>(jmax_write_buffer_number_to_maintain);
+}
 
 /*
  * Class:     org_rocksdb_Options
@@ -2151,6 +2175,30 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMinWriteBufferNumberToMerge(
   reinterpret_cast<rocksdb::ColumnFamilyOptions*>(
       jhandle)->min_write_buffer_number_to_merge =
           static_cast<int>(jmin_write_buffer_number_to_merge);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    maxWriteBufferNumberToMaintain
+ * Signature: (J)I
+ */
+jint Java_org_rocksdb_ColumnFamilyOptions_maxWriteBufferNumberToMaintain(
+    JNIEnv* env, jobject jobj, jlong jhandle) {
+  return reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+      ->max_write_buffer_number_to_maintain;
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setMaxWriteBufferNumberToMaintain
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setMaxWriteBufferNumberToMaintain(
+    JNIEnv* env, jobject jobj, jlong jhandle,
+    jint jmax_write_buffer_number_to_maintain) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)
+      ->max_write_buffer_number_to_maintain =
+      static_cast<int>(jmax_write_buffer_number_to_maintain);
 }
 
 /*

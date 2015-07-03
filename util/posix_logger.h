@@ -61,6 +61,8 @@ class PosixLogger : public Logger {
 
   using Logger::Logv;
   virtual void Logv(const char* format, va_list ap) override {
+    IOSTATS_TIMER_GUARD(logger_nanos);
+
     const uint64_t thread_id = (*gettid_)();
 
     // We try twice: the first time with a fixed-size stack allocated buffer,

@@ -350,7 +350,7 @@ class PosixMmapReadableFile: public RandomAccessFile {
   virtual ~PosixMmapReadableFile() {
     int ret = munmap(mmapped_region_, length_);
     if (ret != 0) {
-      fprintf(stdout, "failed to munmap %p length %zu \n",
+      fprintf(stdout, "failed to munmap %p length %" ROCKSDB_PRIszt " \n",
               mmapped_region_, length_);
     }
   }
@@ -443,14 +443,17 @@ class PosixMmapFile : public WritableFile {
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     // we can't fallocate with FALLOC_FL_KEEP_SIZE here
-    int alloc_status = fallocate(fd_, 0, file_offset_, map_size_);
-    if (alloc_status != 0) {
-      // fallback to posix_fallocate
-      alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
-    }
-    if (alloc_status != 0) {
-      return Status::IOError("Error allocating space to file : " + filename_ +
-        "Error : " + strerror(alloc_status));
+    {
+      IOSTATS_TIMER_GUARD(allocate_nanos);
+      int alloc_status = fallocate(fd_, 0, file_offset_, map_size_);
+      if (alloc_status != 0) {
+        // fallback to posix_fallocate
+        alloc_status = posix_fallocate(fd_, file_offset_, map_size_);
+      }
+      if (alloc_status != 0) {
+        return Status::IOError("Error allocating space to file : " + filename_ +
+          "Error : " + strerror(alloc_status));
+      }
     }
 
     TEST_KILL_RANDOM(rocksdb_kill_odds);
@@ -639,6 +642,7 @@ class PosixMmapFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
+    IOSTATS_TIMER_GUARD(allocate_nanos);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
     if (alloc_status == 0) {
@@ -725,7 +729,12 @@ class PosixWritableFile : public WritableFile {
       cursize_ += left;
     } else {
       while (left != 0) {
-        ssize_t done = write(fd_, src, RequestToken(left));
+        ssize_t done;
+        size_t size = RequestToken(left);
+        {
+          IOSTATS_TIMER_GUARD(write_nanos);
+          done = write(fd_, src, size);
+        }
         if (done < 0) {
           if (errno == EINTR) {
             continue;
@@ -773,6 +782,7 @@ class PosixWritableFile : public WritableFile {
       //   tmpfs (since Linux 3.5)
       // We ignore error since failure of this operation does not affect
       // correctness.
+      IOSTATS_TIMER_GUARD(allocate_nanos);
       fallocate(fd_, FALLOC_FL_KEEP_SIZE | FALLOC_FL_PUNCH_HOLE,
                 filesize_, block_size * last_allocated_block - filesize_);
 #endif
@@ -791,7 +801,12 @@ class PosixWritableFile : public WritableFile {
     size_t left = cursize_;
     char* src = buf_.get();
     while (left != 0) {
-      ssize_t done = write(fd_, src, RequestToken(left));
+      ssize_t done;
+      size_t size = RequestToken(left);
+      {
+        IOSTATS_TIMER_GUARD(write_nanos);
+        done = write(fd_, src, size);
+      }
       if (done < 0) {
         if (errno == EINTR) {
           continue;
@@ -865,7 +880,9 @@ class PosixWritableFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    int alloc_status = fallocate(
+    int alloc_status;
+    IOSTATS_TIMER_GUARD(allocate_nanos);
+    alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
     if (alloc_status == 0) {
       return Status::OK();
@@ -875,6 +892,7 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status RangeSync(off_t offset, off_t nbytes) override {
+    IOSTATS_TIMER_GUARD(range_sync_nanos);
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {
@@ -933,7 +951,11 @@ class PosixRandomRWFile : public RandomRWFile {
     pending_fsync_ = true;
 
     while (left != 0) {
-      ssize_t done = pwrite(fd_, src, left, offset);
+      ssize_t done;
+      {
+        IOSTATS_TIMER_GUARD(write_nanos);
+        done = pwrite(fd_, src, left, offset);
+      }
       if (done < 0) {
         if (errno == EINTR) {
           continue;
@@ -1009,6 +1031,7 @@ class PosixRandomRWFile : public RandomRWFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
+    IOSTATS_TIMER_GUARD(allocate_nanos);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
     if (alloc_status == 0) {
@@ -1117,6 +1140,7 @@ class PosixEnv : public Env {
     result->reset();
     FILE* f = nullptr;
     do {
+      IOSTATS_TIMER_GUARD(open_nanos);
       f = fopen(fname.c_str(), "r");
     } while (f == nullptr && errno == EINTR);
     if (f == nullptr) {
@@ -1135,7 +1159,11 @@ class PosixEnv : public Env {
                                      const EnvOptions& options) override {
     result->reset();
     Status s;
-    int fd = open(fname.c_str(), O_RDONLY);
+    int fd;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(fname.c_str(), O_RDONLY);
+    }
     SetFD_CLOEXEC(fd, &options);
     if (fd < 0) {
       s = IOError(fname, errno);
@@ -1168,6 +1196,7 @@ class PosixEnv : public Env {
     Status s;
     int fd = -1;
     do {
+      IOSTATS_TIMER_GUARD(open_nanos);
       fd = open(fname.c_str(), O_CREAT | O_RDWR | O_TRUNC, 0644);
     } while (fd < 0 && errno == EINTR);
     if (fd < 0) {
@@ -1208,7 +1237,11 @@ class PosixEnv : public Env {
       return Status::NotSupported("No support for mmap read/write yet");
     }
     Status s;
-    const int fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+    int fd;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
+    }
     if (fd < 0) {
       s = IOError(fname, errno);
     } else {
@@ -1221,7 +1254,11 @@ class PosixEnv : public Env {
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     result->reset();
-    const int fd = open(name.c_str(), 0);
+    int fd;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(name.c_str(), 0);
+    }
     if (fd < 0) {
       return IOError(name, errno);
     } else {
@@ -1333,7 +1370,11 @@ class PosixEnv : public Env {
   virtual Status LockFile(const std::string& fname, FileLock** lock) override {
     *lock = nullptr;
     Status result;
-    int fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
+    int fd;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      fd = open(fname.c_str(), O_RDWR | O_CREAT, 0644);
+    }
     if (fd < 0) {
       result = IOError(fname, errno);
     } else if (LockOrUnlock(fname, fd, true) == -1) {
@@ -1408,7 +1449,11 @@ class PosixEnv : public Env {
 
   virtual Status NewLogger(const std::string& fname,
                            shared_ptr<Logger>* result) override {
-    FILE* f = fopen(fname.c_str(), "w");
+    FILE* f;
+    {
+      IOSTATS_TIMER_GUARD(open_nanos);
+      f = fopen(fname.c_str(), "w");
+    }
     if (f == nullptr) {
       result->reset();
       return IOError(fname, errno);
@@ -1782,7 +1827,7 @@ class PosixEnv : public Env {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
         char name_buf[16];
-        snprintf(name_buf, sizeof name_buf, "rocksdb:bg%zu", bgthreads_.size());
+        snprintf(name_buf, sizeof name_buf, "rocksdb:bg%" ROCKSDB_PRIszt, bgthreads_.size());
         name_buf[sizeof name_buf - 1] = '\0';
         pthread_setname_np(t, name_buf);
 #endif
