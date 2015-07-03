@@ -8,6 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/arena.h"
+#ifndef OS_WIN
+#include <sys/mman.h>
+#endif
 #include "port/port.h"
 #include <algorithm>
 #include "rocksdb/env.h"
@@ -51,6 +54,7 @@ Arena::~Arena() {
   for (const auto& block : blocks_) {
     delete[] block;
   }
+// yuslepukhin: this needs to be addressed as it previously was under #ifdef
 #ifndef OS_WIN
   for (const auto& mmap_info : huge_blocks_) {
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
