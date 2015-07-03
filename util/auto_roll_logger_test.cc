@@ -254,28 +254,29 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
   // becomes out of scope.
   {
     AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, 0);
-    for (int log_level = InfoLogLevel::FATAL_LEVEL;
+    for (int log_level = InfoLogLevel::HEADER_LEVEL;
          log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
       logger.SetInfoLogLevel((InfoLogLevel)log_level);
       for (int log_type = InfoLogLevel::DEBUG_LEVEL;
-           log_type <= InfoLogLevel::FATAL_LEVEL; log_type++) {
+           log_type <= InfoLogLevel::HEADER_LEVEL; log_type++) {
         // log messages with log level smaller than log_level will not be
         // logged.
         LogMessage((InfoLogLevel)log_type, &logger, kSampleMessage.c_str());
       }
-      log_lines += InfoLogLevel::FATAL_LEVEL - log_level + 1;
+      log_lines += InfoLogLevel::HEADER_LEVEL - log_level + 1;
     }
-    for (int log_level = InfoLogLevel::FATAL_LEVEL;
+    for (int log_level = InfoLogLevel::HEADER_LEVEL;
          log_level >= InfoLogLevel::DEBUG_LEVEL; log_level--) {
       logger.SetInfoLogLevel((InfoLogLevel)log_level);
 
       // again, messages with level smaller than log_level will not be logged.
+      Log(InfoLogLevel::HEADER_LEVEL, &logger, "%s", kSampleMessage.c_str());
       Debug(&logger, "%s", kSampleMessage.c_str());
       Info(&logger, "%s", kSampleMessage.c_str());
       Warn(&logger, "%s", kSampleMessage.c_str());
       Error(&logger, "%s", kSampleMessage.c_str());
       Fatal(&logger, "%s", kSampleMessage.c_str());
-      log_lines += InfoLogLevel::FATAL_LEVEL - log_level + 1;
+      log_lines += InfoLogLevel::HEADER_LEVEL - log_level + 1;
     }
   }
   std::ifstream inFile(AutoRollLoggerTest::kLogFile.c_str());
@@ -329,41 +330,54 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
   static const size_t LOG_MAX_SIZE = 1024 * 5;
   static const std::string HEADER_STR = "Log header line";
 
-  InitTestDb();
+  // test_num == 0 -> standard call to Header()
+  // test_num == 1 -> call to Log() with InfoLogLevel::HEADER_LEVEL
+  for (int test_num = 0; test_num < 2; test_num++) {
 
-  AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/ "",
-                        LOG_MAX_SIZE, /*log_file_time_to_roll=*/ 0);
+    InitTestDb();
 
-  // log some headers
-  for (size_t i = 0; i < MAX_HEADERS; i++) {
-    Header(&logger, "%s %d", HEADER_STR.c_str(), i);
-  }
+    AutoRollLogger logger(Env::Default(), kTestDir, /*db_log_dir=*/ "",
+                          LOG_MAX_SIZE, /*log_file_time_to_roll=*/ 0);
 
-  const string& newfname = logger.TEST_log_fname().c_str();
-
-  // log enough data to cause a roll over
-  int i = 0;
-  for (size_t iter = 0; iter < 2; iter++) {
-    while (logger.GetLogFileSize() < LOG_MAX_SIZE) {
-      Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
-      ++i;
+    if (test_num == 0) {
+      // Log some headers explicitly using Header()
+      for (size_t i = 0; i < MAX_HEADERS; i++) {
+        Header(&logger, "%s %d", HEADER_STR.c_str(), i);
+      }
+    } else if (test_num == 1) {
+      // HEADER_LEVEL should make this behave like calling Header()
+      for (size_t i = 0; i < MAX_HEADERS; i++) {
+        Log(InfoLogLevel::HEADER_LEVEL, &logger, "%s %d",
+            HEADER_STR.c_str(), i);
+      }
     }
 
-    Info(&logger, "Rollover");
-  }
+    const string& newfname = logger.TEST_log_fname().c_str();
 
-  // Flus the log for the latest file
-  LogFlush(&logger);
+    // Log enough data to cause a roll over
+    int i = 0;
+    for (size_t iter = 0; iter < 2; iter++) {
+      while (logger.GetLogFileSize() < LOG_MAX_SIZE) {
+        Info(&logger, (kSampleMessage + ":LogHeaderTest line %d").c_str(), i);
+        ++i;
+      }
 
-  const list<string> oldfiles = GetOldFileNames(newfname);
+      Info(&logger, "Rollover");
+    }
 
-  ASSERT_EQ(oldfiles.size(), (size_t) 2);
+    // Flush the log for the latest file
+    LogFlush(&logger);
 
-  for (auto oldfname : oldfiles) {
-    // verify that the files rolled over
-    ASSERT_NE(oldfname, newfname);
-    // verify that the old log contains all the header logs
-    ASSERT_EQ(GetLinesCount(oldfname, HEADER_STR), MAX_HEADERS);
+    const list<string> oldfiles = GetOldFileNames(newfname);
+
+    ASSERT_EQ(oldfiles.size(), (size_t) 2);
+
+    for (auto oldfname : oldfiles) {
+      // verify that the files rolled over
+      ASSERT_NE(oldfname, newfname);
+      // verify that the old log contains all the header logs
+      ASSERT_EQ(GetLinesCount(oldfname, HEADER_STR), MAX_HEADERS);
+    }
   }
 }
 
