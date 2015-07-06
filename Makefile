@@ -294,7 +294,8 @@ TESTS = \
 	perf_context_test \
 	optimistic_transaction_test \
 	write_callback_test \
-	compaction_job_stats_test
+	compaction_job_stats_test \
+	heap_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -871,6 +872,9 @@ memtable_list_test: db/memtable_list_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+heap_test: util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
