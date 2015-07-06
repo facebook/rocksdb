@@ -630,13 +630,27 @@ void Java_org_rocksdb_Options_setMemTableFactory(
 
 /*
  * Class:     org_rocksdb_Options
+ * Method:    setOldRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_Options_setOldRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
+      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+}
+
+/*
+ * Class:     org_rocksdb_Options
  * Method:    setRateLimiter
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_Options_setRateLimiter(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
-  reinterpret_cast<rocksdb::Options*>(jhandle)->rate_limiter.reset(
-      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+  std::shared_ptr<rocksdb::RateLimiter> *pRateLimiter =
+      reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(
+          jrate_limiter_handle);
+  reinterpret_cast<rocksdb::Options*>(jhandle)->
+      rate_limiter = *pRateLimiter;
 }
 
 /*
@@ -3139,13 +3153,27 @@ jboolean Java_org_rocksdb_DBOptions_paranoidChecks(
 
 /*
  * Class:     org_rocksdb_DBOptions
+ * Method:    setOldRateLimiter
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_DBOptions_setOldRateLimiter(
+    JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->rate_limiter.reset(
+      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+}
+
+/*
+ * Class:     org_rocksdb_DBOptions
  * Method:    setRateLimiter
  * Signature: (JJ)V
  */
 void Java_org_rocksdb_DBOptions_setRateLimiter(
     JNIEnv* env, jobject jobj, jlong jhandle, jlong jrate_limiter_handle) {
-  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->rate_limiter.reset(
-      reinterpret_cast<rocksdb::RateLimiter*>(jrate_limiter_handle));
+  std::shared_ptr<rocksdb::RateLimiter> *pRateLimiter =
+      reinterpret_cast<std::shared_ptr<rocksdb::RateLimiter> *>(
+          jrate_limiter_handle);
+  reinterpret_cast<rocksdb::DBOptions*>(jhandle)->
+      rate_limiter = *pRateLimiter;
 }
 
 /*

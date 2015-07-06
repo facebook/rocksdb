@@ -140,7 +140,15 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
       final RateLimiterConfig config) {
     assert(isInitialized());
     rateLimiterConfig_ = config;
-    setRateLimiter(nativeHandle_, config.newRateLimiterHandle());
+    setOldRateLimiter(nativeHandle_, config.newRateLimiterHandle());
+    return this;
+  }
+
+  @Override
+  public DBOptions setRateLimiter(RateLimiter rateLimiter) {
+    assert(isInitialized());
+    rateLimiter_ = rateLimiter;
+    setRateLimiter(nativeHandle_, rateLimiter.nativeHandle_);
     return this;
   }
 
@@ -573,6 +581,9 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
   private native void setParanoidChecks(
       long handle, boolean paranoidChecks);
   private native boolean paranoidChecks(long handle);
+  @Deprecated
+  private native void setOldRateLimiter(long handle,
+      long rateLimiterHandle);
   private native void setRateLimiter(long handle,
       long rateLimiterHandle);
   private native void setLogger(long handle,
@@ -652,4 +663,5 @@ public class DBOptions extends RocksObject implements DBOptionsInterface {
 
   int numShardBits_;
   RateLimiterConfig rateLimiterConfig_;
+  RateLimiter rateLimiter_;
 }

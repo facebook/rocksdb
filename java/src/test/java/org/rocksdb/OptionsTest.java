@@ -1109,7 +1109,7 @@ public class OptionsTest {
   }
 
   @Test
-  public void rateLimiterConfig() {
+     public void rateLimiterConfig() {
     Options options = null;
     Options anotherOptions = null;
     RateLimiterConfig rateLimiterConfig;
@@ -1127,6 +1127,32 @@ public class OptionsTest {
       }
       if (anotherOptions != null) {
         anotherOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void rateLimiter() {
+    Options options = null;
+    Options anotherOptions = null;
+    RateLimiter rateLimiter = null;
+    try {
+      options = new Options();
+      rateLimiter = new RateLimiter(1000, 0, 1);
+      options.setRateLimiter(rateLimiter);
+      // Test with parameter initialization
+      anotherOptions = new Options();
+      anotherOptions.setRateLimiter(
+          new RateLimiter(1000));
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+      if (anotherOptions != null) {
+        anotherOptions.dispose();
+      }
+      if (rateLimiter != null) {
+        rateLimiter.dispose();
       }
     }
   }
