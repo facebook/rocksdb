@@ -76,11 +76,10 @@ class CompactionJobTest : public testing::Test {
           largest = internal_key;
           largest_seqno = sequence_number;
         }
-        std::pair<std::string, std::string> key_value(
-            {bottommost_internal_key.Encode().ToString(), value});
-        contents.insert(key_value);
+        contents.insert({internal_key.Encode().ToString(), value});
         if (i == 1 || k < kKeysPerFile / 2) {
-          expected_results.insert(key_value);
+          expected_results.insert(
+              {bottommost_internal_key.Encode().ToString(), value});
         }
       }
 
@@ -97,7 +96,7 @@ class CompactionJobTest : public testing::Test {
                              mutable_cf_options_, &edit, &mutex_);
       mutex_.Unlock();
     }
-    versions_->SetLastSequence(sequence_number);
+    versions_->SetLastSequence(sequence_number + 1);
     return expected_results;
   }
 
