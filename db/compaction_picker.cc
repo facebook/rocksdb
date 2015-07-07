@@ -15,6 +15,7 @@
 
 #include <inttypes.h>
 #include <limits>
+#include <queue>
 #include <string>
 #include <utility>
 
@@ -35,6 +36,64 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
     sum += files[i]->compensated_file_size;
   }
   return sum;
+}
+
+// Used in universal compaction when trivial move is enabled.
+// This structure is used for the construction of min heap
+// that contains the file meta data, the level of the file
+// and the index of the file in that level
+
+struct InputFileInfo {
+  FileMetaData* f;
+  unsigned int level;
+  unsigned int index;
+};
+
+// Used in universal compaction when trivial move is enabled.
+// This comparator is used for the construction of min heap
+// based on the smallest key of the file.
+struct UserKeyComparator {
+  explicit UserKeyComparator(const Comparator* ucmp) { ucmp_ = ucmp; }
+
+  bool operator()(InputFileInfo i1, InputFileInfo i2) const {
+    return (ucmp_->Compare(i1.f->smallest.user_key(),
+                           i2.f->smallest.user_key()) > 0);
+  }
+
+ private:
+  const Comparator* ucmp_;
+};
+
+typedef std::priority_queue<InputFileInfo, std::vector<InputFileInfo>,
+                            UserKeyComparator> SmallestKeyHeap;
+
+// This function creates the heap that is used to find if the files are
+// overlapping during universal compaction when the allow_trivial_move
+// is set.
+SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
+  SmallestKeyHeap smallest_key_priority_q =
+      SmallestKeyHeap(UserKeyComparator(ucmp));
+
+  InputFileInfo input_file;
+
+  for (unsigned int l = 0; l < c->num_input_levels(); l++) {
+    if (c->num_input_files(l) != 0) {
+      if (l == 0 && c->start_level() == 0) {
+        for (size_t i = 0; i < c->num_input_files(0); i++) {
+          input_file.f = c->input(0, i);
+          input_file.level = 0;
+          input_file.index = i;
+          smallest_key_priority_q.push(std::move(input_file));
+        }
+      } else {
+        input_file.f = c->input(l, 0);
+        input_file.level = l;
+        input_file.index = 0;
+        smallest_key_priority_q.push(std::move(input_file));
+      }
+    }
+  }
+  return smallest_key_priority_q;
 }
 
 }  // anonymous namespace
@@ -1106,6 +1165,50 @@ void GetSmallestLargestSeqno(const std::vector<FileMetaData*>& files,
 }  // namespace
 #endif
 
+// Algorithm that checks to see if there are any overlapping
+// files in the input
+bool CompactionPicker::IsInputNonOverlapping(Compaction* c) {
+  auto comparator = icmp_->user_comparator();
+  int first_iter = 1;
+
+  InputFileInfo prev, curr, next;
+
+  SmallestKeyHeap smallest_key_priority_q =
+      create_level_heap(c, icmp_->user_comparator());
+
+  while (!smallest_key_priority_q.empty()) {
+    curr = smallest_key_priority_q.top();
+    smallest_key_priority_q.pop();
+
+    if (first_iter) {
+      prev = curr;
+      first_iter = 0;
+    } else {
+      if (comparator->Compare(prev.f->largest.user_key(),
+                              curr.f->smallest.user_key()) >= 0) {
+        // found overlapping files, return false
+        return false;
+      }
+      assert(comparator->Compare(curr.f->largest.user_key(),
+                                 prev.f->largest.user_key()) > 0);
+      prev = curr;
+    }
+
+    next.f = nullptr;
+
+    if (curr.level != 0 && curr.index < c->num_input_files(curr.level) - 1) {
+      next.f = c->input(curr.level, curr.index + 1);
+      next.level = curr.level;
+      next.index = curr.index + 1;
+    }
+
+    if (next.f) {
+      smallest_key_priority_q.push(std::move(next));
+    }
+  }
+  return true;
+}
+
 // Universal style of compaction. Pick files that are contiguous in
 // time-range to compact.
 //
@@ -1166,6 +1269,10 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   }
   if (c == nullptr) {
     return nullptr;
+  }
+
+  if (ioptions_.compaction_options_universal.allow_trivial_move == true) {
+    c->set_is_trivial_move(IsInputNonOverlapping(c));
   }
 
 // validate that all the chosen files of L0 are non overlapping in time

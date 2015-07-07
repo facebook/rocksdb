@@ -2538,21 +2538,27 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Move files to next level
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
-    for (size_t i = 0; i < c->num_input_files(0); i++) {
-      FileMetaData* f = c->input(0, i);
-      c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-      c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
-                         f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
-                         f->largest, f->smallest_seqno, f->largest_seqno,
-                         f->marked_for_compaction);
+    for (unsigned int l = 0; l < c->num_input_levels(); l++) {
+      if (l == static_cast<unsigned int>(c->output_level())) {
+        continue;
+      }
+      for (size_t i = 0; i < c->num_input_files(l); i++) {
+        FileMetaData* f = c->input(l, i);
+        c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+        c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
+                           f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
+                           f->largest, f->smallest_seqno, f->largest_seqno,
+                           f->marked_for_compaction);
 
-      LogToBuffer(log_buffer,
-                  "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
-                  c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-                  c->output_level(), f->fd.GetFileSize());
-      ++moved_files;
-      moved_bytes += f->fd.GetFileSize();
+        LogToBuffer(log_buffer,
+                    "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
+                    c->column_family_data()->GetName().c_str(),
+                    f->fd.GetNumber(), c->output_level(), f->fd.GetFileSize());
+        ++moved_files;
+        moved_bytes += f->fd.GetFileSize();
+      }
     }
+
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());

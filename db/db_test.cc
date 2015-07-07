@@ -4528,7 +4528,50 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
     ASSERT_EQ(Get(1, Key(i % num_keys)), Key(i));
   }
 }
+// Tests universal compaction with trivial move enabled
+TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
+  Options options;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.allow_trivial_move = true;
+  options.num_levels = 3;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_background_compactions = 1;
+  options.target_file_size_base = 32 * 1024;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  options = CurrentOptions(options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  Random rnd(301);
+  int num_keys = 15000;
+  for (int i = 0; i < num_keys; i++) {
+    ASSERT_OK(Put(1, Key(i), Key(i)));
+  }
+  std::vector<std::string> values;
+
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(trivial_move, 0);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
 INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionMultiLevels,
                         DBTestUniversalCompactionMultiLevels,
                         ::testing::Values(3, 20));

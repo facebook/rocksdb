@@ -77,6 +77,8 @@ class CompactionPickerTest : public testing::Test {
     f->fd = FileDescriptor(file_number, path_id, file_size);
     f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
     f->largest = InternalKey(largest, largest_seq, kTypeValue);
+    f->smallest_seqno = smallest_seq;
+    f->largest_seqno = largest_seq;
     f->compensated_file_size = file_size;
     f->refs = 0;
     vstorage_->AddFile(level, f);
@@ -364,6 +366,64 @@ TEST_F(CompactionPickerTest, NeedsCompactionUniversal) {
     ASSERT_EQ(level_compaction_picker.NeedsCompaction(vstorage_.get()),
               vstorage_->CompactionScore(0) >= 1);
   }
+}
+// Tests if the files can be trivially moved in multi level
+// universal compaction when allow_trivial_move option is set
+// In this test as the input files overlaps, they cannot
+// be trivially moved.
+
+TEST_F(CompactionPickerTest, CannotTrivialMoveUniversal) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_options_universal.allow_trivial_move = true;
+  NewVersionStorage(1, kCompactionStyleUniversal);
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+  // must return false when there's no files.
+  ASSERT_EQ(universal_compaction_picker.NeedsCompaction(vstorage_.get()),
+            false);
+
+  NewVersionStorage(3, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+  Add(0, 4U, "260", "300", kFileSize, 0, 260, 300);
+  Add(1, 5U, "100", "151", kFileSize, 0, 200, 251);
+  Add(1, 3U, "301", "350", kFileSize, 0, 101, 150);
+  Add(2, 6U, "120", "200", kFileSize, 0, 20, 100);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_TRUE(!compaction->is_trivial_move());
+}
+// Tests if the files can be trivially moved in multi level
+// universal compaction when allow_trivial_move option is set
+// In this test as the input files doesn't overlaps, they should
+// be trivially moved.
+TEST_F(CompactionPickerTest, AllowsTrivialMoveUniversal) {
+  const uint64_t kFileSize = 100000;
+
+  ioptions_.compaction_options_universal.allow_trivial_move = true;
+  UniversalCompactionPicker universal_compaction_picker(ioptions_, &icmp_);
+
+  NewVersionStorage(3, kCompactionStyleUniversal);
+
+  Add(0, 1U, "150", "200", kFileSize, 0, 500, 550);
+  Add(0, 2U, "201", "250", kFileSize, 0, 401, 450);
+  Add(0, 4U, "260", "300", kFileSize, 0, 260, 300);
+  Add(1, 5U, "010", "080", kFileSize, 0, 200, 251);
+  Add(2, 3U, "301", "350", kFileSize, 0, 101, 150);
+
+  UpdateVersionStorageInfo();
+
+  std::unique_ptr<Compaction> compaction(
+      universal_compaction_picker.PickCompaction(
+          cf_name_, mutable_cf_options_, vstorage_.get(), &log_buffer_));
+
+  ASSERT_TRUE(compaction->is_trivial_move());
 }
 
 TEST_F(CompactionPickerTest, NeedsCompactionFIFO) {

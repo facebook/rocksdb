@@ -158,6 +158,19 @@ class Compaction {
   // Was this compaction triggered manually by the client?
   bool IsManualCompaction() { return is_manual_compaction_; }
 
+  // Used when allow_trivial_move option is set in
+  // Universal compaction. If all the input files are
+  // non overlapping, then is_trivial_move_ variable
+  // will be set true, else false
+  void set_is_trivial_move(bool trivial_move) {
+    is_trivial_move_ = trivial_move;
+  }
+
+  // Used when allow_trivial_move option is set in
+  // Universal compaction. Returns true, if the input files
+  // are non-overlapping and can be trivially moved.
+  bool is_trivial_move() { return is_trivial_move_; }
+
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
   const MutableCFOptions* mutable_cf_options() { return &mutable_cf_options_; }
@@ -237,6 +250,11 @@ class Compaction {
 
   // Is this compaction requested by the client?
   const bool is_manual_compaction_;
+
+  // True if we can do trivial move in Universal multi level
+  // compaction
+
+  bool is_trivial_move_;
 
   // "level_ptrs_" holds indices into "input_version_->levels_", where each
   // index remembers which file of an associated level we are currently used

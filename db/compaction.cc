@@ -167,6 +167,12 @@ bool Compaction::IsTrivialMove() const {
     return false;
   }
 
+  // Used in universal compaction, where trivial move can be done if the
+  // input files are non overlapping
+  if (cfd_->ioptions()->compaction_options_universal.allow_trivial_move) {
+    return is_trivial_move_;
+  }
+
   return (start_level_ != output_level_ && num_input_levels() == 1 &&
           input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
           InputCompressionMatchesOutput() &&
