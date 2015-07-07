@@ -240,7 +240,6 @@ class autovector {
   }
 
   void push_back(const T& item) {
-    //psrao: causes infinite recursion with VC
     if (num_stack_items_ < kSize) {
       values_[num_stack_items_++] = item;
     }

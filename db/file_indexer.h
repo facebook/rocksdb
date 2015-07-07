@@ -12,6 +12,7 @@
 #include <functional>
 #include <limits>
 #include <vector>
+#include "port/port.h"
 #include "util/arena.h"
 #include "util/autovector.h"
 
@@ -59,7 +60,7 @@ class FileIndexer {
 
   enum {
     // MSVC version 1800 still does not have constexpr for ::max()
-    kLevelMaxIndex = INT32_MAX
+    kLevelMaxIndex = rocksdb::port::LevelMaxIndex
   };
 
  private:

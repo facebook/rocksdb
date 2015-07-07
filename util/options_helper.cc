@@ -417,6 +417,8 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       new_options->memtable_factory.reset(new_mem_factory);
     } else if (name == "min_write_buffer_number_to_merge") {
       new_options->min_write_buffer_number_to_merge = ParseInt(value);
+    } else if (name == "max_write_buffer_number_to_maintain") {
+      new_options->max_write_buffer_number_to_maintain = ParseInt(value);
     } else if (name == "compression") {
       new_options->compression = ParseCompressionType(value);
     } else if (name == "compression_per_level") {

@@ -32,15 +32,11 @@ namespace rocksdb {
 
 // TODO(yhchiang): remove this function once c++14 is available
 //                 as std::max will be able to cover this.
-#ifndef OS_WIN
-constexpr int constexpr_max(int a, int b) { return a > b ? a : b; }
-#else
 // Current MS compiler does not support constexpr
 template<int A, int B>
 struct constexpr_max {
   static const int result = (A > B) ? A : B;
 };
-#endif
 
 // A structure that describes the current status of a thread.
 // The status of active threads can be fetched using
@@ -100,11 +96,7 @@ struct ThreadStatus {
   // The maximum number of properties of an operation.
   // This number should be set to the biggest NUM_XXX_PROPERTIES.
   static const int kNumOperationProperties =
-#ifndef OS_WIN  
-      constexpr_max(NUM_COMPACTION_PROPERTIES, NUM_FLUSH_PROPERTIES);
-#else
       constexpr_max<NUM_COMPACTION_PROPERTIES, NUM_FLUSH_PROPERTIES>::result;
-#endif    
 
   // The type used to refer to a thread state.
   // A state describes lower-level action of a thread

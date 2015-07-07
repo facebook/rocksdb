@@ -1,8 +1,9 @@
 # This cmake build is for Windows only.
 #
 # Prerequisites:
-#     You must have Visual Studio 2013 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     You must have Visual Studio 2013 Update 4 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
+#     Make sure that Git is in your PATH
 #
 # To build Rocksdb for Windows is as easy as 1-2-3-4-5:
 # 

@@ -80,7 +80,7 @@ struct Variant {
   const std::string& get_string() const { return *GetStringPtr(data_); }
 
   bool operator==(const Variant& other) const;
-  bool operator!=(const Variant& rhs)   const { return !(*this == rhs); }
+  bool operator!=(const Variant& other) const { return !(*this == other); }
 
  private:
 

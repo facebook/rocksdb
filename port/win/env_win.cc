@@ -229,10 +229,9 @@ size_t Roundup(size_t x, size_t y) {
 }
 
 
-// Can only truncate or reserve to a sector size aligned if
-// used on files that are opened with Unbuffered I/O
-// Normally it does not present a problem since in memory mapped files
-// we do not disable buffering
+// SetFileInformationByHandle() is capable of fast pre-allocates.
+// However, this does not change the file end position unless the file is
+// truncated and the pre-allocated space is not considered filled with zeros.
 inline
 Status fallocate(const std::string& filename, HANDLE hFile, uint64_t to_size) {
 
@@ -394,7 +393,7 @@ class WinMmapReadableFile : public RandomAccessFile {
   const size_t                         length_;
 
 public:
-  // base[0,length-1] contains the mmapped contents of the file.
+  // mapped_region_[0,length-1] contains the mmapped contents of the file.
   WinMmapReadableFile(const std::string &fileName, HANDLE hFile, HANDLE hMap, const void* mapped_region, size_t length)
       : fileName_(fileName), hFile_(hFile), hMap_(hMap), mapped_region_(mapped_region), length_(length) {
 
@@ -1523,7 +1522,7 @@ public:
         NULL);
     }
 
-    if (hFile == INVALID_HANDLE_VALUE) {
+    if (INVALID_HANDLE_VALUE == hFile) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError("Failed to open NewSequentialFile" + fname, lastError);
     } else {
@@ -1565,7 +1564,7 @@ public:
 
     /// Shared access is necessary for corruption test to pass
     // almost all tests would work with a possible exception of fault_injection
-    HANDLE hFile;
+    HANDLE hFile = 0;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
       hFile = CreateFileA(
@@ -1717,8 +1716,8 @@ public:
                                   FILE_ATTRIBUTE_NORMAL,
                                   NULL);
     }
-    
-    if (hFile == INVALID_HANDLE_VALUE) {
+
+    if (INVALID_HANDLE_VALUE == hFile) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError("Failed to Open/Create NewRandomRWFile" + fname, lastError);
     }
@@ -2018,7 +2017,7 @@ public:
         NULL);
     }
 
-    if (hFile == INVALID_HANDLE_VALUE) {
+    if (INVALID_HANDLE_VALUE == hFile) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError("Failed to open LogFile" + fname, lastError);
     } else {

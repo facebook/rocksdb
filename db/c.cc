@@ -484,7 +484,7 @@ static bool SaveError(char** errptr, const Status& s) {
     *errptr = strdup(s.ToString().c_str());
   } else {
     // TODO(sanjay): Merge with existing error?
-    // This is a bug if *errptr is not create by malloc()
+    // This is a bug if *errptr is not created by malloc()
     free(*errptr);
     *errptr = strdup(s.ToString().c_str());
   }

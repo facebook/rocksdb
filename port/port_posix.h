@@ -71,8 +71,13 @@
 #define fdatasync fsync
 #endif
 
+#include <limits>
+
 namespace rocksdb {
 namespace port {
+
+// For use at db/file_indexer.h kLevelMaxIndex
+const int LevelMaxIndex = std::numeric_limits<int32_t>::max();
 
 static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN

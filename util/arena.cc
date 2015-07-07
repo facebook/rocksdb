@@ -17,6 +17,11 @@
 
 namespace rocksdb {
 
+// MSVC complains that it is already defined since it is static in the header.
+#ifndef OS_WIN
+const size_t Arena::kInlineSize;
+#endif
+
 const size_t Arena::kMinBlockSize = 4096;
 const size_t Arena::kMaxBlockSize = 2 << 30;
 static const int kAlignUnit = sizeof(void*);
@@ -54,8 +59,8 @@ Arena::~Arena() {
   for (const auto& block : blocks_) {
     delete[] block;
   }
-// yuslepukhin: this needs to be addressed as it previously was under #ifdef
-#ifndef OS_WIN
+
+#ifdef MAP_HUGETLB
   for (const auto& mmap_info : huge_blocks_) {
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
     if (ret != 0) {

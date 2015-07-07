@@ -15,7 +15,7 @@ These notes describe some decisions and changes we had to make with regards to p
 We are open for comments and improvements.
 
 ## OS specifics
-All of the porting, testing and benchmarking was done on Windows Server 2012 R2 Datacenter but to the best of our knowledge there is not a specific API we used during porting that is unsupported on other Windows OS after Vista.
+All of the porting, testing and benchmarking was done on Windows Server 2012 R2 Datacenter 64-bit but to the best of our knowledge there is not a specific API we used during porting that is unsupported on other Windows OS after Vista.
 
 ## Porting goals
 We strive to achieve the following goals:
@@ -33,6 +33,8 @@ At the same time it generates Visual Studio projects that are both usable from a
 
 The top-level CMakeLists.txt file contains description of all targets and build rules. It also provides brief instructions on how to build the software for Windows. One more build related file is thirdparty.inc that also resides on the top level. This file must be edited to point to actual third party libraries location.
 We think that it would be beneficial to merge the existing make-based build system and the new cmake-based build system into a single one to use on all platforms.
+
+All building and testing was done for 64-bit. We have not conducted any testing for 32-bit and early reports indicate that it will not run on 32-bit.
 
 ## C++ and STL notes
 We had to make some minimum changes within the portable files that either account for OS differences or the shortcomings of C++11 support in the current version of the MS compiler. Most or all of them are expected to be fixed in the upcoming compiler releases.
