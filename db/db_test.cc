@@ -11249,10 +11249,10 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
       {"CompactionJob::Run():Start", "DBTest::ThreadStatusSingleCompaction:1"},
       {"DBTest::ThreadStatusSingleCompaction:2", "CompactionJob::Run():End"},
   });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
   for (int tests = 0; tests < 2; ++tests) {
     DestroyAndReopen(options);
+    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     Random rnd(301);
     // The Put Phase.
@@ -11284,8 +11284,8 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
 
     // repeat the test with disabling thread tracking.
     options.enable_thread_tracking = false;
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest, PreShutdownManualCompaction) {
