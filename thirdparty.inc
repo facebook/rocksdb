@@ -3,6 +3,11 @@
 # This example assumes all the libraries locate in the same directory tree under THIRDPARTY_HOME environment variable
 # Set environment variable THIRDPARTY_HOME to point to your third party libraries home (Unix style dir separators)
 
+# Edit these lines to enable/disable external libraries use
+set(USE_GFLAGS 1)
+set(USE_SNAPPY 1)
+set(USE_JEMALLOC 1)
+
 #
 # Edit these 4 lines to define paths to GFLAGS
 #
@@ -38,3 +43,28 @@ set(JEMALLOC_LIB_RELEASE ${JEMALLOC_HOME}/bin/retail/amd64/jemalloc.lib)
 # Don't touch these lines
 set(JEMALLOC_CXX_FLAGS -DJEMALLOC)
 set(JEMALLOC_LIBS debug ${JEMALLOC_LIB_DEBUG} optimized ${JEMALLOC_LIB_RELEASE})
+
+
+# Aggregate all third-party dependencies
+
+set (THIRDPARTY_LIBS "")
+set (ARTIFACT_SUFFIX "")
+
+if (${USE_GFLAGS} EQUAL 1)
+set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} ${GFLAGS_LIBS})
+add_definitions(${GFLAGS_CXX_FLAGS})
+include_directories(${GFLAGS_INCLUDE})
+endif (${USE_GFLAGS} EQUAL 1)
+
+if (${USE_SNAPPY} EQUAL 1)
+set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} ${SNAPPY_LIBS})
+add_definitions(${SNAPPY_CXX_FLAGS})
+include_directories(${SNAPPY_INCLUDE})
+endif (${USE_SNAPPY} EQUAL 1)
+
+if (${USE_JEMALLOC} EQUAL 1)
+set (THIRDPARTY_LIBS ${THIRDPARTY_LIBS} ${JEMALLOC_LIBS})
+add_definitions(${JEMALLOC_CXX_FLAGS})
+include_directories(${JEMALLOC_INCLUDE})
+set (ARTIFACT_SUFFIX "_je")
+endif (${USE_JEMALLOC} EQUAL 1)
