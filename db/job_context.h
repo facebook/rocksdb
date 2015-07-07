@@ -83,6 +83,10 @@ struct JobContext {
     new_superversion = create_superversion ? new SuperVersion() : nullptr;
   }
 
+  // For non-empty JobContext Clean() has to be called at least once before
+  // before destruction (see asserts in ~JobContext()). Should be called with
+  // unlocked DB mutex. Destructor doesn't call Clean() to avoid accidentally
+  // doing potentially slow Clean() with locked DB mutex.
   void Clean() {
     // free pending memtables
     for (auto m : memtables_to_free) {
@@ -109,6 +113,7 @@ struct JobContext {
     assert(memtables_to_free.size() == 0);
     assert(superversions_to_free.size() == 0);
     assert(new_superversion == nullptr);
+    assert(logs_to_free.size() == 0);
   }
 };
 

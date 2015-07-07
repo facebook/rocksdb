@@ -542,6 +542,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   }
 
   // We're just cleaning up for DB::Write().
+  assert(job_context->logs_to_free.empty());
   job_context->logs_to_free = logs_to_free_;
   logs_to_free_.clear();
 
