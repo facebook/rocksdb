@@ -45,8 +45,8 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
 
 struct InputFileInfo {
   FileMetaData* f;
-  unsigned int level;
-  unsigned int index;
+  size_t level;
+  size_t index;
 };
 
 // Used in universal compaction when trivial move is enabled.
@@ -76,7 +76,7 @@ SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
 
   InputFileInfo input_file;
 
-  for (unsigned int l = 0; l < c->num_input_levels(); l++) {
+  for (size_t l = 0; l < c->num_input_levels(); l++) {
     if (c->num_input_files(l) != 0) {
       if (l == 0 && c->start_level() == 0) {
         for (size_t i = 0; i < c->num_input_files(0); i++) {
