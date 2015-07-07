@@ -442,26 +442,6 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
       copy_file_buffer_size_(kDefaultCopyFileBufferSize),
       read_only_(read_only) {
 
-  // set up threads perform copies from files_to_copy_ in the background
-  for (int t = 0; t < options_.max_background_operations; t++) {
-    threads_.emplace_back([&]() {
-      CopyWorkItem work_item;
-      while (files_to_copy_.read(work_item)) {
-        CopyResult result;
-        result.status = CopyFile(work_item.src_path,
-                                 work_item.dst_path,
-                                 work_item.src_env,
-                                 work_item.dst_env,
-                                 work_item.sync,
-                                 work_item.rate_limiter,
-                                 &result.size,
-                                 &result.checksum_value,
-                                 work_item.size_limit);
-        work_item.result.set_value(std::move(result));
-      }
-    });
-  }
-
   if (read_only_) {
     Log(options_.info_log, "Starting read_only backup engine");
   }
@@ -581,6 +561,27 @@ BackupEngineImpl::BackupEngineImpl(Env* db_env,
   if (!read_only_) {
     PutLatestBackupFileContents(latest_backup_id_);  // Ignore errors
   }
+
+  // set up threads perform copies from files_to_copy_ in the background
+  for (int t = 0; t < options_.max_background_operations; t++) {
+    threads_.emplace_back([&]() {
+      CopyWorkItem work_item;
+      while (files_to_copy_.read(work_item)) {
+        CopyResult result;
+        result.status = CopyFile(work_item.src_path,
+                                 work_item.dst_path,
+                                 work_item.src_env,
+                                 work_item.dst_env,
+                                 work_item.sync,
+                                 work_item.rate_limiter,
+                                 &result.size,
+                                 &result.checksum_value,
+                                 work_item.size_limit);
+        work_item.result.set_value(std::move(result));
+      }
+    });
+  }
+
   Log(options_.info_log, "Initialized BackupEngine");
 }
 
