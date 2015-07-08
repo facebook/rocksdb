@@ -1617,7 +1617,7 @@ Status DBImpl::CompactFilesImpl(
   assert(c);
   c->SetInputVersion(version);
   // deletion compaction currently not allowed in CompactFiles.
-  assert(!c->IsDeletionCompaction());
+  assert(!c->deletion_compaction());
 
   auto yield_callback = [&]() {
     return CallFlushDuringCompaction(
@@ -1628,7 +1628,7 @@ Status DBImpl::CompactFilesImpl(
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
       &shutting_down_, log_buffer, directories_.GetDbDir(),
-      directories_.GetDataDir(c->GetOutputPathId()), stats_,
+      directories_.GetDataDir(c->output_path_id()), stats_,
       snapshots_.GetAll(), table_cache_, std::move(yield_callback),
       &event_logger_, c->mutable_cf_options()->paranoid_file_checks, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
@@ -2504,7 +2504,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
   if (!c) {
     // Nothing to do
     LogToBuffer(log_buffer, "Compaction nothing to do");
-  } else if (c->IsDeletionCompaction()) {
+  } else if (c->deletion_compaction()) {
     // TODO(icanadi) Do we want to honor snapshots here? i.e. not delete old
     // file if there is alive snapshot pointing to it
     assert(c->num_input_files(1) == 0);
@@ -2597,7 +2597,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
-        directories_.GetDataDir(c->GetOutputPathId()), stats_,
+        directories_.GetDataDir(c->output_path_id()), stats_,
         snapshots_.GetAll(), table_cache_, std::move(yield_callback),
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         dbname_, &compaction_job_stats);
