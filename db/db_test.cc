@@ -8725,6 +8725,15 @@ class RecoveryTestHelper {
         test->dbname_ + "/" + wal_files.front()->PathName();
     auto size = wal_files.front()->SizeFileBytes();
 
+#ifdef OS_WIN
+    // Windows disk cache behaves differently. When we truncate
+    // the original content is still in the cache due to the original
+    // handle is still open. Generally, in Windows, one prohibits
+    // shared access to files and it is not needed for WAL but we allow
+    // it to induce corruption at various tests.
+    test->Close();
+#endif
+
     if (trunc) {
       ASSERT_EQ(0, truncate(logfile_path.c_str(), size * off));
     } else {

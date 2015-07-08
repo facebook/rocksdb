@@ -2405,7 +2405,7 @@ public:
         queue_.push_back(BGItem());
         queue_.back().function = function;
         queue_.back().arg = arg;
-        queue_.back().arg = tag;
+        queue_.back().tag = tag;
         queue_len_.store(queue_.size(), std::memory_order_relaxed);
 
         if (!HasExcessiveThread()) {
