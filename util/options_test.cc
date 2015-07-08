@@ -16,10 +16,12 @@
 
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/random.h"
 #include "util/testharness.h"
 
@@ -417,6 +419,18 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
               "optimize_filters_for_hits=junk",
               &new_cf_opt));
+
+  // Parsing PlainTableOption
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "plain_table_factory={user_key_len=16;bloom_bits_per_key=10;};",
+      &new_cf_opt));
+
+  // Paring Memtable Factory Options
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      base_cf_opt,
+      "memtablerep=prefix_hash;",
+      &new_cf_opt));
 }
 #endif  // !ROCKSDB_LITE
 
@@ -472,6 +486,71 @@ TEST_F(OptionsTest, GetBlockBasedTableOptionsFromString) {
              "cache_index_and_filter_blocks=1;"
              "filter_policy=bloomfilter:4",
              &new_opt));
+}
+#endif  // !ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE  // GetPlainTableOptionsFromString is not supported
+TEST_F(OptionsTest, GetPlainTableOptionsFromString){
+  PlainTableOptions table_opt;
+  PlainTableOptions new_opt;
+  // make sure default values are overwritten by something else
+  ASSERT_OK(GetPlainTableOptionsFromString(table_opt,
+            "user_key_len=16;bloom_bits_per_key=8;hash_table_ratio=0.5;"
+            "index_sparseness=8;huge_page_tlb_size=20;encoding_type=kPrefix;"
+            "full_scan_mode=1;store_index_in_file=1",
+            &new_opt));
+  ASSERT_EQ(new_opt.user_key_len, 16);
+  ASSERT_EQ(new_opt.bloom_bits_per_key, 8);
+  ASSERT_EQ(new_opt.hash_table_ratio, 0.5);
+  ASSERT_EQ(new_opt.index_sparseness, 8);
+  ASSERT_EQ(new_opt.huge_page_tlb_size, 20);
+  ASSERT_EQ(new_opt.encoding_type, kPrefix);
+  ASSERT_TRUE(new_opt.full_scan_mode);
+  ASSERT_TRUE(new_opt.store_index_in_file);
+
+  // unknown options
+  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
+             "user_key_len=16;bloom_bits_per_key=8;bad_option=1",
+             &new_opt));
+
+  // unknown encoding type
+  ASSERT_NOK(GetPlainTableOptionsFromString(table_opt,
+             "user_key_len=16;bloom_bits_per_key=8;encoding_type=kPrefixXX",
+             &new_opt));
+}
+#endif  // !ROCKSDB_LITE
+
+#ifndef ROCKSDB_LITE  // GetMemTableRepFactoryFromString is not supported
+TEST_F(OptionsTest, GetMemTableRepFactoryFromString) {
+  MemTableRepFactory* new_mem_factory = nullptr;
+
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+      "skip_list", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+      "skip_list:16", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "SkipListFactory");
+
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+      "prefix_hash", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+      "prefix_hash:1000", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashSkipListRepFactory");
+
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+      "hash_linkedlist", &new_mem_factory));
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+      "hash_linkedlist:1000", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "HashLinkListRepFactory");
+
+  ASSERT_OK(GetMemTableRepFactoryFromString(
+    "vector", &new_mem_factory));
+  ASSERT_EQ(std::string(new_mem_factory->Name()), "VectorRepFactory");
+
+  ASSERT_NOK(GetMemTableRepFactoryFromString(
+    "invalid_factory", &new_mem_factory));
+
+  ASSERT_NOK(GetMemTableRepFactoryFromString(
+    "skip_list:16:invalid_opt", &new_mem_factory));
 }
 #endif  // !ROCKSDB_LITE
 
