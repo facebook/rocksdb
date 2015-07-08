@@ -55,10 +55,12 @@ class PlainTableReader: public TableReader {
  public:
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
-                     const PlainTableOptions& table_options,
                      const InternalKeyComparator& internal_comparator,
-                     std::unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                     std::unique_ptr<TableReader>* table);
+                     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                     unique_ptr<TableReader>* table,
+                     const int bloom_bits_per_key, double hash_table_ratio,
+                     size_t index_sparseness, size_t huge_page_tlb_size,
+                     bool full_scan_mode);
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena = nullptr) override;
 
@@ -81,7 +83,7 @@ class PlainTableReader: public TableReader {
   }
 
   PlainTableReader(const ImmutableCFOptions& ioptions,
-                   std::unique_ptr<RandomAccessFile>&& file,
+                   unique_ptr<RandomAccessFile>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,
@@ -132,7 +134,7 @@ class PlainTableReader: public TableReader {
   Arena arena_;
 
   const ImmutableCFOptions& ioptions_;
-  std::unique_ptr<RandomAccessFile> file_;
+  unique_ptr<RandomAccessFile> file_;
   uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 

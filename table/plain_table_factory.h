@@ -127,18 +127,37 @@ class TableBuilder;
 class PlainTableFactory : public TableFactory {
  public:
   ~PlainTableFactory() {}
-
-  explicit PlainTableFactory(
-      const PlainTableOptions& table_options = PlainTableOptions())
-      : table_options_(table_options) {}
-
+  // user_key_len is the length of the user key. If it is set to be
+  // kPlainTableVariableLength, then it means variable length. Otherwise, all
+  // the keys need to have the fix length of this value. bloom_bits_per_key is
+  // number of bits used for bloom filer per key. hash_table_ratio is
+  // the desired utilization of the hash table used for prefix hashing.
+  // hash_table_ratio = number of prefixes / #buckets in the hash table
+  // hash_table_ratio = 0 means skip hash table but only replying on binary
+  // search.
+  // index_sparseness determines index interval for keys
+  // inside the same prefix. It will be the maximum number of linear search
+  // required after hash and binary search.
+  // index_sparseness = 0 means index for every key.
+  // huge_page_tlb_size determines whether to allocate hash indexes from huge
+  // page TLB and the page size if allocating from there. See comments of
+  // Arena::AllocateAligned() for details.
+  explicit PlainTableFactory(const PlainTableOptions& options =
+                                 PlainTableOptions())
+      : user_key_len_(options.user_key_len),
+        bloom_bits_per_key_(options.bloom_bits_per_key),
+        hash_table_ratio_(options.hash_table_ratio),
+        index_sparseness_(options.index_sparseness),
+        huge_page_tlb_size_(options.huge_page_tlb_size),
+        encoding_type_(options.encoding_type),
+        full_scan_mode_(options.full_scan_mode),
+        store_index_in_file_(options.store_index_in_file) {}
   const char* Name() const override { return "PlainTable"; }
   Status NewTableReader(
       const ImmutableCFOptions& options, const EnvOptions& soptions,
       const InternalKeyComparator& internal_comparator,
-      std::unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-      std::unique_ptr<TableReader>* table) const override;
-
+      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+      unique_ptr<TableReader>* table) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
       WritableFile* file) const override;
@@ -157,10 +176,15 @@ class PlainTableFactory : public TableFactory {
     return Status::OK();
   }
 
-  const PlainTableOptions& GetTableOptions() const;
-
  private:
-  PlainTableOptions table_options_;
+  uint32_t user_key_len_;
+  int bloom_bits_per_key_;
+  double hash_table_ratio_;
+  size_t index_sparseness_;
+  size_t huge_page_tlb_size_;
+  EncodingType encoding_type_;
+  bool full_scan_mode_;
+  bool store_index_in_file_;
 };
 
 }  // namespace rocksdb
