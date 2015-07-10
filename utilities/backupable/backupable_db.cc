@@ -328,7 +328,27 @@ class BackupEngineImpl : public BackupEngine {
     BackupRateLimiter* rate_limiter;
     uint64_t size_limit;
     std::promise<CopyResult> result;
+
     CopyWorkItem() {}
+    CopyWorkItem(const CopyWorkItem&) = delete;
+    CopyWorkItem& operator=(const CopyWorkItem&) = delete;
+
+    CopyWorkItem(CopyWorkItem&& o) {
+      *this = std::move(o);
+    }
+
+    CopyWorkItem& operator=(CopyWorkItem&& o) {
+      src_path = std::move(o.src_path);
+      dst_path = std::move(o.dst_path);
+      src_env = o.src_env;
+      dst_env = o.dst_env;
+      sync = o.sync;
+      rate_limiter = o.rate_limiter;
+      size_limit = o.size_limit;
+      result = std::move(o.result);
+      return *this;
+    }
+
     CopyWorkItem(std::string _src_path,
                  std::string _dst_path,
                  Env* _src_env,
@@ -354,7 +374,23 @@ class BackupEngineImpl : public BackupEngine {
     std::string dst_path;
     std::string dst_relative;
     BackupAfterCopyWorkItem() {}
-    BackupAfterCopyWorkItem(std::future<CopyResult> _result,
+
+    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) {
+      *this = std::move(o);
+    }
+
+    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) {
+      result = std::move(o.result);
+      shared = o.shared;
+      needed_to_copy = o.needed_to_copy;
+      backup_env = o.backup_env;
+      dst_path_tmp = std::move(o.dst_path_tmp);
+      dst_path = std::move(o.dst_path);
+      dst_relative = std::move(o.dst_relative);
+      return *this;
+    }
+
+    BackupAfterCopyWorkItem(std::future<CopyResult>&& _result,
                             bool _shared,
                             bool _needed_to_copy,
                             Env* _backup_env,
@@ -374,10 +410,19 @@ class BackupEngineImpl : public BackupEngine {
     std::future<CopyResult> result;
     uint32_t checksum_value;
     RestoreAfterCopyWorkItem() {}
-    RestoreAfterCopyWorkItem(std::future<CopyResult> _result,
+    RestoreAfterCopyWorkItem(std::future<CopyResult>&& _result,
                              uint32_t _checksum_value)
         : result(std::move(_result)),
           checksum_value(_checksum_value) {}
+    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) {
+      *this = std::move(o);
+    }
+
+    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) {
+      result = std::move(o.result);
+      checksum_value = o.checksum_value;
+      return *this;
+    }
   };
 
   channel<CopyWorkItem> files_to_copy_;
@@ -1516,7 +1561,7 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
                   sequence_number_);
-  len += snprintf(buf.get() + len, buf_size - len, "%zu\n", files_.size());
+  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n", files_.size());
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",

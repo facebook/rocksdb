@@ -53,7 +53,7 @@ void ThreadStatusUpdater::SetColumnFamilyInfoKey(
   // If enable_thread_tracking is set to false, the input cf_key
   // would be nullptr.
   data->enable_tracking = (cf_key != nullptr);
-  data->cf_key.store(cf_key, std::memory_order_relaxed);
+  data->cf_key.store(const_cast<void*>(cf_key), std::memory_order_relaxed);
 }
 
 const void* ThreadStatusUpdater::GetColumnFamilyInfoKey() {

@@ -11,8 +11,30 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <unistd.h>
+#ifndef OS_WIN
+#  include <unistd.h>
+#endif
 #include <inttypes.h>
+
+// Can not use port/port.h macros as this is a c file
+#ifdef OS_WIN
+
+#include <Windows.h>
+
+# define snprintf _snprintf
+
+// Ok for uniqueness
+int geteuid() {
+
+  int result = 0;
+
+  result = ((int)GetCurrentProcessId() << 16);
+  result |= (int)GetCurrentThreadId();
+
+  return result;
+}
+
+#endif
 
 const char* phase = "";
 static char dbname[200];

@@ -137,8 +137,8 @@ int main(int argc, const char** argv) {
   replThread.stop.store(true, std::memory_order_release);
   if (replThread.no_read < dataPump.no_records) {
     // no. read should be => than inserted.
-    fprintf(stderr, "No. of Record's written and read not same\nRead : %zu"
-            " Written : %zu\n", replThread.no_read, dataPump.no_records);
+    fprintf(stderr, "No. of Record's written and read not same\nRead : %" ROCKSDB_PRIszt
+            " Written : %" ROCKSDB_PRIszt "\n", replThread.no_read, dataPump.no_records);
     exit(1);
   }
   fprintf(stderr, "Successful!\n");

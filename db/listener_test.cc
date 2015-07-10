@@ -219,8 +219,10 @@ class TestFlushListener : public EventListener {
   explicit TestFlushListener(Env* env) :
       slowdown_count(0),
       stop_count(0),
-      db_closed(false),
-      env_(env) {}
+      db_closed(),
+      env_(env) {
+    db_closed = false;
+  }
   void OnTableFileCreated(
       const TableFileCreationInfo& info) override {
     // remember the info for later checking the FlushJobInfo.

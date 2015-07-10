@@ -39,8 +39,19 @@ struct CuckooStep {
 
   CuckooStep() : bucket_id_(-1), prev_step_id_(kNullStep), depth_(1) {}
 
-  CuckooStep(CuckooStep&&) = default;
-  CuckooStep& operator=(CuckooStep&&) = default;
+  // MSVC does not support = default yet
+  CuckooStep(CuckooStep&& o) 
+  {
+      *this = std::move(o);
+  }
+  
+  CuckooStep& operator=(CuckooStep&& rhs)
+  {
+      bucket_id_ = std::move(rhs.bucket_id_);
+      prev_step_id_ = std::move(rhs.prev_step_id_);
+      depth_ = std::move(rhs.depth_);
+      return *this;
+  }
 
   CuckooStep(const CuckooStep&) = delete;
   CuckooStep& operator=(const CuckooStep&) = delete;
@@ -65,7 +76,7 @@ class HashCuckooRep : public MemTableRep {
         backup_table_(nullptr) {
     char* mem = reinterpret_cast<char*>(
         allocator_->Allocate(sizeof(std::atomic<const char*>) * bucket_count_));
-    cuckoo_array_ = new (mem) std::atomic<const char*>[bucket_count_];
+    cuckoo_array_ = new (mem) std::atomic<char*>[bucket_count_];
     for (unsigned int bid = 0; bid < bucket_count_; ++bid) {
       cuckoo_array_[bid].store(nullptr, std::memory_order_relaxed);
     }
@@ -110,7 +121,7 @@ class HashCuckooRep : public MemTableRep {
 
   class Iterator : public MemTableRep::Iterator {
     std::shared_ptr<std::vector<const char*>> bucket_;
-    typename std::vector<const char*>::const_iterator mutable cit_;
+    std::vector<const char*>::const_iterator mutable cit_;
     const KeyComparator& compare_;
     std::string tmp_;  // For passing to EncodeKey
     bool mutable sorted_;
@@ -196,7 +207,7 @@ class HashCuckooRep : public MemTableRep {
   // a vacant bucket for inserting the key of a put request.
   std::shared_ptr<MemTableRep> backup_table_;
   // the array to store pointers, pointing to the actual data.
-  std::atomic<const char*>* cuckoo_array_;
+  std::atomic<char*>* cuckoo_array_;
   // a buffer to store cuckoo path
   int* cuckoo_path_;
   // a boolean flag indicating whether the fullness of bucket array
@@ -401,7 +412,7 @@ bool HashCuckooRep::QuickInsert(const char* internal_key, const Slice& user_key,
 
   if (cuckoo_bucket_id != -1) {
     cuckoo_array_[cuckoo_bucket_id]
-        .store(internal_key, std::memory_order_release);
+        .store(const_cast<char*>(internal_key), std::memory_order_release);
     return true;
   }
 

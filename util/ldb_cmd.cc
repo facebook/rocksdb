@@ -15,6 +15,7 @@
 #include "rocksdb/write_batch.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/table_properties.h"
+#include "port/dirent.h"
 #include "util/coding.h"
 #include "util/sst_dump_tool_imp.h"
 #include "util/string_util.h"
@@ -23,7 +24,6 @@
 
 #include <cstdlib>
 #include <ctime>
-#include <dirent.h>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -588,14 +588,17 @@ void ManifestDumpCommand::DoCommand() {
     bool found = false;
     // We need to find the manifest file by searching the directory
     // containing the db for files of the form MANIFEST_[0-9]+
-    DIR* d = opendir(db_path_.c_str());
+
+    auto CloseDir = [](DIR* p) { closedir(p); };
+    std::unique_ptr<DIR, decltype(CloseDir)> d(opendir(db_path_.c_str()), CloseDir);
+
     if (d == nullptr) {
       exec_state_ =
           LDBCommandExecuteResult::Failed(db_path_ + " is not a directory");
       return;
     }
     struct dirent* entry;
-    while ((entry = readdir(d)) != nullptr) {
+    while ((entry = readdir(d.get())) != nullptr) {
       unsigned int match;
       unsigned long long num;
       if (sscanf(entry->d_name,
@@ -609,12 +612,10 @@ void ManifestDumpCommand::DoCommand() {
         } else {
           exec_state_ = LDBCommandExecuteResult::Failed(
               "Multiple MANIFEST files found; use --path to select one");
-          closedir(d);
           return;
         }
       }
     }
-    closedir(d);
   }
 
   if (verbose_) {

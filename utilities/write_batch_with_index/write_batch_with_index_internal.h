@@ -31,7 +31,7 @@ struct WriteBatchIndexEntry {
 
   // If this flag appears in the offset, it indicates a key that is smaller
   // than any other entry for the same column family
-  static const size_t kFlagMin = std::numeric_limits<size_t>::max();
+  static const size_t kFlagMin = UINT_MAX;
 
   size_t offset;           // offset of an entry in write batch's string buffer.
   uint32_t column_family;  // column family of the entry

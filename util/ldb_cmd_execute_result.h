@@ -5,6 +5,10 @@
 //
 #pragma once
 
+#ifdef FAILED
+#undef FAILED
+#endif
+
 namespace rocksdb {
 
 class LDBCommandExecuteResult {

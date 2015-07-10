@@ -25,6 +25,11 @@
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
+#include "port/port.h"
+
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
 
 namespace rocksdb {
 
@@ -39,6 +44,7 @@ class Directory;
 struct DBOptions;
 class RateLimiter;
 class ThreadStatusUpdater;
+struct ThreadStatus;
 
 using std::unique_ptr;
 using std::shared_ptr;
@@ -158,6 +164,7 @@ class Env {
   virtual Status GetChildren(const std::string& dir,
                              std::vector<std::string>* result) = 0;
 
+#undef DeleteFile
   // Delete the named file.
   virtual Status DeleteFile(const std::string& fname) = 0;
 

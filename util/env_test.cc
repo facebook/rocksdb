@@ -8,7 +8,10 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
+#ifndef OS_WIN
+#  include <sys/ioctl.h>
+#endif
+
 
 #include <iostream>
 #include <unordered_set>
@@ -856,6 +859,13 @@ class TestLogger : public Logger {
       va_copy(backup_ap, ap);
       int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
       // 48 bytes for extra information + bytes allocated
+
+      // When we have n == -1 there is not a terminating zero expected
+#ifdef OS_WIN
+      if (n < 0) {
+        char_0_count++;
+      }
+#endif
 
       if (new_format[0] == '[') {
         // "[DEBUG] "

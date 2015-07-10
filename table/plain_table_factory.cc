@@ -55,10 +55,10 @@ std::string PlainTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
            hash_table_ratio_);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  index_sparseness: %zu\n",
+  snprintf(buffer, kBufferSize, "  index_sparseness: %" ROCKSDB_PRIszt "\n",
            index_sparseness_);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %zu\n",
+  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %" ROCKSDB_PRIszt "\n",
            huge_page_tlb_size_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  encoding_type: %d\n",

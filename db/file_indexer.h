@@ -12,6 +12,7 @@
 #include <functional>
 #include <limits>
 #include <vector>
+#include "port/port.h"
 #include "util/arena.h"
 #include "util/autovector.h"
 
@@ -58,7 +59,8 @@ class FileIndexer {
                    std::vector<FileMetaData*>* const files);
 
   enum {
-    kLevelMaxIndex = std::numeric_limits<int32_t>::max()
+    // MSVC version 1800 still does not have constexpr for ::max()
+    kLevelMaxIndex = rocksdb::port::LevelMaxIndex
   };
 
  private:

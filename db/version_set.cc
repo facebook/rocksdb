@@ -1561,7 +1561,7 @@ const char* VersionStorageInfo::LevelSummary(
 
   if (!files_marked_for_compaction_.empty()) {
     snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
-             " (%zu files need compaction)",
+             " (%" ROCKSDB_PRIszt " files need compaction)",
              files_marked_for_compaction_.size());
   }
 

@@ -5,7 +5,8 @@
 
 #include "util/log_buffer.h"
 
-#include <sys/time.h>
+#include "port/sys_time.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -33,8 +34,15 @@ void LogBuffer::AddLogToBuffer(size_t max_log_size, const char* format,
     va_list backup_ap;
     va_copy(backup_ap, ap);
     auto n = vsnprintf(p, limit - p, format, backup_ap);
+#ifndef OS_WIN
+    // MS reports -1 when the buffer is too short
     assert(n >= 0);
-    p += n;
+#endif
+    if (n > 0) {
+      p += n;
+    } else {
+      p = limit;
+    }
     va_end(backup_ap);
   }
 

@@ -683,6 +683,9 @@ class DBImpl : public DB {
   bool flush_on_destroy_; // Used when disableWAL is true.
 
   static const int KEEP_LOG_FILE_NUM = 1000;
+  // MSVC version 1800 still does not have constexpr for ::max()
+  static const uint64_t kNoTimeOut = UINT64_MAX;
+
   std::string db_absolute_path_;
 
   // The options to access storage files

@@ -12,7 +12,7 @@
 #include "rocksdb/c.h"
 
 #include <stdlib.h>
-#include <unistd.h>
+#include "port/port.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
@@ -31,6 +31,7 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "utilities/merge_operators.h"
+#include "rocksdb/utilities/convenience.h"
 
 using rocksdb::Cache;
 using rocksdb::ColumnFamilyDescriptor;
@@ -483,6 +484,7 @@ static bool SaveError(char** errptr, const Status& s) {
     *errptr = strdup(s.ToString().c_str());
   } else {
     // TODO(sanjay): Merge with existing error?
+    // This is a bug if *errptr is not created by malloc()
     free(*errptr);
     *errptr = strdup(s.ToString().c_str());
   }
@@ -2253,6 +2255,10 @@ void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n)
   env->rep->SetBackgroundThreads(n, Env::HIGH);
 }
 
+void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
+    env->rep->WaitForJoin();
+}
+
 void rocksdb_env_destroy(rocksdb_env_t* env) {
   if (!env->is_default) delete env->rep;
   delete env;
@@ -2441,6 +2447,20 @@ const char* rocksdb_livefiles_largestkey(
 extern void rocksdb_livefiles_destroy(
   const rocksdb_livefiles_t* lf) {
   delete lf;
+}
+
+void rocksdb_get_options_from_string(
+    const rocksdb_options_t* base_options,
+    const char* opts_str, rocksdb_options_t* new_options,
+    char** errptr){
+  SaveError(errptr, 
+            GetOptionsFromString(base_options->rep,
+              std::string(opts_str), &new_options->rep));
+}
+
+void rocksdb_free(
+    void* ptr){
+  free(ptr);
 }
 
 }  // end extern "C"

@@ -8,7 +8,9 @@
 #include "util/testharness.h"
 #include "util/logging.h"
 #include <map>
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
 
 namespace rocksdb {
 
@@ -17,8 +19,8 @@ namespace {
 typedef std::map<std::string, std::string> KVMap;
 
 enum BatchOperation {
-  PUT = 0,
-  DELETE = 1
+  OP_PUT = 0,
+  OP_DELETE = 1
 };
 }
 
@@ -124,10 +126,10 @@ class TtlTest : public testing::Test {
     kv_it_ = kvmap_.begin();
     for (int64_t i = 0; i < num_ops && kv_it_ != kvmap_.end(); i++, ++kv_it_) {
       switch (batch_ops[i]) {
-        case PUT:
+        case OP_PUT:
           batch.Put(kv_it_->first, kv_it_->second);
           break;
-        case DELETE:
+        case OP_DELETE:
           batch.Delete(kv_it_->first);
           break;
         default:
@@ -361,7 +363,7 @@ class TtlTest : public testing::Test {
 
 
   // Choose carefully so that Put, Gets & Compaction complete in 1 second buffer
-  const int64_t kSampleSize_ = 100;
+  static const int64_t kSampleSize_ = 100;
   std::string dbname_;
   DBWithTTL* db_ttl_;
   unique_ptr<SpecialTimeEnv> env_;
@@ -512,13 +514,13 @@ TEST_F(TtlTest, WriteBatchTest) {
   MakeKVMap(kSampleSize_);
   BatchOperation batch_ops[kSampleSize_];
   for (int i = 0; i < kSampleSize_; i++) {
-    batch_ops[i] = PUT;
+    batch_ops[i] = OP_PUT;
   }
 
   OpenTtl(2);
   MakePutWriteBatch(batch_ops, kSampleSize_);
   for (int i = 0; i < kSampleSize_ / 2; i++) {
-    batch_ops[i] = DELETE;
+    batch_ops[i] = OP_DELETE;
   }
   MakePutWriteBatch(batch_ops, kSampleSize_ / 2);
   SleepCompactCheck(0, 0, kSampleSize_ / 2, false);

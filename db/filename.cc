@@ -103,8 +103,6 @@ std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
   return MakeTableFileName(path, number);
 }
 
-const size_t kFormatFileNumberBufSize = 38;
-
 void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
                       size_t out_buf_size) {
   if (path_id == 0) {

@@ -11,6 +11,10 @@
 
 #pragma once
 
+// size_t printf formatting named in the manner of C99 standard formatting strings such as PRIu64
+// in fact, we could use that one
+#define ROCKSDB_PRIszt "zu"
+
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>
@@ -67,8 +71,13 @@
 #define fdatasync fsync
 #endif
 
+#include <limits>
+
 namespace rocksdb {
 namespace port {
+
+// For use at db/file_indexer.h kLevelMaxIndex
+const int LevelMaxIndex = std::numeric_limits<int32_t>::max();
 
 static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN

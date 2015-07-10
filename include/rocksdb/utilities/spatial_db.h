@@ -54,37 +54,66 @@ struct Variant {
   /* implicit */ Variant(uint64_t i) : type_(kInt) { data_.i = i; }
   /* implicit */ Variant(double d) : type_(kDouble) { data_.d = d; }
   /* implicit */ Variant(const std::string& s) : type_(kString) {
-    new (&data_.s) std::string(s);
+      new (&data_.s) std::string(s);
   }
 
-  Variant(const Variant& v);
+  Variant(const Variant& v) : type_(v.type_) {
+    Init(v, data_);
+  }
+
+  Variant& operator=(const Variant& v);
+
+  Variant(Variant&& rhs) : type_(kNull) {
+    *this = std::move(rhs);
+  }
+
+  Variant& operator=(Variant&& v);
 
   ~Variant() {
-    if (type_ == kString) {
-      using std::string;
-      (&data_.s)->~string();
-    }
+    Destroy(type_, data_);
   }
 
   Type type() const { return type_; }
   bool get_bool() const { return data_.b; }
   uint64_t get_int() const { return data_.i; }
   double get_double() const { return data_.d; }
-  const std::string& get_string() const { return data_.s; }
+  const std::string& get_string() const { return *GetStringPtr(data_); }
 
-  bool operator==(const Variant& other);
-  bool operator!=(const Variant& other);
+  bool operator==(const Variant& other) const;
+  bool operator!=(const Variant& other) const { return !(*this == other); }
 
  private:
+
   Type type_;
+
   union Data {
-    Data() {}
-    ~Data() {}
-    bool b;
-    uint64_t i;
-    double d;
-    std::string s;
+    bool        b;
+    uint64_t    i;
+    double      d;
+    // Current version of MS compiler not C++11 compliant so can not put std::string
+    // however, even then we still need the rest of the maintenance.
+    char        s[sizeof(std::string)];
   } data_;
+
+  // Avoid type_punned aliasing problem
+  static std::string* GetStringPtr(Data& d) {
+    void* p = d.s;
+    return reinterpret_cast<std::string*>(p);
+  }
+
+  static const std::string* GetStringPtr(const Data& d) {
+    const void* p = d.s;
+    return reinterpret_cast<const std::string*>(p);
+  }
+
+  static void Init(const Variant&, Data&);
+
+  static void Destroy(Type t, Data& d) {
+    if (t == kString) {
+      using std::string;
+      GetStringPtr(d)->~string();
+    }
+  }
 };
 
 // FeatureSet is a map of key-value pairs. One feature set is associated with

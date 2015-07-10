@@ -24,7 +24,9 @@ int main() {
 #include <numaif.h>
 #endif
 
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <inttypes.h>
 #include <cstddef>
@@ -67,6 +69,10 @@ int main() {
 #include "util/xxhash.h"
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
+
+#ifdef OS_WIN
+#include <io.h> // open/close
+#endif
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -550,7 +556,7 @@ DEFINE_int32(thread_status_per_interval, 0,
 DEFINE_int32(perf_level, 0, "Level of perf collection");
 
 static bool ValidateRateLimit(const char* flagname, double value) {
-  static constexpr double EPSILON = 1e-10;
+  const double EPSILON = 1e-10;
   if ( value < -EPSILON ) {
     fprintf(stderr, "Invalid value for --%s: %12.6f, must be >= 0.0\n",
             flagname, value);
@@ -3539,7 +3545,7 @@ class Benchmark {
     char msg[100];
     snprintf(msg, sizeof(msg),
              "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
-             PRIu64 " maxlength:%zu)",
+             PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }
