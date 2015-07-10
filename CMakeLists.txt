@@ -1,18 +1,19 @@
-# This cmake build is for Windows only.
+# This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
 #     You must have Visual Studio 2013 Update 4 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
-#     Make sure that Git is in your PATH
+#     You must have git.exe in your %PATH% environment variable.
 #
 # To build Rocksdb for Windows is as easy as 1-2-3-4-5:
 # 
-# 1. Update paths to thirdparty libraries in thirdparty.cmake file
+# 1. Update paths to third-party libraries in thirdparty.inc file
 # 2. Create a new directory for build artifacts
 #        mkdir build
 #        cd build
-# 3. Run cmake to generate project files for Windows
-#        cmake -G "Visual Studio 12 Win64" ..
+# 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
+#    See thirdparty.inc for more information.
+#        cmake -G "Visual Studio 12 Win64" .. <more options>
 # 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
 #        msbuild ALL_BUILD.vcxproj
 # 5. And release mode (/m:<N> is also supported)
