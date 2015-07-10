@@ -69,6 +69,11 @@ class CompactionOptionsUniversal {
   // Default: kCompactionStopStyleTotalSize
   CompactionStopStyle stop_style;
 
+  // Option to optimize the universal multi level compaction by enabling
+  // trivial move for non overlapping files.
+  // Default: false
+  bool allow_trivial_move;
+
   // Default set of parameters
   CompactionOptionsUniversal()
       : size_ratio(1),
@@ -76,7 +81,8 @@ class CompactionOptionsUniversal {
         max_merge_width(UINT_MAX),
         max_size_amplification_percent(200),
         compression_size_percent(-1),
-        stop_style(kCompactionStopStyleTotalSize) {}
+        stop_style(kCompactionStopStyleTotalSize),
+        allow_trivial_move(false) {}
 };
 
 }  // namespace rocksdb

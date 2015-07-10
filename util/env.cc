@@ -61,7 +61,13 @@ void Log(const InfoLogLevel log_level, Logger* info_log, const char* format,
   if (info_log && info_log->GetInfoLogLevel() <= log_level) {
     va_list ap;
     va_start(ap, format);
-    info_log->Logv(log_level, format, ap);
+
+    if (log_level == InfoLogLevel::HEADER_LEVEL) {
+      info_log->LogHeader(format, ap);
+    } else {
+      info_log->Logv(log_level, format, ap);
+    }
+
     va_end(ap);
   }
 }

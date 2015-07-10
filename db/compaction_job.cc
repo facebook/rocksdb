@@ -238,12 +238,12 @@ void CompactionJob::ReportStartedCompaction(
   // In the current design, a CompactionJob is always created
   // for non-trivial compaction.
   assert(compaction->IsTrivialMove() == false ||
-         compaction->IsManualCompaction() == true);
+         compaction->is_manual_compaction() == true);
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_PROP_FLAGS,
-          compaction->IsManualCompaction() +
-          (compaction->IsDeletionCompaction() << 1));
+          compaction->is_manual_compaction() +
+          (compaction->deletion_compaction() << 1));
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_TOTAL_INPUT_BYTES,
@@ -263,7 +263,7 @@ void CompactionJob::ReportStartedCompaction(
 
   if (compaction_job_stats_) {
     compaction_job_stats_->is_manual_compaction =
-          compaction->IsManualCompaction();
+          compaction->is_manual_compaction();
   }
 }
 
@@ -298,7 +298,7 @@ void CompactionJob::Prepare() {
   }
 
   // Is this compaction producing files at the bottommost level?
-  bottommost_level_ = compact_->compaction->BottomMostLevel();
+  bottommost_level_ = compact_->compaction->bottommost_level();
 }
 
 Status CompactionJob::Run() {
@@ -864,7 +864,7 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
 
         // Close output file if it is big enough
         if (compact_->builder->FileSize() >=
-            compact_->compaction->MaxOutputFileSize()) {
+            compact_->compaction->max_output_file_size()) {
           status = FinishCompactionOutputFile(input);
           if (!status.ok()) {
             break;
@@ -1160,7 +1160,7 @@ Status CompactionJob::OpenCompactionOutputFile() {
   uint64_t file_number = versions_->NewFileNumber();
   // Make the output file
   std::string fname = TableFileName(db_options_.db_paths, file_number,
-                                    compact_->compaction->GetOutputPathId());
+                                    compact_->compaction->output_path_id());
   Status s = env_->NewWritableFile(fname, &compact_->outfile, env_options_);
 
   if (!s.ok()) {
@@ -1174,7 +1174,7 @@ Status CompactionJob::OpenCompactionOutputFile() {
   }
   CompactionState::Output out;
   out.number = file_number;
-  out.path_id = compact_->compaction->GetOutputPathId();
+  out.path_id = compact_->compaction->output_path_id();
   out.smallest.Clear();
   out.largest.Clear();
   out.smallest_seqno = out.largest_seqno = 0;
@@ -1198,7 +1198,7 @@ Status CompactionJob::OpenCompactionOutputFile() {
   compact_->builder.reset(NewTableBuilder(
       *cfd->ioptions(), cfd->internal_comparator(),
       cfd->int_tbl_prop_collector_factories(), compact_->outfile.get(),
-      compact_->compaction->OutputCompressionType(),
+      compact_->compaction->output_compression(),
       cfd->ioptions()->compression_opts, skip_filters));
   LogFlush(db_options_.info_log);
   return s;

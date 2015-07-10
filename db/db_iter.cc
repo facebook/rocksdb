@@ -350,9 +350,6 @@ void DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   if (direction_ == kForward) {
-    if (!iter_->Valid()) {
-      iter_->SeekToLast();
-    }
     FindPrevUserKey();
     direction_ = kReverse;
   }
@@ -556,7 +553,7 @@ void DBIter::FindNextUserKey() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kForward);
   while (iter_->Valid() &&
-         user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0) {
+         user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) != 0) {
     iter_->Next();
     FindParseableKey(&ikey, kForward);
   }
@@ -571,7 +568,7 @@ void DBIter::FindPrevUserKey() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kReverse);
   while (iter_->Valid() &&
-         user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) >= 0) {
+         user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) == 0) {
     if (num_skipped >= max_skip_) {
       num_skipped = 0;
       IterKey last_key;

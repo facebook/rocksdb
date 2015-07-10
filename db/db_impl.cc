@@ -527,6 +527,25 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   versions_->GetObsoleteFiles(&job_context->sst_delete_files,
                               job_context->min_pending_output);
 
+  uint64_t min_log_number = versions_->MinLogNumber();
+  if (!alive_log_files_.empty()) {
+    // find newly obsoleted log files
+    while (alive_log_files_.begin()->number < min_log_number) {
+      auto& earliest = *alive_log_files_.begin();
+      job_context->log_delete_files.push_back(earliest.number);
+      total_log_size_ -= earliest.size;
+      alive_log_files_.pop_front();
+      // Current log should always stay alive since it can't have
+      // number < MinLogNumber().
+      assert(alive_log_files_.size());
+    }
+  }
+
+  // We're just cleaning up for DB::Write().
+  assert(job_context->logs_to_free.empty());
+  job_context->logs_to_free = logs_to_free_;
+  logs_to_free_.clear();
+
   // store the current filenum, lognum, etc
   job_context->manifest_file_number = versions_->manifest_file_number();
   job_context->pending_manifest_file_number =
@@ -1309,17 +1328,6 @@ Status DBImpl::FlushMemTableToOutputFile(
     VersionStorageInfo::LevelSummaryStorage tmp;
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
                 cfd->current()->storage_info()->LevelSummary(&tmp));
-
-    if (disable_delete_obsolete_files_ == 0) {
-      // add to deletion state
-      while (alive_log_files_.size() &&
-             alive_log_files_.begin()->number < versions_->MinLogNumber()) {
-        const auto& earliest = *alive_log_files_.begin();
-        job_context->log_delete_files.push_back(earliest.number);
-        total_log_size_ -= earliest.size;
-        alive_log_files_.pop_front();
-      }
-    }
   }
 
   if (!s.ok() && !s.IsShutdownInProgress() && db_options_.paranoid_checks &&
@@ -1609,7 +1617,7 @@ Status DBImpl::CompactFilesImpl(
   assert(c);
   c->SetInputVersion(version);
   // deletion compaction currently not allowed in CompactFiles.
-  assert(!c->IsDeletionCompaction());
+  assert(!c->deletion_compaction());
 
   auto yield_callback = [&]() {
     return CallFlushDuringCompaction(
@@ -1620,7 +1628,7 @@ Status DBImpl::CompactFilesImpl(
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
       &shutting_down_, log_buffer, directories_.GetDbDir(),
-      directories_.GetDataDir(c->GetOutputPathId()), stats_,
+      directories_.GetDataDir(c->output_path_id()), stats_,
       snapshots_.GetAll(), table_cache_, std::move(yield_callback),
       &event_logger_, c->mutable_cf_options()->paranoid_file_checks, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
@@ -2145,7 +2153,9 @@ void DBImpl::RecordFlushIOStats() {
 
 void DBImpl::BGWorkFlush(void* db) {
   IOSTATS_SET_THREAD_POOL_ID(Env::Priority::HIGH);
+  TEST_SYNC_POINT("DBImpl::BGWorkFlush");
   reinterpret_cast<DBImpl*>(db)->BackgroundCallFlush();
+  TEST_SYNC_POINT("DBImpl::BGWorkFlush:done");
 }
 
 void DBImpl::BGWorkCompaction(void* db) {
@@ -2238,10 +2248,6 @@ void DBImpl::BackgroundCallFlush() {
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
 
-    // We're just cleaning up for DB::Write()
-    job_context.logs_to_free = logs_to_free_;
-    logs_to_free_.clear();
-
     // If flush failed, we want to delete all temporary files that we might have
     // created. Thus, we force full scan in FindObsoleteFiles()
     FindObsoleteFiles(&job_context, !s.ok() && !s.IsShutdownInProgress());
@@ -2307,10 +2313,6 @@ void DBImpl::BackgroundCallCompaction() {
     }
 
     ReleaseFileNumberFromPendingOutputs(pending_outputs_inserted_elem);
-
-    // We're just cleaning up for DB::Write()
-    job_context.logs_to_free = logs_to_free_;
-    logs_to_free_.clear();
 
     // If compaction failed, we want to delete all temporary files that we might
     // have created (they might not be all recorded in job_context in case of a
@@ -2502,7 +2504,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
   if (!c) {
     // Nothing to do
     LogToBuffer(log_buffer, "Compaction nothing to do");
-  } else if (c->IsDeletionCompaction()) {
+  } else if (c->deletion_compaction()) {
     // TODO(icanadi) Do we want to honor snapshots here? i.e. not delete old
     // file if there is alive snapshot pointing to it
     assert(c->num_input_files(1) == 0);
@@ -2536,21 +2538,27 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Move files to next level
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
-    for (size_t i = 0; i < c->num_input_files(0); i++) {
-      FileMetaData* f = c->input(0, i);
-      c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
-      c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
-                         f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
-                         f->largest, f->smallest_seqno, f->largest_seqno,
-                         f->marked_for_compaction);
+    for (unsigned int l = 0; l < c->num_input_levels(); l++) {
+      if (l == static_cast<unsigned int>(c->output_level())) {
+        continue;
+      }
+      for (size_t i = 0; i < c->num_input_files(l); i++) {
+        FileMetaData* f = c->input(l, i);
+        c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+        c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
+                           f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
+                           f->largest, f->smallest_seqno, f->largest_seqno,
+                           f->marked_for_compaction);
 
-      LogToBuffer(log_buffer,
-                  "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
-                  c->column_family_data()->GetName().c_str(), f->fd.GetNumber(),
-                  c->output_level(), f->fd.GetFileSize());
-      ++moved_files;
-      moved_bytes += f->fd.GetFileSize();
+        LogToBuffer(log_buffer,
+                    "[%s] Moving #%" PRIu64 " to level-%d %" PRIu64 " bytes\n",
+                    c->column_family_data()->GetName().c_str(),
+                    f->fd.GetNumber(), c->output_level(), f->fd.GetFileSize());
+        ++moved_files;
+        moved_bytes += f->fd.GetFileSize();
+      }
     }
+
     status = versions_->LogAndApply(c->column_family_data(),
                                     *c->mutable_cf_options(), c->edit(),
                                     &mutex_, directories_.GetDbDir());
@@ -2589,7 +2597,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
-        directories_.GetDataDir(c->GetOutputPathId()), stats_,
+        directories_.GetDataDir(c->output_path_id()), stats_,
         snapshots_.GetAll(), table_cache_, std::move(yield_callback),
         &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
         dbname_, &compaction_job_stats);

@@ -169,6 +169,7 @@ void ForwardIterator::Cleanup(bool release_sv) {
       if (job_context.HaveSomethingToDelete()) {
         db_->PurgeObsoleteFiles(job_context);
       }
+      job_context.Clean();
     }
   }
 }
