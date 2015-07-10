@@ -78,7 +78,7 @@ struct PerfContext {
   uint64_t read_filter_block_nanos;
   // Time spent on creating data block iterator
   uint64_t new_table_block_iter_nanos;
-  // Time spent on new_table_block_iter_micros
+  // Time spent on creating a iterator of an SST file.
   uint64_t new_table_iterator_nanos;
   // Time spent on seeking a key in data/index blocks
   uint64_t block_seek_nanos;

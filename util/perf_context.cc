@@ -50,7 +50,7 @@ void PerfContext::Reset() {
   read_index_block_nanos = 0;
   read_filter_block_nanos = 0;
   new_table_block_iter_nanos = 0;
-  new_table_block_iter_nanos = 0;
+  new_table_iterator_nanos = 0;
   block_seek_nanos = 0;
   find_table_nanos = 0;
 #endif
