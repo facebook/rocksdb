@@ -77,7 +77,8 @@ namespace rocksdb {
 namespace port {
 
 // For use at db/file_indexer.h kLevelMaxIndex
-const int LevelMaxIndex = std::numeric_limits<int32_t>::max();
+const int kMaxInt32 = std::numeric_limits<int32_t>::max();
+const uint64_t kMaxUint64 = std::numeric_limits<uint64_t>::max();
 
 static const bool kLittleEndian = PLATFORM_IS_LITTLE_ENDIAN;
 #undef PLATFORM_IS_LITTLE_ENDIAN

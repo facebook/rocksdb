@@ -18,7 +18,7 @@ namespace rocksdb {
 
 class WriteThread {
  public:
-  static const uint64_t kNoTimeOut = UINT64_MAX;
+  static const uint64_t kNoTimeOut = port::kMaxUint64;
   // Information kept for every waiting writer
   struct Writer {
     Status status;

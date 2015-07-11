@@ -11,6 +11,7 @@
 #include <limits>
 #include <cassert>
 #include <string>
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"

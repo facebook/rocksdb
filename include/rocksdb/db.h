@@ -23,7 +23,6 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/thread_status.h"
-#include "port/port.h"
 
 namespace rocksdb {
 

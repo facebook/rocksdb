@@ -25,7 +25,6 @@
 #include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/thread_status.h"
-#include "port/port.h"
 
 #ifdef GetCurrentTime
 #undef GetCurrentTime

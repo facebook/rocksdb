@@ -684,7 +684,7 @@ class DBImpl : public DB {
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
-  static const uint64_t kNoTimeOut = UINT64_MAX;
+  static const uint64_t kNoTimeOut = port::kMaxUint64;
 
   std::string db_absolute_path_;
 

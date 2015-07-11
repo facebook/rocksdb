@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "port/port.h"
 #include "rocksdb/status.h"
 #include "table/table_builder.h"
 #include "rocksdb/table.h"
@@ -68,7 +69,7 @@ class CuckooTableBuilder: public TableBuilder {
     // We assume number of items is <= 2^32.
     uint32_t make_space_for_key_call_id;
   };
-  static const uint32_t kMaxVectorIdx = INT32_MAX;
+  static const uint32_t kMaxVectorIdx = port::kMaxInt32;
 
   bool MakeSpaceForKey(const autovector<uint64_t>& hash_vals,
                        const uint32_t call_id,

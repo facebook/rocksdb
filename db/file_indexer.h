@@ -60,7 +60,7 @@ class FileIndexer {
 
   enum {
     // MSVC version 1800 still does not have constexpr for ::max()
-    kLevelMaxIndex = rocksdb::port::LevelMaxIndex
+    kLevelMaxIndex = rocksdb::port::kMaxInt32
   };
 
  private:
