@@ -25,6 +25,7 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
 #define STORAGE_ROCKSDB_INCLUDE_WRITE_BATCH_H_
 
+#include <stack>
 #include <string>
 #include <stdint.h>
 #include "rocksdb/status.h"
@@ -34,6 +35,7 @@ namespace rocksdb {
 
 class Slice;
 class ColumnFamilyHandle;
+struct SavePoints;
 struct SliceParts;
 
 class WriteBatch : public WriteBatchBase {
@@ -100,6 +102,17 @@ class WriteBatch : public WriteBatchBase {
   using WriteBatchBase::Clear;
   // Clear all updates buffered in this batch.
   void Clear() override;
+
+  // Records the state of the batch for future calls to RollbackToSavePoint().
+  // May be called multiple times to set multiple save points.
+  void SetSavePoint() override;
+
+  // Remove all entries in this batch (Put, Merge, Delete, PutLogData) since the
+  // most recent call to SetSavePoint() and removes the most recent save point.
+  // If there is no previous call to SetSavePoint(), Status::NotFound()
+  // will be returned.
+  // Oterwise returns Status::OK().
+  Status RollbackToSavePoint() override;
 
   // Support for iterating over the contents of a batch.
   class Handler {
@@ -168,10 +181,11 @@ class WriteBatch : public WriteBatchBase {
   WriteBatch* GetWriteBatch() override { return this; }
 
   // Constructor with a serialized string object
-  explicit WriteBatch(std::string rep): rep_(rep) {}
+  explicit WriteBatch(std::string rep) : save_points_(nullptr), rep_(rep) {}
 
  private:
   friend class WriteBatchInternal;
+  SavePoints* save_points_;
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_

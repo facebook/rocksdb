@@ -1364,6 +1364,150 @@ TEST_F(WriteBatchWithIndexTest, MutateWhileIteratingBaseStressTest) {
     }
   }
 }
+
+static std::string PrintContents(WriteBatchWithIndex* batch,
+                                 ColumnFamilyHandle* column_family) {
+  std::string result;
+
+  WBWIIterator* iter;
+  if (column_family == nullptr) {
+    iter = batch->NewIterator();
+  } else {
+    iter = batch->NewIterator(column_family);
+  }
+
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    WriteEntry e = iter->Entry();
+
+    if (e.type == kPutRecord) {
+      result.append("PUT(");
+      result.append(e.key.ToString());
+      result.append("):");
+      result.append(e.value.ToString());
+    } else if (e.type == kMergeRecord) {
+      result.append("MERGE(");
+      result.append(e.key.ToString());
+      result.append("):");
+      result.append(e.value.ToString());
+    } else {
+      assert(e.type == kDeleteRecord);
+      result.append("DEL(");
+      result.append(e.key.ToString());
+      result.append(")");
+    }
+
+    result.append(",");
+    iter->Next();
+  }
+
+  delete iter;
+  return result;
+}
+
+TEST_F(WriteBatchWithIndexTest, SavePointTest) {
+  WriteBatchWithIndex batch;
+  ColumnFamilyHandleImplDummy cf1(1, BytewiseComparator());
+  Status s;
+
+  batch.Put("A", "a");
+  batch.Put("B", "b");
+  batch.Put("A", "aa");
+  batch.Put(&cf1, "A", "a1");
+  batch.Delete(&cf1, "B");
+  batch.Put(&cf1, "C", "c1");
+
+  batch.SetSavePoint();
+
+  batch.Put("C", "cc");
+  batch.Put("B", "bb");
+  batch.Delete("A");
+  batch.Put(&cf1, "B", "b1");
+  batch.Delete(&cf1, "A");
+  batch.SetSavePoint();
+
+  batch.Put("A", "aaa");
+  batch.Put("A", "xxx");
+  batch.Delete("B");
+  batch.Put(&cf1, "B", "b2");
+  batch.Delete(&cf1, "C");
+  batch.SetSavePoint();
+  batch.SetSavePoint();
+  batch.Delete("D");
+  batch.Delete(&cf1, "D");
+
+  ASSERT_EQ(
+      "PUT(A):a,PUT(A):aa,DEL(A),PUT(A):aaa,PUT(A):xxx,PUT(B):b,PUT(B):bb,DEL("
+      "B)"
+      ",PUT(C):cc,DEL(D),",
+      PrintContents(&batch, nullptr));
+
+  ASSERT_EQ(
+      "PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),"
+      "DEL(D),",
+      PrintContents(&batch, &cf1));
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(
+      "PUT(A):a,PUT(A):aa,DEL(A),PUT(A):aaa,PUT(A):xxx,PUT(B):b,PUT(B):bb,DEL("
+      "B)"
+      ",PUT(C):cc,",
+      PrintContents(&batch, nullptr));
+
+  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),",
+            PrintContents(&batch, &cf1));
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(
+      "PUT(A):a,PUT(A):aa,DEL(A),PUT(A):aaa,PUT(A):xxx,PUT(B):b,PUT(B):bb,DEL("
+      "B)"
+      ",PUT(C):cc,",
+      PrintContents(&batch, nullptr));
+
+  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),",
+            PrintContents(&batch, &cf1));
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ("PUT(A):a,PUT(A):aa,DEL(A),PUT(B):b,PUT(B):bb,PUT(C):cc,",
+            PrintContents(&batch, nullptr));
+
+  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(C):c1,",
+            PrintContents(&batch, &cf1));
+
+  batch.SetSavePoint();
+  batch.Put("X", "x");
+
+  ASSERT_EQ("PUT(A):a,PUT(A):aa,DEL(A),PUT(B):b,PUT(B):bb,PUT(C):cc,PUT(X):x,",
+            PrintContents(&batch, nullptr));
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ("PUT(A):a,PUT(A):aa,DEL(A),PUT(B):b,PUT(B):bb,PUT(C):cc,",
+            PrintContents(&batch, nullptr));
+
+  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(C):c1,",
+            PrintContents(&batch, &cf1));
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ("PUT(A):a,PUT(A):aa,PUT(B):b,", PrintContents(&batch, nullptr));
+
+  ASSERT_EQ("PUT(A):a1,DEL(B),PUT(C):c1,", PrintContents(&batch, &cf1));
+
+  s = batch.RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("PUT(A):a,PUT(A):aa,PUT(B):b,", PrintContents(&batch, nullptr));
+
+  ASSERT_EQ("PUT(A):a1,DEL(B),PUT(C):c1,", PrintContents(&batch, &cf1));
+
+  batch.SetSavePoint();
+
+  batch.Clear();
+  ASSERT_EQ("", PrintContents(&batch, nullptr));
+  ASSERT_EQ("", PrintContents(&batch, &cf1));
+
+  s = batch.RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {

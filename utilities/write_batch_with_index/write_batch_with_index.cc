@@ -400,6 +400,11 @@ struct WriteBatchWithIndex::Rep {
 
   // Clear all updates buffered in this batch.
   void Clear();
+  void ClearIndex();
+
+  // Rebuild index by reading all records from the batch.
+  // Returns non-ok status on corruption.
+  Status ReBuildIndex();
 };
 
 bool WriteBatchWithIndex::Rep::UpdateExistingEntry(
@@ -455,13 +460,73 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
 
   void WriteBatchWithIndex::Rep::Clear() {
     write_batch.Clear();
+    ClearIndex();
+  }
+
+  void WriteBatchWithIndex::Rep::ClearIndex() {
+    skip_list.~WriteBatchEntrySkipList();
     arena.~Arena();
     new (&arena) Arena();
-    skip_list.~WriteBatchEntrySkipList();
     new (&skip_list) WriteBatchEntrySkipList(comparator, &arena);
     last_entry_offset = 0;
   }
 
+  Status WriteBatchWithIndex::Rep::ReBuildIndex() {
+    Status s;
+
+    ClearIndex();
+
+    if (write_batch.Count() == 0) {
+      // Nothing to re-index
+      return s;
+    }
+
+    size_t offset = WriteBatchInternal::GetFirstOffset(&write_batch);
+
+    Slice input(write_batch.Data());
+    input.remove_prefix(offset);
+
+    // Loop through all entries in Rep and add each one to the index
+    int found = 0;
+    while (s.ok() && !input.empty()) {
+      Slice key, value, blob;
+      uint32_t column_family_id = 0;  // default
+      char tag = 0;
+
+      // set offset of current entry for call to AddNewEntry()
+      last_entry_offset = input.data() - write_batch.Data().data();
+
+      s = ReadRecordFromWriteBatch(&input, &tag, &column_family_id, &key,
+                                   &value, &blob);
+      if (!s.ok()) {
+        break;
+      }
+
+      switch (tag) {
+        case kTypeColumnFamilyValue:
+        case kTypeValue:
+        case kTypeColumnFamilyDeletion:
+        case kTypeDeletion:
+        case kTypeColumnFamilyMerge:
+        case kTypeMerge:
+          found++;
+          if (!UpdateExistingEntryWithCfId(column_family_id, key)) {
+            AddNewEntry(column_family_id);
+          }
+          break;
+        case kTypeLogData:
+          break;
+        default:
+          return Status::Corruption("unknown WriteBatch tag");
+      }
+    }
+
+    if (s.ok() && found != write_batch.Count()) {
+      s = Status::Corruption("WriteBatch has wrong count");
+    }
+
+    return s;
+  }
 
 WriteBatchWithIndex::WriteBatchWithIndex(
     const Comparator* default_index_comparator, size_t reserved_bytes,
@@ -635,6 +700,18 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
           key, merge_data, merge_context.GetOperands(), merge_operator,
           statistics, env, logger, value);
     }
+  }
+
+  return s;
+}
+
+void WriteBatchWithIndex::SetSavePoint() { rep->write_batch.SetSavePoint(); }
+
+Status WriteBatchWithIndex::RollbackToSavePoint() {
+  Status s = rep->write_batch.RollbackToSavePoint();
+
+  if (s.ok()) {
+    s = rep->ReBuildIndex();
   }
 
   return s;
