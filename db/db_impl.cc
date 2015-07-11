@@ -70,6 +70,7 @@
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/db_info_dumper.h"
 #include "util/file_util.h"
 #include "util/hash_skiplist_rep.h"
@@ -194,7 +195,7 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
   }
 }
 
-void DumpCompressionInfo(Logger* logger) {
+void DumpSupportInfo(Logger* logger) {
   Log(InfoLogLevel::INFO_LEVEL, logger, "Compression algorithms supported:");
   Log(InfoLogLevel::INFO_LEVEL, logger, "\tSnappy supported: %d",
       Snappy_Supported());
@@ -203,6 +204,8 @@ void DumpCompressionInfo(Logger* logger) {
   Log(InfoLogLevel::INFO_LEVEL, logger, "\tBzip supported: %d",
       BZip2_Supported());
   Log(InfoLogLevel::INFO_LEVEL, logger, "\tLZ4 supported: %d", LZ4_Supported());
+  Log(InfoLogLevel::INFO_LEVEL, logger, "Fast CRC32 supported: %d",
+      crc32c::IsFastCrc32Supported());
 }
 
 }  // namespace
@@ -265,7 +268,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   DumpRocksDBBuildVersion(db_options_.info_log.get());
   DumpDBFileSummary(db_options_, dbname_);
   db_options_.Dump(db_options_.info_log.get());
-  DumpCompressionInfo(db_options_.info_log.get());
+  DumpSupportInfo(db_options_.info_log.get());
 
   LogFlush(db_options_.info_log);
 }
