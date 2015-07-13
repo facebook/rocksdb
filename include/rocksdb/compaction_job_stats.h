@@ -36,13 +36,24 @@ struct CompactionJobStats {
   // the size of the compaction output in bytes.
   uint64_t total_output_bytes;
 
-  // number of records being replaced by newer record associated with same key
+  // number of records being replaced by newer record associated with same key.
+  // this could be a new value or a deletion entry for that key so this field
+  // sums up all updated and deleted keys
   uint64_t num_records_replaced;
 
   // the sum of the uncompressed input keys in bytes.
   uint64_t total_input_raw_key_bytes;
   // the sum of the uncompressed input values in bytes.
   uint64_t total_input_raw_value_bytes;
+
+  // the number of deletion entries before compaction. Deletion entries
+  // can disappear after compaction because they expired
+  uint64_t num_input_deletion_records;
+
+  // number of deletion records that were found obsolete and discarded
+  // because it is not possible to delete any more keys with this entry
+  // (i.e. all possible deletions resulting from it have been completed)
+  uint64_t num_expired_deletion_records;
 
   // 0-terminated strings storing the first 8 bytes of the smallest and
   // largest key in the output.

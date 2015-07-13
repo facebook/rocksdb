@@ -369,8 +369,8 @@ Status CompactionJob::Run() {
            !cfd->IsDropped()) {
       // FLUSH preempts compaction
       // TODO(icanadi) this currently only checks if flush is necessary on
-      // compacting column family. we should also check if flush is necessary on
-      // other column families, too
+      // compacting column family. we should also check if flush is necessary
+      // on other column families, too
 
       imm_micros += yield_callback_();
 
@@ -646,7 +646,6 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       if (combined_idx >= compact_->combined_key_buf_.size()) {
         break;
       }
-      assert(combined_idx < compact_->combined_key_buf_.size());
       key = compact_->combined_key_buf_[combined_idx];
       value = compact_->combined_value_buf_[combined_idx];
 
@@ -680,6 +679,10 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       last_sequence_for_key = kMaxSequenceNumber;
       visible_in_snapshot = kMaxSequenceNumber;
     } else {
+      if (ikey.type == kTypeDeletion) {
+        compaction_job_stats_->num_input_deletion_records++;
+      }
+
       if (!has_current_user_key ||
           cfd->user_comparator()->Compare(ikey.user_key,
                                           current_user_key.GetKey()) != 0) {
@@ -925,6 +928,10 @@ void CompactionJob::RecordDroppedKeys(
   }
   if (*key_drop_obsolete > 0) {
     RecordTick(stats_, COMPACTION_KEY_DROP_OBSOLETE, *key_drop_obsolete);
+    if (compaction_job_stats_) {
+      compaction_job_stats_->num_expired_deletion_records
+          += *key_drop_obsolete;
+    }
     *key_drop_obsolete = 0;
   }
 }
