@@ -23,8 +23,8 @@ class Env;
 const int kDebugLogChunkSize = 128 * 1024;
 
 class WinLogger : public rocksdb::Logger {
-public:
-  WinLogger(uint64_t(*gettid)(), Env* env, FILE * file,
+ public:
+  WinLogger(uint64_t (*gettid)(), Env* env, FILE* file,
             const InfoLogLevel log_level = InfoLogLevel::ERROR_LEVEL);
 
   virtual ~WinLogger();
@@ -43,14 +43,13 @@ public:
 
   void DebugWriter(const char* str, int len);
 
-private:
-
-  FILE*                     file_;
-  uint64_t(*gettid_)();  // Return the thread id for the current thread
-  std::atomic_size_t        log_size_;
+ private:
+  FILE* file_;
+  uint64_t (*gettid_)();  // Return the thread id for the current thread
+  std::atomic_size_t log_size_;
   std::atomic_uint_fast64_t last_flush_micros_;
-  Env*                      env_;
-  bool                      flush_pending_;
+  Env* env_;
+  bool flush_pending_;
 
   const static uint64_t flush_every_seconds_ = 5;
 };

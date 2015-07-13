@@ -182,19 +182,17 @@ struct BlockContents {
   BlockContents() : cachable(false), compression_type(kNoCompression) {}
 
   BlockContents(const Slice& _data, bool _cachable,
-    CompressionType _compression_type)
-    : data(_data), cachable(_cachable), compression_type(_compression_type) {}
+                CompressionType _compression_type)
+      : data(_data), cachable(_cachable), compression_type(_compression_type) {}
 
   BlockContents(std::unique_ptr<char[]>&& _data, size_t _size, bool _cachable,
-    CompressionType _compression_type)
-    : data(_data.get(), _size),
-      cachable(_cachable),
-      compression_type(_compression_type),
-      allocation(std::move(_data)) {}
+                CompressionType _compression_type)
+      : data(_data.get(), _size),
+        cachable(_cachable),
+        compression_type(_compression_type),
+        allocation(std::move(_data)) {}
 
-  BlockContents(BlockContents&& other) {
-    *this = std::move(other);
-  }
+  BlockContents(BlockContents&& other) { *this = std::move(other); }
 
   BlockContents& operator=(BlockContents&& other) {
     data = std::move(other.data);

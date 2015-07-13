@@ -270,7 +270,8 @@ const char* Compaction::InputLevelSummary(
       is_first = false;
     }
     len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
-                    "%" ROCKSDB_PRIszt "@%d", input_level.size(), input_level.level);
+                    "%" ROCKSDB_PRIszt "@%d", input_level.size(),
+                    input_level.level);
   }
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
            " files to L%d", output_level());

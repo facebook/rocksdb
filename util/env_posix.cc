@@ -1827,7 +1827,8 @@ class PosixEnv : public Env {
 #if defined(_GNU_SOURCE) && defined(__GLIBC_PREREQ)
 #if __GLIBC_PREREQ(2, 12)
         char name_buf[16];
-        snprintf(name_buf, sizeof name_buf, "rocksdb:bg%" ROCKSDB_PRIszt, bgthreads_.size());
+        snprintf(name_buf, sizeof name_buf, "rocksdb:bg%" ROCKSDB_PRIszt,
+                 bgthreads_.size());
         name_buf[sizeof name_buf - 1] = '\0';
         pthread_setname_np(t, name_buf);
 #endif

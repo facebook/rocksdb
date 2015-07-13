@@ -25,19 +25,23 @@ __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 // See http://www.codeproject.com/Articles/8113/Thread-Local-Storage-The-C-Way
 // and http://www.nynaeve.net/?p=183
 //
-// really we do this to have clear conscience since using TLS with thread-pools is iffy
-// although OK within a request. But otherwise, threads have no identity in its modern use.
+// really we do this to have clear conscience since using TLS with thread-pools
+// is iffy
+// although OK within a request. But otherwise, threads have no identity in its
+// modern use.
 
 // This runs on windows only called from the System Loader
 #ifdef OS_WIN
 
 // Windows cleanup routine is invoked from a System Loader with a different
-// signature so we can not directly hookup the original OnThreadExit which is private member
-// so we make StaticMeta class share with the us the address of the function so we can invoke it.
+// signature so we can not directly hookup the original OnThreadExit which is
+// private member
+// so we make StaticMeta class share with the us the address of the function so
+// we can invoke it.
 namespace wintlscleanup {
 
 // This is set to OnThreadExit in StaticMeta singleton constructor
-UnrefHandler  thread_local_inclass_routine = nullptr;
+UnrefHandler thread_local_inclass_routine = nullptr;
 pthread_key_t thread_local_key = -1;
 
 // Static callback function to call with each thread termination.
@@ -46,26 +50,26 @@ void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
   if (DLL_THREAD_DETACH == reason) {
     if (thread_local_key != -1 && thread_local_inclass_routine != nullptr) {
       void* tls = pthread_getspecific(thread_local_key);
-      if(tls != nullptr) {
+      if (tls != nullptr) {
         thread_local_inclass_routine(tls);
       }
     }
   }
 }
 
-} // wintlscleanup
+}  // wintlscleanup
 
-#  ifdef _WIN64
+#ifdef _WIN64
 
-#  pragma comment(linker, "/include:_tls_used")
-#  pragma comment(linker, "/include:p_thread_callback_on_exit")
+#pragma comment(linker, "/include:_tls_used")
+#pragma comment(linker, "/include:p_thread_callback_on_exit")
 
 #else  // _WIN64
 
-#  pragma comment(linker, "/INCLUDE:__tls_used")
-#  pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
+#pragma comment(linker, "/INCLUDE:__tls_used")
+#pragma comment(linker, "/INCLUDE:_p_thread_callback_on_exit")
 
-#  endif  // _WIN64
+#endif  // _WIN64
 
 // extern "C" suppresses C++ name mangling so we know the symbol name for the
 // linker /INCLUDE:symbol pragma above.
@@ -81,7 +85,8 @@ extern "C" {
 // When defining a const variable, it must have external linkage to be sure the
 // linker doesn't discard it.
 extern const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit;
-const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
+const PIMAGE_TLS_CALLBACK p_thread_callback_on_exit =
+    wintlscleanup::WinOnThreadExit;
 // Reset the default section.
 #pragma const_seg()
 
@@ -96,7 +101,7 @@ PIMAGE_TLS_CALLBACK p_thread_callback_on_exit = wintlscleanup::WinOnThreadExit;
 
 }  // extern "C"
 
-#endif // OS_WIN
+#endif  // OS_WIN
 
 ThreadLocalPtr::StaticMeta* ThreadLocalPtr::Instance() {
   static ThreadLocalPtr::StaticMeta inst;
@@ -136,7 +141,7 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   head_.prev = &head_;
 
 #ifdef OS_WIN
-// Share with Windows its cleanup routine and the key
+  // Share with Windows its cleanup routine and the key
   wintlscleanup::thread_local_inclass_routine = OnThreadExit;
   wintlscleanup::thread_local_key = pthread_key_;
 #endif
@@ -160,8 +165,8 @@ void ThreadLocalPtr::StaticMeta::RemoveThreadData(
 
 ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
 #if defined(OS_MACOSX) || defined(OS_WIN)
-// Make this local variable name look like a member variable so that we
-// can share all the code below
+  // Make this local variable name look like a member variable so that we
+  // can share all the code below
   ThreadData* tls_ =
       static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
 #endif

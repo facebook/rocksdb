@@ -307,11 +307,14 @@ void DBOptions::Dump(Logger* log) const {
     Warn(log, "      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Warn(log, "       Options.disableDataSync: %d", disableDataSync);
     Warn(log, "             Options.use_fsync: %d", use_fsync);
-    Warn(log, "     Options.max_log_file_size: %" ROCKSDB_PRIszt, max_log_file_size);
-    Warn(log, "Options.max_manifest_file_size: %lu",
-        (unsigned long)max_manifest_file_size);
-    Warn(log, "     Options.log_file_time_to_roll: %" ROCKSDB_PRIszt, log_file_time_to_roll);
-    Warn(log, "     Options.keep_log_file_num: %" ROCKSDB_PRIszt, keep_log_file_num);
+    Warn(log, "     Options.max_log_file_size: %" ROCKSDB_PRIszt,
+         max_log_file_size);
+    Warn(log, "Options.max_manifest_file_size: %" PRIu64,
+         max_manifest_file_size);
+    Warn(log, "     Options.log_file_time_to_roll: %" ROCKSDB_PRIszt,
+         log_file_time_to_roll);
+    Warn(log, "     Options.keep_log_file_num: %" ROCKSDB_PRIszt,
+         keep_log_file_num);
     Warn(log, "       Options.allow_os_buffer: %d", allow_os_buffer);
     Warn(log, "      Options.allow_mmap_reads: %d", allow_mmap_reads);
     Warn(log, "     Options.allow_mmap_writes: %d", allow_mmap_writes);
@@ -333,8 +336,9 @@ void DBOptions::Dump(Logger* log) const {
         WAL_ttl_seconds);
     Warn(log, "                      Options.WAL_size_limit_MB: %" PRIu64,
         WAL_size_limit_MB);
-    Warn(log, "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
-        manifest_preallocation_size);
+    Warn(log,
+         "            Options.manifest_preallocation_size: %" ROCKSDB_PRIszt,
+         manifest_preallocation_size);
     Warn(log, "                         Options.allow_os_buffer: %d",
         allow_os_buffer);
     Warn(log, "                        Options.allow_mmap_reads: %d",
@@ -347,8 +351,10 @@ void DBOptions::Dump(Logger* log) const {
         stats_dump_period_sec);
     Warn(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
-    Warn(log, "                    Options.db_write_buffer_size: %" ROCKSDB_PRIszt "d",
-        db_write_buffer_size);
+    Warn(log,
+         "                    Options.db_write_buffer_size: %" ROCKSDB_PRIszt
+         "d",
+         db_write_buffer_size);
     Warn(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
     Warn(log, "                      Options.use_adaptive_mutex: %d",
@@ -384,7 +390,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
   Warn(log, "           Options.table_factory: %s", table_factory->Name());
   Warn(log, "           table_factory options: %s",
       table_factory->GetPrintableTableOptions().c_str());
-  Warn(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt, write_buffer_size);
+  Warn(log, "       Options.write_buffer_size: %" ROCKSDB_PRIszt,
+       write_buffer_size);
   Warn(log, " Options.max_write_buffer_number: %d", max_write_buffer_number);
     if (!compression_per_level.empty()) {
       for (unsigned int i = 0; i < compression_per_level.size(); i++) {
@@ -430,8 +437,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         max_bytes_for_level_multiplier);
     for (size_t i = 0; i < max_bytes_for_level_multiplier_additional.size();
          i++) {
-      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%" ROCKSDB_PRIszt "]: %d", i,
-          max_bytes_for_level_multiplier_additional[i]);
+      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%" ROCKSDB_PRIszt
+                "]: %d",
+           i, max_bytes_for_level_multiplier_additional[i]);
     }
     Warn(log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,
         max_sequential_skip_in_iterations);
@@ -442,8 +450,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Warn(log, "         Options.max_grandparent_overlap_factor: %d",
         max_grandparent_overlap_factor);
 
-    Warn(log, "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
-        arena_block_size);
+    Warn(log,
+         "                       Options.arena_block_size: %" ROCKSDB_PRIszt,
+         arena_block_size);
     Warn(log, "                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
     Warn(log, "                      Options.hard_rate_limit: %.2f",
@@ -483,8 +492,9 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         collector_names.c_str());
     Warn(log, "                  Options.inplace_update_support: %d",
         inplace_update_support);
-    Warn(log, "                Options.inplace_update_num_locks: %" ROCKSDB_PRIszt,
-        inplace_update_num_locks);
+    Warn(log,
+         "                Options.inplace_update_num_locks: %" ROCKSDB_PRIszt,
+         inplace_update_num_locks);
     Warn(log, "              Options.min_partial_merge_operands: %u",
         min_partial_merge_operands);
     // TODO: easier config for bloom (maybe based on avg key/value size)
@@ -493,13 +503,15 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Warn(log, "            Options.memtable_prefix_bloom_probes: %d",
         memtable_prefix_bloom_probes);
 
-    Warn(log, "  Options.memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
-        memtable_prefix_bloom_huge_page_tlb_size);
+    Warn(log,
+         "  Options.memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
+         memtable_prefix_bloom_huge_page_tlb_size);
     Warn(log, "                          Options.bloom_locality: %d",
         bloom_locality);
 
-    Warn(log, "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
-        max_successive_merges);
+    Warn(log,
+         "                   Options.max_successive_merges: %" ROCKSDB_PRIszt,
+         max_successive_merges);
     Warn(log, "               Options.optimize_fllters_for_hits: %d",
         optimize_filters_for_hits);
 }  // ColumnFamilyOptions::Dump

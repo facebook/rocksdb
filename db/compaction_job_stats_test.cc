@@ -777,7 +777,5 @@ int main(int argc, char** argv) {
 
 #else
 
-int main(int argc, char** argv) {
-  return 0;
-}
+int main(int argc, char** argv) { return 0; }
 #endif  // !defined(IOS_CROSS_COMPILE)

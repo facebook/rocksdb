@@ -14,11 +14,10 @@
 // porting to a new platform, see "port_example.h" for documentation
 // of what the new port_<platform>.h file must provide.
 
-
 #if defined(ROCKSDB_PLATFORM_POSIX)
-# include "util/posix_logger.h"
+#include "util/posix_logger.h"
 #elif defined(OS_WIN)
-# include "port/win/win_logger.h"
+#include "port/win/win_logger.h"
 #endif
 
-#endif // STORAGE_LEVELDB_PORT_UTIL_LOGGER_H_
+#endif  // STORAGE_LEVELDB_PORT_UTIL_LOGGER_H_

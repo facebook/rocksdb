@@ -590,7 +590,8 @@ void ManifestDumpCommand::DoCommand() {
     // containing the db for files of the form MANIFEST_[0-9]+
 
     auto CloseDir = [](DIR* p) { closedir(p); };
-    std::unique_ptr<DIR, decltype(CloseDir)> d(opendir(db_path_.c_str()), CloseDir);
+    std::unique_ptr<DIR, decltype(CloseDir)> d(opendir(db_path_.c_str()),
+                                               CloseDir);
 
     if (d == nullptr) {
       exec_state_ =

@@ -11,6 +11,7 @@
 
 #include "pragma_error.h"
 
-ROCKSDB_WARNING("Warning: This file was moved to rocksdb/utilities/backupable_db.h")
+ROCKSDB_WARNING(
+    "Warning: This file was moved to rocksdb/utilities/backupable_db.h")
 
 #include "rocksdb/utilities/backupable_db.h"

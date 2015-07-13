@@ -7,20 +7,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// Introduction of SyncPoint effectively disabled building and running this test in Release build.
+// Introduction of SyncPoint effectively disabled building and running this test
+// in Release build.
 // which is a pity, it is a good test
-#if !(defined NDEBUG) || !defined (OS_WIN)
+#if !(defined NDEBUG) || !defined(OS_WIN)
 
 #include <algorithm>
 #include <iostream>
 #include <set>
-#ifndef OS_WIN
-#  include <unistd.h>
-#endif
 #include <thread>
 #include <unordered_set>
 #include <utility>
 #include <fcntl.h>
+#ifndef OS_WIN
+#include <unistd.h>
+#endif
 
 #include "db/filename.h"
 #include "db/dbformat.h"
@@ -8590,7 +8591,7 @@ TEST_F(DBTest, TransactionLogIterator) {
   } while (ChangeCompactOptions());
 }
 
-#ifndef NDEBUG // sync point is not included with DNDEBUG build
+#ifndef NDEBUG  // sync point is not included with DNDEBUG build
 TEST_F(DBTest, TransactionLogIteratorRace) {
   static const int LOG_ITERATOR_RACE_TEST_COUNT = 2;
   static const char* sync_points[LOG_ITERATOR_RACE_TEST_COUNT][4] = {
@@ -8716,7 +8717,6 @@ TEST_F(DBTest, TransactionLogIteratorCorruptedLog) {
 //
 class RecoveryTestHelper {
  public:
-
   // Number of WAL files to generate
   static const int kWALFilesCount = 10;
   // Starting number for the WAL file name like 00010.log
@@ -8727,9 +8727,9 @@ class RecoveryTestHelper {
   static const int kValueSize = 10;
 
   // Create WAL files with values filled in
-  static void FillData(DBTest* test, Options& options,
-                       const size_t wal_count, size_t & count) {
-    DBOptions & db_options = options;
+  static void FillData(DBTest* test, Options& options, const size_t wal_count,
+                       size_t& count) {
+    DBOptions& db_options = options;
 
     count = 0;
 
@@ -8750,7 +8750,7 @@ class RecoveryTestHelper {
     std::unique_ptr<log::Writer> current_log_writer;
 
     for (size_t j = kWALFileOffset; j < wal_count + kWALFileOffset; j++) {
-      uint64_t current_log_number =  j;
+      uint64_t current_log_number = j;
       std::string fname = LogFileName(test->dbname_, current_log_number);
       unique_ptr<WritableFile> file;
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
@@ -8760,7 +8760,7 @@ class RecoveryTestHelper {
         std::string key = "key" + ToString(count++);
         std::string value = test->DummyString(kValueSize);
         assert(current_log_writer.get() != nullptr);
-        uint64_t seq =  versions->LastSequence() + 1;
+        uint64_t seq = versions->LastSequence() + 1;
         WriteBatch batch;
         batch.Put(key, value);
         WriteBatchInternal::SetSequence(&batch, seq);
@@ -8793,9 +8793,9 @@ class RecoveryTestHelper {
   }
 
   // Manuall corrupt the specified WAL
-  static void CorruptWAL(DBTest * test, Options& options,
-                         const double off, const double len,
-                         const int wal_file_id, const bool trunc = false) {
+  static void CorruptWAL(DBTest* test, Options& options, const double off,
+                         const double len, const int wal_file_id,
+                         const bool trunc = false) {
     Env* env = options.env;
     std::string fname = LogFileName(test->dbname_, wal_file_id);
     uint64_t size;
@@ -8839,18 +8839,18 @@ class RecoveryTestHelper {
 // at the end of any of the logs
 // - We do not expect to open the data store for corruption
 TEST_F(DBTest, kTolerateCorruptedTailRecords) {
-  const int jstart =  RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount; 
+  const int jstart = RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
 
-  for (auto trunc : {true, false}) {  /* Corruption style */
-    for (int i = 0; i < 4; i++) { /* Corruption offset position */
+  for (auto trunc : {true, false}) {        /* Corruption style */
+    for (int i = 0; i < 4; i++) {           /* Corruption offset position */
       for (int j = jstart; j < jend; j++) { /* WAL file */
         // Fill data for testing
         Options options = CurrentOptions();
         const size_t row_count = RecoveryTestHelper::FillData(this, options);
         // test checksum failure or parsing
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
-                                       /*len%=*/ .1, /*wal=*/ j, trunc);
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
+                                       /*len%=*/.1, /*wal=*/j, trunc);
 
         if (trunc) {
           options.wal_recovery_mode =
@@ -8874,8 +8874,8 @@ TEST_F(DBTest, kTolerateCorruptedTailRecords) {
 // We don't expect the data store to be opened if there is any corruption
 // (leading, middle or trailing -- incomplete writes or corruption)
 TEST_F(DBTest, kAbsoluteConsistency) {
-  const int jstart =  RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount; 
+  const int jstart = RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
 
   // Verify clean slate behavior
   Options options = CurrentOptions();
@@ -8886,7 +8886,7 @@ TEST_F(DBTest, kAbsoluteConsistency) {
   ASSERT_EQ(RecoveryTestHelper::GetData(this), row_count);
 
   for (auto trunc : {true, false}) { /* Corruption style */
-    for (int i = 0; i < 4; i++) { /* Corruption offset position */
+    for (int i = 0; i < 4; i++) {    /* Corruption offset position */
       if (trunc && i == 0) {
         continue;
       }
@@ -8895,7 +8895,7 @@ TEST_F(DBTest, kAbsoluteConsistency) {
         // fill with new date
         RecoveryTestHelper::FillData(this, options);
         // corrupt the wal
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
                                        /*len%=*/.1, j, trunc);
         // verify
         options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
@@ -8910,20 +8910,20 @@ TEST_F(DBTest, kAbsoluteConsistency) {
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
 TEST_F(DBTest, kPointInTimeRecovery) {
-  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jstart = RecoveryTestHelper::kWALFileOffset;
   const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
-  const int maxkeys = RecoveryTestHelper::kWALFilesCount *
-                        RecoveryTestHelper::kKeysPerWALFile;
+  const int maxkeys =
+      RecoveryTestHelper::kWALFilesCount * RecoveryTestHelper::kKeysPerWALFile;
 
-  for (auto trunc : {true, false}) { /* Corruption style */
-    for (int i = 0; i < 4; i++) { /* Offset of corruption */
+  for (auto trunc : {true, false}) {        /* Corruption style */
+    for (int i = 0; i < 4; i++) {           /* Offset of corruption */
       for (int j = jstart; j < jend; j++) { /* WAL file */
         // Fill data for testing
         Options options = CurrentOptions();
         const size_t row_count = RecoveryTestHelper::FillData(this, options);
 
         // Corrupt the wal
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
                                        /*len%=*/.1, j, trunc);
 
         // Verify
@@ -8945,11 +8945,11 @@ TEST_F(DBTest, kPointInTimeRecovery) {
         }
 
         const size_t min = RecoveryTestHelper::kKeysPerWALFile *
-                              (j - RecoveryTestHelper::kWALFileOffset);
+                           (j - RecoveryTestHelper::kWALFileOffset);
         ASSERT_GE(recovered_row_count, min);
         if (!trunc && i != 0) {
           const size_t max = RecoveryTestHelper::kKeysPerWALFile *
-                                (j - RecoveryTestHelper::kWALFileOffset + 1);
+                             (j - RecoveryTestHelper::kWALFileOffset + 1);
           ASSERT_LE(recovered_row_count, max);
         }
       }
@@ -8961,18 +8961,18 @@ TEST_F(DBTest, kPointInTimeRecovery) {
 // - We expect to open the data store under all scenarios
 // - We expect to have recovered records past the corruption zone
 TEST_F(DBTest, kSkipAnyCorruptedRecords) {
-  const int jstart =  RecoveryTestHelper::kWALFileOffset;
-  const int jend = jstart + RecoveryTestHelper::kWALFilesCount; 
+  const int jstart = RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
 
-  for (auto trunc : {true, false}) { /* Corruption style */
-    for (int i = 0; i < 4; i++) { /* Corruption offset */
+  for (auto trunc : {true, false}) {        /* Corruption style */
+    for (int i = 0; i < 4; i++) {           /* Corruption offset */
       for (int j = jstart; j < jend; j++) { /* wal files */
         // Fill data for testing
         Options options = CurrentOptions();
         const size_t row_count = RecoveryTestHelper::FillData(this, options);
 
         // Corrupt the WAL
-        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/i * .3,
                                        /*len%=*/.1, j, trunc);
 
         // Verify behavior
@@ -11228,8 +11228,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
     count++;
   }
   ASSERT_GT(sleep_count.load(), 0);
-  // Windows fails this test. Will tune in the future and figure out
-  // approp number
+// Windows fails this test. Will tune in the future and figure out
+// approp number
 #ifndef OS_WIN
   ASSERT_GT(static_cast<double>(count), 512 * 0.8);
   ASSERT_LT(static_cast<double>(count), 512 * 1.2);
@@ -11254,8 +11254,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
     count++;
   }
   ASSERT_GT(sleep_count.load(), 0);
-  // Windows fails this test. Will tune in the future and figure out
-  // approp number
+// Windows fails this test. Will tune in the future and figure out
+// approp number
 #ifndef OS_WIN
   ASSERT_GT(static_cast<double>(count), 256 * 0.8);
   ASSERT_LT(static_cast<double>(count), 266 * 1.2);

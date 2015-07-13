@@ -472,7 +472,7 @@ class BlobVal : public FbsonValue {
 
   BlobVal();
 
-private:
+ private:
   // Disable as this class can only be allocated dynamically
   BlobVal(const BlobVal&) = delete;
   BlobVal& operator=(const BlobVal&) = delete;

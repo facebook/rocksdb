@@ -333,9 +333,7 @@ class BackupEngineImpl : public BackupEngine {
     CopyWorkItem(const CopyWorkItem&) = delete;
     CopyWorkItem& operator=(const CopyWorkItem&) = delete;
 
-    CopyWorkItem(CopyWorkItem&& o) {
-      *this = std::move(o);
-    }
+    CopyWorkItem(CopyWorkItem&& o) { *this = std::move(o); }
 
     CopyWorkItem& operator=(CopyWorkItem&& o) {
       src_path = std::move(o.src_path);
@@ -390,12 +388,9 @@ class BackupEngineImpl : public BackupEngine {
       return *this;
     }
 
-    BackupAfterCopyWorkItem(std::future<CopyResult>&& _result,
-                            bool _shared,
-                            bool _needed_to_copy,
-                            Env* _backup_env,
-                            std::string _dst_path_tmp,
-                            std::string _dst_path,
+    BackupAfterCopyWorkItem(std::future<CopyResult>&& _result, bool _shared,
+                            bool _needed_to_copy, Env* _backup_env,
+                            std::string _dst_path_tmp, std::string _dst_path,
                             std::string _dst_relative)
         : result(std::move(_result)),
           shared(_shared),
@@ -412,8 +407,7 @@ class BackupEngineImpl : public BackupEngine {
     RestoreAfterCopyWorkItem() {}
     RestoreAfterCopyWorkItem(std::future<CopyResult>&& _result,
                              uint32_t _checksum_value)
-        : result(std::move(_result)),
-          checksum_value(_checksum_value) {}
+        : result(std::move(_result)), checksum_value(_checksum_value) {}
     RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) {
       *this = std::move(o);
     }
@@ -1561,7 +1555,8 @@ Status BackupEngineImpl::BackupMeta::StoreToFile(bool sync) {
   len += snprintf(buf.get(), buf_size, "%" PRId64 "\n", timestamp_);
   len += snprintf(buf.get() + len, buf_size - len, "%" PRIu64 "\n",
                   sequence_number_);
-  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n", files_.size());
+  len += snprintf(buf.get() + len, buf_size - len, "%" ROCKSDB_PRIszt "\n",
+                  files_.size());
   for (const auto& file : files_) {
     // use crc32 for now, switch to something else if needed
     len += snprintf(buf.get() + len, buf_size - len, "%s crc32 %u\n",

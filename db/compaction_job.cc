@@ -242,7 +242,7 @@ void CompactionJob::ReportStartedCompaction(
 
   ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::COMPACTION_PROP_FLAGS,
-          compaction->is_manual_compaction() +
+      compaction->is_manual_compaction() +
           (compaction->deletion_compaction() << 1));
 
   ThreadStatusUtil::SetThreadOperationProperty(
@@ -263,7 +263,7 @@ void CompactionJob::ReportStartedCompaction(
 
   if (compaction_job_stats_) {
     compaction_job_stats_->is_manual_compaction =
-          compaction->is_manual_compaction();
+        compaction->is_manual_compaction();
   }
 }
 

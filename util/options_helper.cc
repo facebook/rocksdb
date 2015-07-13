@@ -277,8 +277,7 @@ Status GetMutableOptionsFromStrings(
 namespace {
 
 std::string trim(const std::string& str) {
-  if (str.empty())
-    return std::string();
+  if (str.empty()) return std::string();
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start <= end) {
@@ -564,8 +563,7 @@ bool ParseDBOption(const std::string& name, const std::string& value,
     } else {
       return false;
     }
-  }
-  catch (const std::exception& e) {
+  } catch (const std::exception& e) {
     return false;
   }
   return true;
@@ -680,7 +678,8 @@ Status GetPlainTableOptionsFromMap(
       } else if (o.first == "full_scan_mode") {
         new_table_options->full_scan_mode = ParseBoolean(o.first, o.second);
       } else if (o.first == "store_index_in_file") {
-        new_table_options->store_index_in_file = ParseBoolean(o.first, o.second);
+        new_table_options->store_index_in_file =
+            ParseBoolean(o.first, o.second);
       } else {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       }

@@ -17,7 +17,6 @@
 #include "util/autovector.h"
 #include "port/port.h"
 
-
 namespace rocksdb {
 
 // Cleanup function that will be called for a stored thread local

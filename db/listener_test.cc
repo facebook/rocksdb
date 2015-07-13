@@ -216,11 +216,8 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
 // This simple Listener can only handle one flush at a time.
 class TestFlushListener : public EventListener {
  public:
-  explicit TestFlushListener(Env* env) :
-      slowdown_count(0),
-      stop_count(0),
-      db_closed(),
-      env_(env) {
+  explicit TestFlushListener(Env* env)
+      : slowdown_count(0), stop_count(0), db_closed(), env_(env) {
     db_closed = false;
   }
   void OnTableFileCreated(

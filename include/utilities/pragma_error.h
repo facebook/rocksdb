@@ -13,24 +13,23 @@
 #define RDB_STR__(x) #x
 #define RDB_STR(x) RDB_STR__(x)
 
-
 #if defined(ROCKSDB_PLATFORM_POSIX)
 // Wrap unportable warning macro
 
-#   define ROCKSDB_WARNING(x)  _Pragma(RDB_STR(GCC warning(x)))
-
+#define ROCKSDB_WARNING(x) _Pragma(RDB_STR(GCC warning(x)))
 
 #elif defined(OS_WIN)
 
 // Wrap unportable warning macro
 #if defined(_MSC_VER)
- // format it according to visual studio output (to get source lines and warnings in the IDE)
- #define ROCKSDB_WARNING(x) __pragma( message(__FILE__ "(" RDB_STR(__LINE__) ") : warning: " x) )
+// format it according to visual studio output (to get source lines and warnings
+// in the IDE)
+#define ROCKSDB_WARNING(x) \
+  __pragma(message(__FILE__ "(" RDB_STR(__LINE__) ") : warning: " x))
 #else
- // make #warning into #pragma GCC warning gcc 4.7+ and clang 3.2+ supported
- #define ROCKSDB_WARNING(x)  _Pragma(RDB_STR(GCC warning(x)))
+// make #warning into #pragma GCC warning gcc 4.7+ and clang 3.2+ supported
+#define ROCKSDB_WARNING(x) _Pragma(RDB_STR(GCC warning(x)))
 #endif
-
 
 #endif
 

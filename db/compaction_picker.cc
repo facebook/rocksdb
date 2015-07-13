@@ -401,8 +401,9 @@ bool CompactionPicker::SetupOtherInputs(
       if (expanded1.size() == output_level_inputs->size() &&
           !FilesInCompaction(expanded1)) {
         Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64 "+%" PRIu64
-            " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 "bytes)\n",
+            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
+            "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
+            " (%" PRIu64 "+%" PRIu64 "bytes)\n",
             cf_name.c_str(), input_level, inputs->size(),
             output_level_inputs->size(), inputs0_size, inputs1_size,
             expanded0.size(), expanded1.size(), expanded0_size, inputs1_size);
@@ -1225,7 +1226,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
-  LogToBuffer(log_buffer, 3072, "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
+  LogToBuffer(log_buffer, 3072,
+              "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
               cf_name.c_str(), sorted_runs.size(),
               vstorage->LevelSummary(&tmp));
 

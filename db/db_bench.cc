@@ -71,7 +71,7 @@ int main() {
 #include "utilities/merge_operators.h"
 
 #ifdef OS_WIN
-#include <io.h> // open/close
+#include <io.h>  // open/close
 #endif
 
 using GFLAGS::ParseCommandLineFlags;
@@ -3544,8 +3544,8 @@ class Benchmark {
 
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
-             PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
+             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64
+             " hits:%" PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }

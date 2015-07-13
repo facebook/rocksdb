@@ -42,7 +42,6 @@ const double GeoDBImpl::MaxLatitude = 85.05112878;
 const double GeoDBImpl::MinLongitude = -180;
 const double GeoDBImpl::MaxLongitude = 180;
 
-
 GeoDBImpl::GeoDBImpl(DB* db, const GeoDBOptions& options) :
   GeoDB(db, options), db_(db), options_(options) {
 }

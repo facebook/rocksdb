@@ -2256,7 +2256,7 @@ void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n)
 }
 
 void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
-    env->rep->WaitForJoin();
+  env->rep->WaitForJoin();
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {
@@ -2449,19 +2449,16 @@ extern void rocksdb_livefiles_destroy(
   delete lf;
 }
 
-void rocksdb_get_options_from_string(
-    const rocksdb_options_t* base_options,
-    const char* opts_str, rocksdb_options_t* new_options,
-    char** errptr){
-  SaveError(errptr, 
-            GetOptionsFromString(base_options->rep,
-              std::string(opts_str), &new_options->rep));
+void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
+                                     const char* opts_str,
+                                     rocksdb_options_t* new_options,
+                                     char** errptr) {
+  SaveError(errptr,
+            GetOptionsFromString(base_options->rep, std::string(opts_str),
+                                 &new_options->rep));
 }
 
-void rocksdb_free(
-    void* ptr){
-  free(ptr);
-}
+void rocksdb_free(void* ptr) { free(ptr); }
 
 }  // end extern "C"
 

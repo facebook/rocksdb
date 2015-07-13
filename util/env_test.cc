@@ -7,11 +7,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-#include <sys/types.h>
 #ifndef OS_WIN
-#  include <sys/ioctl.h>
+#include <sys/ioctl.h>
 #endif
-
+#include <sys/types.h>
 
 #include <iostream>
 #include <unordered_set>
@@ -860,7 +859,7 @@ class TestLogger : public Logger {
       int n = vsnprintf(new_format, sizeof(new_format) - 1, format, backup_ap);
       // 48 bytes for extra information + bytes allocated
 
-      // When we have n == -1 there is not a terminating zero expected
+// When we have n == -1 there is not a terminating zero expected
 #ifdef OS_WIN
       if (n < 0) {
         char_0_count++;

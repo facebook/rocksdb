@@ -54,24 +54,18 @@ struct Variant {
   /* implicit */ Variant(uint64_t i) : type_(kInt) { data_.i = i; }
   /* implicit */ Variant(double d) : type_(kDouble) { data_.d = d; }
   /* implicit */ Variant(const std::string& s) : type_(kString) {
-      new (&data_.s) std::string(s);
+    new (&data_.s) std::string(s);
   }
 
-  Variant(const Variant& v) : type_(v.type_) {
-    Init(v, data_);
-  }
+  Variant(const Variant& v) : type_(v.type_) { Init(v, data_); }
 
   Variant& operator=(const Variant& v);
 
-  Variant(Variant&& rhs) : type_(kNull) {
-    *this = std::move(rhs);
-  }
+  Variant(Variant&& rhs) : type_(kNull) { *this = std::move(rhs); }
 
   Variant& operator=(Variant&& v);
 
-  ~Variant() {
-    Destroy(type_, data_);
-  }
+  ~Variant() { Destroy(type_, data_); }
 
   Type type() const { return type_; }
   bool get_bool() const { return data_.b; }
@@ -83,16 +77,16 @@ struct Variant {
   bool operator!=(const Variant& other) const { return !(*this == other); }
 
  private:
-
   Type type_;
 
   union Data {
-    bool        b;
-    uint64_t    i;
-    double      d;
-    // Current version of MS compiler not C++11 compliant so can not put std::string
+    bool b;
+    uint64_t i;
+    double d;
+    // Current version of MS compiler not C++11 compliant so can not put
+    // std::string
     // however, even then we still need the rest of the maintenance.
-    char        s[sizeof(std::string)];
+    char s[sizeof(std::string)];
   } data_;
 
   // Avoid type_punned aliasing problem
