@@ -206,6 +206,7 @@ TEST_BENCH_SOURCES =                                                    \
   util/cache_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
+  util/db_test_util.cc                                                  \
   util/dynamic_bloom_test.cc                                            \
   util/env_test.cc                                                      \
   util/filelock_test.cc                                                 \
