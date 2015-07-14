@@ -10,13 +10,16 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
+#include "rocksdb/memtablerep.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
+#include "table/plain_table_factory.h"
 #include "util/logging.h"
 #include "util/options_helper.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -266,7 +269,7 @@ Status GetMutableOptionsFromStrings(
         return Status::InvalidArgument(
             "unsupported dynamic option: " + o.first);
       }
-    } catch (std::exception& e) {
+    } catch (const std::exception& e) {
       return Status::InvalidArgument("error parsing " + o.first + ":" +
                                      std::string(e.what()));
     }
@@ -277,6 +280,8 @@ Status GetMutableOptionsFromStrings(
 namespace {
 
 std::string trim(const std::string& str) {
+  if (str.empty())
+    return std::string();
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start <= end) {
@@ -389,7 +394,28 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
         return false;
       }
       new_options->table_factory.reset(NewBlockBasedTableFactory(table_opt));
-    } else if (name == "min_write_buffer_number_to_merge") {
+    } else if (name == "plain_table_factory") {
+      PlainTableOptions table_opt, base_table_options;
+      auto plain_table_factory = dynamic_cast<PlainTableFactory*>(
+       new_options->table_factory.get());
+      if (plain_table_factory != nullptr) {
+       base_table_options = plain_table_factory->GetTableOptions();
+      }
+      Status table_opt_s = GetPlainTableOptionsFromString(
+       base_table_options, value, &table_opt);
+      if (!table_opt_s.ok()) {
+       return false;
+      }
+      new_options->table_factory.reset(NewPlainTableFactory(table_opt));
+    } else if (name == "memtablerep") {
+      MemTableRepFactory* new_mem_factory;
+      Status mem_factory_s = 
+       GetMemTableRepFactoryFromString(value, &new_mem_factory);
+      if (!mem_factory_s.ok()) {
+       return false;
+      }
+      new_options->memtable_factory.reset(new_mem_factory);	
+	} else if (name == "min_write_buffer_number_to_merge") {
       new_options->min_write_buffer_number_to_merge = ParseInt(value);
     } else if (name == "compression") {
       new_options->compression = ParseCompressionType(value);
@@ -477,7 +503,7 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       return false;
     }
   }
-  catch (std::exception& e) {
+  catch (const std::exception& e) {
     return false;
   }
   return true;
@@ -559,7 +585,7 @@ bool ParseDBOption(const std::string& name, const std::string& value,
       return false;
     }
   }
-  catch (std::exception& e) {
+  catch (const std::exception& e) {
     return false;
   }
   return true;
@@ -623,7 +649,7 @@ Status GetBlockBasedTableOptionsFromMap(
       } else {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       }
-    } catch (std::exception& e) {
+    } catch (const std::exception& e) {
       return Status::InvalidArgument("error parsing " + o.first + ":" +
                                      std::string(e.what()));
     }
@@ -642,6 +668,116 @@ Status GetBlockBasedTableOptionsFromString(
   }
   return GetBlockBasedTableOptionsFromMap(table_options, opts_map,
                                           new_table_options);
+}
+
+Status GetPlainTableOptionsFromMap(
+    const PlainTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    PlainTableOptions* new_table_options) {
+  assert(new_table_options);
+  *new_table_options = table_options;
+
+  for (const auto& o : opts_map) {
+    try {
+      if (o.first == "user_key_len") {
+        new_table_options->user_key_len = ParseUint32(o.second);
+      } else if (o.first == "bloom_bits_per_key") {
+        new_table_options->bloom_bits_per_key = ParseInt(o.second);
+      } else if (o.first == "hash_table_ratio") {
+        new_table_options->hash_table_ratio = ParseDouble(o.second);
+      } else if (o.first == "index_sparseness") {
+        new_table_options->index_sparseness = ParseSizeT(o.second);
+      } else if (o.first == "huge_page_tlb_size") {
+        new_table_options->huge_page_tlb_size = ParseSizeT(o.second);
+      } else if (o.first == "encoding_type") {
+        if (o.second == "kPlain") {
+          new_table_options->encoding_type = kPlain;
+        } else if (o.second == "kPrefix") {
+          new_table_options->encoding_type = kPrefix;
+        } else {
+          throw std::invalid_argument("Unknown encoding_type: " + o.second);
+        }
+      } else if (o.first == "full_scan_mode") {
+        new_table_options->full_scan_mode = ParseBoolean(o.first, o.second);
+      } else if (o.first == "store_index_in_file") {
+        new_table_options->store_index_in_file = ParseBoolean(o.first, o.second);
+      } else {
+        return Status::InvalidArgument("Unrecognized option: " + o.first);
+      }
+    } catch (const std::exception& e) {
+      return Status::InvalidArgument("error parsing " + o.first + ":" +
+                                     std::string(e.what()));
+    }
+  }
+  return Status::OK();
+}
+
+Status GetPlainTableOptionsFromString(
+    const PlainTableOptions& table_options,
+    const std::string& opts_str,
+    PlainTableOptions* new_table_options) {
+  std::unordered_map<std::string, std::string> opts_map;
+  Status s = StringToMap(opts_str, &opts_map);
+  if (!s.ok()) {
+    return s;
+  }
+  return GetPlainTableOptionsFromMap(table_options, opts_map,
+                                     new_table_options);
+}
+
+Status GetMemTableRepFactoryFromString(
+    const std::string& opts_str,
+    MemTableRepFactory** new_mem_factory) {
+  std::vector<std::string> opts_list = StringSplit(opts_str, ':');
+  size_t len = opts_list.size();
+  if (opts_list[0] == "skip_list") {
+    // Expecting format 
+    // skip_list:lookahead
+    if (2 == len) {
+      size_t lookahead = ParseSizeT(opts_list[1]);
+      *new_mem_factory = new SkipListFactory(lookahead);
+    } else if (1 == len) {
+      *new_mem_factory = new SkipListFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse option ", opts_str);
+    }
+  } else if (opts_list[0] == "prefix_hash") {
+    // Expecting format
+    // prfix_hash:hash_bucket_count
+    if (2 == len) {
+      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+      *new_mem_factory = NewHashSkipListRepFactory(hash_bucket_count);
+    } else if (1 == len) {
+      *new_mem_factory = NewHashSkipListRepFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse option ", opts_str);
+    }
+  } else if (opts_list[0] == "hash_linkedlist") {
+    // Expecting format
+    // hash_linkedlist:hash_bucket_count
+    if (2 == len) {
+      size_t hash_bucket_count = ParseSizeT(opts_list[1]);
+      *new_mem_factory = NewHashLinkListRepFactory(hash_bucket_count);
+    } else if (1 == len) {
+      *new_mem_factory = NewHashLinkListRepFactory();
+    } else {
+      return Status::InvalidArgument("Can't parse option ", opts_str);
+    }
+  } else if (opts_list[0] == "vector") {
+    if (1 == len) {
+      *new_mem_factory = new VectorRepFactory;
+    } else {
+      return Status::InvalidArgument("Can't parse option ", opts_str);
+    }
+  } else if (opts_list[0] == "cuckoo") {
+    return Status::InvalidArgument("cuckoo is not supported for now");
+    // TODO(bahuang): cuckoo is not supported for now
+    // *new_mem_factory = NewHashCuckooRepFactory(
+    //    options.write_buffer_size, FLAGS_key_size + FLAGS_value_size));    
+  } else {
+    return Status::InvalidArgument("Can't parse option " + opts_str);
+  }
+  return Status::OK();
 }
 
 Status GetColumnFamilyOptionsFromMap(
