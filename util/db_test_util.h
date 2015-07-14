@@ -594,9 +594,6 @@ class DBTestBase : public testing::Test {
 
   Options OptionsForLogIterTest();
 
-  std::unique_ptr<TransactionLogIterator> OpenTransactionLogIter(
-      const SequenceNumber seq);
-
   std::string DummyString(size_t len, char c = 'a');
 
   void VerifyIterLast(std::string expected_key, int cf = 0);

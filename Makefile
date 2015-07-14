@@ -220,6 +220,7 @@ VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 TESTS = \
 	db_test \
 	db_iter_test \
+	db_log_iter_test \
 	db_dynamic_level_test \
 	block_hash_index_test \
 	autovector_test \
@@ -674,6 +675,9 @@ slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_test: db/db_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)

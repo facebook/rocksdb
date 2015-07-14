@@ -790,15 +790,6 @@ Options DBTestBase::OptionsForLogIterTest() {
   return options;
 }
 
-std::unique_ptr<TransactionLogIterator> DBTestBase::OpenTransactionLogIter(
-    const SequenceNumber seq) {
-  unique_ptr<TransactionLogIterator> iter;
-  Status status = dbfull()->GetUpdatesSince(seq, &iter);
-  EXPECT_OK(status);
-  EXPECT_TRUE(iter->Valid());
-  return std::move(iter);
-}
-
 std::string DBTestBase::DummyString(size_t len, char c) {
   return std::string(len, c);
 }
