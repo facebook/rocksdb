@@ -838,6 +838,27 @@ public interface ColumnFamilyOptionsInterface {
   CompactionStyle compactionStyle();
 
   /**
+   * FIFO compaction option.
+   * The oldest table file will be deleted
+   * once the sum of table files reaches this size.
+   * The default value is 1GB (1 * 1024 * 1024 * 1024).
+   *
+   * @param maxTableFilesSize the size limit of the total sum of table files.
+   * @return the instance of the current Object.
+   */
+  Object setMaxTableFilesSizeFIFO(long maxTableFilesSize);
+
+  /**
+   * FIFO compaction option.
+   * The oldest table file will be deleted
+   * once the sum of table files reaches this size.
+   * The default value is 1GB (1 * 1024 * 1024 * 1024).
+   *
+   * @return the size limit of the total sum of table files.
+   */
+  long maxTableFilesSizeFIFO();
+
+  /**
    * If true, compaction will verify checksum on every read that happens
    * as part of compaction
    * Default: true

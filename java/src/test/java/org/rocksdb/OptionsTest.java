@@ -1109,6 +1109,25 @@ public class OptionsTest {
   }
 
   @Test
+  public void maxTableFilesSizeFIFO() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      // Size has to be positive
+      longValue = (longValue < 0) ? -longValue : longValue;
+      longValue = (longValue == 0) ? longValue + 1 : longValue;
+      opt.setMaxTableFilesSizeFIFO(longValue);
+      assertThat(opt.maxTableFilesSizeFIFO()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void rateLimiterConfig() {
     Options options = null;
     Options anotherOptions = null;

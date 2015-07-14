@@ -438,6 +438,20 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options setMaxTableFilesSizeFIFO(
+    final long maxTableFilesSize) {
+    assert(maxTableFilesSize > 0); // unsigned native type
+    assert(isInitialized());
+    setMaxTableFilesSizeFIFO(nativeHandle_, maxTableFilesSize);
+    return this;
+  }
+
+  @Override
+  public long maxTableFilesSizeFIFO() {
+    return maxTableFilesSizeFIFO(nativeHandle_);
+  }
+
+  @Override
   public int tableCacheNumshardbits() {
     assert(isInitialized());
     return tableCacheNumshardbits(nativeHandle_);
@@ -1135,6 +1149,9 @@ public class Options extends RocksObject
   private native void setMaxManifestFileSize(
       long handle, long maxManifestFileSize);
   private native long maxManifestFileSize(long handle);
+  private native void setMaxTableFilesSizeFIFO(
+      long handle, long maxTableFilesSize);
+  private native long maxTableFilesSizeFIFO(long handle);
   private native void setTableCacheNumshardbits(
       long handle, int tableCacheNumshardbits);
   private native int tableCacheNumshardbits(long handle);
