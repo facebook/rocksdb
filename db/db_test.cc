@@ -5806,11 +5806,7 @@ TEST_F(DBTest, DeletionMarkers1) {
   Put(1, "foo", "v2");
   ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, DEL, v1 ]");
   ASSERT_OK(Flush(1));  // Moves to level last-2
-  if (CurrentOptions().purge_redundant_kvs_while_flush) {
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, v1 ]");
-  } else {
-    ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, DEL, v1 ]");
-  }
+  ASSERT_EQ(AllEntriesFor("foo", 1), "[ v2, v1 ]");
   Slice z("z");
   dbfull()->TEST_CompactRange(last - 2, nullptr, &z, handles_[1]);
   // DEL eliminated, but v1 remains because we aren't compacting that level
@@ -6879,7 +6875,6 @@ TEST_F(DBTest, CompactOnFlush) {
   options_override.skip_policy = kSkipNoSnapshot;
   do {
     Options options = CurrentOptions(options_override);
-    options.purge_redundant_kvs_while_flush = true;
     options.disable_auto_compactions = true;
     CreateAndReopenWithCF({"pikachu"}, options);
 

@@ -1674,10 +1674,9 @@ void rocksdb_options_set_manifest_preallocation_size(
   opt->rep.manifest_preallocation_size = v;
 }
 
-void rocksdb_options_set_purge_redundant_kvs_while_flush(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.purge_redundant_kvs_while_flush = v;
-}
+// noop
+void rocksdb_options_set_purge_redundant_kvs_while_flush(rocksdb_options_t* opt,
+                                                         unsigned char v) {}
 
 void rocksdb_options_set_allow_os_buffer(rocksdb_options_t* opt,
                                          unsigned char v) {

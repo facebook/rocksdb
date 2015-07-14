@@ -4,6 +4,7 @@
 
 ### Public API changes
 * Deprecated WriteOptions::timeout_hint_us. We no longer support write timeout. If you really need this option, talk to us and we might consider returning it.
+* Deprecated purge_redundant_kvs_while_flush option.
 
 ## 3.12.0 (7/2/2015)
 ### New Features

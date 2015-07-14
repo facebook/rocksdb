@@ -236,11 +236,7 @@ Options DBTestBase::CurrentOptions(
       break;
     case kManifestFileSize:
       options.max_manifest_file_size = 50;  // 50 bytes
-    case kCompactOnFlush:
-      options.purge_redundant_kvs_while_flush =
-        !options.purge_redundant_kvs_while_flush;
-      break;
-    case kPerfOptions:
+     case kPerfOptions:
       options.soft_rate_limit = 2.0;
       options.delayed_write_rate = 8 * 1024 * 1024;
       // TODO(3.13) -- test more options

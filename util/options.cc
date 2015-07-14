@@ -407,8 +407,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
     Warn(log, "            Options.num_levels: %d", num_levels);
     Warn(log, "       Options.min_write_buffer_number_to_merge: %d",
         min_write_buffer_number_to_merge);
-    Warn(log, "        Options.purge_redundant_kvs_while_flush: %d",
-         purge_redundant_kvs_while_flush);
     Warn(log, "    Options.max_write_buffer_number_to_maintain: %d",
          max_write_buffer_number_to_maintain);
     Warn(log, "           Options.compression_opts.window_bits: %d",
@@ -461,8 +459,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         rate_limit_delay_max_milliseconds);
     Warn(log, "               Options.disable_auto_compactions: %d",
         disable_auto_compactions);
-    Warn(log, "         Options.purge_redundant_kvs_while_flush: %d",
-        purge_redundant_kvs_while_flush);
     Warn(log, "                          Options.filter_deletes: %d",
         filter_deletes);
     Warn(log, "          Options.verify_checksums_in_compaction: %d",

@@ -359,13 +359,6 @@ DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
-DEFINE_int32(purge_redundant_percent, 50,
-             "Percentage of times we want to purge redundant keys in memory "
-             "before flushing");
-static const bool FLAGS_purge_redundant_percent_dummy __attribute__((unused)) =
-    RegisterFlagValidator(&FLAGS_purge_redundant_percent,
-                          &ValidateInt32Percent);
-
 DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
             " the delete if key not present");
 
@@ -1812,8 +1805,6 @@ class StressTest {
     fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots   : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Purge redundant %%   : %d\n",
-            FLAGS_purge_redundant_percent);
     fprintf(stdout, "Deletes use filter  : %d\n",
             FLAGS_filter_deletes);
     fprintf(stdout, "Do update in place  : %d\n",
@@ -1929,12 +1920,6 @@ class StressTest {
                 "RocksdbLite only supports skip list mem table. Skip "
                 "--rep_factory\n");
 #endif  // ROCKSDB_LITE
-    }
-
-    static Random purge_percent(1000); // no benefit from non-determinism here
-    if (static_cast<int32_t>(purge_percent.Uniform(100)) <
-        FLAGS_purge_redundant_percent - 1) {
-      options_.purge_redundant_kvs_while_flush = false;
     }
 
     if (FLAGS_use_merge) {

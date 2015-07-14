@@ -124,7 +124,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"hard_rate_limit", "2.1"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
-      {"purge_redundant_kvs_while_flush", "1"},
       {"compaction_style", "kCompactionStyleLevel"},
       {"verify_checksums_in_compaction", "false"},
       {"compaction_options_fifo", "23"},
@@ -216,7 +215,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.hard_rate_limit, 2.1);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
-  ASSERT_EQ(new_cf_opt.purge_redundant_kvs_while_flush, true);
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.verify_checksums_in_compaction, false);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,

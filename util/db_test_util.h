@@ -399,19 +399,18 @@ class DBTestBase : public testing::Test {
     kDBLogDir = 14,
     kWalDirAndMmapReads = 15,
     kManifestFileSize = 16,
-    kCompactOnFlush = 17,
-    kPerfOptions = 18,
-    kDeletesFilterFirst = 19,
-    kHashSkipList = 20,
-    kUniversalCompaction = 21,
-    kUniversalCompactionMultiLevel = 22,
-    kCompressedBlockCache = 23,
-    kInfiniteMaxOpenFiles = 24,
-    kxxHashChecksum = 25,
-    kFIFOCompaction = 26,
-    kOptimizeFiltersForHits = 27,
-    kRowCache = 28,
-    kEnd = 29
+    kPerfOptions = 17,
+    kDeletesFilterFirst = 18,
+    kHashSkipList = 19,
+    kUniversalCompaction = 20,
+    kUniversalCompactionMultiLevel = 21,
+    kCompressedBlockCache = 22,
+    kInfiniteMaxOpenFiles = 23,
+    kxxHashChecksum = 24,
+    kFIFOCompaction = 25,
+    kOptimizeFiltersForHits = 26,
+    kRowCache = 27,
+    kEnd = 28
   };
   int option_config_;
 

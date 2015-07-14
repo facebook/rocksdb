@@ -540,8 +540,8 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   bool disable_auto_compactions;
 
-  // Purge duplicate/deleted keys when a memtable is flushed to storage.
-  // Default: true
+  // DEPREACTED
+  // Does not have any effect.
   bool purge_redundant_kvs_while_flush;
 
   // The compaction style. Default: kCompactionStyleLevel
