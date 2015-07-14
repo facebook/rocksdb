@@ -4383,8 +4383,8 @@ void MinLevelHelper(DBTest* self, Options& options) {
     std::vector<std::string> values;
     // Write 120KB (12 values, each 10K)
     for (int i = 0; i < 12; i++) {
-      values.push_back(RandomString(&rnd, 10000));
-      ASSERT_OK(self->Put(Key(i), values[i]));
+      values.push_back(DBTestBase::RandomString(&rnd, 10000));
+      ASSERT_OK(self->Put(DBTestBase::Key(i), values[i]));
     }
     self->dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(self->NumTableFilesAtLevel(0), num + 1);
@@ -4393,8 +4393,8 @@ void MinLevelHelper(DBTest* self, Options& options) {
   //generate one more file in level-0, and should trigger level-0 compaction
   std::vector<std::string> values;
   for (int i = 0; i < 12; i++) {
-    values.push_back(RandomString(&rnd, 10000));
-    ASSERT_OK(self->Put(Key(i), values[i]));
+    values.push_back(DBTestBase::RandomString(&rnd, 10000));
+    ASSERT_OK(self->Put(DBTestBase::Key(i), values[i]));
   }
   self->dbfull()->TEST_WaitForCompact();
 
@@ -9211,7 +9211,7 @@ static void RandomTimeoutWriter(void* arg) {
 
   for (int k = 0; k < num_keys; ++k) {
     int key = k + thread_id * num_keys;
-    std::string value = RandomString(&rnd, kValueSize);
+    std::string value = DBTestBase::RandomString(&rnd, kValueSize);
     // only the second-half is randomized
     if (k > num_keys / 2) {
       switch (rnd.Next() % 5) {
@@ -9231,7 +9231,7 @@ static void RandomTimeoutWriter(void* arg) {
     }
 
     uint64_t time_before_put = db->GetEnv()->NowMicros();
-    Status s = db->Put(write_opt, Key(key), value);
+    Status s = db->Put(write_opt, DBTestBase::Key(key), value);
     uint64_t put_duration = db->GetEnv()->NowMicros() - time_before_put;
     if (write_opt.timeout_hint_us == 0 ||
         put_duration + kTimerBias < write_opt.timeout_hint_us) {

@@ -55,12 +55,6 @@
 
 namespace rocksdb {
 
-static std::string RandomString(Random* rnd, int len) {
-  std::string r;
-  test::RandomString(rnd, len, &r);
-  return r;
-}
-
 namespace anon {
 class AtomicCounter {
  public:
@@ -117,12 +111,6 @@ struct OptionsOverride {
 };
 
 }  // namespace anon
-
-static std::string Key(int i) {
-  char buf[100];
-  snprintf(buf, sizeof(buf), "key%06d", i);
-  return std::string(buf);
-}
 
 // Special Env used to delay background operations
 class SpecialEnv : public EnvWrapper {
@@ -455,6 +443,18 @@ class DBTestBase : public testing::Test {
   explicit DBTestBase(const std::string path);
 
   ~DBTestBase();
+
+  static std::string RandomString(Random* rnd, int len) {
+    std::string r;
+    test::RandomString(rnd, len, &r);
+    return r;
+  }
+
+  static std::string Key(int i) {
+    char buf[100];
+    snprintf(buf, sizeof(buf), "key%06d", i);
+    return std::string(buf);
+  }
 
   // Switch to a fresh database with the next option configuration to
   // test.  Return false if there are no more configurations to test.
