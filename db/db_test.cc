@@ -1998,6 +1998,16 @@ class SleepingBackgroundTask {
       bg_cv_.Wait();
     }
   }
+  bool WokenUp() {
+    MutexLock l(&mutex_);
+    return should_sleep_ == false;
+  }
+
+  void Reset() {
+    MutexLock l(&mutex_);
+    should_sleep_ = true;
+    done_with_sleep_ = false;
+  }
 
   static void DoSleepTask(void* arg) {
     reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
@@ -9152,156 +9162,14 @@ TEST_F(DBTest, FIFOCompactionTest) {
   }
 }
 
+// verify that we correctly deprecated timeout_hint_us
 TEST_F(DBTest, SimpleWriteTimeoutTest) {
-  // Block compaction thread, which will also block the flushes because
-  // max_background_flushes == 0, so flushes are getting executed by the
-  // compaction thread
-  env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
-                 Env::Priority::LOW);
-
-  Options options;
-  options.env = env_;
-  options.create_if_missing = true;
-  options.write_buffer_size = 100000;
-  options.max_background_flushes = 0;
-  options.max_write_buffer_number = 2;
-  options.max_total_wal_size = std::numeric_limits<uint64_t>::max();
   WriteOptions write_opt;
   write_opt.timeout_hint_us = 0;
-  DestroyAndReopen(options);
-  // fill the two write buffers
-  ASSERT_OK(Put(Key(1), Key(1) + std::string(100000, 'v'), write_opt));
-  ASSERT_OK(Put(Key(2), Key(2) + std::string(100000, 'v'), write_opt));
-  // As the only two write buffers are full in this moment, the third
-  // Put is expected to be timed-out.
-  write_opt.timeout_hint_us = 50;
-  ASSERT_TRUE(
-      Put(Key(3), Key(3) + std::string(100000, 'v'), write_opt).IsTimedOut());
-
-  sleeping_task_low.WakeUp();
-  sleeping_task_low.WaitUntilDone();
+  ASSERT_OK(Put(Key(1), Key(1) + std::string(100, 'v'), write_opt));
+  write_opt.timeout_hint_us = 10;
+  ASSERT_NOK(Put(Key(1), Key(1) + std::string(100, 'v'), write_opt));
 }
-
-// Multi-threaded Timeout Test
-namespace {
-
-static const int kValueSize = 1000;
-static const int kWriteBufferSize = 100000;
-
-struct TimeoutWriterState {
-  int id;
-  DB* db;
-  std::atomic<bool> done;
-  std::map<int, std::string> success_kvs;
-};
-
-static void RandomTimeoutWriter(void* arg) {
-  TimeoutWriterState* state = reinterpret_cast<TimeoutWriterState*>(arg);
-  static const uint64_t kTimerBias = 50;
-  int thread_id = state->id;
-  DB* db = state->db;
-
-  Random rnd(1000 + thread_id);
-  WriteOptions write_opt;
-  write_opt.timeout_hint_us = 500;
-  int timeout_count = 0;
-  int num_keys = kNumKeys * 5;
-
-  for (int k = 0; k < num_keys; ++k) {
-    int key = k + thread_id * num_keys;
-    std::string value = DBTestBase::RandomString(&rnd, kValueSize);
-    // only the second-half is randomized
-    if (k > num_keys / 2) {
-      switch (rnd.Next() % 5) {
-        case 0:
-          write_opt.timeout_hint_us = 500 * thread_id;
-          break;
-        case 1:
-          write_opt.timeout_hint_us = num_keys - k;
-          break;
-        case 2:
-          write_opt.timeout_hint_us = 1;
-          break;
-        default:
-          write_opt.timeout_hint_us = 0;
-          state->success_kvs.insert({key, value});
-      }
-    }
-
-    uint64_t time_before_put = db->GetEnv()->NowMicros();
-    Status s = db->Put(write_opt, DBTestBase::Key(key), value);
-    uint64_t put_duration = db->GetEnv()->NowMicros() - time_before_put;
-    if (write_opt.timeout_hint_us == 0 ||
-        put_duration + kTimerBias < write_opt.timeout_hint_us) {
-      ASSERT_OK(s);
-    }
-    if (s.IsTimedOut()) {
-      timeout_count++;
-      ASSERT_GT(put_duration + kTimerBias, write_opt.timeout_hint_us);
-    }
-  }
-
-  state->done = true;
-}
-
-TEST_F(DBTest, MTRandomTimeoutTest) {
-  Options options;
-  options.env = env_;
-  options.create_if_missing = true;
-  options.max_write_buffer_number = 2;
-  options.compression = kNoCompression;
-  options.level0_slowdown_writes_trigger = 10;
-  options.level0_stop_writes_trigger = 20;
-  options.write_buffer_size = kWriteBufferSize;
-  DestroyAndReopen(options);
-
-  TimeoutWriterState thread_states[kNumThreads];
-  for (int tid = 0; tid < kNumThreads; ++tid) {
-    thread_states[tid].id = tid;
-    thread_states[tid].db = db_;
-    thread_states[tid].done = false;
-    env_->StartThread(RandomTimeoutWriter, &thread_states[tid]);
-  }
-
-  for (int tid = 0; tid < kNumThreads; ++tid) {
-    while (thread_states[tid].done == false) {
-      env_->SleepForMicroseconds(100000);
-    }
-  }
-
-  Flush();
-
-  for (int tid = 0; tid < kNumThreads; ++tid) {
-    auto& success_kvs = thread_states[tid].success_kvs;
-    for (auto it = success_kvs.begin(); it != success_kvs.end(); ++it) {
-      ASSERT_EQ(Get(Key(it->first)), it->second);
-    }
-  }
-}
-
-TEST_F(DBTest, Level0StopWritesTest) {
-  Options options = CurrentOptions();
-  options.level0_slowdown_writes_trigger = 2;
-  options.level0_stop_writes_trigger = 4;
-  options.disable_auto_compactions = true;
-  options.max_mem_compaction_level = 0;
-  Reopen(options);
-
-  // create 4 level0 tables
-  for (int i = 0; i < 4; ++i) {
-    Put("a", "b");
-    Flush();
-  }
-
-  WriteOptions woptions;
-  woptions.timeout_hint_us = 30 * 1000;  // 30 ms
-  Status s = Put("a", "b", woptions);
-  ASSERT_TRUE(s.IsTimedOut());
-}
-
-}  // anonymous namespace
 
 /*
  * This test is not reliable enough as it heavily depends on disk behavior.
@@ -9896,8 +9764,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // max_background_flushes == 0, so flushes are getting executed by the
   // compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low1;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
@@ -9905,28 +9773,24 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.disable_auto_compactions = true;
   DestroyAndReopen(options);
 
-  // Put until timeout, bounded by 256 puts. We should see timeout at ~128KB
+  // Put until writes are stopped, bounded by 256 puts. We should see stop at
+  // ~128KB
   int count = 0;
   Random rnd(301);
-  WriteOptions wo;
-  wo.timeout_hint_us = 100000;  // Reasonabley long timeout to make sure sleep
-                                // triggers but not forever.
 
-  std::atomic<int> sleep_count(0);
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::DelayWrite:TimedWait",
-      [&](void* arg) { sleep_count.fetch_add(1); });
+      "DBImpl::DelayWrite:Wait",
+      [&](void* arg) { sleeping_task_low.WakeUp(); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
-  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 256) {
+  while (!sleeping_task_low.WokenUp() && count < 256) {
+    ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), WriteOptions()));
     count++;
   }
-  ASSERT_GT(sleep_count.load(), 0);
   ASSERT_GT(static_cast<double>(count), 128 * 0.8);
   ASSERT_LT(static_cast<double>(count), 128 * 1.2);
 
-  sleeping_task_low1.WakeUp();
-  sleeping_task_low1.WaitUntilDone();
+  sleeping_task_low.WaitUntilDone();
 
   // Increase
   ASSERT_OK(dbfull()->SetOptions({
@@ -9935,23 +9799,21 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // Clean up memtable and L0
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
-  SleepingBackgroundTask sleeping_task_low2;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
+  sleeping_task_low.Reset();
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   count = 0;
-  sleep_count.store(0);
-  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
+  while (!sleeping_task_low.WokenUp() && count < 1024) {
+    ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), WriteOptions()));
     count++;
   }
-  ASSERT_GT(sleep_count.load(), 0);
-// Windows fails this test. Will tune in the future and figure out
-// approp number
+  // Windows fails this test. Will tune in the future and figure out
+  // approp number
 #ifndef OS_WIN
   ASSERT_GT(static_cast<double>(count), 512 * 0.8);
   ASSERT_LT(static_cast<double>(count), 512 * 1.2);
 #endif
-  sleeping_task_low2.WakeUp();
-  sleeping_task_low2.WaitUntilDone();
+  sleeping_task_low.WaitUntilDone();
 
   // Decrease
   ASSERT_OK(dbfull()->SetOptions({
@@ -9960,24 +9822,22 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // Clean up memtable and L0
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
-  SleepingBackgroundTask sleeping_task_low3;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low3,
+  sleeping_task_low.Reset();
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
   count = 0;
-  sleep_count.store(0);
-  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 1024) {
+  while (!sleeping_task_low.WokenUp() && count < 1024) {
+    ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), WriteOptions()));
     count++;
   }
-  ASSERT_GT(sleep_count.load(), 0);
-// Windows fails this test. Will tune in the future and figure out
-// approp number
+  // Windows fails this test. Will tune in the future and figure out
+  // approp number
 #ifndef OS_WIN
   ASSERT_GT(static_cast<double>(count), 256 * 0.8);
   ASSERT_LT(static_cast<double>(count), 266 * 1.2);
 #endif
-  sleeping_task_low3.WakeUp();
-  sleeping_task_low3.WaitUntilDone();
+  sleeping_task_low.WaitUntilDone();
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -10760,50 +10620,61 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   // Test level0_stop_writes_trigger.
   // Clean up memtable and L0. Block compaction threads. If continue to write
-  // and flush memtables. We should see put timeout after 8 memtable flushes
+  // and flush memtables. We should see put stop after 8 memtable flushes
   // since level0_stop_writes_trigger = 8
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Block compaction
-  SleepingBackgroundTask sleeping_task_low1;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low1,
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::DelayWrite:Wait",
+      [&](void* arg) { sleeping_task_low.WakeUp(); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
   int count = 0;
   Random rnd(301);
   WriteOptions wo;
-  wo.timeout_hint_us = 10000;
-  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 64) {
+  while (count < 64) {
+    ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
+    if (sleeping_task_low.WokenUp()) {
+      break;
+    }
     dbfull()->TEST_FlushMemTable(true);
     count++;
   }
   // Stop trigger = 8
   ASSERT_EQ(count, 8);
   // Unblock
-  sleeping_task_low1.WakeUp();
-  sleeping_task_low1.WaitUntilDone();
+  sleeping_task_low.WaitUntilDone();
 
   // Now reduce level0_stop_writes_trigger to 6. Clear up memtables and L0.
   // Block compaction thread again. Perform the put and memtable flushes
-  // until we see timeout after 6 memtable flushes.
+  // until we see the stop after 6 memtable flushes.
   ASSERT_OK(dbfull()->SetOptions({
     {"level0_stop_writes_trigger", "6"}
   }));
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);
 
-  // Block compaction
-  SleepingBackgroundTask sleeping_task_low2;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low2,
+  // Block compaction again
+  sleeping_task_low.Reset();
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   count = 0;
-  while (Put(Key(count), RandomString(&rnd, 1024), wo).ok() && count < 64) {
+  while (count < 64) {
+    ASSERT_OK(Put(Key(count), RandomString(&rnd, 1024), wo));
+    if (sleeping_task_low.WokenUp()) {
+      break;
+    }
     dbfull()->TEST_FlushMemTable(true);
     count++;
   }
   ASSERT_EQ(count, 6);
   // Unblock
-  sleeping_task_low2.WakeUp();
-  sleeping_task_low2.WaitUntilDone();
+  sleeping_task_low.WaitUntilDone();
 
   // Test disable_auto_compactions
   // Compaction thread is unblocked but auto compaction is disabled. Write
@@ -10818,7 +10689,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   for (int i = 0; i < 4; ++i) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
-    // Wait for compaction so that put won't timeout
+    // Wait for compaction so that put won't stop
     dbfull()->TEST_FlushMemTable(true);
   }
   dbfull()->TEST_WaitForCompact();
@@ -10834,7 +10705,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   for (int i = 0; i < 4; ++i) {
     ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
-    // Wait for compaction so that put won't timeout
+    // Wait for compaction so that put won't stop
     dbfull()->TEST_FlushMemTable(true);
   }
   dbfull()->TEST_WaitForCompact();
@@ -10877,6 +10748,8 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   ASSERT_EQ(NumTableFilesAtLevel(1), 1);
   ASSERT_EQ(NumTableFilesAtLevel(2), 1);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest, FileCreationRandomFailure) {
@@ -12265,10 +12138,6 @@ TEST_F(DBTest, DelayedWriteRate) {
     // Spread the size range to more.
     size_t entry_size = rand_num * rand_num * rand_num;
     WriteOptions wo;
-    // For a small chance, set a timeout.
-    if (rnd.Uniform(20) == 6) {
-      wo.timeout_hint_us = 1500;
-    }
     Put(Key(i), std::string(entry_size, 'x'), wo);
     estimated_total_size += entry_size + 20;
     // Ocassionally sleep a while

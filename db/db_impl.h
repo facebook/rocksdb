@@ -437,7 +437,7 @@ class DBImpl : public DB {
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
-  Status DelayWrite(uint64_t num_bytes, uint64_t expiration_time);
+  Status DelayWrite(uint64_t num_bytes);
 
   Status ScheduleFlushes(WriteContext* context);
 

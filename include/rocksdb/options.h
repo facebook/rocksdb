@@ -1212,15 +1212,7 @@ struct WriteOptions {
   // and the write may got lost after a crash.
   bool disableWAL;
 
-  // If non-zero, then associated write waiting longer than the specified
-  // time MAY be aborted and returns Status::TimedOut. A write that takes
-  // less than the specified time is guaranteed to not fail with
-  // Status::TimedOut.
-  //
-  // The number of times a write call encounters a timeout is recorded in
-  // Statistics.WRITE_TIMEDOUT
-  //
-  // Default: 0
+  // The option is deprecated. It's not used anymore.
   uint64_t timeout_hint_us;
 
   // If true and if user is trying to write to column families that don't exist

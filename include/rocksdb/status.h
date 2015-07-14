@@ -68,12 +68,6 @@ class Status {
                                    const Slice& msg2 = Slice()) {
     return Status(kShutdownInProgress, msg, msg2);
   }
-  static Status TimedOut() {
-    return Status(kTimedOut);
-  }
-  static Status TimedOut(const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kTimedOut, msg, msg2);
-  }
   static Status Aborted() {
     return Status(kAborted);
   }

@@ -438,10 +438,13 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
   TestFlushListener* listener = new TestFlushListener(options.env);
+  const int kCompactionTrigger = 1;
   const int kSlowdownTrigger = 5;
-  const int kStopTrigger = 10;
+  const int kStopTrigger = 100;
+  options.level0_file_num_compaction_trigger = kCompactionTrigger;
   options.level0_slowdown_writes_trigger = kSlowdownTrigger;
   options.level0_stop_writes_trigger = kStopTrigger;
+  options.max_write_buffer_number = 10;
   options.listeners.emplace_back(listener);
   // BG compaction is disabled.  Number of L0 files will simply keeps
   // increasing in this test.
@@ -450,18 +453,17 @@ TEST_F(EventListenerTest, DisableBGCompaction) {
   options.write_buffer_size = 100000;  // Small write buffer
 
   CreateAndReopenWithCF({"pikachu"}, &options);
-  WriteOptions wopts;
-  wopts.timeout_hint_us = 100000;
   ColumnFamilyMetaData cf_meta;
   db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
+
   // keep writing until writes are forced to stop.
-  for (int i = 0; static_cast<int>(cf_meta.file_count) < kStopTrigger; ++i) {
-    Put(1, ToString(i), std::string(100000, 'x'), wopts);
-    db_->Flush(FlushOptions());
+  for (int i = 0; static_cast<int>(cf_meta.file_count) < kSlowdownTrigger * 10;
+       ++i) {
+    Put(1, ToString(i), std::string(10000, 'x'), WriteOptions());
+    db_->Flush(FlushOptions(), handles_[1]);
     db_->GetColumnFamilyMetaData(handles_[1], &cf_meta);
   }
-  ASSERT_GE(listener->slowdown_count, kStopTrigger - kSlowdownTrigger);
-  ASSERT_GE(listener->stop_count, 1);
+  ASSERT_GE(listener->slowdown_count, kSlowdownTrigger * 9);
 }
 
 }  // namespace rocksdb

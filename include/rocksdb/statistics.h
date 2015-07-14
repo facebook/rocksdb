@@ -206,7 +206,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
     {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
-    {WRITE_TIMEDOUT, "rocksdb.write.timedout"},
     {WRITE_WITH_WAL, "rocksdb.write.wal"},
     {FLUSH_WRITE_BYTES, "rocksdb.flush.write.bytes"},
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},

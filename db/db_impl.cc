@@ -2019,8 +2019,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     WriteThread::Writer w(&mutex_);
-    s = write_thread_.EnterWriteThread(&w, 0);
-    assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+    write_thread_.EnterWriteThread(&w);
+    assert(!w.done);  // Nobody should do our job
 
     // SwitchMemtable() will release and reacquire mutex
     // during execution
@@ -3014,8 +3014,8 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     Options opt(db_options_, cf_options);
     {  // write thread
       WriteThread::Writer w(&mutex_);
-      s = write_thread_.EnterWriteThread(&w, 0);
-      assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+      write_thread_.EnterWriteThread(&w);
+      assert(!w.done);  // Nobody should do our job
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
       s = versions_->LogAndApply(
@@ -3076,8 +3076,8 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w(&mutex_);
-      s = write_thread_.EnterWriteThread(&w, 0);
-      assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+      write_thread_.EnterWriteThread(&w);
+      assert(!w.done);  // Nobody should do our job
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
       write_thread_.ExitWriteThread(&w, &w, s);
@@ -3364,6 +3364,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+  if (write_options.timeout_hint_us != 0) {
+    return Status::InvalidArgument("timeout_hint_us is deprecated");
+  }
 
   Status status;
   bool xfunc_attempted_write = false;
@@ -3384,16 +3387,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   w.in_batch_group = false;
   w.done = false;
   w.has_callback = (callback != nullptr) ? true : false;
-  w.timeout_hint_us = write_options.timeout_hint_us;
-
-  uint64_t expiration_time = 0;
-  bool has_timeout = false;
-  if (w.timeout_hint_us == 0) {
-    w.timeout_hint_us = WriteThread::kNoTimeOut;
-  } else {
-    expiration_time = env_->NowMicros() + w.timeout_hint_us;
-    has_timeout = true;
-  }
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -3408,13 +3401,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
   }
 
-  status = write_thread_.EnterWriteThread(&w, expiration_time);
-  assert(status.ok() || status.IsTimedOut());
-  if (status.IsTimedOut()) {
-    mutex_.Unlock();
-    RecordTick(stats_, WRITE_TIMEDOUT);
-    return Status::TimedOut();
-  }
+  write_thread_.EnterWriteThread(&w);
   if (w.done) {  // write was done by someone else
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
                                            1);
@@ -3500,13 +3487,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
-    status = DelayWrite(last_batch_group_size_, expiration_time);
+    status = DelayWrite(last_batch_group_size_);
     PERF_TIMER_START(write_pre_and_post_process_time);
-  }
-
-  if (UNLIKELY(status.ok() && has_timeout &&
-               env_->NowMicros() > expiration_time)) {
-    status = Status::TimedOut();
   }
 
   uint64_t last_sequence = versions_->LastSequence();
@@ -3627,7 +3609,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Lock();
     }
 
-    if (db_options_.paranoid_checks && !status.ok() && !status.IsTimedOut() &&
+    if (db_options_.paranoid_checks && !status.ok() &&
         !status.IsBusy() && bg_error_.ok()) {
     bg_error_ = status; // stop compaction & fail any further writes
   }
@@ -3637,66 +3619,36 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   mutex_.Unlock();
 
-  if (status.IsTimedOut()) {
-    RecordTick(stats_, WRITE_TIMEDOUT);
-  }
-
   return status;
 }
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::DelayWrite(uint64_t num_bytes, uint64_t expiration_time) {
+Status DBImpl::DelayWrite(uint64_t num_bytes) {
   uint64_t time_delayed = 0;
   bool delayed = false;
-  bool timed_out = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
-    bool has_timeout = (expiration_time > 0);
     auto delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
       mutex_.Unlock();
       delayed = true;
-      // hopefully we don't have to sleep more than 2 billion microseconds
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
-      if (has_timeout) {
-        auto time_now = env_->NowMicros();
-        if (time_now + delay >= expiration_time) {
-          if (expiration_time > time_now) {
-            env_->SleepForMicroseconds(
-                static_cast<int>(expiration_time - time_now));
-          }
-          timed_out = true;
-        }
-      }
-      if (!timed_out) {
-        env_->SleepForMicroseconds(static_cast<int>(delay));
-      }
+      // hopefully we don't have to sleep more than 2 billion microseconds
+      env_->SleepForMicroseconds(static_cast<int>(delay));
       mutex_.Lock();
     }
 
-    while (!timed_out && bg_error_.ok() && write_controller_.IsStopped()) {
+    while (bg_error_.ok() && write_controller_.IsStopped()) {
       delayed = true;
-      if (has_timeout) {
-        TEST_SYNC_POINT("DBImpl::DelayWrite:TimedWait");
-        bg_cv_.TimedWait(expiration_time);
-        if (env_->NowMicros() > expiration_time) {
-          timed_out = true;
-          break;
-        }
-      } else {
-        bg_cv_.Wait();
-      }
+      TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
+      bg_cv_.Wait();
     }
   }
   if (delayed) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
                                            time_delayed);
     RecordTick(stats_, STALL_MICROS, time_delayed);
-  }
-
-  if (timed_out) {
-    return Status::TimedOut();
   }
 
   return bg_error_;

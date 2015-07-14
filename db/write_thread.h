@@ -18,7 +18,6 @@ namespace rocksdb {
 
 class WriteThread {
  public:
-  static const uint64_t kNoTimeOut = port::kMaxUint64;
   // Information kept for every waiting writer
   struct Writer {
     Status status;
@@ -28,7 +27,6 @@ class WriteThread {
     bool in_batch_group;
     bool done;
     bool has_callback;
-    uint64_t timeout_hint_us;
     InstrumentedCondVar cv;
 
     explicit Writer(InstrumentedMutex* mu)
@@ -38,7 +36,6 @@ class WriteThread {
           in_batch_group(false),
           done(false),
           has_callback(false),
-          timeout_hint_us(kNoTimeOut),
           cv(mu) {}
   };
 
@@ -52,10 +49,9 @@ class WriteThread {
   // for examples), so check it via w.done before applying changes.
   //
   // Writer* w:                writer to be placed in the queue
-  // uint64_t expiration_time: maximum time to be in the queue
   // See also: ExitWriteThread
   // REQUIRES: db mutex held
-  Status EnterWriteThread(Writer* w, uint64_t expiration_time);
+  void EnterWriteThread(Writer* w);
 
   // After doing write job, we need to remove already used writers from
   // writers_ queue and notify head of the queue about it.

@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## Unreleased
+
+### Public API changes
+* Deprecated WriteOptions::timeout_hint_us. We no longer support write timeout. If you really need this option, talk to us and we might consider returning it.
+
 ## 3.12.0 (7/2/2015)
 ### New Features
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
