@@ -128,8 +128,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         std::string& original_key =
             keys_.back();  // The original key encountered
         orig_ikey.type = kTypeValue;
-        UpdateInternalKey(&original_key[0], original_key.size(),
-                          orig_ikey.sequence, orig_ikey.type);
+        UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
         operands_.back() = std::move(merge_result);
       }
 
@@ -159,8 +158,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         std::string& original_key =
             keys_.back();  // The original key encountered
         orig_ikey.type = kTypeValue;
-        UpdateInternalKey(&original_key[0], original_key.size(),
-                          orig_ikey.sequence, orig_ikey.type);
+        UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
         operands_.back() = std::move(merge_result);
       }
 
@@ -223,9 +221,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     if (success_) {
       std::string& original_key = keys_.back();  // The original key encountered
       orig_ikey.type = kTypeValue;
-      UpdateInternalKey(&original_key[0], original_key.size(),
-                        orig_ikey.sequence, orig_ikey.type);
-
+      UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
       operands_.back() = std::move(merge_result);
     } else {
       RecordTick(stats, NUMBER_MERGE_FAILURES);

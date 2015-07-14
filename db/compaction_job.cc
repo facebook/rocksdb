@@ -790,7 +790,7 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       // If we have a single key to write, simply write that key.
       while (true) {
         // Invariant: key,value,ikey will always be the next entry to write
-        char* kptr = (char*)key.data();
+        Slice newkey(key.data(), key.size());
         std::string kstr;
 
         // Zeroing out the sequence number leads to better compression.
@@ -803,11 +803,10 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
           // make a copy because updating in place would cause problems
           // with the priority queue that is managing the input key iterator
           kstr.assign(key.data(), key.size());
-          kptr = (char*)kstr.c_str();
-          UpdateInternalKey(kptr, key.size(), (uint64_t)0, ikey.type);
+          UpdateInternalKey(&kstr, (uint64_t)0, ikey.type);
+          newkey = Slice(kstr);
         }
 
-        Slice newkey(kptr, key.size());
         assert((key.clear(), 1));  // we do not need 'key' anymore
 
         // Open output file if necessary
@@ -953,8 +952,7 @@ void CompactionJob::CallCompactionFilterV2(
     if (compact_->to_delete_buf_[i]) {
       // update the string buffer directly
       // the Slice buffer points to the updated buffer
-      UpdateInternalKey(&compact_->key_str_buf_[i][0],
-                        compact_->key_str_buf_[i].size(), ikey_buf[i].sequence,
+      UpdateInternalKey(&compact_->key_str_buf_[i], ikey_buf[i].sequence,
                         kTypeDeletion);
 
       // no value associated with delete
