@@ -47,7 +47,10 @@
 #include "util/mutexlock.h"
 #include "util/scoped_arena_iterator.h"
 #include "util/string_util.h"
+// SyncPoint is not supported in Released Windows Mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/sync_point.h"
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/xfunc.h"
@@ -144,11 +147,14 @@ class SpecialEnv : public EnvWrapper {
         }
       }
       Status Close() override {
+// SyncPoint is not supported in Released Windows Mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
         // Check preallocation size
         // preallocation size is never passed to base file.
         size_t preallocation_size = preallocation_block_size();
         TEST_SYNC_POINT_CALLBACK("DBTestWritableFile.GetPreallocationStatus",
                                  &preallocation_size);
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
         return base_->Close();
       }
       Status Flush() override { return base_->Flush(); }

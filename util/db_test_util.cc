@@ -57,9 +57,12 @@ DBTestBase::DBTestBase(const std::string path) : option_config_(kDefault),
 }
 
 DBTestBase::~DBTestBase() {
+// SyncPoint is not supported in Released Windows Mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->LoadDependency({});
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
   Close();
   Options options;
   options.db_paths.emplace_back(dbname_, 0);
