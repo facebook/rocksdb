@@ -178,10 +178,6 @@ class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static BackupEngineReadOnly* NewReadOnlyBackupEngine(
-      Env* db_env, const BackupableDBOptions& options)
-      __attribute__((deprecated("Please use Open() instead")));
-
   static Status Open(Env* db_env, const BackupableDBOptions& options,
                      BackupEngineReadOnly** backup_engine_ptr);
 
@@ -207,10 +203,6 @@ class BackupEngineReadOnly {
 class BackupEngine {
  public:
   virtual ~BackupEngine() {}
-
-  static BackupEngine* NewBackupEngine(Env* db_env,
-                                       const BackupableDBOptions& options)
-    __attribute__((deprecated("Please use Open() instead")));
 
   static Status Open(Env* db_env,
                      const BackupableDBOptions& options,
@@ -272,6 +264,7 @@ class BackupableDB : public StackableDB {
 
  private:
   BackupEngine* backup_engine_;
+  Status status_;
 };
 
 // Use this class to access information about backups and restore from them
@@ -317,6 +310,7 @@ class RestoreBackupableDB {
 
  private:
   BackupEngine* backup_engine_;
+  Status status_;
 };
 
 }  // namespace rocksdb
