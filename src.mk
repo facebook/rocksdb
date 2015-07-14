@@ -246,6 +246,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/columnfamilyhandle.cc                         \
+  java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/env.cc                                        \

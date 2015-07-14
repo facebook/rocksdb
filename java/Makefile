@@ -1,4 +1,5 @@
-NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
+NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
+        org.rocksdb.AbstractComparator\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupableDB\
 	org.rocksdb.BackupableDBOptions\
