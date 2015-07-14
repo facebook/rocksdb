@@ -5,7 +5,8 @@
 
 
 #include "db/db_impl_readonly.h"
-#include "utilities/compacted_db/compacted_db_impl.h"
+
+#include "db/compacted_db_impl.h"
 #include "db/db_impl.h"
 #include "db/merge_context.h"
 #include "db/db_iter.h"

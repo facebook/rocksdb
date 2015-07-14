@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #ifndef ROCKSDB_LITE
-#include "utilities/compacted_db/compacted_db_impl.h"
+#include "db/compacted_db_impl.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
 #include "table/get_context.h"

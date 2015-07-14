@@ -3,6 +3,7 @@ LIB_SOURCES =                                                   \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
+  db/compacted_db_impl.cc                                       \
   db/compaction.cc                                              \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
@@ -97,7 +98,6 @@ LIB_SOURCES =                                                   \
   utilities/backupable/backupable_db.cc                         \
   utilities/convenience/convenience.cc                          \
   utilities/checkpoint/checkpoint.cc                            \
-  utilities/compacted_db/compacted_db_impl.cc                   \
   utilities/document/document_db.cc                             \
   utilities/document/json_document_builder.cc                   \
   utilities/document/json_document.cc                           \
