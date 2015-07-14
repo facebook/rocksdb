@@ -257,6 +257,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/ratelimiterjni.cc                             \
+  java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocksjni.cc                                   \
   java/rocksjni/slice.cc                                      \

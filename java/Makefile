@@ -24,6 +24,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.ReadOptions\
+	org.rocksdb.RemoveEmptyValueCompactionFilter\
 	org.rocksdb.RestoreBackupableDB\
 	org.rocksdb.RestoreOptions\
 	org.rocksdb.RocksDB\
