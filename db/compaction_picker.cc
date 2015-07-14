@@ -38,6 +38,9 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
+// Universal compaction is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
+
 // Used in universal compaction when trivial move is enabled.
 // This structure is used for the construction of min heap
 // that contains the file meta data, the level of the file
@@ -95,7 +98,7 @@ SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
   }
   return smallest_key_priority_q;
 }
-
+#endif  // !ROCKSDB_LITE
 }  // anonymous namespace
 
 // Determine compression type, based on user options, level of the output
