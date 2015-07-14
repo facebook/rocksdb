@@ -10,6 +10,7 @@
 #include <string>
 
 #include "rocksdb/perf_level.h"
+#include "rocksdb/public_port.h"
 
 namespace rocksdb {
 

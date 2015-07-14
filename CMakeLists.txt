@@ -153,6 +153,7 @@ set(SOURCES
         util/comparator.cc
         util/crc32c.cc
         util/db_info_dumper.cc
+        util/db_test_util.cc
         util/dynamic_bloom.cc
         util/env.cc
         util/env_hdfs.cc

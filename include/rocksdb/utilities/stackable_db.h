@@ -6,6 +6,8 @@
 #include <string>
 #include "rocksdb/db.h"
 
+#include "rocksdb/public_port.h"
+
 namespace rocksdb {
 
 // This class contains APIs to stack rocksdb wrappers.Eg. Stack TTL over base d

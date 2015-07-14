@@ -24,6 +24,8 @@
 #include "rocksdb/listener.h"
 #include "rocksdb/thread_status.h"
 
+#include "rocksdb/public_port.h"
+
 namespace rocksdb {
 
 struct Options;
