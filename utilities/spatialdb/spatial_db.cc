@@ -79,7 +79,7 @@ void Variant::Init(const Variant& v, Data& d) {
     d.d = v.data_.d;
     break;
   case kString:
-    new (d.s) std::string(*reinterpret_cast<const std::string*>(v.data_.s));
+    new (d.s) std::string(*GetStringPtr(v.data_));
     break;
   default:
     assert(false);
@@ -107,7 +107,7 @@ Variant& Variant::operator=(Variant&& rhs) {
 
   Destroy(type_, data_);
   if (rhs.type_ == kString) {
-    new (data_.s) std::string(std::move(*reinterpret_cast<std::string*>(rhs.data_.s)));
+    new (data_.s) std::string(std::move(*GetStringPtr(rhs.data_)));
   } else {
     data_ = rhs.data_;
   }
@@ -133,7 +133,7 @@ bool Variant::operator==(const Variant& rhs) const {
     case kDouble:
       return data_.d == rhs.data_.d;
     case kString:
-      return *reinterpret_cast<const std::string*>(data_.s) == *reinterpret_cast<const std::string*>(rhs.data_.s);
+      return *GetStringPtr(data_) == *GetStringPtr(rhs.data_);
     default:
       assert(false);
   }

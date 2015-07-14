@@ -57,13 +57,13 @@ struct Variant {
       new (&data_.s) std::string(s);
   }
 
-  Variant::Variant(const Variant& v) : type_(v.type_) {
+  Variant(const Variant& v) : type_(v.type_) {
     Init(v, data_);
   }
 
   Variant& operator=(const Variant& v);
 
-  Variant::Variant(Variant&& rhs) : type_(kNull) {
+  Variant(Variant&& rhs) : type_(kNull) {
     *this = std::move(rhs);
   }
 
@@ -77,7 +77,7 @@ struct Variant {
   bool get_bool() const { return data_.b; }
   uint64_t get_int() const { return data_.i; }
   double get_double() const { return data_.d; }
-  const std::string& get_string() const { return *reinterpret_cast<const std::string*>(&data_.s); }
+  const std::string& get_string() const { return *GetStringPtr(data_); }
 
   bool operator==(const Variant& other) const;
   bool operator!=(const Variant& rhs)   const { return !(*this == rhs); }
@@ -95,12 +95,23 @@ struct Variant {
     char        s[sizeof(std::string)];
   } data_;
 
+  // Avoid type_punned aliasing problem
+  static std::string* GetStringPtr(Data& d) {
+    void* p = d.s;
+    return reinterpret_cast<std::string*>(p);
+  }
+
+  static const std::string* GetStringPtr(const Data& d) {
+    const void* p = d.s;
+    return reinterpret_cast<const std::string*>(p);
+  }
+
   static void Init(const Variant&, Data&);
 
   static void Destroy(Type t, Data& d) {
     if (t == kString) {
       using std::string;
-      reinterpret_cast<std::string*>(&d.s)->~string();
+      GetStringPtr(d)->~string();
     }
   }
 };

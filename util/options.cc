@@ -347,7 +347,7 @@ void DBOptions::Dump(Logger* log) const {
         stats_dump_period_sec);
     Warn(log, "                   Options.advise_random_on_open: %d",
         advise_random_on_open);
-    Warn(log, "                    Options.db_write_buffer_size: %"ROCKSDB_PRIszt"d",
+    Warn(log, "                    Options.db_write_buffer_size: %" ROCKSDB_PRIszt "d",
         db_write_buffer_size);
     Warn(log, "         Options.access_hint_on_compaction_start: %s",
         access_hints[access_hint_on_compaction_start]);
@@ -430,7 +430,7 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         max_bytes_for_level_multiplier);
     for (size_t i = 0; i < max_bytes_for_level_multiplier_additional.size();
          i++) {
-      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%"ROCKSDB_PRIszt"]: %d", i,
+      Warn(log, "Options.max_bytes_for_level_multiplier_addtl[%" ROCKSDB_PRIszt "]: %d", i,
           max_bytes_for_level_multiplier_additional[i]);
     }
     Warn(log, "      Options.max_sequential_skip_in_iterations: %" PRIu64,

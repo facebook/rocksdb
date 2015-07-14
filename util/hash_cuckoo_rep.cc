@@ -50,6 +50,7 @@ struct CuckooStep {
       bucket_id_ = std::move(rhs.bucket_id_);
       prev_step_id_ = std::move(rhs.prev_step_id_);
       depth_ = std::move(rhs.depth_);
+      return *this;
   }
 
   CuckooStep(const CuckooStep&) = delete;

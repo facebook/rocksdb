@@ -13,7 +13,7 @@
 #define STORAGE_LEVELDB_PORT_DIRENT_H_
 
 #ifdef ROCKSDB_PLATFORM_POSIX
-#  include <sys/typed.h>
+#  include <sys/types.h>
 #  include <dirent.h>
 #elif defined(OS_WIN)
 
