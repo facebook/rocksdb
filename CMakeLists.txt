@@ -255,6 +255,8 @@ set(TESTS
         db/cuckoo_table_db_test.cc
         db/db_iter_test.cc
         db/db_test.cc
+        db/db_compaction_filter_test.cc
+        db/db_dynamic_level_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
         db/fault_injection_test.cc
