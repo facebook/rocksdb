@@ -83,6 +83,12 @@ class CompactionJob {
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
+  // Processes batches of keys with the same prefixes. This is used for
+  // CompactionFilterV2.
+  Status ProcessPrefixBatches(ColumnFamilyData* cfd,
+                              int64_t* imm_micros,
+                              Iterator* input,
+                              CompactionFilterV2* compaction_filter_v2);
   // Call compaction filter if is_compaction_v2 is not true. Then iterate
   // through input and compact the kv-pairs
   Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input,
@@ -105,9 +111,11 @@ class CompactionJob {
                          int64_t* key_drop_newer_entry,
                          int64_t* key_drop_obsolete);
 
-  void UpdateCompactionInputStats();
+  void UpdateCompactionStats();
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
+
+  void LogCompaction(ColumnFamilyData* cfd, Compaction* compaction);
 
   int job_id_;
 
