@@ -828,9 +828,9 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
         }
         compact_->current_output()->largest.DecodeFrom(newkey);
         compact_->builder->Add(newkey, value);
-        compact_->num_output_records++,
-            compact_->current_output()->largest_seqno =
-                std::max(compact_->current_output()->largest_seqno, seqno);
+        compact_->num_output_records++;
+        compact_->current_output()->largest_seqno =
+            std::max(compact_->current_output()->largest_seqno, seqno);
 
         // Close output file if it is big enough
         if (compact_->builder->FileSize() >=
