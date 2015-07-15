@@ -2542,12 +2542,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
     for (unsigned int l = 0; l < c->num_input_levels(); l++) {
-      if (l == static_cast<unsigned int>(c->output_level())) {
+      if (l == static_cast<unsigned int>(c->output_level()) ||
+          (c->output_level() == 0)) {
         continue;
       }
       for (size_t i = 0; i < c->num_input_files(l); i++) {
         FileMetaData* f = c->input(l, i);
-        c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+        c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->smallest_seqno, f->largest_seqno,
