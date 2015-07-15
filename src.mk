@@ -166,6 +166,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_compaction_filter_test.cc                                       \
   db/db_dynamic_level_test.cc                                           \
   db/db_log_iter_test.cc                                                \
+  db/db_universal_compaction_test.cc                                    \
   db/db_tailing_iter_test.cc                                            \
   db/deletefile_test.cc                                                 \
   db/fault_injection_test.cc                                            \
