@@ -211,6 +211,7 @@ CompactionJob::CompactionJob(
       yield_callback_(std::move(yield_callback)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks) {
+  assert(log_buffer_ != nullptr);
   ThreadStatusUtil::SetColumnFamily(compact_->compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
   ReportStartedCompaction(compaction);
@@ -646,7 +647,7 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       last_sequence_for_key = kMaxSequenceNumber;
       visible_in_snapshot = kMaxSequenceNumber;
     } else {
-      if (ikey.type == kTypeDeletion) {
+      if (compaction_job_stats_ != nullptr && ikey.type == kTypeDeletion) {
         compaction_job_stats_->num_input_deletion_records++;
       }
 
