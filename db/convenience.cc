@@ -9,7 +9,7 @@
 
 #ifndef ROCKSDB_LITE
 
-#include "rocksdb/utilities/convenience.h"
+#include "rocksdb/convenience.h"
 
 #include "db/db_impl.h"
 

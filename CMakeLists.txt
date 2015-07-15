@@ -6,7 +6,7 @@
 #     You must have git.exe in your %PATH% environment variable.
 #
 # To build Rocksdb for Windows is as easy as 1-2-3-4-5:
-# 
+#
 # 1. Update paths to third-party libraries in thirdparty.inc file
 # 2. Create a new directory for build artifacts
 #        mkdir build
@@ -75,6 +75,7 @@ set(SOURCES
         db/compaction.cc
         db/compaction_job.cc
         db/compaction_picker.cc
+        db/convenience.cc
         db/dbformat.cc
         db/db_filesnapshot.cc
         db/db_impl.cc
@@ -202,7 +203,6 @@ set(SOURCES
         utilities/backupable/backupable_db.cc
         utilities/checkpoint/checkpoint.cc
         utilities/compacted_db/compacted_db_impl.cc
-        utilities/convenience/convenience.cc
         utilities/document/document_db.cc
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc

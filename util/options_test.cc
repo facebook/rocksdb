@@ -15,9 +15,9 @@
 #include <inttypes.h>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
 #include "util/random.h"

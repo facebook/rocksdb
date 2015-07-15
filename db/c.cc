@@ -16,6 +16,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -31,7 +32,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "utilities/merge_operators.h"
-#include "rocksdb/utilities/convenience.h"
 
 using rocksdb::Cache;
 using rocksdb::ColumnFamilyDescriptor;

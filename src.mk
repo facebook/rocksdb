@@ -7,6 +7,7 @@ LIB_SOURCES =                                                   \
   db/compaction.cc                                              \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
+  db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/dbformat.cc                                                \
   db/db_impl.cc                                                 \
@@ -96,7 +97,6 @@ LIB_SOURCES =                                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
-  utilities/convenience/convenience.cc                          \
   utilities/checkpoint/checkpoint.cc                            \
   utilities/document/document_db.cc                             \
   utilities/document/json_document_builder.cc                   \

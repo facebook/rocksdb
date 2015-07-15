@@ -16,7 +16,7 @@
 #if defined(ROCKSDB_PLATFORM_POSIX)
 // Wrap unportable warning macro
 
-#define ROCKSDB_WARNING(x) _Pragma(RDB_STR(GCC warning(x)))
+#define ROCKSDB_WARNING(x) _Pragma(RDB_STR(GCC warning x))
 
 #elif defined(OS_WIN)
 
