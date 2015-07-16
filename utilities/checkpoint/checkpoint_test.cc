@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 // Syncpoint prevents us building and running tests in release
-#if !defined( NDEBUG) || !defined (OS_WIN)
+#if !defined(NDEBUG) || !defined (OS_WIN)
 
 #ifndef OS_WIN
 # include <unistd.h>
@@ -351,7 +351,7 @@ TEST_F(DBTest, CheckpointCF) {
 #endif
 
 int main(int argc, char** argv) {
-#if !defined( NDEBUG) || !defined (OS_WIN)
+#if !defined(NDEBUG) || !defined (OS_WIN)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

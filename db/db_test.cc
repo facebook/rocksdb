@@ -78,21 +78,42 @@ static std::string RandomString(Random* rnd, int len) {
 namespace anon {
 class AtomicCounter {
  private:
+  Env* env_;
   port::Mutex mu_;
+  port::CondVar cond_count_;
   int count_;
  public:
-  AtomicCounter() : count_(0) { }
+  AtomicCounter(Env* env = NULL) : env_(env), cond_count_(&mu_), count_(0) {}
   void Increment() {
     MutexLock l(&mu_);
     count_++;
+    cond_count_.SignalAll();
   }
   int Read() {
     MutexLock l(&mu_);
     return count_;
   }
+  bool WaitFor(int count) {
+    MutexLock l(&mu_);
+
+    uint64_t start = env_->NowMicros();
+    while (count_ < count) {
+      uint64_t now = env_->NowMicros();
+      cond_count_.TimedWait(now + /*1s*/ 1 * 000 * 000);
+      if (env_->NowMicros() - start > /*10s*/ 10 * 000 * 000) {
+        return false;
+      }
+      if (count_ < count) {
+        GTEST_LOG_(WARNING) << "WaitFor is taking more time than usual";
+      }
+    }
+
+    return true;
+  }
   void Reset() {
     MutexLock l(&mu_);
     count_ = 0;
+    cond_count_.SignalAll();
   }
 };
 
@@ -165,7 +186,11 @@ class SpecialEnv : public EnvWrapper {
   bool no_sleep_;
 
   explicit SpecialEnv(Env* base)
-      : EnvWrapper(base), rnd_(301), addon_time_(0), no_sleep_(false) {
+      : EnvWrapper(base),
+        rnd_(301),
+        sleep_counter_(this),
+        addon_time_(0),
+        no_sleep_(false) {
     delay_sstable_sync_.store(false, std::memory_order_release);
     drop_writes_.store(false, std::memory_order_release);
     no_space_.store(false, std::memory_order_release);
@@ -4509,7 +4534,50 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionMultiLevels) {
     ASSERT_EQ(Get(1, Key(i % num_keys)), Key(i));
   }
 }
+// Tests universal compaction with trivial move enabled
+TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
+  int32_t trivial_move = 0;
+  int32_t non_trivial_move = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:TrivialMove",
+      [&](void* arg) { trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DBImpl::BackgroundCompaction:NonTrivial",
+      [&](void* arg) { non_trivial_move++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
+  Options options;
+  options.compaction_style = kCompactionStyleUniversal;
+  options.compaction_options_universal.allow_trivial_move = true;
+  options.num_levels = 3;
+  options.write_buffer_size = 100 << 10;  // 100KB
+  options.level0_file_num_compaction_trigger = 3;
+  options.max_background_compactions = 1;
+  options.target_file_size_base = 32 * 1024;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  // Trigger compaction if size amplification exceeds 110%
+  options.compaction_options_universal.max_size_amplification_percent = 110;
+  options = CurrentOptions(options);
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+
+  Random rnd(301);
+  int num_keys = 15000;
+  for (int i = 0; i < num_keys; i++) {
+    ASSERT_OK(Put(1, Key(i), Key(i)));
+  }
+  std::vector<std::string> values;
+
+  ASSERT_OK(Flush(1));
+  dbfull()->TEST_WaitForCompact();
+
+  ASSERT_GT(trivial_move, 0);
+  ASSERT_EQ(non_trivial_move, 0);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
 INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionMultiLevels,
                         DBTestUniversalCompactionMultiLevels,
                         ::testing::Values(3, 20));
@@ -7537,6 +7605,7 @@ TEST_F(DBTest, DropWrites) {
     // Force out-of-space errors
     env_->drop_writes_.store(true, std::memory_order_release);
     env_->sleep_counter_.Reset();
+    env_->no_sleep_ = true;
     for (int i = 0; i < 5; i++) {
       if (option_config_ != kUniversalCompactionMultiLevel) {
         for (int level = 0; level < dbfull()->NumberLevels(); level++) {
@@ -7559,7 +7628,7 @@ TEST_F(DBTest, DropWrites) {
     ASSERT_LT(CountFiles(), num_files + 3);
 
     // Check that compaction attempts slept after errors
-    ASSERT_GE(env_->sleep_counter_.Read(), 5);
+    ASSERT_TRUE(env_->sleep_counter_.WaitFor(5));
   } while (ChangeCompactOptions());
 }
 
@@ -8643,33 +8712,107 @@ TEST_F(DBTest, TransactionLogIteratorCorruptedLog) {
 
 //
 // Test WAL recovery for the various modes available
-// TODO krad:
-// 1. Add tests when there are more than one log file
 //
 class RecoveryTestHelper {
  public:
-  // Recreate and fill the store with some data
-  static size_t FillData(DBTest* test, const Options& options) {
-    size_t count = 0;
 
-    test->DestroyAndReopen(options);
+  // Number of WAL files to generate
+  static const int kWALFilesCount = 10;
+  // Starting number for the WAL file name like 00010.log
+  static const int kWALFileOffset = 10;
+  // Keys to be written per WAL file
+  static const int kKeysPerWALFile = 1024;
+  // Size of the value
+  static const int kValueSize = 10;
 
-    for (int i = 0; i < 1024; i++) {
-      test->Put("key" + ToString(i), test->DummyString(10));
-      ++count;
+  // Create WAL files with values filled in
+  static void FillData(DBTest* test, Options& options,
+                       const size_t wal_count, size_t & count) {
+    DBOptions & db_options = options;
+
+    count = 0;
+
+    shared_ptr<Cache> table_cache = NewLRUCache(50000, 16);
+    EnvOptions env_options;
+    WriteBuffer write_buffer(db_options.db_write_buffer_size);
+
+    unique_ptr<VersionSet> versions;
+    unique_ptr<WalManager> wal_manager;
+    WriteController write_controller;
+
+    versions.reset(new VersionSet(test->dbname_, &db_options, env_options,
+                                  table_cache.get(), &write_buffer,
+                                  &write_controller));
+
+    wal_manager.reset(new WalManager(db_options, env_options));
+
+    std::unique_ptr<log::Writer> current_log_writer;
+
+    for (size_t j = kWALFileOffset; j < wal_count + kWALFileOffset; j++) {
+      uint64_t current_log_number =  j;
+      std::string fname = LogFileName(test->dbname_, current_log_number);
+      unique_ptr<WritableFile> file;
+      ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
+      current_log_writer.reset(new log::Writer(std::move(file)));
+
+      for (int i = 0; i < kKeysPerWALFile; i++) {
+        std::string key = "key" + ToString(count++);
+        std::string value = test->DummyString(kValueSize);
+        assert(current_log_writer.get() != nullptr);
+        uint64_t seq =  versions->LastSequence() + 1;
+        WriteBatch batch;
+        batch.Put(key, value);
+        WriteBatchInternal::SetSequence(&batch, seq);
+        current_log_writer->AddRecord(WriteBatchInternal::Contents(&batch));
+        versions->SetLastSequence(seq);
+      }
     }
+  }
+
+  // Recreate and fill the store with some data
+  static size_t FillData(DBTest* test, Options& options) {
+    options.create_if_missing = true;
+    test->DestroyAndReopen(options);
+    test->Close();
+
+    size_t count = 0;
+    FillData(test, options, kWALFilesCount, count);
     return count;
   }
 
   // Read back all the keys we wrote and return the number of keys found
   static size_t GetData(DBTest* test) {
     size_t count = 0;
-    for (size_t i = 0; i < 1024; i++) {
+    for (size_t i = 0; i < kWALFilesCount * kKeysPerWALFile; i++) {
       if (test->Get("key" + ToString(i)) != "NOT_FOUND") {
         ++count;
       }
     }
     return count;
+  }
+
+  // Manuall corrupt the specified WAL
+  static void CorruptWAL(DBTest * test, Options& options,
+                         const double off, const double len,
+                         const int wal_file_id, const bool trunc = false) {
+    Env* env = options.env;
+    std::string fname = LogFileName(test->dbname_, wal_file_id);
+    uint64_t size;
+    ASSERT_OK(env->GetFileSize(fname, &size));
+    ASSERT_GT(size, 0);
+#ifdef OS_WIN
+    // Windows disk cache behaves differently. When we truncate
+    // the original content is still in the cache due to the original
+    // handle is still open. Generally, in Windows, one prohibits
+    // shared access to files and it is not needed for WAL but we allow
+    // it to induce corruption at various tests.
+    test->Close();
+#endif
+    if (trunc) {
+      ASSERT_EQ(0, truncate(fname.c_str(), size * off));
+    } else {
+      InduceCorruption(fname, size * off, size * len);
+    }
   }
 
   // Overwrite data with 'a' from offset for length len
@@ -8688,23 +8831,6 @@ class RecoveryTestHelper {
 
     close(fd);
   }
-
-  // Corrupt the last WAL file from (filesize * off) for length (filesize * len)
-  static void CorruptWAL(DBTest* test, const double off, const double len,
-                         const bool trunc = false) {
-    rocksdb::VectorLogPtr wal_files;
-    ASSERT_OK(test->dbfull()->GetSortedWalFiles(wal_files));
-    ASSERT_EQ(wal_files.size(), 1);
-    const auto logfile_path =
-        test->dbname_ + "/" + wal_files.front()->PathName();
-    auto size = wal_files.front()->SizeFileBytes();
-
-    if (trunc) {
-      ASSERT_EQ(0, truncate(logfile_path.c_str(), size * off));
-    } else {
-      InduceCorruption(logfile_path, size * off, size * len);
-    }
-  }
 };
 
 // Test scope:
@@ -8712,26 +8838,32 @@ class RecoveryTestHelper {
 // at the end of any of the logs
 // - We do not expect to open the data store for corruption
 TEST_F(DBTest, kTolerateCorruptedTailRecords) {
-  for (auto trunc : {true, false}) {
-    for (int i = 0; i < 4; i++) {
-      // Fill data for testing
-      Options options = CurrentOptions();
-      const size_t row_count = RecoveryTestHelper::FillData(this, options);
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount; 
 
-      // test checksum failure or parsing
-      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+  for (auto trunc : {true, false}) {  /* Corruption style */
+    for (int i = 0; i < 4; i++) { /* Corruption offset position */
+      for (int j = jstart; j < jend; j++) { /* WAL file */
+        // Fill data for testing
+        Options options = CurrentOptions();
+        const size_t row_count = RecoveryTestHelper::FillData(this, options);
+        // test checksum failure or parsing
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+                                       /*len%=*/ .1, /*wal=*/ j, trunc);
 
-      if (trunc) {
-        options.wal_recovery_mode =
-            WALRecoveryMode::kTolerateCorruptedTailRecords;
-        ASSERT_OK(TryReopen(options));
-        const size_t recovered_row_count = RecoveryTestHelper::GetData(this);
-        ASSERT_TRUE(i == 0 || recovered_row_count > 0);
-        ASSERT_LT(recovered_row_count, row_count);
-      } else {
-        options.wal_recovery_mode =
-            WALRecoveryMode::kTolerateCorruptedTailRecords;
-        ASSERT_NOK(TryReopen(options));
+        if (trunc) {
+          options.wal_recovery_mode =
+              WALRecoveryMode::kTolerateCorruptedTailRecords;
+          options.create_if_missing = false;
+          ASSERT_OK(TryReopen(options));
+          const size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+          ASSERT_TRUE(i == 0 || recovered_row_count > 0);
+          ASSERT_LT(recovered_row_count, row_count);
+        } else {
+          options.wal_recovery_mode =
+              WALRecoveryMode::kTolerateCorruptedTailRecords;
+          ASSERT_NOK(TryReopen(options));
+        }
       }
     }
   }
@@ -8741,23 +8873,34 @@ TEST_F(DBTest, kTolerateCorruptedTailRecords) {
 // We don't expect the data store to be opened if there is any corruption
 // (leading, middle or trailing -- incomplete writes or corruption)
 TEST_F(DBTest, kAbsoluteConsistency) {
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount; 
+
+  // Verify clean slate behavior
   Options options = CurrentOptions();
   const size_t row_count = RecoveryTestHelper::FillData(this, options);
   options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+  options.create_if_missing = false;
   ASSERT_OK(TryReopen(options));
   ASSERT_EQ(RecoveryTestHelper::GetData(this), row_count);
 
-  for (auto trunc : {true, false}) {
-    for (int i = 0; i < 4; i++) {
+  for (auto trunc : {true, false}) { /* Corruption style */
+    for (int i = 0; i < 4; i++) { /* Corruption offset position */
       if (trunc && i == 0) {
         continue;
       }
-      options = CurrentOptions();
-      RecoveryTestHelper::FillData(this, options);
 
-      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
-      options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
-      ASSERT_NOK(TryReopen(options));
+      for (int j = jstart; j < jend; j++) { /* wal files */
+        // fill with new date
+        RecoveryTestHelper::FillData(this, options);
+        // corrupt the wal
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+                                       /*len%=*/.1, j, trunc);
+        // verify
+        options.wal_recovery_mode = WALRecoveryMode::kAbsoluteConsistency;
+        options.create_if_missing = false;
+        ASSERT_NOK(TryReopen(options));
+      }
     }
   }
 }
@@ -8766,34 +8909,49 @@ TEST_F(DBTest, kAbsoluteConsistency) {
 // - We expect to open data store under all circumstances
 // - We expect only data upto the point where the first error was encountered
 TEST_F(DBTest, kPointInTimeRecovery) {
-  for (auto trunc : {true, false}) {
-    for (int i = 0; i < 4; i++) {
-      // Fill data for testing
-      Options options = CurrentOptions();
-      const size_t row_count = RecoveryTestHelper::FillData(this, options);
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+  const int maxkeys = RecoveryTestHelper::kWALFilesCount *
+                        RecoveryTestHelper::kKeysPerWALFile;
 
-      // test checksum failure or parsing
-      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+  for (auto trunc : {true, false}) { /* Corruption style */
+    for (int i = 0; i < 4; i++) { /* Offset of corruption */
+      for (int j = jstart; j < jend; j++) { /* WAL file */
+        // Fill data for testing
+        Options options = CurrentOptions();
+        const size_t row_count = RecoveryTestHelper::FillData(this, options);
 
-      options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+        // Corrupt the wal
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+                                       /*len%=*/.1, j, trunc);
 
-      ASSERT_OK(TryReopen(options));
+        // Verify
+        options.wal_recovery_mode = WALRecoveryMode::kPointInTimeRecovery;
+        options.create_if_missing = false;
+        ASSERT_OK(TryReopen(options));
 
-      size_t recovered_row_count = RecoveryTestHelper::GetData(this);
-      ASSERT_LT(recovered_row_count, row_count);
+        // Probe data for invariants
+        size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+        ASSERT_LT(recovered_row_count, row_count);
 
-      // verify that the keys are sequential and there is no break
-      bool expect_data = true;
-      for (size_t j = 0; j < 1024; ++j) {
-        bool found = Get("key" + ToString(i)) != "NOT_FOUND";
-        if (expect_data && !found) {
-          expect_data = false;
+        bool expect_data = true;
+        for (size_t k = 0; k < maxkeys; ++k) {
+          bool found = Get("key" + ToString(i)) != "NOT_FOUND";
+          if (expect_data && !found) {
+            expect_data = false;
+          }
+          ASSERT_EQ(found, expect_data);
         }
-        ASSERT_EQ(found, expect_data);
-      }
 
-      ASSERT_TRUE(i != 0 || recovered_row_count == 0);
-      ASSERT_TRUE(i != 1 || recovered_row_count < row_count / 2);
+        const size_t min = RecoveryTestHelper::kKeysPerWALFile *
+                              (j - RecoveryTestHelper::kWALFileOffset);
+        ASSERT_GE(recovered_row_count, min);
+        if (!trunc && i != 0) {
+          const size_t max = RecoveryTestHelper::kKeysPerWALFile *
+                                (j - RecoveryTestHelper::kWALFileOffset + 1);
+          ASSERT_LE(recovered_row_count, max);
+        }
+      }
     }
   }
 }
@@ -8802,22 +8960,32 @@ TEST_F(DBTest, kPointInTimeRecovery) {
 // - We expect to open the data store under all scenarios
 // - We expect to have recovered records past the corruption zone
 TEST_F(DBTest, kSkipAnyCorruptedRecords) {
-  for (auto trunc : {true, false}) {
-    for (int i = 0; i < 4; i++) {
-      // Fill data for testing
-      Options options = CurrentOptions();
-      const size_t row_count = RecoveryTestHelper::FillData(this, options);
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount; 
 
-      // induce leading corruption
-      RecoveryTestHelper::CorruptWAL(this, i * .3, /*len%=*/.1, trunc);
+  for (auto trunc : {true, false}) { /* Corruption style */
+    for (int i = 0; i < 4; i++) { /* Corruption offset */
+      for (int j = jstart; j < jend; j++) { /* wal files */
+        // Fill data for testing
+        Options options = CurrentOptions();
+        const size_t row_count = RecoveryTestHelper::FillData(this, options);
 
-      options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
-      ASSERT_OK(TryReopen(options));
-      size_t recovered_row_count = RecoveryTestHelper::GetData(this);
-      ASSERT_LT(recovered_row_count, row_count);
+        // Corrupt the WAL
+        RecoveryTestHelper::CorruptWAL(this, options, /*off=*/ i * .3,
+                                       /*len%=*/.1, j, trunc);
 
-      if (!trunc) {
-        ASSERT_TRUE(i != 0 || recovered_row_count > 0);
+        // Verify behavior
+        options.wal_recovery_mode = WALRecoveryMode::kSkipAnyCorruptedRecords;
+        options.create_if_missing = false;
+        ASSERT_OK(TryReopen(options));
+
+        // Probe data for invariants
+        size_t recovered_row_count = RecoveryTestHelper::GetData(this);
+        ASSERT_LT(recovered_row_count, row_count);
+
+        if (!trunc) {
+          ASSERT_TRUE(i != 0 || recovered_row_count > 0);
+        }
       }
     }
   }
@@ -10817,6 +10985,19 @@ TEST_F(DBTest, DBIteratorBoundTest) {
     // should stop here...
     ASSERT_TRUE(!iter->Valid());
   }
+  // Testing SeekToLast with iterate_upper_bound set
+  {
+    ReadOptions ro;
+
+    Slice prefix("foo");
+    ro.iterate_upper_bound = &prefix;
+
+    std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
+
+    iter->SeekToLast();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(Slice("a")), 0);
+  }
 
   // prefix is the first letter of the key
   options.prefix_extractor.reset(NewFixedPrefixTransform(1));
@@ -11226,10 +11407,10 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
       {"CompactionJob::Run():Start", "DBTest::ThreadStatusSingleCompaction:1"},
       {"DBTest::ThreadStatusSingleCompaction:2", "CompactionJob::Run():End"},
   });
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
   for (int tests = 0; tests < 2; ++tests) {
     DestroyAndReopen(options);
+    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
     Random rnd(301);
     // The Put Phase.
@@ -11261,8 +11442,8 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
 
     // repeat the test with disabling thread tracking.
     options.enable_thread_tracking = false;
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 TEST_F(DBTest, PreShutdownManualCompaction) {
@@ -11314,6 +11495,17 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
       CreateAndReopenWithCF({"pikachu"}, options);
     }
   }
+}
+
+TEST_F(DBTest, PreShutdownFlush) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "key", "value"));
+  CancelAllBackgroundWork(db_);
+  Status s =
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_TRUE(s.IsShutdownInProgress());
 }
 
 TEST_F(DBTest, PreShutdownMultipleCompaction) {
@@ -12124,7 +12316,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         if (compaction->output_level() == 4) {
-          ASSERT_TRUE(compaction->OutputCompressionType() == kLZ4Compression);
+          ASSERT_TRUE(compaction->output_compression() == kLZ4Compression);
           num_lz4.fetch_add(1);
         }
       });
@@ -12159,10 +12351,10 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
       "LevelCompactionPicker::PickCompaction:Return", [&](void* arg) {
         Compaction* compaction = reinterpret_cast<Compaction*>(arg);
         if (compaction->output_level() == 4 && compaction->start_level() == 3) {
-          ASSERT_TRUE(compaction->OutputCompressionType() == kZlibCompression);
+          ASSERT_TRUE(compaction->output_compression() == kZlibCompression);
           num_zlib.fetch_add(1);
         } else {
-          ASSERT_TRUE(compaction->OutputCompressionType() == kLZ4Compression);
+          ASSERT_TRUE(compaction->output_compression() == kLZ4Compression);
           num_lz4.fetch_add(1);
         }
       });
@@ -12637,6 +12829,7 @@ TEST_F(DBTest, DontDeletePendingOutputs) {
     dbfull()->FindObsoleteFiles(&job_context, true /*force*/);
     dbfull()->TEST_UnlockMutex();
     dbfull()->PurgeObsoleteFiles(job_context);
+    job_context.Clean();
   };
 
   env_->table_write_callback_ = &purge_obsolete_files_function;
@@ -14076,6 +14269,65 @@ TEST_F(DBTest, RowCache) {
   ASSERT_EQ(Get("foo"), "bar");
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_HIT), 1);
   ASSERT_EQ(TestGetTickerCount(options, ROW_CACHE_MISS), 1);
+}
+
+// TODO(3.13): fix the issue of Seek() + Prev() which might not necessary
+//             return the biggest key which is smaller than the seek key.
+TEST_F(DBTest, DISABLED_PrevAfterMerge) {
+  Options options;
+  options.create_if_missing = true;
+  options.merge_operator = MergeOperators::CreatePutOperator();
+  DestroyAndReopen(options);
+
+  // write three entries with different keys using Merge()
+  WriteOptions wopts;
+  db_->Merge(wopts, "1", "data1");
+  db_->Merge(wopts, "2", "data2");
+  db_->Merge(wopts, "3", "data3");
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(ReadOptions()));
+
+  it->Seek("2");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("2", it->key().ToString());
+
+  it->Prev();
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("1", it->key().ToString());
+}
+
+TEST_F(DBTest, DeletingOldWalAfterDrop) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      { { "Test:AllowFlushes", "DBImpl::BGWorkFlush" },
+        { "DBImpl::BGWorkFlush:done", "Test:WaitForFlush"} });
+  rocksdb::SyncPoint::GetInstance()->ClearTrace();
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  Options options = CurrentOptions();
+  options.max_total_wal_size = 8192;
+  options.compression = kNoCompression;
+  options.write_buffer_size = 1 << 20;
+  options.level0_file_num_compaction_trigger = (1<<30);
+  options.level0_slowdown_writes_trigger = (1<<30);
+  options.level0_stop_writes_trigger = (1<<30);
+  options.disable_auto_compactions = true;
+  DestroyAndReopen(options);
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  CreateColumnFamilies({"cf1", "cf2"}, options);
+  ASSERT_OK(Put(0, "key1", DummyString(8192)));
+  ASSERT_OK(Put(0, "key2", DummyString(8192)));
+  // the oldest wal should now be getting_flushed
+  ASSERT_OK(db_->DropColumnFamily(handles_[0]));
+  // all flushes should now do nothing because their CF is dropped
+  TEST_SYNC_POINT("Test:AllowFlushes");
+  TEST_SYNC_POINT("Test:WaitForFlush");
+  uint64_t lognum1 = dbfull()->TEST_LogfileNumber();
+  ASSERT_OK(Put(1, "key3", DummyString(8192)));
+  ASSERT_OK(Put(1, "key4", DummyString(8192)));
+  // new wal should have been created
+  uint64_t lognum2 = dbfull()->TEST_LogfileNumber();
+  EXPECT_GT(lognum2, lognum1);
 }
 
 }  // namespace rocksdb

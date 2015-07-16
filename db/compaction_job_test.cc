@@ -76,11 +76,10 @@ class CompactionJobTest : public testing::Test {
           largest = internal_key;
           largest_seqno = sequence_number;
         }
-        std::pair<std::string, std::string> key_value(
-            {bottommost_internal_key.Encode().ToString(), value});
-        contents.insert(key_value);
+        contents.insert({internal_key.Encode().ToString(), value});
         if (i == 1 || k < kKeysPerFile / 2) {
-          expected_results.insert(key_value);
+          expected_results.insert(
+              {bottommost_internal_key.Encode().ToString(), value});
         }
       }
 
@@ -97,7 +96,7 @@ class CompactionJobTest : public testing::Test {
                              mutable_cf_options_, &edit, &mutex_);
       mutex_.Unlock();
     }
-    versions_->SetLastSequence(sequence_number);
+    versions_->SetLastSequence(sequence_number + 1);
     return expected_results;
   }
 
@@ -169,9 +168,8 @@ void VerifyInitializationOfCompactionJobStats(
 void VerifyCompactionJobStats(
     const CompactionJobStats& compaction_job_stats,
     const std::vector<FileMetaData*>& files,
-    size_t num_output_files,
-    uint64_t min_elapsed_time) {
-  ASSERT_GE(compaction_job_stats.elapsed_micros, min_elapsed_time);
+    size_t num_output_files) {
+  ASSERT_GE(compaction_job_stats.elapsed_micros, 0U);
   ASSERT_EQ(compaction_job_stats.num_input_files, files.size());
   ASSERT_EQ(compaction_job_stats.num_output_files, num_output_files);
 }
@@ -210,7 +208,6 @@ TEST_F(CompactionJobTest, Simple) {
                                std::move(yield_callback), &event_logger, false,
                                db_name, &compaction_job_stats);
 
-  auto start_micros = Env::Default()->NowMicros();
   VerifyInitializationOfCompactionJobStats(compaction_job_stats);
 
   compaction_job.Prepare();
@@ -224,7 +221,7 @@ TEST_F(CompactionJobTest, Simple) {
 
   VerifyCompactionJobStats(
       compaction_job_stats,
-      files, 1, (Env::Default()->NowMicros() - start_micros) / 2);
+      files, 1);
 
   mock_table_factory_->AssertLatestFile(expected_results);
   ASSERT_EQ(yield_callback_called, 20000);

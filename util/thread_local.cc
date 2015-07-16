@@ -42,15 +42,15 @@ pthread_key_t thread_local_key = -1;
 
 // Static callback function to call with each thread termination.
 void NTAPI WinOnThreadExit(PVOID module, DWORD reason, PVOID reserved) {
-    // We decided to punt on PROCESS_EXIT
-    if (DLL_THREAD_DETACH == reason) {
-        if (thread_local_key != -1 && thread_local_inclass_routine != nullptr) {
-            void* tls = pthread_getspecific(thread_local_key);
-            if(tls != nullptr) {
-                thread_local_inclass_routine(tls);
-            }
-        }
-     }
+  // We decided to punt on PROCESS_EXIT
+  if (DLL_THREAD_DETACH == reason) {
+    if (thread_local_key != -1 && thread_local_inclass_routine != nullptr) {
+      void* tls = pthread_getspecific(thread_local_key);
+      if(tls != nullptr) {
+        thread_local_inclass_routine(tls);
+      }
+    }
+  }
 }
 
 } // wintlscleanup

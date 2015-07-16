@@ -192,13 +192,13 @@ extern ROCKSDB_LIBRARY_API rocksdb_t* rocksdb_open_for_read_only_column_families
     unsigned char error_if_log_file_exist,
     char** errptr);
 
-ROCKSDB_LIBRARY_API char** rocksdb_list_column_families(
+extern ROCKSDB_LIBRARY_API char** rocksdb_list_column_families(
     const rocksdb_options_t* options,
     const char* name,
     size_t* lencf,
     char** errptr);
 
-ROCKSDB_LIBRARY_API void rocksdb_list_column_families_destroy(char** list, size_t len);
+extern ROCKSDB_LIBRARY_API void rocksdb_list_column_families_destroy(char** list, size_t len);
 
 extern ROCKSDB_LIBRARY_API rocksdb_column_family_handle_t* rocksdb_create_column_family(
     rocksdb_t* db,
@@ -236,7 +236,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_delete(
     const char* key, size_t keylen,
     char** errptr);
 
-void ROCKSDB_LIBRARY_API rocksdb_delete_cf(
+extern ROCKSDB_LIBRARY_API void rocksdb_delete_cf(
     rocksdb_t* db,
     const rocksdb_writeoptions_t* options,
     rocksdb_column_family_handle_t* column_family,
@@ -467,16 +467,16 @@ extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_delete_cf(
     rocksdb_writebatch_t*,
     rocksdb_column_family_handle_t* column_family,
     const char* key, size_t klen);
-ROCKSDB_LIBRARY_API void rocksdb_writebatch_deletev(
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_deletev(
     rocksdb_writebatch_t* b,
     int num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes);
-ROCKSDB_LIBRARY_API void rocksdb_writebatch_deletev_cf(
+extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_deletev_cf(
     rocksdb_writebatch_t* b,
     rocksdb_column_family_handle_t* column_family,
     int num_keys, const char* const* keys_list,
     const size_t* keys_list_sizes);
-ROCKSDB_LIBRARY_API extern void rocksdb_writebatch_put_log_data(
+extern  ROCKSDB_LIBRARY_API void rocksdb_writebatch_put_log_data(
     rocksdb_writebatch_t*,
     const char* blob, size_t len);
 extern ROCKSDB_LIBRARY_API void rocksdb_writebatch_iterate(
@@ -986,7 +986,7 @@ extern ROCKSDB_LIBRARY_API void rocksdb_get_options_from_string(
     rocksdb_options_t* new_options,
     char** errptr);
 
-// refering to convention (3), this should be used by client 
+// referring to convention (3), this should be used by client 
 // to free memory that was malloc()ed
 extern ROCKSDB_LIBRARY_API void rocksdb_free(
     void* ptr);

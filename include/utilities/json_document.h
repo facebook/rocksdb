@@ -3,5 +3,9 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
-#warning This file was moved to rocksdb/utilities/json_document.h
+
+#include "pragma_error.h"
+
+ROCKSDB_WARNING("This file was moved to rocksdb/utilities/json_document.h")
+
 #include "rocksdb/utilities/json_document.h"

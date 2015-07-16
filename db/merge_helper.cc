@@ -81,7 +81,6 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
   ParseInternalKey(keys_.back(), &orig_ikey);
 
   bool hit_the_next_user_key = false;
-  std::string merge_result;  // Temporary value for merge results
   if (steps) {
     ++(*steps);
   }
@@ -118,6 +117,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Return a success if the merge passes.
 
+      std::string merge_result;
       Status s = TimedFullMerge(ikey.user_key, nullptr, operands_,
                                 user_merge_operator_, stats, env_, logger_,
                                 &merge_result);
@@ -130,7 +130,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         orig_ikey.type = kTypeValue;
         UpdateInternalKey(&original_key[0], original_key.size(),
                           orig_ikey.sequence, orig_ikey.type);
-        swap(operands_.back(), merge_result);
+        operands_.back() = std::move(merge_result);
       }
 
       // move iter to the next entry (before doing anything else)
@@ -148,6 +148,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Success!
       const Slice val = iter->value();
+      std::string merge_result;
       Status s =
           TimedFullMerge(ikey.user_key, &val, operands_, user_merge_operator_,
                          stats, env_, logger_, &merge_result);
@@ -160,7 +161,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         orig_ikey.type = kTypeValue;
         UpdateInternalKey(&original_key[0], original_key.size(),
                           orig_ikey.sequence, orig_ikey.type);
-        swap(operands_.back(), merge_result);
+        operands_.back() = std::move(merge_result);
       }
 
       // move iter to the next entry
@@ -210,6 +211,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     assert(kTypeMerge == orig_ikey.type);
     assert(operands_.size() >= 1);
     assert(operands_.size() == keys_.size());
+    std::string merge_result;
     {
       StopWatchNano timer(env_, stats != nullptr);
       PERF_TIMER_GUARD(merge_operator_time_nanos);
@@ -224,7 +226,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       UpdateInternalKey(&original_key[0], original_key.size(),
                         orig_ikey.sequence, orig_ikey.type);
 
-      swap(operands_.back(),merge_result);
+      operands_.back() = std::move(merge_result);
     } else {
       RecordTick(stats, NUMBER_MERGE_FAILURES);
       // Do nothing if not success_. Leave keys() and operands() as they are.
@@ -237,6 +239,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
     if (operands_.size() >= 2 &&
         operands_.size() >= min_partial_merge_operands_) {
       bool merge_success = false;
+      std::string merge_result;
       {
         StopWatchNano timer(env_, stats != nullptr);
         PERF_TIMER_GUARD(merge_operator_time_nanos);
@@ -251,7 +254,7 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
         // Merging of operands (associative merge) was successful.
         // Replace operands with the merge result
         operands_.clear();
-        operands_.push_front(std::move(merge_result));
+        operands_.emplace_front(std::move(merge_result));
         keys_.erase(keys_.begin(), keys_.end() - 1);
       }
     }

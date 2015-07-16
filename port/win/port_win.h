@@ -62,7 +62,7 @@ typedef SSIZE_T ssize_t;
 #endif
 
 #ifdef SNAPPY
-#include "snappy.h"
+#include <snappy.h>
 #endif
 
 // Thread local storage on Linux
@@ -80,6 +80,9 @@ namespace rocksdb {
 namespace port 
 {
 
+// For use at db/file_indexer.h kLevelMaxIndex
+const int LevelMaxIndex = INT32_MAX;
+
 const bool kLittleEndian = true;
 
 class CondVar;
@@ -87,8 +90,7 @@ class CondVar;
 class Mutex 
 {
 public:
-    /* implicit */ 
-    Mutex(bool adaptive = false);
+    /* implicit */ Mutex(bool adaptive = false);
     ~Mutex();
 
     void Lock();
@@ -97,8 +99,8 @@ public:
     // this will assert if the mutex is not locked
     // it does NOT verify that mutex is held by a calling thread
     void AssertHeld();
-    std::unique_lock<std::mutex>& getLock()
-    {
+
+    std::unique_lock<std::mutex>& getLock() {
         return lock;
     }
 
@@ -117,38 +119,36 @@ private:
 
 class RWMutex 
 {
-private:
-    SRWLOCK srwLock_;
 public:
-    RWMutex(){
-        InitializeSRWLock(&srwLock_);
+    RWMutex() {
+      InitializeSRWLock(&srwLock_);
     }
 
     void ReadLock() {
-        AcquireSRWLockShared(&srwLock_);
+      AcquireSRWLockShared(&srwLock_);
     }
 
     void WriteLock() {
-        AcquireSRWLockExclusive(&srwLock_);
+      AcquireSRWLockExclusive(&srwLock_);
     }
 
     void ReadUnlock() {
-        ReleaseSRWLockShared(&srwLock_);
+      ReleaseSRWLockShared(&srwLock_);
     }
 
     void WriteUnlock() {
-        ReleaseSRWLockExclusive(&srwLock_);
+      ReleaseSRWLockExclusive(&srwLock_);
     }
 
-    void AssertHeld() {
-        //TODO: psrao - should be implemented
-    }
+    // Empty as in POSIX
+    void AssertHeld() { }
 
 private:
 
-    // No copying allowed
-    RWMutex(const RWMutex&);
-    void operator=(const RWMutex&);
+  SRWLOCK srwLock_;
+  // No copying allowed
+  RWMutex(const RWMutex&);
+  void operator=(const RWMutex&);
 };
 
 class CondVar 
@@ -520,7 +520,7 @@ int pthread_key_create(pthread_key_t *key, void(*destructor)(void*)) {
     (void)destructor;
 
     pthread_key_t k = TlsAlloc();
-    if (k == TLS_OUT_OF_INDEXES) {
+    if (TLS_OUT_OF_INDEXES == k) {
         return ENOMEM;
     }
 
@@ -530,7 +530,7 @@ int pthread_key_create(pthread_key_t *key, void(*destructor)(void*)) {
 
 inline
 int pthread_key_delete(pthread_key_t key) {
-    if(!TlsFree(key)) {
+    if (!TlsFree(key)) {
         return EINVAL;
     }
     return 0;
@@ -538,7 +538,7 @@ int pthread_key_delete(pthread_key_t key) {
 
 inline
 int pthread_setspecific(pthread_key_t key, const void *value) {
-    if(!TlsSetValue(key, const_cast<void*>(value))) {
+    if (!TlsSetValue(key, const_cast<void*>(value))) {
         return ENOMEM;
     }
     return 0;
@@ -547,8 +547,8 @@ int pthread_setspecific(pthread_key_t key, const void *value) {
 inline
 void* pthread_getspecific(pthread_key_t key) {
     void* result = TlsGetValue(key);
-    if(!result) {
-        if(GetLastError() != ERROR_SUCCESS) {
+    if (!result) {
+        if (GetLastError() != ERROR_SUCCESS) {
             errno = EINVAL;
         } else {
             errno = NOERROR;

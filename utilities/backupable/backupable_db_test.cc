@@ -21,6 +21,7 @@
 #include "util/string_util.h"
 #include "util/testutil.h"
 #include "util/auto_roll_logger.h"
+#include "util/mock_env.h"
 
 namespace rocksdb {
 
@@ -361,6 +362,7 @@ class BackupableDBTest : public testing::Test {
 
     // set up envs
     env_ = Env::Default();
+    mock_env_.reset(new MockEnv(env_));
     test_db_env_.reset(new TestEnv(env_));
     test_backup_env_.reset(new TestEnv(env_));
     file_manager_.reset(new FileManager(env_));
@@ -376,6 +378,9 @@ class BackupableDBTest : public testing::Test {
                             DBOptions(), &logger_);
     backupable_options_.reset(new BackupableDBOptions(
         backupdir_, test_backup_env_.get(), true, logger_.get(), true));
+
+    // most tests will use multi-threaded backups
+    backupable_options_->max_background_operations = 7;
 
     // delete old files in db
     DestroyDB(dbname_, Options());
@@ -474,6 +479,7 @@ class BackupableDBTest : public testing::Test {
 
   // envs
   Env* env_;
+  unique_ptr<MockEnv> mock_env_;
   unique_ptr<TestEnv> test_db_env_;
   unique_ptr<TestEnv> test_backup_env_;
   unique_ptr<FileManager> file_manager_;
@@ -551,6 +557,30 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   ASSERT_EQ(100UL, size);
   test_backup_env_->GetFileSize(backupdir_ + "/shared/00015.sst", &size);
   ASSERT_EQ(200UL, size);
+
+  CloseBackupableDB();
+}
+
+// Verify that backup works when the database environment is not the same as
+// the backup environment
+// TODO(agf): Make all/most tests use different db and backup environments.
+//            This will probably require more implementation of MockEnv.
+//            For example, MockEnv::RenameFile() must be able to rename
+//            directories.
+TEST_F(BackupableDBTest, DifferentEnvs) {
+  test_db_env_.reset(new TestEnv(mock_env_.get()));
+  options_.env = test_db_env_.get();
+
+  OpenBackupableDB(true, true);
+
+  // should write 5 DB files + LATEST_BACKUP + one meta file
+  test_backup_env_->SetLimitWrittenFiles(7);
+  test_backup_env_->ClearWrittenFiles();
+  test_db_env_->SetLimitWrittenFiles(0);
+  dummy_db_->live_files_ = { "/00010.sst", "/00011.sst",
+                             "/CURRENT",   "/MANIFEST-01" };
+  dummy_db_->wal_files_ = {{"/00011.log", true}, {"/00012.log", false}};
+  ASSERT_OK(db_->CreateNewBackup(false));
 
   CloseBackupableDB();
 }
@@ -966,6 +996,8 @@ TEST_F(BackupableDBTest, RateLimiting) {
 
     backupable_options_->backup_rate_limit = limit.first;
     backupable_options_->restore_rate_limit = limit.second;
+    // rate-limiting backups must be single-threaded
+    backupable_options_->max_background_operations = 1;
     options_.compression = kNoCompression;
     OpenBackupableDB(true);
     size_t bytes_written = FillDB(db_.get(), 0, 100000);

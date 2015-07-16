@@ -9,8 +9,8 @@
 
 #include "table/merger.h"
 
-#include <vector>
 #include <queue>
+#include <vector>
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/iterator.h"
@@ -215,6 +215,12 @@ class MergingIterator : public Iterator {
         }
       }
       direction_ = kReverse;
+      // Note that we don't do assert(current_ == CurrentReverse()) here
+      // because it is possible to have some keys larger than the seek-key
+      // inserted between Seek() and SeekToLast(), which makes current_ not
+      // equal to CurrentReverse().
+      //
+      // assert(current_ == CurrentReverse());
     }
 
     current_->Prev();

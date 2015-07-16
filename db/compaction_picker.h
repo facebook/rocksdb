@@ -105,6 +105,12 @@ class CompactionPicker {
       const VersionStorageInfo* vstorage,
       const CompactionOptions& compact_options) const;
 
+  // Used in universal compaction when the enabled_trivial_move
+  // option is set. Checks whether there are any overlapping files
+  // in the input. Returns true if the input files are non
+  // overlapping.
+  bool IsInputNonOverlapping(Compaction* c);
+
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }
 

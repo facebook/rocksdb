@@ -109,20 +109,20 @@ class Compaction {
   }
 
   // Maximum size of files to build during this compaction.
-  uint64_t MaxOutputFileSize() const { return max_output_file_size_; }
+  uint64_t max_output_file_size() const { return max_output_file_size_; }
 
   // What compression for output
-  CompressionType OutputCompressionType() const { return output_compression_; }
+  CompressionType output_compression() const { return output_compression_; }
 
   // Whether need to write output file to second DB path.
-  uint32_t GetOutputPathId() const { return output_path_id_; }
+  uint32_t output_path_id() const { return output_path_id_; }
 
   // Is this a trivial compaction that can be implemented by just
   // moving a single input file to the next level (no merging or splitting)
   bool IsTrivialMove() const;
 
   // If true, then the compaction can be done by simply deleting input files.
-  bool IsDeletionCompaction() const {
+  bool deletion_compaction() const {
     return deletion_compaction_;
   }
 
@@ -150,13 +150,26 @@ class Compaction {
   double score() const { return score_; }
 
   // Is this compaction creating a file in the bottom most level?
-  bool BottomMostLevel() { return bottommost_level_; }
+  bool bottommost_level() { return bottommost_level_; }
 
   // Does this compaction include all sst files?
-  bool IsFullCompaction() { return is_full_compaction_; }
+  bool is_full_compaction() { return is_full_compaction_; }
 
   // Was this compaction triggered manually by the client?
-  bool IsManualCompaction() { return is_manual_compaction_; }
+  bool is_manual_compaction() { return is_manual_compaction_; }
+
+  // Used when allow_trivial_move option is set in
+  // Universal compaction. If all the input files are
+  // non overlapping, then is_trivial_move_ variable
+  // will be set true, else false
+  void set_is_trivial_move(bool trivial_move) {
+    is_trivial_move_ = trivial_move;
+  }
+
+  // Used when allow_trivial_move option is set in
+  // Universal compaction. Returns true, if the input files
+  // are non-overlapping and can be trivially moved.
+  bool is_trivial_move() { return is_trivial_move_; }
 
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
@@ -237,6 +250,11 @@ class Compaction {
 
   // Is this compaction requested by the client?
   const bool is_manual_compaction_;
+
+  // True if we can do trivial move in Universal multi level
+  // compaction
+
+  bool is_trivial_move_;
 
   // "level_ptrs_" holds indices into "input_version_->levels_", where each
   // index remembers which file of an associated level we are currently used

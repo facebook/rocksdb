@@ -24,12 +24,6 @@
 #include <stddef.h>
 #include <string.h>
 #include <string>
-#include <stdio.h>
-
-// Do not want to include the whole /port/port.h here for one define
-#ifdef OS_WIN
-#  define snprintf _snprintf
-#endif
 
 namespace rocksdb {
 
@@ -80,19 +74,7 @@ class Slice {
   }
 
   // Return a string that contains the copy of the referenced data.
-  std::string ToString(bool hex = false) const {
-    if (hex) {
-      std::string result;
-      char buf[10];
-      for (size_t i = 0; i < size_; i++) {
-        snprintf(buf, 10, "%02X", (unsigned char)data_[i]);
-        result += buf;
-      }
-      return result;
-    } else {
-      return std::string(data_, size_);
-    }
-  }
+  std::string ToString(bool hex = false) const;
 
   // Three-way comparison.  Returns value:
   //   <  0 iff "*this" <  "b",

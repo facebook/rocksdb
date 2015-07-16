@@ -1,17 +1,19 @@
-# This cmake build is for Windows only.
+# This cmake build is for Windows 64-bit only.
 #
 # Prerequisites:
-#     You must have Visual Studio 2013 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
+#     You must have Visual Studio 2013 Update 4 installed. Start the Developer Command Prompt window that is a part of Visual Studio installation.
 #     Run the build commands from within the Developer Command Prompt window to have paths to the compiler and runtime libraries set.
+#     You must have git.exe in your %PATH% environment variable.
 #
 # To build Rocksdb for Windows is as easy as 1-2-3-4-5:
 # 
-# 1. Update paths to thirdparty libraries in thirdparty.cmake file
+# 1. Update paths to third-party libraries in thirdparty.inc file
 # 2. Create a new directory for build artifacts
 #        mkdir build
 #        cd build
-# 3. Run cmake to generate project files for Windows
-#        cmake -G "Visual Studio 12 Win64" ..
+# 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
+#    See thirdparty.inc for more information.
+#        cmake -G "Visual Studio 12 Win64" .. <more options>
 # 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
 #        msbuild ALL_BUILD.vcxproj
 # 5. And release mode (/m:<N> is also supported)
@@ -43,10 +45,6 @@ add_custom_command(OUTPUT ${BUILD_VERSION_CC}
 
 add_custom_target(GenerateBuildVersion DEPENDS ${BUILD_VERSION_CC})
 
-add_definitions(${GFLAGS_CXX_FLAGS} ${SNAPPY_CXX_FLAGS})
-include_directories(${GFLAGS_INCLUDE} ${SNAPPY_INCLUDE} ${JEMALLOC_INCLUDE})
-set (THIRDPARTY_LIBS ${GFLAGS_LIBS} ${SNAPPY_LIBS} ${JEMALLOC_LIBS})
-
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zi /nologo /W3 /WX /EHsc /GS /fp:precise /Zc:wchar_t /Zc:forScope /Gd /TP /errorReport:queue")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /FC /d2Zi+ /wd4018 /wd4100 /wd4101 /wd4127 /wd4189 /wd4200 /wd4244 /wd4267 /wd4296 /wd4305 /wd4307 /wd4309 /wd4512 /wd4701 /wd4702 /wd4800 /wd4804 /wd4996")
 
@@ -62,13 +60,11 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/port)
 include_directories(${PROJECT_SOURCE_DIR}/third-party/gtest-1.7.0/fused-src)
 
-set(ROCKSDB_LIBS rocksdblib)
-set(ROCKSDB_LIBS_JE rocksdblib_je)
+set(ROCKSDB_LIBS rocksdblib${ARTIFACT_SUFFIX})
 set(THIRDPARTY_LIBS ${THIRDPARTY_LIBS} gtest)
 set(SYSTEM_LIBS Shlwapi.lib Rpcrt4.lib)
 
 set(LIBS ${ROCKSDB_LIBS} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
-set(LIBS_JE ${ROCKSDB_LIBS_JE} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
 add_subdirectory(third-party/gtest-1.7.0/fused-src/gtest)
 
@@ -225,23 +221,14 @@ set(SOURCES
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
 )
 
-add_library(rocksdblib ${SOURCES})
-set_target_properties(rocksdblib PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib.pdb")
-add_dependencies(rocksdblib GenerateBuildVersion)
+add_library(rocksdblib${ARTIFACT_SUFFIX} ${SOURCES})
+set_target_properties(rocksdblib${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "/Fd${CMAKE_CFG_INTDIR}/rocksdblib${ARTIFACT_SUFFIX}.pdb")
+add_dependencies(rocksdblib${ARTIFACT_SUFFIX} GenerateBuildVersion)
 
-add_library(rocksdblib_je ${SOURCES})
-set_target_properties(rocksdblib_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} /Fd${CMAKE_CFG_INTDIR}/rocksdblib_je.pdb")
-add_dependencies(rocksdblib_je GenerateBuildVersion)
-
-add_library(rocksdb SHARED ${SOURCES})
-set_target_properties(rocksdb PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb.pdb")
-add_dependencies(rocksdb GenerateBuildVersion)
-target_link_libraries(rocksdb ${LIBS})
-
-add_library(rocksdb_je SHARED ${SOURCES})
-set_target_properties(rocksdb_je PROPERTIES COMPILE_FLAGS "${JEMALLOC_CXX_FLAGS} -DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb_je.pdb")
-add_dependencies(rocksdb_je GenerateBuildVersion)
-target_link_libraries(rocksdb_je ${LIBS_JE})
+add_library(rocksdb${ARTIFACT_SUFFIX} SHARED ${SOURCES})
+set_target_properties(rocksdb${ARTIFACT_SUFFIX} PROPERTIES COMPILE_FLAGS "-DROCKSDB_DLL -DROCKSDB_LIBRARY_EXPORTS /Fd${CMAKE_CFG_INTDIR}/rocksdb${ARTIFACT_SUFFIX}.pdb")
+add_dependencies(rocksdb${ARTIFACT_SUFFIX} GenerateBuildVersion)
+target_link_libraries(rocksdb${ARTIFACT_SUFFIX} ${LIBS})
 
 set(APPS
         db/db_bench.cc
@@ -339,9 +326,6 @@ foreach(sourcefile ${EXES})
     string(REPLACE ".cc" "" exename ${sourcefile})
     string(REPLACE ".c" "" exename ${exename})
     string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
-    add_executable(${exename} ${sourcefile})
-    target_link_libraries(${exename} ${LIBS})
-    add_executable(${exename}_je ${sourcefile})
-    set_target_properties(${exename}_je PROPERTIES COMPILE_FLAGS ${JEMALLOC_CXX_FLAGS})
-    target_link_libraries(${exename}_je ${LIBS_JE})
+    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
 endforeach(sourcefile ${EXES})

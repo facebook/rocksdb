@@ -215,7 +215,7 @@ int truncate(const char* path, int64_t len) {
 
   HANDLE hFile = CreateFile(path,
     GENERIC_READ | GENERIC_WRITE,
-    0, // No sharing while truncating
+    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
     NULL, // Security attrs
     OPEN_EXISTING, // Truncate existing file only
     FILE_ATTRIBUTE_NORMAL,

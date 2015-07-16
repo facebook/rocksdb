@@ -17,11 +17,13 @@ namespace rocksdb {
 Status PlainTableFactory::NewTableReader(const ImmutableCFOptions& ioptions,
                                          const EnvOptions& env_options,
                                          const InternalKeyComparator& icomp,
-                                         std::unique_ptr<RandomAccessFile>&& file,
+                                         unique_ptr<RandomAccessFile>&& file,
                                          uint64_t file_size,
-                                         std::unique_ptr<TableReader>* table) const {
-  return PlainTableReader::Open(ioptions, env_options, table_options_,
-                                icomp, std::move(file), file_size, table);
+                                         unique_ptr<TableReader>* table) const {
+  return PlainTableReader::Open(ioptions, env_options, icomp, std::move(file),
+                                file_size, table, bloom_bits_per_key_,
+                                hash_table_ratio_, index_sparseness_,
+                                huge_page_tlb_size_, full_scan_mode_);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
@@ -31,9 +33,11 @@ TableBuilder* PlainTableFactory::NewTableBuilder(
   // in-memory dbs. The skip_filters optimization is not useful for plain
   // tables
   //
-  return new PlainTableBuilder(table_builder_options.ioptions, 
-         table_builder_options.int_tbl_prop_collector_factories,
-         table_options_, file, 6);
+  return new PlainTableBuilder(
+      table_builder_options.ioptions,
+      table_builder_options.int_tbl_prop_collector_factories, file,
+      user_key_len_, encoding_type_, index_sparseness_, bloom_bits_per_key_, 6,
+      huge_page_tlb_size_, hash_table_ratio_, store_index_in_file_);
 }
 
 std::string PlainTableFactory::GetPrintableTableOptions() const {
@@ -43,34 +47,30 @@ std::string PlainTableFactory::GetPrintableTableOptions() const {
   char buffer[kBufferSize];
 
   snprintf(buffer, kBufferSize, "  user_key_len: %u\n",
-           table_options_.user_key_len);
+           user_key_len_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  bloom_bits_per_key: %d\n",
-           table_options_.bloom_bits_per_key);
+           bloom_bits_per_key_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
-           table_options_.hash_table_ratio);
+           hash_table_ratio_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  index_sparseness: %" ROCKSDB_PRIszt "\n",
-           table_options_.index_sparseness);
+           index_sparseness_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %" ROCKSDB_PRIszt "\n",
-           table_options_.huge_page_tlb_size);
+           huge_page_tlb_size_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  encoding_type: %d\n",
-           table_options_.encoding_type);
+           encoding_type_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  full_scan_mode: %d\n",
-           table_options_.full_scan_mode);
+           full_scan_mode_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  store_index_in_file: %d\n",
-           table_options_.store_index_in_file);
+           store_index_in_file_);
   ret.append(buffer);
   return ret;
-}
-
-const PlainTableOptions& PlainTableFactory::GetTableOptions() const {
-  return table_options_;
 }
 
 extern TableFactory* NewPlainTableFactory(const PlainTableOptions& options) {

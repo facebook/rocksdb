@@ -59,7 +59,13 @@ struct BatchResult {
     SequenceNumber sequence = 0;
     std::unique_ptr<WriteBatch> writeBatchPtr;
 
+    // Add empty __ctor and __dtor for the rule of five
+    // However, preserve the original semantics and prohibit copying
+    // as the unique_ptr member does not copy.
     BatchResult() {
+    }
+
+    ~BatchResult() {
     }
 
     BatchResult(const BatchResult&) = delete;

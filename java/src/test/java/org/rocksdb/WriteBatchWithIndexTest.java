@@ -231,6 +231,34 @@ public class WriteBatchWithIndexTest {
     }
   }
 
+  @Test
+  public void zeroByteTests() {
+    final WriteBatchWithIndex wbwi = new WriteBatchWithIndex(true);
+    byte[] zeroByteValue = new byte[] { 0, 0 };
+
+    //add zero byte value
+    wbwi.put(zeroByteValue, zeroByteValue);
+
+    ByteBuffer buffer = ByteBuffer.allocateDirect(zeroByteValue.length);
+    buffer.put(zeroByteValue);
+
+    WBWIRocksIterator.WriteEntry[] expected = {
+        new WBWIRocksIterator.WriteEntry(WBWIRocksIterator.WriteType.PUT,
+            new DirectSlice(buffer, zeroByteValue.length),
+            new DirectSlice(buffer, zeroByteValue.length))
+    };
+    WBWIRocksIterator it = null;
+    try {
+      it = wbwi.newIterator();
+      it.seekToFirst();
+      assertThat(it.entry().equals(expected[0])).isTrue();
+    } finally {
+      if(it != null) {
+        it.dispose();
+      }
+    }
+  }
+
   private byte[] toArray(final ByteBuffer buf) {
     final byte[] ary = new byte[buf.remaining()];
     buf.get(ary);
