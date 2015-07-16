@@ -6,6 +6,9 @@
 #include "table/adaptive_table_factory.h"
 
 #include "table/format.h"
+#include "port/port.h"
+
+#include "port/port.h"
 
 namespace rocksdb {
 

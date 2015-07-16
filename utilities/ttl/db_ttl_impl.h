@@ -17,6 +17,12 @@
 #include "rocksdb/utilities/db_ttl.h"
 #include "db/db_impl.h"
 
+#ifdef _WIN32
+// Windows API macro interference
+#undef GetCurrentTime
+#endif
+
+
 namespace rocksdb {
 
 class DBWithTTLImpl : public DBWithTTL {
