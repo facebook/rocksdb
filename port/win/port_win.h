@@ -40,6 +40,9 @@
 #define snprintf _snprintf
 #endif
 
+#undef GetCurrentTime
+#undef DeleteFile
+
 typedef SSIZE_T ssize_t;
 
 // size_t printf formatting named in the manner of C99 standard formatting

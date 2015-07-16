@@ -14,7 +14,9 @@
 
 #include <fcntl.h>
 #include <inttypes.h>
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <set>
@@ -36,7 +38,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "rocksdb/utilities/convenience.h"
+#include "rocksdb/convenience.h"
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
