@@ -13,17 +13,11 @@ LDFLAGS += $(EXTRA_LDFLAGS)
 MACHINE ?= $(shell uname -m)
 ARFLAGS = rs
 
-# If using GCC on Travis-CI, force use of GCC 4.9
+# If using GCC on Travis-CI, display GCC env
 ifeq ($(TRAVIS),true)
-  $(info Detected Travis-CI environment)
-  ifeq ($(CC),gcc)
-    CC = /usr/bin/gcc-4.9
-    $(info Set $$CC=${CC} for Travis)
-  endif
-  ifeq ($(CXX),g++)
-    CXX = /usr/bin/g++-4.9
-    $(info Set $$CXX=${CXX} for Travis)
-  endif
+  $(info Detected Travis-CI environment...)
+  $(info Travis-CI: $$CC=${CC})
+  $(info Travis-CI: $$CXX=${CXX})
 endif
 
 # Transform parallel LOG output into something more readable.

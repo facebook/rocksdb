@@ -17,12 +17,13 @@ addons:
             # - libgflags-dev
 
 # NOTE - no way to update-alternatives in containerized build yet, see - https://github.com/travis-ci/travis-ci/issues/3668
+# so we export CC and CXX directly in the `script:` below
 #before_install:
 # - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 50
 # - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.9 50
 
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
-script: OPT=-DTRAVIS V=1 make unity && make clean && OPT=-DTRAVIS V=1 make db_test && ./db_test
+script: export CC=/usr/bin/gcc-4.9 && export CXX=/usr/bin/g++-4.9 && OPT=-DTRAVIS V=1 make unity && make clean && OPT=-DTRAVIS V=1 make db_test && ./db_test
 notifications:
     email: true
