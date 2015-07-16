@@ -2059,6 +2059,10 @@ Status DBImpl::WaitForFlushMemTable(ColumnFamilyData* cfd) {
 
 void DBImpl::MaybeScheduleFlushOrCompaction() {
   mutex_.AssertHeld();
+  if (!opened_successfully_) {
+    // Compaction may introduce data race to DB open
+    return;
+  }
   if (bg_work_gate_closed_) {
     // gate closed for background work
     return;
@@ -2609,6 +2613,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
 
     mutex_.Unlock();
     status = compaction_job.Run();
+    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
     compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
@@ -4317,11 +4322,14 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       }
     }
   }
-
+  TEST_SYNC_POINT("DBImpl::Open:Opened");
+  if (s.ok()) {
+    impl->opened_successfully_ = true;
+    impl->MaybeScheduleFlushOrCompaction();
+  }
   impl->mutex_.Unlock();
 
   if (s.ok()) {
-    impl->opened_successfully_ = true;
     Log(InfoLogLevel::INFO_LEVEL, impl->db_options_.info_log, "DB pointer %p",
         impl);
     *dbptr = impl;
