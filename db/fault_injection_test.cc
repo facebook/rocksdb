@@ -583,13 +583,13 @@ class FaultInjectionTest : public testing::Test {
   }
 
   Status Verify(int start_idx, int num_vals, ExpectedVerifResult expected,
-                bool seqeuntial = true) const {
+                bool sequential = true) const {
     std::string val;
     std::string value_space;
     Status s;
     for (int i = start_idx; i < start_idx + num_vals && s.ok(); i++) {
       Value(i, &value_space);
-      s = ReadValue(i, &val, seqeuntial);
+      s = ReadValue(i, &val, sequential);
       if (s.ok()) {
         EXPECT_EQ(value_space, val);
       }
@@ -609,9 +609,9 @@ class FaultInjectionTest : public testing::Test {
   }
 
   // Return the ith key
-  Slice Key(bool seqeuntial, int i, std::string* storage) const {
+  Slice Key(bool sequential, int i, std::string* storage) const {
     int num = i;
-    if (!seqeuntial) {
+    if (!sequential) {
       // random transfer
       const int m = 0x5bd1e995;
       num *= m;
