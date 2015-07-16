@@ -7,6 +7,7 @@
 
 #include "utilities/pragma_error.h"
 
-ROCKSDB_WARNING("This file was moved to rocksdb/convenience.h")
+// TODO(agiardullo):  need to figure out how to make this portable
+// ROCKSDB_WARNING("This file was moved to rocksdb/convenience.h")
 
 #include "rocksdb/convenience.h"
