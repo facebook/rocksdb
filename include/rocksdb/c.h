@@ -46,7 +46,7 @@
 
 #pragma once
 
-#ifdef OS_WIN
+#ifdef _WIN32
 #ifdef ROCKSDB_DLL
 #ifdef ROCKSDB_LIBRARY_EXPORTS
 #define ROCKSDB_LIBRARY_API __declspec(dllexport)

@@ -72,6 +72,7 @@ set(SOURCES
         db/builder.cc
         db/c.cc
         db/column_family.cc
+        db/compacted_db_impl.cc
         db/compaction.cc
         db/compaction_job.cc
         db/compaction_picker.cc
@@ -202,7 +203,6 @@ set(SOURCES
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/checkpoint/checkpoint.cc
-        utilities/compacted_db/compacted_db_impl.cc
         utilities/document/document_db.cc
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc
@@ -215,8 +215,8 @@ set(SOURCES
         utilities/merge_operators/uint64add.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
+        utilities/transactions/optimistic_transaction_impl.cc        
         utilities/transactions/optimistic_transaction_db_impl.cc
-        utilities/transactions/optimistic_transaction_impl.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
