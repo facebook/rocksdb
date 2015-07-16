@@ -11,7 +11,6 @@ addons:
             - zlib1g-dev
             - libbz2-dev
             - libsnappy-dev
-            - libjemalloc-dev
             ### Not yet on the whitelist - https://github.com/travis-ci/apt-package-whitelist/blob/master/ubuntu-precise
             # - libgflags               # https://github.com/travis-ci/travis-ci/issues/3609
             # - libgflags-dev
