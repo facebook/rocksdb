@@ -65,7 +65,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
         char str[8];
         snprintf(str, sizeof(str), "%" PRIu64, file_size);
         wal_info.append(file).append(" size: ").
-            append(str, sizeof(str)).append(" ;");
+            append(str).append(" ; ");
         break;
       case kTableFile:
         if (++file_num < 10) {
@@ -118,7 +118,7 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
           char str[8];
           snprintf(str, sizeof(str), "%" PRIu64, file_size);
           wal_info.append(file).append(" size: ").
-              append(str, sizeof(str)).append(" ;");
+              append(str).append(" ; ");
         }
       }
     }
