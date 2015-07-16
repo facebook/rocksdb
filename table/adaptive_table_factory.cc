@@ -8,6 +8,8 @@
 #include "table/format.h"
 #include "port/port.h"
 
+#include "port/port.h"
+
 namespace rocksdb {
 
 AdaptiveTableFactory::AdaptiveTableFactory(
