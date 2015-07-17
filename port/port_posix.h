@@ -53,7 +53,7 @@
 
 #if defined(OS_MACOSX) || defined(OS_SOLARIS) || defined(OS_FREEBSD) ||\
     defined(OS_NETBSD) || defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD) ||\
-    defined(OS_ANDROID)
+    defined(OS_ANDROID) || defined(OS_CYGWIN)
 // Use fread/fwrite/fflush on platforms without _unlocked variants
 #define fread_unlocked fread
 #define fwrite_unlocked fwrite

@@ -186,11 +186,7 @@ class PosixSequentialFile: public SequentialFile {
     Status s;
     size_t r = 0;
     do {
-#ifndef CYGWIN
       r = fread_unlocked(scratch, 1, n, file_);
-#else
-      r = fread(scratch, 1, n, file_);
-#endif
     } while (r == 0 && ferror(file_) && errno == EINTR);
     IOSTATS_ADD(bytes_read, r);
     *result = Slice(scratch, r);
