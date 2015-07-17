@@ -1408,10 +1408,18 @@ class InMemoryHandler : public WriteBatch::Handler {
 
 void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
                  LDBCommandExecuteResult* exec_state) {
-  unique_ptr<SequentialFile> file;
   Env* env_ = Env::Default();
   EnvOptions soptions;
-  Status status = env_->NewSequentialFile(wal_file, &file, soptions);
+  unique_ptr<SequentialFileReader> wal_file_reader;
+
+  Status status;
+  {
+    unique_ptr<SequentialFile> file;
+    status = env_->NewSequentialFile(wal_file, &file, soptions);
+    if (status.ok()) {
+      wal_file_reader.reset(new SequentialFileReader(std::move(file)));
+    }
+  }
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +
@@ -1422,7 +1430,7 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
   } else {
     StdErrReporter reporter;
-    log::Reader reader(move(file), &reporter, true, 0);
+    log::Reader reader(move(wal_file_reader), &reporter, true, 0);
     string scratch;
     WriteBatch batch;
     Slice record;

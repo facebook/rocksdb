@@ -72,6 +72,7 @@
 #include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/db_info_dumper.h"
+#include "util/file_reader_writer.h"
 #include "util/file_util.h"
 #include "util/hash_skiplist_rep.h"
 #include "util/hash_linklist_rep.h"
@@ -384,18 +385,22 @@ Status DBImpl::NewDB() {
   new_db.SetNextFile(2);
   new_db.SetLastSequence(0);
 
+  Status s;
+
   Log(InfoLogLevel::INFO_LEVEL,
       db_options_.info_log, "Creating manifest 1 \n");
   const std::string manifest = DescriptorFileName(dbname_, 1);
-  unique_ptr<WritableFile> file;
-  Status s = env_->NewWritableFile(
-      manifest, &file, env_->OptimizeForManifestWrite(env_options_));
-  if (!s.ok()) {
-    return s;
-  }
-  file->SetPreallocationBlockSize(db_options_.manifest_preallocation_size);
   {
-    log::Writer log(std::move(file));
+    unique_ptr<WritableFile> file;
+    EnvOptions env_options = env_->OptimizeForManifestWrite(env_options_);
+    s = env_->NewWritableFile(manifest, &file, env_options);
+    if (!s.ok()) {
+      return s;
+    }
+    file->SetPreallocationBlockSize(db_options_.manifest_preallocation_size);
+    unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(file), env_options));
+    log::Writer log(std::move(file_writer));
     std::string record;
     new_db.EncodeTo(&record);
     s = log.AddRecord(record);
@@ -1013,17 +1018,21 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     versions_->MarkFileNumberUsedDuringRecovery(log_number);
     // Open the log file
     std::string fname = LogFileName(db_options_.wal_dir, log_number);
-    unique_ptr<SequentialFile> file;
-    status = env_->NewSequentialFile(fname, &file, env_options_);
-    if (!status.ok()) {
-      MaybeIgnoreError(&status);
+    unique_ptr<SequentialFileReader> file_reader;
+    {
+      unique_ptr<SequentialFile> file;
+      status = env_->NewSequentialFile(fname, &file, env_options_);
       if (!status.ok()) {
-        return status;
-      } else {
-        // Fail with one log file, but that's ok.
-        // Try next one.
-        continue;
+        MaybeIgnoreError(&status);
+        if (!status.ok()) {
+          return status;
+        } else {
+          // Fail with one log file, but that's ok.
+          // Try next one.
+          continue;
+        }
       }
+      file_reader.reset(new SequentialFileReader(std::move(file)));
     }
 
     // Create the log reader.
@@ -1042,7 +1051,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     // paranoid_checks==false so that corruptions cause entire commits
     // to be skipped instead of propagating bad information (like overly
     // large sequence numbers).
-    log::Reader reader(std::move(file), &reporter, true /*checksum*/,
+    log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
                        0 /*initial_offset*/);
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "Recovering log #%" PRIu64 " mode %d skip-recovery %d", log_number,
@@ -3490,11 +3499,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         if (status.ok() && write_options.sync) {
           RecordTick(stats_, WAL_FILE_SYNCED);
           StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
-          if (db_options_.use_fsync) {
-            status = log_->file()->Fsync();
-          } else {
-            status = log_->file()->Sync();
-          }
+          status = log_->file()->Sync(db_options_.use_fsync);
           if (status.ok() && !log_dir_synced_) {
             // We only sync WAL directory the first time WAL syncing is
             // requested, so that in case users never turn on WAL sync,
@@ -3624,15 +3629,19 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
   Status s;
   {
     if (creating_new_log) {
+      EnvOptions opt_env_opt =
+          env_->OptimizeForLogWrite(env_options_, db_options_);
       s = env_->NewWritableFile(
           LogFileName(db_options_.wal_dir, new_log_number), &lfile,
-          env_->OptimizeForLogWrite(env_options_, db_options_));
+          opt_env_opt);
       if (s.ok()) {
         // Our final size should be less than write_buffer_size
         // (compression, etc) but err on the side of caution.
         lfile->SetPreallocationBlockSize(
             1.1 * mutable_cf_options.write_buffer_size);
-        new_log = new log::Writer(std::move(lfile));
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(lfile), opt_env_opt));
+        new_log = new log::Writer(std::move(file_writer));
         log_dir_synced_ = false;
       }
     }
@@ -4031,12 +4040,18 @@ Status DBImpl::CheckConsistency() {
 
 Status DBImpl::GetDbIdentity(std::string& identity) const {
   std::string idfilename = IdentityFileName(dbname_);
-  unique_ptr<SequentialFile> idfile;
   const EnvOptions soptions;
-  Status s = env_->NewSequentialFile(idfilename, &idfile, soptions);
-  if (!s.ok()) {
-    return s;
+  unique_ptr<SequentialFileReader> id_file_reader;
+  Status s;
+  {
+    unique_ptr<SequentialFile> idfile;
+    s = env_->NewSequentialFile(idfilename, &idfile, soptions);
+    if (!s.ok()) {
+      return s;
+    }
+    id_file_reader.reset(new SequentialFileReader(std::move(idfile)));
   }
+
   uint64_t file_size;
   s = env_->GetFileSize(idfilename, &file_size);
   if (!s.ok()) {
@@ -4044,7 +4059,7 @@ Status DBImpl::GetDbIdentity(std::string& identity) const {
   }
   char* buffer = reinterpret_cast<char*>(alloca(file_size));
   Slice id;
-  s = idfile->Read(static_cast<size_t>(file_size), &id, buffer);
+  s = id_file_reader->Read(static_cast<size_t>(file_size), &id, buffer);
   if (!s.ok()) {
     return s;
   }
@@ -4176,14 +4191,17 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
     uint64_t new_log_number = impl->versions_->NewFileNumber();
     unique_ptr<WritableFile> lfile;
     EnvOptions soptions(db_options);
+    EnvOptions opt_env_options =
+        impl->db_options_.env->OptimizeForLogWrite(soptions, impl->db_options_);
     s = impl->db_options_.env->NewWritableFile(
         LogFileName(impl->db_options_.wal_dir, new_log_number), &lfile,
-        impl->db_options_.env->OptimizeForLogWrite(soptions,
-                                                   impl->db_options_));
+        opt_env_options);
     if (s.ok()) {
       lfile->SetPreallocationBlockSize(1.1 * max_write_buffer_size);
       impl->logfile_number_ = new_log_number;
-      impl->log_.reset(new log::Writer(std::move(lfile)));
+      unique_ptr<WritableFileWriter> file_writer(
+          new WritableFileWriter(std::move(lfile), opt_env_options));
+      impl->log_.reset(new log::Writer(std::move(file_writer)));
 
       // set column family handles
       for (auto cf : column_families) {

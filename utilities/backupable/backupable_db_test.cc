@@ -16,6 +16,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/utilities/backupable_db.h"
+#include "util/file_reader_writer.h"
 #include "util/testharness.h"
 #include "util/random.h"
 #include "util/mutexlock.h"
@@ -292,11 +293,12 @@ class FileManager : public EnvWrapper {
     if (!s.ok()) {
       return s;
     }
-
+    RandomRWFileAccessor accessor(std::move(file));
     for (uint64_t i = 0; s.ok() && i < bytes_to_corrupt; ++i) {
       std::string tmp;
       // write one random byte to a random position
-      s = file->Write(rnd_.Next() % size, test::RandomString(&rnd_, 1, &tmp));
+      s = accessor.Write(rnd_.Next() % size,
+                         test::RandomString(&rnd_, 1, &tmp));
     }
     return s;
   }

@@ -19,6 +19,9 @@
 #include "util/random.h"
 
 namespace rocksdb {
+class SequentialFile;
+class SequentialFileReader;
+
 namespace test {
 
 // Store in *dst a random string of length "len" and return a Slice that
@@ -159,6 +162,11 @@ class VectorIterator : public Iterator {
   std::vector<std::string> values_;
   size_t current_;
 };
+extern WritableFileWriter* GetWritableFileWriter(WritableFile* wf);
+
+extern RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf);
+
+extern SequentialFileReader* GetSequentialFileReader(SequentialFile* se);
 
 }  // namespace test
 }  // namespace rocksdb

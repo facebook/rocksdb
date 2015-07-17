@@ -52,6 +52,7 @@
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
 #include "util/db_test_util.h"
+#include "util/file_reader_writer.h"
 #include "util/hash.h"
 #include "util/hash_linklist_rep.h"
 #include "utilities/merge_operators.h"
@@ -6008,7 +6009,9 @@ class RecoveryTestHelper {
       std::string fname = LogFileName(test->dbname_, current_log_number);
       unique_ptr<WritableFile> file;
       ASSERT_OK(db_options.env->NewWritableFile(fname, &file, env_options));
-      current_log_writer.reset(new log::Writer(std::move(file)));
+      unique_ptr<WritableFileWriter> file_writer(
+          new WritableFileWriter(std::move(file), env_options));
+      current_log_writer.reset(new log::Writer(std::move(file_writer)));
 
       for (int i = 0; i < kKeysPerWALFile; i++) {
         std::string key = "key" + ToString(count++);
@@ -7231,8 +7234,7 @@ TEST_F(DBTest, RateLimitingTest) {
   }
   elapsed = env_->NowMicros() - start;
   Close();
-  ASSERT_TRUE(options.rate_limiter->GetTotalBytesThrough() ==
-              env_->bytes_written_);
+  ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
   double ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.7\n", ratio);
   ASSERT_TRUE(ratio < 0.8);
@@ -7251,11 +7253,10 @@ TEST_F(DBTest, RateLimitingTest) {
   }
   elapsed = env_->NowMicros() - start;
   Close();
-  ASSERT_TRUE(options.rate_limiter->GetTotalBytesThrough() ==
-              env_->bytes_written_);
+  ASSERT_EQ(options.rate_limiter->GetTotalBytesThrough(), env_->bytes_written_);
   ratio = env_->bytes_written_ * 1000000 / elapsed / raw_rate;
   fprintf(stderr, "write rate ratio = %.2lf, expected 0.5\n", ratio);
-  ASSERT_TRUE(ratio < 0.6);
+  ASSERT_LT(ratio, 0.6);
 }
 
 namespace {

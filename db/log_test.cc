@@ -12,8 +12,10 @@
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 #include "util/random.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 
 namespace rocksdb {
 namespace log {
@@ -163,26 +165,27 @@ class LogTest : public testing::Test {
   };
 
   std::string& dest_contents() {
-    auto dest = dynamic_cast<StringDest*>(writer_.file());
+    auto dest = dynamic_cast<StringDest*>(writer_.file()->writable_file());
     assert(dest);
     return dest->contents_;
   }
 
   const std::string& dest_contents() const {
-    auto dest = dynamic_cast<const StringDest*>(writer_.file());
+    auto dest =
+        dynamic_cast<const StringDest*>(writer_.file()->writable_file());
     assert(dest);
     return dest->contents_;
   }
 
   void reset_source_contents() {
-    auto src = dynamic_cast<StringSource*>(reader_.file());
+    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
     assert(src);
     src->contents_ = dest_contents();
   }
 
   Slice reader_contents_;
-  unique_ptr<StringDest> dest_holder_;
-  unique_ptr<StringSource> source_holder_;
+  unique_ptr<WritableFileWriter> dest_holder_;
+  unique_ptr<SequentialFileReader> source_holder_;
   ReportCollector report_;
   Writer writer_;
   Reader reader_;
@@ -192,13 +195,15 @@ class LogTest : public testing::Test {
   static uint64_t initial_offset_last_record_offsets_[];
 
  public:
-  LogTest() : reader_contents_(),
-              dest_holder_(new StringDest(reader_contents_)),
-              source_holder_(new StringSource(reader_contents_)),
-              writer_(std::move(dest_holder_)),
-              reader_(std::move(source_holder_), &report_, true/*checksum*/,
-                      0/*initial_offset*/) {
-  }
+  LogTest()
+      : reader_contents_(),
+        dest_holder_(
+            test::GetWritableFileWriter(new StringDest(reader_contents_))),
+        source_holder_(
+            test::GetSequentialFileReader(new StringSource(reader_contents_))),
+        writer_(std::move(dest_holder_)),
+        reader_(std::move(source_holder_), &report_, true /*checksum*/,
+                0 /*initial_offset*/) {}
 
   void Write(const std::string& msg) {
     writer_.AddRecord(Slice(msg));
@@ -227,7 +232,7 @@ class LogTest : public testing::Test {
   }
 
   void ShrinkSize(int bytes) {
-    auto dest = dynamic_cast<StringDest*>(writer_.file());
+    auto dest = dynamic_cast<StringDest*>(writer_.file()->writable_file());
     assert(dest);
     dest->Drop(bytes);
   }
@@ -240,7 +245,7 @@ class LogTest : public testing::Test {
   }
 
   void ForceError(size_t position = 0) {
-    auto src = dynamic_cast<StringSource*>(reader_.file());
+    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
     src->force_error_ = true;
     src->force_error_position_ = position;
   }
@@ -254,13 +259,13 @@ class LogTest : public testing::Test {
   }
 
   void ForceEOF(size_t position = 0) {
-    auto src = dynamic_cast<StringSource*>(reader_.file());
+    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
     src->force_eof_ = true;
     src->force_eof_position_ = position;
   }
 
   void UnmarkEOF() {
-    auto src = dynamic_cast<StringSource*>(reader_.file());
+    auto src = dynamic_cast<StringSource*>(reader_.file()->file());
     src->returned_partial_ = false;
     reader_.UnmarkEOF();
   }
@@ -288,10 +293,11 @@ class LogTest : public testing::Test {
 
   void CheckOffsetPastEndReturnsNoRecords(uint64_t offset_past_end) {
     WriteInitialOffsetLog();
-    unique_ptr<StringSource> source(new StringSource(reader_contents_));
+    unique_ptr<SequentialFileReader> file_reader(
+        test::GetSequentialFileReader(new StringSource(reader_contents_)));
     unique_ptr<Reader> offset_reader(
-      new Reader(std::move(source), &report_, true/*checksum*/,
-                 WrittenBytes() + offset_past_end));
+        new Reader(std::move(file_reader), &report_, true /*checksum*/,
+                   WrittenBytes() + offset_past_end));
     Slice record;
     std::string scratch;
     ASSERT_TRUE(!offset_reader->ReadRecord(&record, &scratch));
@@ -300,10 +306,10 @@ class LogTest : public testing::Test {
   void CheckInitialOffsetRecord(uint64_t initial_offset,
                                 int expected_record_offset) {
     WriteInitialOffsetLog();
-    unique_ptr<StringSource> source(new StringSource(reader_contents_));
-    unique_ptr<Reader> offset_reader(
-      new Reader(std::move(source), &report_, true/*checksum*/,
-                 initial_offset));
+    unique_ptr<SequentialFileReader> file_reader(
+        test::GetSequentialFileReader(new StringSource(reader_contents_)));
+    unique_ptr<Reader> offset_reader(new Reader(
+        std::move(file_reader), &report_, true /*checksum*/, initial_offset));
     Slice record;
     std::string scratch;
     ASSERT_TRUE(offset_reader->ReadRecord(&record, &scratch));

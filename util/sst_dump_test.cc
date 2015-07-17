@@ -13,6 +13,7 @@
 #include "rocksdb/filter_policy.h"
 #include "table/block_based_table_factory.h"
 #include "table/table_builder.h"
+#include "util/file_reader_writer.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -53,12 +54,13 @@ void createSST(const std::string& file_name,
   opts.table_factory = tf;
   std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
       int_tbl_prop_collector_factories;
-
+  unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(file), EnvOptions()));
   tb.reset(opts.table_factory->NewTableBuilder(
       TableBuilderOptions(imoptions, ikc, &int_tbl_prop_collector_factories,
                           CompressionType::kNoCompression, CompressionOptions(),
                           false),
-      file.get()));
+      file_writer.get()));
 
   // Populate slightly more than 1K keys
   uint32_t num_keys = 1024;
@@ -66,7 +68,7 @@ void createSST(const std::string& file_name,
     tb->Add(MakeKey(i), MakeValue(i));
   }
   tb->Finish();
-  file->Close();
+  file_writer->Close();
 }
 
 void cleanup(const std::string& file_name) {

@@ -13,6 +13,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/db.h"
+#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -166,8 +167,10 @@ class CompactionJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
+    unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(file), EnvOptions()));
     {
-      log::Writer log(std::move(file));
+      log::Writer log(std::move(file_writer));
       std::string record;
       new_db.EncodeTo(&record);
       s = log.AddRecord(record);

@@ -44,6 +44,7 @@
 #include "table/table_builder.h"
 #include "table/two_level_iterator.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/log_buffer.h"
 #include "util/mutexlock.h"
@@ -71,7 +72,7 @@ struct CompactionJob::CompactionState {
   std::vector<Output> outputs;
 
   // State kept for output being generated
-  std::unique_ptr<WritableFile> outfile;
+  std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
 
   uint64_t total_bytes;
@@ -662,13 +663,8 @@ Status CompactionJob::FinishCompactionOutputFile(const Status& input_status) {
 
   // Finish and check for file errors
   if (s.ok() && !db_options_.disableDataSync) {
-    if (db_options_.use_fsync) {
-      StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
-      s = compact_->outfile->Fsync();
-    } else {
-      StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
-      s = compact_->outfile->Sync();
-    }
+    StopWatch sw(env_, stats_, COMPACTION_OUTFILE_SYNC_MICROS);
+    s = compact_->outfile->Sync(db_options_.use_fsync);
   }
   if (s.ok()) {
     s = compact_->outfile->Close();
@@ -799,10 +795,10 @@ Status CompactionJob::OpenCompactionOutputFile() {
   // no need to lock because VersionSet::next_file_number_ is atomic
   uint64_t file_number = versions_->NewFileNumber();
   // Make the output file
+  unique_ptr<WritableFile> writable_file;
   std::string fname = TableFileName(db_options_.db_paths, file_number,
                                     compact_->compaction->output_path_id());
-  Status s = env_->NewWritableFile(fname, &compact_->outfile, env_options_);
-
+  Status s = env_->NewWritableFile(fname, &writable_file, env_options_);
   if (!s.ok()) {
     Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
         "[%s] [JOB %d] OpenCompactionOutputFiles for table #%" PRIu64
@@ -820,9 +816,11 @@ Status CompactionJob::OpenCompactionOutputFile() {
   out.smallest_seqno = out.largest_seqno = 0;
 
   compact_->outputs.push_back(out);
-  compact_->outfile->SetIOPriority(Env::IO_LOW);
-  compact_->outfile->SetPreallocationBlockSize(
+  writable_file->SetIOPriority(Env::IO_LOW);
+  writable_file->SetPreallocationBlockSize(
       static_cast<size_t>(compact_->compaction->OutputFilePreallocationSize()));
+  compact_->outfile.reset(
+      new WritableFileWriter(std::move(writable_file), env_options_));
 
   ColumnFamilyData* cfd = compact_->compaction->column_family_data();
   bool skip_filters = false;

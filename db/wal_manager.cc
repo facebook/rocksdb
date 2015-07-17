@@ -28,6 +28,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/write_batch.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
@@ -430,6 +431,8 @@ Status WalManager::ReadFirstLine(const std::string& fname,
 
   std::unique_ptr<SequentialFile> file;
   Status status = env_->NewSequentialFile(fname, &file, env_options_);
+  unique_ptr<SequentialFileReader> file_reader(
+      new SequentialFileReader(std::move(file)));
 
   if (!status.ok()) {
     return status;
@@ -441,7 +444,7 @@ Status WalManager::ReadFirstLine(const std::string& fname,
   reporter.fname = fname.c_str();
   reporter.status = &status;
   reporter.ignore_error = !db_options_.paranoid_checks;
-  log::Reader reader(std::move(file), &reporter, true /*checksum*/,
+  log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
                      0 /*initial_offset*/);
   std::string scratch;
   Slice record;

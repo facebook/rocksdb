@@ -25,7 +25,7 @@ namespace rocksdb {
 
 class Env;
 class Directory;
-class WritableFile;
+class WritableFileWriter;
 
 enum FileType {
   kLogFile,
@@ -140,6 +140,6 @@ extern Status SetIdentityFile(Env* env, const std::string& dbname);
 
 // Sync manifest file `file`.
 extern Status SyncManifest(Env* env, const DBOptions* db_options,
-                           WritableFile* file);
+                           WritableFileWriter* file);
 
 }  // namespace rocksdb

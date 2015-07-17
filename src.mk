@@ -88,6 +88,7 @@ LIB_SOURCES =                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/file_util.cc                                             \
+	util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/hash_cuckoo_rep.cc                                       \

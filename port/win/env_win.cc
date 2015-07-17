@@ -29,16 +29,13 @@
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
+#include "util/sync_point.h"
 
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
 
 #include <Rpc.h>  // For UUID generation
 #include <Windows.h>
-
-// This is only set from db_stress.cc and for testing only.
-// If non-zero, kill at various points in source code with probability 1/this
-int rocksdb_kill_odds = 0;
 
 namespace rocksdb {
 
@@ -89,40 +86,6 @@ inline void PrintThreadInfo(size_t thread_id, size_t terminatingId) {
 
 // returns the ID of the current process
 inline int current_process_id() { return _getpid(); }
-
-#ifdef NDEBUG
-// empty in release build
-#define TEST_KILL_RANDOM(rocksdb_kill_odds)
-#else
-
-// Kill the process with probablity 1/odds for testing.
-void TestKillRandom(int odds, const std::string& srcfile, int srcline) {
-  time_t curtime = time(nullptr);
-  Random r((uint32_t)curtime);
-
-  assert(odds > 0);
-  bool crash = r.OneIn(odds);
-  if (crash) {
-    fprintf(stdout, "Crashing at %s:%d\n", srcfile.c_str(), srcline);
-    fflush(stdout);
-    std::string* p_str = nullptr;
-    p_str->c_str();
-  }
-}
-
-// To avoid crashing always at some frequently executed codepaths (during
-// kill random test), use this factor to reduce odds
-#define REDUCE_ODDS 2
-#define REDUCE_ODDS2 4
-
-#define TEST_KILL_RANDOM(rocksdb_kill_odds)                  \
-  {                                                          \
-    if (rocksdb_kill_odds > 0) {                             \
-      TestKillRandom(rocksdb_kill_odds, __FILE__, __LINE__); \
-    }                                                        \
-  }
-
-#endif
 
 // RAII helpers for HANDLEs
 const auto CloseHandleFunc = [](HANDLE h) { ::CloseHandle(h); };

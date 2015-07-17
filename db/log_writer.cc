@@ -13,13 +13,13 @@
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace log {
 
-Writer::Writer(unique_ptr<WritableFile>&& dest)
-    : dest_(std::move(dest)),
-      block_offset_(0) {
+Writer::Writer(unique_ptr<WritableFileWriter>&& dest)
+    : dest_(std::move(dest)), block_offset_(0) {
   for (int i = 0; i <= kMaxRecordType; i++) {
     char t = static_cast<char>(i);
     type_crc_[i] = crc32c::Value(&t, 1);

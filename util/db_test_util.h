@@ -170,6 +170,9 @@ class SpecialEnv : public EnvWrapper {
       void SetIOPriority(Env::IOPriority pri) override {
         base_->SetIOPriority(pri);
       }
+      Env::IOPriority GetIOPriority() override {
+        return base_->GetIOPriority();
+      }
     };
     class ManifestFile : public WritableFile {
      public:

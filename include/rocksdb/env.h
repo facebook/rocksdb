@@ -465,6 +465,8 @@ class WritableFile {
     io_priority_ = pri;
   }
 
+  virtual Env::IOPriority GetIOPriority() { return io_priority_; }
+
   /*
    * Get the size of valid data in the file.
    */
@@ -501,7 +503,14 @@ class WritableFile {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 
- protected:
+  // Sync a file range with disk.
+  // offset is the starting byte of the file range to be synchronized.
+  // nbytes specifies the length of the range to be synchronized.
+  // This asks the OS to initiate flushing the cached data to disk,
+  // without waiting for completion.
+  // Default implementation does nothing.
+  virtual Status RangeSync(off_t offset, off_t nbytes) { return Status::OK(); }
+
   // PrepareWrite performs any necessary preparation for a write
   // before the write actually occurs.  This allows for pre-allocation
   // of space on devices where it can result in less file
@@ -526,20 +535,11 @@ class WritableFile {
     }
   }
 
+ protected:
   /*
    * Pre-allocate space for a file.
    */
   virtual Status Allocate(off_t offset, off_t len) {
-    return Status::OK();
-  }
-
-  // Sync a file range with disk.
-  // offset is the starting byte of the file range to be synchronized.
-  // nbytes specifies the length of the range to be synchronized.
-  // This asks the OS to initiate flushing the cached data to disk,
-  // without waiting for completion.
-  // Default implementation does nothing.
-  virtual Status RangeSync(off_t offset, off_t nbytes) {
     return Status::OK();
   }
 
@@ -893,6 +893,7 @@ class WritableFileWrapper : public WritableFile {
   void SetIOPriority(Env::IOPriority pri) override {
     target_->SetIOPriority(pri);
   }
+  Env::IOPriority GetIOPriority() override { return target_->GetIOPriority(); }
   uint64_t GetFileSize() override { return target_->GetFileSize(); }
   void GetPreallocationStatus(size_t* block_size,
                               size_t* last_allocated_block) override {

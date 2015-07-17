@@ -84,7 +84,8 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   size_t currentFileIndex_;
   std::unique_ptr<WriteBatch> currentBatch_;
   unique_ptr<log::Reader> currentLogReader_;
-  Status OpenLogFile(const LogFile* logFile, unique_ptr<SequentialFile>* file);
+  Status OpenLogFile(const LogFile* logFile,
+                     unique_ptr<SequentialFileReader>* file);
 
   struct LogReporter : public log::Reader::Reporter {
     Env* env;

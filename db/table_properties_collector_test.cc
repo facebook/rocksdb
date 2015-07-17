@@ -18,6 +18,7 @@
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -33,7 +34,7 @@ class TablePropertiesTest : public testing::Test,
 
 // TODO(kailiu) the following classes should be moved to some more general
 // places, so that other tests can also make use of them.
-// `FakeWritableFile` and `FakeRandomeAccessFile` bypass the real file system
+// `FakeWritableFileWriter* file system
 // and therefore enable us to quickly setup the tests.
 class FakeWritableFile : public WritableFile {
  public:
@@ -96,9 +97,11 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  const InternalKeyComparator& internal_comparator,
                  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
                      int_tbl_prop_collector_factories,
-                 std::unique_ptr<FakeWritableFile>* writable,
+                 std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
-  writable->reset(new FakeWritableFile);
+  unique_ptr<WritableFile> wf(new FakeWritableFile);
+  writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
+
   builder->reset(NewTableBuilder(
       ioptions, internal_comparator, int_tbl_prop_collector_factories,
       writable->get(), options.compression, options.compression_opts));
@@ -289,7 +292,7 @@ void TestCustomizedTablePropertiesCollector(
 
   // -- Step 1: build table
   std::unique_ptr<TableBuilder> builder;
-  std::unique_ptr<FakeWritableFile> writable;
+  std::unique_ptr<WritableFileWriter> writer;
   const ImmutableCFOptions ioptions(options);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -300,7 +303,7 @@ void TestCustomizedTablePropertiesCollector(
     GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories);
   }
   MakeBuilder(options, ioptions, internal_comparator,
-              &int_tbl_prop_collector_factories, &writable, &builder);
+              &int_tbl_prop_collector_factories, &writer, &builder);
 
   SequenceNumber seqNum = 0U;
   for (const auto& kv : kvs) {
@@ -310,18 +313,17 @@ void TestCustomizedTablePropertiesCollector(
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
+  writer->Flush();
 
   // -- Step 2: Read properties
-  FakeRandomeAccessFile readable(writable->contents());
+  FakeWritableFile* fwf =
+      static_cast<FakeWritableFile*>(writer->writable_file());
+  std::unique_ptr<RandomAccessFileReader> fake_file_reader(
+      test::GetRandomAccessFileReader(
+          new FakeRandomeAccessFile(fwf->contents())));
   TableProperties* props;
-  Status s = ReadTableProperties(
-      &readable,
-      writable->contents().size(),
-      magic_number,
-      Env::Default(),
-      nullptr,
-      &props
-  );
+  Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
+                                 magic_number, Env::Default(), nullptr, &props);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -414,7 +416,7 @@ void TestInternalKeyPropertiesCollector(
   };
 
   std::unique_ptr<TableBuilder> builder;
-  std::unique_ptr<FakeWritableFile> writable;
+  std::unique_ptr<WritableFileWriter> writable;
   Options options;
   test::PlainInternalKeyComparator pikc(options.comparator);
 
@@ -449,12 +451,16 @@ void TestInternalKeyPropertiesCollector(
     }
 
     ASSERT_OK(builder->Finish());
+    writable->Flush();
 
-    FakeRandomeAccessFile readable(writable->contents());
+    FakeWritableFile* fwf =
+        static_cast<FakeWritableFile*>(writable->writable_file());
+    unique_ptr<RandomAccessFileReader> reader(test::GetRandomAccessFileReader(
+        new FakeRandomeAccessFile(fwf->contents())));
     TableProperties* props;
     Status s =
-        ReadTableProperties(&readable, writable->contents().size(),
-                            magic_number, Env::Default(), nullptr, &props);
+        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
+                            Env::Default(), nullptr, &props);
     ASSERT_OK(s);
 
     std::unique_ptr<TableProperties> props_guard(props);

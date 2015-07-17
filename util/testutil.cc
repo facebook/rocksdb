@@ -10,6 +10,7 @@
 #include "util/testutil.h"
 
 #include "port/port.h"
+#include "util/file_reader_writer.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -105,6 +106,21 @@ static void InitModule() {
 const Comparator* Uint64Comparator() {
   port::InitOnce(&once, InitModule);
   return uint64comp;
+}
+
+WritableFileWriter* GetWritableFileWriter(WritableFile* wf) {
+  unique_ptr<WritableFile> file(wf);
+  return new WritableFileWriter(std::move(file), EnvOptions());
+}
+
+RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf) {
+  unique_ptr<RandomAccessFile> file(raf);
+  return new RandomAccessFileReader(std::move(file));
+}
+
+SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
+  unique_ptr<SequentialFile> file(se);
+  return new SequentialFileReader(std::move(file));
 }
 
 }  // namespace test

@@ -347,7 +347,7 @@ class TableConstructor: public Constructor {
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& kv_map) override {
     Reset();
-    sink_.reset(new StringSink());
+    file_writer_.reset(test::GetWritableFileWriter(new StringSink()));
     unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
@@ -355,7 +355,7 @@ class TableConstructor: public Constructor {
         TableBuilderOptions(ioptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
                             options.compression, CompressionOptions(), false),
-        sink_.get()));
+        file_writer_.get()));
 
     for (const auto kv : kv_map) {
       if (convert_to_internal_key_) {
@@ -369,17 +369,18 @@ class TableConstructor: public Constructor {
       EXPECT_TRUE(builder->status().ok());
     }
     Status s = builder->Finish();
+    file_writer_->Flush();
     EXPECT_TRUE(s.ok()) << s.ToString();
 
-    EXPECT_EQ(sink_->contents().size(), builder->FileSize());
+    EXPECT_EQ(GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
-    source_.reset(new StringSource(sink_->contents(), uniq_id_,
-                                   ioptions.allow_mmap_reads));
+    file_reader_.reset(test::GetRandomAccessFileReader(new StringSource(
+        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        ioptions, soptions, internal_comparator, std::move(source_),
-        sink_->contents().size(), &table_reader_);
+        ioptions, soptions, internal_comparator, std::move(file_reader_),
+        GetSink()->contents().size(), &table_reader_);
   }
 
   virtual Iterator* NewIterator() const override {
@@ -397,12 +398,11 @@ class TableConstructor: public Constructor {
   }
 
   virtual Status Reopen(const ImmutableCFOptions& ioptions) {
-    source_.reset(
-        new StringSource(sink_->contents(), uniq_id_,
-                         ioptions.allow_mmap_reads));
+    file_reader_.reset(test::GetRandomAccessFileReader(new StringSource(
+        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        ioptions, soptions, *last_internal_key_, std::move(source_),
-        sink_->contents().size(), &table_reader_);
+        ioptions, soptions, *last_internal_key_, std::move(file_reader_),
+        GetSink()->contents().size(), &table_reader_);
   }
 
   virtual TableReader* GetTableReader() {
@@ -417,13 +417,17 @@ class TableConstructor: public Constructor {
   void Reset() {
     uniq_id_ = 0;
     table_reader_.reset();
-    sink_.reset();
-    source_.reset();
+    file_writer_.reset();
+    file_reader_.reset();
+  }
+
+  StringSink* GetSink() {
+    return static_cast<StringSink*>(file_writer_->writable_file());
   }
 
   uint64_t uniq_id_;
-  unique_ptr<StringSink> sink_;
-  unique_ptr<StringSource> source_;
+  unique_ptr<WritableFileWriter> file_writer_;
+  unique_ptr<RandomAccessFileReader> file_reader_;
   unique_ptr<TableReader> table_reader_;
   bool convert_to_internal_key_;
 
@@ -1766,6 +1770,8 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
 
   PlainTableFactory factory(plain_table_options);
   StringSink sink;
+  unique_ptr<WritableFileWriter> file_writer(
+      test::GetWritableFileWriter(new StringSink()));
   Options options;
   const ImmutableCFOptions ioptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -1774,7 +1780,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                           kNoCompression, CompressionOptions(), false),
-      &sink));
+      file_writer.get()));
 
   for (char c = 'a'; c <= 'z'; ++c) {
     std::string key(8, c);
@@ -1783,11 +1789,15 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
     builder->Add(key, value);
   }
   ASSERT_OK(builder->Finish());
+  file_writer->Flush();
 
-  StringSource source(sink.contents(), 72242, true);
+  StringSink* ss = static_cast<StringSink*>(file_writer->writable_file());
+  unique_ptr<RandomAccessFileReader> file_reader(
+      test::GetRandomAccessFileReader(
+          new StringSource(ss->contents(), 72242, true)));
 
   TableProperties* props = nullptr;
-  auto s = ReadTableProperties(&source, sink.contents().size(),
+  auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
                                kPlainTableMagicNumber, Env::Default(), nullptr,
                                &props);
   std::unique_ptr<TableProperties> props_guard(props);

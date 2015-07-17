@@ -21,6 +21,7 @@
 #include "table/table_reader.h"
 #include "table/table_properties_internal.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -69,8 +70,8 @@ class BlockBasedTable : public TableReader {
                      const EnvOptions& env_options,
                      const BlockBasedTableOptions& table_options,
                      const InternalKeyComparator& internal_key_comparator,
-                     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                     unique_ptr<TableReader>* table_reader,
+                     unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size, unique_ptr<TableReader>* table_reader,
                      bool prefetch_index_and_filter = true);
 
   bool PrefixMayMatch(const Slice& internal_key);

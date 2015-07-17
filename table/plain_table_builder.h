@@ -34,10 +34,11 @@ class PlainTableBuilder: public TableBuilder {
       const ImmutableCFOptions& ioptions,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           int_tbl_prop_collector_factories,
-      WritableFile* file, uint32_t user_key_size, EncodingType encoding_type,
-      size_t index_sparseness, uint32_t bloom_bits_per_key,
-      uint32_t num_probes = 6, size_t huge_page_tlb_size = 0,
-      double hash_table_ratio = 0, bool store_index_in_file = false);
+      WritableFileWriter* file, uint32_t user_key_size,
+      EncodingType encoding_type, size_t index_sparseness,
+      uint32_t bloom_bits_per_key, uint32_t num_probes = 6,
+      size_t huge_page_tlb_size = 0, double hash_table_ratio = 0,
+      bool store_index_in_file = false);
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~PlainTableBuilder();
@@ -82,7 +83,7 @@ class PlainTableBuilder: public TableBuilder {
   BloomBlockBuilder bloom_block_;
   std::unique_ptr<PlainTableIndexBuilder> index_builder_;
 
-  WritableFile* file_;
+  WritableFileWriter* file_;
   uint64_t offset_ = 0;
   uint32_t bloom_bits_per_key_;
   size_t huge_page_tlb_size_;

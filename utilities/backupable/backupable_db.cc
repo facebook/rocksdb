@@ -14,6 +14,7 @@
 #include "util/channel.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/string_util.h"
 #include "rocksdb/transaction_log.h"
@@ -1105,7 +1106,10 @@ Status BackupEngineImpl::GetLatestBackupFileContents(uint32_t* latest_backup) {
 
   char buf[11];
   Slice data;
-  s = file->Read(10, &data, buf);
+  unique_ptr<SequentialFileReader> file_reader(
+      new SequentialFileReader(std::move(file)));
+
+  s = file_reader->Read(10, &data, buf);
   if (!s.ok() || data.size() == 0) {
     return s.ok() ? Status::Corruption("Latest backup file corrupted") : s;
   }
@@ -1137,14 +1141,16 @@ Status BackupEngineImpl::PutLatestBackupFileContents(uint32_t latest_backup) {
     return s;
   }
 
+  unique_ptr<WritableFileWriter> file_writer(
+      new WritableFileWriter(std::move(file), env_options));
   char file_contents[10];
   int len = sprintf(file_contents, "%u\n", latest_backup);
-  s = file->Append(Slice(file_contents, len));
+  s = file_writer->Append(Slice(file_contents, len));
   if (s.ok() && options_.sync) {
-    file->Sync();
+    file_writer->Sync(false);
   }
   if (s.ok()) {
-    s = file->Close();
+    s = file_writer->Close();
   }
   if (s.ok()) {
     // atomically replace real file with new tmp
@@ -1187,6 +1193,10 @@ Status BackupEngineImpl::CopyFile(
     return s;
   }
 
+  unique_ptr<WritableFileWriter> dest_writer(
+      new WritableFileWriter(std::move(dst_file), env_options));
+  unique_ptr<SequentialFileReader> src_reader(
+      new SequentialFileReader(std::move(src_file)));
   unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
 
@@ -1196,7 +1206,7 @@ Status BackupEngineImpl::CopyFile(
     }
     size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
       copy_file_buffer_size_ : size_limit;
-    s = src_file->Read(buffer_to_read, &data, buf.get());
+    s = src_reader->Read(buffer_to_read, &data, buf.get());
     size_limit -= data.size();
 
     if (!s.ok()) {
@@ -1210,14 +1220,14 @@ Status BackupEngineImpl::CopyFile(
       *checksum_value = crc32c::Extend(*checksum_value, data.data(),
                                        data.size());
     }
-    s = dst_file->Append(data);
+    s = dest_writer->Append(data);
     if (rate_limiter != nullptr) {
       rate_limiter->ReportAndWait(data.size());
     }
   } while (s.ok() && data.size() > 0 && size_limit > 0);
 
   if (s.ok() && sync) {
-    s = dst_file->Sync();
+    s = dest_writer->Sync(false);
   }
 
   return s;
@@ -1358,6 +1368,8 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
     return s;
   }
 
+  unique_ptr<SequentialFileReader> src_reader(
+      new SequentialFileReader(std::move(src_file)));
   std::unique_ptr<char[]> buf(new char[copy_file_buffer_size_]);
   Slice data;
 
@@ -1367,7 +1379,7 @@ Status BackupEngineImpl::CalculateChecksum(const std::string& src, Env* src_env,
     }
     size_t buffer_to_read = (copy_file_buffer_size_ < size_limit) ?
       copy_file_buffer_size_ : size_limit;
-    s = src_file->Read(buffer_to_read, &data, buf.get());
+    s = src_reader->Read(buffer_to_read, &data, buf.get());
 
     if (!s.ok()) {
       return s;
@@ -1522,9 +1534,11 @@ Status BackupEngineImpl::BackupMeta::LoadFromFile(
     return s;
   }
 
+  unique_ptr<SequentialFileReader> backup_meta_reader(
+      new SequentialFileReader(std::move(backup_meta_file)));
   unique_ptr<char[]> buf(new char[max_backup_meta_file_size_ + 1]);
   Slice data;
-  s = backup_meta_file->Read(max_backup_meta_file_size_, &data, buf.get());
+  s = backup_meta_reader->Read(max_backup_meta_file_size_, &data, buf.get());
 
   if (!s.ok() || data.size() == max_backup_meta_file_size_) {
     return s.ok() ? Status::Corruption("File size too big") : s;

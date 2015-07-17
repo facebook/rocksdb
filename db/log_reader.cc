@@ -13,6 +13,7 @@
 #include "rocksdb/env.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace log {
@@ -20,7 +21,7 @@ namespace log {
 Reader::Reporter::~Reporter() {
 }
 
-Reader::Reader(unique_ptr<SequentialFile>&& _file, Reporter* reporter,
+Reader::Reader(unique_ptr<SequentialFileReader>&& _file, Reporter* reporter,
                bool checksum, uint64_t initial_offset)
     : file_(std::move(_file)),
       reporter_(reporter),

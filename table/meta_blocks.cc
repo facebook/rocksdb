@@ -129,9 +129,9 @@ bool NotifyCollectTableCollectorsOnFinish(
   return all_succeeded;
 }
 
-Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
-                      const Footer &footer, Env *env, Logger *logger,
-                      TableProperties **table_properties) {
+Status ReadProperties(const Slice& handle_value, RandomAccessFileReader* file,
+                      const Footer& footer, Env* env, Logger* logger,
+                      TableProperties** table_properties) {
   assert(table_properties);
 
   Slice v = handle_value;
@@ -217,7 +217,7 @@ Status ReadProperties(const Slice &handle_value, RandomAccessFile *file,
   return s;
 }
 
-Status ReadTableProperties(RandomAccessFile* file, uint64_t file_size,
+Status ReadTableProperties(RandomAccessFileReader* file, uint64_t file_size,
                            uint64_t table_magic_number, Env* env,
                            Logger* info_log, TableProperties** properties) {
   // -- Read metaindex block
@@ -271,7 +271,7 @@ Status FindMetaBlock(Iterator* meta_index_iter,
   }
 }
 
-Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
+Status FindMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number, Env* env,
                      const std::string& meta_block_name,
                      BlockHandle* block_handle) {
@@ -298,7 +298,7 @@ Status FindMetaBlock(RandomAccessFile* file, uint64_t file_size,
   return FindMetaBlock(meta_iter.get(), meta_block_name, block_handle);
 }
 
-Status ReadMetaBlock(RandomAccessFile* file, uint64_t file_size,
+Status ReadMetaBlock(RandomAccessFileReader* file, uint64_t file_size,
                      uint64_t table_magic_number, Env* env,
                      const std::string& meta_block_name,
                      BlockContents* contents) {

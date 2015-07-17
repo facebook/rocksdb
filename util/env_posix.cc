@@ -40,7 +40,6 @@
 #include "util/posix_logger.h"
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
-#include "util/rate_limiter.h"
 #include "util/sync_point.h"
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
@@ -74,9 +73,6 @@
 #define POSIX_FADV_DONTNEED 4 /* [MC1] dont need these pages */
 #endif
 
-// This is only set from db_stress.cc and for testing only.
-// If non-zero, kill at various points in source code with probability 1/this
-int rocksdb_kill_odds = 0;
 
 namespace rocksdb {
 
@@ -103,39 +99,6 @@ static port::Mutex mutex_lockedFiles;
 static Status IOError(const std::string& context, int err_number) {
   return Status::IOError(context, strerror(err_number));
 }
-
-#ifdef NDEBUG
-// empty in release build
-#define TEST_KILL_RANDOM(rocksdb_kill_odds)
-#else
-
-// Kill the process with probablity 1/odds for testing.
-static void TestKillRandom(int odds, const std::string& srcfile,
-                           int srcline) {
-  time_t curtime = time(nullptr);
-  Random r((uint32_t)curtime);
-
-  assert(odds > 0);
-  bool crash = r.OneIn(odds);
-  if (crash) {
-    fprintf(stdout, "Crashing at %s:%d\n", srcfile.c_str(), srcline);
-    fflush(stdout);
-    kill(getpid(), SIGTERM);
-  }
-}
-
-// To avoid crashing always at some frequently executed codepaths (during
-// kill random test), use this factor to reduce odds
-#define REDUCE_ODDS 2
-#define REDUCE_ODDS2 4
-
-#define TEST_KILL_RANDOM(rocksdb_kill_odds) {   \
-  if (rocksdb_kill_odds > 0) { \
-    TestKillRandom(rocksdb_kill_odds, __FILE__, __LINE__);     \
-  } \
-}
-
-#endif
 
 #if defined(OS_LINUX)
 namespace {
@@ -188,7 +151,6 @@ class PosixSequentialFile: public SequentialFile {
     do {
       r = fread_unlocked(scratch, 1, n, file_);
     } while (r == 0 && ferror(file_) && errno == EINTR);
-    IOSTATS_ADD(bytes_read, r);
     *result = Slice(scratch, r);
     if (r < n) {
       if (feof(file_)) {
@@ -252,10 +214,7 @@ class PosixRandomAccessFile: public RandomAccessFile {
     size_t left = n;
     char* ptr = scratch;
     while (left > 0) {
-      {
-        IOSTATS_TIMER_GUARD(read_nanos);
-        r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-      }
+      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
 
       if (r <= 0) {
         if (errno == EINTR) {
@@ -268,7 +227,6 @@ class PosixRandomAccessFile: public RandomAccessFile {
       left -= r;
     }
 
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
     *result = Slice(scratch, (r < 0) ? 0 : n - left);
     if (r < 0) {
       // An error: return a non-ok status
@@ -458,7 +416,6 @@ class PosixMmapFile : public WritableFile {
     if (ptr == MAP_FAILED) {
       return Status::IOError("MMap failed on " + filename_);
     }
-
     TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     base_ = reinterpret_cast<char*>(ptr);
@@ -482,8 +439,7 @@ class PosixMmapFile : public WritableFile {
         limit_(nullptr),
         dst_(nullptr),
         last_sync_(nullptr),
-        file_offset_(0),
-        pending_sync_(false) {
+        file_offset_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
@@ -501,8 +457,6 @@ class PosixMmapFile : public WritableFile {
   virtual Status Append(const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
-    TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
-    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
     while (left > 0) {
       assert(base_ <= dst_);
       assert(dst_ <= limit_);
@@ -521,20 +475,16 @@ class PosixMmapFile : public WritableFile {
 
       size_t n = (left <= avail) ? left : avail;
       memcpy(dst_, src, n);
-      IOSTATS_ADD(bytes_written, n);
       dst_ += n;
       src += n;
       left -= n;
     }
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
     return Status::OK();
   }
 
   virtual Status Close() override {
     Status s;
     size_t unused = limit_ - dst_;
-
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     s = UnmapCurrentRegion();
     if (!s.ok()) {
@@ -545,8 +495,6 @@ class PosixMmapFile : public WritableFile {
         s = IOError(filename_, errno);
       }
     }
-
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     if (close(fd_) < 0) {
       if (s.ok()) {
@@ -561,22 +509,15 @@ class PosixMmapFile : public WritableFile {
   }
 
   virtual Status Flush() override {
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
     return Status::OK();
   }
 
   virtual Status Sync() override {
     Status s;
 
-    if (pending_sync_) {
-      // Some unmapped data was not synced
-      TEST_KILL_RANDOM(rocksdb_kill_odds);
-      pending_sync_ = false;
       if (fdatasync(fd_) < 0) {
         s = IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS);
-    }
 
     if (dst_ > last_sync_) {
       // Find the beginnings of the pages that contain the first and last
@@ -588,7 +529,6 @@ class PosixMmapFile : public WritableFile {
       if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
         s = IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(rocksdb_kill_odds);
     }
 
     return s;
@@ -598,15 +538,10 @@ class PosixMmapFile : public WritableFile {
    * Flush data as well as metadata to stable storage.
    */
   virtual Status Fsync() override {
-    if (pending_sync_) {
       // Some unmapped data was not synced
-      TEST_KILL_RANDOM(rocksdb_kill_odds);
-      pending_sync_ = false;
       if (fsync(fd_) < 0) {
         return IOError(filename_, errno);
       }
-      TEST_KILL_RANDOM(rocksdb_kill_odds);
-    }
     // This invocation to Sync will not issue the call to
     // fdatasync because pending_sync_ has already been cleared.
     return Sync();
@@ -638,7 +573,6 @@ class PosixMmapFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    IOSTATS_TIMER_GUARD(allocate_nanos);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
     if (alloc_status == 0) {
@@ -655,33 +589,14 @@ class PosixWritableFile : public WritableFile {
  private:
   const std::string filename_;
   int fd_;
-  size_t cursize_;      // current size of cached data in buf_
-  size_t capacity_;     // max size of buf_
-  unique_ptr<char[]> buf_;           // a buffer to cache writes
   uint64_t filesize_;
-  bool pending_sync_;
-  bool pending_fsync_;
-  uint64_t last_sync_size_;
-  uint64_t bytes_per_sync_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
 #endif
-  RateLimiter* rate_limiter_;
 
  public:
-  PosixWritableFile(const std::string& fname, int fd, size_t capacity,
-                    const EnvOptions& options)
-      : filename_(fname),
-        fd_(fd),
-        cursize_(0),
-        capacity_(capacity),
-        buf_(new char[capacity]),
-        filesize_(0),
-        pending_sync_(false),
-        pending_fsync_(false),
-        last_sync_size_(0),
-        bytes_per_sync_(options.bytes_per_sync),
-        rate_limiter_(options.rate_limiter) {
+  PosixWritableFile(const std::string& fname, int fd, const EnvOptions& options)
+      : filename_(fname), fd_(fd), filesize_(0) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
@@ -698,64 +613,23 @@ class PosixWritableFile : public WritableFile {
     const char* src = data.data();
     size_t left = data.size();
     Status s;
-    pending_sync_ = true;
-    pending_fsync_ = true;
-
-    TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
-
-    PrepareWrite(static_cast<size_t>(GetFileSize()), left);
-    // if there is no space in the cache, then flush
-    if (cursize_ + left > capacity_) {
-      s = Flush();
-      if (!s.ok()) {
-        return s;
-      }
-      // Increase the buffer size, but capped at 1MB
-      if (capacity_ < (1<<20)) {
-        capacity_ *= 2;
-        buf_.reset(new char[capacity_]);
-      }
-      assert(cursize_ == 0);
-    }
-
-    // if the write fits into the cache, then write to cache
-    // otherwise do a write() syscall to write to OS buffers.
-    if (cursize_ + left <= capacity_) {
-      memcpy(buf_.get()+cursize_, src, left);
-      cursize_ += left;
-    } else {
       while (left != 0) {
-        ssize_t done;
-        size_t size = RequestToken(left);
-        {
-          IOSTATS_TIMER_GUARD(write_nanos);
-          done = write(fd_, src, size);
-        }
+        ssize_t done = write(fd_, src, left);
         if (done < 0) {
           if (errno == EINTR) {
             continue;
           }
           return IOError(filename_, errno);
         }
-        IOSTATS_ADD(bytes_written, done);
-        TEST_KILL_RANDOM(rocksdb_kill_odds);
-
         left -= done;
         src += done;
       }
-    }
-    filesize_ += data.size();
+      filesize_ += data.size();
     return Status::OK();
   }
 
   virtual Status Close() override {
     Status s;
-    s = Flush(); // flush cache to OS
-    if (!s.ok()) {
-      return s;
-    }
-
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
 
     size_t block_size;
     size_t last_allocated_block;
@@ -793,68 +667,20 @@ class PosixWritableFile : public WritableFile {
 
   // write out the cached data to the OS cache
   virtual Status Flush() override {
-    TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
-    size_t left = cursize_;
-    char* src = buf_.get();
-    while (left != 0) {
-      ssize_t done;
-      size_t size = RequestToken(left);
-      {
-        IOSTATS_TIMER_GUARD(write_nanos);
-        done = write(fd_, src, size);
-      }
-      if (done < 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        return IOError(filename_, errno);
-      }
-      IOSTATS_ADD(bytes_written, done);
-      TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
-      left -= done;
-      src += done;
-    }
-    cursize_ = 0;
-
-    // sync OS cache to disk for every bytes_per_sync_
-    // TODO: give log file and sst file different options (log
-    // files could be potentially cached in OS for their whole
-    // life time, thus we might not want to flush at all).
-    if (bytes_per_sync_ &&
-        filesize_ - last_sync_size_ >= bytes_per_sync_) {
-      RangeSync(last_sync_size_, filesize_ - last_sync_size_);
-      last_sync_size_ = filesize_;
-    }
-
     return Status::OK();
   }
 
   virtual Status Sync() override {
-    Status s = Flush();
-    if (!s.ok()) {
-      return s;
-    }
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
-    if (pending_sync_ && fdatasync(fd_) < 0) {
+    if (fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
     }
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
-    pending_sync_ = false;
     return Status::OK();
   }
 
   virtual Status Fsync() override {
-    Status s = Flush();
-    if (!s.ok()) {
-      return s;
-    }
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
-    if (pending_fsync_ && fsync(fd_) < 0) {
+    if (fsync(fd_) < 0) {
       return IOError(filename_, errno);
     }
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
-    pending_fsync_ = false;
-    pending_sync_ = false;
     return Status::OK();
   }
 
@@ -876,8 +702,8 @@ class PosixWritableFile : public WritableFile {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
-    int alloc_status;
     IOSTATS_TIMER_GUARD(allocate_nanos);
+    int alloc_status;
     alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
     if (alloc_status == 0) {
@@ -888,7 +714,6 @@ class PosixWritableFile : public WritableFile {
   }
 
   virtual Status RangeSync(off_t offset, off_t nbytes) override {
-    IOSTATS_TIMER_GUARD(range_sync_nanos);
     if (sync_file_range(fd_, offset, nbytes, SYNC_FILE_RANGE_WRITE) == 0) {
       return Status::OK();
     } else {
@@ -899,34 +724,19 @@ class PosixWritableFile : public WritableFile {
     return GetUniqueIdFromFile(fd_, id, max_size);
   }
 #endif
-
- private:
-  inline size_t RequestToken(size_t bytes) {
-    if (rate_limiter_ && io_priority_ < Env::IO_TOTAL) {
-      bytes = std::min(bytes,
-          static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
-      rate_limiter_->Request(bytes, io_priority_);
-    }
-    return bytes;
-  }
 };
 
 class PosixRandomRWFile : public RandomRWFile {
  private:
   const std::string filename_;
   int fd_;
-  bool pending_sync_;
-  bool pending_fsync_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
 #endif
 
  public:
   PosixRandomRWFile(const std::string& fname, int fd, const EnvOptions& options)
-      : filename_(fname),
-        fd_(fd),
-        pending_sync_(false),
-        pending_fsync_(false) {
+      : filename_(fname), fd_(fd) {
 #ifdef ROCKSDB_FALLOCATE_PRESENT
     fallocate_with_keep_size_ = options.fallocate_with_keep_size;
 #endif
@@ -943,22 +753,15 @@ class PosixRandomRWFile : public RandomRWFile {
     const char* src = data.data();
     size_t left = data.size();
     Status s;
-    pending_sync_ = true;
-    pending_fsync_ = true;
 
     while (left != 0) {
-      ssize_t done;
-      {
-        IOSTATS_TIMER_GUARD(write_nanos);
-        done = pwrite(fd_, src, left, offset);
-      }
+      ssize_t done = pwrite(fd_, src, left, offset);
       if (done < 0) {
         if (errno == EINTR) {
           continue;
         }
         return IOError(filename_, errno);
       }
-      IOSTATS_ADD(bytes_written, done);
 
       left -= done;
       src += done;
@@ -975,11 +778,7 @@ class PosixRandomRWFile : public RandomRWFile {
     size_t left = n;
     char* ptr = scratch;
     while (left > 0) {
-      {
-        IOSTATS_TIMER_GUARD(read_nanos);
-        r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-      }
-
+      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
       if (r <= 0) {
         if (errno == EINTR) {
           continue;
@@ -990,7 +789,6 @@ class PosixRandomRWFile : public RandomRWFile {
       offset += r;
       left -= r;
     }
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
     *result = Slice(scratch, (r < 0) ? 0 : n - left);
     if (r < 0) {
       s = IOError(filename_, errno);
@@ -1008,25 +806,21 @@ class PosixRandomRWFile : public RandomRWFile {
   }
 
   virtual Status Sync() override {
-    if (pending_sync_ && fdatasync(fd_) < 0) {
+    if (fdatasync(fd_) < 0) {
       return IOError(filename_, errno);
     }
-    pending_sync_ = false;
     return Status::OK();
   }
 
   virtual Status Fsync() override {
-    if (pending_fsync_ && fsync(fd_) < 0) {
+    if (fsync(fd_) < 0) {
       return IOError(filename_, errno);
     }
-    pending_fsync_ = false;
-    pending_sync_ = false;
     return Status::OK();
   }
 
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   virtual Status Allocate(off_t offset, off_t len) override {
-    TEST_KILL_RANDOM(rocksdb_kill_odds);
     IOSTATS_TIMER_GUARD(allocate_nanos);
     int alloc_status = fallocate(
         fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
@@ -1216,9 +1010,7 @@ class PosixEnv : public Env {
         EnvOptions no_mmap_writes_options = options;
         no_mmap_writes_options.use_mmap_writes = false;
 
-        result->reset(
-            new PosixWritableFile(fname, fd, 65536, no_mmap_writes_options)
-        );
+        result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
       }
     }
     return s;

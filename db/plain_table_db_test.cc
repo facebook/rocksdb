@@ -198,10 +198,9 @@ class TestPlainTableReader : public PlainTableReader {
                        int bloom_bits_per_key, double hash_table_ratio,
                        size_t index_sparseness,
                        const TableProperties* table_properties,
-                       unique_ptr<RandomAccessFile>&& file,
+                       unique_ptr<RandomAccessFileReader>&& file,
                        const ImmutableCFOptions& ioptions,
-                       bool* expect_bloom_not_match,
-                       bool store_index_in_file)
+                       bool* expect_bloom_not_match, bool store_index_in_file)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
@@ -257,7 +256,8 @@ class TestPlainTableFactory : public PlainTableFactory {
   Status NewTableReader(const ImmutableCFOptions& ioptions,
                         const EnvOptions& env_options,
                         const InternalKeyComparator& internal_comparator,
-                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
                         unique_ptr<TableReader>* table) const override {
     TableProperties* props = nullptr;
     auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,

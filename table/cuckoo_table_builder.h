@@ -21,12 +21,13 @@ namespace rocksdb {
 
 class CuckooTableBuilder: public TableBuilder {
  public:
-  CuckooTableBuilder(
-      WritableFile* file, double max_hash_table_ratio,
-      uint32_t max_num_hash_func, uint32_t max_search_depth,
-      const Comparator* user_comparator, uint32_t cuckoo_block_size,
-      bool use_module_hash, bool identity_as_first_hash,
-      uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
+  CuckooTableBuilder(WritableFileWriter* file, double max_hash_table_ratio,
+                     uint32_t max_num_hash_func, uint32_t max_search_depth,
+                     const Comparator* user_comparator,
+                     uint32_t cuckoo_block_size, bool use_module_hash,
+                     bool identity_as_first_hash,
+                     uint64_t (*get_slice_hash)(const Slice&, uint32_t,
+                                                uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~CuckooTableBuilder() {}
@@ -82,7 +83,7 @@ class CuckooTableBuilder: public TableBuilder {
   inline Slice GetValue(uint64_t idx) const;
 
   uint32_t num_hash_func_;
-  WritableFile* file_;
+  WritableFileWriter* file_;
   const double max_hash_table_ratio_;
   const uint32_t max_num_hash_func_;
   const uint32_t max_search_depth_;

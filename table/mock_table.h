@@ -140,13 +140,14 @@ class MockTableFactory : public TableFactory {
   MockTableFactory();
   const char* Name() const override { return "MockTable"; }
   Status NewTableReader(const ImmutableCFOptions& ioptions,
-                               const EnvOptions& env_options,
-                               const InternalKeyComparator& internal_key,
-                               unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                               unique_ptr<TableReader>* table_reader) const override;
+                        const EnvOptions& env_options,
+                        const InternalKeyComparator& internal_key,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
+                        unique_ptr<TableReader>* table_reader) const override;
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      WritableFile* file) const override;
+      WritableFileWriter* file) const override;
 
   // This function will directly create mock table instead of going through
   // MockTableBuilder. MockFileContents has to have a format of <internal_key,
@@ -171,7 +172,7 @@ class MockTableFactory : public TableFactory {
 
  private:
   uint32_t GetAndWriteNextID(WritableFile* file) const;
-  uint32_t GetIDFromFile(RandomAccessFile* file) const;
+  uint32_t GetIDFromFile(RandomAccessFileReader* file) const;
 
   mutable MockTableFileSystem file_system_;
   mutable std::atomic<uint32_t> next_id_;

@@ -20,6 +20,7 @@
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "util/autovector.h"
+#include "util/file_reader_writer.h"
 #include "util/random.h"
 #include "util/string_util.h"
 
@@ -47,7 +48,7 @@ const std::string CuckooTablePropertyNames::kUserKeyLength =
 extern const uint64_t kCuckooTableMagicNumber = 0x926789d0c5f17873ull;
 
 CuckooTableBuilder::CuckooTableBuilder(
-    WritableFile* file, double max_hash_table_ratio,
+    WritableFileWriter* file, double max_hash_table_ratio,
     uint32_t max_num_hash_table, uint32_t max_search_depth,
     const Comparator* user_comparator, uint32_t cuckoo_block_size,
     bool use_module_hash, bool identity_as_first_hash,

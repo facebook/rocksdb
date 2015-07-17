@@ -24,7 +24,6 @@ SstFileReader::SstFileReader(const std::string& file_path,
     output_hex_(output_hex), ioptions_(options_),
     internal_comparator_(BytewiseComparator()) {
   fprintf(stdout, "Process %s\n", file_path.c_str());
-
   init_result_ = GetTableReader(file_name_);
 }
 
@@ -41,10 +40,13 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
 
   unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
-  Status s = options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
+  Status s = options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   if (s.ok()) {
     s = options_.env->GetFileSize(file_path, &file_size);
   }
+
+  file_.reset(new RandomAccessFileReader(std::move(file)));
+
   if (s.ok()) {
     s = ReadFooterFromFile(file_.get(), file_size, &footer);
   }
@@ -56,7 +58,8 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
     if (magic_number == kPlainTableMagicNumber ||
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
-      options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
+      options_.env->NewRandomAccessFile(file_path, &file, soptions_);
+      file_.reset(new RandomAccessFileReader(std::move(file)));
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read
@@ -68,16 +71,15 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
   }
 
   if (s.ok()) {
-    s = NewTableReader(ioptions_, soptions_, internal_comparator_,
-                       std::move(file_), file_size, &table_reader_);
+    s = NewTableReader(ioptions_, soptions_, internal_comparator_, file_size,
+                       &table_reader_);
   }
   return s;
 }
 
 Status SstFileReader::NewTableReader(
     const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
-    const InternalKeyComparator& internal_comparator,
-    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+    const InternalKeyComparator& internal_comparator, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
@@ -108,7 +110,7 @@ Status SstFileReader::DumpTable(const std::string& out_filename) {
 }
 
 Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
-                                          RandomAccessFile* file,
+                                          RandomAccessFileReader* file,
                                           uint64_t file_size) {
   TableProperties* table_properties = nullptr;
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,

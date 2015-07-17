@@ -33,15 +33,16 @@ class AdaptiveTableFactory : public TableFactory {
 
   const char* Name() const override { return "AdaptiveTableFactory"; }
 
-  Status NewTableReader(
-      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-      const InternalKeyComparator& internal_comparator,
-      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table) const override;
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& env_options,
+                        const InternalKeyComparator& internal_comparator,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
+                        unique_ptr<TableReader>* table) const override;
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      WritableFile* file) const override;
+      WritableFileWriter* file) const override;
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,

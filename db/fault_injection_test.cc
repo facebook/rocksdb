@@ -130,7 +130,7 @@ struct FileState {
 
 }  // anonymous namespace
 
-// A wrapper around WritableFile which informs another Env whenever this file
+// A wrapper around WritableFileWriter* file
 // is written to or sync'ed.
 class TestWritableFile : public WritableFile {
  public:
@@ -197,7 +197,7 @@ class FaultInjectionTestEnv : public EnvWrapper {
     Status s = target()->NewWritableFile(fname, result, soptions);
     if (s.ok()) {
       result->reset(new TestWritableFile(fname, std::move(*result), this));
-      // WritableFile doesn't append to files, so if the same file is opened
+      // WritableFileWriter* file is opened
       // again then it will be truncated - so forget our saved state.
       UntrackFile(fname);
       MutexLock l(&mutex_);
