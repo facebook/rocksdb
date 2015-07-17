@@ -507,9 +507,11 @@ public:
 
 private:
   bool verbose_;
+  bool json_;
   string path_;
 
   static const string ARG_VERBOSE;
+  static const string ARG_JSON;
   static const string ARG_PATH;
 };
 

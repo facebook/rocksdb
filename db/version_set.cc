@@ -2572,7 +2572,7 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
-                                bool verbose, bool hex) {
+                                bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
   unique_ptr<SequentialFile> file;
   Status s = options.env->NewSequentialFile(dscname, &file, env_options_);
@@ -2613,9 +2613,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
 
       // Write out each individual edit
-      if (verbose) {
-        printf("*************************Edit[%d] = %s\n",
-                count, edit.DebugString(hex).c_str());
+      if (verbose && !json) {
+        printf("%s\n", edit.DebugString(hex).c_str());
+      } else if (json) {
+        printf("%s\n", edit.DebugJSON(count, hex).c_str());
       }
       count++;
 
