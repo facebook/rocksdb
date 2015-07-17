@@ -581,6 +581,8 @@ class DBTestBase : public testing::Test {
   void FillLevels(const std::string& smallest, const std::string& largest,
                   int cf);
 
+  void MoveFilesToLevel(int level, int cf = 0);
+
   void DumpFileCounts(const char* label);
 
   std::string DumpSSTableList();

@@ -39,7 +39,6 @@ class CuckooTableDBTest : public testing::Test {
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.allow_mmap_reads = true;
     options.create_if_missing = true;
-    options.max_mem_compaction_level = 0;
     return options;
   }
 

@@ -58,7 +58,6 @@ class CompactionJob {
                 Statistics* stats,
                 std::vector<SequenceNumber> existing_snapshots,
                 std::shared_ptr<Cache> table_cache,
-                std::function<uint64_t()> yield_callback,
                 EventLogger* event_logger, bool paranoid_file_checks,
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats);
@@ -144,9 +143,6 @@ class CompactionJob {
   // deleted because that version is not visible in any snapshot.
   std::vector<SequenceNumber> existing_snapshots_;
   std::shared_ptr<Cache> table_cache_;
-
-  // yield callback
-  std::function<uint64_t()> yield_callback_;
 
   EventLogger* event_logger_;
 

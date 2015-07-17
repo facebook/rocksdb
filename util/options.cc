@@ -88,7 +88,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(20),
       level0_stop_writes_trigger(24),
-      max_mem_compaction_level(2),
       target_file_size_base(2 * 1048576),
       target_file_size_multiplier(1),
       max_bytes_for_level_base(10 * 1048576),
@@ -145,7 +144,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.level0_file_num_compaction_trigger),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-      max_mem_compaction_level(options.max_mem_compaction_level),
       target_file_size_base(options.target_file_size_base),
       target_file_size_multiplier(options.target_file_size_multiplier),
       max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -415,8 +413,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         level0_slowdown_writes_trigger);
     Warn(log, "             Options.level0_stop_writes_trigger: %d",
         level0_stop_writes_trigger);
-    Warn(log, "               Options.max_mem_compaction_level: %d",
-        max_mem_compaction_level);
     Warn(log, "                  Options.target_file_size_base: %" PRIu64,
         target_file_size_base);
     Warn(log, "            Options.target_file_size_multiplier: %d",

@@ -351,13 +351,13 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
 
 TEST_F(CorruptionTest, CompactionInputError) {
   Options options;
-  options.max_background_flushes = 0;
   Reopen(&options);
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
-  const int last = dbi->MaxMemCompactionLevel();
-  ASSERT_EQ(1, Property("rocksdb.num-files-at-level" + NumberToString(last)));
+  dbi->TEST_CompactRange(0, nullptr, nullptr);
+  dbi->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_EQ(1, Property("rocksdb.num-files-at-level2"));
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);
@@ -372,18 +372,20 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
-  options.max_background_flushes = 0;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
-  // Fill levels >= 1 so memtable flush outputs to level 0
+  // Fill levels >= 1
   for (int level = 1; level < dbi->NumberLevels(); level++) {
     dbi->Put(WriteOptions(), "", "begin");
     dbi->Put(WriteOptions(), "~", "end");
     dbi->TEST_FlushMemTable();
+    for (int comp_level = 0; comp_level < dbi->NumberLevels() - level;
+         ++comp_level) {
+      dbi->TEST_CompactRange(comp_level, nullptr, nullptr);
+    }
   }
 
-  options.max_mem_compaction_level = 0;
   Reopen(&options);
 
   dbi = reinterpret_cast<DBImpl*>(db_);

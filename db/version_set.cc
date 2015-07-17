@@ -1279,38 +1279,6 @@ bool VersionStorageInfo::OverlapInLevel(int level,
                                largest_user_key);
 }
 
-int VersionStorageInfo::PickLevelForMemTableOutput(
-    const MutableCFOptions& mutable_cf_options, const Slice& smallest_user_key,
-    const Slice& largest_user_key) {
-  int level = 0;
-  if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
-    // Push to next level if there is no overlap in next level,
-    // and the #bytes overlapping in the level after that are limited.
-    InternalKey start;
-    start.SetMaxPossibleForUserKey(smallest_user_key);
-    InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
-    std::vector<FileMetaData*> overlaps;
-    while (mutable_cf_options.max_mem_compaction_level > 0 &&
-           level < mutable_cf_options.max_mem_compaction_level) {
-      if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
-        break;
-      }
-      if (level + 2 >= num_levels_) {
-        level++;
-        break;
-      }
-      GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
-      const uint64_t sum = TotalFileSize(overlaps);
-      if (sum > mutable_cf_options.MaxGrandParentOverlapBytes(level)) {
-        break;
-      }
-      level++;
-    }
-  }
-
-  return level;
-}
-
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 // If hint_index is specified, then it points to a file in the
 // overlapping range.

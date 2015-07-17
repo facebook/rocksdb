@@ -177,8 +177,7 @@ class CompactionJobTest : public testing::Test {
     s = SetCurrentFile(env_, dbname_, 1, nullptr);
   }
 
-  void RunCompaction(std::function<uint64_t()> yield_callback,
-      const std::vector<FileMetaData*>& files) {
+  void RunCompaction(const std::vector<FileMetaData*>& files) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     CompactionInputFiles compaction_input_files;
@@ -196,11 +195,10 @@ class CompactionJobTest : public testing::Test {
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
     CompactionJobStats compaction_job_stats;
-    CompactionJob compaction_job(0, &compaction, db_options_, env_options_,
-                                 versions_.get(), &shutting_down_, &log_buffer,
-                                 nullptr, nullptr, nullptr, {}, table_cache_,
-                                 yield_callback, &event_logger, false,
-                                 dbname_, &compaction_job_stats);
+    CompactionJob compaction_job(
+        0, &compaction, db_options_, env_options_, versions_.get(),
+        &shutting_down_, &log_buffer, nullptr, nullptr, nullptr, {},
+        table_cache_, &event_logger, false, dbname_, &compaction_job_stats);
 
     VerifyInitializationOfCompactionJobStats(compaction_job_stats);
 
@@ -237,15 +235,8 @@ TEST_F(CompactionJobTest, Simple) {
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   ASSERT_EQ(2U, files.size());
 
-  int yield_callback_called = 0;
-  std::function<uint64_t()> yield_callback = [&]() {
-    yield_callback_called++;
-    return 0;
-  };
-
-  RunCompaction(std::move(yield_callback), files);
+  RunCompaction(files);
   mock_table_factory_->AssertLatestFile(expected_results);
-  ASSERT_EQ(yield_callback_called, 20000);
 }
 
 TEST_F(CompactionJobTest, SimpleCorrupted) {
@@ -253,11 +244,7 @@ TEST_F(CompactionJobTest, SimpleCorrupted) {
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
   auto files = cfd->current()->storage_info()->LevelFiles(0);
 
-  std::function<uint64_t()> yield_callback = [&]() {
-    return 0;
-  };
-
-  RunCompaction(std::move(yield_callback), files);
+  RunCompaction(files);
   mock_table_factory_->AssertLatestFile(expected_results);
 }
 

@@ -113,8 +113,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   }
   result.resize(result.size() - 2);
   Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
-  Log(log, "                 max_mem_compaction_level: %d",
-      max_mem_compaction_level);
   Log(log, "           verify_checksums_in_compaction: %d",
       verify_checksums_in_compaction);
   Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,

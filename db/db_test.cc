@@ -232,7 +232,6 @@ TEST_F(DBTest, CompactedDB) {
   const uint64_t kFileSize = 1 << 20;
   Options options;
   options.disable_auto_compactions = true;
-  options.max_mem_compaction_level = 0;
   options.write_buffer_size = kFileSize;
   options.target_file_size_base = kFileSize;
   options.max_bytes_for_level_base = 1 << 30;
@@ -676,7 +675,6 @@ TEST_F(DBTest, GetPicksCorrectFile) {
 TEST_F(DBTest, GetEncountersEmptyLevel) {
   do {
     Options options = CurrentOptions();
-    options.max_background_flushes = 0;
     options.disableDataSync = true;
     CreateAndReopenWithCF({"pikachu"}, options);
     // Arrange for the following to happen:
@@ -688,14 +686,16 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
     // occurring at level 1 (instead of the correct level 0).
 
     // Step 1: First place sstables in levels 0 and 2
-    int compaction_count = 0;
-    while (NumTableFilesAtLevel(0, 1) == 0 || NumTableFilesAtLevel(2, 1) == 0) {
-      ASSERT_LE(compaction_count, 100) << "could not fill levels 0 and 2";
-      compaction_count++;
-      Put(1, "a", "begin");
-      Put(1, "z", "end");
-      ASSERT_OK(Flush(1));
-    }
+    Put(1, "a", "begin");
+    Put(1, "z", "end");
+    ASSERT_OK(Flush(1));
+    dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
+    dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
+    Put(1, "a", "begin");
+    Put(1, "z", "end");
+    ASSERT_OK(Flush(1));
+    ASSERT_GT(NumTableFilesAtLevel(0, 1), 0);
+    ASSERT_GT(NumTableFilesAtLevel(2, 1), 0);
 
     // Step 2: clear level 1 if necessary.
     dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
@@ -709,7 +709,7 @@ TEST_F(DBTest, GetEncountersEmptyLevel) {
     }
 
     // Step 4: Wait for compaction to finish
-    env_->SleepForMicroseconds(1000000);
+    dbfull()->TEST_WaitForCompact();
 
     ASSERT_EQ(NumTableFilesAtLevel(0, 1), 1);  // XXX
   } while (ChangeOptions(kSkipUniversalCompaction | kSkipFIFOCompaction));
@@ -2822,7 +2822,6 @@ TEST_F(DBTest, CompactionTrigger) {
   Options options;
   options.write_buffer_size = 100<<10; //100KB
   options.num_levels = 3;
-  options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -2864,7 +2863,6 @@ Options DeletionTriggerOptions() {
   options.min_write_buffer_number_to_merge = 1;
   options.max_write_buffer_number_to_maintain = 0;
   options.num_levels = kCDTNumLevels;
-  options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 1;
   options.target_file_size_base = options.write_buffer_size * 2;
   options.target_file_size_multiplier = 2;
@@ -3853,7 +3851,6 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
   fprintf(stderr, "Test with compression options : window_bits = %d, level =  %d, strategy = %d}\n", wbits, lev, strategy);
   options.write_buffer_size = 100<<10; //100KB
   options.num_levels = 3;
-  options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
   options.create_if_missing = true;
 
@@ -4455,7 +4452,6 @@ TEST_F(DBTest, HiddenValuesAreRemoved) {
   options_override.skip_policy = kSkipNoSnapshot;
   do {
     Options options = CurrentOptions(options_override);
-    options.max_background_flushes = 0;
     CreateAndReopenWithCF({"pikachu"}, options);
     Random rnd(301);
     FillLevels("a", "z", 1);
@@ -4557,7 +4553,8 @@ TEST_F(DBTest, DeletionMarkers1) {
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
-  const int last = CurrentOptions().max_mem_compaction_level;
+  const int last = 2;
+  MoveFilesToLevel(last, 1);
   // foo => v1 is now in last level
   ASSERT_EQ(NumTableFilesAtLevel(last, 1), 1);
 
@@ -4565,6 +4562,7 @@ TEST_F(DBTest, DeletionMarkers1) {
   Put(1, "a", "begin");
   Put(1, "z", "end");
   Flush(1);
+  MoveFilesToLevel(last - 1, 1);
   ASSERT_EQ(NumTableFilesAtLevel(last, 1), 1);
   ASSERT_EQ(NumTableFilesAtLevel(last - 1, 1), 1);
 
@@ -4586,11 +4584,11 @@ TEST_F(DBTest, DeletionMarkers1) {
 
 TEST_F(DBTest, DeletionMarkers2) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
   Put(1, "foo", "v1");
   ASSERT_OK(Flush(1));
-  const int last = CurrentOptions().max_mem_compaction_level;
+  const int last = 2;
+  MoveFilesToLevel(last, 1);
   // foo => v1 is now in last level
   ASSERT_EQ(NumTableFilesAtLevel(last, 1), 1);
 
@@ -4598,6 +4596,7 @@ TEST_F(DBTest, DeletionMarkers2) {
   Put(1, "a", "begin");
   Put(1, "z", "end");
   Flush(1);
+  MoveFilesToLevel(last - 1, 1);
   ASSERT_EQ(NumTableFilesAtLevel(last, 1), 1);
   ASSERT_EQ(NumTableFilesAtLevel(last - 1, 1), 1);
 
@@ -4617,18 +4616,17 @@ TEST_F(DBTest, DeletionMarkers2) {
 TEST_F(DBTest, OverlapInLevel0) {
   do {
     Options options = CurrentOptions();
-    options.max_background_flushes = 0;
     CreateAndReopenWithCF({"pikachu"}, options);
-    int tmp = CurrentOptions().max_mem_compaction_level;
-    ASSERT_EQ(tmp, 2) << "Fix test to match config";
 
     //Fill levels 1 and 2 to disable the pushing of new memtables to levels > 0.
     ASSERT_OK(Put(1, "100", "v100"));
     ASSERT_OK(Put(1, "999", "v999"));
     Flush(1);
+    MoveFilesToLevel(2, 1);
     ASSERT_OK(Delete(1, "100"));
     ASSERT_OK(Delete(1, "999"));
     Flush(1);
+    MoveFilesToLevel(1, 1);
     ASSERT_EQ("0,1,1", FilesPerLevel(1));
 
     // Make files spanning the following ranges in level-0:
@@ -4803,10 +4801,7 @@ TEST_F(DBTest, CustomComparator) {
 
 TEST_F(DBTest, ManualCompaction) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
-  ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
-      << "Need to update this test to match kMaxMemCompactLevel";
 
   // iter - 0 with 7 levels
   // iter - 1 with 3 levels
@@ -4836,7 +4831,7 @@ TEST_F(DBTest, ManualCompaction) {
 
     // Compact all
     MakeTables(1, "a", "z", 1);
-    ASSERT_EQ("0,1,2", FilesPerLevel(1));
+    ASSERT_EQ("1,0,2", FilesPerLevel(1));
     db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
     ASSERT_EQ("0,0,1", FilesPerLevel(1));
 
@@ -4858,15 +4853,16 @@ TEST_F(DBTest, ManualLevelCompactionOutputPathId) {
   options.db_paths.emplace_back(dbname_ + "_2", 2 * 10485760);
   options.db_paths.emplace_back(dbname_ + "_3", 100 * 10485760);
   options.db_paths.emplace_back(dbname_ + "_4", 120 * 10485760);
-  options.max_background_flushes = 1;
   CreateAndReopenWithCF({"pikachu"}, options);
-  ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
-      << "Need to update this test to match kMaxMemCompactLevel";
 
   // iter - 0 with 7 levels
   // iter - 1 with 3 levels
   for (int iter = 0; iter < 2; ++iter) {
-    MakeTables(3, "p", "q", 1);
+    for (int i = 0; i < 3; ++i) {
+      ASSERT_OK(Put(1, "p", "begin"));
+      ASSERT_OK(Put(1, "q", "end"));
+      ASSERT_OK(Flush(1));
+    }
     ASSERT_EQ("3", FilesPerLevel(1));
     ASSERT_EQ(3, GetSstFileCount(options.db_paths[0].path));
     ASSERT_EQ(0, GetSstFileCount(dbname_));
@@ -4887,7 +4883,11 @@ TEST_F(DBTest, ManualLevelCompactionOutputPathId) {
     ASSERT_EQ(0, GetSstFileCount(dbname_));
 
     // Populate a different range
-    MakeTables(3, "c", "e", 1);
+    for (int i = 0; i < 3; ++i) {
+      ASSERT_OK(Put(1, "c", "begin"));
+      ASSERT_OK(Put(1, "e", "end"));
+      ASSERT_OK(Flush(1));
+    }
     ASSERT_EQ("3,1", FilesPerLevel(1));
 
     // Compact just the new range
@@ -4898,7 +4898,9 @@ TEST_F(DBTest, ManualLevelCompactionOutputPathId) {
     ASSERT_EQ(0, GetSstFileCount(dbname_));
 
     // Compact all
-    MakeTables(1, "a", "z", 1);
+    ASSERT_OK(Put(1, "a", "begin"));
+    ASSERT_OK(Put(1, "z", "end"));
+    ASSERT_OK(Flush(1));
     ASSERT_EQ("1,2", FilesPerLevel(1));
     ASSERT_EQ(2, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(1, GetSstFileCount(options.db_paths[0].path));
@@ -4966,14 +4968,14 @@ TEST_F(DBTest, DBOpen_Options) {
 TEST_F(DBTest, DBOpen_Change_NumLevels) {
   Options options = CurrentOptions();
   options.create_if_missing = true;
-  options.max_background_flushes = 0;
   DestroyAndReopen(options);
   ASSERT_TRUE(db_ != nullptr);
   CreateAndReopenWithCF({"pikachu"}, options);
 
   ASSERT_OK(Put(1, "a", "123"));
   ASSERT_OK(Put(1, "b", "234"));
-  db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  Flush(1);
+  MoveFilesToLevel(3, 1);
   Close();
 
   options.create_if_missing = false;
@@ -5153,7 +5155,6 @@ TEST_F(DBTest, ManifestWriteError) {
     options.env = env_;
     options.create_if_missing = true;
     options.error_if_exists = false;
-    options.max_background_flushes = 0;
     DestroyAndReopen(options);
     ASSERT_OK(Put("foo", "bar"));
     ASSERT_EQ("bar", Get("foo"));
@@ -5161,7 +5162,8 @@ TEST_F(DBTest, ManifestWriteError) {
     // Memtable compaction (will succeed)
     Flush();
     ASSERT_EQ("bar", Get("foo"));
-    const int last = dbfull()->MaxMemCompactionLevel();
+    const int last = 2;
+    MoveFilesToLevel(2);
     ASSERT_EQ(NumTableFilesAtLevel(last), 1);   // foo=>bar is now in last level
 
     // Merging compaction (will fail)
@@ -7707,6 +7709,7 @@ TEST_F(DBTest, DisableDataSyncTest) {
     Options options = CurrentOptions();
     options.disableDataSync = iter == 0;
     options.create_if_missing = true;
+    options.num_levels = 10;
     options.env = env_;
     Reopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -7732,7 +7735,6 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.create_if_missing = true;
   options.compression = kNoCompression;
   options.max_background_compactions = 1;
-  options.max_mem_compaction_level = 0;
   options.write_buffer_size = k64KB;
   options.max_write_buffer_number = 2;
   // Don't trigger compact/slowdown/stop
@@ -8040,8 +8042,6 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
   CreateAndReopenWithCF({"pikachu"}, options);
-  ASSERT_EQ(dbfull()->MaxMemCompactionLevel(), 2)
-      << "Need to update this test to match kMaxMemCompactLevel";
 
   // iter - 0 with 7 levels
   // iter - 1 with 3 levels
@@ -8071,10 +8071,10 @@ TEST_F(DBTest, PreShutdownManualCompaction) {
 
     // Compact all
     MakeTables(1, "a", "z", 1);
-    ASSERT_EQ("0,1,2", FilesPerLevel(1));
+    ASSERT_EQ("1,0,2", FilesPerLevel(1));
     CancelAllBackgroundWork(db_);
     db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
-    ASSERT_EQ("0,1,2", FilesPerLevel(1));
+    ASSERT_EQ("1,0,2", FilesPerLevel(1));
 
     if (iter == 0) {
       options = CurrentOptions();
@@ -8723,44 +8723,6 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   }
   dbfull()->TEST_WaitForCompact();
   ASSERT_LT(NumTableFilesAtLevel(0), 4);
-
-  // Test max_mem_compaction_level.
-  // Destroy DB and start from scratch
-  options.max_background_compactions = 1;
-  options.max_background_flushes = 0;
-  options.max_mem_compaction_level = 2;
-  DestroyAndReopen(options);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(2), 0);
-
-  ASSERT_OK(Put("max_mem_compaction_level_key", RandomString(&rnd, 8)));
-  dbfull()->TEST_FlushMemTable(true);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(1), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
-
-  ASSERT_TRUE(Put("max_mem_compaction_level_key",
-              RandomString(&rnd, 8)).ok());
-  // Set new value and it becomes effective in this flush
-  ASSERT_OK(dbfull()->SetOptions({
-    {"max_mem_compaction_level", "1"}
-  }));
-  dbfull()->TEST_FlushMemTable(true);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 0);
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
-  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
-
-  ASSERT_TRUE(Put("max_mem_compaction_level_key",
-              RandomString(&rnd, 8)).ok());
-  // Set new value and it becomes effective in this flush
-  ASSERT_OK(dbfull()->SetOptions({
-    {"max_mem_compaction_level", "0"}
-  }));
-  dbfull()->TEST_FlushMemTable(true);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 1);
-  ASSERT_EQ(NumTableFilesAtLevel(1), 1);
-  ASSERT_EQ(NumTableFilesAtLevel(2), 1);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }

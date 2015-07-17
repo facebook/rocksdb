@@ -1621,17 +1621,12 @@ Status DBImpl::CompactFilesImpl(
   // deletion compaction currently not allowed in CompactFiles.
   assert(!c->deletion_compaction());
 
-  auto yield_callback = [&]() {
-    return CallFlushDuringCompaction(
-        c->column_family_data(), *c->mutable_cf_options(),
-        job_context, log_buffer);
-  };
   assert(is_snapshot_supported_ || snapshots_.empty());
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
       &shutting_down_, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->output_path_id()), stats_, snapshots_.GetAll(),
-      table_cache_, std::move(yield_callback), &event_logger_,
+      table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
@@ -1896,10 +1891,7 @@ int DBImpl::NumberLevels(ColumnFamilyHandle* column_family) {
 }
 
 int DBImpl::MaxMemCompactionLevel(ColumnFamilyHandle* column_family) {
-  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
-  InstrumentedMutexLock l(&mutex_);
-  return cfh->cfd()->GetSuperVersion()->
-      mutable_cf_options.max_mem_compaction_level;
+  return 0;
 }
 
 int DBImpl::Level0StopWriteTrigger(ColumnFamilyHandle* column_family) {
@@ -2077,25 +2069,22 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::HIGH, this);
   }
 
+  // special case -- if max_background_flushes == 0, then schedule flush on a
+  // compaction thread
+  if (db_options_.max_background_flushes == 0) {
+    while (unscheduled_flushes_ > 0 &&
+           bg_flush_scheduled_ + bg_compaction_scheduled_ <
+               db_options_.max_background_compactions) {
+      unscheduled_flushes_--;
+      bg_flush_scheduled_++;
+      env_->Schedule(&DBImpl::BGWorkFlush, this, Env::Priority::LOW, this);
+    }
+  }
+
   if (bg_manual_only_) {
     // only manual compactions are allowed to run. don't schedule automatic
     // compactions
     return;
-  }
-
-  if (db_options_.max_background_flushes == 0 &&
-      bg_compaction_scheduled_ < db_options_.max_background_compactions &&
-      unscheduled_flushes_ > 0) {
-    // special case where flush is executed by compaction thread
-    // (if max_background_flushes == 0).
-    // Compaction thread will execute all the flushes
-    unscheduled_flushes_ = 0;
-    if (unscheduled_compactions_ > 0) {
-      // bg compaction will execute one compaction
-      unscheduled_compactions_--;
-    }
-    bg_compaction_scheduled_++;
-    env_->Schedule(&DBImpl::BGWorkCompaction, this, Env::Priority::LOW, this);
   }
 
   while (bg_compaction_scheduled_ < db_options_.max_background_compactions &&
@@ -2398,35 +2387,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     return Status::OK();
   }
 
-  // If there are no flush threads, then compaction thread needs to execute the
-  // flushes
-  if (db_options_.max_background_flushes == 0) {
-    // BackgroundFlush() will only execute a single flush. We keep calling it as
-    // long as there's more flushes to be done
-    while (!flush_queue_.empty()) {
-      LogToBuffer(
-          log_buffer,
-          "BackgroundCompaction calling BackgroundFlush. flush slots available "
-          "%d, compaction slots available %d",
-          db_options_.max_background_flushes - bg_flush_scheduled_,
-          db_options_.max_background_compactions - bg_compaction_scheduled_);
-      auto flush_status =
-          BackgroundFlush(madeProgress, job_context, log_buffer);
-      // the second condition will be false when a column family is dropped. we
-      // don't want to fail compaction because of that (because it might be a
-      // different column family)
-      if (!flush_status.ok() && !flush_status.IsShutdownInProgress()) {
-        if (is_manual) {
-          manual_compaction_->status = flush_status;
-          manual_compaction_->done = true;
-          manual_compaction_->in_progress = false;
-          manual_compaction_ = nullptr;
-        }
-        return flush_status;
-      }
-    }
-  }
-
   unique_ptr<Compaction> c;
   InternalKey manual_end_storage;
   InternalKey* manual_end = &manual_end_storage;
@@ -2595,18 +2555,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     ThreadStatusUtil::ResetThreadStatus();
   } else {
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial");
-    auto yield_callback = [&]() {
-      return CallFlushDuringCompaction(c->column_family_data(),
-                                       *c->mutable_cf_options(), job_context,
-                                       log_buffer);
-    };
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_,
-        snapshots_.GetAll(), table_cache_, std::move(yield_callback),
-        &event_logger_, c->mutable_cf_options()->paranoid_file_checks, dbname_,
+        snapshots_.GetAll(), table_cache_, &event_logger_,
+        c->mutable_cf_options()->paranoid_file_checks, dbname_,
         &compaction_job_stats);
     compaction_job.Prepare();
 
@@ -2681,30 +2636,6 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     manual_compaction_ = nullptr;
   }
   return status;
-}
-
-uint64_t DBImpl::CallFlushDuringCompaction(
-    ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    JobContext* job_context, LogBuffer* log_buffer) {
-  if (db_options_.max_background_flushes > 0) {
-    // flush thread will take care of this
-    return 0;
-  }
-  if (cfd->imm()->imm_flush_needed.load(std::memory_order_relaxed)) {
-    const uint64_t imm_start = env_->NowMicros();
-    mutex_.Lock();
-    if (cfd->imm()->IsFlushPending()) {
-      cfd->Ref();
-      FlushMemTableToOutputFile(cfd, mutable_cf_options, nullptr, job_context,
-                                log_buffer);
-      cfd->Unref();
-      bg_cv_.SignalAll();  // Wakeup DelayWrite() if necessary
-    }
-    mutex_.Unlock();
-    log_buffer->FlushBufferToLog();
-    return env_->NowMicros() - imm_start;
-  }
-  return 0;
 }
 
 namespace {

@@ -357,14 +357,7 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int level0_stop_writes_trigger;
 
-  // Maximum level to which a new compacted memtable is pushed if it
-  // does not create overlap.  We try to push to level 2 to avoid the
-  // relatively expensive level 0=>1 compactions and to avoid some
-  // expensive manifest file operations.  We do not push all the way to
-  // the largest level since that can generate a lot of wasted disk
-  // space if the same key space is being repeatedly overwritten.
-  //
-  // Dynamically changeable through SetOptions() API
+  // This does not do anything anymore. Deprecated.
   int max_mem_compaction_level;
 
   // Target file size for compaction.

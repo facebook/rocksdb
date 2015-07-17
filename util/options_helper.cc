@@ -228,8 +228,6 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
         start = end + 1;
       }
     }
-  } else if (name == "max_mem_compaction_level") {
-    new_options->max_mem_compaction_level = ParseInt(value);
   } else if (name == "verify_checksums_in_compaction") {
     new_options->verify_checksums_in_compaction = ParseBoolean(name, value);
   } else {

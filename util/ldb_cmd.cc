@@ -1143,7 +1143,6 @@ Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
   // Disable size compaction
   opt.max_bytes_for_level_base = 1ULL << 50;
   opt.max_bytes_for_level_multiplier = 1;
-  opt.max_mem_compaction_level = 0;
   return opt;
 }
 

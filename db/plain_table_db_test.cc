@@ -1011,7 +1011,6 @@ TEST_F(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100 << 10; //100KB
   options.num_levels = 3;
-  options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
   Reopen(&options);
 

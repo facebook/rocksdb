@@ -94,8 +94,7 @@ CompactionJob::CompactionJob(
     std::atomic<bool>* shutting_down, LogBuffer* log_buffer,
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     std::vector<SequenceNumber> existing_snapshots,
-    std::shared_ptr<Cache> table_cache,
-    std::function<uint64_t()> yield_callback, EventLogger* event_logger,
+    std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
     bool paranoid_file_checks, const std::string& dbname,
     CompactionJobStats* compaction_job_stats)
     : job_id_(job_id),
@@ -114,7 +113,6 @@ CompactionJob::CompactionJob(
       stats_(stats),
       existing_snapshots_(std::move(existing_snapshots)),
       table_cache_(std::move(table_cache)),
-      yield_callback_(std::move(yield_callback)),
       event_logger_(event_logger),
       paranoid_file_checks_(paranoid_file_checks) {
   assert(log_buffer_ != nullptr);
@@ -356,11 +354,6 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       RecordCompactionIOStats();
       loop_cnt = 0;
     }
-    // FLUSH preempts compaction
-    // TODO(icanadi) this currently only checks if flush is necessary on
-    // compacting column family. we should also check if flush is necessary
-    // on other column families, too
-    (*imm_micros) += yield_callback_();
 
     Slice key = input->key();
     Slice value = input->value();

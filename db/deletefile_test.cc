@@ -36,7 +36,6 @@ class DeleteFileTest : public testing::Test {
     db_ = nullptr;
     env_ = Env::Default();
     options_.enable_thread_tracking = true;
-    options_.max_background_flushes = 0;
     options_.write_buffer_size = 1024*1024*1000;
     options_.target_file_size_base = 1024*1024*1000;
     options_.max_bytes_for_level_base = 1024*1024*1000;
@@ -117,10 +116,14 @@ class DeleteFileTest : public testing::Test {
     DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
     ASSERT_OK(dbi->TEST_FlushMemTable());
     ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+    for (int i = 0; i < 2; ++i) {
+      ASSERT_OK(dbi->TEST_CompactRange(i, nullptr, nullptr));
+    }
 
     AddKeys(50000, 10000);
     ASSERT_OK(dbi->TEST_FlushMemTable());
     ASSERT_OK(dbi->TEST_WaitForFlushMemTable());
+    ASSERT_OK(dbi->TEST_CompactRange(0, nullptr, nullptr));
   }
 
   void CheckFileTypeCounts(std::string& dir,

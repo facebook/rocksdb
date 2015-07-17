@@ -221,6 +221,7 @@ TESTS = \
 	db_test \
 	db_iter_test \
 	db_log_iter_test \
+	db_compaction_filter_test \
 	db_dynamic_level_test \
 	db_tailing_iter_test \
 	block_hash_index_test \

@@ -1012,7 +1012,6 @@ class StressTest {
          {
              ToString(FLAGS_max_bytes_for_level_multiplier), "1", "2",
          }},
-        {"max_mem_compaction_level", {"0", "1", "2"}},
         {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
     };
 

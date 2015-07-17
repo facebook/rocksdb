@@ -47,7 +47,6 @@ class TtlTest : public testing::Test {
     // ensure that compaction is kicked in to always strip timestamp from kvs
     options_.max_grandparent_overlap_factor = 0;
     // compaction should take place always from level0 for determinism
-    options_.max_mem_compaction_level = 0;
     db_ttl_ = nullptr;
     DestroyDB(dbname_, Options());
   }

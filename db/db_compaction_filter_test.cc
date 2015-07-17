@@ -178,7 +178,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilter) {
   Options options = CurrentOptions();
   options.max_open_files = -1;
   options.num_levels = 3;
-  options.max_mem_compaction_level = 0;
   options.compaction_filter_factory = std::make_shared<KeepFilterFactory>();
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -356,7 +355,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
   do {
     Options options;
     options.num_levels = 3;
-    options.max_mem_compaction_level = 0;
     options.compaction_filter_factory =
       std::make_shared<ChangeFilterFactory>();
     options = CurrentOptions(options);
@@ -425,7 +423,6 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithMergeOperator) {
   options.create_if_missing = true;
   options.merge_operator = MergeOperators::CreateUInt64AddOperator();
   options.num_levels = 3;
-  options.max_mem_compaction_level = 0;
   // Filter out keys with value is 2.
   options.compaction_filter_factory =
       std::make_shared<ConditionalFilterFactory>(two);
@@ -537,6 +534,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(count, 1);
   }
 }
+
+}  // namespace rocksdb
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)

@@ -1509,10 +1509,8 @@ void rocksdb_options_set_level0_stop_writes_trigger(
   opt->rep.level0_stop_writes_trigger = n;
 }
 
-void rocksdb_options_set_max_mem_compaction_level(
-    rocksdb_options_t* opt, int n) {
-  opt->rep.max_mem_compaction_level = n;
-}
+void rocksdb_options_set_max_mem_compaction_level(rocksdb_options_t* opt,
+                                                  int n) {}
 
 void rocksdb_options_set_compression(rocksdb_options_t* opt, int t) {
   opt->rep.compression = static_cast<CompressionType>(t);
