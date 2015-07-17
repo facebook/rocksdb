@@ -1,5 +1,8 @@
 # Rocksdb Change Log
 
+## 3.12.1 (7/16/2015)
+* Fix data loss after DB recovery by not allowing flush/compaction to be scheduled until DB opened
+
 ## 3.12.0 (7/2/2015)
 ### New Features
 * Added experimental support for optimistic transactions.  See include/rocksdb/utilities/optimistic_transaction.h for more info.
