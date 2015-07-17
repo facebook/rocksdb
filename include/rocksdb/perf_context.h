@@ -87,6 +87,8 @@ struct PerfContext {
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 extern PerfContext perf_context;
+#elif _WIN32
+extern __declspec(thread) PerfContext perf_context;
 #else
 extern __thread PerfContext perf_context;
 #endif

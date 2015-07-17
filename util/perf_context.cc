@@ -10,10 +10,11 @@
 namespace rocksdb {
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
-// This is a dummy variable since some place references it
-PerfContext perf_context;
+  PerfContext perf_context;
+#elif _WIN32
+  __declspec(thread) PerfContext perf_context;
 #else
-__thread PerfContext perf_context;
+  __thread PerfContext perf_context;
 #endif
 
 void PerfContext::Reset() {

@@ -31,6 +31,12 @@
 
 #include "rocksdb/options.h"
 
+#undef min
+#undef max
+#undef DeleteFile
+#undef GetCurrentTime
+
+
 #ifndef strcasecmp
 #define strcasecmp _stricmp
 #endif
@@ -40,12 +46,17 @@
 #define snprintf _snprintf
 #endif
 
+#undef GetCurrentTime
+#undef DeleteFile
+
 typedef SSIZE_T ssize_t;
 
 // size_t printf formatting named in the manner of C99 standard formatting
 // strings such as PRIu64
 // in fact, we could use that one
+#ifndef ROCKSDB_PRIszt
 #define ROCKSDB_PRIszt "Iu"
+#endif
 
 #define __attribute__(A)
 
@@ -68,7 +79,9 @@ typedef SSIZE_T ssize_t;
 
 // Thread local storage on Linux
 // There is thread_local in C++11
+#ifndef __thread
 #define __thread __declspec(thread)
+#endif
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN
 #define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
