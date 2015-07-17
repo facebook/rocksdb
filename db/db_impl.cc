@@ -1446,8 +1446,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
         } else if (options.bottommost_level_compaction ==
                        BottommostLevelCompaction::kIfHaveCompactionFilter &&
                    cfd->ioptions()->compaction_filter == nullptr &&
-                   cfd->ioptions()->compaction_filter_factory == nullptr &&
-                   cfd->ioptions()->compaction_filter_factory_v2 == nullptr) {
+                   cfd->ioptions()->compaction_filter_factory == nullptr) {
           // Skip bottommost level compaction since we dont have
           // compaction filter
           continue;

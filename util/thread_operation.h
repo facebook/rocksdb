@@ -61,8 +61,6 @@ static OperationStageInfo global_op_stage_table[] = {
       "CompactionJob::Run"},
   {ThreadStatus::STAGE_COMPACTION_PROCESS_KV,
       "CompactionJob::ProcessKeyValueCompaction"},
-  {ThreadStatus::STAGE_COMPACTION_FILTER_V2,
-      "CompactionJob::CallCompactionFilterV2"},
   {ThreadStatus::STAGE_COMPACTION_INSTALL,
       "CompactionJob::Install"},
   {ThreadStatus::STAGE_COMPACTION_SYNC_FILE,

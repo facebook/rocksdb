@@ -160,8 +160,7 @@ bool Compaction::IsTrivialMove() const {
 
   if (is_manual_compaction_ &&
       (cfd_->ioptions()->compaction_filter != nullptr ||
-       cfd_->ioptions()->compaction_filter_factory != nullptr ||
-       cfd_->ioptions()->compaction_filter_factory_v2 != nullptr)) {
+       cfd_->ioptions()->compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
     return false;
@@ -374,20 +373,6 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.is_manual_compaction = is_manual_compaction_;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
-}
-
-std::unique_ptr<CompactionFilterV2>
-    Compaction::CreateCompactionFilterV2() const {
-  if (!cfd_->ioptions()->compaction_filter_factory_v2) {
-    return nullptr;
-  }
-
-  CompactionFilterContext context;
-  context.is_full_compaction = is_full_compaction_;
-  context.is_manual_compaction = is_manual_compaction_;
-  return
-    cfd_->ioptions()->compaction_filter_factory_v2->CreateCompactionFilterV2(
-        context);
 }
 
 }  // namespace rocksdb

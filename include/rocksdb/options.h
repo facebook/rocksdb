@@ -213,11 +213,9 @@ struct ColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
-  // Version TWO of the compaction_filter_factory
-  // It supports rolling compaction
-  //
-  // Default: nullptr
-  std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
+  // This is deprecated. Talk to us if you depend on
+  // compaction_filter_factory_v2 and we'll put it back
+  // std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
   // Parameters that affect performance
