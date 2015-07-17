@@ -30,8 +30,8 @@
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/utilities/convenience.h"
 #include "utilities/merge_operators.h"
 
 /*
