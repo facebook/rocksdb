@@ -16,6 +16,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -31,7 +32,6 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/backupable_db.h"
 #include "utilities/merge_operators.h"
-#include "rocksdb/utilities/convenience.h"
 
 using rocksdb::Cache;
 using rocksdb::ColumnFamilyDescriptor;
@@ -1674,10 +1674,9 @@ void rocksdb_options_set_manifest_preallocation_size(
   opt->rep.manifest_preallocation_size = v;
 }
 
-void rocksdb_options_set_purge_redundant_kvs_while_flush(
-    rocksdb_options_t* opt, unsigned char v) {
-  opt->rep.purge_redundant_kvs_while_flush = v;
-}
+// noop
+void rocksdb_options_set_purge_redundant_kvs_while_flush(rocksdb_options_t* opt,
+                                                         unsigned char v) {}
 
 void rocksdb_options_set_allow_os_buffer(rocksdb_options_t* opt,
                                          unsigned char v) {
@@ -2256,7 +2255,7 @@ void rocksdb_env_set_high_priority_background_threads(rocksdb_env_t* env, int n)
 }
 
 void rocksdb_env_join_all_threads(rocksdb_env_t* env) {
-    env->rep->WaitForJoin();
+  env->rep->WaitForJoin();
 }
 
 void rocksdb_env_destroy(rocksdb_env_t* env) {
@@ -2449,19 +2448,16 @@ extern void rocksdb_livefiles_destroy(
   delete lf;
 }
 
-void rocksdb_get_options_from_string(
-    const rocksdb_options_t* base_options,
-    const char* opts_str, rocksdb_options_t* new_options,
-    char** errptr){
-  SaveError(errptr, 
-            GetOptionsFromString(base_options->rep,
-              std::string(opts_str), &new_options->rep));
+void rocksdb_get_options_from_string(const rocksdb_options_t* base_options,
+                                     const char* opts_str,
+                                     rocksdb_options_t* new_options,
+                                     char** errptr) {
+  SaveError(errptr,
+            GetOptionsFromString(base_options->rep, std::string(opts_str),
+                                 &new_options->rep));
 }
 
-void rocksdb_free(
-    void* ptr){
-  free(ptr);
-}
+void rocksdb_free(void* ptr) { free(ptr); }
 
 }  // end extern "C"
 

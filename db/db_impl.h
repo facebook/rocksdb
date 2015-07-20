@@ -437,7 +437,7 @@ class DBImpl : public DB {
 
   // num_bytes: for slowdown case, delay time is calculated based on
   //            `num_bytes` going through.
-  Status DelayWrite(uint64_t num_bytes, uint64_t expiration_time);
+  Status DelayWrite(uint64_t num_bytes);
 
   Status ScheduleFlushes(WriteContext* context);
 
@@ -684,7 +684,7 @@ class DBImpl : public DB {
 
   static const int KEEP_LOG_FILE_NUM = 1000;
   // MSVC version 1800 still does not have constexpr for ::max()
-  static const uint64_t kNoTimeOut = UINT64_MAX;
+  static const uint64_t kNoTimeOut = port::kMaxUint64;
 
   std::string db_absolute_path_;
 

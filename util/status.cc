@@ -67,9 +67,6 @@ std::string Status::ToString() const {
     case kShutdownInProgress:
       type = "Shutdown in progress: ";
       break;
-    case kTimedOut:
-      type = "Operation timed out: ";
-      break;
     case kAborted:
       type = "Operation aborted: ";
       break;

@@ -3,9 +3,11 @@ LIB_SOURCES =                                                   \
   db/builder.cc                                                 \
   db/c.cc                                                       \
   db/column_family.cc                                           \
+  db/compacted_db_impl.cc                                       \
   db/compaction.cc                                              \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
+  db/convenience.cc                                             \
   db/db_filesnapshot.cc                                         \
   db/dbformat.cc                                                \
   db/db_impl.cc                                                 \
@@ -95,9 +97,7 @@ LIB_SOURCES =                                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
-  utilities/convenience/convenience.cc                          \
   utilities/checkpoint/checkpoint.cc                            \
-  utilities/compacted_db/compacted_db_impl.cc                   \
   utilities/document/document_db.cc                             \
   utilities/document/json_document_builder.cc                   \
   utilities/document/json_document.cc                           \
@@ -163,6 +163,11 @@ TEST_BENCH_SOURCES =                                                    \
   db/dbformat_test.cc                                                   \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
+  db/db_compaction_filter_test.cc                                       \
+  db/db_dynamic_level_test.cc                                           \
+  db/db_log_iter_test.cc                                                \
+  db/db_universal_compaction_test.cc                                    \
+  db/db_tailing_iter_test.cc                                            \
   db/deletefile_test.cc                                                 \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \
@@ -206,6 +211,7 @@ TEST_BENCH_SOURCES =                                                    \
   util/cache_test.cc                                                    \
   util/coding_test.cc                                                   \
   util/crc32c_test.cc                                                   \
+  util/db_test_util.cc                                                  \
   util/dynamic_bloom_test.cc                                            \
   util/env_test.cc                                                      \
   util/filelock_test.cc                                                 \

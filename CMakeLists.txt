@@ -6,7 +6,7 @@
 #     You must have git.exe in your %PATH% environment variable.
 #
 # To build Rocksdb for Windows is as easy as 1-2-3-4-5:
-# 
+#
 # 1. Update paths to third-party libraries in thirdparty.inc file
 # 2. Create a new directory for build artifacts
 #        mkdir build
@@ -72,9 +72,11 @@ set(SOURCES
         db/builder.cc
         db/c.cc
         db/column_family.cc
+        db/compacted_db_impl.cc
         db/compaction.cc
         db/compaction_job.cc
         db/compaction_picker.cc
+        db/convenience.cc
         db/dbformat.cc
         db/db_filesnapshot.cc
         db/db_impl.cc
@@ -153,6 +155,7 @@ set(SOURCES
         util/comparator.cc
         util/crc32c.cc
         util/db_info_dumper.cc
+        util/db_test_util.cc
         util/dynamic_bloom.cc
         util/env.cc
         util/env_hdfs.cc
@@ -200,8 +203,6 @@ set(SOURCES
         util/xxhash.cc
         utilities/backupable/backupable_db.cc
         utilities/checkpoint/checkpoint.cc
-        utilities/compacted_db/compacted_db_impl.cc
-        utilities/convenience/convenience.cc
         utilities/document/document_db.cc
         utilities/document/json_document.cc
         utilities/document/json_document_builder.cc
@@ -214,8 +215,8 @@ set(SOURCES
         utilities/merge_operators/uint64add.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
+        utilities/transactions/optimistic_transaction_impl.cc        
         utilities/transactions/optimistic_transaction_db_impl.cc
-        utilities/transactions/optimistic_transaction_impl.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
@@ -253,7 +254,12 @@ set(TESTS
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
         db/db_iter_test.cc
+        db/db_log_iter_test.cc
         db/db_test.cc
+        db/db_compaction_filter_test.cc
+        db/db_dynamic_level_test.cc
+        db/db_universal_compaction_test.cc
+        db/db_tailing_iter_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
         db/fault_injection_test.cc

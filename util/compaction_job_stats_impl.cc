@@ -29,12 +29,14 @@ void CompactionJobStats::Reset() {
   num_records_replaced = 0;
 
   is_manual_compaction = 0;
+
+  num_input_deletion_records = 0;
+  num_expired_deletion_records = 0;
 }
 
 #else
 
-void CompactionJobStats::Reset() {
-}
+void CompactionJobStats::Reset() {}
 
 #endif  // !ROCKSDB_LITE
 

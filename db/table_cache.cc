@@ -18,6 +18,7 @@
 #include "table/table_reader.h"
 #include "table/get_context.h"
 #include "util/coding.h"
+#include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -78,6 +79,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
                              const FileDescriptor& fd, Cache::Handle** handle,
                              const bool no_io) {
+  PERF_TIMER_GUARD(find_table_nanos);
   Status s;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
@@ -121,6 +123,8 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const FileDescriptor& fd,
                                   TableReader** table_reader_ptr,
                                   bool for_compaction, Arena* arena) {
+  PERF_TIMER_GUARD(new_table_iterator_nanos);
+
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }

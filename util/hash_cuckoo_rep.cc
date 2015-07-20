@@ -40,17 +40,13 @@ struct CuckooStep {
   CuckooStep() : bucket_id_(-1), prev_step_id_(kNullStep), depth_(1) {}
 
   // MSVC does not support = default yet
-  CuckooStep(CuckooStep&& o) 
-  {
-      *this = std::move(o);
-  }
-  
-  CuckooStep& operator=(CuckooStep&& rhs)
-  {
-      bucket_id_ = std::move(rhs.bucket_id_);
-      prev_step_id_ = std::move(rhs.prev_step_id_);
-      depth_ = std::move(rhs.depth_);
-      return *this;
+  CuckooStep(CuckooStep&& o) { *this = std::move(o); }
+
+  CuckooStep& operator=(CuckooStep&& rhs) {
+    bucket_id_ = std::move(rhs.bucket_id_);
+    prev_step_id_ = std::move(rhs.prev_step_id_);
+    depth_ = std::move(rhs.depth_);
+    return *this;
   }
 
   CuckooStep(const CuckooStep&) = delete;
@@ -411,8 +407,8 @@ bool HashCuckooRep::QuickInsert(const char* internal_key, const Slice& user_key,
   }
 
   if (cuckoo_bucket_id != -1) {
-    cuckoo_array_[cuckoo_bucket_id]
-        .store(const_cast<char*>(internal_key), std::memory_order_release);
+    cuckoo_array_[cuckoo_bucket_id].store(const_cast<char*>(internal_key),
+                                          std::memory_order_release);
     return true;
   }
 

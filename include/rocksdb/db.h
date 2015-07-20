@@ -23,7 +23,12 @@
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/listener.h"
 #include "rocksdb/thread_status.h"
-#include "port/port.h"
+
+#ifdef _WIN32
+// Windows API macro interference
+#undef DeleteFile
+#endif
+
 
 namespace rocksdb {
 
@@ -432,7 +437,12 @@ class DB {
     return CompactRange(options, DefaultColumnFamily(), begin, end);
   }
 
-  __attribute__((deprecated)) virtual Status
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((deprecated))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+   virtual Status
       CompactRange(ColumnFamilyHandle* column_family, const Slice* begin,
                    const Slice* end, bool change_level = false,
                    int target_level = -1, uint32_t target_path_id = 0) {
@@ -442,7 +452,12 @@ class DB {
     options.target_path_id = target_path_id;
     return CompactRange(options, column_family, begin, end);
   }
-  __attribute__((deprecated)) virtual Status
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((deprecated))
+#elif _WIN32
+  __declspec(deprecated)
+#endif
+    virtual Status
       CompactRange(const Slice* begin, const Slice* end,
                    bool change_level = false, int target_level = -1,
                    uint32_t target_path_id = 0) {

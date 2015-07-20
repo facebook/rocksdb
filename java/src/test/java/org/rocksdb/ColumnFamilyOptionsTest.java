@@ -723,4 +723,23 @@ public class ColumnFamilyOptionsTest {
       }
     }
   }
+
+  @Test
+  public void maxTableFilesSizeFIFO() {
+    ColumnFamilyOptions opt = null;
+    try {
+      opt = new ColumnFamilyOptions();
+      long longValue = rand.nextLong();
+      // Size has to be positive
+      longValue = (longValue < 0) ? -longValue : longValue;
+      longValue = (longValue == 0) ? longValue + 1 : longValue;
+      opt.setMaxTableFilesSizeFIFO(longValue);
+      assertThat(opt.maxTableFilesSizeFIFO()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
 }

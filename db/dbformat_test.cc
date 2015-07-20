@@ -149,6 +149,25 @@ TEST_F(FormatTest, IterKeyOperation) {
               "abcdefghijklmnopqrstuvwxyz"));
 }
 
+TEST_F(FormatTest, UpdateInternalKey) {
+  std::string user_key("abcdefghijklmnopqrstuvwxyz");
+  uint64_t new_seq = 0x123456;
+  ValueType new_val_type = kTypeDeletion;
+
+  std::string ikey;
+  AppendInternalKey(&ikey, ParsedInternalKey(user_key, 100U, kTypeValue));
+  size_t ikey_size = ikey.size();
+  UpdateInternalKey(&ikey, new_seq, new_val_type);
+  ASSERT_EQ(ikey_size, ikey.size());
+
+  Slice in(ikey);
+  ParsedInternalKey decoded;
+  ASSERT_TRUE(ParseInternalKey(in, &decoded));
+  ASSERT_EQ(user_key, decoded.user_key.ToString());
+  ASSERT_EQ(new_seq, decoded.sequence);
+  ASSERT_EQ(new_val_type, decoded.type);
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

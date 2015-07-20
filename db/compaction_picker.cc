@@ -38,12 +38,17 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
+// Universal compaction is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
+
 // Used in universal compaction when trivial move is enabled.
 // This structure is used for the construction of min heap
 // that contains the file meta data, the level of the file
 // and the index of the file in that level
 
 struct InputFileInfo {
+  InputFileInfo() : f(nullptr) {}
+
   FileMetaData* f;
   size_t level;
   size_t index;
@@ -95,7 +100,7 @@ SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
   }
   return smallest_key_priority_q;
 }
-
+#endif  // !ROCKSDB_LITE
 }  // anonymous namespace
 
 // Determine compression type, based on user options, level of the output
@@ -401,8 +406,9 @@ bool CompactionPicker::SetupOtherInputs(
       if (expanded1.size() == output_level_inputs->size() &&
           !FilesInCompaction(expanded1)) {
         Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64 "+%" PRIu64
-            " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt " (%" PRIu64 "+%" PRIu64 "bytes)\n",
+            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
+            "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
+            " (%" PRIu64 "+%" PRIu64 "bytes)\n",
             cf_name.c_str(), input_level, inputs->size(),
             output_level_inputs->size(), inputs0_size, inputs1_size,
             expanded0.size(), expanded1.size(), expanded0_size, inputs1_size);
@@ -1225,7 +1231,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
-  LogToBuffer(log_buffer, 3072, "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
+  LogToBuffer(log_buffer, 3072,
+              "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
               cf_name.c_str(), sorted_runs.size(),
               vstorage->LevelSummary(&tmp));
 

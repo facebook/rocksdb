@@ -359,13 +359,6 @@ DEFINE_uint64(log2_keys_per_lock, 2, "Log2 of number of keys per lock");
 static const bool FLAGS_log2_keys_per_lock_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_log2_keys_per_lock, &ValidateUint32Range);
 
-DEFINE_int32(purge_redundant_percent, 50,
-             "Percentage of times we want to purge redundant keys in memory "
-             "before flushing");
-static const bool FLAGS_purge_redundant_percent_dummy __attribute__((unused)) =
-    RegisterFlagValidator(&FLAGS_purge_redundant_percent,
-                          &ValidateInt32Percent);
-
 DEFINE_bool(filter_deletes, false, "On true, deletes use KeyMayExist to drop"
             " the delete if key not present");
 
@@ -770,7 +763,7 @@ class SharedState {
   std::vector<std::vector<uint32_t>> values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
   // and storing it in the container may require copying depending on the impl.
-  std::vector<std::vector<std::unique_ptr<port::Mutex>>> key_locks_;
+  std::vector<std::vector<std::unique_ptr<port::Mutex> > > key_locks_;
 };
 
 const uint32_t SharedState::SENTINEL = 0xffffffff;
@@ -937,115 +930,90 @@ class StressTest {
       return true;
     }
 
-    std::unordered_map<std::string, std::vector<std::string>> options_tbl = {
-      {"write_buffer_size",
-        {
-          ToString(FLAGS_write_buffer_size),
+    std::unordered_map<std::string, std::vector<std::string> > options_tbl = {
+        {"write_buffer_size",
+         {ToString(FLAGS_write_buffer_size),
           ToString(FLAGS_write_buffer_size * 2),
-          ToString(FLAGS_write_buffer_size * 4)
-        }
-      },
-      {"max_write_buffer_number",
-        {
-          ToString(FLAGS_max_write_buffer_number),
+          ToString(FLAGS_write_buffer_size * 4)}},
+        {"max_write_buffer_number",
+         {ToString(FLAGS_max_write_buffer_number),
           ToString(FLAGS_max_write_buffer_number * 2),
-          ToString(FLAGS_max_write_buffer_number * 4)
-        }
-      },
-      {"arena_block_size",
-        {
-          ToString(Options().arena_block_size),
-          ToString(FLAGS_write_buffer_size / 4),
-          ToString(FLAGS_write_buffer_size / 8),
-        }
-      },
-      {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
-      {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
-      {"memtable_prefix_bloom_huge_page_tlb_size",
-        {
-          "0",
-          ToString(2 * 1024 * 1024)
-        }
-      },
-      {"max_successive_merges", {"0", "2", "4"}},
-      {"filter_deletes", {"0", "1"}},
-      {"inplace_update_num_locks", {"100", "200", "300"}},
-      // TODO(ljin): enable test for this option
-      // {"disable_auto_compactions", {"100", "200", "300"}},
-      {"soft_rate_limit", {"0", "0.5", "0.9"}},
-      {"hard_rate_limit", {"0", "1.1", "2.0"}},
-      {"level0_file_num_compaction_trigger",
-        {
-          ToString(FLAGS_level0_file_num_compaction_trigger),
-          ToString(FLAGS_level0_file_num_compaction_trigger + 2),
-          ToString(FLAGS_level0_file_num_compaction_trigger + 4),
-        }
-      },
-      {"level0_slowdown_writes_trigger",
-        {
-          ToString(FLAGS_level0_slowdown_writes_trigger),
-          ToString(FLAGS_level0_slowdown_writes_trigger + 2),
-          ToString(FLAGS_level0_slowdown_writes_trigger + 4),
-        }
-      },
-      {"level0_stop_writes_trigger",
-        {
-          ToString(FLAGS_level0_stop_writes_trigger),
-          ToString(FLAGS_level0_stop_writes_trigger + 2),
-          ToString(FLAGS_level0_stop_writes_trigger + 4),
-        }
-      },
-      {"max_grandparent_overlap_factor",
-        {
-          ToString(Options().max_grandparent_overlap_factor - 5),
-          ToString(Options().max_grandparent_overlap_factor),
-          ToString(Options().max_grandparent_overlap_factor + 5),
-        }
-      },
-      {"expanded_compaction_factor",
-        {
-          ToString(Options().expanded_compaction_factor - 5),
-          ToString(Options().expanded_compaction_factor),
-          ToString(Options().expanded_compaction_factor + 5),
-        }
-      },
-      {"source_compaction_factor",
-        {
-          ToString(Options().source_compaction_factor),
-          ToString(Options().source_compaction_factor * 2),
-          ToString(Options().source_compaction_factor * 4),
-        }
-      },
-      {"target_file_size_base",
-        {
-          ToString(FLAGS_target_file_size_base),
-          ToString(FLAGS_target_file_size_base * 2),
-          ToString(FLAGS_target_file_size_base * 4),
-        }
-      },
-      {"target_file_size_multiplier",
-        {
-          ToString(FLAGS_target_file_size_multiplier),
-          "1",
-          "2",
-        }
-      },
-      {"max_bytes_for_level_base",
-        {
-          ToString(FLAGS_max_bytes_for_level_base / 2),
-          ToString(FLAGS_max_bytes_for_level_base),
-          ToString(FLAGS_max_bytes_for_level_base * 2),
-        }
-      },
-      {"max_bytes_for_level_multiplier",
-        {
-          ToString(FLAGS_max_bytes_for_level_multiplier),
-          "1",
-          "2",
-        }
-      },
-      {"max_mem_compaction_level", {"0", "1", "2"}},
-      {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
+          ToString(FLAGS_max_write_buffer_number * 4)}},
+        {"arena_block_size",
+         {
+             ToString(Options().arena_block_size),
+             ToString(FLAGS_write_buffer_size / 4),
+             ToString(FLAGS_write_buffer_size / 8),
+         }},
+        {"memtable_prefix_bloom_bits", {"0", "8", "10"}},
+        {"memtable_prefix_bloom_probes", {"4", "5", "6"}},
+        {"memtable_prefix_bloom_huge_page_tlb_size",
+         {"0", ToString(2 * 1024 * 1024)}},
+        {"max_successive_merges", {"0", "2", "4"}},
+        {"filter_deletes", {"0", "1"}},
+        {"inplace_update_num_locks", {"100", "200", "300"}},
+        // TODO(ljin): enable test for this option
+        // {"disable_auto_compactions", {"100", "200", "300"}},
+        {"soft_rate_limit", {"0", "0.5", "0.9"}},
+        {"hard_rate_limit", {"0", "1.1", "2.0"}},
+        {"level0_file_num_compaction_trigger",
+         {
+             ToString(FLAGS_level0_file_num_compaction_trigger),
+             ToString(FLAGS_level0_file_num_compaction_trigger + 2),
+             ToString(FLAGS_level0_file_num_compaction_trigger + 4),
+         }},
+        {"level0_slowdown_writes_trigger",
+         {
+             ToString(FLAGS_level0_slowdown_writes_trigger),
+             ToString(FLAGS_level0_slowdown_writes_trigger + 2),
+             ToString(FLAGS_level0_slowdown_writes_trigger + 4),
+         }},
+        {"level0_stop_writes_trigger",
+         {
+             ToString(FLAGS_level0_stop_writes_trigger),
+             ToString(FLAGS_level0_stop_writes_trigger + 2),
+             ToString(FLAGS_level0_stop_writes_trigger + 4),
+         }},
+        {"max_grandparent_overlap_factor",
+         {
+             ToString(Options().max_grandparent_overlap_factor - 5),
+             ToString(Options().max_grandparent_overlap_factor),
+             ToString(Options().max_grandparent_overlap_factor + 5),
+         }},
+        {"expanded_compaction_factor",
+         {
+             ToString(Options().expanded_compaction_factor - 5),
+             ToString(Options().expanded_compaction_factor),
+             ToString(Options().expanded_compaction_factor + 5),
+         }},
+        {"source_compaction_factor",
+         {
+             ToString(Options().source_compaction_factor),
+             ToString(Options().source_compaction_factor * 2),
+             ToString(Options().source_compaction_factor * 4),
+         }},
+        {"target_file_size_base",
+         {
+             ToString(FLAGS_target_file_size_base),
+             ToString(FLAGS_target_file_size_base * 2),
+             ToString(FLAGS_target_file_size_base * 4),
+         }},
+        {"target_file_size_multiplier",
+         {
+             ToString(FLAGS_target_file_size_multiplier), "1", "2",
+         }},
+        {"max_bytes_for_level_base",
+         {
+             ToString(FLAGS_max_bytes_for_level_base / 2),
+             ToString(FLAGS_max_bytes_for_level_base),
+             ToString(FLAGS_max_bytes_for_level_base * 2),
+         }},
+        {"max_bytes_for_level_multiplier",
+         {
+             ToString(FLAGS_max_bytes_for_level_multiplier), "1", "2",
+         }},
+        {"max_mem_compaction_level", {"0", "1", "2"}},
+        {"max_sequential_skip_in_iterations", {"4", "8", "12"}},
     };
 
     options_table_ = std::move(options_tbl);
@@ -1837,8 +1805,6 @@ class StressTest {
     fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
     fprintf(stdout, "Batches/snapshots   : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Purge redundant %%   : %d\n",
-            FLAGS_purge_redundant_percent);
     fprintf(stdout, "Deletes use filter  : %d\n",
             FLAGS_filter_deletes);
     fprintf(stdout, "Do update in place  : %d\n",
@@ -1954,12 +1920,6 @@ class StressTest {
                 "RocksdbLite only supports skip list mem table. Skip "
                 "--rep_factory\n");
 #endif  // ROCKSDB_LITE
-    }
-
-    static Random purge_percent(1000); // no benefit from non-determinism here
-    if (static_cast<int32_t>(purge_percent.Uniform(100)) <
-        FLAGS_purge_redundant_percent - 1) {
-      options_.purge_redundant_kvs_while_flush = false;
     }
 
     if (FLAGS_use_merge) {

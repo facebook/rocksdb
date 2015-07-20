@@ -195,14 +195,17 @@ inline bool ParseInternalKey(const Slice& internal_key,
   return (c <= static_cast<unsigned char>(kValueTypeForSeek));
 }
 
-// Update the sequence number in the internal key
-inline void UpdateInternalKey(char* internal_key,
-                              const size_t internal_key_size,
+// Update the sequence number in the internal key.
+// Guarantees not to invalidate ikey.data().
+inline void UpdateInternalKey(std::string* ikey,
                               uint64_t seq, ValueType t) {
-  assert(internal_key_size >= 8);
-  char* seqtype = internal_key + internal_key_size - 8;
+  size_t ikey_sz = ikey->size();
+  assert(ikey_sz >= 8);
   uint64_t newval = (seq << 8) | t;
-  EncodeFixed64(seqtype, newval);
+
+  // Note: Since C++11, strings are guaranteed to be stored contiguously and
+  // string::operator[]() is guaranteed not to change ikey.data().
+  EncodeFixed64(&(*ikey)[ikey_sz - 8], newval);
 }
 
 // Get the sequence number from the internal key

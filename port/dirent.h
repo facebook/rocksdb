@@ -13,15 +13,15 @@
 #define STORAGE_LEVELDB_PORT_DIRENT_H_
 
 #ifdef ROCKSDB_PLATFORM_POSIX
-#  include <sys/types.h>
-#  include <dirent.h>
+#include <dirent.h>
+#include <sys/types.h>
 #elif defined(OS_WIN)
 
 namespace rocksdb {
 namespace port {
 
 struct dirent {
-    char           d_name[_MAX_PATH]; /* filename */
+  char d_name[_MAX_PATH]; /* filename */
 };
 
 struct DIR;
@@ -32,7 +32,7 @@ dirent* readdir(DIR* dirp);
 
 int closedir(DIR* dirp);
 
-} // namespace port
+}  // namespace port
 
 using port::dirent;
 using port::DIR;
@@ -40,12 +40,8 @@ using port::opendir;
 using port::readdir;
 using port::closedir;
 
-} // namespace rocksdb
+}  // namespace rocksdb
 
-#endif
+#endif  // OS_WIN
 
-
-#endif // STORAGE_LEVELDB_PORT_DIRENT_H_
-
-
-
+#endif  // STORAGE_LEVELDB_PORT_DIRENT_H_

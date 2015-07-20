@@ -123,7 +123,8 @@ std::string BlockBasedTableFactory::GetPrintableTableOptions() const {
            table_options_.block_cache_compressed.get());
   ret.append(buffer);
   if (table_options_.block_cache_compressed) {
-    snprintf(buffer, kBufferSize, "  block_cache_compressed_size: %" ROCKSDB_PRIszt "\n",
+    snprintf(buffer, kBufferSize,
+             "  block_cache_compressed_size: %" ROCKSDB_PRIszt "\n",
              table_options_.block_cache_compressed->GetCapacity());
     ret.append(buffer);
   }

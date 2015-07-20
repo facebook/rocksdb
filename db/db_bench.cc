@@ -71,7 +71,7 @@ int main() {
 #include "utilities/merge_operators.h"
 
 #ifdef OS_WIN
-#include <io.h> // open/close
+#include <io.h>  // open/close
 #endif
 
 using GFLAGS::ParseCommandLineFlags;
@@ -130,8 +130,6 @@ DEFINE_string(benchmarks,
               "\treadreverse   -- read N times in reverse order\n"
               "\treadrandom    -- read N times in random order\n"
               "\treadmissing   -- read N missing keys in random order\n"
-              "\treadhot       -- read N times in random order from 1% section "
-              "of DB\n"
               "\treadwhilewriting      -- 1 writer, N threads doing random "
               "reads\n"
               "\treadwhilemerging      -- 1 merger, N threads doing random "
@@ -232,7 +230,7 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
 
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
-              "num * exp(r) where r is uniform number from 0 to this value. "
+              "num * exp(-r) where r is uniform number from 0 to this value. "
               "The larger the number is, the more skewed the reads are. "
               "Only used in readrandom and multireadrandom benchmarks.");
 
@@ -315,6 +313,9 @@ DEFINE_int32(universal_compression_size_percent, -1,
 
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
+
+DEFINE_bool(cache_index_and_filter_blocks, false,
+            "Cache index/filter blocks in block cache.");
 
 DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
@@ -2377,6 +2378,8 @@ class Benchmark {
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
       }
+      block_based_options.cache_index_and_filter_blocks =
+          FLAGS_cache_index_and_filter_blocks;
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
@@ -3539,8 +3542,8 @@ class Benchmark {
 
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
-             PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
+             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64
+             " hits:%" PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }

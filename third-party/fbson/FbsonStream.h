@@ -31,9 +31,8 @@
 #endif
 
 #if defined OS_WIN && !defined snprintf
-#  define snprintf _snprintf
+#define snprintf _snprintf
 #endif
-
 
 #include <inttypes.h>
 #include <iostream>

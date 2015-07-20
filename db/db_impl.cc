@@ -70,6 +70,7 @@
 #include "util/build_version.h"
 #include "util/coding.h"
 #include "util/compression.h"
+#include "util/crc32c.h"
 #include "util/db_info_dumper.h"
 #include "util/file_util.h"
 #include "util/hash_skiplist_rep.h"
@@ -194,7 +195,7 @@ CompressionType GetCompressionFlush(const ImmutableCFOptions& ioptions) {
   }
 }
 
-void DumpCompressionInfo(Logger* logger) {
+void DumpSupportInfo(Logger* logger) {
   Log(InfoLogLevel::INFO_LEVEL, logger, "Compression algorithms supported:");
   Log(InfoLogLevel::INFO_LEVEL, logger, "\tSnappy supported: %d",
       Snappy_Supported());
@@ -203,6 +204,8 @@ void DumpCompressionInfo(Logger* logger) {
   Log(InfoLogLevel::INFO_LEVEL, logger, "\tBzip supported: %d",
       BZip2_Supported());
   Log(InfoLogLevel::INFO_LEVEL, logger, "\tLZ4 supported: %d", LZ4_Supported());
+  Log(InfoLogLevel::INFO_LEVEL, logger, "Fast CRC32 supported: %d",
+      crc32c::IsFastCrc32Supported());
 }
 
 }  // namespace
@@ -265,7 +268,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   DumpRocksDBBuildVersion(db_options_.info_log.get());
   DumpDBFileSummary(db_options_, dbname_);
   db_options_.Dump(db_options_.info_log.get());
-  DumpCompressionInfo(db_options_.info_log.get());
+  DumpSupportInfo(db_options_.info_log.get());
 
   LogFlush(db_options_.info_log);
 }
@@ -1628,9 +1631,9 @@ Status DBImpl::CompactFilesImpl(
   CompactionJob compaction_job(
       job_context->job_id, c.get(), db_options_, env_options_, versions_.get(),
       &shutting_down_, log_buffer, directories_.GetDbDir(),
-      directories_.GetDataDir(c->output_path_id()), stats_,
-      snapshots_.GetAll(), table_cache_, std::move(yield_callback),
-      &event_logger_, c->mutable_cf_options()->paranoid_file_checks, dbname_,
+      directories_.GetDataDir(c->output_path_id()), stats_, snapshots_.GetAll(),
+      table_cache_, std::move(yield_callback), &event_logger_,
+      c->mutable_cf_options()->paranoid_file_checks, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
@@ -2016,8 +2019,8 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
     }
 
     WriteThread::Writer w(&mutex_);
-    s = write_thread_.EnterWriteThread(&w, 0);
-    assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+    write_thread_.EnterWriteThread(&w);
+    assert(!w.done);  // Nobody should do our job
 
     // SwitchMemtable() will release and reacquire mutex
     // during execution
@@ -2539,12 +2542,13 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
     for (unsigned int l = 0; l < c->num_input_levels(); l++) {
-      if (l == static_cast<unsigned int>(c->output_level())) {
+      if (l == static_cast<unsigned int>(c->output_level()) ||
+          (c->output_level() == 0)) {
         continue;
       }
       for (size_t i = 0; i < c->num_input_files(l); i++) {
         FileMetaData* f = c->input(l, i);
-        c->edit()->DeleteFile(c->level(), f->fd.GetNumber());
+        c->edit()->DeleteFile(c->level(l), f->fd.GetNumber());
         c->edit()->AddFile(c->output_level(), f->fd.GetNumber(),
                            f->fd.GetPathId(), f->fd.GetFileSize(), f->smallest,
                            f->largest, f->smallest_seqno, f->largest_seqno,
@@ -2599,8 +2603,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_,
         snapshots_.GetAll(), table_cache_, std::move(yield_callback),
-        &event_logger_, c->mutable_cf_options()->paranoid_file_checks,
-        dbname_, &compaction_job_stats);
+        &event_logger_, c->mutable_cf_options()->paranoid_file_checks, dbname_,
+        &compaction_job_stats);
     compaction_job.Prepare();
 
     mutex_.Unlock();
@@ -3011,8 +3015,8 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     Options opt(db_options_, cf_options);
     {  // write thread
       WriteThread::Writer w(&mutex_);
-      s = write_thread_.EnterWriteThread(&w, 0);
-      assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+      write_thread_.EnterWriteThread(&w);
+      assert(!w.done);  // Nobody should do our job
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
       s = versions_->LogAndApply(
@@ -3073,8 +3077,8 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     if (s.ok()) {
       // we drop column family from a single write thread
       WriteThread::Writer w(&mutex_);
-      s = write_thread_.EnterWriteThread(&w, 0);
-      assert(s.ok() && !w.done);  // No timeout and nobody should do our job
+      write_thread_.EnterWriteThread(&w);
+      assert(!w.done);  // Nobody should do our job
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
       write_thread_.ExitWriteThread(&w, &w, s);
@@ -3361,6 +3365,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   if (my_batch == nullptr) {
     return Status::Corruption("Batch is nullptr!");
   }
+  if (write_options.timeout_hint_us != 0) {
+    return Status::InvalidArgument("timeout_hint_us is deprecated");
+  }
 
   Status status;
   bool xfunc_attempted_write = false;
@@ -3381,16 +3388,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   w.in_batch_group = false;
   w.done = false;
   w.has_callback = (callback != nullptr) ? true : false;
-  w.timeout_hint_us = write_options.timeout_hint_us;
-
-  uint64_t expiration_time = 0;
-  bool has_timeout = false;
-  if (w.timeout_hint_us == 0) {
-    w.timeout_hint_us = WriteThread::kNoTimeOut;
-  } else {
-    expiration_time = env_->NowMicros() + w.timeout_hint_us;
-    has_timeout = true;
-  }
 
   if (!write_options.disableWAL) {
     RecordTick(stats_, WRITE_WITH_WAL);
@@ -3405,13 +3402,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
   }
 
-  status = write_thread_.EnterWriteThread(&w, expiration_time);
-  assert(status.ok() || status.IsTimedOut());
-  if (status.IsTimedOut()) {
-    mutex_.Unlock();
-    RecordTick(stats_, WRITE_TIMEDOUT);
-    return Status::TimedOut();
-  }
+  write_thread_.EnterWriteThread(&w);
   if (w.done) {  // write was done by someone else
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
                                            1);
@@ -3497,13 +3488,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     // for previous one. It might create a fairness issue that expiration
     // might happen for smaller writes but larger writes can go through.
     // Can optimize it if it is an issue.
-    status = DelayWrite(last_batch_group_size_, expiration_time);
+    status = DelayWrite(last_batch_group_size_);
     PERF_TIMER_START(write_pre_and_post_process_time);
-  }
-
-  if (UNLIKELY(status.ok() && has_timeout &&
-               env_->NowMicros() > expiration_time)) {
-    status = Status::TimedOut();
   }
 
   uint64_t last_sequence = versions_->LastSequence();
@@ -3624,7 +3610,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Lock();
     }
 
-    if (db_options_.paranoid_checks && !status.ok() && !status.IsTimedOut() &&
+    if (db_options_.paranoid_checks && !status.ok() &&
         !status.IsBusy() && bg_error_.ok()) {
     bg_error_ = status; // stop compaction & fail any further writes
   }
@@ -3634,66 +3620,36 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   mutex_.Unlock();
 
-  if (status.IsTimedOut()) {
-    RecordTick(stats_, WRITE_TIMEDOUT);
-  }
-
   return status;
 }
 
 // REQUIRES: mutex_ is held
 // REQUIRES: this thread is currently at the front of the writer queue
-Status DBImpl::DelayWrite(uint64_t num_bytes, uint64_t expiration_time) {
+Status DBImpl::DelayWrite(uint64_t num_bytes) {
   uint64_t time_delayed = 0;
   bool delayed = false;
-  bool timed_out = false;
   {
     StopWatch sw(env_, stats_, WRITE_STALL, &time_delayed);
-    bool has_timeout = (expiration_time > 0);
     auto delay = write_controller_.GetDelay(env_, num_bytes);
     if (delay > 0) {
       mutex_.Unlock();
       delayed = true;
-      // hopefully we don't have to sleep more than 2 billion microseconds
       TEST_SYNC_POINT("DBImpl::DelayWrite:Sleep");
-      if (has_timeout) {
-        auto time_now = env_->NowMicros();
-        if (time_now + delay >= expiration_time) {
-          if (expiration_time > time_now) {
-            env_->SleepForMicroseconds(
-                static_cast<int>(expiration_time - time_now));
-          }
-          timed_out = true;
-        }
-      }
-      if (!timed_out) {
-        env_->SleepForMicroseconds(static_cast<int>(delay));
-      }
+      // hopefully we don't have to sleep more than 2 billion microseconds
+      env_->SleepForMicroseconds(static_cast<int>(delay));
       mutex_.Lock();
     }
 
-    while (!timed_out && bg_error_.ok() && write_controller_.IsStopped()) {
+    while (bg_error_.ok() && write_controller_.IsStopped()) {
       delayed = true;
-      if (has_timeout) {
-        TEST_SYNC_POINT("DBImpl::DelayWrite:TimedWait");
-        bg_cv_.TimedWait(expiration_time);
-        if (env_->NowMicros() > expiration_time) {
-          timed_out = true;
-          break;
-        }
-      } else {
-        bg_cv_.Wait();
-      }
+      TEST_SYNC_POINT("DBImpl::DelayWrite:Wait");
+      bg_cv_.Wait();
     }
   }
   if (delayed) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_STALL_MICROS,
                                            time_delayed);
     RecordTick(stats_, STALL_MICROS, time_delayed);
-  }
-
-  if (timed_out) {
-    return Status::TimedOut();
   }
 
   return bg_error_;

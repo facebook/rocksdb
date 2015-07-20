@@ -64,7 +64,7 @@ Status BuildTable(
   // If the sequence number of the smallest entry in the memtable is
   // smaller than the most recent snapshot, then we do not trigger
   // removal of duplicate/deleted keys as part of this builder.
-  bool purge = ioptions.purge_redundant_kvs_while_flush;
+  bool purge = true;
   if (earliest_seqno_in_memtable <= newest_snapshot) {
     purge = false;
   }

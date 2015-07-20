@@ -54,9 +54,7 @@ class HistogramBucketMapper {
 
 class HistogramImpl {
  public:
-  HistogramImpl() {
-    memset(buckets_, 0, sizeof(buckets_));
-  }
+  HistogramImpl() { memset(buckets_, 0, sizeof(buckets_)); }
   virtual void Clear();
   virtual bool Empty();
   virtual void Add(uint64_t value);

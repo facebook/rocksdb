@@ -8,12 +8,12 @@
 #include <cstdlib>
 #include <unordered_set>
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
 #include "util/logging.h"
 #include "util/options_helper.h"
@@ -277,8 +277,7 @@ Status GetMutableOptionsFromStrings(
 namespace {
 
 std::string trim(const std::string& str) {
-  if (str.empty())
-    return std::string();
+  if (str.empty()) return std::string();
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start <= end) {
@@ -438,9 +437,6 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
     } else if (name == "level_compaction_dynamic_level_bytes") {
       new_options->level_compaction_dynamic_level_bytes =
           ParseBoolean(name, value);
-    } else if (name == "purge_redundant_kvs_while_flush") {
-      new_options->purge_redundant_kvs_while_flush =
-          ParseBoolean(name, value);
     } else if (name == "compaction_style") {
       new_options->compaction_style = ParseCompactionStyle(value);
     } else if (name == "compaction_options_universal") {
@@ -564,8 +560,7 @@ bool ParseDBOption(const std::string& name, const std::string& value,
     } else {
       return false;
     }
-  }
-  catch (const std::exception& e) {
+  } catch (const std::exception& e) {
     return false;
   }
   return true;
@@ -680,7 +675,8 @@ Status GetPlainTableOptionsFromMap(
       } else if (o.first == "full_scan_mode") {
         new_table_options->full_scan_mode = ParseBoolean(o.first, o.second);
       } else if (o.first == "store_index_in_file") {
-        new_table_options->store_index_in_file = ParseBoolean(o.first, o.second);
+        new_table_options->store_index_in_file =
+            ParseBoolean(o.first, o.second);
       } else {
         return Status::InvalidArgument("Unrecognized option: " + o.first);
       }

@@ -14,7 +14,7 @@
 
 // Always want minimum headers
 #ifndef WIN32_LEAN_AND_MEAN
-#  define WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
 
 // Assume that for everywhere
@@ -31,6 +31,12 @@
 
 #include "rocksdb/options.h"
 
+#undef min
+#undef max
+#undef DeleteFile
+#undef GetCurrentTime
+
+
 #ifndef strcasecmp
 #define strcasecmp _stricmp
 #endif
@@ -40,11 +46,17 @@
 #define snprintf _snprintf
 #endif
 
+#undef GetCurrentTime
+#undef DeleteFile
+
 typedef SSIZE_T ssize_t;
 
-// size_t printf formatting named in the manner of C99 standard formatting strings such as PRIu64
+// size_t printf formatting named in the manner of C99 standard formatting
+// strings such as PRIu64
 // in fact, we could use that one
+#ifndef ROCKSDB_PRIszt
 #define ROCKSDB_PRIszt "Iu"
+#endif
 
 #define __attribute__(A)
 
@@ -67,7 +79,9 @@ typedef SSIZE_T ssize_t;
 
 // Thread local storage on Linux
 // There is thread_local in C++11
+#ifndef __thread
 #define __thread __declspec(thread)
+#endif
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN
 #define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
@@ -77,92 +91,77 @@ namespace rocksdb {
 
 #define PREFETCH(addr, rw, locality)
 
-namespace port 
-{
+namespace port {
 
 // For use at db/file_indexer.h kLevelMaxIndex
-const int LevelMaxIndex = INT32_MAX;
+const int kMaxInt32 = INT32_MAX;
+const uint64_t kMaxUint64 = UINT64_MAX;
 
 const bool kLittleEndian = true;
 
 class CondVar;
 
-class Mutex 
-{
-public:
-    /* implicit */ Mutex(bool adaptive = false);
-    ~Mutex();
+class Mutex {
+ public:
+  /* implicit */ Mutex(bool adaptive = false);
+  ~Mutex();
 
-    void Lock();
-    void Unlock();
-  
-    // this will assert if the mutex is not locked
-    // it does NOT verify that mutex is held by a calling thread
-    void AssertHeld();
+  void Lock();
+  void Unlock();
 
-    std::unique_lock<std::mutex>& getLock() {
-        return lock;
-    }
+  // this will assert if the mutex is not locked
+  // it does NOT verify that mutex is held by a calling thread
+  void AssertHeld();
 
-private:
-    friend class CondVar;
-    std::mutex m_mutex;
-    std::unique_lock<std::mutex> lock;
+  std::unique_lock<std::mutex>& getLock() { return lock; }
+
+ private:
+  friend class CondVar;
+  std::mutex m_mutex;
+  std::unique_lock<std::mutex> lock;
 #ifndef NDEBUG
-    bool locked_;
+  bool locked_;
 #endif
 
-    // No copying
-    Mutex(const Mutex&);
-    void operator=(const Mutex&);
+  // No copying
+  Mutex(const Mutex&);
+  void operator=(const Mutex&);
 };
 
-class RWMutex 
-{
-public:
-    RWMutex() {
-      InitializeSRWLock(&srwLock_);
-    }
+class RWMutex {
+ public:
+  RWMutex() { InitializeSRWLock(&srwLock_); }
 
-    void ReadLock() {
-      AcquireSRWLockShared(&srwLock_);
-    }
+  void ReadLock() { AcquireSRWLockShared(&srwLock_); }
 
-    void WriteLock() {
-      AcquireSRWLockExclusive(&srwLock_);
-    }
+  void WriteLock() { AcquireSRWLockExclusive(&srwLock_); }
 
-    void ReadUnlock() {
-      ReleaseSRWLockShared(&srwLock_);
-    }
+  void ReadUnlock() { ReleaseSRWLockShared(&srwLock_); }
 
-    void WriteUnlock() {
-      ReleaseSRWLockExclusive(&srwLock_);
-    }
+  void WriteUnlock() { ReleaseSRWLockExclusive(&srwLock_); }
 
-    // Empty as in POSIX
-    void AssertHeld() { }
+  // Empty as in POSIX
+  void AssertHeld() {}
 
-private:
-
+ private:
   SRWLOCK srwLock_;
   // No copying allowed
   RWMutex(const RWMutex&);
   void operator=(const RWMutex&);
 };
 
-class CondVar 
-{
-public:
-    explicit CondVar(Mutex* mu);
-    ~CondVar();
-    void Wait();
-    bool TimedWait(uint64_t expiration_time);
-    void Signal();
-    void SignalAll();
-private:
-    std::condition_variable cv_;
-    Mutex * mu_;
+class CondVar {
+ public:
+  explicit CondVar(Mutex* mu);
+  ~CondVar();
+  void Wait();
+  bool TimedWait(uint64_t expiration_time);
+  void Signal();
+  void SignalAll();
+
+ private:
+  std::condition_variable cv_;
+  Mutex* mu_;
 };
 
 typedef std::once_flag OnceType;
@@ -170,16 +169,15 @@ typedef std::once_flag OnceType;
 extern void InitOnce(OnceType* once, void (*initializer)());
 
 inline bool Snappy_Compress(const CompressionOptions& opts, const char* input,
-                            size_t length, ::std::string* output) 
-{
+                            size_t length, ::std::string* output) {
 #ifdef SNAPPY
-    output->resize(snappy::MaxCompressedLength(length));
-    size_t outlen;
-    snappy::RawCompress(input, length, &(*output)[0], &outlen);
-    output->resize(outlen);
-    return true;
+  output->resize(snappy::MaxCompressedLength(length));
+  size_t outlen;
+  snappy::RawCompress(input, length, &(*output)[0], &outlen);
+  output->resize(outlen);
+  return true;
 #endif
-    return false;
+  return false;
 }
 
 inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
@@ -191,8 +189,7 @@ inline bool Snappy_GetUncompressedLength(const char* input, size_t length,
 #endif
 }
 
-inline bool Snappy_Uncompress(const char* input, size_t length,
-                              char* output) {
+inline bool Snappy_Uncompress(const char* input, size_t length, char* output) {
 #ifdef SNAPPY
   return snappy::RawUncompress(input, length, output);
 #else
@@ -222,14 +219,14 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
   output->resize(length);
 
   // Compress the input, and put compressed data in output.
-  _stream.next_in = (Bytef *)input;
+  _stream.next_in = (Bytef*)input;
   _stream.avail_in = length;
 
   // Initialize the output size.
   _stream.avail_out = length;
-  _stream.next_out = (Bytef *)&(*output)[0];
+  _stream.next_out = (Bytef*)&(*output)[0];
 
-  int old_sz =0, new_sz =0, new_sz_delta =0;
+  int old_sz = 0, new_sz = 0, new_sz_delta = 0;
   bool done = false;
   while (!done) {
     int st = deflate(&_stream, Z_FINISH);
@@ -245,7 +242,7 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
         new_sz = output->size() + (new_sz_delta < 10 ? 10 : new_sz_delta);
         output->resize(new_sz);
         // Set more output.
-        _stream.next_out = (Bytef *)&(*output)[old_sz];
+        _stream.next_out = (Bytef*)&(*output)[old_sz];
         _stream.avail_out = new_sz - old_sz;
         break;
       case Z_BUF_ERROR:
@@ -263,7 +260,7 @@ inline bool Zlib_Compress(const CompressionOptions& opts, const char* input,
 }
 
 inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
-    int* decompress_size, int windowBits = -14) {
+                             int* decompress_size, int windowBits = -14) {
 #ifdef ZLIB
   z_stream _stream;
   memset(&_stream, 0, sizeof(z_stream));
@@ -271,13 +268,13 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   // For raw inflate, the windowBits should be -8..-15.
   // If windowBits is bigger than zero, it will use either zlib
   // header or gzip header. Adding 32 to it will do automatic detection.
-  int st = inflateInit2(&_stream,
-      windowBits > 0 ? windowBits + 32 : windowBits);
+  int st =
+      inflateInit2(&_stream, windowBits > 0 ? windowBits + 32 : windowBits);
   if (st != Z_OK) {
     return nullptr;
   }
 
-  _stream.next_in = (Bytef *)input_data;
+  _stream.next_in = (Bytef*)input_data;
   _stream.avail_in = input_length;
 
   // Assume the decompressed data size will 5x of compressed size.
@@ -285,14 +282,14 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
   char* output = new char[output_len];
   int old_sz = output_len;
 
-  _stream.next_out = (Bytef *)output;
+  _stream.next_out = (Bytef*)output;
   _stream.avail_out = output_len;
 
   char* tmp = nullptr;
   int output_len_delta;
   bool done = false;
 
-  //while(_stream.next_in != nullptr && _stream.avail_in != 0) {
+  // while(_stream.next_in != nullptr && _stream.avail_in != 0) {
   while (!done) {
     int st = inflate(&_stream, Z_SYNC_FLUSH);
     switch (st) {
@@ -310,7 +307,7 @@ inline char* Zlib_Uncompress(const char* input_data, size_t input_length,
         output = tmp;
 
         // Set more output.
-        _stream.next_out = (Bytef *)(output + old_sz);
+        _stream.next_out = (Bytef*)(output + old_sz);
         _stream.avail_out = output_len - old_sz;
         break;
       case Z_BUF_ERROR:
@@ -348,15 +345,15 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
   output->resize(length);
 
   // Compress the input, and put compressed data in output.
-  _stream.next_in = (char *)input;
+  _stream.next_in = (char*)input;
   _stream.avail_in = length;
 
   // Initialize the output size.
-  _stream.next_out = (char *)&(*output)[0];
+  _stream.next_out = (char*)&(*output)[0];
   _stream.avail_out = length;
 
-  int old_sz =0, new_sz =0;
-  while(_stream.next_in != nullptr && _stream.avail_in != 0) {
+  int old_sz = 0, new_sz = 0;
+  while (_stream.next_in != nullptr && _stream.avail_in != 0) {
     int st = BZ2_bzCompress(&_stream, BZ_FINISH);
     switch (st) {
       case BZ_STREAM_END:
@@ -368,7 +365,7 @@ inline bool BZip2_Compress(const CompressionOptions& opts, const char* input,
         new_sz = (int)(output->size() * 1.2);
         output->resize(new_sz);
         // Set more output.
-        _stream.next_out = (char *)&(*output)[old_sz];
+        _stream.next_out = (char*)&(*output)[old_sz];
         _stream.avail_out = new_sz - old_sz;
         break;
       case BZ_SEQUENCE_ERROR:
@@ -396,7 +393,7 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
     return nullptr;
   }
 
-  _stream.next_in = (char *)input_data;
+  _stream.next_in = (char*)input_data;
   _stream.avail_in = input_length;
 
   // Assume the decompressed data size will be 5x of compressed size.
@@ -404,12 +401,12 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   char* output = new char[output_len];
   int old_sz = output_len;
 
-  _stream.next_out = (char *)output;
+  _stream.next_out = (char*)output;
   _stream.avail_out = output_len;
 
   char* tmp = nullptr;
 
-  while(_stream.next_in != nullptr && _stream.avail_in != 0) {
+  while (_stream.next_in != nullptr && _stream.avail_in != 0) {
     int st = BZ2_bzDecompress(&_stream);
     switch (st) {
       case BZ_STREAM_END:
@@ -424,7 +421,7 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
         output = tmp;
 
         // Set more output.
-        _stream.next_out = (char *)(output + old_sz);
+        _stream.next_out = (char*)(output + old_sz);
         _stream.avail_out = output_len - old_sz;
         break;
       default:
@@ -441,12 +438,12 @@ inline char* BZip2_Uncompress(const char* input_data, size_t input_length,
   return nullptr;
 }
 
-inline bool LZ4_Compress(const CompressionOptions &opts, const char *input,
+inline bool LZ4_Compress(const CompressionOptions& opts, const char* input,
                          size_t length, ::std::string* output) {
 #ifdef LZ4
   int compressBound = LZ4_compressBound(length);
   output->resize(8 + compressBound);
-  char *p = const_cast<char *>(output->c_str());
+  char* p = const_cast<char*>(output->c_str());
   memcpy(p, &length, sizeof(length));
   size_t outlen;
   outlen = LZ4_compress_limitedOutput(input, p + 8, length, compressBound);
@@ -467,7 +464,7 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
   }
   int output_len;
   memcpy(&output_len, input_data, sizeof(output_len));
-  char *output = new char[output_len];
+  char* output = new char[output_len];
   *decompress_size = LZ4_decompress_safe_partial(
       input_data + 8, output, input_length - 8, output_len, output_len);
   if (*decompress_size < 0) {
@@ -479,12 +476,12 @@ inline char* LZ4_Uncompress(const char* input_data, size_t input_length,
   return nullptr;
 }
 
-inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
+inline bool LZ4HC_Compress(const CompressionOptions& opts, const char* input,
                            size_t length, ::std::string* output) {
 #ifdef LZ4
   int compressBound = LZ4_compressBound(length);
   output->resize(8 + compressBound);
-  char *p = const_cast<char *>(output->c_str());
+  char* p = const_cast<char*>(output->c_str());
   memcpy(p, &length, sizeof(length));
   size_t outlen;
 #ifdef LZ4_VERSION_MAJOR  // they only started defining this since r113
@@ -514,47 +511,43 @@ inline bool LZ4HC_Compress(const CompressionOptions &opts, const char* input,
 // For Thread Local Storage abstraction
 typedef DWORD pthread_key_t;
 
-inline
-int pthread_key_create(pthread_key_t *key, void(*destructor)(void*)) {
-    // Not used
-    (void)destructor;
+inline int pthread_key_create(pthread_key_t* key, void (*destructor)(void*)) {
+  // Not used
+  (void)destructor;
 
-    pthread_key_t k = TlsAlloc();
-    if (TLS_OUT_OF_INDEXES == k) {
-        return ENOMEM;
-    }
+  pthread_key_t k = TlsAlloc();
+  if (TLS_OUT_OF_INDEXES == k) {
+    return ENOMEM;
+  }
 
-    *key = k;
-    return 0;
+  *key = k;
+  return 0;
 }
 
-inline
-int pthread_key_delete(pthread_key_t key) {
-    if (!TlsFree(key)) {
-        return EINVAL;
-    }
-    return 0;
+inline int pthread_key_delete(pthread_key_t key) {
+  if (!TlsFree(key)) {
+    return EINVAL;
+  }
+  return 0;
 }
 
-inline
-int pthread_setspecific(pthread_key_t key, const void *value) {
-    if (!TlsSetValue(key, const_cast<void*>(value))) {
-        return ENOMEM;
-    }
-    return 0;
+inline int pthread_setspecific(pthread_key_t key, const void* value) {
+  if (!TlsSetValue(key, const_cast<void*>(value))) {
+    return ENOMEM;
+  }
+  return 0;
 }
 
-inline
-void* pthread_getspecific(pthread_key_t key) {
-    void* result = TlsGetValue(key);
-    if (!result) {
-        if (GetLastError() != ERROR_SUCCESS) {
-            errno = EINVAL;
-        } else {
-            errno = NOERROR;
-        }
+inline void* pthread_getspecific(pthread_key_t key) {
+  void* result = TlsGetValue(key);
+  if (!result) {
+    if (GetLastError() != ERROR_SUCCESS) {
+      errno = EINVAL;
+    } else {
+      errno = NOERROR;
     }
-    return result;
+  }
+  return result;
 }
 
 // UNIX equiv although errno numbers will be off
@@ -562,7 +555,7 @@ void* pthread_getspecific(pthread_key_t key) {
 // feel space with zeros in case the file is extended.
 int truncate(const char* path, int64_t length);
 
-} // namespace port
+}  // namespace port
 
 using port::pthread_key_t;
 using port::pthread_key_create;
@@ -571,6 +564,6 @@ using port::pthread_setspecific;
 using port::pthread_getspecific;
 using port::truncate;
 
-} // namespace rocksdb
+}  // namespace rocksdb
 
 #endif  // STORAGE_LEVELDB_PORT_PORT_POSIX_H_

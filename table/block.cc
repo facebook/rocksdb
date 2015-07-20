@@ -22,6 +22,7 @@
 #include "table/block_prefix_index.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -82,6 +83,7 @@ void BlockIter::Prev() {
 }
 
 void BlockIter::Seek(const Slice& target) {
+  PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
   }

@@ -67,27 +67,26 @@ inline bool GetSpatialIndexName(const std::string& column_family_name,
 
 void Variant::Init(const Variant& v, Data& d) {
   switch (v.type_) {
-  case kNull:
-    break;
-  case kBool:
-    d.b = v.data_.b;
-    break;
-  case kInt:
-    d.i = v.data_.i;
-    break;
-  case kDouble:
-    d.d = v.data_.d;
-    break;
-  case kString:
-    new (d.s) std::string(*GetStringPtr(v.data_));
-    break;
-  default:
-    assert(false);
+    case kNull:
+      break;
+    case kBool:
+      d.b = v.data_.b;
+      break;
+    case kInt:
+      d.i = v.data_.i;
+      break;
+    case kDouble:
+      d.d = v.data_.d;
+      break;
+    case kString:
+      new (d.s) std::string(*GetStringPtr(v.data_));
+      break;
+    default:
+      assert(false);
   }
 }
 
 Variant& Variant::operator=(const Variant& v) {
-
   // Construct first a temp so exception from a string ctor
   // does not change this object
   Data tmp;
@@ -104,7 +103,6 @@ Variant& Variant::operator=(const Variant& v) {
 }
 
 Variant& Variant::operator=(Variant&& rhs) {
-
   Destroy(type_, data_);
   if (rhs.type_ == kString) {
     new (data_.s) std::string(std::move(*GetStringPtr(rhs.data_)));
@@ -116,9 +114,7 @@ Variant& Variant::operator=(Variant&& rhs) {
   return *this;
 }
 
-
 bool Variant::operator==(const Variant& rhs) const {
-
   if (type_ != rhs.type_) {
     return false;
   }

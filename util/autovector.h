@@ -242,8 +242,7 @@ class autovector {
   void push_back(const T& item) {
     if (num_stack_items_ < kSize) {
       values_[num_stack_items_++] = item;
-    }
-    else {
+    } else {
       vect_.push_back(item);
     }
   }

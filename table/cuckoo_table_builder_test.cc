@@ -146,14 +146,13 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionFullKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1, 2, 3}},
-    {user_keys[1], {1, 2, 3, 4}},
-    {user_keys[2], {2, 3, 4, 5}},
-    {user_keys[3], {3, 4, 5, 6}}
-  };
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1, 2, 3}},
+      {user_keys[1], {1, 2, 3, 4}},
+      {user_keys[2], {2, 3, 4, 5}},
+      {user_keys[3], {3, 4, 5, 6}}};
   hash_map = std::move(hm);
 
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
@@ -190,13 +189,13 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionFullKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1, 2, 3}},
-    {user_keys[1], {0, 1, 2, 3}},
-    {user_keys[2], {0, 1, 2, 3}},
-    {user_keys[3], {0, 1, 2, 3}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1, 2, 3}},
+      {user_keys[1], {0, 1, 2, 3}},
+      {user_keys[2], {0, 1, 2, 3}},
+      {user_keys[3], {0, 1, 2, 3}},
   };
   hash_map = std::move(hm);
 
@@ -234,13 +233,13 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionAndCuckooBlock) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1, 2, 3}},
-    {user_keys[1], {0, 1, 2, 3}},
-    {user_keys[2], {0, 1, 2, 3}},
-    {user_keys[3], {0, 1, 2, 3}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1, 2, 3}},
+      {user_keys[1], {0, 1, 2, 3}},
+      {user_keys[2], {0, 1, 2, 3}},
+      {user_keys[3], {0, 1, 2, 3}},
   };
   hash_map = std::move(hm);
 
@@ -284,14 +283,14 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKey) {
   std::vector<std::string> user_keys = {"key01", "key02", "key03",
     "key04", "key05"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04", "v05"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1}},
-    {user_keys[1], {1, 2}},
-    {user_keys[2], {2, 3}},
-    {user_keys[3], {3, 4}},
-    {user_keys[4], {0, 2}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1}},
+      {user_keys[1], {1, 2}},
+      {user_keys[2], {2, 3}},
+      {user_keys[3], {3, 4}},
+      {user_keys[4], {0, 2}},
   };
   hash_map = std::move(hm);
 
@@ -330,14 +329,14 @@ TEST_F(CuckooBuilderTest, WithCollisionPathFullKeyAndCuckooBlock) {
   std::vector<std::string> user_keys = {"key01", "key02", "key03",
     "key04", "key05"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04", "v05"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1}},
-    {user_keys[1], {1, 2}},
-    {user_keys[2], {3, 4}},
-    {user_keys[3], {4, 5}},
-    {user_keys[4], {0, 3}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1}},
+      {user_keys[1], {1, 2}},
+      {user_keys[2], {3, 4}},
+      {user_keys[3], {4, 5}},
+      {user_keys[4], {0, 3}},
   };
   hash_map = std::move(hm);
 
@@ -375,14 +374,13 @@ TEST_F(CuckooBuilderTest, WriteSuccessNoCollisionUserKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1, 2, 3}},
-    {user_keys[1], {1, 2, 3, 4}},
-    {user_keys[2], {2, 3, 4, 5}},
-    {user_keys[3], {3, 4, 5, 6}}
-  };
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1, 2, 3}},
+      {user_keys[1], {1, 2, 3, 4}},
+      {user_keys[2], {2, 3, 4, 5}},
+      {user_keys[3], {3, 4, 5, 6}}};
   hash_map = std::move(hm);
 
   std::vector<uint64_t> expected_locations = {0, 1, 2, 3};
@@ -415,13 +413,13 @@ TEST_F(CuckooBuilderTest, WriteSuccessWithCollisionUserKey) {
   uint32_t num_hash_fun = 4;
   std::vector<std::string> user_keys = {"key01", "key02", "key03", "key04"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1, 2, 3}},
-    {user_keys[1], {0, 1, 2, 3}},
-    {user_keys[2], {0, 1, 2, 3}},
-    {user_keys[3], {0, 1, 2, 3}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1, 2, 3}},
+      {user_keys[1], {0, 1, 2, 3}},
+      {user_keys[2], {0, 1, 2, 3}},
+      {user_keys[3], {0, 1, 2, 3}},
   };
   hash_map = std::move(hm);
 
@@ -456,14 +454,14 @@ TEST_F(CuckooBuilderTest, WithCollisionPathUserKey) {
   std::vector<std::string> user_keys = {"key01", "key02", "key03",
     "key04", "key05"};
   std::vector<std::string> values = {"v01", "v02", "v03", "v04", "v05"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1}},
-    {user_keys[1], {1, 2}},
-    {user_keys[2], {2, 3}},
-    {user_keys[3], {3, 4}},
-    {user_keys[4], {0, 2}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1}},
+      {user_keys[1], {1, 2}},
+      {user_keys[2], {2, 3}},
+      {user_keys[3], {3, 4}},
+      {user_keys[4], {0, 2}},
   };
   hash_map = std::move(hm);
 
@@ -500,14 +498,14 @@ TEST_F(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
   uint32_t num_hash_fun = 2;
   std::vector<std::string> user_keys = {"key01", "key02", "key03",
     "key04", "key05"};
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm =
-  {
-    {user_keys[0], {0, 1}},
-    {user_keys[1], {1, 2}},
-    {user_keys[2], {2, 3}},
-    {user_keys[3], {3, 4}},
-    {user_keys[4], {0, 1}},
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {user_keys[0], {0, 1}},
+      {user_keys[1], {1, 2}},
+      {user_keys[2], {2, 3}},
+      {user_keys[3], {3, 4}},
+      {user_keys[4], {0, 1}},
   };
   hash_map = std::move(hm);
 
@@ -527,8 +525,10 @@ TEST_F(CuckooBuilderTest, FailWhenCollisionPathTooLong) {
 }
 
 TEST_F(CuckooBuilderTest, FailWhenSameKeyInserted) {
-  // Need to have a temporary variable here as VS compiler does not currently support operator= with initializer_list as a parameter
-  std::unordered_map<std::string, std::vector<uint64_t>> hm = { { "repeatedkey", { 0, 1, 2, 3 } } };
+  // Need to have a temporary variable here as VS compiler does not currently
+  // support operator= with initializer_list as a parameter
+  std::unordered_map<std::string, std::vector<uint64_t>> hm = {
+      {"repeatedkey", {0, 1, 2, 3}}};
   hash_map = std::move(hm);
   uint32_t num_hash_fun = 4;
   std::string user_key = "repeatedkey";

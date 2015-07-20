@@ -18,10 +18,7 @@ namespace {
 
 typedef std::map<std::string, std::string> KVMap;
 
-enum BatchOperation {
-  OP_PUT = 0,
-  OP_DELETE = 1
-};
+enum BatchOperation { OP_PUT = 0, OP_DELETE = 1 };
 }
 
 class SpecialTimeEnv : public EnvWrapper {

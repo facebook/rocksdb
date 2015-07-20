@@ -165,10 +165,9 @@ void VerifyInitializationOfCompactionJobStats(
 #endif  // !defined(IOS_CROSS_COMPILE)
 }
 
-void VerifyCompactionJobStats(
-    const CompactionJobStats& compaction_job_stats,
-    const std::vector<FileMetaData*>& files,
-    size_t num_output_files) {
+void VerifyCompactionJobStats(const CompactionJobStats& compaction_job_stats,
+                              const std::vector<FileMetaData*>& files,
+                              size_t num_output_files) {
   ASSERT_GE(compaction_job_stats.elapsed_micros, 0U);
   ASSERT_EQ(compaction_job_stats.num_input_files, files.size());
   ASSERT_EQ(compaction_job_stats.num_output_files, num_output_files);
@@ -219,9 +218,7 @@ TEST_F(CompactionJobTest, Simple) {
   ASSERT_OK(s);
   mutex_.Unlock();
 
-  VerifyCompactionJobStats(
-      compaction_job_stats,
-      files, 1);
+  VerifyCompactionJobStats(compaction_job_stats, files, 1);
 
   mock_table_factory_->AssertLatestFile(expected_results);
   ASSERT_EQ(yield_callback_called, 20000);

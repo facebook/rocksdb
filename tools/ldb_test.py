@@ -292,8 +292,8 @@ class LDBTestCase(unittest.TestCase):
                 "x1 : y1\nx2 : y2\nx3 : y3\nx4 : y4")
 
         # Dump and load with lots of extra params specified
-        extraParams = " ".join(["--bloom_bits=14", "--compression_type=bzip2",
-                                "--block_size=1024", "--auto_compaction=true",
+        extraParams = " ".join(["--bloom_bits=14", "--block_size=1024",
+                                "--auto_compaction=true",
                                 "--write_buffer_size=4194304",
                                 "--file_size=2097152"])
         dumpFilePath = os.path.join(self.TMP_DIR, "dump6")

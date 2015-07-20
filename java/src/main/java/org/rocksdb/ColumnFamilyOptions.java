@@ -469,6 +469,20 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions setMaxTableFilesSizeFIFO(
+      final long maxTableFilesSize) {
+    assert(maxTableFilesSize > 0); // unsigned native type
+    assert(isInitialized());
+    setMaxTableFilesSizeFIFO(nativeHandle_, maxTableFilesSize);
+    return this;
+  }
+
+  @Override
+  public long maxTableFilesSizeFIFO() {
+    return maxTableFilesSizeFIFO(nativeHandle_);
+  }
+
+  @Override
   public ColumnFamilyOptions setVerifyChecksumsInCompaction(
       final boolean verifyChecksumsInCompaction) {
     setVerifyChecksumsInCompaction(
@@ -740,6 +754,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native boolean disableAutoCompactions(long handle);
   private native void setCompactionStyle(long handle, byte compactionStyle);
   private native byte compactionStyle(long handle);
+   private native void setMaxTableFilesSizeFIFO(
+      long handle, long max_table_files_size);
+  private native long maxTableFilesSizeFIFO(long handle);
   private native void setPurgeRedundantKvsWhileFlush(
       long handle, boolean purgeRedundantKvsWhileFlush);
   private native boolean purgeRedundantKvsWhileFlush(long handle);

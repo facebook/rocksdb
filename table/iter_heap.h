@@ -5,36 +5,34 @@
 //
 
 #pragma once
-#include <queue>
 
 #include "rocksdb/comparator.h"
 #include "table/iterator_wrapper.h"
 
 namespace rocksdb {
 
-// Return the max of two keys.
+// When used with std::priority_queue, this comparison functor puts the
+// iterator with the max/largest key on top.
 class MaxIteratorComparator {
  public:
   MaxIteratorComparator(const Comparator* comparator) :
     comparator_(comparator) {}
 
-  bool operator()(IteratorWrapper* a, IteratorWrapper* b) {
-    return comparator_->Compare(a->key(), b->key()) <= 0;
+  bool operator()(IteratorWrapper* a, IteratorWrapper* b) const {
+    return comparator_->Compare(a->key(), b->key()) < 0;
   }
  private:
   const Comparator* comparator_;
 };
 
-// Return the max of two keys.
+// When used with std::priority_queue, this comparison functor puts the
+// iterator with the min/smallest key on top.
 class MinIteratorComparator {
  public:
-  // if maxHeap is set comparator returns the max value.
-  // else returns the min Value.
-  // Can use to create a minHeap or a maxHeap.
   MinIteratorComparator(const Comparator* comparator) :
     comparator_(comparator) {}
 
-  bool operator()(IteratorWrapper* a, IteratorWrapper* b) {
+  bool operator()(IteratorWrapper* a, IteratorWrapper* b) const {
     return comparator_->Compare(a->key(), b->key()) > 0;
   }
  private:

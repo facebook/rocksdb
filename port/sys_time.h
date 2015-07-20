@@ -7,7 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
-// This file is a portable substitute for sys/time.h which does not exist on Windows
+// This file is a portable substitute for sys/time.h which does not exist on
+// Windows
 
 #ifndef STORAGE_LEVELDB_PORT_SYS_TIME_H_
 #define STORAGE_LEVELDB_PORT_SYS_TIME_H_
@@ -22,18 +23,16 @@ namespace port {
 
 // Avoid including winsock2.h for this definition
 typedef struct timeval {
-    long tv_sec;
-    long tv_usec;
+  long tv_sec;
+  long tv_usec;
 } timeval;
 
 void gettimeofday(struct timeval* tv, struct timezone* tz);
 
-inline
-struct tm* localtime_r(const time_t *timep, struct tm *result) {
-    errno_t ret = localtime_s(result, timep);
-    return (ret == 0) ? result : NULL;
+inline struct tm* localtime_r(const time_t* timep, struct tm* result) {
+  errno_t ret = localtime_s(result, timep);
+  return (ret == 0) ? result : NULL;
 }
-
 }
 
 using port::timeval;
@@ -42,8 +41,8 @@ using port::localtime_r;
 }
 
 #else
-#  include <time.h>
-#  include <sys/time.h>
+#include <time.h>
+#include <sys/time.h>
 #endif
 
-#endif // STORAGE_LEVELDB_PORT_SYS_TIME_H_
+#endif  // STORAGE_LEVELDB_PORT_SYS_TIME_H_

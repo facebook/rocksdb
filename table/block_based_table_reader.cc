@@ -830,6 +830,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     return {rep_->filter.get(), nullptr /* cache handle */};
   }
 
+  PERF_TIMER_GUARD(read_filter_block_nanos);
+
   Cache* block_cache = rep_->table_options.block_cache.get();
   if (rep_->filter_policy == nullptr /* do not use filter */ ||
       block_cache == nullptr /* no block cache at all */) {
@@ -881,6 +883,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
     return rep_->index_reader->NewIterator(
         input_iter, read_options.total_order_seek);
   }
+  PERF_TIMER_GUARD(read_index_block_nanos);
 
   bool no_io = read_options.read_tier == kBlockCacheTier;
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -941,6 +944,8 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
 Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
     const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter) {
+  PERF_TIMER_GUARD(new_table_block_iter_nanos);
+
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =
