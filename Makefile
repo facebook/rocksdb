@@ -248,6 +248,7 @@ TESTS = \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
+	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
 	histogram_test \
@@ -772,6 +773,9 @@ rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+file_reader_writer_test: util/file_reader_writer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)

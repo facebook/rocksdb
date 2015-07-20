@@ -122,9 +122,26 @@ Status WritableFileWriter::Flush() {
   // TODO: give log file and sst file different options (log
   // files could be potentially cached in OS for their whole
   // life time, thus we might not want to flush at all).
-  if (bytes_per_sync_ && filesize_ - last_sync_size_ >= bytes_per_sync_) {
-    writable_file_->RangeSync(last_sync_size_, filesize_ - last_sync_size_);
-    last_sync_size_ = filesize_;
+
+  // We try to avoid sync to the last 1MB of data. For two reasons:
+  // (1) avoid rewrite the same page that is modified later.
+  // (2) for older version of OS, write can block while writing out
+  //     the page.
+  // Xfs does neighbor page flushing outside of the specified ranges. We
+  // need to make sure sync range is far from the write offset.
+  if (bytes_per_sync_) {
+    uint64_t kBytesNotSyncRange = 1024 * 1024;  // recent 1MB is not synced.
+    uint64_t kBytesAlignWhenSync = 4 * 1024;    // Align 4KB.
+    if (filesize_ > kBytesNotSyncRange) {
+      uint64_t offset_sync_to = filesize_ - kBytesNotSyncRange;
+      offset_sync_to -= offset_sync_to % kBytesAlignWhenSync;
+      assert(offset_sync_to >= last_sync_size_);
+      if (offset_sync_to > 0 &&
+          offset_sync_to - last_sync_size_ >= bytes_per_sync_) {
+        RangeSync(last_sync_size_, offset_sync_to - last_sync_size_);
+        last_sync_size_ = offset_sync_to;
+      }
+    }
   }
 
   return Status::OK();

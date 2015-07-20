@@ -306,6 +306,7 @@ set(TESTS
         util/env_test.cc
         util/event_logger_test.cc
         util/filelock_test.cc
+        util/file_reader_writer_test.cc
         util/histogram_test.cc
         util/manual_compaction_test.cc
         util/memenv_test.cc
