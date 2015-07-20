@@ -218,89 +218,87 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
-db_test \
-db_iter_test \
-db_log_iter_test \
-db_compaction_filter_test \
-db_dynamic_level_test \
-db_inplace_update_test \
-db_log_iter_test \
-db_tailing_iter_test \
-db_universal_compaction_test \
-block_hash_index_test \
-autovector_test \
-column_family_test \
-table_properties_collector_test \
-arena_test \
-auto_roll_logger_test \
-block_test \
-bloom_test \
-dynamic_bloom_test \
-c_test \
-cache_test \
-checkpoint_test \
-coding_test \
-corruption_test \
-crc32c_test \
-slice_transform_test \
-dbformat_test \
-env_test \
-fault_injection_test \
-filelock_test \
-filename_test \
-block_based_filter_block_test \
-full_filter_block_test \
-histogram_test \
-log_test \
-manual_compaction_test \
-memenv_test \
-mock_env_test \
-memtable_list_test \
-merge_helper_test \
-merge_test \
-merger_test \
-redis_test \
-reduce_levels_test \
-plain_table_db_test \
-comparator_db_test \
-prefix_test \
-skiplist_test \
-stringappend_test \
-ttl_test \
-backupable_db_test \
-document_db_test \
-json_document_test \
-spatial_db_test \
-version_edit_test \
-version_set_test \
-compaction_picker_test \
-version_builder_test \
-file_indexer_test \
-write_batch_test \
-write_batch_with_index_test \
-write_controller_test\
-deletefile_test \
-table_test \
-thread_local_test \
-geodb_test \
-rate_limiter_test \
-options_test \
-event_logger_test \
-cuckoo_table_builder_test \
-cuckoo_table_reader_test \
-cuckoo_table_db_test \
-flush_job_test \
-wal_manager_test \
-listener_test \
-compaction_job_test \
-thread_list_test \
-sst_dump_test \
-compact_files_test \
-perf_context_test \
-optimistic_transaction_test \
-write_callback_test \
-compaction_job_stats_test \
-heap_test
+	db_test \
+	db_iter_test \
+	db_log_iter_test \
+	db_compaction_filter_test \
+	db_dynamic_level_test \
+	db_tailing_iter_test \
+	db_universal_compaction_test \
+	block_hash_index_test \
+	autovector_test \
+	column_family_test \
+	table_properties_collector_test \
+	arena_test \
+	auto_roll_logger_test \
+	block_test \
+	bloom_test \
+	dynamic_bloom_test \
+	c_test \
+	cache_test \
+	checkpoint_test \
+	coding_test \
+	corruption_test \
+	crc32c_test \
+	slice_transform_test \
+	dbformat_test \
+	env_test \
+	fault_injection_test \
+	filelock_test \
+	filename_test \
+	block_based_filter_block_test \
+	full_filter_block_test \
+	histogram_test \
+	log_test \
+	manual_compaction_test \
+	memenv_test \
+	mock_env_test \
+	memtable_list_test \
+	merge_helper_test \
+	merge_test \
+	merger_test \
+	redis_test \
+	reduce_levels_test \
+	plain_table_db_test \
+	comparator_db_test \
+	prefix_test \
+	skiplist_test \
+	stringappend_test \
+	ttl_test \
+	backupable_db_test \
+	document_db_test \
+	json_document_test \
+	spatial_db_test \
+	version_edit_test \
+	version_set_test \
+	compaction_picker_test \
+	version_builder_test \
+	file_indexer_test \
+	write_batch_test \
+	write_batch_with_index_test \
+	write_controller_test\
+	deletefile_test \
+	table_test \
+	thread_local_test \
+	geodb_test \
+	rate_limiter_test \
+	options_test \
+	event_logger_test \
+	cuckoo_table_builder_test \
+	cuckoo_table_reader_test \
+	cuckoo_table_db_test \
+	flush_job_test \
+	wal_manager_test \
+	listener_test \
+	compaction_job_test \
+	thread_list_test \
+	sst_dump_test \
+	compact_files_test \
+	perf_context_test \
+	optimistic_transaction_test \
+	write_callback_test \
+	compaction_job_stats_test \
+	heap_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -684,16 +682,13 @@ $(AM_LINK)
 db_test: db/db_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 $(AM_LINK)
 
-db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-$(AM_LINK)
-
-db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-$(AM_LINK)
-
-db_inplace_update_test: db/db_inplace_update_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
-db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_tailing_iter_test: db/db_tailing_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
