@@ -688,8 +688,8 @@ TEST_P(DBTestUniversalManualCompactionOutputPathId,
   CreateAndReopenWithCF({"pikachu"}, options);
   MakeTables(3, "p", "q", 1);
   dbfull()->TEST_WaitForCompact();
-  ASSERT_EQ(3, TotalLiveFiles(1));
-  ASSERT_EQ(3, GetSstFileCount(options.db_paths[0].path));
+  ASSERT_EQ(2, TotalLiveFiles(1));
+  ASSERT_EQ(2, GetSstFileCount(options.db_paths[0].path));
   ASSERT_EQ(0, GetSstFileCount(options.db_paths[1].path));
 
   // Full compaction to DB path 0
