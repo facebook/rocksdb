@@ -252,6 +252,8 @@ TEST_F(MockEnvTest, DBTest) {
   ASSERT_TRUE(!iterator->Valid());
   delete iterator;
 
+  // TEST_FlushMemTable() is not supported in ROCKSDB_LITE
+  #ifndef ROCKSDB_LITE
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db);
   ASSERT_OK(dbi->TEST_FlushMemTable());
 
@@ -260,6 +262,7 @@ TEST_F(MockEnvTest, DBTest) {
     ASSERT_OK(db->Get(ReadOptions(), keys[i], &res));
     ASSERT_TRUE(res == vals[i]);
   }
+  #endif  // ROCKSDB_LITE
 
   delete db;
 }
