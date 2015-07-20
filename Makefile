@@ -15,10 +15,10 @@ ARFLAGS = rs
 
 # Transform parallel LOG output into something more readable.
 perl_command = perl -n \
-  -e '@a=split("\t",$$_,-1); $$t=$$a[8]; $$t =~ s,^\./,,;'		\
-  -e '$$t =~ s, >.*,,; chomp $$t;'					\
-  -e '$$t =~ /.*--gtest_filter=(.*?\.[\w\/]+)/ and $$t=$$1;'		\
-  -e 'printf "%7.3f %s %s\n", $$a[3], $$a[6] == 0 ? "PASS" : "FAIL", $$t'
+-e '@a=split("\t",$$_,-1); $$t=$$a[8]; $$t =~ s,^\./,,;'		\
+-e '$$t =~ s, >.*,,; chomp $$t;'					\
+-e '$$t =~ /.*--gtest_filter=(.*?\.[\w\/]+)/ and $$t=$$1;'		\
+-e 'printf "%7.3f %s %s\n", $$a[3], $$a[6] == 0 ? "PASS" : "FAIL", $$t'
 quoted_perl_command = $(subst ','\'',$(perl_command))
 
 # DEBUG_LEVEL can have three values:
@@ -36,31 +36,31 @@ quoted_perl_command = $(subst ','\'',$(perl_command))
 DEBUG_LEVEL=1
 
 ifeq ($(MAKECMDGOALS),dbg)
-	DEBUG_LEVEL=2
+DEBUG_LEVEL=2
 endif
 
 ifeq ($(MAKECMDGOALS),shared_lib)
-	DEBUG_LEVEL=0
+DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),install-shared)
-	DEBUG_LEVEL=0
+DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),static_lib)
-	DEBUG_LEVEL=0
+DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),install-static)
-	DEBUG_LEVEL=0
+DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),install)
-	DEBUG_LEVEL=0
+DEBUG_LEVEL=0
 endif
 
 ifeq ($(MAKECMDGOALS),rocksdbjavastatic)
-	DEBUG_LEVEL=0
+DEBUG_LEVEL=0
 endif
 
 # compile with -O2 if debug level is not 2
@@ -124,36 +124,36 @@ OPT += -DNDEBUG
 endif
 
 ifneq ($(filter -DROCKSDB_LITE,$(OPT)),)
-	# found
-	CFLAGS += -fno-exceptions
-	CXXFLAGS += -fno-exceptions
+# found
+CFLAGS += -fno-exceptions
+CXXFLAGS += -fno-exceptions
 endif
 
 # ASAN doesn't work well with jemalloc. If we're compiling with ASAN, we should use regular malloc.
 ifdef COMPILE_WITH_ASAN
-	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=address
-	PLATFORM_CCFLAGS += -fsanitize=address
-	PLATFORM_CXXFLAGS += -fsanitize=address
+DISABLE_JEMALLOC=1
+EXEC_LDFLAGS += -fsanitize=address
+PLATFORM_CCFLAGS += -fsanitize=address
+PLATFORM_CXXFLAGS += -fsanitize=address
 endif
 
 # TSAN doesn't work well with jemalloc. If we're compiling with TSAN, we should use regular malloc.
 ifdef COMPILE_WITH_TSAN
-	DISABLE_JEMALLOC=1
-	EXEC_LDFLAGS += -fsanitize=thread -pie
-	PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
-	PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
-        # Turn off -pg when enabling TSAN testing, because that induces
-        # a link failure.  TODO: find the root cause
-	pg =
+DISABLE_JEMALLOC=1
+EXEC_LDFLAGS += -fsanitize=thread -pie
+PLATFORM_CCFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
+PLATFORM_CXXFLAGS += -fsanitize=thread -fPIC -DROCKSDB_TSAN_RUN
+      # Turn off -pg when enabling TSAN testing, because that induces
+      # a link failure.  TODO: find the root cause
+pg =
 else
-	pg = -pg
+pg = -pg
 endif
 
 ifndef DISABLE_JEMALLOC
-	EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
-	PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
-	PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
+EXEC_LDFLAGS := $(JEMALLOC_LIB) $(EXEC_LDFLAGS)
+PLATFORM_CXXFLAGS += $(JEMALLOC_INCLUDE)
+PLATFORM_CCFLAGS += $(JEMALLOC_INCLUDE)
 endif
 
 export GTEST_THROW_ON_FAILURE=1 GTEST_HAS_EXCEPTIONS=1
@@ -165,10 +165,10 @@ PLATFORM_CXXFLAGS += -isystem $(GTEST_DIR)
 default: all
 
 WARNING_FLAGS = -W -Wextra -Wall -Wsign-compare -Wshadow \
-  -Wno-unused-parameter
+-Wno-unused-parameter
 
 ifndef DISABLE_WARNING_AS_ERROR
-	WARNING_FLAGS += -Werror
+WARNING_FLAGS += -Werror
 endif
 
 CFLAGS += $(WARNING_FLAGS) -I. -I./include $(PLATFORM_CCFLAGS) $(OPT)
@@ -178,18 +178,18 @@ LDFLAGS += $(PLATFORM_LDFLAGS)
 
 date := $(shell date +%F)
 ifdef FORCE_GIT_SHA
-	git_sha := $(FORCE_GIT_SHA)
+git_sha := $(FORCE_GIT_SHA)
 else
-	git_sha := $(shell git rev-parse HEAD 2>/dev/null)
+git_sha := $(shell git rev-parse HEAD 2>/dev/null)
 endif
 gen_build_version =							\
-  printf '%s\n'								\
-    '\#include "build_version.h"'					\
-    'const char* rocksdb_build_git_sha =				\
-      "rocksdb_build_git_sha:$(git_sha)";'			\
-    'const char* rocksdb_build_git_date =				\
-      "rocksdb_build_git_date:$(date)";'				\
-    'const char* rocksdb_build_compile_date = __DATE__;'
+printf '%s\n'								\
+  '\#include "build_version.h"'					\
+  'const char* rocksdb_build_git_sha =				\
+    "rocksdb_build_git_sha:$(git_sha)";'			\
+  'const char* rocksdb_build_git_date =				\
+    "rocksdb_build_git_date:$(date)";'				\
+  'const char* rocksdb_build_compile_date = __DATE__;'
 
 # Record the version of the source that we are compiling.
 # We keep a record of the git revision in this file.  It is then built
@@ -199,11 +199,11 @@ gen_build_version =							\
 CLEAN_FILES += util/build_version.cc:
 FORCE:
 util/build_version.cc: FORCE
-	$(AM_V_GEN)rm -f $@-t
-	$(AM_V_at)$(gen_build_version) > $@-t
-	$(AM_V_at)if test -f $@; then					\
-	  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
-	else mv -f $@-t $@; fi
+$(AM_V_GEN)rm -f $@-t
+$(AM_V_at)$(gen_build_version) > $@-t
+$(AM_V_at)if test -f $@; then					\
+  cmp -s $@-t $@ && rm -f $@-t || mv -f $@-t $@;		\
+else mv -f $@-t $@; fi
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
@@ -218,106 +218,107 @@ VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
 
 TESTS = \
-	db_test \
-	db_iter_test \
-	db_log_iter_test \
-	db_compaction_filter_test \
-	db_dynamic_level_test \
-	db_log_iter_test \
-	db_tailing_iter_test \
-	db_universal_compaction_test \
-	block_hash_index_test \
-	autovector_test \
-	column_family_test \
-	table_properties_collector_test \
-	arena_test \
-	auto_roll_logger_test \
-	block_test \
-	bloom_test \
-	dynamic_bloom_test \
-	c_test \
-	cache_test \
-	checkpoint_test \
-	coding_test \
-	corruption_test \
-	crc32c_test \
-	slice_transform_test \
-	dbformat_test \
-	env_test \
-	fault_injection_test \
-	filelock_test \
-	filename_test \
-	block_based_filter_block_test \
-	full_filter_block_test \
-	histogram_test \
-	log_test \
-	manual_compaction_test \
-	memenv_test \
-	mock_env_test \
-	memtable_list_test \
-	merge_helper_test \
-	merge_test \
-	merger_test \
-	redis_test \
-	reduce_levels_test \
-	plain_table_db_test \
-	comparator_db_test \
-	prefix_test \
-	skiplist_test \
-	stringappend_test \
-	ttl_test \
-	backupable_db_test \
-	document_db_test \
-	json_document_test \
-	spatial_db_test \
-	version_edit_test \
-	version_set_test \
-	compaction_picker_test \
-	version_builder_test \
-	file_indexer_test \
-	write_batch_test \
-	write_batch_with_index_test \
-	write_controller_test\
-	deletefile_test \
-	table_test \
-	thread_local_test \
-	geodb_test \
-	rate_limiter_test \
-	options_test \
-	event_logger_test \
-	cuckoo_table_builder_test \
-	cuckoo_table_reader_test \
-	cuckoo_table_db_test \
-	flush_job_test \
-	wal_manager_test \
-	listener_test \
-	compaction_job_test \
-	thread_list_test \
-	sst_dump_test \
-	compact_files_test \
-	perf_context_test \
-	optimistic_transaction_test \
-	write_callback_test \
-	compaction_job_stats_test \
-	heap_test
+db_test \
+db_iter_test \
+db_log_iter_test \
+db_compaction_filter_test \
+db_dynamic_level_test \
+db_inplace_update_test \
+db_log_iter_test \
+db_tailing_iter_test \
+db_universal_compaction_test \
+block_hash_index_test \
+autovector_test \
+column_family_test \
+table_properties_collector_test \
+arena_test \
+auto_roll_logger_test \
+block_test \
+bloom_test \
+dynamic_bloom_test \
+c_test \
+cache_test \
+checkpoint_test \
+coding_test \
+corruption_test \
+crc32c_test \
+slice_transform_test \
+dbformat_test \
+env_test \
+fault_injection_test \
+filelock_test \
+filename_test \
+block_based_filter_block_test \
+full_filter_block_test \
+histogram_test \
+log_test \
+manual_compaction_test \
+memenv_test \
+mock_env_test \
+memtable_list_test \
+merge_helper_test \
+merge_test \
+merger_test \
+redis_test \
+reduce_levels_test \
+plain_table_db_test \
+comparator_db_test \
+prefix_test \
+skiplist_test \
+stringappend_test \
+ttl_test \
+backupable_db_test \
+document_db_test \
+json_document_test \
+spatial_db_test \
+version_edit_test \
+version_set_test \
+compaction_picker_test \
+version_builder_test \
+file_indexer_test \
+write_batch_test \
+write_batch_with_index_test \
+write_controller_test\
+deletefile_test \
+table_test \
+thread_local_test \
+geodb_test \
+rate_limiter_test \
+options_test \
+event_logger_test \
+cuckoo_table_builder_test \
+cuckoo_table_reader_test \
+cuckoo_table_db_test \
+flush_job_test \
+wal_manager_test \
+listener_test \
+compaction_job_test \
+thread_list_test \
+sst_dump_test \
+compact_files_test \
+perf_context_test \
+optimistic_transaction_test \
+write_callback_test \
+compaction_job_stats_test \
+heap_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
 TOOLS = \
-	sst_dump \
-	db_sanity_test \
-	db_stress \
-	ldb \
-	db_repl_stress \
-	rocksdb_dump \
-	rocksdb_undump
+sst_dump \
+db_sanity_test \
+db_stress \
+ldb \
+db_repl_stress \
+rocksdb_dump \
+rocksdb_undump
 
 BENCHMARKS = db_bench table_reader_bench cache_bench memtablerep_bench
 
 # The library name is configurable since we are maintaining libraries of both
 # debug/release mode.
 ifeq ($(LIBNAME),)
-        LIBNAME=librocksdb
+      LIBNAME=librocksdb
 endif
 LIBRARY = ${LIBNAME}.a
 
@@ -348,23 +349,23 @@ SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
 SHARED4 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR).$(SHARED_PATCH)
 SHARED = $(SHARED1) $(SHARED2) $(SHARED3) $(SHARED4)
 $(SHARED1): $(SHARED4)
-	ln -fs $(SHARED4) $(SHARED1)
+ln -fs $(SHARED4) $(SHARED1)
 $(SHARED2): $(SHARED4)
-	ln -fs $(SHARED4) $(SHARED2)
+ln -fs $(SHARED4) $(SHARED2)
 $(SHARED3): $(SHARED4)
-	ln -fs $(SHARED4) $(SHARED3)
+ln -fs $(SHARED4) $(SHARED3)
 endif
 
 $(SHARED4):
-	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) \
-		$(LDFLAGS) -o $@
+$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) \
+  $(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
-	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
-	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze
+release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
+dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
+analyze
 
 all: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 
@@ -376,15 +377,15 @@ dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
 
 # creates static library and programs
 release:
-	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
+$(MAKE) clean
+OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
 
 coverage:
-	$(MAKE) clean
-	COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
-	cd coverage && ./coverage_test.sh
-        # Delete intermediate files
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+$(MAKE) clean
+COVERAGEFLAGS="-fprofile-arcs -ftest-coverage" LDFLAGS+="-lgcov" $(MAKE) J=1 all check
+cd coverage && ./coverage_test.sh
+      # Delete intermediate files
+find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
 
 # Extract the names of its tests by running db_test with --gtest_list_tests.
 # This filter removes the "#"-introduced comments, and expands to
@@ -405,11 +406,11 @@ coverage:
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/1
 #
 test_names = \
-  ./db_test --gtest_list_tests						\
-    | perl -n								\
-      -e 's/ *\#.*//;'							\
-      -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
-      -e 'print qq! $$p$$2!'
+./db_test --gtest_list_tests						\
+  | perl -n								\
+    -e 's/ *\#.*//;'							\
+    -e '/^(\s*)(\S+)/; !$$1 and do {$$p=$$2; break};'			\
+    -e 'print qq! $$p$$2!'
 
 ifeq ($(MAKECMDGOALS),check)
 # Use /dev/shm if it has the sticky bit set (otherwise, /tmp),
@@ -417,8 +418,8 @@ ifeq ($(MAKECMDGOALS),check)
 # We'll use that directory in the "make check" rules.
 ifeq ($(TMPD),)
 TMPD := $(shell f=/dev/shm; test -k $$f || f=/tmp;			\
-  perl -le 'use File::Temp "tempdir";'					\
-    -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
+perl -le 'use File::Temp "tempdir";'					\
+  -e 'print tempdir("'$$f'/rocksdb.XXXX", CLEANUP => 0)')
 endif
 endif
 
@@ -440,16 +441,16 @@ t_run = $(patsubst %,t/%,$(t_sanitized))
 # tests run).
 filter = --gtest_filter=$(subst -,/,$(@F))
 $(t_run): Makefile db_test
-	$(AM_V_GEN)mkdir -p t
-	$(AM_V_at)rm -f $@ $@-t
-	$(AM_V_at)printf '%s\n'						\
-	    '#!/bin/sh'							\
-	    'd=$(TMPD)/$(@F)'						\
-	    'mkdir -p $$d'						\
-	    'TEST_TMPDIR=$$d ./db_test $(filter)'			\
-	  > $@-t
-	$(AM_V_at)chmod a=rx $@-t
-	$(AM_V_at)mv $@-t $@
+$(AM_V_GEN)mkdir -p t
+$(AM_V_at)rm -f $@ $@-t
+$(AM_V_at)printf '%s\n'						\
+    '#!/bin/sh'							\
+    'd=$(TMPD)/$(@F)'						\
+    'mkdir -p $$d'						\
+    'TEST_TMPDIR=$$d ./db_test $(filter)'			\
+  > $@-t
+$(AM_V_at)chmod a=rx $@-t
+$(AM_V_at)mv $@-t $@
 
 # Reorder input lines (which are one per test) so that the
 # longest-running tests appear first in the output.
@@ -468,11 +469,11 @@ $(t_run): Makefile db_test
 # 107.816 PASS t/DBTest.EncodeDecompressedBlockSizeTest
 #
 slow_test_regexp = \
-  ^t/DBTest\.(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
+^t/DBTest\.(?:FileCreationRandomFailure|EncodeDecompressedBlockSizeTest)$$
 prioritize_long_running_tests =						\
-  perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
-    | sort -k1,1gr							\
-    | sed 's/^[.0-9]* //'
+perl -pe 's,($(slow_test_regexp)),100 $$1,'				\
+  | sort -k1,1gr							\
+  | sed 's/^[.0-9]* //'
 
 # "make check" uses
 # Run with "make J=1 check" to disable parallelism in "make check".
@@ -486,18 +487,18 @@ tests-regexp = .
 
 .PHONY: check_0
 check_0: $(t_run)
-	$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
-	printf '%s\n' ''						\
-	  'To monitor subtest <duration,pass/fail,name>,'		\
-	  '  run "make watch-log" in a separate window' '';		\
-	test -t 1 && eta=--eta || eta=;					\
-	{								\
-	  printf './%s\n' $(filter-out db_test, $(TESTS));		\
-	  printf '%s\n' $(t_run);					\
-	}								\
-	  | $(prioritize_long_running_tests)				\
-	  | grep -E '$(tests-regexp)'					\
-	  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
+$(AM_V_GEN)export TEST_TMPDIR=$(TMPD);				\
+printf '%s\n' ''						\
+  'To monitor subtest <duration,pass/fail,name>,'		\
+  '  run "make watch-log" in a separate window' '';		\
+test -t 1 && eta=--eta || eta=;					\
+{								\
+  printf './%s\n' $(filter-out db_test, $(TESTS));		\
+  printf '%s\n' $(t_run);					\
+}								\
+  | $(prioritize_long_running_tests)				\
+  | grep -E '$(tests-regexp)'					\
+  | parallel -j$(J) --joblog=LOG $$eta --gnu '{} >& t/log-{/}'
 endif
 
 CLEAN_FILES += t LOG $(TMPD)
@@ -510,183 +511,186 @@ CLEAN_FILES += t LOG $(TMPD)
 # regardless of their duration. As with any use of "watch", hit ^C to
 # interrupt.
 watch-log:
-	watch --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
+watch --interval=0 'sort -k7,7nr -k4,4gr LOG|$(quoted_perl_command)'
 
 # If J != 1 and GNU parallel is installed, run the tests in parallel,
 # via the check_0 rule above.  Otherwise, run them sequentially.
 check: all
-	$(AM_V_GEN)if test "$(J)" != 1                                  \
-	    && (parallel --gnu --help 2>/dev/null) |                    \
-	        grep -q 'GNU Parallel';                                 \
-	then                                                            \
-	    t=$$($(test_names));                                        \
-	    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
-	else                                                            \
-	    for t in $(TESTS); do                                       \
-	      echo "===== Running $$t"; ./$$t || exit 1; done;          \
-	fi
-	rm -rf $(TMPD)
-	python tools/ldb_test.py
-	sh tools/rocksdb_dump_test.sh
+$(AM_V_GEN)if test "$(J)" != 1                                  \
+    && (parallel --gnu --help 2>/dev/null) |                    \
+        grep -q 'GNU Parallel';                                 \
+then                                                            \
+    t=$$($(test_names));                                        \
+    $(MAKE) T="$$t" TMPD=$(TMPD) check_0;                       \
+else                                                            \
+    for t in $(TESTS); do                                       \
+      echo "===== Running $$t"; ./$$t || exit 1; done;          \
+fi
+rm -rf $(TMPD)
+python tools/ldb_test.py
+sh tools/rocksdb_dump_test.sh
 
 check_some: $(SUBSET) ldb_tests
-	for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
+for t in $(SUBSET); do echo "===== Running $$t"; ./$$t || exit 1; done
 
 .PHONY: ldb_tests
 ldb_tests: ldb
-	python tools/ldb_test.py
+python tools/ldb_test.py
 
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
-	python -u tools/db_crashtest.py
+python -u tools/db_crashtest.py
 
 whitebox_crash_test: db_stress
-	python -u tools/db_crashtest2.py
+python -u tools/db_crashtest2.py
 
 asan_check:
-	$(MAKE) clean
-	COMPILE_WITH_ASAN=1 $(MAKE) check -j32
-	$(MAKE) clean
+$(MAKE) clean
+COMPILE_WITH_ASAN=1 $(MAKE) check -j32
+$(MAKE) clean
 
 asan_crash_test:
-	$(MAKE) clean
-	COMPILE_WITH_ASAN=1 $(MAKE) crash_test
-	$(MAKE) clean
+$(MAKE) clean
+COMPILE_WITH_ASAN=1 $(MAKE) crash_test
+$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	mkdir -p $(VALGRIND_DIR)
-	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
-	echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
-	for t in $(filter-out skiplist_test,$(TESTS)); do \
-		stime=`date '+%s'`; \
-		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
-		if [ $$? -eq $(VALGRIND_ERROR) ] ; then \
-			echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
-		fi; \
-		etime=`date '+%s'`; \
-		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
-	done
+mkdir -p $(VALGRIND_DIR)
+echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
+echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
+for t in $(filter-out skiplist_test,$(TESTS)); do \
+  stime=`date '+%s'`; \
+  $(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
+  if [ $$? -eq $(VALGRIND_ERROR) ] ; then \
+    echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
+  fi; \
+  etime=`date '+%s'`; \
+  echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
+done
 
 analyze: clean
-	$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
-		--use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
-		-o $(CURDIR)/scan_build_report \
-		$(MAKE) dbg
+$(CLANG_SCAN_BUILD) --use-analyzer=$(CLANG_ANALYZER) \
+  --use-c++=$(CXX) --use-cc=$(CC) --status-bugs \
+  -o $(CURDIR)/scan_build_report \
+  $(MAKE) dbg
 
 CLEAN_FILES += unity.cc
 unity.cc: Makefile
-	rm -f $@ $@-t
-	for source_file in $(LIB_SOURCES); do \
-		echo "#include <$$source_file>" >> $@-t; \
-	done
-	echo 'int main(int argc, char** argv){ return 0; }' >> $@-t
-	chmod a=r $@-t
-	mv $@-t $@
+rm -f $@ $@-t
+for source_file in $(LIB_SOURCES); do \
+  echo "#include <$$source_file>" >> $@-t; \
+done
+echo 'int main(int argc, char** argv){ return 0; }' >> $@-t
+chmod a=r $@-t
+mv $@-t $@
 
 unity: unity.o
-	$(AM_LINK)
+$(AM_LINK)
 
 clean:
-	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED)
-	rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
-	find . -name "*.[oda]" -exec rm -f {} \;
-	find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
-	rm -rf bzip2* snappy* zlib* lz4*
+rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED)
+rm -rf $(CLEAN_FILES) ios-x86 ios-arm scan_build_report
+find . -name "*.[oda]" -exec rm -f {} \;
+find . -type f -regex ".*\.\(\(gcda\)\|\(gcno\)\)" -exec rm {} \;
+rm -rf bzip2* snappy* zlib* lz4*
 
 tags:
-	ctags * -R
-	cscope -b `find . -name '*.cc'` `find . -name '*.h'`
+ctags * -R
+cscope -b `find . -name '*.cc'` `find . -name '*.h'`
 
 format:
-	build_tools/format-diff.sh
+build_tools/format-diff.sh
 
 package:
-	bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
+bash build_tools/make_package.sh $(SHARED_MAJOR).$(SHARED_MINOR)
 
 # ---------------------------------------------------------------------------
 # 	Unit tests and tools
 # ---------------------------------------------------------------------------
 $(LIBRARY): $(LIBOBJECTS)
-	$(AM_V_AR)rm -f $@
-	$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
+$(AM_V_AR)rm -f $@
+$(AM_V_at)$(AR) $(ARFLAGS) $@ $(LIBOBJECTS)
 
 db_bench: db/db_bench.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
+$(AM_LINK)
 
 cache_bench: util/cache_bench.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
+$(AM_LINK)
 
 memtablerep_bench: db/memtablerep_bench.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
+$(AM_LINK)
 
 block_hash_index_test: table/block_hash_index_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 db_stress: tools/db_stress.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
+$(AM_LINK)
 
 db_sanity_test: tools/db_sanity_test.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
+$(AM_LINK)
 
 db_repl_stress: tools/db_repl_stress.o $(LIBOBJECTS) $(TESTUTIL)
-	$(AM_LINK)
+$(AM_LINK)
 
 arena_test: util/arena_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 autovector_test: util/autovector_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 column_family_test: db/column_family_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 table_properties_collector_test: db/table_properties_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 bloom_test: util/bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 dynamic_bloom_test: util/dynamic_bloom_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 c_test: db/c_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 cache_test: util/cache_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 coding_test: util/coding_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 stringappend_test: utilities/merge_operators/string_append/stringappend_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 redis_test: utilities/redis/redis_lists_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 histogram_test: util/histogram_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 thread_local_test: util/thread_local_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 corruption_test: db/corruption_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 crc32c_test: util/crc32c_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 slice_transform_test: util/slice_transform_test.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 db_test: db/db_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
-	$(AM_LINK)
+$(AM_LINK)
 
 db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+$(AM_LINK)
+
+db_inplace_update_test: db/db_inplace_update_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
