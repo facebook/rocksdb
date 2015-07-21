@@ -222,6 +222,7 @@ TESTS = \
 	db_iter_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
+	db_compaction_test \
 	db_dynamic_level_test \
 	db_inplace_update_test \
 	db_tailing_iter_test \
@@ -687,6 +688,9 @@ db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TEST
 	$(AM_LINK)
 
 db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_compaction_test: db/db_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
