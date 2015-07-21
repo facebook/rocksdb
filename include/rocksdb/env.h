@@ -156,8 +156,12 @@ class Env {
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) = 0;
 
-  // Returns true iff the named file exists.
-  virtual bool FileExists(const std::string& fname) = 0;
+  // Returns OK if the named file exists.
+  //         NotFound if the named file does not exist,
+  //                  the calling process does not have permission to determine
+  //                  whether this file exists, or if the path is invalid.
+  //         IOError if an IO Error was encountered
+  virtual Status FileExists(const std::string& fname) = 0;
 
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
@@ -764,7 +768,7 @@ class EnvWrapper : public Env {
                               unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
-  bool FileExists(const std::string& f) override {
+  Status FileExists(const std::string& f) override {
     return target_->FileExists(f);
   }
   Status GetChildren(const std::string& dir,

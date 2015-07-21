@@ -522,7 +522,8 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
       "WARNING: Not compiled with DNDEBUG. Performance tests may be slow.\n");
 #endif
   for (uint64_t num : nums) {
-    if (FLAGS_write || !Env::Default()->FileExists(GetFileName(num))) {
+    if (FLAGS_write ||
+        Env::Default()->FileExists(GetFileName(num)).IsNotFound()) {
       std::vector<std::string> all_keys;
       GetKeys(num, &all_keys);
       WriteFile(all_keys, num, hash_ratio);

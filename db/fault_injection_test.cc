@@ -191,10 +191,14 @@ class FaultInjectionTestEnv : public EnvWrapper {
       return Status::Corruption("Not Active");
     }
     // Not allow overwriting files
-    if (target()->FileExists(fname)) {
+    Status s = target()->FileExists(fname);
+    if (s.ok()) {
       return Status::Corruption("File already exists.");
+    } else if (!s.IsNotFound()) {
+      assert(s.IsIOError());
+      return s;
     }
-    Status s = target()->NewWritableFile(fname, result, soptions);
+    s = target()->NewWritableFile(fname, result, soptions);
     if (s.ok()) {
       result->reset(new TestWritableFile(fname, std::move(*result), this));
       // WritableFileWriter* file is opened

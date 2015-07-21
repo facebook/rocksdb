@@ -59,11 +59,15 @@ Status WalManager::GetSortedWalFiles(VectorLogPtr& files) {
   files.clear();
   // list wal files in archive dir.
   std::string archivedir = ArchivalDirectory(db_options_.wal_dir);
-  if (env_->FileExists(archivedir)) {
+  Status exists = env_->FileExists(archivedir);
+  if (exists.ok()) {
     s = GetSortedWalsOfType(archivedir, files, kArchivedLogFile);
     if (!s.ok()) {
       return s;
     }
+  } else if (!exists.IsNotFound()) {
+    assert(s.IsIOError());
+    return s;
   }
 
   uint64_t latest_archived_log_number = 0;
@@ -313,9 +317,9 @@ Status WalManager::GetSortedWalsOfType(const std::string& path,
       // re-try in case the alive log file has been moved to archive.
       std::string archived_file = ArchivedLogFileName(path, number);
       if (!s.ok() && log_type == kAliveLogFile &&
-          env_->FileExists(archived_file)) {
+          env_->FileExists(archived_file).ok()) {
         s = env_->GetFileSize(archived_file, &size_bytes);
-        if (!s.ok() && !env_->FileExists(archived_file)) {
+        if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
           // oops, the file just got deleted from archived dir! move on
           s = Status::OK();
           continue;
@@ -380,7 +384,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
   if (type == kAliveLogFile) {
     std::string fname = LogFileName(db_options_.wal_dir, number);
     s = ReadFirstLine(fname, sequence);
-    if (env_->FileExists(fname) && !s.ok()) {
+    if (env_->FileExists(fname).ok() && !s.ok()) {
       // return any error that is not caused by non-existing file
       return s;
     }
@@ -394,7 +398,7 @@ Status WalManager::ReadFirstRecord(const WalFileType type,
     // maybe the file was deleted from archive dir. If that's the case, return
     // Status::OK(). The caller with identify this as empty file because
     // *sequence == 0
-    if (!s.ok() && !env_->FileExists(archived_file)) {
+    if (!s.ok() && env_->FileExists(archived_file).IsNotFound()) {
       return Status::OK();
     }
   }

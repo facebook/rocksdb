@@ -1663,10 +1663,11 @@ class WinEnv : public Env {
     return s;
   }
 
-  virtual bool FileExists(const std::string& fname) override {
+  virtual Status FileExists(const std::string& fname) override {
     // F_OK == 0
     const int F_OK_ = 0;
-    return _access(fname.c_str(), F_OK_) == 0;
+    return _access(fname.c_str(), F_OK_) == 0 ? Status::OK()
+                                              : Status::NotFound();
   }
 
   virtual Status GetChildren(const std::string& dir,

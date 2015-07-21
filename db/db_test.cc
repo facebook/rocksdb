@@ -8450,13 +8450,13 @@ TEST_F(DBTest, DeleteMovedFileAfterCompaction) {
     ASSERT_EQ("0,0,2", FilesPerLevel(0));
 
     // iterator is holding the file
-    ASSERT_TRUE(env_->FileExists(dbname_ + moved_file_name));
+    ASSERT_OK(env_->FileExists(dbname_ + moved_file_name));
 
     listener->SetExpectedFileName(dbname_ + moved_file_name);
     iterator.reset();
 
     // this file should have been compacted away
-    ASSERT_TRUE(!env_->FileExists(dbname_ + moved_file_name));
+    ASSERT_EQ(Status::NotFound(), env_->FileExists(dbname_ + moved_file_name));
     listener->VerifyMatchedCount(1);
   }
 }
@@ -8703,7 +8703,7 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
   ASSERT_EQ(metadata.size(), 2U);
 
   // This file should have been deleted during last compaction
-  ASSERT_TRUE(!env_->FileExists(dbname_ + file_on_L2));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists(dbname_ + file_on_L2));
   listener->VerifyMatchedCount(1);
 }
 

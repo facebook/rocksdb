@@ -269,11 +269,11 @@ TEST_F(DeleteFileTest, DeleteLogFiles) {
   // Should not succeed because live logs are not allowed to be deleted
   std::unique_ptr<LogFile> alive_log = std::move(logfiles.back());
   ASSERT_EQ(alive_log->Type(), kAliveLogFile);
-  ASSERT_TRUE(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
+  ASSERT_OK(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
   fprintf(stdout, "Deleting alive log file %s\n",
           alive_log->PathName().c_str());
   ASSERT_TRUE(!db_->DeleteFile(alive_log->PathName()).ok());
-  ASSERT_TRUE(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
+  ASSERT_OK(env_->FileExists(options_.wal_dir + "/" + alive_log->PathName()));
   logfiles.clear();
 
   // Call Flush to bring about a new working log file and add more keys
@@ -287,13 +287,13 @@ TEST_F(DeleteFileTest, DeleteLogFiles) {
   ASSERT_GT(logfiles.size(), 0UL);
   std::unique_ptr<LogFile> archived_log = std::move(logfiles.front());
   ASSERT_EQ(archived_log->Type(), kArchivedLogFile);
-  ASSERT_TRUE(env_->FileExists(options_.wal_dir + "/" +
-        archived_log->PathName()));
+  ASSERT_OK(
+      env_->FileExists(options_.wal_dir + "/" + archived_log->PathName()));
   fprintf(stdout, "Deleting archived log file %s\n",
           archived_log->PathName().c_str());
   ASSERT_OK(db_->DeleteFile(archived_log->PathName()));
-  ASSERT_TRUE(!env_->FileExists(options_.wal_dir + "/" +
-        archived_log->PathName()));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists(options_.wal_dir + "/" +
+                                                 archived_log->PathName()));
   CloseDB();
 }
 

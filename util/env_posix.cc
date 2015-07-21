@@ -40,6 +40,7 @@
 #include "util/posix_logger.h"
 #include "util/random.h"
 #include "util/iostats_context_imp.h"
+#include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
@@ -1055,8 +1056,25 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
-  virtual bool FileExists(const std::string& fname) override {
-    return access(fname.c_str(), F_OK) == 0;
+  virtual Status FileExists(const std::string& fname) override {
+    int result = access(fname.c_str(), F_OK);
+
+    if (result == 0) {
+      return Status::OK();
+    }
+
+    switch (errno) {
+      case EACCES:
+      case ELOOP:
+      case ENAMETOOLONG:
+      case ENOENT:
+      case ENOTDIR:
+        return Status::NotFound();
+      default:
+        assert(result == EIO || result == ENOMEM);
+        return Status::IOError("Unexpected error(" + ToString(result) +
+                               ") accessing file `" + fname + "' ");
+    }
   }
 
   virtual Status GetChildren(const std::string& dir,
@@ -1772,9 +1790,11 @@ void PosixEnv::WaitForJoin() {
 
 std::string Env::GenerateUniqueId() {
   std::string uuid_file = "/proc/sys/kernel/random/uuid";
-  if (FileExists(uuid_file)) {
+
+  Status s = FileExists(uuid_file);
+  if (s.ok()) {
     std::string uuid;
-    Status s = ReadFileToString(this, uuid_file, &uuid);
+    s = ReadFileToString(this, uuid_file, &uuid);
     if (s.ok()) {
       return uuid;
     }

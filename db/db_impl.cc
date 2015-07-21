@@ -868,7 +868,8 @@ Status DBImpl::Recover(
       return s;
     }
 
-    if (!env_->FileExists(CurrentFileName(dbname_))) {
+    s = env_->FileExists(CurrentFileName(dbname_));
+    if (s.IsNotFound()) {
       if (db_options_.create_if_missing) {
         s = NewDB();
         is_new_db = true;
@@ -879,18 +880,26 @@ Status DBImpl::Recover(
         return Status::InvalidArgument(
             dbname_, "does not exist (create_if_missing is false)");
       }
-    } else {
+    } else if (s.ok()) {
       if (db_options_.error_if_exists) {
         return Status::InvalidArgument(
             dbname_, "exists (error_if_exists is true)");
       }
+    } else {
+      // Unexpected error reading file
+      assert(s.IsIOError());
+      return s;
     }
     // Check for the IDENTITY file and create it if not there
-    if (!env_->FileExists(IdentityFileName(dbname_))) {
+    s = env_->FileExists(IdentityFileName(dbname_));
+    if (s.IsNotFound()) {
       s = SetIdentityFile(env_, dbname_);
       if (!s.ok()) {
         return s;
       }
+    } else if (!s.ok()) {
+      assert(s.IsIOError());
+      return s;
     }
   }
 
