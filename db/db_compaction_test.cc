@@ -1278,6 +1278,7 @@ TEST_F(DBCompactionTest, PartialCompactionFailure) {
     keys.emplace_back(RandomString(&rnd, kKeySize));
     values.emplace_back(RandomString(&rnd, kKvSize - kKeySize));
     ASSERT_OK(Put(Slice(keys[k]), Slice(values[k])));
+    dbfull()->TEST_WaitForFlushMemTable();
   }
 
   dbfull()->TEST_FlushMemTable(true);
