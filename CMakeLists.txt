@@ -161,6 +161,7 @@ set(SOURCES
         util/env_hdfs.cc
         util/event_logger.cc
         util/file_util.cc
+        util/file_reader_writer.cc
         util/filter_policy.cc
         util/hash.cc
         util/hash_cuckoo_rep.cc
@@ -254,7 +255,6 @@ set(TESTS
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
         db/db_iter_test.cc
-        db/db_log_iter_test.cc
         db/db_test.cc
         db/db_compaction_filter_test.cc
         db/db_compaction_test.cc

@@ -227,6 +227,13 @@ int truncate(const char* path, int64_t len) {
   return result;
 }
 
+void Crash(const std::string& srcfile, int srcline) {
+  fprintf(stdout, "Crashing at %s:%d\n", srcfile.c_str(), srcline);
+  fflush(stdout);
+  abort();
+}
+
+
 }  // namespace port
 }  // namespace rocksdb
 
