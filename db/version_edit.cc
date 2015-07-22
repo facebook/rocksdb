@@ -11,6 +11,7 @@
 
 #include "db/version_set.h"
 #include "util/coding.h"
+#include "util/event_logger.h"
 #include "rocksdb/slice.h"
 
 namespace rocksdb {
@@ -359,7 +360,7 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     AppendNumberTo(&r, prev_log_number_);
   }
   if (has_next_file_number_) {
-    r.append("\n  NextFile: ");
+    r.append("\n  NextFileNumber: ");
     AppendNumberTo(&r, next_file_number_);
   }
   if (has_last_sequence_) {
@@ -402,6 +403,77 @@ std::string VersionEdit::DebugString(bool hex_key) const {
   }
   r.append("\n}\n");
   return r;
+}
+
+std::string VersionEdit::DebugJSON(int edit_num, bool hex_key) const {
+  JSONWriter jw;
+  jw << "EditNumber" << edit_num;
+
+  if (has_comparator_) {
+    jw << "Comparator" << comparator_;
+  }
+  if (has_log_number_) {
+    jw << "LogNumber" << log_number_;
+  }
+  if (has_prev_log_number_) {
+    jw << "PrevLogNumber" << prev_log_number_;
+  }
+  if (has_next_file_number_) {
+    jw << "NextFileNumber" << next_file_number_;
+  }
+  if (has_last_sequence_) {
+    jw << "LastSeq" << last_sequence_;
+  }
+
+  if (!deleted_files_.empty()) {
+    jw << "DeletedFiles";
+    jw.StartArray();
+
+    for (DeletedFileSet::const_iterator iter = deleted_files_.begin();
+         iter != deleted_files_.end();
+         ++iter) {
+      jw.StartArrayedObject();
+      jw << "Level" << iter->first;
+      jw << "FileNumber" << iter->second;
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  if (!new_files_.empty()) {
+    jw << "AddedFiles";
+    jw.StartArray();
+
+    for (size_t i = 0; i < new_files_.size(); i++) {
+      jw.StartArrayedObject();
+      jw << "Level" << new_files_[i].first;
+      const FileMetaData& f = new_files_[i].second;
+      jw << "FileNumber" << f.fd.GetNumber();
+      jw << "FileSize" << f.fd.GetFileSize();
+      jw << "SmallestIKey" << f.smallest.DebugString(hex_key);
+      jw << "LargestIKey" << f.largest.DebugString(hex_key);
+      jw.EndArrayedObject();
+    }
+
+    jw.EndArray();
+  }
+
+  jw << "ColumnFamily" << column_family_;
+
+  if (is_column_family_add_) {
+    jw << "ColumnFamilyAdd" << column_family_name_;
+  }
+  if (is_column_family_drop_) {
+    jw << "ColumnFamilyDrop" << column_family_name_;
+  }
+  if (has_max_column_family_) {
+    jw << "MaxColumnFamily" << max_column_family_;
+  }
+
+  jw.EndObject();
+
+  return jw.Get();
 }
 
 }  // namespace rocksdb

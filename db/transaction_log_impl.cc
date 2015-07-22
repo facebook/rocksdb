@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include "db/transaction_log_impl.h"
 #include "db/write_batch_internal.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -40,23 +41,27 @@ TransactionLogIteratorImpl::TransactionLogIteratorImpl(
 }
 
 Status TransactionLogIteratorImpl::OpenLogFile(
-    const LogFile* logFile,
-    unique_ptr<SequentialFile>* file) {
+    const LogFile* logFile, unique_ptr<SequentialFileReader>* file_reader) {
   Env* env = options_->env;
+  unique_ptr<SequentialFile> file;
+  Status s;
   if (logFile->Type() == kArchivedLogFile) {
     std::string fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-    return env->NewSequentialFile(fname, file, soptions_);
+    s = env->NewSequentialFile(fname, &file, soptions_);
   } else {
     std::string fname = LogFileName(dir_, logFile->LogNumber());
-    Status s = env->NewSequentialFile(fname, file, soptions_);
+    s = env->NewSequentialFile(fname, &file, soptions_);
     if (!s.ok()) {
       //  If cannot open file in DB directory.
       //  Try the archive dir, as it could have moved in the meanwhile.
       fname = ArchivedLogFileName(dir_, logFile->LogNumber());
-      s = env->NewSequentialFile(fname, file, soptions_);
+      s = env->NewSequentialFile(fname, &file, soptions_);
     }
-    return s;
   }
+  if (s.ok()) {
+    file_reader->reset(new SequentialFileReader(std::move(file)));
+  }
+  return s;
 }
 
 BatchResult TransactionLogIteratorImpl::GetBatch()  {
@@ -251,7 +256,7 @@ void TransactionLogIteratorImpl::UpdateCurrentWriteBatch(const Slice& record) {
 }
 
 Status TransactionLogIteratorImpl::OpenLogReader(const LogFile* logFile) {
-  unique_ptr<SequentialFile> file;
+  unique_ptr<SequentialFileReader> file;
   Status s = OpenLogFile(logFile, &file);
   if (!s.ok()) {
     return s;

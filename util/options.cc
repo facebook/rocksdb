@@ -44,7 +44,6 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
       merge_operator(options.merge_operator.get()),
       compaction_filter(options.compaction_filter),
       compaction_filter_factory(options.compaction_filter_factory.get()),
-      compaction_filter_factory_v2(options.compaction_filter_factory_v2.get()),
       inplace_update_support(options.inplace_update_support),
       inplace_callback(options.inplace_callback),
       info_log(options.info_log.get()),
@@ -79,7 +78,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       merge_operator(nullptr),
       compaction_filter(nullptr),
       compaction_filter_factory(nullptr),
-      compaction_filter_factory_v2(nullptr),
       write_buffer_size(4 << 20),
       max_write_buffer_number(2),
       min_write_buffer_number_to_merge(1),
@@ -90,7 +88,6 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       level0_file_num_compaction_trigger(4),
       level0_slowdown_writes_trigger(20),
       level0_stop_writes_trigger(24),
-      max_mem_compaction_level(2),
       target_file_size_base(2 * 1048576),
       target_file_size_multiplier(1),
       max_bytes_for_level_base(10 * 1048576),
@@ -132,7 +129,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       merge_operator(options.merge_operator),
       compaction_filter(options.compaction_filter),
       compaction_filter_factory(options.compaction_filter_factory),
-      compaction_filter_factory_v2(options.compaction_filter_factory_v2),
       write_buffer_size(options.write_buffer_size),
       max_write_buffer_number(options.max_write_buffer_number),
       min_write_buffer_number_to_merge(
@@ -148,7 +144,6 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
           options.level0_file_num_compaction_trigger),
       level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
       level0_stop_writes_trigger(options.level0_stop_writes_trigger),
-      max_mem_compaction_level(options.max_mem_compaction_level),
       target_file_size_base(options.target_file_size_base),
       target_file_size_multiplier(options.target_file_size_multiplier),
       max_bytes_for_level_base(options.max_bytes_for_level_base),
@@ -383,9 +378,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
       compaction_filter ? compaction_filter->Name() : "None");
   Warn(log, "       Options.compaction_filter_factory: %s",
       compaction_filter_factory ? compaction_filter_factory->Name() : "None");
-  Warn(log, "       Options.compaction_filter_factory_v2: %s",
-       compaction_filter_factory_v2 ? compaction_filter_factory_v2->Name()
-                                    : "None");
   Warn(log, "        Options.memtable_factory: %s", memtable_factory->Name());
   Warn(log, "           Options.table_factory: %s", table_factory->Name());
   Warn(log, "           table_factory options: %s",
@@ -421,8 +413,6 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         level0_slowdown_writes_trigger);
     Warn(log, "             Options.level0_stop_writes_trigger: %d",
         level0_stop_writes_trigger);
-    Warn(log, "               Options.max_mem_compaction_level: %d",
-        max_mem_compaction_level);
     Warn(log, "                  Options.target_file_size_base: %" PRIu64,
         target_file_size_base);
     Warn(log, "            Options.target_file_size_multiplier: %d",

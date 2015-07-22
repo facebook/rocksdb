@@ -17,7 +17,7 @@
 
 namespace rocksdb {
 
-class SequentialFile;
+class SequentialFileReader;
 using std::unique_ptr;
 
 namespace log {
@@ -51,7 +51,7 @@ class Reader {
   //
   // The Reader will start reading at the first record located at physical
   // position >= initial_offset within the file.
-  Reader(unique_ptr<SequentialFile>&& file, Reporter* reporter,
+  Reader(unique_ptr<SequentialFileReader>&& file, Reporter* reporter,
          bool checksum, uint64_t initial_offset);
 
   ~Reader();
@@ -81,10 +81,10 @@ class Reader {
   // block that was partially read.
   void UnmarkEOF();
 
-  SequentialFile* file() { return file_.get(); }
+  SequentialFileReader* file() { return file_.get(); }
 
  private:
-  const unique_ptr<SequentialFile> file_;
+  const unique_ptr<SequentialFileReader> file_;
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;

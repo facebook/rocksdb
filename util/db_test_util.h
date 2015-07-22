@@ -31,6 +31,7 @@
 #include "db/filename.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
@@ -38,7 +39,6 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#include "rocksdb/convenience.h"
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
 #include "table/plain_table_factory.h"
@@ -169,6 +169,9 @@ class SpecialEnv : public EnvWrapper {
       }
       void SetIOPriority(Env::IOPriority pri) override {
         base_->SetIOPriority(pri);
+      }
+      Env::IOPriority GetIOPriority() override {
+        return base_->GetIOPriority();
       }
     };
     class ManifestFile : public WritableFile {
@@ -580,6 +583,8 @@ class DBTestBase : public testing::Test {
   // tables that cover a specified range to all levels.
   void FillLevels(const std::string& smallest, const std::string& largest,
                   int cf);
+
+  void MoveFilesToLevel(int level, int cf = 0);
 
   void DumpFileCounts(const char* label);
 

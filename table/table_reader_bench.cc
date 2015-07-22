@@ -22,6 +22,7 @@ int main() {
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
 #include "table/get_context.h"
+#include "util/file_reader_writer.h"
 #include "util/histogram.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
@@ -90,11 +91,14 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
         int_tbl_prop_collector_factories;
 
+    unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(file), env_options));
+
     tb = opts.table_factory->NewTableBuilder(
         TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                             CompressionType::kNoCompression,
                             CompressionOptions(), false),
-        file.get());
+        file_writer.get());
   } else {
     s = DB::Open(opts, dbname, &db);
     ASSERT_OK(s);
@@ -119,13 +123,16 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
   }
 
   unique_ptr<TableReader> table_reader;
-  unique_ptr<RandomAccessFile> raf;
   if (!through_db) {
+    unique_ptr<RandomAccessFile> raf;
     s = env->NewRandomAccessFile(file_name, &raf, env_options);
     uint64_t file_size;
     env->GetFileSize(file_name, &file_size);
-    s = opts.table_factory->NewTableReader(
-        ioptions, env_options, ikc, std::move(raf), file_size, &table_reader);
+    unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(raf)));
+    s = opts.table_factory->NewTableReader(ioptions, env_options, ikc,
+                                           std::move(file_reader), file_size,
+                                           &table_reader);
   }
 
   Random rnd(301);

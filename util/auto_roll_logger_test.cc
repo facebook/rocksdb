@@ -155,9 +155,9 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
 
     InitTestDb();
     // -- Test the existence of file during the server restart.
-    ASSERT_TRUE(!env->FileExists(kLogFile));
+    ASSERT_EQ(Status::NotFound(), env->FileExists(kLogFile));
     AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, time);
-    ASSERT_TRUE(env->FileExists(kLogFile));
+    ASSERT_OK(env->FileExists(kLogFile));
 
     RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
 }
@@ -397,7 +397,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   options.max_log_file_size = 100 * 1024 * 1024;
   options.create_if_missing = true;
   ASSERT_OK(rocksdb::DB::Open(options, kTestDir, &db));
-  ASSERT_TRUE(env->FileExists(kLogFile));
+  ASSERT_OK(env->FileExists(kLogFile));
   delete db;
 }
 

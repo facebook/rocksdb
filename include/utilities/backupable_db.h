@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "pragma_error.h"
+#include "rocksdb/utilities/pragma_error.h"
 
 ROCKSDB_WARNING(
     "Warning: This file was moved to rocksdb/utilities/backupable_db.h")

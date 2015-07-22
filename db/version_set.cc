@@ -42,6 +42,7 @@
 #include "table/meta_blocks.h"
 #include "table/get_context.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
@@ -567,10 +568,12 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
   TableProperties* raw_table_properties;
   // By setting the magic number to kInvalidTableMagicNumber, we can by
   // pass the magic number check in the footer.
+  std::unique_ptr<RandomAccessFileReader> file_reader(
+      new RandomAccessFileReader(std::move(file)));
   s = ReadTableProperties(
-      file.get(), file_meta->fd.GetFileSize(),
-      Footer::kInvalidTableMagicNumber /* table's magic number */,
-      vset_->env_, ioptions->info_log, &raw_table_properties);
+      file_reader.get(), file_meta->fd.GetFileSize(),
+      Footer::kInvalidTableMagicNumber /* table's magic number */, vset_->env_,
+      ioptions->info_log, &raw_table_properties);
   if (!s.ok()) {
     return s;
   }
@@ -1279,38 +1282,6 @@ bool VersionStorageInfo::OverlapInLevel(int level,
                                largest_user_key);
 }
 
-int VersionStorageInfo::PickLevelForMemTableOutput(
-    const MutableCFOptions& mutable_cf_options, const Slice& smallest_user_key,
-    const Slice& largest_user_key) {
-  int level = 0;
-  if (!OverlapInLevel(0, &smallest_user_key, &largest_user_key)) {
-    // Push to next level if there is no overlap in next level,
-    // and the #bytes overlapping in the level after that are limited.
-    InternalKey start;
-    start.SetMaxPossibleForUserKey(smallest_user_key);
-    InternalKey limit(largest_user_key, 0, static_cast<ValueType>(0));
-    std::vector<FileMetaData*> overlaps;
-    while (mutable_cf_options.max_mem_compaction_level > 0 &&
-           level < mutable_cf_options.max_mem_compaction_level) {
-      if (OverlapInLevel(level + 1, &smallest_user_key, &largest_user_key)) {
-        break;
-      }
-      if (level + 2 >= num_levels_) {
-        level++;
-        break;
-      }
-      GetOverlappingInputs(level + 2, &start, &limit, &overlaps);
-      const uint64_t sum = TotalFileSize(overlaps);
-      if (sum > mutable_cf_options.MaxGrandParentOverlapBytes(level)) {
-        break;
-      }
-      level++;
-    }
-  }
-
-  return level;
-}
-
 // Store in "*inputs" all files in "level" that overlap [begin,end]
 // If hint_index is specified, then it points to a file in the
 // overlapping range.
@@ -1944,13 +1915,17 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
       Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
           "Creating manifest %" PRIu64 "\n", pending_manifest_file_number_);
       unique_ptr<WritableFile> descriptor_file;
+      EnvOptions opt_env_opts = env_->OptimizeForManifestWrite(env_options_);
       s = env_->NewWritableFile(
           DescriptorFileName(dbname_, pending_manifest_file_number_),
-          &descriptor_file, env_->OptimizeForManifestWrite(env_options_));
+          &descriptor_file, opt_env_opts);
       if (s.ok()) {
         descriptor_file->SetPreallocationBlockSize(
             db_options_->manifest_preallocation_size);
-        descriptor_log_.reset(new log::Writer(std::move(descriptor_file)));
+
+        unique_ptr<WritableFileWriter> file_writer(
+            new WritableFileWriter(std::move(descriptor_file), opt_env_opts));
+        descriptor_log_.reset(new log::Writer(std::move(file_writer)));
         s = WriteSnapshot(descriptor_log_.get());
       }
     }
@@ -2164,11 +2139,16 @@ Status VersionSet::Recover(
       manifest_filename.c_str());
 
   manifest_filename = dbname_ + "/" + manifest_filename;
-  unique_ptr<SequentialFile> manifest_file;
-  s = env_->NewSequentialFile(manifest_filename, &manifest_file,
-                              env_options_);
-  if (!s.ok()) {
-    return s;
+  unique_ptr<SequentialFileReader> manifest_file_reader;
+  {
+    unique_ptr<SequentialFile> manifest_file;
+    s = env_->NewSequentialFile(manifest_filename, &manifest_file,
+                                env_options_);
+    if (!s.ok()) {
+      return s;
+    }
+    manifest_file_reader.reset(
+        new SequentialFileReader(std::move(manifest_file)));
   }
   uint64_t current_manifest_file_size;
   s = env_->GetFileSize(manifest_filename, &current_manifest_file_size);
@@ -2202,8 +2182,8 @@ Status VersionSet::Recover(
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(std::move(manifest_file), &reporter, true /*checksum*/,
-                       0 /*initial_offset*/);
+    log::Reader reader(std::move(manifest_file_reader), &reporter,
+                       true /*checksum*/, 0 /*initial_offset*/);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -2437,10 +2417,15 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   current.resize(current.size() - 1);
 
   std::string dscname = dbname + "/" + current;
+
+  unique_ptr<SequentialFileReader> file_reader;
+  {
   unique_ptr<SequentialFile> file;
   s = env->NewSequentialFile(dscname, &file, soptions);
   if (!s.ok()) {
     return s;
+  }
+  file_reader.reset(new SequentialFileReader(std::move(file)));
   }
 
   std::map<uint32_t, std::string> column_family_names;
@@ -2448,7 +2433,7 @@ Status VersionSet::ListColumnFamilies(std::vector<std::string>* column_families,
   column_family_names.insert({0, kDefaultColumnFamilyName});
   VersionSet::LogReporter reporter;
   reporter.status = &s;
-  log::Reader reader(std::move(file), &reporter, true /*checksum*/,
+  log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
                      0 /*initial_offset*/);
   Slice record;
   std::string scratch;
@@ -2572,12 +2557,17 @@ Status VersionSet::ReduceNumberOfLevels(const std::string& dbname,
 }
 
 Status VersionSet::DumpManifest(Options& options, std::string& dscname,
-                                bool verbose, bool hex) {
+                                bool verbose, bool hex, bool json) {
   // Open the specified manifest file.
-  unique_ptr<SequentialFile> file;
-  Status s = options.env->NewSequentialFile(dscname, &file, env_options_);
-  if (!s.ok()) {
-    return s;
+  unique_ptr<SequentialFileReader> file_reader;
+  Status s;
+  {
+    unique_ptr<SequentialFile> file;
+    s = options.env->NewSequentialFile(dscname, &file, env_options_);
+    if (!s.ok()) {
+      return s;
+    }
+    file_reader.reset(new SequentialFileReader(std::move(file)));
   }
 
   bool have_prev_log_number = false;
@@ -2601,8 +2591,8 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
   {
     VersionSet::LogReporter reporter;
     reporter.status = &s;
-    log::Reader reader(std::move(file), &reporter, true/*checksum*/,
-                       0/*initial_offset*/);
+    log::Reader reader(std::move(file_reader), &reporter, true /*checksum*/,
+                       0 /*initial_offset*/);
     Slice record;
     std::string scratch;
     while (reader.ReadRecord(&record, &scratch) && s.ok()) {
@@ -2613,9 +2603,10 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
 
       // Write out each individual edit
-      if (verbose) {
-        printf("*************************Edit[%d] = %s\n",
-                count, edit.DebugString(hex).c_str());
+      if (verbose && !json) {
+        printf("%s\n", edit.DebugString(hex).c_str());
+      } else if (json) {
+        printf("%s\n", edit.DebugJSON(count, hex).c_str());
       }
       count++;
 
@@ -2695,7 +2686,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
       }
     }
   }
-  file.reset();
+  file_reader.reset();
 
   if (s.ok()) {
     if (!have_next_file) {
@@ -2837,17 +2828,23 @@ bool VersionSet::ManifestContains(uint64_t manifest_file_num,
   std::string fname = DescriptorFileName(dbname_, manifest_file_num);
   Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
       "ManifestContains: checking %s\n", fname.c_str());
-  unique_ptr<SequentialFile> file;
-  Status s = env_->NewSequentialFile(fname, &file, env_options_);
-  if (!s.ok()) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-        "ManifestContains: %s\n", s.ToString().c_str());
-    Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
-        "ManifestContains: is unable to reopen the manifest file  %s",
-        fname.c_str());
-    return false;
+
+  unique_ptr<SequentialFileReader> file_reader;
+  Status s;
+  {
+    unique_ptr<SequentialFile> file;
+    s = env_->NewSequentialFile(fname, &file, env_options_);
+    if (!s.ok()) {
+      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+          "ManifestContains: %s\n", s.ToString().c_str());
+      Log(InfoLogLevel::INFO_LEVEL, db_options_->info_log,
+          "ManifestContains: is unable to reopen the manifest file  %s",
+          fname.c_str());
+      return false;
+    }
+    file_reader.reset(new SequentialFileReader(std::move(file)));
   }
-  log::Reader reader(std::move(file), nullptr, true/*checksum*/, 0);
+  log::Reader reader(std::move(file_reader), nullptr, true /*checksum*/, 0);
   Slice r;
   std::string scratch;
   bool result = false;

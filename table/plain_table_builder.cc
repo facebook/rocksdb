@@ -26,6 +26,7 @@
 #include "table/meta_blocks.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -35,11 +36,8 @@ namespace {
 // a utility that helps writing block content to the file
 //   @offset will advance if @block_contents was successfully written.
 //   @block_handle the block handle this particular block.
-Status WriteBlock(
-    const Slice& block_contents,
-    WritableFile* file,
-    uint64_t* offset,
-    BlockHandle* block_handle) {
+Status WriteBlock(const Slice& block_contents, WritableFileWriter* file,
+                  uint64_t* offset, BlockHandle* block_handle) {
   block_handle->set_offset(*offset);
   block_handle->set_size(block_contents.size());
   Status s = file->Append(block_contents);
@@ -62,7 +60,7 @@ PlainTableBuilder::PlainTableBuilder(
     const ImmutableCFOptions& ioptions,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFile* file, uint32_t user_key_len, EncodingType encoding_type,
+    WritableFileWriter* file, uint32_t user_key_len, EncodingType encoding_type,
     size_t index_sparseness, uint32_t bloom_bits_per_key, uint32_t num_probes,
     size_t huge_page_tlb_size, double hash_table_ratio,
     bool store_index_in_file)

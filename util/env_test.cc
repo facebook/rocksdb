@@ -664,6 +664,7 @@ TEST_F(EnvPosixTest, AllocateTest) {
   size_t kPageSize = 4096;
   std::string data(1024 * 1024, 'a');
   wfile->SetPreallocationBlockSize(kPreallocateSize);
+  wfile->PrepareWrite(wfile->GetFileSize(), data.size());
   ASSERT_OK(wfile->Append(Slice(data)));
   ASSERT_OK(wfile->Flush());
 
@@ -974,18 +975,22 @@ TEST_F(EnvPosixTest, Preallocation) {
   ASSERT_EQ(last_allocated_block, 0UL);
 
   // Small write should preallocate one block
-  srcfile->Append("test");
+  std::string str = "test";
+  srcfile->PrepareWrite(srcfile->GetFileSize(), str.size());
+  srcfile->Append(str);
   srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
   ASSERT_EQ(last_allocated_block, 1UL);
 
   // Write an entire preallocation block, make sure we increased by two.
   std::string buf(block_size, ' ');
+  srcfile->PrepareWrite(srcfile->GetFileSize(), buf.size());
   srcfile->Append(buf);
   srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
   ASSERT_EQ(last_allocated_block, 2UL);
 
   // Write five more blocks at once, ensure we're where we need to be.
   buf = std::string(block_size * 5, ' ');
+  srcfile->PrepareWrite(srcfile->GetFileSize(), buf.size());
   srcfile->Append(buf);
   srcfile->GetPreallocationStatus(&block_size, &last_allocated_block);
   ASSERT_EQ(last_allocated_block, 7UL);

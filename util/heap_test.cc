@@ -8,6 +8,7 @@
 #include <climits>
 
 #include <queue>
+#include <random>
 #include <utility>
 
 #include "util/heap.h"
@@ -49,7 +50,7 @@ TEST_P(HeapTest, Test) {
   BinaryHeap<HeapTestValue> heap;
   std::priority_queue<HeapTestValue> ref;
 
-  std::mt19937 rng(RNG_SEED);
+  std::mt19937 rng(static_cast<unsigned int>(RNG_SEED));
   std::uniform_int_distribution<HeapTestValue> value_dist(0, MAX_VALUE);
   int ndrains = 0;
   bool draining = false;     // hit max size, draining until we empty the heap

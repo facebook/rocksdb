@@ -4,7 +4,7 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
 
-#include "pragma_error.h"
+#include "rocksdb/utilities/pragma_error.h"
 
 ROCKSDB_WARNING("This file was moved to rocksdb/utilities/json_document.h")
 

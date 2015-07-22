@@ -875,7 +875,6 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
 
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
-  two.max_mem_compaction_level = 0;
   two.level0_file_num_compaction_trigger = 3;
   two.write_buffer_size = 100000;
 

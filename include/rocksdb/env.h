@@ -156,8 +156,12 @@ class Env {
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) = 0;
 
-  // Returns true iff the named file exists.
-  virtual bool FileExists(const std::string& fname) = 0;
+  // Returns OK if the named file exists.
+  //         NotFound if the named file does not exist,
+  //                  the calling process does not have permission to determine
+  //                  whether this file exists, or if the path is invalid.
+  //         IOError if an IO Error was encountered
+  virtual Status FileExists(const std::string& fname) = 0;
 
   // Store in *result the names of the children of the specified directory.
   // The names are relative to "dir".
@@ -465,6 +469,8 @@ class WritableFile {
     io_priority_ = pri;
   }
 
+  virtual Env::IOPriority GetIOPriority() { return io_priority_; }
+
   /*
    * Get the size of valid data in the file.
    */
@@ -501,7 +507,14 @@ class WritableFile {
     return Status::NotSupported("InvalidateCache not supported.");
   }
 
- protected:
+  // Sync a file range with disk.
+  // offset is the starting byte of the file range to be synchronized.
+  // nbytes specifies the length of the range to be synchronized.
+  // This asks the OS to initiate flushing the cached data to disk,
+  // without waiting for completion.
+  // Default implementation does nothing.
+  virtual Status RangeSync(off_t offset, off_t nbytes) { return Status::OK(); }
+
   // PrepareWrite performs any necessary preparation for a write
   // before the write actually occurs.  This allows for pre-allocation
   // of space on devices where it can result in less file
@@ -526,20 +539,11 @@ class WritableFile {
     }
   }
 
+ protected:
   /*
    * Pre-allocate space for a file.
    */
   virtual Status Allocate(off_t offset, off_t len) {
-    return Status::OK();
-  }
-
-  // Sync a file range with disk.
-  // offset is the starting byte of the file range to be synchronized.
-  // nbytes specifies the length of the range to be synchronized.
-  // This asks the OS to initiate flushing the cached data to disk,
-  // without waiting for completion.
-  // Default implementation does nothing.
-  virtual Status RangeSync(off_t offset, off_t nbytes) {
     return Status::OK();
   }
 
@@ -764,7 +768,7 @@ class EnvWrapper : public Env {
                               unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
   }
-  bool FileExists(const std::string& f) override {
+  Status FileExists(const std::string& f) override {
     return target_->FileExists(f);
   }
   Status GetChildren(const std::string& dir,
@@ -893,6 +897,7 @@ class WritableFileWrapper : public WritableFile {
   void SetIOPriority(Env::IOPriority pri) override {
     target_->SetIOPriority(pri);
   }
+  Env::IOPriority GetIOPriority() override { return target_->GetIOPriority(); }
   uint64_t GetFileSize() override { return target_->GetFileSize(); }
   void GetPreallocationStatus(size_t* block_size,
                               size_t* last_allocated_block) override {

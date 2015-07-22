@@ -18,6 +18,7 @@
 #include "table/table_reader.h"
 #include "table/get_context.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 
@@ -99,8 +100,10 @@ Status TableCache::FindTable(const EnvOptions& env_options,
         file->Hint(RandomAccessFile::RANDOM);
       }
       StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+      std::unique_ptr<RandomAccessFileReader> file_reader(
+          new RandomAccessFileReader(std::move(file)));
       s = ioptions_.table_factory->NewTableReader(
-          ioptions_, env_options, internal_comparator, std::move(file),
+          ioptions_, env_options, internal_comparator, std::move(file_reader),
           fd.GetFileSize(), &table_reader);
     }
 

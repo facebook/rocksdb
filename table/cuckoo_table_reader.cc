@@ -33,8 +33,7 @@ extern const uint64_t kCuckooTableMagicNumber;
 
 CuckooTableReader::CuckooTableReader(
     const ImmutableCFOptions& ioptions,
-    std::unique_ptr<RandomAccessFile>&& file,
-    uint64_t file_size,
+    std::unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     const Comparator* comparator,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t))
     : file_(std::move(file)),

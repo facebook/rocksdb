@@ -707,6 +707,7 @@ void DBTestBase::MakeTables(
     ASSERT_OK(Put(cf, small, "begin"));
     ASSERT_OK(Put(cf, large, "end"));
     ASSERT_OK(Flush(cf));
+    MoveFilesToLevel(n - i - 1, cf);
   }
 }
 
@@ -715,6 +716,16 @@ void DBTestBase::MakeTables(
 void DBTestBase::FillLevels(
     const std::string& smallest, const std::string& largest, int cf) {
   MakeTables(db_->NumberLevels(handles_[cf]), smallest, largest, cf);
+}
+
+void DBTestBase::MoveFilesToLevel(int level, int cf) {
+  for (int l = 0; l < level; ++l) {
+    if (cf > 0) {
+      dbfull()->TEST_CompactRange(l, nullptr, nullptr, handles_[cf]);
+    } else {
+      dbfull()->TEST_CompactRange(l, nullptr, nullptr);
+    }
+  }
 }
 
 void DBTestBase::DumpFileCounts(const char* label) {

@@ -474,13 +474,6 @@ class DBImpl : public DB {
   Status BackgroundFlush(bool* madeProgress, JobContext* job_context,
                          LogBuffer* log_buffer);
 
-  // This function is called as part of compaction. It enables Flush process to
-  // preempt compaction, since it's higher prioirty
-  uint64_t CallFlushDuringCompaction(ColumnFamilyData* cfd,
-                                     const MutableCFOptions& mutable_cf_options,
-                                     JobContext* job_context,
-                                     LogBuffer* log_buffer);
-
   void PrintStatistics();
 
   // dump rocksdb.stats to LOG

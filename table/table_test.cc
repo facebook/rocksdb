@@ -347,7 +347,7 @@ class TableConstructor: public Constructor {
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& kv_map) override {
     Reset();
-    sink_.reset(new StringSink());
+    file_writer_.reset(test::GetWritableFileWriter(new StringSink()));
     unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
@@ -355,7 +355,7 @@ class TableConstructor: public Constructor {
         TableBuilderOptions(ioptions, internal_comparator,
                             &int_tbl_prop_collector_factories,
                             options.compression, CompressionOptions(), false),
-        sink_.get()));
+        file_writer_.get()));
 
     for (const auto kv : kv_map) {
       if (convert_to_internal_key_) {
@@ -369,17 +369,18 @@ class TableConstructor: public Constructor {
       EXPECT_TRUE(builder->status().ok());
     }
     Status s = builder->Finish();
+    file_writer_->Flush();
     EXPECT_TRUE(s.ok()) << s.ToString();
 
-    EXPECT_EQ(sink_->contents().size(), builder->FileSize());
+    EXPECT_EQ(GetSink()->contents().size(), builder->FileSize());
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
-    source_.reset(new StringSource(sink_->contents(), uniq_id_,
-                                   ioptions.allow_mmap_reads));
+    file_reader_.reset(test::GetRandomAccessFileReader(new StringSource(
+        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        ioptions, soptions, internal_comparator, std::move(source_),
-        sink_->contents().size(), &table_reader_);
+        ioptions, soptions, internal_comparator, std::move(file_reader_),
+        GetSink()->contents().size(), &table_reader_);
   }
 
   virtual Iterator* NewIterator() const override {
@@ -397,12 +398,11 @@ class TableConstructor: public Constructor {
   }
 
   virtual Status Reopen(const ImmutableCFOptions& ioptions) {
-    source_.reset(
-        new StringSource(sink_->contents(), uniq_id_,
-                         ioptions.allow_mmap_reads));
+    file_reader_.reset(test::GetRandomAccessFileReader(new StringSource(
+        GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        ioptions, soptions, *last_internal_key_, std::move(source_),
-        sink_->contents().size(), &table_reader_);
+        ioptions, soptions, *last_internal_key_, std::move(file_reader_),
+        GetSink()->contents().size(), &table_reader_);
   }
 
   virtual TableReader* GetTableReader() {
@@ -417,13 +417,17 @@ class TableConstructor: public Constructor {
   void Reset() {
     uniq_id_ = 0;
     table_reader_.reset();
-    sink_.reset();
-    source_.reset();
+    file_writer_.reset();
+    file_reader_.reset();
+  }
+
+  StringSink* GetSink() {
+    return static_cast<StringSink*>(file_writer_->writable_file());
   }
 
   uint64_t uniq_id_;
-  unique_ptr<StringSink> sink_;
-  unique_ptr<StringSource> source_;
+  unique_ptr<WritableFileWriter> file_writer_;
+  unique_ptr<RandomAccessFileReader> file_reader_;
   unique_ptr<TableReader> table_reader_;
   bool convert_to_internal_key_;
 
@@ -540,9 +544,11 @@ class DBConstructor: public Constructor {
 
 enum TestType {
   BLOCK_BASED_TABLE_TEST,
+#ifndef ROCKSDB_LITE
   PLAIN_TABLE_SEMI_FIXED_PREFIX,
   PLAIN_TABLE_FULL_STR_PREFIX,
   PLAIN_TABLE_TOTAL_ORDER,
+#endif  // !ROCKSDB_LITE
   BLOCK_TEST,
   MEMTABLE_TEST,
   DB_TEST
@@ -559,10 +565,14 @@ struct TestArgs {
 static std::vector<TestArgs> GenerateArgList() {
   std::vector<TestArgs> test_args;
   std::vector<TestType> test_types = {
-      BLOCK_BASED_TABLE_TEST,      PLAIN_TABLE_SEMI_FIXED_PREFIX,
-      PLAIN_TABLE_FULL_STR_PREFIX, PLAIN_TABLE_TOTAL_ORDER,
-      BLOCK_TEST,                  MEMTABLE_TEST,
-      DB_TEST};
+      BLOCK_BASED_TABLE_TEST,
+#ifndef ROCKSDB_LITE
+      PLAIN_TABLE_SEMI_FIXED_PREFIX,
+      PLAIN_TABLE_FULL_STR_PREFIX,
+      PLAIN_TABLE_TOTAL_ORDER,
+#endif  // !ROCKSDB_LITE
+      BLOCK_TEST,
+      MEMTABLE_TEST, DB_TEST};
   std::vector<bool> reverse_compare_types = {false, true};
   std::vector<int> restart_intervals = {16, 1, 1024};
 
@@ -589,6 +599,7 @@ static std::vector<TestArgs> GenerateArgList() {
 
   for (auto test_type : test_types) {
     for (auto reverse_compare : reverse_compare_types) {
+#ifndef ROCKSDB_LITE
       if (test_type == PLAIN_TABLE_SEMI_FIXED_PREFIX ||
           test_type == PLAIN_TABLE_FULL_STR_PREFIX) {
         // Plain table doesn't use restart index or compression.
@@ -600,6 +611,7 @@ static std::vector<TestArgs> GenerateArgList() {
         test_args.push_back(one_arg);
         continue;
       }
+#endif  // !ROCKSDB_LITE
 
       for (auto restart_interval : restart_intervals) {
         for (auto compression_type : compression_types) {
@@ -681,6 +693,8 @@ class HarnessTest : public testing::Test {
             new BlockBasedTableFactory(table_options_));
         constructor_ = new TableConstructor(options_.comparator);
         break;
+// Plain table is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
       case PLAIN_TABLE_SEMI_FIXED_PREFIX:
         support_prev_ = false;
         only_support_prefix_seek_ = true;
@@ -720,6 +734,7 @@ class HarnessTest : public testing::Test {
         internal_comparator_.reset(
             new InternalKeyComparator(options_.comparator));
         break;
+#endif  // !ROCKSDB_LITE
       case BLOCK_TEST:
         table_options_.block_size = 256;
         options_.table_factory.reset(
@@ -1758,6 +1773,8 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   }
 }
 
+// Plain table is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
 TEST_F(PlainTableTest, BasicPlainTableProperties) {
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
@@ -1766,6 +1783,8 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
 
   PlainTableFactory factory(plain_table_options);
   StringSink sink;
+  unique_ptr<WritableFileWriter> file_writer(
+      test::GetWritableFileWriter(new StringSink()));
   Options options;
   const ImmutableCFOptions ioptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -1774,7 +1793,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   std::unique_ptr<TableBuilder> builder(factory.NewTableBuilder(
       TableBuilderOptions(ioptions, ikc, &int_tbl_prop_collector_factories,
                           kNoCompression, CompressionOptions(), false),
-      &sink));
+      file_writer.get()));
 
   for (char c = 'a'; c <= 'z'; ++c) {
     std::string key(8, c);
@@ -1783,11 +1802,15 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
     builder->Add(key, value);
   }
   ASSERT_OK(builder->Finish());
+  file_writer->Flush();
 
-  StringSource source(sink.contents(), 72242, true);
+  StringSink* ss = static_cast<StringSink*>(file_writer->writable_file());
+  unique_ptr<RandomAccessFileReader> file_reader(
+      test::GetRandomAccessFileReader(
+          new StringSource(ss->contents(), 72242, true)));
 
   TableProperties* props = nullptr;
-  auto s = ReadTableProperties(&source, sink.contents().size(),
+  auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),
                                kPlainTableMagicNumber, Env::Default(), nullptr,
                                &props);
   std::unique_ptr<TableProperties> props_guard(props);
@@ -1800,6 +1823,7 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   ASSERT_EQ(26ul, props->num_entries);
   ASSERT_EQ(1ul, props->num_data_blocks);
 }
+#endif  // !ROCKSDB_LITE
 
 TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   TableConstructor c(BytewiseComparator());
@@ -2058,6 +2082,8 @@ TEST_F(HarnessTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.version(), 1U);
   }
+// Plain table is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
   {
     // upconvert legacy plain table
     std::string encoded;
@@ -2097,6 +2123,7 @@ TEST_F(HarnessTest, FooterTests) {
     ASSERT_EQ(decoded_footer.index_handle().size(), index.size());
     ASSERT_EQ(decoded_footer.version(), 1U);
   }
+#endif  // !ROCKSDB_LITE
   {
     // version == 2
     std::string encoded;

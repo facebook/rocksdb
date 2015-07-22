@@ -36,7 +36,8 @@ class BlockBasedTableFactory : public TableFactory {
   Status NewTableReader(const ImmutableCFOptions& ioptions,
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
-                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const override {
     return NewTableReader(ioptions, soptions, internal_comparator,
                           std::move(file), file_size, table_reader,
@@ -48,13 +49,14 @@ class BlockBasedTableFactory : public TableFactory {
   Status NewTableReader(const ImmutableCFOptions& ioptions,
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
-                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
                         unique_ptr<TableReader>* table_reader,
                         bool prefetch_index_and_filter) const;
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      WritableFile* file) const override;
+      WritableFileWriter* file) const override;
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,

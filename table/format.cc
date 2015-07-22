@@ -17,6 +17,7 @@
 #include "util/coding.h"
 #include "util/compression.h"
 #include "util/crc32c.h"
+#include "util/file_reader_writer.h"
 #include "util/perf_context_imp.h"
 #include "util/string_util.h"
 #include "util/xxhash.h"
@@ -210,7 +211,7 @@ std::string Footer::ToString() const {
   return result;
 }
 
-Status ReadFooterFromFile(RandomAccessFile* file, uint64_t file_size,
+Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
                           Footer* footer, uint64_t enforce_table_magic_number) {
   if (file_size < Footer::kMinEncodedLength) {
     return Status::Corruption("file is too short to be an sstable");
@@ -249,9 +250,9 @@ namespace {
 // Read a block and check its CRC
 // contents is the result of reading.
 // According to the implementation of file->Read, contents may not point to buf
-Status ReadBlock(RandomAccessFile* file, const Footer& footer,
-                  const ReadOptions& options, const BlockHandle& handle,
-                  Slice* contents,  /* result of reading */ char* buf) {
+Status ReadBlock(RandomAccessFileReader* file, const Footer& footer,
+                 const ReadOptions& options, const BlockHandle& handle,
+                 Slice* contents, /* result of reading */ char* buf) {
   size_t n = static_cast<size_t>(handle.size());
   Status s;
 
@@ -299,7 +300,7 @@ Status ReadBlock(RandomAccessFile* file, const Footer& footer,
 
 }  // namespace
 
-Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
+Status ReadBlockContents(RandomAccessFileReader* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
                          BlockContents* contents, Env* env,
                          bool decompression_requested) {

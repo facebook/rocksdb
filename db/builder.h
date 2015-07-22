@@ -29,14 +29,14 @@ class Iterator;
 class TableCache;
 class VersionEdit;
 class TableBuilder;
-class WritableFile;
+class WritableFileWriter;
 
 TableBuilder* NewTableBuilder(
     const ImmutableCFOptions& options,
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFile* file, const CompressionType compression_type,
+    WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts,
     const bool skip_filters = false);
 

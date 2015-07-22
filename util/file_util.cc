@@ -8,6 +8,7 @@
 #include "util/file_util.h"
 #include "rocksdb/env.h"
 #include "db/filename.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -15,8 +16,12 @@ namespace rocksdb {
 Status CopyFile(Env* env, const std::string& source,
                 const std::string& destination, uint64_t size) {
   const EnvOptions soptions;
-  unique_ptr<SequentialFile> srcfile;
   Status s;
+  unique_ptr<SequentialFileReader> src_reader;
+  unique_ptr<WritableFileWriter> dest_writer;
+
+  {
+    unique_ptr<SequentialFile> srcfile;
   s = env->NewSequentialFile(source, &srcfile, soptions);
   unique_ptr<WritableFile> destfile;
   if (s.ok()) {
@@ -33,6 +38,9 @@ Status CopyFile(Env* env, const std::string& source,
       return s;
     }
   }
+  src_reader.reset(new SequentialFileReader(std::move(srcfile)));
+  dest_writer.reset(new WritableFileWriter(std::move(destfile), soptions));
+  }
 
   char buffer[4096];
   Slice slice;
@@ -40,13 +48,13 @@ Status CopyFile(Env* env, const std::string& source,
     uint64_t bytes_to_read =
         std::min(static_cast<uint64_t>(sizeof(buffer)), size);
     if (s.ok()) {
-      s = srcfile->Read(bytes_to_read, &slice, buffer);
+      s = src_reader->Read(bytes_to_read, &slice, buffer);
     }
     if (s.ok()) {
       if (slice.size() == 0) {
         return Status::Corruption("file too small");
       }
-      s = destfile->Append(slice);
+      s = dest_writer->Append(slice);
     }
     if (!s.ok()) {
       return s;

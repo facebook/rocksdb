@@ -15,11 +15,11 @@
 
 namespace rocksdb {
 
-// JSONWriter doesn't support objects in arrays yet. There wasn't a need for
-// that.
 class JSONWriter {
  public:
-  JSONWriter() : state_(kExpectKey), first_element_(true) { stream_ << "{"; }
+  JSONWriter() : state_(kExpectKey), first_element_(true), in_array_(false) {
+    stream_ << "{";
+  }
 
   void AddKey(const std::string& key) {
     assert(state_ == kExpectKey);
@@ -59,6 +59,7 @@ class JSONWriter {
   void StartArray() {
     assert(state_ == kExpectValue);
     state_ = kInArray;
+    in_array_ = true;
     stream_ << "[";
     first_element_ = true;
   }
@@ -66,6 +67,7 @@ class JSONWriter {
   void EndArray() {
     assert(state_ == kInArray);
     state_ = kExpectKey;
+    in_array_ = false;
     stream_ << "]";
     first_element_ = false;
   }
@@ -81,6 +83,21 @@ class JSONWriter {
     assert(state_ == kExpectKey);
     stream_ << "}";
     first_element_ = false;
+  }
+
+  void StartArrayedObject() {
+    assert(state_ == kInArray && in_array_);
+    state_ = kExpectValue;
+    if (!first_element_) {
+      stream_ << ", ";
+    }
+    StartObject();
+  }
+
+  void EndArrayedObject() {
+    assert(in_array_);
+    EndObject();
+    state_ = kInArray;
   }
 
   std::string Get() const { return stream_.str(); }
@@ -110,9 +127,11 @@ class JSONWriter {
     kExpectKey,
     kExpectValue,
     kInArray,
+    kInArrayedObject,
   };
   JSONWriterState state_;
   bool first_element_;
+  bool in_array_;
   std::ostringstream stream_;
 };
 

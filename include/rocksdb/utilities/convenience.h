@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "utilities/pragma_error.h"
+#include "rocksdb/utilities/pragma_error.h"
 
 ROCKSDB_WARNING("This file was moved to rocksdb/convenience.h")
 

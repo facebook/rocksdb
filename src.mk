@@ -88,6 +88,7 @@ LIB_SOURCES =                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/file_util.cc                                             \
+	util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/hash_cuckoo_rep.cc                                       \
@@ -164,7 +165,9 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
   db/db_compaction_filter_test.cc                                       \
+  db/db_compaction_test.cc                                       \
   db/db_dynamic_level_test.cc                                           \
+  db/db_inplace_update_test.cc                                          \
   db/db_log_iter_test.cc                                                \
   db/db_universal_compaction_test.cc                                    \
   db/db_tailing_iter_test.cc                                            \

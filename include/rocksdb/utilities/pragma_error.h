@@ -13,7 +13,7 @@
 #define RDB_STR__(x) #x
 #define RDB_STR(x) RDB_STR__(x)
 
-#if defined(ROCKSDB_PLATFORM_POSIX)
+#if defined(__GNUC__) || defined(__clang__)
 // Wrap unportable warning macro
 
 #define ROCKSDB_WARNING(x) _Pragma(RDB_STR(GCC warning x))

@@ -527,7 +527,7 @@ void DBLoaderCommand::DoCommand() {
 
 namespace {
 
-void DumpManifestFile(std::string file, bool verbose, bool hex) {
+void DumpManifestFile(std::string file, bool verbose, bool hex, bool json) {
   Options options;
   EnvOptions sopt;
   std::string dbname("dummy");
@@ -540,7 +540,7 @@ void DumpManifestFile(std::string file, bool verbose, bool hex) {
   WriteController wc(options.delayed_write_rate);
   WriteBuffer wb(options.db_write_buffer_size);
   VersionSet versions(dbname, &options, sopt, tc.get(), &wb, &wc);
-  Status s = versions.DumpManifest(options, file, verbose, hex);
+  Status s = versions.DumpManifest(options, file, verbose, hex, json);
   if (!s.ok()) {
     printf("Error in processing file %s %s\n", file.c_str(),
            s.ToString().c_str());
@@ -550,12 +550,14 @@ void DumpManifestFile(std::string file, bool verbose, bool hex) {
 }  // namespace
 
 const string ManifestDumpCommand::ARG_VERBOSE = "verbose";
-const string ManifestDumpCommand::ARG_PATH    = "path";
+const string ManifestDumpCommand::ARG_JSON = "json";
+const string ManifestDumpCommand::ARG_PATH = "path";
 
 void ManifestDumpCommand::Help(string& ret) {
   ret.append("  ");
   ret.append(ManifestDumpCommand::Name());
   ret.append(" [--" + ARG_VERBOSE + "]");
+  ret.append(" [--" + ARG_JSON + "]");
   ret.append(" [--" + ARG_PATH + "=<path_to_manifest_file>]");
   ret.append("\n");
 }
@@ -563,11 +565,13 @@ void ManifestDumpCommand::Help(string& ret) {
 ManifestDumpCommand::ManifestDumpCommand(const vector<string>& params,
       const map<string, string>& options, const vector<string>& flags) :
     LDBCommand(options, flags, false,
-               BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX})),
+               BuildCmdLineOptions({ARG_VERBOSE, ARG_PATH, ARG_HEX, ARG_JSON})),
     verbose_(false),
+    json_(false),
     path_("")
 {
   verbose_ = IsFlagPresent(flags, ARG_VERBOSE);
+  json_ = IsFlagPresent(flags, ARG_JSON);
 
   map<string, string>::const_iterator itr = options.find(ARG_PATH);
   if (itr != options.end()) {
@@ -623,7 +627,8 @@ void ManifestDumpCommand::DoCommand() {
     printf("Processing Manifest file %s\n", manifestfile.c_str());
   }
 
-  DumpManifestFile(manifestfile, verbose_, is_key_hex_);
+  DumpManifestFile(manifestfile, verbose_, is_key_hex_, json_);
+
   if (verbose_) {
     printf("Processing Manifest file %s done\n", manifestfile.c_str());
   }
@@ -1138,7 +1143,6 @@ Options ReduceDBLevelsCommand::PrepareOptionsForOpenDB() {
   // Disable size compaction
   opt.max_bytes_for_level_base = 1ULL << 50;
   opt.max_bytes_for_level_multiplier = 1;
-  opt.max_mem_compaction_level = 0;
   return opt;
 }
 
@@ -1404,10 +1408,18 @@ class InMemoryHandler : public WriteBatch::Handler {
 
 void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
                  LDBCommandExecuteResult* exec_state) {
-  unique_ptr<SequentialFile> file;
   Env* env_ = Env::Default();
   EnvOptions soptions;
-  Status status = env_->NewSequentialFile(wal_file, &file, soptions);
+  unique_ptr<SequentialFileReader> wal_file_reader;
+
+  Status status;
+  {
+    unique_ptr<SequentialFile> file;
+    status = env_->NewSequentialFile(wal_file, &file, soptions);
+    if (status.ok()) {
+      wal_file_reader.reset(new SequentialFileReader(std::move(file)));
+    }
+  }
   if (!status.ok()) {
     if (exec_state) {
       *exec_state = LDBCommandExecuteResult::Failed("Failed to open WAL file " +
@@ -1418,7 +1430,7 @@ void DumpWalFile(std::string wal_file, bool print_header, bool print_values,
     }
   } else {
     StdErrReporter reporter;
-    log::Reader reader(move(file), &reporter, true, 0);
+    log::Reader reader(move(wal_file_reader), &reporter, true, 0);
     string scratch;
     WriteBatch batch;
     Slice record;
@@ -2025,7 +2037,7 @@ void DBFileDumperCommand::DoCommand() {
   manifest_filename.resize(manifest_filename.size() - 1);
   string manifest_filepath = db_->GetName() + "/" + manifest_filename;
   std::cout << manifest_filepath << std::endl;
-  DumpManifestFile(manifest_filepath, false, false);
+  DumpManifestFile(manifest_filepath, false, false, false);
   std::cout << std::endl;
 
   std::cout << "SST Files" << std::endl;

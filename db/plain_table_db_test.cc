@@ -8,6 +8,9 @@
 // Copyright (c) 2011 The LevelDB Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
+
+#ifndef ROCKSDB_LITE
+
 #include <algorithm>
 #include <set>
 
@@ -198,10 +201,9 @@ class TestPlainTableReader : public PlainTableReader {
                        int bloom_bits_per_key, double hash_table_ratio,
                        size_t index_sparseness,
                        const TableProperties* table_properties,
-                       unique_ptr<RandomAccessFile>&& file,
+                       unique_ptr<RandomAccessFileReader>&& file,
                        const ImmutableCFOptions& ioptions,
-                       bool* expect_bloom_not_match,
-                       bool store_index_in_file)
+                       bool* expect_bloom_not_match, bool store_index_in_file)
       : PlainTableReader(ioptions, std::move(file), env_options, icomparator,
                          encoding_type, file_size, table_properties),
         expect_bloom_not_match_(expect_bloom_not_match) {
@@ -257,7 +259,8 @@ class TestPlainTableFactory : public PlainTableFactory {
   Status NewTableReader(const ImmutableCFOptions& ioptions,
                         const EnvOptions& env_options,
                         const InternalKeyComparator& internal_comparator,
-                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
                         unique_ptr<TableReader>* table) const override {
     TableProperties* props = nullptr;
     auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
@@ -1011,7 +1014,6 @@ TEST_F(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100 << 10; //100KB
   options.num_levels = 3;
-  options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = 3;
   Reopen(&options);
 
@@ -1090,3 +1092,13 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as plain table is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

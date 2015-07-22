@@ -624,7 +624,6 @@ TEST_F(CompactionJobStatsTest, CompactionJobStatsTest) {
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
   options.max_background_flushes = 0;
-  options.max_mem_compaction_level = 0;
   // just enough setting to hold off auto-compaction.
   options.level0_file_num_compaction_trigger = kTestScale + 1;
   options.num_levels = 3;
@@ -776,7 +775,6 @@ TEST_F(CompactionJobStatsTest, DeletionStatsTest) {
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
   options.max_background_flushes = 0;
-  options.max_mem_compaction_level = 0;
   options.level0_file_num_compaction_trigger = kTestScale+1;
   options.num_levels = 3;
   options.compression = kNoCompression;
@@ -865,8 +863,6 @@ TEST_F(CompactionJobStatsTest, UniversalCompactionTest) {
   Options options;
   options.listeners.emplace_back(stats_checker);
   options.create_if_missing = true;
-  options.max_background_flushes = 0;
-  options.max_mem_compaction_level = 0;
   options.num_levels = 3;
   options.compression = kNoCompression;
   options.level0_file_num_compaction_trigger = 2;
@@ -917,6 +913,7 @@ TEST_F(CompactionJobStatsTest, UniversalCompactionTest) {
         kKeySize, kValueSize, key_interval,
         compression_ratio, 1);
   }
+  reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }
 

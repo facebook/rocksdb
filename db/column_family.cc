@@ -138,9 +138,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
       result.num_levels < 2) {
     result.num_levels = 2;
   }
-  if (result.max_mem_compaction_level >= result.num_levels) {
-    result.max_mem_compaction_level = result.num_levels - 1;
-  }
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;
   }

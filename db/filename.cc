@@ -18,6 +18,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
+#include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
 
@@ -328,15 +329,13 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
   return s;
 }
 
-Status SyncManifest(Env* env, const DBOptions* db_options, WritableFile* file) {
+Status SyncManifest(Env* env, const DBOptions* db_options,
+                    WritableFileWriter* file) {
   if (db_options->disableDataSync) {
     return Status::OK();
-  } else if (db_options->use_fsync) {
-    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
-    return file->Fsync();
   } else {
     StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
-    return file->Sync();
+    return file->Sync(db_options->use_fsync);
   }
 }
 

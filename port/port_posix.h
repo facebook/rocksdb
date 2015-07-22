@@ -53,7 +53,7 @@
 
 #if defined(OS_MACOSX) || defined(OS_SOLARIS) || defined(OS_FREEBSD) ||\
     defined(OS_NETBSD) || defined(OS_OPENBSD) || defined(OS_DRAGONFLYBSD) ||\
-    defined(OS_ANDROID)
+    defined(OS_ANDROID) || defined(CYGWIN)
 // Use fread/fwrite/fflush on platforms without _unlocked variants
 #define fread_unlocked fread
 #define fwrite_unlocked fwrite
@@ -150,6 +150,7 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
+extern void Crash(const std::string& srcfile, int srcline);
 } // namespace port
 } // namespace rocksdb
 

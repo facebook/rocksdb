@@ -186,12 +186,6 @@ class VersionStorageInfo {
   bool HasOverlappingUserKey(const std::vector<FileMetaData*>* inputs,
                              int level);
 
-  // Return the level at which we should place a new memtable compaction
-  // result that covers the range [smallest_user_key,largest_user_key].
-  int PickLevelForMemTableOutput(const MutableCFOptions& mutable_cf_options,
-                                 const Slice& smallest_user_key,
-                                 const Slice& largest_user_key);
-
   int num_levels() const { return num_levels_; }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -572,7 +566,7 @@ class VersionSet {
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
-                      bool verbose, bool hex = false);
+                      bool verbose, bool hex = false, bool json = false);
 
 #endif  // ROCKSDB_LITE
 

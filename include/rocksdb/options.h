@@ -213,11 +213,9 @@ struct ColumnFamilyOptions {
   // Default: nullptr
   std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
 
-  // Version TWO of the compaction_filter_factory
-  // It supports rolling compaction
-  //
-  // Default: nullptr
-  std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
+  // This is deprecated. Talk to us if you depend on
+  // compaction_filter_factory_v2 and we'll put it back
+  // std::shared_ptr<CompactionFilterFactoryV2> compaction_filter_factory_v2;
 
   // -------------------
   // Parameters that affect performance
@@ -359,14 +357,7 @@ struct ColumnFamilyOptions {
   // Dynamically changeable through SetOptions() API
   int level0_stop_writes_trigger;
 
-  // Maximum level to which a new compacted memtable is pushed if it
-  // does not create overlap.  We try to push to level 2 to avoid the
-  // relatively expensive level 0=>1 compactions and to avoid some
-  // expensive manifest file operations.  We do not push all the way to
-  // the largest level since that can generate a lot of wasted disk
-  // space if the same key space is being repeatedly overwritten.
-  //
-  // Dynamically changeable through SetOptions() API
+  // This does not do anything anymore. Deprecated.
   int max_mem_compaction_level;
 
   // Target file size for compaction.
@@ -1023,7 +1014,9 @@ struct DBOptions {
   void Dump(Logger* log) const;
 
   // Allows OS to incrementally sync files to disk while they are being
-  // written, asynchronously, in the background.
+  // written, asynchronously, in the background. This operation can be used
+  // to smooth out write I/Os over time. Users shouldn't reply on it for
+  // persistency guarantee.
   // Issue one request for every bytes_per_sync written. 0 turns it off.
   // Default: 0
   //

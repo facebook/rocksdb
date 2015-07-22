@@ -30,7 +30,6 @@ class Version;
 class ColumnFamilyData;
 class VersionStorageInfo;
 class CompactionFilter;
-class CompactionFilterV2;
 
 // A Compaction encapsulates information about a compaction.
 class Compaction {
@@ -194,9 +193,6 @@ class Compaction {
 
   // Create a CompactionFilter from compaction_filter_factory
   std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
-
-  // Create a CompactionFilterV2 from compaction_filter_factory_v2
-  std::unique_ptr<CompactionFilterV2> CreateCompactionFilterV2() const;
 
  private:
   // mark (or clear) all files that are being compacted

@@ -227,6 +227,7 @@ class VersionEdit {
   }
 
   std::string DebugString(bool hex_key = false) const;
+  std::string DebugJSON(int edit_num, bool hex_key = false) const;
 
  private:
   friend class VersionSet;

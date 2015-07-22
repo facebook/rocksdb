@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include <mutex>
 #include <string>
 #include <vector>
@@ -89,7 +91,7 @@ TEST_F(CompactFilesTest, ObsoleteFiles) {
 
   // verify all compaction input files are deleted
   for (auto fname : l0_files) {
-    ASSERT_TRUE(!env_->FileExists(fname));
+    ASSERT_EQ(Status::NotFound(), env_->FileExists(fname));
   }
   delete db;
 }
@@ -100,3 +102,14 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr,
+          "SKIPPED as DBImpl::CompactFiles is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

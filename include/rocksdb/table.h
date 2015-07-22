@@ -34,7 +34,7 @@ class RandomAccessFile;
 struct TableBuilderOptions;
 class TableBuilder;
 class TableReader;
-class WritableFile;
+class WritableFileWriter;
 struct EnvOptions;
 struct Options;
 
@@ -315,6 +315,8 @@ extern TableFactory* NewCuckooTableFactory(
 
 #endif  // ROCKSDB_LITE
 
+class RandomAccessFileReader;
+
 // A base class for table factories.
 class TableFactory {
  public:
@@ -348,7 +350,7 @@ class TableFactory {
   virtual Status NewTableReader(
       const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
       const InternalKeyComparator& internal_comparator,
-      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+      unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table_reader) const = 0;
 
   // Return a table builder to write to a file for this table type.
@@ -372,7 +374,7 @@ class TableFactory {
   // to use in this table.
   virtual TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      WritableFile* file) const = 0;
+      WritableFileWriter* file) const = 0;
 
   // Sanitizes the specified DB Options and ColumnFamilyOptions.
   //
