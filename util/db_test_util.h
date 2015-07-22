@@ -428,6 +428,7 @@ class DBTestBase : public testing::Test {
  public:
   std::string dbname_;
   std::string alternative_wal_dir_;
+  std::string alternative_db_log_dir_;
   MockEnv* mem_env_;
   SpecialEnv* env_;
   DB* db_;

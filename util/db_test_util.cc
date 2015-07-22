@@ -46,6 +46,7 @@ DBTestBase::DBTestBase(const std::string path) : option_config_(kDefault),
   env_->SetBackgroundThreads(1, Env::HIGH);
   dbname_ = test::TmpDir(env_) + path;
   alternative_wal_dir_ = dbname_ + "/wal";
+  alternative_db_log_dir_ = dbname_ + "/db_log_dir";
   auto options = CurrentOptions();
   auto delete_options = options;
   delete_options.wal_dir = alternative_wal_dir_;
@@ -229,7 +230,7 @@ Options DBTestBase::CurrentOptions(
       options.num_levels = 3;
       break;
     case kDBLogDir:
-      options.db_log_dir = test::TmpDir(env_);
+      options.db_log_dir = alternative_db_log_dir_;
       break;
     case kWalDirAndMmapReads:
       options.wal_dir = alternative_wal_dir_;
