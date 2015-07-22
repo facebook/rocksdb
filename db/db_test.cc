@@ -420,7 +420,7 @@ TEST_F(DBTest, ParanoidFileChecks) {
 
 TEST_F(DBTest, GetPropertiesOfAllTablesTest) {
   Options options = CurrentOptions();
-  options.max_background_flushes = 0;
+  options.level0_file_num_compaction_trigger = 8;
   Reopen(options);
   // Create 4 tables
   for (int table = 0; table < 4; ++table) {

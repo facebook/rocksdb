@@ -273,6 +273,7 @@ set(TESTS
         db/log_test.cc
         db/memtable_list_test.cc
         db/merge_test.cc
+        db/merge_helper_test.cc
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
@@ -307,6 +308,7 @@ set(TESTS
         util/event_logger_test.cc
         util/filelock_test.cc
         util/file_reader_writer_test.cc
+        util/heap_test.cc
         util/histogram_test.cc
         util/manual_compaction_test.cc
         util/memenv_test.cc
