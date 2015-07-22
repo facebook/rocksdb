@@ -350,8 +350,6 @@ class PosixMmapFile : public WritableFile {
   char* dst_;             // Where to write next  (in range [base_,limit_])
   char* last_sync_;       // Where have we synced up to
   uint64_t file_offset_;  // Offset of base_ in file
-  // Have we done an munmap of unsynced data?
-  bool pending_sync_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
 #endif
@@ -370,10 +368,6 @@ class PosixMmapFile : public WritableFile {
   Status UnmapCurrentRegion() {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (base_ != nullptr) {
-      if (last_sync_ < limit_) {
-        // Defer syncing this data until next Sync() call, if any
-        pending_sync_ = true;
-      }
       int munmap_status = munmap(base_, limit_ - base_);
       if (munmap_status != 0) {
         return IOError(filename_, munmap_status);
@@ -427,6 +421,22 @@ class PosixMmapFile : public WritableFile {
 #else
     return Status::NotSupported("This platform doesn't support fallocate()");
 #endif
+  }
+
+  Status Msync() {
+    if (dst_ == last_sync_) {
+      return Status::OK();
+    }
+    // Find the beginnings of the pages that contain the first and last
+    // bytes to be synced.
+    size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
+    size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
+    last_sync_ = dst_;
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
+      return IOError(filename_, errno);
+    }
+    return Status::OK();
   }
 
  public:
@@ -514,38 +524,22 @@ class PosixMmapFile : public WritableFile {
   }
 
   virtual Status Sync() override {
-    Status s;
-
-      if (fdatasync(fd_) < 0) {
-        s = IOError(filename_, errno);
-      }
-
-    if (dst_ > last_sync_) {
-      // Find the beginnings of the pages that contain the first and last
-      // bytes to be synced.
-      size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
-      size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
-      last_sync_ = dst_;
-      TEST_KILL_RANDOM(rocksdb_kill_odds);
-      if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
-        s = IOError(filename_, errno);
-      }
+    if (fdatasync(fd_) < 0) {
+      return IOError(filename_, errno);
     }
 
-    return s;
+    return Msync();
   }
 
   /**
    * Flush data as well as metadata to stable storage.
    */
   virtual Status Fsync() override {
-      // Some unmapped data was not synced
-      if (fsync(fd_) < 0) {
-        return IOError(filename_, errno);
-      }
-    // This invocation to Sync will not issue the call to
-    // fdatasync because pending_sync_ has already been cleared.
-    return Sync();
+    if (fsync(fd_) < 0) {
+      return IOError(filename_, errno);
+    }
+
+    return Msync();
   }
 
   /**
