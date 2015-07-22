@@ -495,6 +495,7 @@ class CoutingUserTblPropCollectorFactory
 
 TEST_F(DBTest, GetUserDefinedTablaProperties) {
   Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = (1<<30);
   options.max_background_flushes = 0;
   options.table_properties_collector_factories.resize(1);
   options.table_properties_collector_factories[0] =
