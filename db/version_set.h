@@ -312,6 +312,9 @@ class VersionStorageInfo {
   void CalculateBaseBytes(const ImmutableCFOptions& ioptions,
                           const MutableCFOptions& options);
 
+  // Returns an estimate of the amount of live data in bytes.
+  uint64_t EstimateLiveDataSize() const;
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;

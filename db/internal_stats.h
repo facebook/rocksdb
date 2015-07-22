@@ -58,6 +58,7 @@ enum DBPropertyType : uint32_t {
   kNumSnapshots,                  // Number of snapshots in the system
   kOldestSnapshotTime,            // Unix timestamp of the first snapshot
   kNumLiveVersions,
+  kEstimateLiveDataSize,          // Estimated amount of live data in bytes
   kBaseLevel,  // The level that L0 data is compacted to
 };
 

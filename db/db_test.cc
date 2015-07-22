@@ -2098,6 +2098,9 @@ TEST_F(DBTest, GetProperty) {
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
   ASSERT_EQ(int_num, 0U);
+  ASSERT_TRUE(
+      dbfull()->GetIntProperty("rocksdb.estimate-live-data-size", &int_num));
+  ASSERT_EQ(int_num, 0U);
 
   ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
   ASSERT_TRUE(dbfull()->GetProperty("rocksdb.num-immutable-mem-table", &num));
