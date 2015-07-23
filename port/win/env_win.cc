@@ -1976,9 +1976,16 @@ class WinEnv : public Env {
   }
 
   virtual uint64_t NowMicros() override {
-    using namespace std::chrono;
-    return duration_cast<microseconds>(system_clock::now().time_since_epoch())
-        .count();
+    // all std::chrono clocks on windows have the same resolution that is only
+    // On Windows 8 and Windows 2012 Server
+    // GetSystemTimePreciseAsFileTime(&current_time) can be used
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    // Convert to nanoseconds first to avoid loss of precision
+    // and divide by frequency
+    li.QuadPart *= std::micro::den;
+    li.QuadPart /= perf_counter_frequency_;
+    return li.QuadPart;
   }
 
   virtual uint64_t NowNanos() override {

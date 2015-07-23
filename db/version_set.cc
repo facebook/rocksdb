@@ -1700,6 +1700,41 @@ void VersionStorageInfo::CalculateBaseBytes(const ImmutableCFOptions& ioptions,
   }
 }
 
+uint64_t VersionStorageInfo::EstimateLiveDataSize() const {
+  // Estimate the live data size by adding up the size of the last level for all
+  // key ranges. Note: Estimate depends on the ordering of files in level 0
+  // because files in level 0 can be overlapping.
+  uint64_t size = 0;
+
+  auto ikey_lt = [this](InternalKey* x, InternalKey* y) {
+    return internal_comparator_->Compare(*x, *y) < 0;
+  };
+  // (Ordered) map of largest keys in non-overlapping files
+  std::map<InternalKey*, FileMetaData*, decltype(ikey_lt)> ranges(ikey_lt);
+
+  for (int l = num_levels_ - 1; l >= 0; l--) {
+    bool found_end = false;
+    for (auto file : files_[l]) {
+      // Find the first file where the largest key is larger than the smallest
+      // key of the current file. If this file does not overlap with the
+      // current file, none of the files in the map does. If there is
+      // no potential overlap, we can safely insert the rest of this level
+      // (if the level is not 0) into the map without checking again because
+      // the elements in the level are sorted and non-overlapping.
+      auto lb = (found_end && l != 0) ?
+        ranges.end() : ranges.lower_bound(&file->smallest);
+      found_end = (lb == ranges.end());
+      if (found_end || internal_comparator_->Compare(
+            file->largest, (*lb).second->smallest) < 0) {
+          ranges.emplace_hint(lb, &file->largest, file);
+          size += file->fd.file_size;
+      }
+    }
+  }
+  return size;
+}
+
+
 void Version::AddLiveFiles(std::vector<FileDescriptor>* live) {
   for (int level = 0; level < storage_info_.num_levels(); level++) {
     const std::vector<FileMetaData*>& files = storage_info_.files_[level];

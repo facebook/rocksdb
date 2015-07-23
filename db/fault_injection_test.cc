@@ -807,10 +807,8 @@ class SleepingBackgroundTask {
   bool done_with_sleep_;
 };
 
-// Disable the test because it is not passing.
 // Previous log file is not fsynced if sync is forced after log rolling.
-// TODO(FB internal task#6730880) Fix the bug
-TEST_P(FaultInjectionTest, DISABLED_WriteOptionSyncTest) {
+TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   SleepingBackgroundTask sleeping_task_low;
   env_->SetBackgroundThreads(1, Env::HIGH);
   // Block the job queue to prevent flush job from running.
