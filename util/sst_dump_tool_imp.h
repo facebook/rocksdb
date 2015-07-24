@@ -8,6 +8,7 @@
 #include "rocksdb/sst_dump_tool.h"
 
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,9 +21,9 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block.h"
+#include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_builder.h"
 #include "table/format.h"
@@ -53,11 +54,17 @@ class SstFileReader {
   Status DumpTable(const std::string& out_filename);
   Status getStatus() { return init_result_; }
 
+  int ShowAllCompressionSizes(size_t block_size);
+
  private:
   // Get the TableReader implementation for the sst file
   Status GetTableReader(const std::string& file_path);
   Status ReadTableProperties(uint64_t table_magic_number,
                              RandomAccessFileReader* file, uint64_t file_size);
+
+  uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
+                                        size_t block_size);
+
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();
 

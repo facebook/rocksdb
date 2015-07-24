@@ -32,6 +32,8 @@ extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
 extern const uint64_t kLegacyPlainTableMagicNumber;
 
+const char* testFileName = "test_file_name";
+
 Status SstFileReader::GetTableReader(const std::string& file_path) {
   uint64_t magic_number;
 
@@ -107,6 +109,71 @@ Status SstFileReader::DumpTable(const std::string& out_filename) {
   Status s = table_reader_->DumpTable(out_file.get());
   out_file->Close();
   return s;
+}
+
+uint64_t SstFileReader::CalculateCompressedTableSize(
+    const TableBuilderOptions& tb_options, size_t block_size) {
+  unique_ptr<WritableFile> out_file;
+  unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  env->NewWritableFile(testFileName, &out_file, soptions_);
+  unique_ptr<WritableFileWriter> dest_writer;
+  dest_writer.reset(new WritableFileWriter(std::move(out_file), soptions_));
+  BlockBasedTableOptions table_options;
+  table_options.block_size = block_size;
+  BlockBasedTableFactory block_based_tf(table_options);
+  TableBuilder* table_builder_ =
+      block_based_tf.NewTableBuilder(tb_options, dest_writer.get());
+  unique_ptr<Iterator> iter(table_reader_->NewIterator(ReadOptions()));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    if (!iter->status().ok()) {
+      fprintf(stderr, iter->status().ToString().c_str());
+      exit(1);
+    }
+    table_builder_->Add(iter->key(), iter->value());
+  }
+  Status s = table_builder_->Finish();
+  if (!s.ok()) {
+    fprintf(stderr, s.ToString().c_str());
+    exit(1);
+  }
+  uint64_t size = table_builder_->FileSize();
+  env->DeleteFile(testFileName);
+  return size;
+}
+
+int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
+  ReadOptions read_options;
+  Options opts;
+  const ImmutableCFOptions imoptions(opts);
+  rocksdb::InternalKeyComparator ikc(opts.comparator);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
+      block_based_table_factories;
+
+  std::map<CompressionType, const char*> compress_type;
+  compress_type.insert(
+      std::make_pair(CompressionType::kNoCompression, "kNoCompression"));
+  compress_type.insert(std::make_pair(CompressionType::kSnappyCompression,
+                                      "kSnappyCompression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kZlibCompression, "kZlibCompression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kBZip2Compression, "kBZip2Compression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kLZ4Compression, "kLZ4Compression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
+
+  fprintf(stdout, "Block Size: %lu\n", block_size);
+
+  for (CompressionType i = CompressionType::kNoCompression;
+       i != CompressionType::kLZ4HCCompression; i = CompressionType(i + 1)) {
+    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
+                                CompressionOptions(), false);
+    uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
+    fprintf(stdout, "Compression: %s", compress_type.find(i)->second);
+    fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+  }
+  return 0;
 }
 
 Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
@@ -250,7 +317,9 @@ void print_help() {
           " [--from=<user_key>]"
           " [--to=<user_key>]"
           " [--read_num=NUM]"
-          " [--show_properties]\n");
+          " [--show_properties]"
+          " [--show_compression_sizes]"
+          " [--show_compression_sizes [--set_block_size=<block_size>]]\n");
 }
 
 string HexToString(const string& str) {
@@ -285,8 +354,12 @@ int SSTDumpTool::Run(int argc, char** argv) {
   bool has_from = false;
   bool has_to = false;
   bool show_properties = false;
+  bool show_compression_sizes = false;
+  bool set_block_size = false;
   std::string from_key;
   std::string to_key;
+  std::string block_size_str;
+  size_t block_size;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
@@ -310,6 +383,17 @@ int SSTDumpTool::Run(int argc, char** argv) {
       has_to = true;
     } else if (strcmp(argv[i], "--show_properties") == 0) {
       show_properties = true;
+    } else if (strcmp(argv[i], "--show_compression_sizes") == 0) {
+      show_compression_sizes = true;
+    } else if (strncmp(argv[i], "--set_block_size=", 17) == 0) {
+      set_block_size = true;
+      block_size_str = argv[i] + 17;
+      std::istringstream iss(block_size_str);
+      if (iss.fail()) {
+        fprintf(stderr, "block size must be numeric");
+        exit(1);
+      }
+      iss >> block_size;
     } else {
       print_help();
       exit(1);
@@ -362,6 +446,15 @@ int SSTDumpTool::Run(int argc, char** argv) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               reader.getStatus().ToString().c_str());
       exit(1);
+    }
+
+    if (show_compression_sizes) {
+      if (set_block_size) {
+        reader.ShowAllCompressionSizes(block_size);
+      } else {
+        reader.ShowAllCompressionSizes(16384);
+      }
+      return 0;
     }
 
     if (command == "raw") {
