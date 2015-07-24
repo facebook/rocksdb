@@ -405,7 +405,9 @@ class DB {
   // if the user data compresses by a factor of ten, the returned
   // sizes will be one-tenth the size of the corresponding user data size.
   //
-  // The results may not include the sizes of recently written data.
+  // If include_memtable is set to true, then the result will also
+  // include those recently written data in the mem-tables if
+  // the mem-table type supports it.
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
                                    bool include_memtable = false) = 0;
