@@ -181,21 +181,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void maxMemCompactionLevel() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setMaxMemCompactionLevel(intValue);
-      assertThat(opt.maxMemCompactionLevel()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void targetFileSizeBase() {
     ColumnFamilyOptions opt = null;
     try {

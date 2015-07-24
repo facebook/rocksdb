@@ -276,13 +276,12 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMaxMemCompactionLevel(
       final int maxMemCompactionLevel) {
-    setMaxMemCompactionLevel(nativeHandle_, maxMemCompactionLevel);
     return this;
   }
 
   @Override
   public int maxMemCompactionLevel() {
-    return maxMemCompactionLevel(nativeHandle_);
+    return 0;
   }
 
   @Override
@@ -708,9 +707,6 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setLevelZeroStopWritesTrigger(
       long handle, int numFiles);
   private native int levelZeroStopWritesTrigger(long handle);
-  private native void setMaxMemCompactionLevel(
-      long handle, int maxMemCompactionLevel);
-  private native int maxMemCompactionLevel(long handle);
   private native void setTargetFileSizeBase(
       long handle, long targetFileSizeBase);
   private native long targetFileSizeBase(long handle);

@@ -143,21 +143,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void maxMemCompactionLevel() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setMaxMemCompactionLevel(intValue);
-      assertThat(opt.maxMemCompactionLevel()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void targetFileSizeBase() {
     Options opt = null;
     try {

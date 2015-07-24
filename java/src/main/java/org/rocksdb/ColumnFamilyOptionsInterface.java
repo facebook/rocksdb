@@ -381,30 +381,22 @@ public interface ColumnFamilyOptionsInterface {
   int levelZeroStopWritesTrigger();
 
   /**
-   * The highest level to which a new compacted memtable is pushed if it
-   * does not create overlap.  We try to push to level 2 to avoid the
-   * relatively expensive level 0&ge;1 compactions and to avoid some
-   * expensive manifest file operations.  We do not push all the way to
-   * the largest level since that can generate a lot of wasted disk
-   * space if the same key space is being repeatedly overwritten.
+   * This does nothing anymore. Deprecated.
    *
-   * @param maxMemCompactionLevel the highest level to which a new compacted
-   *     mem-table will be pushed.
+   * @param maxMemCompactionLevel Unused.
+   *
    * @return the reference to the current option.
    */
+  @Deprecated
   Object setMaxMemCompactionLevel(
       int maxMemCompactionLevel);
 
   /**
-   * The highest level to which a new compacted memtable is pushed if it
-   * does not create overlap.  We try to push to level 2 to avoid the
-   * relatively expensive level 0&ge;1 compactions and to avoid some
-   * expensive manifest file operations.  We do not push all the way to
-   * the largest level since that can generate a lot of wasted disk
-   * space if the same key space is being repeatedly overwritten.
+   * This does nothing anymore. Deprecated.
    *
-   * @return the highest level where a new compacted memtable will be pushed.
+   * @return Always returns 0.
    */
+  @Deprecated
   int maxMemCompactionLevel();
 
   /**
