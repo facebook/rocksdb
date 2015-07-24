@@ -161,6 +161,7 @@ set(SOURCES
         util/env_hdfs.cc
         util/event_logger.cc
         util/file_util.cc
+        util/file_reader_writer.cc
         util/filter_policy.cc
         util/hash.cc
         util/hash_cuckoo_rep.cc
@@ -254,10 +255,12 @@ set(TESTS
         db/corruption_test.cc
         db/cuckoo_table_db_test.cc
         db/db_iter_test.cc
-        db/db_log_iter_test.cc
         db/db_test.cc
         db/db_compaction_filter_test.cc
+        db/db_compaction_test.cc
         db/db_dynamic_level_test.cc
+        db/db_inplace_update_test.cc
+        db/db_log_iter_test.cc
         db/db_universal_compaction_test.cc
         db/db_tailing_iter_test.cc
         db/dbformat_test.cc
@@ -270,6 +273,7 @@ set(TESTS
         db/log_test.cc
         db/memtable_list_test.cc
         db/merge_test.cc
+        db/merge_helper_test.cc
         db/perf_context_test.cc
         db/plain_table_db_test.cc
         db/prefix_test.cc
@@ -303,6 +307,8 @@ set(TESTS
         util/env_test.cc
         util/event_logger_test.cc
         util/filelock_test.cc
+        util/file_reader_writer_test.cc
+        util/heap_test.cc
         util/histogram_test.cc
         util/manual_compaction_test.cc
         util/memenv_test.cc

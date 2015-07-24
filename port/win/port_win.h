@@ -554,6 +554,7 @@ inline void* pthread_getspecific(pthread_key_t key) {
 // using C-runtime to implement. Note, this does not
 // feel space with zeros in case the file is extended.
 int truncate(const char* path, int64_t length);
+void Crash(const std::string& srcfile, int srcline);
 
 }  // namespace port
 

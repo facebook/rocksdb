@@ -311,6 +311,9 @@ DEFINE_int32(universal_compression_size_percent, -1,
              "The percentage of the database to compress for universal "
              "compaction. -1 means compress everything.");
 
+DEFINE_bool(universal_allow_trivial_move, false,
+            "Sllow trivial move in universal compaction.");
+
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
 
@@ -2473,6 +2476,8 @@ class Benchmark {
       options.compaction_options_universal.compression_size_percent =
         FLAGS_universal_compression_size_percent;
     }
+    options.compaction_options_universal.allow_trivial_move =
+        FLAGS_universal_allow_trivial_move;
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }

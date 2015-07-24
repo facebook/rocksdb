@@ -7,6 +7,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
+
 #include <string>
 #include <algorithm>
 #include <iostream>
@@ -582,10 +584,12 @@ TEST_F(BackupableDBTest, NoDoubleCopy) {
   test_backup_env_->AssertWrittenFiles(should_have_written);
 
   ASSERT_OK(backup_engine_->DeleteBackup(1));
-  ASSERT_TRUE(test_backup_env_->FileExists(backupdir_ + "/shared/00010.sst"));
+  ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00010.sst"));
+
   // 00011.sst was only in backup 1, should be deleted
-  ASSERT_FALSE(test_backup_env_->FileExists(backupdir_ + "/shared/00011.sst"));
-  ASSERT_TRUE(test_backup_env_->FileExists(backupdir_ + "/shared/00015.sst"));
+  ASSERT_EQ(Status::NotFound(),
+            test_backup_env_->FileExists(backupdir_ + "/shared/00011.sst"));
+  ASSERT_OK(test_backup_env_->FileExists(backupdir_ + "/shared/00015.sst"));
 
   // MANIFEST file size should be only 100
   uint64_t size;
@@ -676,8 +680,10 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "5"));
   AssertBackupConsistency(0, 0, keys_iteration * 5, keys_iteration * 6);
   // assert that all 6 data is gone!
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/6") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/6") == false);
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/meta/6"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/private/6"));
 
   // --------- case 3. corrupted backup meta or missing backuped file ----
   ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/5", 3));
@@ -703,23 +709,23 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   // checksum of the backup 2 appears to be valid, this can cause checksum
   // mismatch and abort restore process
   ASSERT_OK(file_manager_->CorruptChecksum(backupdir_ + "/meta/2", true));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/2"));
   OpenBackupEngine();
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/2"));
   s = backup_engine_->RestoreDBFromBackup(2, dbname_, dbname_);
   ASSERT_TRUE(!s.ok());
 
   // make sure that no corrupt backups have actually been deleted!
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/1"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/1"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4"));
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/1"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/3"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/4"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/5"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/1"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/2"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/3"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/4"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/5"));
 
   // delete the corrupt backups and then make sure they're actually deleted
   ASSERT_OK(backup_engine_->DeleteBackup(5));
@@ -727,14 +733,22 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->DeleteBackup(3));
   ASSERT_OK(backup_engine_->DeleteBackup(2));
   (void)backup_engine_->GarbageCollect();
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/4") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/4") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/3") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/3") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/2") == false);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/2") == false);
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/meta/5"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/private/5"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/meta/4"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/private/4"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/meta/3"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/private/3"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/meta/2"));
+  ASSERT_EQ(Status::NotFound(),
+            file_manager_->FileExists(backupdir_ + "/private/2"));
 
   CloseBackupEngine();
   AssertBackupConsistency(0, 0, keys_iteration * 1, keys_iteration * 5);
@@ -770,8 +784,8 @@ TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
 
   // assert that data from backup 5 is still here (even though LATEST_BACKUP
   // says 4 is latest)
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/meta/5") == true);
-  ASSERT_TRUE(file_manager_->FileExists(backupdir_ + "/private/5") == true);
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/5"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/5"));
 
   // even though 5 is here, we should only see 4 backups
   std::vector<BackupInfo> backup_info;
@@ -995,14 +1009,14 @@ TEST_F(BackupableDBTest, DeleteTmpFiles) {
   file_manager_->WriteToFile(shared_tmp, "tmp");
   file_manager_->CreateDir(private_tmp_dir);
   file_manager_->WriteToFile(private_tmp_file, "tmp");
-  ASSERT_TRUE(file_manager_->FileExists(private_tmp_dir));
+  ASSERT_OK(file_manager_->FileExists(private_tmp_dir));
   OpenDBAndBackupEngine();
   // Need to call this explicitly to delete tmp files
   (void)backup_engine_->GarbageCollect();
   CloseDBAndBackupEngine();
-  ASSERT_FALSE(file_manager_->FileExists(shared_tmp));
-  ASSERT_FALSE(file_manager_->FileExists(private_tmp_file));
-  ASSERT_FALSE(file_manager_->FileExists(private_tmp_dir));
+  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(shared_tmp));
+  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_file));
+  ASSERT_EQ(Status::NotFound(), file_manager_->FileExists(private_tmp_dir));
 }
 
 TEST_F(BackupableDBTest, KeepLogFiles) {
@@ -1168,3 +1182,13 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as BackupableDB is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

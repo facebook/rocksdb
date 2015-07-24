@@ -191,10 +191,14 @@ class FaultInjectionTestEnv : public EnvWrapper {
       return Status::Corruption("Not Active");
     }
     // Not allow overwriting files
-    if (target()->FileExists(fname)) {
+    Status s = target()->FileExists(fname);
+    if (s.ok()) {
       return Status::Corruption("File already exists.");
+    } else if (!s.IsNotFound()) {
+      assert(s.IsIOError());
+      return s;
     }
-    Status s = target()->NewWritableFile(fname, result, soptions);
+    s = target()->NewWritableFile(fname, result, soptions);
     if (s.ok()) {
       result->reset(new TestWritableFile(fname, std::move(*result), this));
       // WritableFileWriter* file is opened
@@ -424,7 +428,8 @@ Status TestWritableFile::Sync() {
   return Status::OK();
 }
 
-class FaultInjectionTest : public testing::Test {
+class FaultInjectionTest : public testing::Test,
+                           public testing::WithParamInterface<bool> {
  protected:
   enum OptionConfig {
     kDefault,
@@ -440,6 +445,8 @@ class FaultInjectionTest : public testing::Test {
   bool sync_use_wal_;
   // When need to make sure data is persistent, call DB::CompactRange()
   bool sync_use_compact_;
+
+  bool sequential_order_;
 
  protected:
  public:
@@ -465,6 +472,11 @@ class FaultInjectionTest : public testing::Test {
         base_env_(nullptr),
         env_(NULL),
         db_(NULL) {
+  }
+
+  ~FaultInjectionTest() {
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+    rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   }
 
   bool ChangeOptions() {
@@ -547,7 +559,10 @@ class FaultInjectionTest : public testing::Test {
     return s;
   }
 
-  void SetUp() override { ASSERT_OK(NewDB()); }
+  void SetUp() override {
+    sequential_order_ = GetParam();
+    ASSERT_OK(NewDB());
+  }
 
   void TearDown() override {
     CloseDB();
@@ -562,34 +577,33 @@ class FaultInjectionTest : public testing::Test {
     ASSERT_OK(s);
   }
 
-  void Build(const WriteOptions& write_options, int start_idx, int num_vals,
-             bool sequential = true) {
+  void Build(const WriteOptions& write_options, int start_idx, int num_vals) {
     std::string key_space, value_space;
     WriteBatch batch;
     for (int i = start_idx; i < start_idx + num_vals; i++) {
-      Slice key = Key(sequential, i, &key_space);
+      Slice key = Key(i, &key_space);
       batch.Clear();
       batch.Put(key, Value(i, &value_space));
       ASSERT_OK(db_->Write(write_options, &batch));
     }
   }
 
-  Status ReadValue(int i, std::string* val, bool sequential) const {
+  Status ReadValue(int i, std::string* val) const {
     std::string key_space, value_space;
-    Slice key = Key(sequential, i, &key_space);
+    Slice key = Key(i, &key_space);
     Value(i, &value_space);
     ReadOptions options;
     return db_->Get(options, key, val);
   }
 
-  Status Verify(int start_idx, int num_vals, ExpectedVerifResult expected,
-                bool sequential = true) const {
+  Status Verify(int start_idx, int num_vals,
+                ExpectedVerifResult expected) const {
     std::string val;
     std::string value_space;
     Status s;
     for (int i = start_idx; i < start_idx + num_vals && s.ok(); i++) {
       Value(i, &value_space);
-      s = ReadValue(i, &val, sequential);
+      s = ReadValue(i, &val);
       if (s.ok()) {
         EXPECT_EQ(value_space, val);
       }
@@ -609,9 +623,9 @@ class FaultInjectionTest : public testing::Test {
   }
 
   // Return the ith key
-  Slice Key(bool sequential, int i, std::string* storage) const {
+  Slice Key(int i, std::string* storage) const {
     int num = i;
-    if (!sequential) {
+    if (!sequential_order_) {
       // random transfer
       const int m = 0x5bd1e995;
       num *= m;
@@ -701,6 +715,10 @@ class FaultInjectionTest : public testing::Test {
     ASSERT_OK(Verify(0, num_pre_sync, FaultInjectionTest::kValExpectFound));
     ASSERT_OK(Verify(num_pre_sync, num_post_sync,
                      FaultInjectionTest::kValExpectNoError));
+    WaitCompactionFinish();
+    ASSERT_OK(Verify(0, num_pre_sync, FaultInjectionTest::kValExpectFound));
+    ASSERT_OK(Verify(num_pre_sync, num_post_sync,
+                     FaultInjectionTest::kValExpectNoError));
   }
 
   void NoWriteTestPreFault() {
@@ -711,9 +729,14 @@ class FaultInjectionTest : public testing::Test {
     ResetDBState(reset_method);
     ASSERT_OK(OpenDB());
   }
+
+  void WaitCompactionFinish() {
+    static_cast<DBImpl*>(db_)->TEST_WaitForCompact();
+    ASSERT_OK(db_->Put(WriteOptions(), "", ""));
+  }
 };
 
-TEST_F(FaultInjectionTest, FaultTest) {
+TEST_P(FaultInjectionTest, FaultTest) {
   do {
     Random rnd(301);
 
@@ -784,10 +807,8 @@ class SleepingBackgroundTask {
   bool done_with_sleep_;
 };
 
-// Disable the test because it is not passing.
 // Previous log file is not fsynced if sync is forced after log rolling.
-// TODO(FB internal task#6730880) Fix the bug
-TEST_F(FaultInjectionTest, DISABLED_WriteOptionSyncTest) {
+TEST_P(FaultInjectionTest, WriteOptionSyncTest) {
   SleepingBackgroundTask sleeping_task_low;
   env_->SetBackgroundThreads(1, Env::HIGH);
   // Block the job queue to prevent flush job from running.
@@ -798,14 +819,14 @@ TEST_F(FaultInjectionTest, DISABLED_WriteOptionSyncTest) {
   write_options.sync = false;
 
   std::string key_space, value_space;
-  ASSERT_OK(db_->Put(write_options, Key(true, 1, &key_space),
-                     Value(1, &value_space)));
+  ASSERT_OK(
+      db_->Put(write_options, Key(1, &key_space), Value(1, &value_space)));
   FlushOptions flush_options;
   flush_options.wait = false;
   ASSERT_OK(db_->Flush(flush_options));
   write_options.sync = true;
-  ASSERT_OK(db_->Put(write_options, Key(true, 2, &key_space),
-                     Value(2, &value_space)));
+  ASSERT_OK(
+      db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
 
   env_->SetFilesystemActive(false);
   NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
@@ -814,15 +835,15 @@ TEST_F(FaultInjectionTest, DISABLED_WriteOptionSyncTest) {
   ASSERT_OK(OpenDB());
   std::string val;
   Value(2, &value_space);
-  ASSERT_OK(ReadValue(2, &val, true));
+  ASSERT_OK(ReadValue(2, &val));
   ASSERT_EQ(value_space, val);
 
   Value(1, &value_space);
-  ASSERT_OK(ReadValue(1, &val, true));
+  ASSERT_OK(ReadValue(1, &val));
   ASSERT_EQ(value_space, val);
 }
 
-TEST_F(FaultInjectionTest, UninstalledCompaction) {
+TEST_P(FaultInjectionTest, UninstalledCompaction) {
   options_.target_file_size_base = 32 * 1024;
   options_.write_buffer_size = 100 << 10;  // 100KB
   options_.level0_file_num_compaction_trigger = 6;
@@ -831,16 +852,18 @@ TEST_F(FaultInjectionTest, UninstalledCompaction) {
   options_.max_background_compactions = 1;
   OpenDB();
 
-  rocksdb::SyncPoint::GetInstance()->LoadDependency({
-      {"FaultInjectionTest::FaultTest:0", "DBImpl::BGWorkCompaction"},
-      {"CompactionJob::Run():End", "FaultInjectionTest::FaultTest:1"},
-      {"FaultInjectionTest::FaultTest:2",
-       "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
-  });
+  if (!sequential_order_) {
+    rocksdb::SyncPoint::GetInstance()->LoadDependency({
+        {"FaultInjectionTest::FaultTest:0", "DBImpl::BGWorkCompaction"},
+        {"CompactionJob::Run():End", "FaultInjectionTest::FaultTest:1"},
+        {"FaultInjectionTest::FaultTest:2",
+         "DBImpl::BackgroundCompaction:NonTrivial:AfterRun"},
+    });
+  }
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   int kNumKeys = 1000;
-  Build(WriteOptions(), 0, kNumKeys, false);
+  Build(WriteOptions(), 0, kNumKeys);
   FlushOptions flush_options;
   flush_options.wait = true;
   db_->Flush(flush_options);
@@ -861,11 +884,14 @@ TEST_F(FaultInjectionTest, UninstalledCompaction) {
       [&](void* arg) { ASSERT_TRUE(opened.load()); });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   ASSERT_OK(OpenDB());
-  static_cast<DBImpl*>(db_)->TEST_WaitForCompact();
-  ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound, false));
-  ASSERT_OK(db_->Put(WriteOptions(), "", ""));
+  ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
+  WaitCompactionFinish();
+  ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
 }
+
+INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());
 
 }  // namespace rocksdb
 

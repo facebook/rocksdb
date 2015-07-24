@@ -3,6 +3,8 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -520,7 +522,8 @@ TEST_F(CuckooReaderTest, TestReadPerformance) {
       "WARNING: Not compiled with DNDEBUG. Performance tests may be slow.\n");
 #endif
   for (uint64_t num : nums) {
-    if (FLAGS_write || !Env::Default()->FileExists(GetFileName(num))) {
+    if (FLAGS_write ||
+        Env::Default()->FileExists(GetFileName(num)).IsNotFound()) {
       std::vector<std::string> all_keys;
       GetKeys(num, &all_keys);
       WriteFile(all_keys, num, hash_ratio);
@@ -542,3 +545,13 @@ int main(int argc, char** argv) {
 }
 
 #endif  // GFLAGS.
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // ROCKSDB_LITE

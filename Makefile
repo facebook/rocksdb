@@ -222,8 +222,11 @@ TESTS = \
 	db_iter_test \
 	db_log_iter_test \
 	db_compaction_filter_test \
+	db_compaction_test \
 	db_dynamic_level_test \
+	db_inplace_update_test \
 	db_tailing_iter_test \
+	db_universal_compaction_test \
 	block_hash_index_test \
 	autovector_test \
 	column_family_test \
@@ -245,6 +248,7 @@ TESTS = \
 	fault_injection_test \
 	filelock_test \
 	filename_test \
+	file_reader_writer_test \
 	block_based_filter_block_test \
 	full_filter_block_test \
 	histogram_test \
@@ -687,7 +691,13 @@ db_log_iter_test: db/db_log_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TEST
 db_compaction_filter_test: db/db_compaction_filter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_compaction_test: db/db_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 db_dynamic_level_test: db/db_dynamic_level_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_inplace_update_test: db/db_inplace_update_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_tailing_iter_test: db/db_tailing_iter_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -763,6 +773,9 @@ rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+file_reader_writer_test: util/file_reader_writer_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 block_based_filter_block_test: table/block_based_filter_block_test.o $(LIBOBJECTS) $(TESTHARNESS)

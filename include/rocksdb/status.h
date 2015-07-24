@@ -31,6 +31,8 @@ class Status {
   // Copy the specified status.
   Status(const Status& s);
   void operator=(const Status& s);
+  bool operator==(const Status& rhs) const;
+  bool operator!=(const Status& rhs) const;
 
   // Return a success status.
   static Status OK() { return Status(); }
@@ -162,6 +164,14 @@ inline void Status::operator=(const Status& s) {
     delete[] state_;
     state_ = (s.state_ == nullptr) ? nullptr : CopyState(s.state_);
   }
+}
+
+inline bool Status::operator==(const Status& rhs) const {
+  return (code_ == rhs.code_);
+}
+
+inline bool Status::operator!=(const Status& rhs) const {
+  return !(*this == rhs);
 }
 
 }  // namespace rocksdb

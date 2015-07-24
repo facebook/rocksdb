@@ -64,8 +64,12 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
   bool same_fs = true;
   VectorLogPtr live_wal_files;
 
-  if (db_->GetEnv()->FileExists(checkpoint_dir)) {
+  s = db_->GetEnv()->FileExists(checkpoint_dir);
+  if (s.ok()) {
     return Status::InvalidArgument("Directory exists");
+  } else if (!s.IsNotFound()) {
+    assert(s.IsIOError());
+    return s;
   }
 
   s = db_->DisableFileDeletions();

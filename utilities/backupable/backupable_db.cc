@@ -1117,10 +1117,12 @@ Status BackupEngineImpl::GetLatestBackupFileContents(uint32_t* latest_backup) {
 
   *latest_backup = 0;
   sscanf(data.data(), "%u", latest_backup);
-  if (backup_env_->FileExists(GetBackupMetaFile(*latest_backup)) == false) {
+
+  s = backup_env_->FileExists(GetBackupMetaFile(*latest_backup));
+  if (s.IsNotFound()) {
     s = Status::Corruption("Latest backup file corrupted");
   }
-  return Status::OK();
+  return s;
 }
 
 // this operation HAS to be atomic
@@ -1283,7 +1285,21 @@ Status BackupEngineImpl::AddBackupFileWorkItem(
   // true if dst_path is the same path as another live file
   const bool same_path =
       live_dst_paths.find(dst_path) != live_dst_paths.end();
-  if (shared && (backup_env_->FileExists(dst_path) || same_path)) {
+
+  bool file_exists = false;
+  if (shared && !same_path) {
+    Status exist = backup_env_->FileExists(dst_path);
+    if (exist.ok()) {
+      file_exists = true;
+    } else if (exist.IsNotFound()) {
+      file_exists = false;
+    } else {
+      assert(s.IsIOError());
+      return exist;
+    }
+  }
+
+  if (shared && (same_path || file_exists)) {
     need_to_copy = false;
     if (shared_checksum) {
       Log(options_.info_log,
@@ -1510,8 +1526,13 @@ Status BackupEngineImpl::BackupMeta::Delete(bool delete_meta) {
   }
   files_.clear();
   // delete meta file
-  if (delete_meta && env_->FileExists(meta_filename_)) {
-    s = env_->DeleteFile(meta_filename_);
+  if (delete_meta) {
+    s = env_->FileExists(meta_filename_);
+    if (s.ok()) {
+      s = env_->DeleteFile(meta_filename_);
+    } else if (s.IsNotFound()) {
+      s = Status::OK();  // nothing to delete
+    }
   }
   timestamp_ = 0;
   return s;

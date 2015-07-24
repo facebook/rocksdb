@@ -35,7 +35,7 @@ class GeoDBTest : public testing::Test {
   }
 };
 
-const std::string GeoDBTest::kDefaultDbName = test::TmpDir();
+const std::string GeoDBTest::kDefaultDbName = test::TmpDir() + "/geodb_test";
 Options GeoDBTest::options = Options();
 
 // Insert, Get and Remove

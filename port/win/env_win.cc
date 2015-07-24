@@ -1663,10 +1663,11 @@ class WinEnv : public Env {
     return s;
   }
 
-  virtual bool FileExists(const std::string& fname) override {
+  virtual Status FileExists(const std::string& fname) override {
     // F_OK == 0
     const int F_OK_ = 0;
-    return _access(fname.c_str(), F_OK_) == 0;
+    return _access(fname.c_str(), F_OK_) == 0 ? Status::OK()
+                                              : Status::NotFound();
   }
 
   virtual Status GetChildren(const std::string& dir,
@@ -1975,9 +1976,16 @@ class WinEnv : public Env {
   }
 
   virtual uint64_t NowMicros() override {
-    using namespace std::chrono;
-    return duration_cast<microseconds>(system_clock::now().time_since_epoch())
-        .count();
+    // all std::chrono clocks on windows have the same resolution that is only
+    // On Windows 8 and Windows 2012 Server
+    // GetSystemTimePreciseAsFileTime(&current_time) can be used
+    LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    // Convert to nanoseconds first to avoid loss of precision
+    // and divide by frequency
+    li.QuadPart *= std::micro::den;
+    li.QuadPart /= perf_counter_frequency_;
+    return li.QuadPart;
   }
 
   virtual uint64_t NowNanos() override {

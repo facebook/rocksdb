@@ -38,7 +38,7 @@ class SanityTest {
     options.create_if_missing = true;
     std::string dbname = path_ + Name();
     DestroyDB(dbname, options);
-    DB* db;
+    DB* db = nullptr;
     Status s = DB::Open(options, dbname, &db);
     std::unique_ptr<DB> db_guard(db);
     if (!s.ok()) {
@@ -55,7 +55,7 @@ class SanityTest {
     return db->Flush(FlushOptions());
   }
   Status Verify() {
-    DB* db;
+    DB* db = nullptr;
     std::string dbname = path_ + Name();
     Status s = DB::Open(GetOptions(), dbname, &db);
     std::unique_ptr<DB> db_guard(db);

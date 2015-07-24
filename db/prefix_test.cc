@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
@@ -501,3 +503,15 @@ int main(int argc, char** argv) {
 }
 
 #endif  // GFLAGS
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr,
+          "SKIPPED as HashSkipList and HashLinkList are not supported in "
+          "ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

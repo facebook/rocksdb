@@ -23,7 +23,17 @@ namespace rocksdb {
 class AutoRollLoggerTest : public testing::Test {
  public:
   static void InitTestDb() {
-    string deleteCmd = "rm -rf " + kTestDir;
+#ifdef OS_WIN
+    // Replace all slashes in the path so windows CompSpec does not
+    // become confused
+    std::string testDir(kTestDir);
+    std::replace_if(testDir.begin(), testDir.end(),
+      [](char ch) { return ch == '/'; },
+      '\\');
+    std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
+#else
+    std::string deleteCmd = "rm -rf " + kTestDir;
+#endif
     ASSERT_TRUE(system(deleteCmd.c_str()) == 0);
     Env::Default()->CreateDir(kTestDir);
   }
@@ -155,9 +165,9 @@ TEST_F(AutoRollLoggerTest, RollLogFileByTime) {
 
     InitTestDb();
     // -- Test the existence of file during the server restart.
-    ASSERT_TRUE(!env->FileExists(kLogFile));
+    ASSERT_EQ(Status::NotFound(), env->FileExists(kLogFile));
     AutoRollLogger logger(Env::Default(), kTestDir, "", log_size, time);
-    ASSERT_TRUE(env->FileExists(kLogFile));
+    ASSERT_OK(env->FileExists(kLogFile));
 
     RollLogFileByTimeTest(&logger, time, kSampleMessage + ":RollLogFileByTime");
 }
@@ -296,17 +306,18 @@ TEST_F(AutoRollLoggerTest, InfoLogLevel) {
 
 // Test the logger Header function for roll over logs
 // We expect the new logs creates as roll over to carry the headers specified
-static list<string> GetOldFileNames(const string& path) {
+static std::vector<string> GetOldFileNames(const string& path) {
+  std::vector<string> ret;
+
   const string dirname = path.substr(/*start=*/ 0, path.find_last_of("/"));
   const string fname = path.substr(path.find_last_of("/") + 1);
 
-  vector<string> children;
+  std::vector<string> children;
   Env::Default()->GetChildren(dirname, &children);
 
   // We know that the old log files are named [path]<something>
   // Return all entities that match the pattern
-  list<string> ret;
-  for (auto child : children) {
+  for (auto& child : children) {
     if (fname != child && child.find(fname) == 0) {
       ret.push_back(dirname + "/" + child);
     }
@@ -360,7 +371,7 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
       }
     }
 
-    const string& newfname = logger.TEST_log_fname().c_str();
+    const string newfname = logger.TEST_log_fname();
 
     // Log enough data to cause a roll over
     int i = 0;
@@ -376,11 +387,11 @@ TEST_F(AutoRollLoggerTest, LogHeaderTest) {
     // Flush the log for the latest file
     LogFlush(&logger);
 
-    const list<string> oldfiles = GetOldFileNames(newfname);
+    const auto oldfiles = GetOldFileNames(newfname);
 
     ASSERT_EQ(oldfiles.size(), (size_t) 2);
 
-    for (auto oldfname : oldfiles) {
+    for (auto& oldfname : oldfiles) {
       // verify that the files rolled over
       ASSERT_NE(oldfname, newfname);
       // verify that the old log contains all the header logs
@@ -397,7 +408,7 @@ TEST_F(AutoRollLoggerTest, LogFileExistence) {
   options.max_log_file_size = 100 * 1024 * 1024;
   options.create_if_missing = true;
   ASSERT_OK(rocksdb::DB::Open(options, kTestDir, &db));
-  ASSERT_TRUE(env->FileExists(kLogFile));
+  ASSERT_OK(env->FileExists(kLogFile));
   delete db;
 }
 

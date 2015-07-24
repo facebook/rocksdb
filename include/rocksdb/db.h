@@ -338,6 +338,7 @@ class DB {
   //      See version_set.h for details. More live versions often mean more SST
   //      files are held from being deleted, by iterators or unfinished
   //      compactions.
+  //  "rocksdb.estimate-live-data-size"
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -361,6 +362,7 @@ class DB {
     static const std::string kNumSnapshots;
     static const std::string kOldestSnapshotTime;
     static const std::string kNumLiveVersions;
+    static const std::string kEstimateLiveDataSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -389,6 +391,7 @@ class DB {
   //  "rocksdb.num-snapshots"
   //  "rocksdb.oldest-snapshot-time"
   //  "rocksdb.num-live-versions"
+  //  "rocksdb.estimate-live-data-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
