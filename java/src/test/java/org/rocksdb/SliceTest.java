@@ -52,6 +52,7 @@ public class SliceTest {
       slice = new Slice("abc");
       slice2 = new Slice("abc");
       assertThat(slice.equals(slice2)).isTrue();
+      assertThat(slice.hashCode() == slice2.hashCode()).isTrue();
     } finally {
       if (slice != null) {
         slice.dispose();

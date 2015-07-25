@@ -117,6 +117,18 @@ public class WBWIRocksIterator extends AbstractRocksIterator<WriteBatchWithIndex
       }
     }
 
+    /**
+     * Generates a hash code for the Write Entry. NOTE: The hash code is based
+     * on the string representation of the key, so it may not work correctly
+     * with exotic custom comparators.
+     *
+     * @return The hash code for the Write Entry
+     */
+    @Override
+    public int hashCode() {
+      return (key == null) ? 0 : key.hashCode();
+    }
+
     @Override
     public boolean equals(Object other) {
       if(other == null) {
