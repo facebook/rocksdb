@@ -28,8 +28,7 @@ class AutoRollLoggerTest : public testing::Test {
     // become confused
     std::string testDir(kTestDir);
     std::replace_if(testDir.begin(), testDir.end(),
-      [](char ch) { return ch == '/'; },
-      '\\');
+                    [](char ch) { return ch == '/'; }, '\\');
     std::string deleteCmd = "if exist " + testDir + " rd /s /q " + testDir;
 #else
     std::string deleteCmd = "rm -rf " + kTestDir;
