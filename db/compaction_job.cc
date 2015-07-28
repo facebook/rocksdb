@@ -385,6 +385,10 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       has_current_user_key = false;
       last_sequence_for_key = kMaxSequenceNumber;
       visible_in_snapshot = kMaxSequenceNumber;
+
+      if (compaction_job_stats_ != nullptr) {
+        compaction_job_stats_->num_corrupt_keys++;
+      }
     } else {
       if (compaction_job_stats_ != nullptr && ikey.type == kTypeDeletion) {
         compaction_job_stats_->num_input_deletion_records++;

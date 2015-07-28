@@ -46,16 +46,14 @@ void VerifyInitializationOfCompactionJobStats(
   ASSERT_EQ(compaction_job_stats.largest_output_key_prefix[0], 0);
 
   ASSERT_EQ(compaction_job_stats.num_records_replaced, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_input_deletion_records, 0U);
+  ASSERT_EQ(compaction_job_stats.num_expired_deletion_records, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_corrupt_keys, 0U);
 #endif  // !defined(IOS_CROSS_COMPILE)
 }
 
-void VerifyCompactionJobStats(const CompactionJobStats& compaction_job_stats,
-                              const std::vector<FileMetaData*>& files,
-                              size_t num_output_files) {
-  ASSERT_GE(compaction_job_stats.elapsed_micros, 0U);
-  ASSERT_EQ(compaction_job_stats.num_input_files, files.size());
-  ASSERT_EQ(compaction_job_stats.num_output_files, num_output_files);
-}
 }  // namespace
 
 // TODO(icanadi) Make it simpler once we mock out VersionSet
@@ -197,13 +195,12 @@ class CompactionJobTest : public testing::Test {
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
     mutex_.Lock();
     EventLogger event_logger(db_options_.info_log.get());
-    CompactionJobStats compaction_job_stats;
     CompactionJob compaction_job(
         0, &compaction, db_options_, env_options_, versions_.get(),
         &shutting_down_, &log_buffer, nullptr, nullptr, nullptr, {},
-        table_cache_, &event_logger, false, dbname_, &compaction_job_stats);
+        table_cache_, &event_logger, false, dbname_, &compaction_job_stats_);
 
-    VerifyInitializationOfCompactionJobStats(compaction_job_stats);
+    VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
 
     compaction_job.Prepare();
     mutex_.Unlock();
@@ -214,7 +211,9 @@ class CompactionJobTest : public testing::Test {
     ASSERT_OK(s);
     mutex_.Unlock();
 
-    VerifyCompactionJobStats(compaction_job_stats, files, 1);
+    ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+    ASSERT_EQ(compaction_job_stats_.num_input_files, files.size());
+    ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
   }
 
   Env* env_;
@@ -230,6 +229,7 @@ class CompactionJobTest : public testing::Test {
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+  CompactionJobStats compaction_job_stats_;
 };
 
 TEST_F(CompactionJobTest, Simple) {
@@ -248,6 +248,7 @@ TEST_F(CompactionJobTest, SimpleCorrupted) {
   auto files = cfd->current()->storage_info()->LevelFiles(0);
 
   RunCompaction(files);
+  ASSERT_EQ(compaction_job_stats_.num_corrupt_keys, 400U);
   mock_table_factory_->AssertLatestFile(expected_results);
 }
 

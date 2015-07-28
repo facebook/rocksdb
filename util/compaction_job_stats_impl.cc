@@ -3,8 +3,7 @@
 // LICENSE file in the root directory of this source tree. An additional grant
 // of patent rights can be found in the PATENTS file in the same directory.
 
-#include <cstring>
-#include "include/rocksdb/compaction_job_stats.h"
+#include "rocksdb/compaction_job_stats.h"
 
 namespace rocksdb {
 
@@ -13,25 +12,27 @@ namespace rocksdb {
 void CompactionJobStats::Reset() {
   elapsed_micros = 0;
 
+  num_input_records = 0;
   num_input_files = 0;
   num_input_files_at_output_level = 0;
+
+  num_output_records = 0;
   num_output_files = 0;
 
-  num_input_records = 0;
-  num_output_records = 0;
+  is_manual_compaction = 0;
 
   total_input_bytes = 0;
   total_output_bytes = 0;
 
+  num_records_replaced = 0;
+
   total_input_raw_key_bytes = 0;
   total_input_raw_value_bytes = 0;
 
-  num_records_replaced = 0;
-
-  is_manual_compaction = 0;
-
   num_input_deletion_records = 0;
   num_expired_deletion_records = 0;
+
+  num_corrupt_keys = 0;
 }
 
 #else

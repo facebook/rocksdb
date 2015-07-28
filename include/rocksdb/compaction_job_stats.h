@@ -49,11 +49,14 @@ struct CompactionJobStats {
   // the number of deletion entries before compaction. Deletion entries
   // can disappear after compaction because they expired
   uint64_t num_input_deletion_records;
-
   // number of deletion records that were found obsolete and discarded
   // because it is not possible to delete any more keys with this entry
   // (i.e. all possible deletions resulting from it have been completed)
   uint64_t num_expired_deletion_records;
+
+  // number of corrupt keys (ParseInternalKey returned false when applied to
+  // the key) encountered and written out.
+  uint64_t num_corrupt_keys;
 
   // 0-terminated strings storing the first 8 bytes of the smallest and
   // largest key in the output.
