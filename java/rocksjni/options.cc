@@ -707,6 +707,17 @@ void Java_org_rocksdb_Options_useFixedLengthPrefixExtractor(
 }
 
 /*
+ * Method:    useCappedPrefixExtractor
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_Options_useCappedPrefixExtractor(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jprefix_length) {
+  reinterpret_cast<rocksdb::Options*>(jhandle)->prefix_extractor.reset(
+      rocksdb::NewCappedPrefixTransform(
+          static_cast<int>(jprefix_length)));
+}
+
+/*
  * Class:     org_rocksdb_Options
  * Method:    walTtlSeconds
  * Signature: (J)J

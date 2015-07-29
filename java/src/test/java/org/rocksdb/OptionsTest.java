@@ -1150,6 +1150,21 @@ public class OptionsTest {
   }
 
   @Test
+  public void shouldSetTestCappedPrefixExtractor() {
+    Options options = null;
+    try {
+      options = new Options();
+      options.useCappedPrefixExtractor(100);
+      options.useCappedPrefixExtractor(10);
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+
+  @Test
   public void shouldTestMemTableFactoryName()
       throws RocksDBException {
     Options options = null;
