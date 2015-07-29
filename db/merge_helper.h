@@ -6,11 +6,12 @@
 #ifndef MERGE_HELPER_H
 #define MERGE_HELPER_H
 
-#include "db/dbformat.h"
-#include "rocksdb/slice.h"
-#include <string>
 #include <deque>
+#include <string>
+
+#include "db/dbformat.h"
 #include "rocksdb/env.h"
+#include "rocksdb/slice.h"
 
 namespace rocksdb {
 
@@ -56,9 +57,9 @@ class MergeHelper {
   //                   0 means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
-  void MergeUntil(Iterator* iter, SequenceNumber stop_before = 0,
-                  bool at_bottom = false, Statistics* stats = nullptr,
-                  int* steps = nullptr, Env* env_ = nullptr);
+  void MergeUntil(Iterator* iter, const SequenceNumber stop_before = 0,
+                  const bool at_bottom = false, Statistics* stats = nullptr,
+                  Env* env_ = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call

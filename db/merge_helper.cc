@@ -58,8 +58,8 @@ Status MergeHelper::TimedFullMerge(const Slice& key, const Slice* value,
 //       keys_ stores the list of keys encountered while merging.
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
-void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
-                             bool at_bottom, Statistics* stats, int* steps,
+void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
+                             const bool at_bottom, Statistics* stats,
                              Env* env_) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
@@ -81,9 +81,6 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
   ParseInternalKey(keys_.back(), &orig_ikey);
 
   bool hit_the_next_user_key = false;
-  if (steps) {
-    ++(*steps);
-  }
   for (iter->Next(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
     assert(operands_.size() >= 1);        // Should be invariants!
@@ -138,9 +135,6 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
 
       // move iter to the next entry
       iter->Next();
-      if (steps) {
-        ++(*steps);
-      }
       return;
     } else {
       // hit a merge
@@ -153,9 +147,6 @@ void MergeHelper::MergeUntil(Iterator* iter, SequenceNumber stop_before,
       // request or later did a partial merge.
       keys_.push_front(iter->key().ToString());
       operands_.push_front(iter->value().ToString());
-      if (steps) {
-        ++(*steps);
-      }
     }
   }
 

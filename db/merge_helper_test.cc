@@ -18,7 +18,7 @@ namespace rocksdb {
 
 class MergeHelperTest : public testing::Test {
  public:
-  MergeHelperTest() : steps_(0) {}
+  MergeHelperTest() = default;
   ~MergeHelperTest() = default;
 
   void RunUInt64MergeHelper(SequenceNumber stop_before, bool at_bottom) {
@@ -27,7 +27,7 @@ class MergeHelperTest : public testing::Test {
     merge_helper_.reset(new MergeHelper(BytewiseComparator(), merge_op_.get(),
           nullptr, 2U, true));
     merge_helper_->MergeUntil(iter_.get(), stop_before, at_bottom, nullptr,
-                              &steps_, Env::Default());
+                              Env::Default());
   }
 
   void RunStringAppendMergeHelper(SequenceNumber stop_before, bool at_bottom) {
@@ -36,7 +36,7 @@ class MergeHelperTest : public testing::Test {
     merge_helper_.reset(new MergeHelper(BytewiseComparator(), merge_op_.get(),
           nullptr, 2U, true));
     merge_helper_->MergeUntil(iter_.get(), stop_before, at_bottom, nullptr,
-                              &steps_, Env::Default());
+                              Env::Default());
   }
 
   std::string Key(const std::string& user_key, const SequenceNumber& seq,
@@ -63,9 +63,8 @@ class MergeHelperTest : public testing::Test {
     return result;
   }
 
-  void CheckState(bool success, int steps, int iter_pos) {
+  void CheckState(bool success, int iter_pos) {
     ASSERT_EQ(success, merge_helper_->IsSuccess());
-    ASSERT_EQ(steps, steps_);
     if (iter_pos == -1) {
       ASSERT_FALSE(iter_->Valid());
     } else {
@@ -78,7 +77,6 @@ class MergeHelperTest : public testing::Test {
   std::unique_ptr<MergeHelper> merge_helper_;
   std::vector<std::string> ks_;
   std::vector<std::string> vs_;
-  int steps_;
 };
 
 // If MergeHelper encounters a new key on the last level, we know that
@@ -89,7 +87,7 @@ TEST_F(MergeHelperTest, MergeAtBottomSuccess) {
   AddKeyVal("b", 10, kTypeMerge, EncodeInt(4U));  // <- Iterator after merge
 
   RunUInt64MergeHelper(0, true);
-  CheckState(true, 2, 2);
+  CheckState(true, 2);
   ASSERT_EQ(Key("a", 20, kTypeValue), merge_helper_->key());
   ASSERT_EQ(EncodeInt(4U), merge_helper_->value());
 }
@@ -102,7 +100,7 @@ TEST_F(MergeHelperTest, MergeValue) {
   AddKeyVal("a", 10, kTypeMerge, EncodeInt(1U));
 
   RunUInt64MergeHelper(0, false);
-  CheckState(true, 3, 3);
+  CheckState(true, 3);
   ASSERT_EQ(Key("a", 40, kTypeValue), merge_helper_->key());
   ASSERT_EQ(EncodeInt(8U), merge_helper_->value());
 }
@@ -116,7 +114,7 @@ TEST_F(MergeHelperTest, SnapshotBeforeValue) {
   AddKeyVal("a", 10, kTypeMerge, EncodeInt(1U));
 
   RunUInt64MergeHelper(31, true);
-  CheckState(false, 2, 2);
+  CheckState(false, 2);
   ASSERT_EQ(Key("a", 50, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(4U), merge_helper_->values()[0]);
 }
@@ -129,7 +127,7 @@ TEST_F(MergeHelperTest, NoPartialMerge) {
   AddKeyVal("a", 30, kTypeMerge, "v");
 
   RunStringAppendMergeHelper(31, true);
-  CheckState(false, 2, 2);
+  CheckState(false, 2);
   ASSERT_EQ(Key("a", 40, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ("v", merge_helper_->values()[0]);
   ASSERT_EQ(Key("a", 50, kTypeMerge), merge_helper_->keys()[1]);
@@ -142,7 +140,7 @@ TEST_F(MergeHelperTest, MergeDeletion) {
   AddKeyVal("a", 20, kTypeDeletion, "");
 
   RunUInt64MergeHelper(15, false);
-  CheckState(true, 2, -1);
+  CheckState(true, -1);
   ASSERT_EQ(Key("a", 30, kTypeValue), merge_helper_->key());
   ASSERT_EQ(EncodeInt(3U), merge_helper_->value());
 }
