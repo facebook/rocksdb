@@ -668,6 +668,13 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options useCappedPrefixExtractor(final int n) {
+    assert(isInitialized());
+    useCappedPrefixExtractor(nativeHandle_, n);
+    return this;
+  }
+
+  @Override
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
   }
@@ -1213,6 +1220,8 @@ public class Options extends RocksObject
       List<Byte> compressionLevels);
   private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
+      long handle, int prefixLength);
+  private native void useCappedPrefixExtractor(
       long handle, int prefixLength);
   private native void setNumLevels(
       long handle, int numLevels);

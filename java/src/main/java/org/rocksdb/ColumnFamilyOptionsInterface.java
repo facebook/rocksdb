@@ -229,6 +229,16 @@ public interface ColumnFamilyOptionsInterface {
    */
   Object useFixedLengthPrefixExtractor(int n);
 
+
+  /**
+   * Same as fixed length prefix extractor, except that when slice is 
+   * shorter than the fixed length, it will use the full key.
+   *
+   * @param n use the first n bytes of a key as its prefix.
+   * @return the reference to the current option.
+   */
+  Object useCappedPrefixExtractor(int n);
+
   /**
    * Compress blocks using the specified compression algorithm.  This
    * parameter can be changed dynamically.

@@ -192,6 +192,13 @@ public class ColumnFamilyOptions extends RocksObject
   }
 
   @Override
+  public ColumnFamilyOptions useCappedPrefixExtractor(final int n) {
+    assert(isInitialized());
+    useCappedPrefixExtractor(nativeHandle_, n);
+    return this;
+  }
+
+  @Override
   public ColumnFamilyOptions setCompressionType(final CompressionType compressionType) {
     setCompressionType(nativeHandle_, compressionType.getValue());
     return this;
@@ -694,6 +701,8 @@ public class ColumnFamilyOptions extends RocksObject
       List<Byte> compressionLevels);
   private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
+      long handle, int prefixLength);
+  private native void useCappedPrefixExtractor(
       long handle, int prefixLength);
   private native void setNumLevels(
       long handle, int numLevels);

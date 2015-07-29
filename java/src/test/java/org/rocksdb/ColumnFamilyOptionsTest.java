@@ -615,6 +615,21 @@ public class ColumnFamilyOptionsTest {
     }
   }
 
+
+  @Test
+  public void shouldSetTestCappedPrefixExtractor() {
+    ColumnFamilyOptions options = null;
+    try {
+      options = new ColumnFamilyOptions();
+      options.useCappedPrefixExtractor(100);
+      options.useCappedPrefixExtractor(10);
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
   @Test
   public void compressionTypes() {
     ColumnFamilyOptions columnFamilyOptions = null;
