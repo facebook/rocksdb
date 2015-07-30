@@ -1114,7 +1114,7 @@ void UniversalCompactionPicker::SortedRun::DumpSizeInfo(
 
 std::vector<UniversalCompactionPicker::SortedRun>
 UniversalCompactionPicker::CalculateSortedRuns(
-    const VersionStorageInfo& vstorage) {
+    const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions) {
   std::vector<UniversalCompactionPicker::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
     ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
@@ -1128,10 +1128,18 @@ UniversalCompactionPicker::CalculateSortedRuns(
     for (FileMetaData* f : vstorage.LevelFiles(level)) {
       total_compensated_size += f->compensated_file_size;
       total_size += f->fd.GetFileSize();
-      // Compaction always includes all files for a non-zero level, so for a
-      // non-zero level, all the files should share the same being_compacted
-      // value.
-      assert(is_first || f->being_compacted == being_compacted);
+      if (ioptions.compaction_options_universal.allow_trivial_move == true) {
+        if (f->being_compacted) {
+          being_compacted = f->being_compacted;
+        }
+      } else {
+        // Compaction always includes all files for a non-zero level, so for a
+        // non-zero level, all the files should share the same being_compacted
+        // value.
+        // This assumption is only valid when
+        // ioptions.compaction_options_universal.allow_trivial_move is false
+        assert(is_first || f->being_compacted == being_compacted);
+      }
       if (is_first) {
         being_compacted = f->being_compacted;
         is_first = false;
@@ -1223,7 +1231,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
   const int kLevel0 = 0;
   double score = vstorage->CompactionScore(kLevel0);
-  std::vector<SortedRun> sorted_runs = CalculateSortedRuns(*vstorage);
+  std::vector<SortedRun> sorted_runs =
+      CalculateSortedRuns(*vstorage, ioptions_);
 
   if (sorted_runs.size() <
       (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger) {

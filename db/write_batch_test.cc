@@ -446,6 +446,111 @@ TEST_F(WriteBatchTest, ColumnFamiliesBatchWithIndexTest) {
 }
 #endif  // !ROCKSDB_LITE
 
+TEST_F(WriteBatchTest, SavePointTest) {
+  Status s;
+  WriteBatch batch;
+  batch.SetSavePoint();
+
+  batch.Put("A", "a");
+  batch.Put("B", "b");
+  batch.SetSavePoint();
+
+  batch.Put("C", "c");
+  batch.Delete("A");
+  batch.SetSavePoint();
+  batch.SetSavePoint();
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(
+      "Delete(A)@3"
+      "Put(A, a)@0"
+      "Put(B, b)@1"
+      "Put(C, c)@2",
+      PrintContents(&batch));
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(
+      "Put(A, a)@0"
+      "Put(B, b)@1",
+      PrintContents(&batch));
+
+  batch.Delete("A");
+  batch.Put("B", "bb");
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ("", PrintContents(&batch));
+
+  s = batch.RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch));
+
+  batch.Put("D", "d");
+  batch.Delete("A");
+
+  batch.SetSavePoint();
+
+  batch.Put("A", "aaa");
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(
+      "Delete(A)@1"
+      "Put(D, d)@0",
+      PrintContents(&batch));
+
+  batch.SetSavePoint();
+
+  batch.Put("D", "d");
+  batch.Delete("A");
+
+  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_EQ(
+      "Delete(A)@1"
+      "Put(D, d)@0",
+      PrintContents(&batch));
+
+  s = batch.RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ(
+      "Delete(A)@1"
+      "Put(D, d)@0",
+      PrintContents(&batch));
+
+  WriteBatch batch2;
+
+  s = batch2.RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch2));
+
+  batch2.Delete("A");
+  batch2.SetSavePoint();
+
+  s = batch2.RollbackToSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("Delete(A)@0", PrintContents(&batch2));
+
+  batch2.Clear();
+  ASSERT_EQ("", PrintContents(&batch2));
+
+  batch2.SetSavePoint();
+
+  batch2.Delete("B");
+  ASSERT_EQ("Delete(B)@0", PrintContents(&batch2));
+
+  batch2.SetSavePoint();
+  s = batch2.RollbackToSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("Delete(B)@0", PrintContents(&batch2));
+
+  s = batch2.RollbackToSavePoint();
+  ASSERT_OK(s);
+  ASSERT_EQ("", PrintContents(&batch2));
+
+  s = batch2.RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  ASSERT_EQ("", PrintContents(&batch2));
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

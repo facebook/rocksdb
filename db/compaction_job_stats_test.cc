@@ -467,6 +467,9 @@ class CompactionJobStatsChecker : public EventListener {
     ASSERT_EQ(current_stats.num_records_replaced,
         stats.num_records_replaced);
 
+    ASSERT_EQ(current_stats.num_corrupt_keys,
+        stats.num_corrupt_keys);
+
     ASSERT_EQ(
         std::string(current_stats.smallest_output_key_prefix),
         std::string(stats.smallest_output_key_prefix));
@@ -509,6 +512,9 @@ class CompactionJobDeletionStatsChecker : public CompactionJobStatsChecker {
     ASSERT_EQ(
         current_stats.num_records_replaced,
         stats.num_records_replaced);
+
+    ASSERT_EQ(current_stats.num_corrupt_keys,
+        stats.num_corrupt_keys);
   }
 };
 

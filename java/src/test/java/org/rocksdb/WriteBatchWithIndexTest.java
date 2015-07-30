@@ -252,6 +252,7 @@ public class WriteBatchWithIndexTest {
       it = wbwi.newIterator();
       it.seekToFirst();
       assertThat(it.entry().equals(expected[0])).isTrue();
+      assertThat(it.entry().hashCode() == expected[0].hashCode()).isTrue();
     } finally {
       if(it != null) {
         it.dispose();

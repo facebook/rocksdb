@@ -63,6 +63,7 @@ def main(argv):
     total_check_mode = 4
     check_mode = 0
 
+    dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
     while time.time() < exit_time:
         killoption = ""
         if check_mode == 0:
@@ -85,7 +86,6 @@ def main(argv):
             # normal run
             additional_opts = "--ops_per_thread=" + str(ops_per_thread)
 
-        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
         cmd = re.sub('\s+', ' ', """
             ./db_stress
             --test_batches_snapshots=%s

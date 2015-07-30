@@ -452,8 +452,12 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
       "DBImpl::BackgroundCompaction:TrivialMove",
       [&](void* arg) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial",
-      [&](void* arg) { non_trivial_move++; });
+      "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
+        non_trivial_move++;
+        ASSERT_TRUE(arg != nullptr);
+        int output_level = *(static_cast<int*>(arg));
+        ASSERT_EQ(output_level, 0);
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options;
@@ -462,7 +466,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   options.num_levels = 3;
   options.write_buffer_size = 100 << 10;  // 100KB
   options.level0_file_num_compaction_trigger = 3;
-  options.max_background_compactions = 1;
+  options.max_background_compactions = 2;
   options.target_file_size_base = 32 * 1024;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
@@ -474,7 +478,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   Random rnd(301);
-  int num_keys = 15000;
+  int num_keys = 150000;
   for (int i = 0; i < num_keys; i++) {
     ASSERT_OK(Put(1, Key(i), Key(i)));
   }
@@ -484,7 +488,7 @@ TEST_P(DBTestUniversalCompactionMultiLevels, UniversalCompactionTrivialMove) {
   dbfull()->TEST_WaitForCompact();
 
   ASSERT_GT(trivial_move, 0);
-  ASSERT_EQ(non_trivial_move, 0);
+  ASSERT_GT(non_trivial_move, 0);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -789,14 +793,18 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
       "DBImpl::BackgroundCompaction:TrivialMove",
       [&](void* arg) { trivial_move++; });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
-      "DBImpl::BackgroundCompaction:NonTrivial",
-      [&](void* arg) { non_trivial_move++; });
+      "DBImpl::BackgroundCompaction:NonTrivial", [&](void* arg) {
+        non_trivial_move++;
+        ASSERT_TRUE(arg != nullptr);
+        int output_level = *(static_cast<int*>(arg));
+        ASSERT_EQ(output_level, 0);
+      });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.allow_trivial_move = true;
-  options.num_levels = 3;
+  options.num_levels = 2;
   options.write_buffer_size = 100 << 10;  // 100KB
   options.level0_file_num_compaction_trigger = 3;
   options.max_background_compactions = 1;
@@ -811,7 +819,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
 
   Random rnd(301);
-  int num_keys = 150000;
+  int num_keys = 250000;
   for (int i = 0; i < num_keys; i++) {
     ASSERT_OK(Put(1, Key(i), Key(i)));
   }
@@ -821,7 +829,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest1) {
   dbfull()->TEST_WaitForCompact();
 
   ASSERT_GT(trivial_move, 0);
-  ASSERT_EQ(non_trivial_move, 0);
+  ASSERT_GT(non_trivial_move, 0);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
@@ -835,6 +843,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrivialMoveTest2) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:NonTrivial",
       [&](void* arg) { non_trivial_move++; });
+
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
   Options options;

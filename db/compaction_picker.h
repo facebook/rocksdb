@@ -275,7 +275,7 @@ class UniversalCompactionPicker : public CompactionPicker {
       const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
 
   static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage);
+      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions);
 
   // Pick a path ID to place a newly generated file, with its estimated file
   // size.

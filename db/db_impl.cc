@@ -2542,8 +2542,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
     for (unsigned int l = 0; l < c->num_input_levels(); l++) {
-      if (l == static_cast<unsigned int>(c->output_level()) ||
-          (c->output_level() == 0)) {
+      if (c->level(l) == c->output_level()) {
         continue;
       }
       for (size_t i = 0; i < c->num_input_files(l); i++) {
@@ -2591,7 +2590,9 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
   } else {
-    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial");
+    int output_level  __attribute__((unused)) = c->output_level();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
+                             &output_level);
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,

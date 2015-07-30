@@ -30,7 +30,12 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     return Status::InvalidArgument("Output parameters cannot be null");
   }
 
-  if (data_offset >= GetDataSize()) {
+  if (data_offset == GetDataSize()) {
+    // reached end of batch.
+    return Status::NotFound();
+  }
+
+  if (data_offset > GetDataSize()) {
     return Status::InvalidArgument("data offset exceed write batch size");
   }
   Slice input = Slice(rep_.data() + data_offset, rep_.size() - data_offset);
