@@ -32,7 +32,7 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/repair.cc                                                  \
-  db/slice.cc                                                  \
+  db/slice.cc                                                   \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
@@ -88,7 +88,7 @@ LIB_SOURCES =                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/file_util.cc                                             \
-	util/file_reader_writer.cc                                    \
+  util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/hash_cuckoo_rep.cc                                       \
@@ -165,7 +165,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
   db/db_compaction_filter_test.cc                                       \
-  db/db_compaction_test.cc                                       \
+  db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
   db/db_inplace_update_test.cc                                          \
   db/db_log_iter_test.cc                                                \
@@ -227,7 +227,7 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/spatialdb/spatial_db_test.cc                                \
-  utilities/transactions/optimistic_transaction_test.cc               \
+  utilities/transactions/optimistic_transaction_test.cc                 \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc	\
   util/log_write_bench.cc                                               \
@@ -245,6 +245,7 @@ TEST_BENCH_SOURCES =                                                    \
   util/thread_local_test.cc
 
 JNI_NATIVE_SOURCES =                                          \
+  java/rocksjni/backupenginejni.cc                            \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/columnfamilyhandle.cc                         \
