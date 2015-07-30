@@ -365,10 +365,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
   // for block based table
   for (bool encode_as_internal : { true, false }) {
-    if (!backward_mode_ && !encode_as_internal) {
-      continue;
-    }
-
     Options options;
     BlockBasedTableOptions table_options;
     table_options.flush_block_policy_factory =
