@@ -16,6 +16,7 @@
 #include "db/write_callback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/transaction.h"
@@ -44,7 +45,7 @@ class TransactionImpl : public Transaction {
 
   void SetSavePoint() override;
 
-  void RollbackToSavePoint() override;
+  Status RollbackToSavePoint() override;
 
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, std::string* value) override;
@@ -151,7 +152,9 @@ class TransactionImpl : public Transaction {
 
   void PutLogData(const Slice& blob) override;
 
-  const Snapshot* GetSnapshot() const override { return snapshot_; }
+  const Snapshot* GetSnapshot() const override {
+    return snapshot_ ? snapshot_->snapshot() : nullptr;
+  }
 
   void SetSnapshot() override;
 
@@ -190,7 +193,7 @@ class TransactionImpl : public Transaction {
 
   // If snapshot_ is set, all keys that locked must also have not been written
   // since this snapshot
-  const Snapshot* snapshot_;
+  std::shared_ptr<ManagedSnapshot> snapshot_;
 
   const Comparator* cmp_;
 
@@ -214,12 +217,9 @@ class TransactionImpl : public Transaction {
   // stored.
   TransactionKeyMap tracked_keys_;
 
-  // Records the number of entries currently in the WriteBatch include calls to
-  // PutLogData()
-  size_t num_entries_ = 0;
-
-  // Stack of number of entries in write_batch at each save point
-  std::unique_ptr<std::stack<size_t>> save_points_;
+  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
+  // nullptr if there was no snapshot at the time SetSavePoint() was called.
+  std::unique_ptr<std::stack<std::shared_ptr<ManagedSnapshot>>> save_points_;
 
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool check_snapshot = true);

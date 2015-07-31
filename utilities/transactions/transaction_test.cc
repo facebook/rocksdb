@@ -1299,12 +1299,14 @@ TEST_F(TransactionTest, SavepointTest) {
   Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
-  txn->RollbackToSavePoint();
+  s = txn->RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
 
   txn->SetSavePoint();  // 1
 
-  txn->RollbackToSavePoint();  // Rollback to beginning of txn
-  txn->RollbackToSavePoint();
+  ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to beginning of txn
+  s = txn->RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
 
   s = txn->Put("B", "b");
   ASSERT_OK(s);
@@ -1340,7 +1342,7 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Put("D", "d");
   ASSERT_OK(s);
 
-  txn->RollbackToSavePoint();  // Rollback to 2
+  ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to 2
 
   s = txn->Get(read_options, "A", &value);
   ASSERT_OK(s);
@@ -1363,7 +1365,10 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Put("E", "e");
   ASSERT_OK(s);
 
-  txn->RollbackToSavePoint();  // Rollback to beginning of txn
+  // Rollback to beginning of txn
+  s = txn->RollbackToSavePoint();
+  ASSERT_TRUE(s.IsNotFound());
+  txn->Rollback();
 
   s = txn->Get(read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
@@ -1409,7 +1414,7 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Get(read_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
 
-  txn->RollbackToSavePoint();  // Rollback to 3
+  ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to 3
 
   s = txn->Get(read_options, "F", &value);
   ASSERT_OK(s);

@@ -93,12 +93,10 @@ class Transaction {
   virtual void SetSavePoint() = 0;
 
   // Undo all operations in this transaction (Put, Merge, Delete, PutLogData)
-  // since the
-  // most recent call to SetSavePoint() and removes the most recent
+  // since the most recent call to SetSavePoint() and removes the most recent
   // SetSavePoint().
-  // If there is no previous call to SetSavePoint(), behaves the same as
-  // Rollback()
-  virtual void RollbackToSavePoint() = 0;
+  // If there is no previous call to SetSavePoint(), returns Status::NotFound()
+  virtual Status RollbackToSavePoint() = 0;
 
   // This function is similar to DB::Get() except it will also read pending
   // changes in this transaction.

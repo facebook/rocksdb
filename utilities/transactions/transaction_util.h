@@ -48,12 +48,6 @@ class TransactionUtil {
   // mutex is held.
   static Status CheckKeysForConflicts(DBImpl* db_impl, TransactionKeyMap* keys);
 
-  // Copies the first num entries from batch into new_batch (including Put,
-  // Merge, Delete, and PutLogData).
-  // Returns non-OK on error.
-  static Status CopyFirstN(size_t num, WriteBatchWithIndex* batch,
-                           WriteBatchWithIndex* new_batch, DBImpl* db_impl);
-
  private:
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,
                          SequenceNumber earliest_seq, SequenceNumber key_seq,

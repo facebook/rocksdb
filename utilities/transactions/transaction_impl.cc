@@ -16,6 +16,7 @@
 #include "db/db_impl.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/string_util.h"
@@ -39,7 +40,6 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
       txn_db_impl_(nullptr),
       txn_id_(GenTxnID()),
       write_options_(write_options),
-      snapshot_(nullptr),
       cmp_(GetColumnFamilyUserComparator(txn_db->DefaultColumnFamily())),
       write_batch_(new WriteBatchWithIndex(cmp_, 0, true)),
       start_time_(
@@ -62,24 +62,15 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
 }
 
 TransactionImpl::~TransactionImpl() {
-  Cleanup();
-
-  if (snapshot_ != nullptr) {
-    db_->ReleaseSnapshot(snapshot_);
-  }
+  txn_db_impl_->UnLock(this, &tracked_keys_);
 }
 
 void TransactionImpl::SetSnapshot() {
-  if (snapshot_ != nullptr) {
-    db_->ReleaseSnapshot(snapshot_);
-  }
-
-  snapshot_ = db_->GetSnapshot();
+  snapshot_.reset(new ManagedSnapshot(db_));
 }
 
 void TransactionImpl::Cleanup() {
   write_batch_->Clear();
-  num_entries_ = 0;
   txn_db_impl_->UnLock(this, &tracked_keys_);
   tracked_keys_.clear();
   save_points_.reset(nullptr);
@@ -145,53 +136,27 @@ Status TransactionImpl::DoCommit(WriteBatch* batch) {
 void TransactionImpl::Rollback() { Cleanup(); }
 
 void TransactionImpl::SetSavePoint() {
-  if (num_entries_ > 0) {
-    // If transaction is empty, no need to record anything.
-
-    if (save_points_ == nullptr) {
-      save_points_.reset(new std::stack<size_t>());
-    }
-    save_points_->push(num_entries_);
+  if (save_points_ == nullptr) {
+    save_points_.reset(new std::stack<std::shared_ptr<ManagedSnapshot>>());
   }
+  save_points_->push(snapshot_);
+  write_batch_->SetSavePoint();
 }
 
-void TransactionImpl::RollbackToSavePoint() {
-  size_t savepoint_entries = 0;
-
+Status TransactionImpl::RollbackToSavePoint() {
   if (save_points_ != nullptr && save_points_->size() > 0) {
-    savepoint_entries = save_points_->top();
+    // Restore saved snapshot
+    snapshot_ = save_points_->top();
     save_points_->pop();
-  }
 
-  assert(savepoint_entries <= num_entries_);
+    // Rollback batch
+    Status s = write_batch_->RollbackToSavePoint();
+    assert(s.ok());
 
-  if (savepoint_entries == num_entries_) {
-    // No changes to rollback
-  } else if (savepoint_entries == 0) {
-    // Rollback everything
-    Rollback();
+    return s;
   } else {
-    assert(dynamic_cast<DBImpl*>(db_->GetBaseDB()) != nullptr);
-    auto db_impl = reinterpret_cast<DBImpl*>(db_->GetBaseDB());
-
-    WriteBatchWithIndex* new_batch = new WriteBatchWithIndex(cmp_, 0, true);
-    Status s = TransactionUtil::CopyFirstN(
-        savepoint_entries, write_batch_.get(), new_batch, db_impl);
-    if (!s.ok()) {
-      // TODO:  Should we change this function to return a Status or should we
-      // somehow make it so RollbackToSavePoint() can never fail?? Not easy to
-      // handle the case where a client accesses a column family that's been
-      // dropped.
-      // After chatting with Siying, I'm going to send a diff that adds
-      // savepoint support in WriteBatchWithIndex and let reviewers decide which
-      // approach is cleaner.
-      fprintf(stderr, "STATUS: %s \n", s.ToString().c_str());
-      delete new_batch;
-    } else {
-      write_batch_.reset(new_batch);
-    }
-
-    num_entries_ = savepoint_entries;
+    assert(write_batch_->RollbackToSavePoint().IsNotFound());
+    return Status::NotFound();
   }
 }
 
@@ -331,7 +296,8 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
       // If the key has been previous validated at a sequence number earlier
       // than the curent snapshot's sequence number, we already know it has not
       // been modified.
-      bool already_validated = iter->second <= snapshot_->GetSequenceNumber();
+      SequenceNumber seq = snapshot_->snapshot()->GetSequenceNumber();
+      bool already_validated = iter->second <= seq;
 
       if (!already_validated) {
         s = CheckKeySequence(column_family, key);
@@ -339,7 +305,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
         if (s.ok()) {
           // Record that there have been no writes to this key after this
           // sequence.
-          iter->second = snapshot_->GetSequenceNumber();
+          iter->second = seq;
         } else {
           // Failed to validate key
           if (!previously_locked) {
@@ -369,7 +335,7 @@ Status TransactionImpl::CheckKeySequence(ColumnFamilyHandle* column_family,
 
     result = TransactionUtil::CheckKeyForConflicts(
         db_impl, cfh, key.ToString(),
-        snapshot_->GetSequenceNumber());
+        snapshot_->snapshot()->GetSequenceNumber());
   }
 
   return result;
@@ -457,7 +423,6 @@ Status TransactionImpl::Put(ColumnFamilyHandle* column_family, const Slice& key,
 
   if (s.ok()) {
     write_batch_->Put(column_family, key, value);
-    num_entries_++;
   }
 
   return s;
@@ -469,7 +434,6 @@ Status TransactionImpl::Put(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Put(column_family, key, value);
-    num_entries_++;
   }
 
   return s;
@@ -481,7 +445,6 @@ Status TransactionImpl::Merge(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Merge(column_family, key, value);
-    num_entries_++;
   }
 
   return s;
@@ -493,7 +456,6 @@ Status TransactionImpl::Delete(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Delete(column_family, key);
-    num_entries_++;
   }
 
   return s;
@@ -505,7 +467,6 @@ Status TransactionImpl::Delete(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Delete(column_family, key);
-    num_entries_++;
   }
 
   return s;
@@ -525,7 +486,6 @@ Status TransactionImpl::PutUntracked(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Put(column_family, key, value);
-    num_entries_++;
   }
 
   return s;
@@ -539,7 +499,6 @@ Status TransactionImpl::PutUntracked(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Put(column_family, key, value);
-    num_entries_++;
   }
 
   return s;
@@ -552,7 +511,6 @@ Status TransactionImpl::MergeUntracked(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Merge(column_family, key, value);
-    num_entries_++;
   }
 
   return s;
@@ -565,7 +523,6 @@ Status TransactionImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Delete(column_family, key);
-    num_entries_++;
   }
 
   return s;
@@ -578,7 +535,6 @@ Status TransactionImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     write_batch_->Delete(column_family, key);
-    num_entries_++;
   }
 
   return s;
@@ -586,7 +542,6 @@ Status TransactionImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
 
 void TransactionImpl::PutLogData(const Slice& blob) {
   write_batch_->PutLogData(blob);
-  num_entries_++;
 }
 
 WriteBatchWithIndex* TransactionImpl::GetWriteBatch() {

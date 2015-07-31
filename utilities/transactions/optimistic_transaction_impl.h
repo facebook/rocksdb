@@ -15,6 +15,7 @@
 #include "db/write_callback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
 #include "rocksdb/utilities/transaction.h"
@@ -38,7 +39,7 @@ class OptimisticTransactionImpl : public Transaction {
 
   void SetSavePoint() override;
 
-  void RollbackToSavePoint() override;
+  Status RollbackToSavePoint() override;
 
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, std::string* value) override;
@@ -147,7 +148,9 @@ class OptimisticTransactionImpl : public Transaction {
 
   const TransactionKeyMap* GetTrackedKeys() const { return &tracked_keys_; }
 
-  const Snapshot* GetSnapshot() const override { return snapshot_; }
+  const Snapshot* GetSnapshot() const override {
+        return snapshot_ ? snapshot_->snapshot() : nullptr;
+  }
 
   void SetSnapshot() override;
 
@@ -157,8 +160,7 @@ class OptimisticTransactionImpl : public Transaction {
   OptimisticTransactionDB* const txn_db_;
   DB* db_;
   const WriteOptions write_options_;
-  const Snapshot* snapshot_;
-  SequenceNumber start_sequence_number_;
+  std::shared_ptr<ManagedSnapshot> snapshot_;
   const Comparator* cmp_;
   std::unique_ptr<WriteBatchWithIndex> write_batch_;
 
@@ -169,13 +171,9 @@ class OptimisticTransactionImpl : public Transaction {
   // not changed since this sequence number.
   TransactionKeyMap tracked_keys_;
 
-  // Records the number of entries currently in the WriteBatch including calls
-  // to
-  // Put, Merge, Delete, and PutLogData()
-  size_t num_entries_ = 0;
-
-  // Stack of number of entries in write_batch at each save point
-  std::unique_ptr<std::stack<size_t>> save_points_;
+  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
+  // nullptr if there was no snapshot at the time SetSavePoint() was called.
+  std::unique_ptr<std::stack<std::shared_ptr<ManagedSnapshot>>> save_points_;
 
   friend class OptimisticTransactionCallback;
 
@@ -189,6 +187,8 @@ class OptimisticTransactionImpl : public Transaction {
   void RecordOperation(ColumnFamilyHandle* column_family, const Slice& key);
   void RecordOperation(ColumnFamilyHandle* column_family,
                        const SliceParts& key);
+
+  void Cleanup();
 
   // No copying allowed
   OptimisticTransactionImpl(const OptimisticTransactionImpl&);

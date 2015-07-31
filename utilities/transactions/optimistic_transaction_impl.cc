@@ -30,30 +30,24 @@ OptimisticTransactionImpl::OptimisticTransactionImpl(
     : txn_db_(txn_db),
       db_(txn_db->GetBaseDB()),
       write_options_(write_options),
-      snapshot_(nullptr),
       cmp_(txn_options.cmp),
       write_batch_(new WriteBatchWithIndex(txn_options.cmp, 0, true)) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
-  } else {
-    start_sequence_number_ = db_->GetLatestSequenceNumber();
   }
 }
 
 OptimisticTransactionImpl::~OptimisticTransactionImpl() {
+}
+
+void OptimisticTransactionImpl::Cleanup() {
   tracked_keys_.clear();
-  if (snapshot_ != nullptr) {
-    db_->ReleaseSnapshot(snapshot_);
-  }
+  save_points_.reset(nullptr);
+  write_batch_->Clear();
 }
 
 void OptimisticTransactionImpl::SetSnapshot() {
-  if (snapshot_ != nullptr) {
-    db_->ReleaseSnapshot(snapshot_);
-  }
-
-  snapshot_ = db_->GetSnapshot();
-  start_sequence_number_ = snapshot_->GetSequenceNumber();
+  snapshot_.reset(new ManagedSnapshot(db_));
 }
 
 Status OptimisticTransactionImpl::Commit() {
@@ -73,66 +67,38 @@ Status OptimisticTransactionImpl::Commit() {
       write_options_, write_batch_->GetWriteBatch(), &callback);
 
   if (s.ok()) {
-    tracked_keys_.clear();
-    write_batch_->Clear();
-    num_entries_ = 0;
+    Cleanup();
   }
 
   return s;
 }
 
 void OptimisticTransactionImpl::Rollback() {
-  tracked_keys_.clear();
-  write_batch_->Clear();
-  num_entries_ = 0;
+  Cleanup();
 }
 
 void OptimisticTransactionImpl::SetSavePoint() {
-  if (num_entries_ > 0) {
-    // If transaction is empty, no need to record anything.
-
-    if (save_points_ == nullptr) {
-      save_points_.reset(new std::stack<size_t>());
-    }
-    save_points_->push(num_entries_);
+  if (save_points_ == nullptr) {
+    save_points_.reset(new std::stack<std::shared_ptr<ManagedSnapshot>>());
   }
+  save_points_->push(snapshot_);
+  write_batch_->SetSavePoint();
 }
 
-void OptimisticTransactionImpl::RollbackToSavePoint() {
-  size_t savepoint_entries = 0;
-
+Status OptimisticTransactionImpl::RollbackToSavePoint() {
   if (save_points_ != nullptr && save_points_->size() > 0) {
-    savepoint_entries = save_points_->top();
+    // Restore saved snapshot
+    snapshot_ = save_points_->top();
     save_points_->pop();
-  }
 
-  assert(savepoint_entries <= num_entries_);
+    // Rollback batch
+    Status s = write_batch_->RollbackToSavePoint();
+    assert(s.ok());
 
-  if (savepoint_entries == num_entries_) {
-    // No changes to rollback
-  } else if (savepoint_entries == 0) {
-    // Rollback everything
-    Rollback();
+    return s;
   } else {
-    DBImpl* db_impl = dynamic_cast<DBImpl*>(db_->GetRootDB());
-    assert(db_impl);
-
-    WriteBatchWithIndex* new_batch = new WriteBatchWithIndex(cmp_, 0, true);
-    Status s = TransactionUtil::CopyFirstN(
-        savepoint_entries, write_batch_.get(), new_batch, db_impl);
-
-    if (!s.ok()) {
-      // TODO:  Should we change this function to return a Status or should we
-      // somehow make it
-      // so RollbackToSavePoint() can never fail??
-      // Consider moving this functionality into WriteBatchWithIndex
-      fprintf(stderr, "STATUS: %s \n", s.ToString().c_str());
-      delete new_batch;
-    } else {
-      write_batch_.reset(new_batch);
-    }
-
-    num_entries_ = savepoint_entries;
+    assert(write_batch_->RollbackToSavePoint().IsNotFound());
+    return Status::NotFound();
   }
 }
 
@@ -143,7 +109,7 @@ void OptimisticTransactionImpl::RecordOperation(
 
   SequenceNumber seq;
   if (snapshot_) {
-    seq = start_sequence_number_;
+    seq = snapshot_->snapshot()->GetSequenceNumber();
   } else {
     seq = db_->GetLatestSequenceNumber();
   }
@@ -261,7 +227,6 @@ Status OptimisticTransactionImpl::Put(ColumnFamilyHandle* column_family,
   RecordOperation(column_family, key);
 
   write_batch_->Put(column_family, key, value);
-  num_entries_++;
 
   return Status::OK();
 }
@@ -272,7 +237,6 @@ Status OptimisticTransactionImpl::Put(ColumnFamilyHandle* column_family,
   RecordOperation(column_family, key);
 
   write_batch_->Put(column_family, key, value);
-  num_entries_++;
 
   return Status::OK();
 }
@@ -307,7 +271,6 @@ Status OptimisticTransactionImpl::Delete(ColumnFamilyHandle* column_family,
 Status OptimisticTransactionImpl::PutUntracked(
     ColumnFamilyHandle* column_family, const Slice& key, const Slice& value) {
   write_batch_->Put(column_family, key, value);
-  num_entries_++;
 
   return Status::OK();
 }
@@ -316,7 +279,6 @@ Status OptimisticTransactionImpl::PutUntracked(
     ColumnFamilyHandle* column_family, const SliceParts& key,
     const SliceParts& value) {
   write_batch_->Put(column_family, key, value);
-  num_entries_++;
 
   return Status::OK();
 }
@@ -324,7 +286,6 @@ Status OptimisticTransactionImpl::PutUntracked(
 Status OptimisticTransactionImpl::MergeUntracked(
     ColumnFamilyHandle* column_family, const Slice& key, const Slice& value) {
   write_batch_->Merge(column_family, key, value);
-  num_entries_++;
 
   return Status::OK();
 }
@@ -332,7 +293,6 @@ Status OptimisticTransactionImpl::MergeUntracked(
 Status OptimisticTransactionImpl::DeleteUntracked(
     ColumnFamilyHandle* column_family, const Slice& key) {
   write_batch_->Delete(column_family, key);
-  num_entries_++;
 
   return Status::OK();
 }
@@ -340,14 +300,12 @@ Status OptimisticTransactionImpl::DeleteUntracked(
 Status OptimisticTransactionImpl::DeleteUntracked(
     ColumnFamilyHandle* column_family, const SliceParts& key) {
   write_batch_->Delete(column_family, key);
-  num_entries_++;
 
   return Status::OK();
 }
 
 void OptimisticTransactionImpl::PutLogData(const Slice& blob) {
   write_batch_->PutLogData(blob);
-  num_entries_++;
 }
 
 WriteBatchWithIndex* OptimisticTransactionImpl::GetWriteBatch() {
