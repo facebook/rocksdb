@@ -91,7 +91,7 @@ TEST_F(OptimisticTransactionTest, WriteConflictTest) {
   ASSERT_EQ(value, "barz");
 
   s = txn->Commit();
-  ASSERT_NOK(s);  // Txn should not commit
+  ASSERT_TRUE(s.IsBusy());  // Txn should not commit
 
   // Verify that transaction did not write anything
   db->Get(read_options, "foo", &value);
@@ -126,7 +126,7 @@ TEST_F(OptimisticTransactionTest, WriteConflictTest2) {
   ASSERT_EQ(value, "barz");
 
   s = txn->Commit();
-  ASSERT_NOK(s);  // Txn should not commit
+  ASSERT_TRUE(s.IsBusy());  // Txn should not commit
 
   // Verify that transaction did not write anything
   db->Get(read_options, "foo", &value);
@@ -165,7 +165,7 @@ TEST_F(OptimisticTransactionTest, ReadConflictTest) {
   ASSERT_EQ(value, "barz");
 
   s = txn->Commit();
-  ASSERT_NOK(s);  // Txn should not commit
+  ASSERT_TRUE(s.IsBusy());  // Txn should not commit
 
   // Verify that transaction did not write anything
   txn->GetForUpdate(read_options, "foo", &value);
@@ -283,7 +283,7 @@ TEST_F(OptimisticTransactionTest, FlushTest2) {
 
   s = txn->Commit();
   // txn should not commit since MemTableList History is not large enough
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTryAgain());
 
   db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "bar");
@@ -422,7 +422,7 @@ TEST_F(OptimisticTransactionTest, MultipleSnapshotTest) {
   txn2->Put("ZZZ", "xxxxx");
 
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn2;
 }
@@ -510,7 +510,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
 
   // Verify txn did not commit
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
   s = db->Get(read_options, handles[1], "AAAZZZ", &value);
   ASSERT_EQ(value, "barbar");
 
@@ -565,7 +565,7 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
 
   // Verify Txn Did not Commit
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   s = db->DropColumnFamily(handles[1]);
   ASSERT_OK(s);
@@ -613,7 +613,7 @@ TEST_F(OptimisticTransactionTest, EmptyTest) {
 
   s = db->Put(write_options, "aaa", "xxx");
   s = txn->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
   delete txn;
 }
 
@@ -651,7 +651,7 @@ TEST_F(OptimisticTransactionTest, PredicateManyPreceders) {
 
   // should not commit since txn2 wrote a key txn has read
   s = txn1->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn1;
   delete txn2;
@@ -675,7 +675,7 @@ TEST_F(OptimisticTransactionTest, PredicateManyPreceders) {
 
   // txn2 cannot commit since txn1 changed "4"
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn1;
   delete txn2;
@@ -701,7 +701,7 @@ TEST_F(OptimisticTransactionTest, LostUpdate) {
   ASSERT_OK(s);
 
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn1;
   delete txn2;
@@ -720,7 +720,7 @@ TEST_F(OptimisticTransactionTest, LostUpdate) {
   ASSERT_OK(s);
 
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn1;
   delete txn2;
@@ -737,7 +737,7 @@ TEST_F(OptimisticTransactionTest, LostUpdate) {
 
   txn2->Put("1", "6");
   s = txn2->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   delete txn1;
   delete txn2;
@@ -822,7 +822,7 @@ TEST_F(OptimisticTransactionTest, UntrackedWrites) {
   s = db->Delete(write_options, "tracked");
 
   s = txn->Commit();
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   s = db->Get(read_options, "untracked", &value);
   ASSERT_TRUE(s.IsNotFound());

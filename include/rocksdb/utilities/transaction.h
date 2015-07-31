@@ -75,9 +75,11 @@ class Transaction {
   //
   // If this transaction was created by an OptimisticTransactionDB(),
   // Status::Busy() may be returned if the transaction could not guarantee
-  // that there are no write conflicts.
+  // that there are no write conflicts.  Status::TryAgain() may be returned
+  // if the memtable history size is not large enough
+  //  (See max_write_buffer_number_to_maintain).
   //
-  // If this transaction was created by a TransactionDB(), Status::TimedOut()
+  // If this transaction was created by a TransactionDB(), Status::Expired()
   // may be returned if this transaction has lived for longer than
   // TransactionOptions.expiration.
   virtual Status Commit() = 0;
@@ -136,10 +138,17 @@ class Transaction {
   // still ensure that this key cannot be written to by outside of this
   // transaction.
   //
-  // If this transaction was created by a TransactionDB, Status::Busy() may be
-  // returned.
   // If this transaction was created by an OptimisticTransaction, GetForUpdate()
-  // could cause commit() to later return Status::Busy().
+  // could cause commit() to fail.  Otherwise, it could return any error
+  // that could be returned by DB::Get().
+  //
+  // If this transaction was created by a TransactionDB, it can return
+  // Status::OK() on success,
+  // Status::Busy() if there is a write conflict,
+  // Status::TimedOut() if a lock could not be acquired,
+  // Status::TryAgain() if the memtable history size is not large enough
+  //  (See max_write_buffer_number_to_maintain)
+  // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,
                               const Slice& key, std::string* value) = 0;
@@ -184,8 +193,15 @@ class Transaction {
   //
   // If this Transaction was created on an OptimisticTransactionDB, these
   // functions should always return Status::OK().
-  // If this Transaction was created on a TransactionDB, the functions can
-  // return Status::Busy() if they could not acquire a lock.
+  //
+  // If this Transaction was created on a TransactionDB, the status returned
+  // can be:
+  // Status::OK() on success,
+  // Status::Busy() if there is a write conflict,
+  // Status::TimedOut() if a lock could not be acquired,
+  // Status::TryAgain() if the memtable history size is not large enough
+  //  (See max_write_buffer_number_to_maintain)
+  // or other errors on unexpected failures.
   virtual Status Put(ColumnFamilyHandle* column_family, const Slice& key,
                      const Slice& value) = 0;
   virtual Status Put(const Slice& key, const Slice& value) = 0;
@@ -211,8 +227,7 @@ class Transaction {
   //
   // If this Transaction was created on a TransactionDB, this function will
   // still acquire locks necessary to make sure this write doesn't cause
-  // conflicts in
-  // other transactions and may return Status::Busy().
+  // conflicts in other transactions and may return Status::Busy().
   virtual Status PutUntracked(ColumnFamilyHandle* column_family,
                               const Slice& key, const Slice& value) = 0;
   virtual Status PutUntracked(const Slice& key, const Slice& value) = 0;

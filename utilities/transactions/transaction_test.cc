@@ -96,7 +96,7 @@ TEST_F(TransactionTest, WriteConflictTest) {
 
   // This Put outside of a transaction will conflict with the previous write
   s = db->Put(write_options, "foo", "xxx");
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "A");
@@ -134,7 +134,7 @@ TEST_F(TransactionTest, WriteConflictTest2) {
 
   s = txn->Put("foo",
                "bar2");  // Conflicts with write done after snapshot taken
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   s = txn->Put("foo3", "Y");
   ASSERT_OK(s);
@@ -180,7 +180,7 @@ TEST_F(TransactionTest, ReadConflictTest) {
 
   // This Put outside of a transaction will conflict with the previous read
   s = db->Put(write_options, "foo", "barz");
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "bar");
@@ -305,8 +305,8 @@ TEST_F(TransactionTest, FlushTest2) {
   db->Flush(flush_ops);
 
   s = txn->Put("X", "Y");
-  ASSERT_NOK(s);  // Put should fail since MemTableList History is not older
-                  // than snapshot.
+  // Put should fail since MemTableList History is not older than the snapshot.
+  ASSERT_TRUE(s.IsTryAgain());
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -456,7 +456,7 @@ TEST_F(TransactionTest, MultipleSnapshotTest) {
 
   // This will conflict since the snapshot is earlier than another write to ZZZ
   s = txn2->Put("ZZZ", "xxxxx");
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   s = txn2->Commit();
   ASSERT_OK(s);
@@ -554,7 +554,7 @@ TEST_F(TransactionTest, ColumnFamiliesTest) {
   // This write will cause a conflict with the earlier batch write
   s = txn2->Put(handles[1], SliceParts(key_slices, 3),
                 SliceParts(&value_slice, 1));
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   s = txn2->Commit();
   ASSERT_OK(s);
@@ -608,10 +608,10 @@ TEST_F(TransactionTest, ColumnFamiliesTest) {
   results = txn2->MultiGetForUpdate(snapshot_read_options, multiget_cfh,
                                     multiget_keys, &values);
   // All results should fail since there was a conflict
-  ASSERT_NOK(results[0]);
-  ASSERT_NOK(results[1]);
-  ASSERT_NOK(results[2]);
-  ASSERT_NOK(results[3]);
+  ASSERT_TRUE(results[0].IsBusy());
+  ASSERT_TRUE(results[1].IsBusy());
+  ASSERT_TRUE(results[2].IsBusy());
+  ASSERT_TRUE(results[3].IsBusy());
 
   s = db->Get(read_options, handles[2], "foo", &value);
   ASSERT_EQ(value, "000");
@@ -661,7 +661,7 @@ TEST_F(TransactionTest, ColumnFamiliesTest2) {
   ASSERT_OK(s);
 
   s = txn2->Put(one, "X", "11");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = txn1->Commit();
   ASSERT_OK(s);
@@ -743,7 +743,7 @@ TEST_F(TransactionTest, EmptyTest) {
 
   // Conflicts with previous GetForUpdate
   s = db->Put(write_options, "aaa", "xxx");
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   // transaction expired!
   s = txn->Commit();
@@ -774,7 +774,7 @@ TEST_F(TransactionTest, PredicateManyPreceders) {
   ASSERT_TRUE(results[1].IsNotFound());
 
   s = txn2->Put("2", "x");  // Conflict's with txn1's MultiGetForUpdate
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   txn2->Rollback();
 
@@ -799,7 +799,7 @@ TEST_F(TransactionTest, PredicateManyPreceders) {
   ASSERT_OK(s);
 
   s = txn2->Delete("4");  // conflict
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = txn1->Commit();
   ASSERT_OK(s);
@@ -830,7 +830,7 @@ TEST_F(TransactionTest, LostUpdate) {
   ASSERT_OK(s);
 
   s = txn2->Put("1", "2");  // conflict
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = txn2->Commit();
   ASSERT_OK(s);
@@ -855,7 +855,7 @@ TEST_F(TransactionTest, LostUpdate) {
   s = txn1->Put("1", "3");
   ASSERT_OK(s);
   s = txn2->Put("1", "4");  // conflict
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = txn1->Commit();
   ASSERT_OK(s);
@@ -883,7 +883,7 @@ TEST_F(TransactionTest, LostUpdate) {
   ASSERT_OK(s);
 
   s = txn2->Put("1", "6");
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
   s = txn2->Commit();
   ASSERT_OK(s);
 
@@ -972,7 +972,7 @@ TEST_F(TransactionTest, UntrackedWrites) {
 
   // Conflict
   s = txn->Put("untracked", "3");
-  ASSERT_NOK(s);
+  ASSERT_TRUE(s.IsBusy());
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -1017,7 +1017,7 @@ TEST_F(TransactionTest, ExpiredTransaction) {
 
   // txn1 should fail to commit since it is expired
   s = txn1->Commit();
-  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_TRUE(s.IsExpired());
 
   s = db->Get(read_options, "Y", &value);
   ASSERT_TRUE(s.IsNotFound());
@@ -1047,7 +1047,7 @@ TEST_F(TransactionTest, Rollback) {
 
   // txn2 should not be able to write to X since txn1 has it locked
   s = txn2->Put("X", "2");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsTimedOut());
 
   txn1->Rollback();
   delete txn1;
@@ -1117,9 +1117,9 @@ TEST_F(TransactionTest, LockLimitTest) {
   Transaction* txn2 = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn2);
 
-  // lock limit reached
+  // "X" currently locked
   s = txn2->Put("X", "x");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsTimedOut());
 
   // lock limit reached
   s = txn2->Put("M", "m");
@@ -1483,7 +1483,7 @@ TEST_F(TransactionTest, TimeoutTest) {
   ASSERT_OK(s);
 
   s = txn1->Commit();
-  ASSERT_NOK(s);  // expired!
+  ASSERT_TRUE(s.IsExpired());  // expired!
 
   s = db->Get(read_options, "aaa", &value);
   ASSERT_OK(s);
@@ -1542,9 +1542,9 @@ TEST_F(TransactionTest, TimeoutTest) {
   s = txn1->Commit();
   ASSERT_OK(s);
 
-  // txn2 should be timed out since txn1 waiting until its timeout expired.
+  // txn2 should be expired out since txn1 waiting until its timeout expired.
   s = txn2->Commit();
-  ASSERT_TRUE(s.IsTimedOut());
+  ASSERT_TRUE(s.IsExpired());
 
   delete txn1;
   delete txn2;
@@ -1558,7 +1558,7 @@ TEST_F(TransactionTest, TimeoutTest) {
 
   // txn2 has a smaller lock timeout than txn1's expiration, so it will time out
   s = txn2->Delete("asdf");
-  ASSERT_TRUE(s.IsBusy());
+  ASSERT_TRUE(s.IsTimedOut());
 
   s = txn1->Commit();
   ASSERT_OK(s);

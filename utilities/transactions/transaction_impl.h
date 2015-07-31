@@ -248,7 +248,7 @@ class TransactionCallback : public WriteCallback {
 
   Status Callback(DB* db) override {
     if (txn_->IsExpired()) {
-      return Status::TimedOut();
+      return Status::Expired();
     } else {
       return Status::OK();
     }

@@ -232,7 +232,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
   if (!locked) {
     // timeout acquiring mutex
-    return Status::Busy();
+    return Status::TimedOut("Timeout Acquiring Mutex");
   }
 
   // Acquire lock if we are able to
@@ -240,7 +240,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
   Status result =
       AcquireLocked(lock_map, stripe, key, env, lock_info, &wait_time_us);
 
-  if (result.IsBusy() && timeout != 0) {
+  if (!result.ok() && timeout != 0) {
     // If we weren't able to acquire the lock, we will keep retrying as long
     // as the
     // timeout allows.
@@ -282,7 +282,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
       result =
           AcquireLocked(lock_map, stripe, key, env, lock_info, &wait_time_us);
-    } while (result.IsBusy() && !timed_out);
+    } while (!result.ok() && !timed_out);
   }
 
   stripe->stripe_mutex.unlock();
@@ -313,7 +313,7 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
         lock_info.expiration_time = txn_lock_info.expiration_time;
         // lock_cnt does not change
       } else {
-        result = Status::Busy();
+        result = Status::TimedOut("lock held");
       }
     }
   } else {  // Lock not held.

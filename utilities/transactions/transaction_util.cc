@@ -33,8 +33,8 @@ Status TransactionUtil::CheckKeyForConflicts(DBImpl* db_impl,
   SuperVersion* sv = db_impl->GetAndRefSuperVersion(cfd);
 
   if (sv == nullptr) {
-    result = Status::Busy("Could not access column family " +
-                          cfh->GetName());
+    result = Status::InvalidArgument("Could not access column family " +
+                                     cfh->GetName());
   }
 
   if (result.ok()) {
@@ -66,7 +66,7 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
     // the
     // Memtable should have a valid earliest sequence number except in some
     // corner cases (such as error cases during recovery).
-    result = Status::Busy(
+    result = Status::TryAgain(
         "Transaction ould not check for conflicts as the MemTable does not "
         "countain a long enough history to check write at SequenceNumber: ",
         ToString(key_seq));
@@ -85,13 +85,14 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
              "frequency "
              "of this error.",
              key_seq, earliest_seq);
-    result = Status::Busy(msg);
+    result = Status::TryAgain(msg);
   } else {
     SequenceNumber seq = kMaxSequenceNumber;
     Status s = db_impl->GetLatestSequenceForKeyFromMemtable(sv, key, &seq);
     if (!s.ok()) {
       result = s;
     } else if (seq != kMaxSequenceNumber && seq > key_seq) {
+      // Write Conflict
       result = Status::Busy();
     }
   }
@@ -109,8 +110,8 @@ Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
 
     SuperVersion* sv = db_impl->GetAndRefSuperVersion(cf_id);
     if (sv == nullptr) {
-      result =
-          Status::Busy("Could not access column family " + ToString(cf_id));
+      result = Status::InvalidArgument("Could not access column family " +
+                                       ToString(cf_id));
       break;
     }
 

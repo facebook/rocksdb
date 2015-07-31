@@ -3427,6 +3427,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   Status status;
+  bool callback_failed = false;
+
   bool xfunc_attempted_write = false;
   XFUNC_TEST("transaction", "transaction_xftest_write_impl",
              xf_transaction_write1, xf_transaction_write, write_options,
@@ -3580,6 +3582,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // If this write has a validation callback, check to see if this write
       // is able to be written.  Must be called on the write thread.
       status = callback->Callback(this);
+      callback_failed = true;
     }
   } else {
     mutex_.Unlock();
@@ -3686,7 +3689,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Lock();
   }
 
-  if (db_options_.paranoid_checks && !status.ok() && !status.IsTimedOut() &&
+  if (db_options_.paranoid_checks && !status.ok() && !callback_failed &&
       !status.IsBusy() && bg_error_.ok()) {
     bg_error_ = status; // stop compaction & fail any further writes
   }

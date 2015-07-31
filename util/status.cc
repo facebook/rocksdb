@@ -76,6 +76,12 @@ std::string Status::ToString() const {
     case kBusy:
       type = "Resource busy: ";
       break;
+    case kExpired:
+      type = "Operation expired: ";
+      break;
+    case kTryAgain:
+      type = "Operation failed. Try again.: ";
+      break;
     default:
       snprintf(tmp, sizeof(tmp), "Unknown code(%d): ",
                static_cast<int>(code()));
