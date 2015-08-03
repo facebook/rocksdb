@@ -537,6 +537,7 @@ void DumpManifestFile(std::string file, bool verbose, bool hex, bool json) {
   // if VersionSet::DumpManifest() depends on any option done by
   // SanitizeOptions(), we need to initialize it manually.
   options.db_paths.emplace_back("dummy", 0);
+  options.num_levels = 64;
   WriteController wc(options.delayed_write_rate);
   WriteBuffer wb(options.db_write_buffer_size);
   VersionSet versions(dbname, &options, sopt, tc.get(), &wb, &wc);
