@@ -1543,6 +1543,7 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger + 1;
        num++) {
     GenerateNewRandomFile(&rnd, /* nowait */ true);
+    ASSERT_OK(Flush());
   }
 
   TEST_SYNC_POINT(
@@ -1554,10 +1555,12 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger + 1;
        num++) {
     GenerateNewRandomFile(&rnd, /* nowait */ true);
+    ASSERT_OK(Flush());
   }
 
   TEST_SYNC_POINT(
       "DBCompactionTest::SuggestCompactRangeNoTwoLevel0Compactions:2");
+  dbfull()->TEST_WaitForCompact();
 }
 
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
