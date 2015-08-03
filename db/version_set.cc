@@ -3034,6 +3034,9 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   read_options.verify_checksums =
     c->mutable_cf_options()->verify_checksums_in_compaction;
   read_options.fill_cache = false;
+  if (c->IsSubCompaction()) {
+    read_options.total_order_seek = true;
+  }
 
   // Level-0 files have to be merged together.  For other levels,
   // we will make a concatenating iterator per level.

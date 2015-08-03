@@ -203,6 +203,34 @@ void CompactionJob::Prepare() {
 
   // Is this compaction producing files at the bottommost level?
   bottommost_level_ = compact_->compaction->bottommost_level();
+
+  GetSubCompactionBoundaries();
+}
+
+// For L0-L1 compaction, iterators work in parallel by processing
+// different subsets of the full key range. This function returns
+// the Slices that designate the boundaries of these ranges. Now
+// these boundaries are defined the key ranges of the files in L1,
+// and the first and last entries are always nullptr (unrestricted)
+void CompactionJob::GetSubCompactionBoundaries() {
+  auto* c = compact_->compaction;
+  auto& slices = sub_compaction_boundaries_;
+  if (c->IsSubCompaction()) {
+    // TODO(aekmekji): take the option num_subcompactions into account
+    // when dividing up the key range between multiple iterators instead
+    // of just assigning each iterator one L1 file's key range
+    for (size_t which = 0; which < c->num_input_levels(); which++) {
+      if (c->level(which) == 1) {
+        if (c->input_levels(which)->num_files > 1) {
+          const LevelFilesBrief* flevel = c->input_levels(which);
+          for (size_t i = 1; i < flevel->num_files; i++) {
+            slices.emplace_back(flevel->files[i].smallest_key);
+          }
+        }
+        break;
+      }
+    }
+  }
 }
 
 Status CompactionJob::Run() {
@@ -213,12 +241,43 @@ Status CompactionJob::Run() {
   auto* compaction = compact_->compaction;
   LogCompaction(compaction->column_family_data(), compaction);
 
-  int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
+  Status status;
+  Slice *start, *end;
+  for (size_t i = 0; i < sub_compaction_boundaries_.size() + 1; i++) {
+    if (i == 0) {
+      start = nullptr;
+    } else {
+      start = &sub_compaction_boundaries_[i - 1];
+    }
+    if (i == sub_compaction_boundaries_.size()) {
+      end = nullptr;
+    } else {
+      end = &sub_compaction_boundaries_[i];
+    }
+
+    status = SubCompactionRun(start, end);
+    if (!status.ok()) {
+      break;
+    }
+  }
+
+  UpdateCompactionStats();
+  RecordCompactionIOStats();
+  LogFlush(db_options_.info_log);
+  TEST_SYNC_POINT("CompactionJob::Run():End");
+
+  return status;
+}
+
+Status CompactionJob::SubCompactionRun(Slice* start, Slice* end) {
+  auto* compaction = compact_->compaction;
   const uint64_t start_micros = env_->NowMicros();
+  int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
 
   std::unique_ptr<Iterator> input(versions_->MakeInputIterator(compaction));
-  input->SeekToFirst();
-  auto status = ProcessKeyValueCompaction(&imm_micros, input.get());
+  Status status = ProcessKeyValueCompaction(&imm_micros, input.get(),
+      start, end);
+
   input.reset();
 
   if (output_directory_ && !db_options_.disableDataSync) {
@@ -227,12 +286,6 @@ Status CompactionJob::Run() {
 
   compaction_stats_.micros = env_->NowMicros() - start_micros - imm_micros;
   MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
-  UpdateCompactionStats();
-
-  RecordCompactionIOStats();
-
-  LogFlush(db_options_.info_log);
-  TEST_SYNC_POINT("CompactionJob::Run():End");
   return status;
 }
 
@@ -298,7 +351,8 @@ void CompactionJob::Install(Status* status,
 }
 
 Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
-                                                Iterator* input) {
+                                                Iterator* input,
+                                                Slice* start, Slice* end) {
   AutoThreadOperationStageUpdater stage_updater(
       ThreadStatus::STAGE_COMPACTION_PROCESS_KV);
   Status status;
@@ -333,38 +387,27 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
   StopWatchNano timer(env_, stats_ != nullptr);
   uint64_t total_filter_time = 0;
 
+  if (start != nullptr) {
+    IterKey start_iter;
+    start_iter.SetInternalKey(*start, kMaxSequenceNumber, kValueTypeForSeek);
+    Slice start_key = start_iter.GetKey();
+    input->Seek(start_key);
+  } else {
+    input->SeekToFirst();
+  }
+
   // TODO(noetzli): check whether we could check !shutting_down_->... only
   // only occasionally (see diff D42687)
   while (input->Valid() && !shutting_down_->load(std::memory_order_acquire) &&
          !cfd->IsDropped() && status.ok()) {
-    compact_->num_input_records++;
-    if (++loop_cnt > 1000) {
-      RecordDroppedKeys(
-          &key_drop_user, &key_drop_newer_entry, &key_drop_obsolete);
-      RecordCompactionIOStats();
-      loop_cnt = 0;
-    }
-
     Slice key = input->key();
     Slice value = input->value();
 
-    if (compaction_job_stats_ != nullptr) {
-      compaction_job_stats_->total_input_raw_key_bytes += key.size();
-      compaction_job_stats_->total_input_raw_value_bytes += value.size();
-    }
-
-    if (compact_->compaction->ShouldStopBefore(key) &&
-        compact_->builder != nullptr) {
-      status = FinishCompactionOutputFile(input->status());
-      if (!status.ok()) {
-        break;
-      }
-    }
-
-    // Handle key/value, add to state, etc.
+    // First check that the key is parseable before performing the comparison
+    // to determine if it's within the range we want
     if (!ParseInternalKey(key, &ikey)) {
       // Do not hide error keys
-      // TODO: error key stays in db forever? Figure out the intention/rationale
+      // TODO: error key stays in db forever? Figure out the rationale
       // v10 error v8 : we cannot hide v8 even though it's pretty obvious.
       current_user_key.Clear();
       has_current_user_key = false;
@@ -378,6 +421,34 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       status = WriteKeyValue(key, value, ikey, input->status());
       input->Next();
       continue;
+    }
+
+    // If an end key is specified, check if the current key is >= than it
+    // and exit if it is because the iterator is out of the range desired
+    if (end != nullptr &&
+        cfd->user_comparator()->Compare(ikey.user_key, *end) >= 0) {
+      break;
+    }
+
+    compact_->num_input_records++;
+    if (++loop_cnt > 1000) {
+      RecordDroppedKeys(
+          &key_drop_user, &key_drop_newer_entry, &key_drop_obsolete);
+      RecordCompactionIOStats();
+      loop_cnt = 0;
+    }
+
+    if (compaction_job_stats_ != nullptr) {
+      compaction_job_stats_->total_input_raw_key_bytes += key.size();
+      compaction_job_stats_->total_input_raw_value_bytes += value.size();
+    }
+
+    if (compact_->compaction->ShouldStopBefore(key) &&
+        compact_->builder != nullptr) {
+      status = FinishCompactionOutputFile(input->status());
+      if (!status.ok()) {
+        break;
+      }
     }
 
     if (compaction_job_stats_ != nullptr && ikey.type == kTypeDeletion) {

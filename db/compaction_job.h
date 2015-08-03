@@ -73,19 +73,25 @@ class CompactionJob {
   void Prepare();
   // REQUIRED mutex not held
   Status Run();
+
   // REQUIRED: mutex held
   // status is the return of Run()
   void Install(Status* status, const MutableCFOptions& mutable_cf_options,
                InstrumentedMutex* db_mutex);
 
  private:
+  // REQUIRED: mutex not held
+  Status SubCompactionRun(Slice* start, Slice* end);
+
+  void GetSubCompactionBoundaries();
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
-
   // Call compaction filter. Then iterate through input and compact the
   // kv-pairs
-  Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input);
+  Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input,
+                                    Slice* start = nullptr,
+                                    Slice* end = nullptr);
 
   Status WriteKeyValue(const Slice& key, const Slice& value,
                        const ParsedInternalKey& ikey,
@@ -147,6 +153,7 @@ class CompactionJob {
   EventLogger* event_logger_;
 
   bool paranoid_file_checks_;
+  std::vector<Slice> sub_compaction_boundaries_;
 };
 
 }  // namespace rocksdb

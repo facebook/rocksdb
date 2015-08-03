@@ -421,6 +421,7 @@ class DBTestBase : public testing::Test {
     kFIFOCompaction = 25,
     kOptimizeFiltersForHits = 26,
     kRowCache = 27,
+    kLevelSubcompactions = 28,
     kEnd = 28
   };
   int option_config_;

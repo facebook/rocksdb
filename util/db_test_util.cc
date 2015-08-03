@@ -302,6 +302,10 @@ Options DBTestBase::CurrentOptions(
       options.row_cache = NewLRUCache(1024 * 1024);
       break;
     }
+    case kLevelSubcompactions: {
+      options.num_subcompactions = 2;
+      break;
+    }
 
     default:
       break;

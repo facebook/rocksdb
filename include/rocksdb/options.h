@@ -885,6 +885,15 @@ struct DBOptions {
   // Default: 1
   int max_background_compactions;
 
+  // This integer represents the maximum number of threads that will
+  // concurrently perform a level-based compaction from L0 to L1. A value
+  // of 1 means there is no parallelism, and a greater number enables a
+  // multi-threaded version of the L0-L1 compaction that divides the compaction
+  // into multiple, smaller ones that are run simultaneously. This is still
+  // under development and is only available for level-based compaction.
+  // Default: 1
+  int num_subcompactions;
+
   // Maximum number of concurrent background memtable flush jobs, submitted to
   // the HIGH priority thread pool.
   //
