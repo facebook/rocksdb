@@ -710,7 +710,12 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     aggregated_file_meta.largestkey = largestkey;
 
     // For all lower levels, include all overlapping files.
-    for (int m = l + 1; m <= output_level; ++m) {
+    // We need to add overlapping files from the current level too because even
+    // if there no input_files in level l, we would still need to add files
+    // which overlap with the range containing the input_files in levels 0 to l
+    // Level 0 doesn't need to be handled this way because files are sorted by
+    // time and not by key
+    for (int m = std::max(l, 1); m <= output_level; ++m) {
       for (auto& next_lv_file : levels[m].files) {
         if (HaveOverlappingKeyRanges(
             comparator, aggregated_file_meta, next_lv_file)) {

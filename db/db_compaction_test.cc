@@ -1180,8 +1180,8 @@ TEST_F(DBCompactionTest, FilesDeletedAfterCompaction) {
   } while (ChangeCompactOptions());
 }
 
-// TODO(t6534343) -- Don't run two level 0 CompactFiles concurrently
-TEST_F(DBCompactionTest, DISABLED_CompactFilesOnLevelCompaction) {
+// Check level comapction with compact files
+TEST_F(DBCompactionTest, CompactFilesOnLevelCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
