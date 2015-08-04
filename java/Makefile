@@ -1,4 +1,5 @@
-NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
+NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
+        org.rocksdb.AbstractComparator\
 	org.rocksdb.AbstractSlice\
 	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDB\
@@ -24,6 +25,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.ReadOptions\
+	org.rocksdb.RemoveEmptyValueCompactionFilter\
 	org.rocksdb.RestoreBackupableDB\
 	org.rocksdb.RestoreOptions\
 	org.rocksdb.RocksDB\

@@ -2043,6 +2043,19 @@ void Java_org_rocksdb_ColumnFamilyOptions_setMergeOperator(
 
 /*
  * Class:     org_rocksdb_ColumnFamilyOptions
+ * Method:    setCompactionFilterHandle
+ * Signature: (JJ)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_setCompactionFilterHandle__JJ(
+    JNIEnv* env, jobject jobj, jlong jopt_handle,
+    jlong jcompactionfilter_handle) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jopt_handle)->
+      compaction_filter = reinterpret_cast<rocksdb::CompactionFilter*>
+        (jcompactionfilter_handle);
+}
+
+/*
+ * Class:     org_rocksdb_ColumnFamilyOptions
  * Method:    setWriteBufferSize
  * Signature: (JJ)I
  */

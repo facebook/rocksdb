@@ -145,6 +145,13 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  public ColumnFamilyOptions setCompactionFilter(
+        final AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter) {
+    setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
+    compactionFilter_ = compactionFilter;
+    return this;
+  }
+
   @Override
   public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize) {
     assert(isInitialized());
@@ -686,6 +693,7 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, String name);
   private native void setMergeOperator(
       long handle, long mergeOperatorHandle);
+  private native void setCompactionFilterHandle(long handle, long compactionFilterHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
@@ -808,4 +816,5 @@ public class ColumnFamilyOptions extends RocksObject
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
   AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
 }

@@ -99,6 +99,7 @@ LIB_SOURCES =                                                   \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
   utilities/checkpoint/checkpoint.cc                            \
+  utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/document/document_db.cc                             \
   utilities/document/json_document_builder.cc                   \
   utilities/document/json_document.cc                           \
@@ -251,6 +252,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/columnfamilyhandle.cc                         \
+  java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/env.cc                                        \
@@ -261,6 +263,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/ratelimiterjni.cc                             \
+  java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocksjni.cc                                   \
   java/rocksjni/slice.cc                                      \
