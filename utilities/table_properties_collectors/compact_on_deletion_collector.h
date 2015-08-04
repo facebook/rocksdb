@@ -70,12 +70,12 @@ class CompactOnDeletionCollector : public TablePropertiesCollector {
   }
 
   // The name of the properties collector can be used for debugging purpose.
-  virtual const char* Name() const {
+  virtual const char* Name() const override {
     return "CompactOnDeletionCollector";
   }
 
   // EXPERIMENTAL Return whether the output file should be further compacted
-  virtual bool NeedCompact() const {
+  virtual bool NeedCompact() const override {
     return need_compaction_;
   }
 
