@@ -255,9 +255,6 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   dbfull()->TEST_WaitForFlushMemTable();
   dbfull()->TEST_WaitForCompact();
 
-  uint64_t db_size[2];
-  db_size[0] = Size(Key(0), Key(kTestSize - 1));
-
   for (int k = 0; k < kTestSize; ++k) {
     ASSERT_OK(Delete(Key(k)));
   }
@@ -266,31 +263,20 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   options.skip_stats_update_on_db_open = true;
   env_->random_file_open_counter_.store(0);
   Reopen(options);
+
   // As stats-update is disabled, we expect a very low
   // number of random file open.
   ASSERT_LT(env_->random_file_open_counter_.load(), 5);
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
-  db_size[1] = Size(Key(0), Key(kTestSize - 1));
-
-  // As stats update is disabled, we expect the deletion
-  // entries are not properly processed.
-  ASSERT_LT(db_size[0] / 3, db_size[1]);
 
   // Repeat the reopen process, but this time we enable
   // stats-update.
   options.skip_stats_update_on_db_open = false;
   env_->random_file_open_counter_.store(0);
   Reopen(options);
+
   // Since we do a normal stats update on db-open, there
   // will be more random open files.
   ASSERT_GT(env_->random_file_open_counter_.load(), 5);
-  dbfull()->TEST_WaitForFlushMemTable();
-  dbfull()->TEST_WaitForCompact();
-  db_size[1] = Size(Key(0), Key(kTestSize - 1));
-
-  // and we expect the deleiton entries being handled.
-  ASSERT_GT(db_size[0] / 3, db_size[1]);
 }
 
 TEST_F(DBCompactionTest, CompactionDeletionTriggerReopen) {
