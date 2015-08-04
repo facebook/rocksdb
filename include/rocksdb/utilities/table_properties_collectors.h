@@ -16,7 +16,7 @@ namespace rocksdb {
 // entries in any "N" consecutive entires.
 //
 // @param sliding_window_size "N". Note that this number will be
-//     round up to the smallest multilpe of 128 that is no less
+//     round up to the smallest multiple of 128 that is no less
 //     than the specified size.
 // @param deletion_trigger "D".  Note that even when "N" is changed,
 //     the specified number for "D" will not be changed.
