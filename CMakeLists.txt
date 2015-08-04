@@ -216,6 +216,7 @@ set(SOURCES
         utilities/merge_operators/uint64add.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
+        utilities/table_properties_collectors/compact_on_deletion_collector.cc
         utilities/transactions/optimistic_transaction_impl.cc        
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/ttl/db_ttl_impl.cc
@@ -327,6 +328,7 @@ set(TESTS
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
+        utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc

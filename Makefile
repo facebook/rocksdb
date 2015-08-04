@@ -300,8 +300,9 @@ TESTS = \
 	perf_context_test \
 	optimistic_transaction_test \
 	write_callback_test \
-	compaction_job_stats_test \
-	heap_test
+	heap_test \
+	compact_on_deletion_collector_test \
+	compaction_job_stats_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -755,6 +756,9 @@ compaction_job_test: db/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compaction_job_stats_test: db/compaction_job_stats_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+compact_on_deletion_collector_test: utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
