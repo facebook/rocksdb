@@ -77,6 +77,7 @@ def main(argv):
         dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest2_')
     else:
         dbname = test_tmpdir + "/rocksdb_crashtest2"
+        shutil.rmtree(dbname, True)
 
     while time.time() < exit_time:
         killoption = ""
