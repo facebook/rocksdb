@@ -542,9 +542,11 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
+	python -u tools/db_crashtest.py -s
 	python -u tools/db_crashtest.py
 
 whitebox_crash_test: db_stress
+	python -u tools/db_crashtest2.py -s
 	python -u tools/db_crashtest2.py
 
 asan_check:
