@@ -60,7 +60,9 @@ def main(argv):
                   "-b <write_buffer_size>\n"
             sys.exit(2)
 
-    exit_time = time.time() + duration
+    cur_time = time.time()
+    exit_time = cur_time + duration
+    half_time = cur_time + duration / 2
 
     print "Running whitebox-crash-test with \ntotal-duration=" + str(duration) \
           + "\nthreads=" + str(threads) + "\nops_per_thread=" \
@@ -213,10 +215,14 @@ def main(argv):
         if (stdoutdata.find('fail') >= 0):
             print "TEST FAILED. Output has 'fail'!!!\n"
             sys.exit(2)
-        # we need to clean up after ourselves -- only do this on test success
-        shutil.rmtree(dbname, True)
 
-        check_mode = (check_mode + 1) % total_check_mode
+        # First half of the duration, keep doing kill test. For the next half,
+        # try different modes.
+        if time.time() > half_time:
+            # we need to clean up after ourselves -- only do this on test
+            # success
+            shutil.rmtree(dbname, True)
+            check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
 
