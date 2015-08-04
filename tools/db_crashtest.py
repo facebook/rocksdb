@@ -67,7 +67,11 @@ def main(argv):
           + str(ops_per_thread) + "\nwrite_buffer_size="
           + str(write_buf_size) + "\n")
 
-    dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
+    test_tmpdir = os.environ.get("TEST_TMPDIR")
+    if test_tmpdir is None or test_tmpdir == "":
+        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
+    else:
+        dbname = test_tmpdir + "/rocksdb_crashtest"
 
     while time.time() < exit_time:
         run_had_errors = False

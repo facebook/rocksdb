@@ -70,7 +70,12 @@ def main(argv):
     total_check_mode = 4
     check_mode = 0
 
-    dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
+    test_tmpdir = os.environ.get("TEST_TMPDIR")
+    if test_tmpdir is None or test_tmpdir == "":
+        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest2_')
+    else:
+        dbname = test_tmpdir + "/rocksdb_crashtest2"
+
     while time.time() < exit_time:
         killoption = ""
         if check_mode == 0:
