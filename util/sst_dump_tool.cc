@@ -121,22 +121,23 @@ uint64_t SstFileReader::CalculateCompressedTableSize(
   BlockBasedTableOptions table_options;
   table_options.block_size = block_size;
   BlockBasedTableFactory block_based_tf(table_options);
-  TableBuilder* table_builder_ =
-      block_based_tf.NewTableBuilder(tb_options, dest_writer.get());
+  unique_ptr<TableBuilder> table_builder;
+  table_builder.reset(block_based_tf.NewTableBuilder(
+                         tb_options, dest_writer.get()));
   unique_ptr<Iterator> iter(table_reader_->NewIterator(ReadOptions()));
   for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
     if (!iter->status().ok()) {
       fputs(iter->status().ToString().c_str(), stderr);
       exit(1);
     }
-    table_builder_->Add(iter->key(), iter->value());
+    table_builder->Add(iter->key(), iter->value());
   }
-  Status s = table_builder_->Finish();
+  Status s = table_builder->Finish();
   if (!s.ok()) {
     fputs(s.ToString().c_str(), stderr);
     exit(1);
   }
-  uint64_t size = table_builder_->FileSize();
+  uint64_t size = table_builder->FileSize();
   env->DeleteFile(testFileName);
   return size;
 }
