@@ -873,8 +873,10 @@ void VersionStorageInfo::GenerateLevelFilesBrief() {
   }
 }
 
-void Version::PrepareApply(const MutableCFOptions& mutable_cf_options) {
-  UpdateAccumulatedStats();
+void Version::PrepareApply(
+    const MutableCFOptions& mutable_cf_options,
+    bool update_stats) {
+  UpdateAccumulatedStats(update_stats);
   storage_info_.UpdateNumNonEmptyLevels();
   storage_info_.CalculateBaseBytes(*cfd_->ioptions(), mutable_cf_options);
   storage_info_.UpdateFilesBySize();
@@ -917,42 +919,45 @@ void VersionStorageInfo::UpdateAccumulatedStats(FileMetaData* file_meta) {
   num_samples_++;
 }
 
-void Version::UpdateAccumulatedStats() {
-  // maximum number of table properties loaded from files.
-  const int kMaxInitCount = 20;
-  int init_count = 0;
-  // here only the first kMaxInitCount files which haven't been
-  // initialized from file will be updated with num_deletions.
-  // The motivation here is to cap the maximum I/O per Version creation.
-  // The reason for choosing files from lower-level instead of higher-level
-  // is that such design is able to propagate the initialization from
-  // lower-level to higher-level:  When the num_deletions of lower-level
-  // files are updated, it will make the lower-level files have accurate
-  // compensated_file_size, making lower-level to higher-level compaction
-  // will be triggered, which creates higher-level files whose num_deletions
-  // will be updated here.
-  for (int level = 0;
-       level < storage_info_.num_levels_ && init_count < kMaxInitCount;
-       ++level) {
-    for (auto* file_meta : storage_info_.files_[level]) {
-      if (MaybeInitializeFileMetaData(file_meta)) {
-        // each FileMeta will be initialized only once.
-        storage_info_.UpdateAccumulatedStats(file_meta);
-        if (++init_count >= kMaxInitCount) {
-          break;
+void Version::UpdateAccumulatedStats(bool update_stats) {
+  if (update_stats) {
+    // maximum number of table properties loaded from files.
+    const int kMaxInitCount = 20;
+    int init_count = 0;
+    // here only the first kMaxInitCount files which haven't been
+    // initialized from file will be updated with num_deletions.
+    // The motivation here is to cap the maximum I/O per Version creation.
+    // The reason for choosing files from lower-level instead of higher-level
+    // is that such design is able to propagate the initialization from
+    // lower-level to higher-level:  When the num_deletions of lower-level
+    // files are updated, it will make the lower-level files have accurate
+    // compensated_file_size, making lower-level to higher-level compaction
+    // will be triggered, which creates higher-level files whose num_deletions
+    // will be updated here.
+    for (int level = 0;
+         level < storage_info_.num_levels_ && init_count < kMaxInitCount;
+         ++level) {
+      for (auto* file_meta : storage_info_.files_[level]) {
+        if (MaybeInitializeFileMetaData(file_meta)) {
+          // each FileMeta will be initialized only once.
+          storage_info_.UpdateAccumulatedStats(file_meta);
+          if (++init_count >= kMaxInitCount) {
+            break;
+          }
         }
       }
     }
-  }
-  // In case all sampled-files contain only deletion entries, then we
-  // load the table-property of a file in higher-level to initialize
-  // that value.
-  for (int level = storage_info_.num_levels_ - 1;
-       storage_info_.accumulated_raw_value_size_ == 0 && level >= 0; --level) {
-    for (int i = static_cast<int>(storage_info_.files_[level].size()) - 1;
-         storage_info_.accumulated_raw_value_size_ == 0 && i >= 0; --i) {
-      if (MaybeInitializeFileMetaData(storage_info_.files_[level][i])) {
-        storage_info_.UpdateAccumulatedStats(storage_info_.files_[level][i]);
+    // In case all sampled-files contain only deletion entries, then we
+    // load the table-property of a file in higher-level to initialize
+    // that value.
+    for (int level = storage_info_.num_levels_ - 1;
+         storage_info_.accumulated_raw_value_size_ == 0 && level >= 0;
+         --level) {
+      for (int i = static_cast<int>(storage_info_.files_[level].size()) - 1;
+           storage_info_.accumulated_raw_value_size_ == 0 && i >= 0; --i) {
+        if (MaybeInitializeFileMetaData(storage_info_.files_[level][i])) {
+          storage_info_.UpdateAccumulatedStats(storage_info_.files_[level][i]);
+        }
       }
     }
   }
@@ -1967,7 +1972,7 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
 
     if (!edit->IsColumnFamilyManipulation()) {
       // This is cpu-heavy operations, which should be called outside mutex.
-      v->PrepareApply(mutable_cf_options);
+      v->PrepareApply(mutable_cf_options, true);
     }
 
     // Write new record to MANIFEST log
@@ -2398,7 +2403,8 @@ Status VersionSet::Recover(
       builder->SaveTo(v->storage_info());
 
       // Install recovered version
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions());
+      v->PrepareApply(*cfd->GetLatestMutableCFOptions(),
+          !(db_options_->skip_stats_update_on_db_open));
       AppendVersion(cfd, v);
     }
 
@@ -2748,7 +2754,7 @@ Status VersionSet::DumpManifest(Options& options, std::string& dscname,
 
       Version* v = new Version(cfd, this, current_version_number_++);
       builder->SaveTo(v->storage_info());
-      v->PrepareApply(*cfd->GetLatestMutableCFOptions());
+      v->PrepareApply(*cfd->GetLatestMutableCFOptions(), false);
 
       printf("--------------- Column family \"%s\"  (ID %u) --------------\n",
              cfd->GetName().c_str(), (unsigned int)cfd->GetID());

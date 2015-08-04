@@ -281,6 +281,7 @@ class SpecialEnv : public EnvWrapper {
     };
 
     Status s = target()->NewRandomAccessFile(f, r, soptions);
+    random_file_open_counter_++;
     if (s.ok() && count_random_reads_) {
       r->reset(new CountingFile(std::move(*r), &random_read_counter_));
     }
@@ -367,6 +368,7 @@ class SpecialEnv : public EnvWrapper {
 
   bool count_random_reads_;
   anon::AtomicCounter random_read_counter_;
+  std::atomic<int> random_file_open_counter_;
 
   bool count_sequential_reads_;
   anon::AtomicCounter sequential_read_counter_;

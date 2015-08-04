@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### New Features
+* Add DBOptions::skip_stats_update_on_db_open.  When it is on, DB::Open() will run faster as it skips the random reads required for loading necessary stats from SST files to optimize compaction.
 * RollbackToSavePoint() in WriteBatch/WriteBatchWithIndex
 
 ### Public API Changes

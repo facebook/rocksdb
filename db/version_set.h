@@ -417,7 +417,8 @@ class Version {
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
-  void PrepareApply(const MutableCFOptions& mutable_cf_options);
+  void PrepareApply(const MutableCFOptions& mutable_cf_options,
+                    bool update_stats);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -490,7 +491,7 @@ class Version {
 
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
-  void UpdateAccumulatedStats();
+  void UpdateAccumulatedStats(bool update_stats);
 
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.

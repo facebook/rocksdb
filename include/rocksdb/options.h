@@ -1058,6 +1058,14 @@ struct DBOptions {
   // Default: 1MB/s
   uint64_t delayed_write_rate;
 
+  // If true, then DB::Open() will not update the statistics used to optimize
+  // compaction decision by loading table properties from many files.
+  // Turning off this feature will improve DBOpen time espcially in
+  // disk environment.
+  //
+  // Default: false
+  bool skip_stats_update_on_db_open;
+
   // Recovery mode to control the consistency while replaying WAL
   // Default: kTolerateCorruptedTailRecords
   WALRecoveryMode wal_recovery_mode;

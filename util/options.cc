@@ -239,6 +239,7 @@ DBOptions::DBOptions()
       listeners(),
       enable_thread_tracking(false),
       delayed_write_rate(1024U * 1024U),
+      skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords) {
 }
 
@@ -287,6 +288,7 @@ DBOptions::DBOptions(const Options& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       delayed_write_rate(options.delayed_write_rate),
+      skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
       row_cache(options.row_cache) {}
 

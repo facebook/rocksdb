@@ -196,12 +196,16 @@ const SstFileMetaData* PickFileRandomly(
 }  // anonymous namespace
 
 TEST_F(DBCompactionTest, CompactionDeletionTrigger) {
-  for (int tid = 0; tid < 2; ++tid) {
+  for (int tid = 0; tid < 3; ++tid) {
     uint64_t db_size[2];
     Options options = CurrentOptions(DeletionTriggerOptions());
 
     if (tid == 1) {
-      // second pass with universal compaction
+      // the following only disable stats update in DB::Open()
+      // and should not affect the result of this test.
+      options.skip_stats_update_on_db_open = true;
+    } else if (tid == 2) {
+      // third pass with universal compaction
       options.compaction_style = kCompactionStyleUniversal;
       options.num_levels = 1;
     }
@@ -229,6 +233,64 @@ TEST_F(DBCompactionTest, CompactionDeletionTrigger) {
     // must have much smaller db size.
     ASSERT_GT(db_size[0] / 3, db_size[1]);
   }
+}
+
+TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
+  // This test verify UpdateAccumulatedStats is not on by observing
+  // the compaction behavior when there are many of deletion entries.
+  // The test will need to be updated if the internal behavior changes.
+
+  Options options = DeletionTriggerOptions();
+  options = CurrentOptions(options);
+  options.env = env_;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  const int kTestSize = kCDTKeysPerBuffer * 512;
+  std::vector<std::string> values;
+  for (int k = 0; k < kTestSize; ++k) {
+    values.push_back(RandomString(&rnd, kCDTValueSize));
+    ASSERT_OK(Put(Key(k), values[k]));
+  }
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+
+  uint64_t db_size[2];
+  db_size[0] = Size(Key(0), Key(kTestSize - 1));
+
+  for (int k = 0; k < kTestSize; ++k) {
+    ASSERT_OK(Delete(Key(k)));
+  }
+
+  // Reopen the DB with stats-update disabled
+  options.skip_stats_update_on_db_open = true;
+  env_->random_file_open_counter_.store(0);
+  Reopen(options);
+  // As stats-update is disabled, we expect a very low
+  // number of random file open.
+  ASSERT_LT(env_->random_file_open_counter_.load(), 5);
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+  db_size[1] = Size(Key(0), Key(kTestSize - 1));
+
+  // As stats update is disabled, we expect the deletion
+  // entries are not properly processed.
+  ASSERT_LT(db_size[0] / 3, db_size[1]);
+
+  // Repeat the reopen process, but this time we enable
+  // stats-update.
+  options.skip_stats_update_on_db_open = false;
+  env_->random_file_open_counter_.store(0);
+  Reopen(options);
+  // Since we do a normal stats update on db-open, there
+  // will be more random open files.
+  ASSERT_GT(env_->random_file_open_counter_.load(), 5);
+  dbfull()->TEST_WaitForFlushMemTable();
+  dbfull()->TEST_WaitForCompact();
+  db_size[1] = Size(Key(0), Key(kTestSize - 1));
+
+  // and we expect the deleiton entries being handled.
+  ASSERT_GT(db_size[0] / 3, db_size[1]);
 }
 
 TEST_F(DBCompactionTest, CompactionDeletionTriggerReopen) {
@@ -284,6 +346,63 @@ TEST_F(DBCompactionTest, CompactionDeletionTriggerReopen) {
     db_size[2] = Size(Key(0), Key(kTestSize - 1));
     // this time we're expecting significant drop in size.
     ASSERT_GT(db_size[0] / 3, db_size[2]);
+  }
+}
+
+TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
+  uint64_t db_size[3];
+  for (int test = 0; test < 2; ++test) {
+    Options options = CurrentOptions(DeletionTriggerOptions());
+    options.skip_stats_update_on_db_open = (test == 0);
+
+    env_->random_read_counter_.Reset();
+    DestroyAndReopen(options);
+    Random rnd(301);
+
+    // round 1 --- insert key/value pairs.
+    const int kTestSize = kCDTKeysPerBuffer * 512;
+    std::vector<std::string> values;
+    for (int k = 0; k < kTestSize; ++k) {
+      values.push_back(RandomString(&rnd, kCDTValueSize));
+      ASSERT_OK(Put(Key(k), values[k]));
+    }
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[0] = Size(Key(0), Key(kTestSize - 1));
+    Close();
+
+    // round 2 --- disable auto-compactions and issue deletions.
+    options.create_if_missing = false;
+    options.disable_auto_compactions = true;
+
+    env_->random_read_counter_.Reset();
+    Reopen(options);
+
+    for (int k = 0; k < kTestSize; ++k) {
+      ASSERT_OK(Delete(Key(k)));
+    }
+    db_size[1] = Size(Key(0), Key(kTestSize - 1));
+    Close();
+    // as auto_compaction is off, we shouldn't see too much reduce
+    // in db size.
+    ASSERT_LT(db_size[0] / 3, db_size[1]);
+
+    // round 3 --- reopen db with auto_compaction on and see if
+    // deletion compensation still work.
+    options.disable_auto_compactions = false;
+    Reopen(options);
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+    db_size[2] = Size(Key(0), Key(kTestSize - 1));
+
+    if (options.skip_stats_update_on_db_open) {
+      // If update stats on DB::Open is disable, we don't expect
+      // deletion entries taking effect.
+      ASSERT_LT(db_size[0] / 3, db_size[2]);
+    } else {
+      // Otherwise, we should see a significant drop in db size.
+      ASSERT_GT(db_size[0] / 3, db_size[2]);
+    }
   }
 }
 
