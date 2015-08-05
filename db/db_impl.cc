@@ -2131,14 +2131,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return Status::OK();
     }
 
-    WriteThread::Writer w(&mutex_);
-    write_thread_.EnterWriteThread(&w);
-    assert(!w.done);  // Nobody should do our job
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
 
     // SwitchMemtable() will release and reacquire mutex
     // during execution
     s = SwitchMemtable(cfd, &context);
-    write_thread_.ExitWriteThread(&w, &w, s);
+    write_thread_.ExitUnbatched(&w);
 
     cfd->imm()->FlushRequested();
 
@@ -3073,15 +3072,14 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     // ColumnFamilyData object
     Options opt(db_options_, cf_options);
     {  // write thread
-      WriteThread::Writer w(&mutex_);
-      write_thread_.EnterWriteThread(&w);
-      assert(!w.done);  // Nobody should do our job
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
       s = versions_->LogAndApply(
           nullptr, MutableCFOptions(opt, ImmutableCFOptions(opt)), &edit,
           &mutex_, directories_.GetDbDir(), false, &cf_options);
-      write_thread_.ExitWriteThread(&w, &w, s);
+      write_thread_.ExitUnbatched(&w);
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
@@ -3135,12 +3133,11 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     }
     if (s.ok()) {
       // we drop column family from a single write thread
-      WriteThread::Writer w(&mutex_);
-      write_thread_.EnterWriteThread(&w);
-      assert(!w.done);  // Nobody should do our job
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
-      write_thread_.ExitWriteThread(&w, &w, s);
+      write_thread_.ExitUnbatched(&w);
     }
 
     if (!cf_support_snapshot) {
@@ -3442,7 +3439,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  WriteThread::Writer w(&mutex_);
+  WriteThread::Writer w;
   w.batch = my_batch;
   w.sync = write_options.sync;
   w.disableWAL = write_options.disableWAL;
@@ -3456,20 +3453,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   StopWatch write_sw(env_, db_options_.statistics.get(), DB_WRITE);
 
+  write_thread_.JoinBatchGroup(&w);
+  if (w.done) {
+    // write was done by someone else, no need to grab mutex
+    RecordTick(stats_, WRITE_DONE_BY_OTHER);
+    return w.status;
+  }
+  // else we are the leader of the write batch group
+
   WriteContext context;
   mutex_.Lock();
 
   if (!write_options.disableWAL) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
-  }
-
-  write_thread_.EnterWriteThread(&w);
-  if (w.done) {  // write was done by someone else
-    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
-                                           1);
-    mutex_.Unlock();
-    RecordTick(stats_, WRITE_DONE_BY_OTHER);
-    return w.status;
   }
 
   RecordTick(stats_, WRITE_DONE_BY_SELF);
@@ -3560,8 +3556,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
 
   if (status.ok()) {
-    last_batch_group_size_ =
-        write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
+    last_batch_group_size_ = write_thread_.EnterAsBatchGroupLeader(
+        &w, &last_writer, &write_batch_group);
 
     if (need_log_sync) {
       while (logs_.front().getting_synced) {
@@ -3702,9 +3698,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
   }
 
-  write_thread_.ExitWriteThread(&w, last_writer, status);
+  uint64_t writes_for_other = write_batch_group.size() - 1;
+  if (writes_for_other > 0) {
+    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
+                                           writes_for_other);
+    if (!write_options.disableWAL) {
+      default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL,
+                                             writes_for_other);
+    }
+  }
 
   mutex_.Unlock();
+
+  write_thread_.ExitAsBatchGroupLeader(&w, last_writer, status);
 
   return status;
 }
