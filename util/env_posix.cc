@@ -679,6 +679,10 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
+  virtual bool IsSyncThreadSafe() const override {
+    return true;
+  }
+
   virtual uint64_t GetFileSize() override { return filesize_; }
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {

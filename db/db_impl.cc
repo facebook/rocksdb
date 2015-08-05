@@ -612,11 +612,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
   }
 }
 
-Status DBImpl::SyncLog(log::Writer* log) {
-  assert(log);
-  return log->file()->Sync(db_options_.use_fsync);
-}
-
 namespace {
 bool CompareCandidateFile(const JobContext::CandidateFileInfo& first,
                           const JobContext::CandidateFileInfo& second) {
@@ -1949,6 +1944,85 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
                      ColumnFamilyHandle* column_family) {
   auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
   return FlushMemTable(cfh->cfd(), flush_options);
+}
+
+Status DBImpl::SyncWAL() {
+  autovector<log::Writer*, 1> logs_to_sync;
+  bool need_log_dir_sync;
+  uint64_t current_log_number;
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    assert(!logs_.empty());
+
+    // This SyncWAL() call only cares about logs up to this number.
+    current_log_number = logfile_number_;
+
+    while (logs_.front().number <= current_log_number &&
+           logs_.front().getting_synced) {
+      log_sync_cv_.Wait();
+    }
+    // First check that logs are safe to sync in background.
+    for (auto it = logs_.begin();
+         it != logs_.end() && it->number <= current_log_number; ++it) {
+      if (!it->writer->file()->writable_file()->IsSyncThreadSafe()) {
+        return Status::NotSupported(
+          "SyncWAL() is not supported for this implementation of WAL file",
+          db_options_.allow_mmap_writes
+            ? "try setting Options::allow_mmap_writes to false"
+            : Slice());
+      }
+    }
+    for (auto it = logs_.begin();
+         it != logs_.end() && it->number <= current_log_number; ++it) {
+      auto& log = *it;
+      assert(!log.getting_synced);
+      log.getting_synced = true;
+      logs_to_sync.push_back(log.writer.get());
+    }
+
+    need_log_dir_sync = !log_dir_synced_;
+  }
+
+  Status status;
+  for (log::Writer* log : logs_to_sync) {
+    status = log->file()->SyncWithoutFlush(db_options_.use_fsync);
+    if (!status.ok()) {
+      break;
+    }
+  }
+  if (status.ok() && need_log_dir_sync) {
+    status = directories_.GetWalDir()->Fsync();
+  }
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    MarkLogsSynced(current_log_number, need_log_dir_sync, status);
+  }
+
+  return status;
+}
+
+void DBImpl::MarkLogsSynced(
+    uint64_t up_to, bool synced_dir, const Status& status) {
+  mutex_.AssertHeld();
+  if (synced_dir &&
+      logfile_number_ == up_to &&
+      status.ok()) {
+    log_dir_synced_ = true;
+  }
+  for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
+    auto& log = *it;
+    assert(log.getting_synced);
+    if (status.ok() && logs_.size() > 1) {
+      logs_to_free_.push_back(log.writer.release());
+      logs_.erase(it++);
+    } else {
+      log.getting_synced = false;
+      ++it;
+    }
+  }
+  log_sync_cv_.SignalAll();
 }
 
 SequenceNumber DBImpl::GetLatestSequenceNumber() const {
@@ -3475,13 +3549,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   uint64_t last_sequence = versions_->LastSequence();
   WriteThread::Writer* last_writer = &w;
   autovector<WriteBatch*> write_batch_group;
-  bool need_wal_sync = !write_options.disableWAL && write_options.sync;
+  bool need_log_sync = !write_options.disableWAL && write_options.sync;
+  bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
 
   if (status.ok()) {
     last_batch_group_size_ =
         write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
 
-    if (need_wal_sync) {
+    if (need_log_sync) {
       while (logs_.front().getting_synced) {
         log_sync_cv_.Wait();
       }
@@ -3543,7 +3618,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         log_empty_ = false;
         log_size = log_entry.size();
         RecordTick(stats_, WAL_FILE_BYTES, log_size);
-        if (status.ok() && need_wal_sync) {
+        if (status.ok() && need_log_sync) {
           RecordTick(stats_, WAL_FILE_SYNCED);
           StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
           // It's safe to access logs_ with unlocked mutex_ here because:
@@ -3554,18 +3629,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           //  - as long as other threads don't modify it, it's safe to read
           //    from std::deque from multiple threads concurrently.
           for (auto& log : logs_) {
-            status = SyncLog(log.writer.get());
+            status = log.writer->file()->Sync(db_options_.use_fsync);
             if (!status.ok()) {
               break;
             }
           }
-          if (status.ok() && !log_dir_synced_) {
+          if (status.ok() && need_log_dir_sync) {
             // We only sync WAL directory the first time WAL syncing is
             // requested, so that in case users never turn on WAL sync,
             // we can avoid the disk I/O in the write code path.
             status = directories_.GetWalDir()->Fsync();
           }
-          log_dir_synced_ = true;
         }
       }
       if (status.ok()) {
@@ -3616,16 +3690,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   mutex_.AssertHeld();
 
-  if (need_wal_sync) {
-    while (logs_.size() > 1) {
-      auto& log = logs_.front();
-      assert(log.getting_synced);
-      logs_to_free_.push_back(log.writer.release());
-      logs_.pop_front();
-    }
-    assert(logs_.back().getting_synced);
-    logs_.back().getting_synced = false;
-    log_sync_cv_.SignalAll();
+  if (need_log_sync) {
+    MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
   }
 
   write_thread_.ExitWriteThread(&w, last_writer, status);
@@ -3714,7 +3780,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log = new log::Writer(std::move(file_writer));
-        log_dir_synced_ = false;
       }
     }
 
@@ -3739,6 +3804,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     logfile_number_ = new_log_number;
     assert(new_log != nullptr);
     log_empty_ = true;
+    log_dir_synced_ = false;
     logs_.emplace_back(logfile_number_, std::unique_ptr<log::Writer>(new_log));
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
     for (auto loop_cfd : *versions_->GetColumnFamilySet()) {

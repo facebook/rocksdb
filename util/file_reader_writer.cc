@@ -154,11 +154,7 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   }
   TEST_KILL_RANDOM(rocksdb_kill_odds);
   if (pending_sync_) {
-    if (use_fsync) {
-      s = writable_file_->Fsync();
-    } else {
-      s = writable_file_->Sync();
-    }
+    s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
     }
@@ -169,6 +165,25 @@ Status WritableFileWriter::Sync(bool use_fsync) {
     pending_fsync_ = false;
   }
   return Status::OK();
+}
+
+Status WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
+  if (!writable_file_->IsSyncThreadSafe()) {
+    return Status::NotSupported(
+      "Can't WritableFileWriter::SyncWithoutFlush() because "
+      "WritableFile::IsSyncThreadSafe() is false");
+  }
+  return SyncInternal(use_fsync);
+}
+
+Status WritableFileWriter::SyncInternal(bool use_fsync) {
+  Status s;
+  if (use_fsync) {
+    s = writable_file_->Fsync();
+  } else {
+    s = writable_file_->Sync();
+  }
+  return s;
 }
 
 Status WritableFileWriter::RangeSync(off_t offset, off_t nbytes) {

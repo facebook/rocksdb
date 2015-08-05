@@ -5172,6 +5172,10 @@ class ModelDB: public DB {
     return ret;
   }
 
+  virtual Status SyncWAL() override {
+    return Status::OK();
+  }
+
   virtual Status DisableFileDeletions() override { return Status::OK(); }
   virtual Status EnableFileDeletions(bool force) override {
     return Status::OK();
@@ -8418,8 +8422,16 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest, UnsupportedManualSync) {
+  DestroyAndReopen(CurrentOptions());
+  env_->is_wal_sync_thread_safe_.store(false);
+  Status s = db_->SyncWAL();
+  ASSERT_TRUE(s.IsNotSupported());
+}
+
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Values(1, 4));
+
 }  // namespace rocksdb
 
 #endif

@@ -461,6 +461,12 @@ class WritableFile {
     return Sync();
   }
 
+  // true if Sync() and Fsync() are safe to call concurrently with Append()
+  // and Flush().
+  virtual bool IsSyncThreadSafe() const {
+    return false;
+  }
+
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
    * If rate limiting is not enabled, this call has no effect.
@@ -616,7 +622,7 @@ class RandomRWFile {
 class Directory {
  public:
   virtual ~Directory() {}
-  // Fsync directory
+  // Fsync directory. Can be called concurrently from multiple threads.
   virtual Status Fsync() = 0;
 };
 
@@ -894,6 +900,7 @@ class WritableFileWrapper : public WritableFile {
   Status Flush() override { return target_->Flush(); }
   Status Sync() override { return target_->Sync(); }
   Status Fsync() override { return target_->Fsync(); }
+  bool IsSyncThreadSafe() const override { return target_->IsSyncThreadSafe(); }
   void SetIOPriority(Env::IOPriority pri) override {
     target_->SetIOPriority(pri);
   }

@@ -158,6 +158,7 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
+  virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
 
@@ -307,8 +308,6 @@ class DBImpl : public DB {
   // files in sst_delete_files and log_delete_files.
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(const JobContext& background_contet);
-
-  Status SyncLog(log::Writer* log);
 
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
@@ -496,6 +495,9 @@ class DBImpl : public DB {
   ColumnFamilyData* PopFirstFromCompactionQueue();
   void AddToFlushQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromFlushQueue();
+
+  // helper function to call after some of the logs_ were synced
+  void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
 
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;

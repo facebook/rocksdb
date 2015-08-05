@@ -975,7 +975,9 @@ struct DBOptions {
   // Allow the OS to mmap file for reading sst tables. Default: false
   bool allow_mmap_reads;
 
-  // Allow the OS to mmap file for writing. Default: false
+  // Allow the OS to mmap file for writing.
+  // DB::SyncWAL() only works if this is set to false.
+  // Default: false
   bool allow_mmap_writes;
 
   // Disable child process inherit open files. Default: true

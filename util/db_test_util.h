@@ -223,6 +223,9 @@ class SpecialEnv : public EnvWrapper {
         ++env_->sync_counter_;
         return base_->Sync();
       }
+      bool IsSyncThreadSafe() const override {
+        return env_->is_wal_sync_thread_safe_.load();
+      }
 
      private:
       SpecialEnv* env_;
@@ -389,6 +392,8 @@ class SpecialEnv : public EnvWrapper {
 
   std::atomic<int64_t> addon_time_;
   bool no_sleep_;
+
+  std::atomic<bool> is_wal_sync_thread_safe_ {true};
 };
 
 class DBTestBase : public testing::Test {

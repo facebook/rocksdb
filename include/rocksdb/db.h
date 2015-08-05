@@ -545,6 +545,12 @@ class DB {
     return Flush(options, DefaultColumnFamily());
   }
 
+  // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
+  // same as Write() with sync=true: in the latter case the changes won't be
+  // visible until the sync is done.
+  // Currently only works if allow_mmap_writes = false in Options.
+  virtual Status SyncWAL() = 0;
+
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;
 

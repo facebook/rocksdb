@@ -142,6 +142,7 @@ class TestWritableFile : public WritableFile {
   virtual Status Close() override;
   virtual Status Flush() override;
   virtual Status Sync() override;
+  virtual bool IsSyncThreadSafe() const override { return true; }
 
  private:
   FileState state_;
@@ -889,6 +890,41 @@ TEST_P(FaultInjectionTest, UninstalledCompaction) {
   ASSERT_OK(Verify(0, kNumKeys, FaultInjectionTest::kValExpectFound));
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
+
+TEST_P(FaultInjectionTest, ManualLogSyncTest) {
+  SleepingBackgroundTask sleeping_task_low;
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  // Block the job queue to prevent flush job from running.
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::HIGH);
+
+  WriteOptions write_options;
+  write_options.sync = false;
+
+  std::string key_space, value_space;
+  ASSERT_OK(
+      db_->Put(write_options, Key(1, &key_space), Value(1, &value_space)));
+  FlushOptions flush_options;
+  flush_options.wait = false;
+  ASSERT_OK(db_->Flush(flush_options));
+  ASSERT_OK(
+      db_->Put(write_options, Key(2, &key_space), Value(2, &value_space)));
+  ASSERT_OK(db_->SyncWAL());
+
+  env_->SetFilesystemActive(false);
+  NoWriteTestReopenWithFault(kResetDropAndDeleteUnsynced);
+  sleeping_task_low.WakeUp();
+
+  ASSERT_OK(OpenDB());
+  std::string val;
+  Value(2, &value_space);
+  ASSERT_OK(ReadValue(2, &val));
+  ASSERT_EQ(value_space, val);
+
+  Value(1, &value_space);
+  ASSERT_OK(ReadValue(1, &val));
+  ASSERT_EQ(value_space, val);
 }
 
 INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());

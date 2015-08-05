@@ -74,6 +74,11 @@ class WritableFileWriter {
 
   Status Sync(bool use_fsync);
 
+  // Sync only the data that was already Flush()ed. Safe to call concurrently
+  // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
+  // returns NotSupported status.
+  Status SyncWithoutFlush(bool use_fsync);
+
   uint64_t GetFileSize() { return filesize_; }
 
   Status InvalidateCache(size_t offset, size_t length) {
@@ -85,6 +90,7 @@ class WritableFileWriter {
  private:
   Status RangeSync(off_t offset, off_t nbytes);
   size_t RequestToken(size_t bytes);
+  Status SyncInternal(bool use_fsync);
 };
 
 class RandomRWFileAccessor {
