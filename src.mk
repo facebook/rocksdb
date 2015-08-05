@@ -99,6 +99,7 @@ LIB_SOURCES =                                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
+  utilities/convenience/info_log_finder.cc                      \
   utilities/checkpoint/checkpoint.cc                            \
   utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/document/document_db.cc                             \

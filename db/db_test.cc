@@ -48,6 +48,7 @@
 #include "rocksdb/thread_status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "rocksdb/utilities/checkpoint.h"
+#include "rocksdb/utilities/info_log_finder.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "table/block_based_table_factory.h"
 #include "table/mock_table.h"
@@ -3847,9 +3848,19 @@ class WrappedBloom : public FilterPolicy {
 };
 }  // namespace
 
+<<<<<<< HEAD
 TEST_F(DBTest, BloomFilterWrapper) {
   Options options = CurrentOptions();
   options.statistics = rocksdb::CreateDBStatistics();
+=======
+// Test scope:
+// - We expect to open the data store when there is incomplete trailing writes
+// at the end of any of the logs
+// - We do not expect to open the data store for corruption
+TEST_F(DBTest, kTolerateCorruptedTailRecords) {
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+>>>>>>> Info Log List can be obtained
 
   BlockBasedTableOptions table_options;
   WrappedBloom* policy = new WrappedBloom(10);
@@ -3867,12 +3878,21 @@ TEST_F(DBTest, BloomFilterWrapper) {
   ASSERT_EQ(0U, policy->GetCounter());
   Flush(1);
 
+<<<<<<< HEAD
   // Check if they can be found
   for (int i = 0; i < maxKey; i++) {
     ASSERT_EQ(Key(i), Get(1, Key(i)));
   }
   ASSERT_EQ(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 0);
   ASSERT_EQ(1U * maxKey, policy->GetCounter());
+=======
+// Test scope:
+// We don't expect the data store to be opened if there is any corruption
+// (leading, middle or trailing -- incomplete writes or corruption)
+TEST_F(DBTest, kAbsoluteConsistency) {
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+>>>>>>> Info Log List can be obtained
 
   // Check if filter is useful
   for (int i = 0; i < maxKey; i++) {
@@ -3941,6 +3961,18 @@ TEST_F(DBTest, SnapshotFiles) {
       }
       CopyFile(src, dest, size);
     }
+<<<<<<< HEAD
+=======
+  }
+}
+
+// Test scope:
+// - We expect to open the data store under all scenarios
+// - We expect to have recovered records past the corruption zone
+TEST_F(DBTest, kSkipAnyCorruptedRecords) {
+  const int jstart =  RecoveryTestHelper::kWALFileOffset;
+  const int jend = jstart + RecoveryTestHelper::kWALFilesCount;
+>>>>>>> Info Log List can be obtained
 
     // release file snapshot
     dbfull()->DisableFileDeletions();
@@ -5912,6 +5944,7 @@ TEST_F(DBTest, DBIteratorBoundTest) {
   }
 }
 
+<<<<<<< HEAD
 TEST_F(DBTest, WriteSingleThreadEntry) {
   std::vector<std::thread> threads;
   dbfull()->TEST_LockMutex();
@@ -5928,6 +5961,29 @@ TEST_F(DBTest, WriteSingleThreadEntry) {
   for (auto& t : threads) {
     t.join();
   }
+=======
+TEST_F(DBTest, InfoLogFileList) {
+  Options options = CurrentOptions();
+  options.db_log_dir = test::TmpDir(env_);
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "key", "value"));
+  std::vector<std::string> result;
+  auto s = GetInfoLogList(db_, &result);
+  ASSERT_TRUE(s.ok());
+  ASSERT_GT(result.size(), 0);
+}
+
+TEST_F(DBTest, PreShutdownFlush) {
+  Options options = CurrentOptions();
+  options.max_background_flushes = 0;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ASSERT_OK(Put(1, "key", "value"));
+  CancelAllBackgroundWork(db_);
+  Status s =
+      db_->CompactRange(CompactRangeOptions(), handles_[1], nullptr, nullptr);
+  ASSERT_TRUE(s.IsShutdownInProgress());
+>>>>>>> Info Log List can be obtained
 }
 
 TEST_F(DBTest, DisableDataSyncTest) {
