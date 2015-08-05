@@ -10,6 +10,9 @@
 #include "rocksdb/env.h"
 
 namespace rocksdb {
+
+class Statistics;
+
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
@@ -27,10 +30,19 @@ class SequentialFileReader {
 class RandomAccessFileReader : public RandomAccessFile {
  private:
   std::unique_ptr<RandomAccessFile> file_;
+  Env* env_;
+  Statistics* stats_;
+  uint32_t hist_type_;
 
  public:
-  explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf)
-      : file_(std::move(raf)) {}
+  explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
+                                  Env* env = nullptr,
+                                  Statistics* stats = nullptr,
+                                  uint32_t hist_type = 0)
+      : file_(std::move(raf)),
+        env_(env),
+        stats_(stats),
+        hist_type_(hist_type) {}
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 

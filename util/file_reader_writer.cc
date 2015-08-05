@@ -27,6 +27,7 @@ Status SequentialFileReader::Skip(uint64_t n) { return file_->Skip(n); }
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch) const {
+  StopWatch sw(env_, stats_, hist_type_);
   IOSTATS_TIMER_GUARD(read_nanos);
   Status s = file_->Read(offset, n, result, scratch);
   IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());

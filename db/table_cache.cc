@@ -79,7 +79,7 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 Status TableCache::FindTable(const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
                              const FileDescriptor& fd, Cache::Handle** handle,
-                             const bool no_io) {
+                             const bool no_io, bool record_read_stats) {
   PERF_TIMER_GUARD(find_table_nanos);
   Status s;
   uint64_t number = fd.GetNumber();
@@ -101,7 +101,10 @@ Status TableCache::FindTable(const EnvOptions& env_options,
       }
       StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
       std::unique_ptr<RandomAccessFileReader> file_reader(
-          new RandomAccessFileReader(std::move(file)));
+          new RandomAccessFileReader(
+              std::move(file), ioptions_.env,
+              record_read_stats ? ioptions_.statistics : nullptr,
+              SST_READ_MICROS));
       s = ioptions_.table_factory->NewTableReader(
           ioptions_, env_options, internal_comparator, std::move(file_reader),
           fd.GetFileSize(), &table_reader);
@@ -136,7 +139,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   Status s;
   if (table_reader == nullptr) {
     s = FindTable(env_options, icomparator, fd, &handle,
-                  options.read_tier == kBlockCacheTier);
+                  options.read_tier == kBlockCacheTier, !for_compaction);
     if (!s.ok()) {
       return NewErrorIterator(s, arena);
     }

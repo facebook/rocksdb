@@ -63,7 +63,7 @@ class TableCache {
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
-                   const bool no_io = false);
+                   const bool no_io = false, bool record_read_stats = true);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);

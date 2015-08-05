@@ -716,7 +716,8 @@ Status CompactionJob::FinishCompactionOutputFile(const Status& input_status) {
     ColumnFamilyData* cfd = compact_->compaction->column_family_data();
     FileDescriptor fd(output_number, output_path_id, current_bytes);
     Iterator* iter = cfd->table_cache()->NewIterator(
-        ReadOptions(), env_options_, cfd->internal_comparator(), fd);
+        ReadOptions(), env_options_, cfd->internal_comparator(), fd, nullptr,
+        true);
     s = iter->status();
 
     if (s.ok() && paranoid_file_checks_) {
