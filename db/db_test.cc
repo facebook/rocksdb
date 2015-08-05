@@ -117,6 +117,20 @@ class DBTest : public DBTestBase {
   DBTest() : DBTestBase("/db_test") {}
 };
 
+class DBTestWithParam : public DBTest,
+                        public testing::WithParamInterface<uint32_t> {
+ public:
+  DBTestWithParam() {
+    num_subcompactions_ = GetParam();
+  }
+
+  // Required if inheriting from testing::WithParamInterface<>
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+  uint32_t num_subcompactions_;
+};
+
 TEST_F(DBTest, Empty) {
   do {
     Options options;
@@ -5613,7 +5627,7 @@ TEST_F(DBTest, ChecksumTest) {
   ASSERT_EQ("h", Get("g"));
 }
 
-TEST_F(DBTest, FIFOCompactionTest) {
+TEST_P(DBTestWithParam, FIFOCompactionTest) {
   for (int iter = 0; iter < 2; ++iter) {
     // first iteration -- auto compaction
     // second iteration -- manual compaction
@@ -5623,6 +5637,7 @@ TEST_F(DBTest, FIFOCompactionTest) {
     options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
     options.compression = kNoCompression;
     options.create_if_missing = true;
+    options.num_subcompactions = num_subcompactions_;
     if (iter == 1) {
       options.disable_auto_compactions = true;
     }
@@ -6238,7 +6253,7 @@ TEST_F(DBTest, ThreadStatusFlush) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBTest, ThreadStatusSingleCompaction) {
+TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
@@ -6256,6 +6271,7 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
   options.enable_thread_tracking = true;
   const int kNumL0Files = 4;
   options.level0_file_num_compaction_trigger = kNumL0Files;
+  options.num_subcompactions = num_subcompactions_;
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DBTest::ThreadStatusSingleCompaction:0", "DBImpl::BGWorkCompaction"},
@@ -6301,9 +6317,10 @@ TEST_F(DBTest, ThreadStatusSingleCompaction) {
   }
 }
 
-TEST_F(DBTest, PreShutdownManualCompaction) {
+TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
+  options.num_subcompactions = num_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -6361,7 +6378,7 @@ TEST_F(DBTest, PreShutdownFlush) {
   ASSERT_TRUE(s.IsShutdownInProgress());
 }
 
-TEST_F(DBTest, PreShutdownMultipleCompaction) {
+TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
@@ -6389,6 +6406,7 @@ TEST_F(DBTest, PreShutdownMultipleCompaction) {
   options.max_background_compactions = kLowPriCount;
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
+  options.num_subcompactions = num_subcompactions_;
 
   TryReopen(options);
   Random rnd(301);
@@ -6449,7 +6467,7 @@ TEST_F(DBTest, PreShutdownMultipleCompaction) {
   ASSERT_EQ(operation_count[ThreadStatus::OP_COMPACTION], 0);
 }
 
-TEST_F(DBTest, PreShutdownCompactionMiddle) {
+TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
@@ -6477,6 +6495,7 @@ TEST_F(DBTest, PreShutdownCompactionMiddle) {
   options.max_background_compactions = kLowPriCount;
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
+  options.num_subcompactions = num_subcompactions_;
 
   TryReopen(options);
   Random rnd(301);
@@ -6776,7 +6795,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   ASSERT_GT(num_zlib.load(), 0);
 }
 
-TEST_F(DBTest, DynamicCompactionOptions) {
+TEST_P(DBTestWithParam, DynamicCompactionOptions) {
   // minimum write buffer size is enforced at 64KB
   const uint64_t k32KB = 1 << 15;
   const uint64_t k64KB = 1 << 16;
@@ -6801,6 +6820,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = k128KB;
   options.max_bytes_for_level_multiplier = 4;
+  options.num_subcompactions = num_subcompactions_;
 
   // Block flush thread and disable compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -7524,7 +7544,7 @@ TEST_F(DBTest, MergeTestTime) {
   ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 3200000);
 }
 
-TEST_F(DBTest, MergeCompactionTimeTest) {
+TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   SetPerfLevel(kEnableTime);
   Options options;
   options = CurrentOptions(options);
@@ -7532,6 +7552,7 @@ TEST_F(DBTest, MergeCompactionTimeTest) {
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
   options.compaction_style = kCompactionStyleUniversal;
+  options.num_subcompactions = num_subcompactions_;
   DestroyAndReopen(options);
 
   for (int i = 0; i < 1000; i++) {
@@ -7544,13 +7565,14 @@ TEST_F(DBTest, MergeCompactionTimeTest) {
   ASSERT_NE(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 0);
 }
 
-TEST_F(DBTest, FilterCompactionTimeTest) {
+TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   Options options;
   options.compaction_filter_factory =
       std::make_shared<DelayFilterFactory>(this);
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
@@ -8396,6 +8418,8 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
+                        ::testing::Values(1, 4));
 }  // namespace rocksdb
 
 #endif

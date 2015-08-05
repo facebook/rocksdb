@@ -92,7 +92,7 @@ class CompactionJobStatsTest : public testing::Test,
   Env* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
-  bool subcompactions_enabled_;
+  uint32_t num_subcompactions_;
 
   Options last_options_;
 
@@ -103,8 +103,8 @@ class CompactionJobStatsTest : public testing::Test,
     alternative_wal_dir_ = dbname_ + "/wal";
     Options options;
     options.create_if_missing = true;
-    subcompactions_enabled_ = GetParam();
-    options.num_subcompactions = subcompactions_enabled_ ? 2 : 1;
+    num_subcompactions_ = GetParam();
+    options.num_subcompactions = num_subcompactions_;
     auto delete_options = options;
     delete_options.wal_dir = alternative_wal_dir_;
     EXPECT_OK(DestroyDB(dbname_, delete_options));
@@ -127,6 +127,7 @@ class CompactionJobStatsTest : public testing::Test,
     EXPECT_OK(DestroyDB(dbname_, options));
   }
 
+  // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
@@ -641,7 +642,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   options.level0_file_num_compaction_trigger = kTestScale + 1;
   options.num_levels = 3;
   options.compression = kNoCompression;
-  options.num_subcompactions = subcompactions_enabled_ ? 2 : 1;
+  options.num_subcompactions = num_subcompactions_;
 
   for (int test = 0; test < 2; ++test) {
     DestroyAndReopen(options);
@@ -807,7 +808,7 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   options.num_levels = 3;
   options.compression = kNoCompression;
   options.max_bytes_for_level_multiplier = 2;
-  options.num_subcompactions = subcompactions_enabled_ ? 2 : 1;
+  options.num_subcompactions = num_subcompactions_;
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -899,7 +900,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.size_ratio = 1;
   options.compaction_options_universal.max_size_amplification_percent = 1000;
-  options.num_subcompactions = subcompactions_enabled_ ? 2 : 1;
+  options.num_subcompactions = num_subcompactions_;
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -949,7 +950,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
 }
 
 INSTANTIATE_TEST_CASE_P(CompactionJobStatsTest, CompactionJobStatsTest,
-                        ::testing::Bool());
+                        ::testing::Values(1, 4));
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

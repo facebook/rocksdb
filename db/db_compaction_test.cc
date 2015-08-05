@@ -18,6 +18,20 @@ class DBCompactionTest : public DBTestBase {
   DBCompactionTest() : DBTestBase("/db_compaction_test") {}
 };
 
+class DBCompactionTestWithParam : public DBTestBase,
+                                public testing::WithParamInterface<uint32_t> {
+ public:
+  DBCompactionTestWithParam() : DBTestBase("/db_compaction_test") {
+    num_subcompactions_ = GetParam();
+  }
+
+  // Required if inheriting from testing::WithParamInterface<>
+  static void SetUpTestCase() {}
+  static void TearDownTestCase() {}
+
+  uint32_t num_subcompactions_;
+};
+
 namespace {
 class OnFileDeletionListener : public EventListener {
  public:
@@ -195,10 +209,13 @@ const SstFileMetaData* PickFileRandomly(
 }
 }  // anonymous namespace
 
-TEST_F(DBCompactionTest, CompactionDeletionTrigger) {
+// All the TEST_P tests run once with sub_compactions disabled (i.e.
+// options.num_subcompactions = 1) and once with it enabled
+TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   for (int tid = 0; tid < 3; ++tid) {
     uint64_t db_size[2];
     Options options = CurrentOptions(DeletionTriggerOptions());
+    options.num_subcompactions = num_subcompactions_;
 
     if (tid == 1) {
       // the following only disable stats update in DB::Open()
@@ -279,10 +296,12 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   ASSERT_GT(env_->random_file_open_counter_.load(), 5);
 }
 
-TEST_F(DBCompactionTest, CompactionDeletionTriggerReopen) {
+
+TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[3];
     Options options = CurrentOptions(DeletionTriggerOptions());
+    options.num_subcompactions = num_subcompactions_;
 
     if (tid == 1) {
       // second pass with universal compaction
@@ -392,11 +411,13 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
   }
 }
 
-TEST_F(DBCompactionTest, CompactionTrigger) {
+
+TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   Options options;
   options.write_buffer_size = 100 << 10;  // 100KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -426,9 +447,10 @@ TEST_F(DBCompactionTest, CompactionTrigger) {
   ASSERT_EQ(NumTableFilesAtLevel(1, 1), 1);
 }
 
-TEST_F(DBCompactionTest, CompactionsGenerateMultipleFiles) {
+TEST_P(DBCompactionTestWithParam, CompactionsGenerateMultipleFiles) {
   Options options;
   options.write_buffer_size = 100000000;        // Large write buffer
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -506,7 +528,7 @@ TEST_F(DBCompactionTest, RecoverDuringMemtableCompaction) {
   } while (ChangeOptions());
 }
 
-TEST_F(DBCompactionTest, TrivialMoveOneFile) {
+TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
   int32_t trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "DBImpl::BackgroundCompaction:TrivialMove",
@@ -515,6 +537,7 @@ TEST_F(DBCompactionTest, TrivialMoveOneFile) {
 
   Options options;
   options.write_buffer_size = 100000000;
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
@@ -559,7 +582,7 @@ TEST_F(DBCompactionTest, TrivialMoveOneFile) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBCompactionTest, TrivialMoveNonOverlappingFiles) {
+TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -573,6 +596,7 @@ TEST_F(DBCompactionTest, TrivialMoveNonOverlappingFiles) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.write_buffer_size = 10 * 1024 * 1024;
+  options.num_subcompactions = num_subcompactions_;
 
   DestroyAndReopen(options);
   // non overlapping ranges
@@ -654,7 +678,7 @@ TEST_F(DBCompactionTest, TrivialMoveNonOverlappingFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBCompactionTest, TrivialMoveTargetLevel) {
+TEST_P(DBCompactionTestWithParam, TrivialMoveTargetLevel) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -669,6 +693,7 @@ TEST_F(DBCompactionTest, TrivialMoveTargetLevel) {
   options.disable_auto_compactions = true;
   options.write_buffer_size = 10 * 1024 * 1024;
   options.num_levels = 7;
+  options.num_subcompactions = num_subcompactions_;
 
   DestroyAndReopen(options);
   int32_t value_size = 10 * 1024;  // 10 KB
@@ -711,7 +736,7 @@ TEST_F(DBCompactionTest, TrivialMoveTargetLevel) {
   }
 }
 
-TEST_F(DBCompactionTest, TrivialMoveToLastLevelWithFiles) {
+TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -724,6 +749,7 @@ TEST_F(DBCompactionTest, TrivialMoveToLastLevelWithFiles) {
 
   Options options;
   options.write_buffer_size = 100000000;
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
@@ -769,7 +795,7 @@ TEST_F(DBCompactionTest, TrivialMoveToLastLevelWithFiles) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBCompactionTest, LevelCompactionThirdPath) {
+TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
@@ -779,6 +805,7 @@ TEST_F(DBCompactionTest, LevelCompactionThirdPath) {
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
+  options.num_subcompactions = num_subcompactions_;
   //  options = CurrentOptions(options);
 
   std::vector<std::string> filenames;
@@ -882,7 +909,7 @@ TEST_F(DBCompactionTest, LevelCompactionThirdPath) {
   Destroy(options);
 }
 
-TEST_F(DBCompactionTest, LevelCompactionPathUse) {
+TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
@@ -892,6 +919,7 @@ TEST_F(DBCompactionTest, LevelCompactionPathUse) {
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
+  options.num_subcompactions = num_subcompactions_;
   //  options = CurrentOptions(options);
 
   std::vector<std::string> filenames;
@@ -996,7 +1024,7 @@ TEST_F(DBCompactionTest, LevelCompactionPathUse) {
   Destroy(options);
 }
 
-TEST_F(DBCompactionTest, ConvertCompactionStyle) {
+TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   Random rnd(301);
   int max_key_level_insert = 200;
   int max_key_universal_insert = 600;
@@ -1010,6 +1038,7 @@ TEST_F(DBCompactionTest, ConvertCompactionStyle) {
   options.max_bytes_for_level_multiplier = 1;
   options.target_file_size_base = 200 << 10;  // 200KB
   options.target_file_size_multiplier = 1;
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -1145,8 +1174,9 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
   } while (ChangeCompactOptions());
 }
 
-TEST_F(DBCompactionTest, ManualCompaction) {
+TEST_P(DBCompactionTestWithParam, ManualCompaction) {
   Options options = CurrentOptions();
+  options.num_subcompactions = num_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -1193,11 +1223,12 @@ TEST_F(DBCompactionTest, ManualCompaction) {
 }
 
 
-TEST_F(DBCompactionTest, ManualLevelCompactionOutputPathId) {
+TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
   Options options = CurrentOptions();
   options.db_paths.emplace_back(dbname_ + "_2", 2 * 10485760);
   options.db_paths.emplace_back(dbname_ + "_3", 100 * 10485760);
   options.db_paths.emplace_back(dbname_ + "_4", 120 * 10485760);
+  options.num_subcompactions = num_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -1252,8 +1283,12 @@ TEST_F(DBCompactionTest, ManualLevelCompactionOutputPathId) {
     CompactRangeOptions compact_options;
     compact_options.target_path_id = 1;
     db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
-    ASSERT_EQ("0,1", FilesPerLevel(1));
-    ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
+
+    int num_files = options.num_subcompactions > 1 ? 2 : 1;
+    std::string files_string = options.num_subcompactions > 1 ? "0,2" : "0,1";
+
+    ASSERT_EQ(files_string, FilesPerLevel(1));
+    ASSERT_EQ(num_files, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
     ASSERT_EQ(0, GetSstFileCount(dbname_));
 
@@ -1286,7 +1321,7 @@ TEST_F(DBCompactionTest, FilesDeletedAfterCompaction) {
 }
 
 // Check level comapction with compact files
-TEST_F(DBCompactionTest, CompactFilesOnLevelCompaction) {
+TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
   const int kTestKeySize = 16;
   const int kTestValueSize = 984;
   const int kEntrySize = kTestKeySize + kTestValueSize;
@@ -1300,6 +1335,7 @@ TEST_F(DBCompactionTest, CompactFilesOnLevelCompaction) {
   options.level0_stop_writes_trigger = 2;
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -1341,7 +1377,7 @@ TEST_F(DBCompactionTest, CompactFilesOnLevelCompaction) {
   }
 }
 
-TEST_F(DBCompactionTest, PartialCompactionFailure) {
+TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
   Options options;
   const int kKeySize = 16;
   const int kKvSize = 1000;
@@ -1359,6 +1395,7 @@ TEST_F(DBCompactionTest, PartialCompactionFailure) {
       options.target_file_size_base;
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
+  options.num_subcompactions = num_subcompactions_;
 
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -1424,7 +1461,7 @@ TEST_F(DBCompactionTest, PartialCompactionFailure) {
   }
 }
 
-TEST_F(DBCompactionTest, DeleteMovedFileAfterCompaction) {
+TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
   // iter 1 -- delete_obsolete_files_period_micros == 0
   for (int iter = 0; iter < 2; ++iter) {
     // This test triggers move compaction and verifies that the file is not
@@ -1439,6 +1476,7 @@ TEST_F(DBCompactionTest, DeleteMovedFileAfterCompaction) {
         2;  // trigger compaction when we have 2 files
     OnFileDeletionListener* listener = new OnFileDeletionListener();
     options.listeners.emplace_back(listener);
+    options.num_subcompactions = num_subcompactions_;
     DestroyAndReopen(options);
 
     Random rnd(301);
@@ -1502,7 +1540,7 @@ TEST_F(DBCompactionTest, DeleteMovedFileAfterCompaction) {
   }
 }
 
-TEST_F(DBCompactionTest, CompressLevelCompaction) {
+TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   if (!Zlib_Supported()) {
     return;
   }
@@ -1512,6 +1550,7 @@ TEST_F(DBCompactionTest, CompressLevelCompaction) {
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
+  options.num_subcompactions = num_subcompactions_;
   // First two levels have no compression, so that a trivial move between
   // them will be allowed. Level 2 has Zlib compression so that a trivial
   // move to level 3 will not be allowed
@@ -1615,7 +1654,7 @@ TEST_F(DBCompactionTest, CompressLevelCompaction) {
 #if !(defined NDEBUG) || !defined(OS_WIN)
 // This tests for a bug that could cause two level0 compactions running
 // concurrently
-TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
+TEST_P(DBCompactionTestWithParam, SuggestCompactRangeNoTwoLevel0Compactions) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 110 << 10;
@@ -1626,6 +1665,7 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
   options.target_file_size_base = 98 << 10;
   options.max_write_buffer_number = 2;
   options.max_background_compactions = 2;
+  options.num_subcompactions = num_subcompactions_;
 
   DestroyAndReopen(options);
 
@@ -1670,7 +1710,7 @@ TEST_F(DBCompactionTest, SuggestCompactRangeNoTwoLevel0Compactions) {
 
 #endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
-TEST_F(DBCompactionTest, ForceBottommostLevelCompaction) {
+TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   int32_t trivial_move = 0;
   int32_t non_trivial_move = 0;
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -1683,6 +1723,7 @@ TEST_F(DBCompactionTest, ForceBottommostLevelCompaction) {
 
   Options options;
   options.write_buffer_size = 100000000;
+  options.num_subcompactions = num_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
@@ -1751,6 +1792,9 @@ TEST_F(DBCompactionTest, ForceBottommostLevelCompaction) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
+
+INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
+                        ::testing::Values(1, 4));
 
 }  // namespace rocksdb
 

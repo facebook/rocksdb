@@ -148,6 +148,13 @@ bool DBTestBase::ChangeCompactOptions() {
     options.create_if_missing = true;
     TryReopen(options);
     return true;
+  } else if (option_config_ == kUniversalCompactionMultiLevel) {
+    option_config_ = kLevelSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    options.num_subcompactions = 4;
+    TryReopen(options);
+    return true;
   } else {
     return false;
   }
