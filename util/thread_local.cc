@@ -137,6 +137,17 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }
+
+  // OnThreadExit is not getting called on the main thread.
+  // Call through the static destructor mechanism to avoid memory leak.
+  static struct A {
+    ~A() {
+      if (tls_) {
+        OnThreadExit(tls_);
+      }
+    }
+  } a;
+
   head_.next = &head_;
   head_.prev = &head_;
 

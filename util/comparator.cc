@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
+#include <memory>
 #include <stdint.h>
 #include "rocksdb/comparator.h"
 #include "rocksdb/slice.h"
@@ -85,22 +86,22 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
 }// namespace
 
 static port::OnceType once = LEVELDB_ONCE_INIT;
-static const Comparator* bytewise;
-static const Comparator* rbytewise;
+static std::unique_ptr<const Comparator> bytewise;
+static std::unique_ptr<const Comparator> rbytewise;
 
 static void InitModule() {
-  bytewise = new BytewiseComparatorImpl;
-  rbytewise= new ReverseBytewiseComparatorImpl;
+  bytewise.reset(new BytewiseComparatorImpl);
+  rbytewise.reset(new ReverseBytewiseComparatorImpl);
 }
 
 const Comparator* BytewiseComparator() {
   port::InitOnce(&once, InitModule);
-  return bytewise;
+  return bytewise.get();
 }
 
 const Comparator* ReverseBytewiseComparator() {
   port::InitOnce(&once, InitModule);
-  return rbytewise;
+  return rbytewise.get();
 }
 
 }  // namespace rocksdb
