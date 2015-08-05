@@ -1,5 +1,11 @@
 # RocksJava Change Log
 
+## 3.13 (8/4/2015)
+### New Features
+* Exposed BackupEngine API.
+* Added CappedPrefixExtractor support.  To use such extractor, simply call useCappedPrefixExtractor in either Options or ColumnFamilyOptions.
+* Added RemoveEmptyValueCompactionFilter.
+
 ## 3.10.0 (3/24/2015)
 ### New Features
 * Added compression per level API.
