@@ -575,8 +575,11 @@ valgrind_check: $(TESTS)
 	for t in $(filter-out skiplist_test,$(TESTS)); do \
 		stime=`date '+%s'`; \
 		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
-		if [ $$? -eq $(VALGRIND_ERROR) ] ; then \
+		ret_code=$$?; \
+		if [ $$ret_code -eq $(VALGRIND_ERROR) ] ; then \
 			echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
+		elif [ $$ret_code -ne 0 ]; then \
+			exit $$ret_code; \
 		fi; \
 		etime=`date '+%s'`; \
 		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
