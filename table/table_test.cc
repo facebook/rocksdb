@@ -119,71 +119,6 @@ struct STLLessThan {
 
 }  // namespace
 
-class StringSink: public WritableFile {
- public:
-  ~StringSink() { }
-
-  const std::string& contents() const { return contents_; }
-
-  virtual Status Close() override { return Status::OK(); }
-  virtual Status Flush() override { return Status::OK(); }
-  virtual Status Sync() override { return Status::OK(); }
-
-  virtual Status Append(const Slice& data) override {
-    contents_.append(data.data(), data.size());
-    return Status::OK();
-  }
-
- private:
-  std::string contents_;
-};
-
-
-class StringSource: public RandomAccessFile {
- public:
-  StringSource(const Slice& contents, uint64_t uniq_id, bool mmap)
-      : contents_(contents.data(), contents.size()), uniq_id_(uniq_id),
-        mmap_(mmap) {
-  }
-
-  virtual ~StringSource() { }
-
-  uint64_t Size() const { return contents_.size(); }
-
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override {
-    if (offset > contents_.size()) {
-      return Status::InvalidArgument("invalid Read offset");
-    }
-    if (offset + n > contents_.size()) {
-      n = contents_.size() - offset;
-    }
-    if (!mmap_) {
-      memcpy(scratch, &contents_[offset], n);
-      *result = Slice(scratch, n);
-    } else {
-      *result = Slice(&contents_[offset], n);
-    }
-    return Status::OK();
-  }
-
-  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
-    if (max_size < 20) {
-      return 0;
-    }
-
-    char* rid = id;
-    rid = EncodeVarint64(rid, uniq_id_);
-    rid = EncodeVarint64(rid, 0);
-    return static_cast<size_t>(rid-id);
-  }
-
- private:
-  std::string contents_;
-  uint64_t uniq_id_;
-  bool mmap_;
-};
-
 typedef std::map<std::string, std::string, STLLessThan> KVMap;
 
 // Helper class for tests to unify the interface between
@@ -347,7 +282,7 @@ class TableConstructor: public Constructor {
                             const InternalKeyComparator& internal_comparator,
                             const KVMap& kv_map) override {
     Reset();
-    file_writer_.reset(test::GetWritableFileWriter(new StringSink()));
+    file_writer_.reset(test::GetWritableFileWriter(new test::StringSink()));
     unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
         int_tbl_prop_collector_factories;
@@ -376,7 +311,7 @@ class TableConstructor: public Constructor {
 
     // Open the table
     uniq_id_ = cur_uniq_id_++;
-    file_reader_.reset(test::GetRandomAccessFileReader(new StringSource(
+    file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
         ioptions, soptions, internal_comparator, std::move(file_reader_),
@@ -398,7 +333,7 @@ class TableConstructor: public Constructor {
   }
 
   virtual Status Reopen(const ImmutableCFOptions& ioptions) {
-    file_reader_.reset(test::GetRandomAccessFileReader(new StringSource(
+    file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
         ioptions, soptions, *last_internal_key_, std::move(file_reader_),
@@ -421,8 +356,8 @@ class TableConstructor: public Constructor {
     file_reader_.reset();
   }
 
-  StringSink* GetSink() {
-    return static_cast<StringSink*>(file_writer_->writable_file());
+  test::StringSink* GetSink() {
+    return static_cast<test::StringSink*>(file_writer_->writable_file());
   }
 
   uint64_t uniq_id_;
@@ -1782,9 +1717,9 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   plain_table_options.hash_table_ratio = 0;
 
   PlainTableFactory factory(plain_table_options);
-  StringSink sink;
+  test::StringSink sink;
   unique_ptr<WritableFileWriter> file_writer(
-      test::GetWritableFileWriter(new StringSink()));
+      test::GetWritableFileWriter(new test::StringSink()));
   Options options;
   const ImmutableCFOptions ioptions(options);
   InternalKeyComparator ikc(options.comparator);
@@ -1804,10 +1739,11 @@ TEST_F(PlainTableTest, BasicPlainTableProperties) {
   ASSERT_OK(builder->Finish());
   file_writer->Flush();
 
-  StringSink* ss = static_cast<StringSink*>(file_writer->writable_file());
+  test::StringSink* ss =
+    static_cast<test::StringSink*>(file_writer->writable_file());
   unique_ptr<RandomAccessFileReader> file_reader(
       test::GetRandomAccessFileReader(
-          new StringSource(ss->contents(), 72242, true)));
+          new test::StringSource(ss->contents(), 72242, true)));
 
   TableProperties* props = nullptr;
   auto s = ReadTableProperties(file_reader.get(), ss->contents().size(),

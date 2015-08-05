@@ -381,13 +381,6 @@ class ColumnFamilyTest : public testing::Test {
   Random rnd_;
 };
 
-class DumbLogger : public Logger {
- public:
-  using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {}
-  virtual size_t GetLogFileSize() const override { return 0; }
-};
-
 TEST_F(ColumnFamilyTest, DontReuseColumnFamilyID) {
   for (int iter = 0; iter < 3; ++iter) {
     Open();

@@ -168,5 +168,105 @@ extern RandomAccessFileReader* GetRandomAccessFileReader(RandomAccessFile* raf);
 
 extern SequentialFileReader* GetSequentialFileReader(SequentialFile* se);
 
+class StringSink: public WritableFile {
+ public:
+  std::string contents_;
+
+  explicit StringSink(Slice* reader_contents = nullptr) :
+      WritableFile(),
+      contents_(""),
+      reader_contents_(reader_contents),
+      last_flush_(0) {
+    if (reader_contents_ != nullptr) {
+      *reader_contents_ = Slice(contents_.data(), 0);
+    }
+  }
+
+  const std::string& contents() const { return contents_; }
+
+  virtual Status Close() override { return Status::OK(); }
+  virtual Status Flush() override {
+    if (reader_contents_ != nullptr) {
+      assert(reader_contents_->size() <= last_flush_);
+      size_t offset = last_flush_ - reader_contents_->size();
+      *reader_contents_ = Slice(
+          contents_.data() + offset,
+          contents_.size() - offset);
+      last_flush_ = contents_.size();
+    }
+
+    return Status::OK();
+  }
+  virtual Status Sync() override { return Status::OK(); }
+  virtual Status Append(const Slice& slice) override {
+    contents_.append(slice.data(), slice.size());
+    return Status::OK();
+  }
+  void Drop(size_t bytes) {
+    if (reader_contents_ != nullptr) {
+      contents_.resize(contents_.size() - bytes);
+      *reader_contents_ = Slice(
+          reader_contents_->data(), reader_contents_->size() - bytes);
+      last_flush_ = contents_.size();
+    }
+  }
+
+ private:
+  Slice* reader_contents_;
+  size_t last_flush_;
+};
+
+class StringSource: public RandomAccessFile {
+ public:
+  StringSource(const Slice& contents, uint64_t uniq_id = 0, bool mmap = false)
+    : contents_(contents.data(), contents.size()), uniq_id_(uniq_id),
+    mmap_(mmap) {
+    }
+
+  virtual ~StringSource() { }
+
+  uint64_t Size() const { return contents_.size(); }
+
+  virtual Status Read(uint64_t offset, size_t n, Slice* result,
+      char* scratch) const override {
+    if (offset > contents_.size()) {
+      return Status::InvalidArgument("invalid Read offset");
+    }
+    if (offset + n > contents_.size()) {
+      n = contents_.size() - offset;
+    }
+    if (!mmap_) {
+      memcpy(scratch, &contents_[offset], n);
+      *result = Slice(scratch, n);
+    } else {
+      *result = Slice(&contents_[offset], n);
+    }
+    return Status::OK();
+  }
+
+  virtual size_t GetUniqueId(char* id, size_t max_size) const override {
+    if (max_size < 20) {
+      return 0;
+    }
+
+    char* rid = id;
+    rid = EncodeVarint64(rid, uniq_id_);
+    rid = EncodeVarint64(rid, 0);
+    return static_cast<size_t>(rid-id);
+  }
+
+ private:
+  std::string contents_;
+  uint64_t uniq_id_;
+  bool mmap_;
+};
+
+class NullLogger : public Logger {
+ public:
+  using Logger::Logv;
+  virtual void Logv(const char* format, va_list ap) override {}
+  virtual size_t GetLogFileSize() const override { return 0; }
+};
+
 }  // namespace test
 }  // namespace rocksdb
