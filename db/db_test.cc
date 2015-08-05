@@ -2293,9 +2293,6 @@ TEST_F(DBTest, RecoveryWithEmptyLog) {
 }
 
 
-// false positive TSAN report on shared_ptr --
-// https://groups.google.com/forum/#!topic/thread-sanitizer/vz_s-t226Vg
-#ifndef ROCKSDB_TSAN_RUN
 TEST_F(DBTest, FlushSchedule) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
@@ -2311,16 +2308,18 @@ TEST_F(DBTest, FlushSchedule) {
   std::atomic<int> thread_num(0);
   // each column family will have 5 thread, each thread generating 2 memtables.
   // each column family should end up with 10 table files
+  std::function<void()> fill_memtable_func = [&]() {
+    int a = thread_num.fetch_add(1);
+    Random rnd(a);
+    WriteOptions wo;
+    // this should fill up 2 memtables
+    for (int k = 0; k < 5000; ++k) {
+      ASSERT_OK(db_->Put(wo, handles_[a & 1], RandomString(&rnd, 13), ""));
+    }
+  };
+
   for (int i = 0; i < 10; ++i) {
-    threads.emplace_back([&]() {
-      int a = thread_num.fetch_add(1);
-      Random rnd(a);
-      WriteOptions wo;
-      // this should fill up 2 memtables
-      for (int k = 0; k < 5000; ++k) {
-        ASSERT_OK(db_->Put(wo, handles_[a & 1], RandomString(&rnd, 13), ""));
-      }
-    });
+    threads.emplace_back(fill_memtable_func);
   }
 
   for (auto& t : threads) {
@@ -2334,7 +2333,6 @@ TEST_F(DBTest, FlushSchedule) {
   ASSERT_LE(pikachu_tables, static_cast<uint64_t>(10));
   ASSERT_GT(pikachu_tables, static_cast<uint64_t>(0));
 }
-#endif  // enabled only if not TSAN run
 
 
 TEST_F(DBTest, ManifestRollOver) {
