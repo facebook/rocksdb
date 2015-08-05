@@ -285,6 +285,7 @@ TESTS = \
 	thread_local_test \
 	geodb_test \
 	rate_limiter_test \
+	delete_scheduler_test \
 	options_test \
 	event_logger_test \
 	cuckoo_table_builder_test \
@@ -783,6 +784,9 @@ fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+delete_scheduler_test: util/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)

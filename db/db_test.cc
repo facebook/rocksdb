@@ -35,6 +35,7 @@
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/convenience.h"
 #include "rocksdb/db.h"
+#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
@@ -58,6 +59,7 @@
 #include "utilities/merge_operators.h"
 #include "util/logging.h"
 #include "util/compression.h"
+#include "util/delete_scheduler_impl.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
@@ -8253,6 +8255,145 @@ TEST_F(DBTest, DeletingOldWalAfterDrop) {
   // new wal should have been created
   uint64_t lognum2 = dbfull()->TEST_LogfileNumber();
   EXPECT_GT(lognum2, lognum1);
+}
+
+TEST_F(DBTest, RateLimitedDelete) {
+  rocksdb::SyncPoint::GetInstance()->LoadDependency({
+      {"DBTest::RateLimitedDelete:1",
+       "DeleteSchedulerImpl::BackgroundEmptyTrash"},
+  });
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  env_->no_sleep_ = true;
+  options.env = env_;
+
+  std::string trash_dir = test::TmpDir(env_) + "/trash";
+  int64_t rate_bytes_per_sec = 1024 * 10;  // 10 Kbs / Sec
+  Status s;
+  options.delete_scheduler.reset(NewDeleteScheduler(
+      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  ASSERT_OK(s);
+
+  Destroy(last_options_);
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  ASSERT_OK(TryReopen(options));
+  // Create 4 files in L0
+  for (char v = 'a'; v <= 'd'; v++) {
+    ASSERT_OK(Put("Key2", DummyString(1024, v)));
+    ASSERT_OK(Put("Key3", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Put("Key1", DummyString(1024, v)));
+    ASSERT_OK(Put("Key4", DummyString(1024, v)));
+    ASSERT_OK(Flush());
+  }
+  // We created 4 sst files in L0
+  ASSERT_EQ("4", FilesPerLevel(0));
+
+  uint64_t total_files_size = 0;
+  std::vector<LiveFileMetaData> metadata;
+  db_->GetLiveFilesMetaData(&metadata);
+  for (const auto& meta : metadata) {
+    total_files_size += meta.size;
+  }
+
+  // Compaction will move the 4 files in L0 to trash and create 1 L1 file
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  // Hold BackgroundEmptyTrash
+  TEST_SYNC_POINT("DBTest::RateLimitedDelete:1");
+
+  uint64_t delete_start_time = env_->NowMicros();
+  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
+      ->TEST_WaitForEmptyTrash();
+  uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
+  uint64_t expected_delete_time =
+      ((total_files_size * 1000000) / rate_bytes_per_sec);
+  ASSERT_GT(time_spent_deleting, expected_delete_time * 0.9);
+  ASSERT_LT(time_spent_deleting, expected_delete_time * 1.1);
+  printf("Delete time = %" PRIu64 ", Expected delete time = %" PRIu64
+         ", Ratio %f\n",
+         time_spent_deleting, expected_delete_time,
+         static_cast<double>(time_spent_deleting) / expected_delete_time);
+
+  env_->no_sleep_ = false;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// Create a DB with 2 db_paths, and generate multiple files in the 2
+// db_paths using CompactRangeOptions, make sure that files that were
+// deleted from first db_path were deleted using DeleteScheduler and
+// files in the second path were not.
+TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
+  int bg_delete_file = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      [&](void* arg) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.db_paths.emplace_back(dbname_, 1024 * 100);
+  options.db_paths.emplace_back(dbname_ + "_2", 1024 * 100);
+  env_->no_sleep_ = true;
+  options.env = env_;
+
+  std::string trash_dir = test::TmpDir(env_) + "/trash";
+  int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
+  Status s;
+  options.delete_scheduler.reset(NewDeleteScheduler(
+      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  ASSERT_OK(s);
+
+  DestroyAndReopen(options);
+
+  // Create 4 files in L0
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
+    ASSERT_OK(Flush());
+  }
+  // We created 4 sst files in L0
+  ASSERT_EQ("4", FilesPerLevel(0));
+  // Compaction will delete files from L0 in first db path and generate a new
+  // file in L1 in second db path
+  CompactRangeOptions compact_options;
+  compact_options.target_path_id = 1;
+  Slice begin("Key0");
+  Slice end("Key3");
+  ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  // Create 4 files in L0
+  for (int i = 4; i < 8; i++) {
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'B')));
+    ASSERT_OK(Flush());
+  }
+  ASSERT_EQ("4,1", FilesPerLevel(0));
+
+  // Compaction will delete files from L0 in first db path and generate a new
+  // file in L1 in second db path
+  begin = "Key4";
+  end  = "Key7";
+  ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
+  ASSERT_EQ("0,2", FilesPerLevel(0));
+
+  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
+      ->TEST_WaitForEmptyTrash();
+  ASSERT_EQ(bg_delete_file, 8);
+
+  compact_options.bottommost_level_compaction =
+      BottommostLevelCompaction::kForce;
+  ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
+      ->TEST_WaitForEmptyTrash();
+  ASSERT_EQ(bg_delete_file, 8);
+
+  env_->no_sleep_ = false;
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb

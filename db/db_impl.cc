@@ -54,6 +54,7 @@
 #include "port/likely.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
+#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/version.h"
@@ -750,7 +751,13 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       continue;
     }
 #endif  // !ROCKSDB_LITE
-    auto file_deletion_status = env_->DeleteFile(fname);
+    Status file_deletion_status;
+    if (db_options_.delete_scheduler != nullptr && type == kTableFile &&
+        path_id == 0) {
+      file_deletion_status = db_options_.delete_scheduler->DeleteFile(fname);
+    } else {
+      file_deletion_status = env_->DeleteFile(fname);
+    }
     if (file_deletion_status.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,

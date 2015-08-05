@@ -21,6 +21,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
@@ -199,6 +200,7 @@ DBOptions::DBOptions()
       paranoid_checks(true),
       env(Env::Default()),
       rate_limiter(nullptr),
+      delete_scheduler(nullptr),
       info_log(nullptr),
 #ifdef NDEBUG
       info_log_level(INFO_LEVEL),
@@ -250,6 +252,7 @@ DBOptions::DBOptions(const Options& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
+      delete_scheduler(options.delete_scheduler),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
@@ -360,6 +363,8 @@ void DBOptions::Dump(Logger* log) const {
         use_adaptive_mutex);
     Warn(log, "                            Options.rate_limiter: %p",
         rate_limiter.get());
+    Warn(log, "     Options.delete_scheduler.rate_bytes_per_sec: %" PRIi64,
+         delete_scheduler ? delete_scheduler->GetRateBytesPerSecond() : 0);
     Warn(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
     Warn(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
