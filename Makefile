@@ -227,6 +227,7 @@ TESTS = \
 	db_inplace_update_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
+	db_wal_test \
 	block_hash_index_test \
 	autovector_test \
 	column_family_test \
@@ -718,6 +719,9 @@ db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 db_universal_compaction_test: db/db_universal_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+db_wal_test: db/db_wal_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)

@@ -174,7 +174,10 @@ Status WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
       "Can't WritableFileWriter::SyncWithoutFlush() because "
       "WritableFile::IsSyncThreadSafe() is false");
   }
-  return SyncInternal(use_fsync);
+  TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:1");
+  Status s = SyncInternal(use_fsync);
+  TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:2");
+  return s;
 }
 
 Status WritableFileWriter::SyncInternal(bool use_fsync) {

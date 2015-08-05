@@ -174,6 +174,7 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_log_iter_test.cc                                                \
   db/db_universal_compaction_test.cc                                    \
   db/db_tailing_iter_test.cc                                            \
+  db/db_wal_test.cc                                                     \
   db/deletefile_test.cc                                                 \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \

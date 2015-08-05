@@ -206,16 +206,24 @@ class SpecialEnv : public EnvWrapper {
       WalFile(SpecialEnv* env, unique_ptr<WritableFile>&& b)
           : env_(env), base_(std::move(b)) {}
       Status Append(const Slice& data) override {
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT("SpecialEnv::WalFile::Append:1");
+#endif
+        Status s;
         if (env_->log_write_error_.load(std::memory_order_acquire)) {
-          return Status::IOError("simulated writer error");
+          s = Status::IOError("simulated writer error");
         } else {
           int slowdown =
               env_->log_write_slowdown_.load(std::memory_order_acquire);
           if (slowdown > 0) {
             env_->SleepForMicroseconds(slowdown);
           }
-          return base_->Append(data);
+          s = base_->Append(data);
         }
+#if !(defined NDEBUG) || !defined(OS_WIN)
+        TEST_SYNC_POINT("SpecialEnv::WalFile::Append:2");
+#endif
+        return s;
       }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }

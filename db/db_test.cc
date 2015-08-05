@@ -1802,57 +1802,6 @@ TEST_F(DBTest, IgnoreRecoveredLog) {
   } while (ChangeOptions(kSkipHashCuckoo));
 }
 
-TEST_F(DBTest, RollLog) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    ASSERT_OK(Put(1, "foo", "v1"));
-    ASSERT_OK(Put(1, "baz", "v5"));
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    for (int i = 0; i < 10; i++) {
-      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    }
-    ASSERT_OK(Put(1, "foo", "v4"));
-    for (int i = 0; i < 10; i++) {
-      ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    }
-  } while (ChangeOptions());
-}
-
-TEST_F(DBTest, WAL) {
-  do {
-    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
-    WriteOptions writeOpt = WriteOptions();
-    writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v1"));
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v1"));
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    ASSERT_EQ("v1", Get(1, "foo"));
-    ASSERT_EQ("v1", Get(1, "bar"));
-
-    writeOpt.disableWAL = false;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v2"));
-    writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v2"));
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    // Both value's should be present.
-    ASSERT_EQ("v2", Get(1, "bar"));
-    ASSERT_EQ("v2", Get(1, "foo"));
-
-    writeOpt.disableWAL = true;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "bar", "v3"));
-    writeOpt.disableWAL = false;
-    ASSERT_OK(dbfull()->Put(writeOpt, handles_[1], "foo", "v3"));
-
-    ReopenWithColumnFamilies({"default", "pikachu"}, CurrentOptions());
-    // again both values should be present.
-    ASSERT_EQ("v3", Get(1, "foo"));
-    ASSERT_EQ("v3", Get(1, "bar"));
-  } while (ChangeCompactOptions());
-}
-
 TEST_F(DBTest, CheckLock) {
   do {
     DB* localdb;
