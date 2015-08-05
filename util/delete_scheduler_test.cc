@@ -153,8 +153,16 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
   int thread_cnt = 10;
   int num_files = 10;  // 10 files per thread
   uint64_t file_size = 1024;  // every file is 1 kb
-  std::vector<uint64_t> delete_kbs_per_sec = {512, 200, 100, 50, 25};
 
+  #ifndef ROCKSDB_TSAN_RUN
+  double accepted_error = 0.1;
+  std::vector<uint64_t> delete_kbs_per_sec = {512, 200, 100, 50, 25};
+  #else
+  // Running under TSAN is slow, this cause the test to spend more time
+  // than what we are expecting.
+  double accepted_error = 0.5;
+  std::vector<uint64_t> delete_kbs_per_sec = {100, 75, 50, 25};
+  #endif
   for (size_t t = 0; t < delete_kbs_per_sec.size(); t++) {
     DestroyAndCreateDir(dummy_files_dir_);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
@@ -171,36 +179,38 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
     }
 
     // Delete dummy files using 10 threads and measure time spent to empty trash
-    uint64_t delete_start_time = env_->NowMicros();
     std::atomic<int> thread_num(0);
     std::vector<std::thread> threads;
+    std::function<void()> delete_thread = [&]() {
+      int idx = thread_num.fetch_add(1);
+      int range_start = idx * num_files;
+      int range_end = range_start + num_files;
+      for (int j = range_start; j < range_end; j++) {
+        ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[j]));
+      }
+    };
+
+    uint64_t delete_start_time = env_->NowMicros();
     for (int i = 0; i < thread_cnt; i++) {
-      threads.emplace_back([&]() {
-        int idx = thread_num.fetch_add(1);
-        int range_start = idx * num_files;
-        int range_end = range_start + num_files;
-        for (int j = range_start; j < range_end; j++){
-          ASSERT_OK(delete_scheduler_->DeleteFile(generated_files[j]));
-        }
-      });
+      threads.emplace_back(delete_thread);
     }
 
     for (size_t i = 0; i < threads.size(); i++) {
       threads[i].join();
     }
-    ASSERT_EQ(CountFilesInDir(dummy_files_dir_), 0);
 
     WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
     uint64_t expected_delete_time =
         ((total_files_size * 1000000) / rate_bytes_per_sec_);
-    ASSERT_GT(time_spent_deleting, expected_delete_time * 0.9);
-    ASSERT_LT(time_spent_deleting, expected_delete_time * 1.1);
+    ASSERT_GT(time_spent_deleting, expected_delete_time * (1 - accepted_error));
+    ASSERT_LT(time_spent_deleting, expected_delete_time * (1 + accepted_error));
     printf("Delete time = %" PRIu64 ", Expected delete time = %" PRIu64
            ", Ratio %f\n",
            time_spent_deleting, expected_delete_time,
            static_cast<double>(time_spent_deleting) / expected_delete_time);
 
+    ASSERT_EQ(CountFilesInDir(dummy_files_dir_), 0);
     ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
     auto bg_errors = delete_scheduler_->GetBackgroundErrors();
     ASSERT_EQ(bg_errors.size(), 0);
