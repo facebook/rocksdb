@@ -2148,6 +2148,17 @@ void Java_org_rocksdb_ColumnFamilyOptions_useFixedLengthPrefixExtractor(
 }
 
 /*
+ * Method:    useCappedPrefixExtractor
+ * Signature: (JI)V
+ */
+void Java_org_rocksdb_ColumnFamilyOptions_useCappedPrefixExtractor(
+    JNIEnv* env, jobject jobj, jlong jhandle, jint jprefix_length) {
+  reinterpret_cast<rocksdb::ColumnFamilyOptions*>(jhandle)->
+      prefix_extractor.reset(rocksdb::NewCappedPrefixTransform(
+          static_cast<int>(jprefix_length)));
+}
+
+/*
  * Method:    setTableFactory
  * Signature: (JJ)V
  */
