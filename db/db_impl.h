@@ -532,10 +532,24 @@ class DBImpl : public DB {
     bool getting_flushed = false;
   };
   struct LogWriterNumber {
-    LogWriterNumber(uint64_t _number, std::unique_ptr<log::Writer> _writer)
-        : number(_number), writer(std::move(_writer)) {}
+    // pass ownership of _writer
+    LogWriterNumber(uint64_t _number, log::Writer* _writer)
+        : number(_number), writer(_writer) {}
+
+    log::Writer* ReleaseWriter() {
+      auto* w = writer;
+      writer = nullptr;
+      return w;
+    }
+    void ClearWriter() {
+      delete writer;
+      writer = nullptr;
+    }
+
     uint64_t number;
-    std::unique_ptr<log::Writer> writer;
+    // Visual Studio doesn't support deque's member to be noncopyable because
+    // of a unique_ptr as a member.
+    log::Writer* writer;  // own
     // true for some prefix of logs_
     bool getting_synced = false;
   };

@@ -369,6 +369,9 @@ DBImpl::~DBImpl() {
   for (auto l : logs_to_free_) {
     delete l;
   }
+  for (auto& log : logs_) {
+    log.ClearWriter();
+  }
   logs_.clear();
 
   // versions need to be destroyed before table_cache since it can hold
@@ -557,7 +560,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // logs_ could have changed while we were waiting.
         continue;
       }
-      logs_to_free_.push_back(log.writer.release());
+      logs_to_free_.push_back(log.ReleaseWriter());
       logs_.pop_front();
     }
     // Current log cannot be obsolete.
@@ -1978,7 +1981,7 @@ Status DBImpl::SyncWAL() {
       auto& log = *it;
       assert(!log.getting_synced);
       log.getting_synced = true;
-      logs_to_sync.push_back(log.writer.get());
+      logs_to_sync.push_back(log.writer);
     }
 
     need_log_dir_sync = !log_dir_synced_;
@@ -2015,7 +2018,7 @@ void DBImpl::MarkLogsSynced(
     auto& log = *it;
     assert(log.getting_synced);
     if (status.ok() && logs_.size() > 1) {
-      logs_to_free_.push_back(log.writer.release());
+      logs_to_free_.push_back(log.ReleaseWriter());
       logs_.erase(it++);
     } else {
       log.getting_synced = false;
@@ -3805,7 +3808,7 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     assert(new_log != nullptr);
     log_empty_ = true;
     log_dir_synced_ = false;
-    logs_.emplace_back(logfile_number_, std::unique_ptr<log::Writer>(new_log));
+    logs_.emplace_back(logfile_number_, new_log);
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
     for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
       // all this is just optimization to delete logs that
@@ -4338,10 +4341,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       impl->logfile_number_ = new_log_number;
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(lfile), opt_env_options));
-      impl->logs_.emplace_back(
-          new_log_number,
-          std::unique_ptr<log::Writer>(
-            new log::Writer(std::move(file_writer))));
+      impl->logs_.emplace_back(new_log_number,
+                               new log::Writer(std::move(file_writer)));
 
       // set column family handles
       for (auto cf : column_families) {
