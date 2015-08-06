@@ -19,6 +19,7 @@
 #include "util/arena.h"
 #include "util/heap.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 #include "util/perf_context_imp.h"
 #include "util/autovector.h"
 
@@ -182,6 +183,7 @@ class MergingIterator : public Iterator {
             child.Prev();
           } else {
             // Child has no entries >= key().  Position at last entry.
+            TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
             child.SeekToLast();
           }
         }
