@@ -1,13 +1,10 @@
 # Rocksdb Change Log
 
-## Unreleased
-
+## 3.13.0 (8/6/2015)
 ### New Features
-* Add DBOptions::skip_stats_update_on_db_open.  When it is on, DB::Open() will run faster as it skips the random reads required for loading necessary stats from SST files to optimize compaction.
 * RollbackToSavePoint() in WriteBatch/WriteBatchWithIndex
 * Add NewCompactOnDeletionCollectorFactory() in utilities/table_properties_collectors, which allows rocksdb to mark a SST file as need-compaction when it observes at least D deletion entries in any N consecutive entries in that SST file.  Note that this feature depends on an experimental NeedCompact() API --- the result of this API will not persist after DB restart.
 * Add DBOptions::delete_scheduler. Use NewDeleteScheduler() in include/rocksdb/delete_scheduler.h to create a DeleteScheduler that can be shared among multiple RocksDB instances to control the file deletion rate of SST files that exist in the first db_path.
-* Add statistics::getHistogramString() to print detailed distribution of a histogram metric.
 
 ### Public API Changes
 * Deprecated WriteOptions::timeout_hint_us. We no longer support write timeout. If you really need this option, talk to us and we might consider returning it.
@@ -15,6 +12,8 @@
 * Removed BackupEngine::NewBackupEngine() and NewReadOnlyBackupEngine() that were deprecated in RocksDB 3.8. Please use BackupEngine::Open() instead.
 * Deprecated Compaction Filter V2. We are not aware of any existing use-cases. If you use this filter, your compile will break with RocksDB 3.13. Please let us know if you use it and we'll put it back in RocksDB 3.14.
 * Env::FileExists now returns a Status instead of a boolean
+* Add statistics::getHistogramString() to print detailed distribution of a histogram metric.
+* Add DBOptions::skip_stats_update_on_db_open.  When it is on, DB::Open() will run faster as it skips the random reads required for loading necessary stats from SST files to optimize compaction.
 
 ## 3.12.0 (7/2/2015)
 ### New Features
