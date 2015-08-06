@@ -349,7 +349,7 @@ endif
 
 $(SHARED4):
 	$(CXX) $(PLATFORM_SHARED_LDFLAGS)$(SHARED3) $(CXXFLAGS) $(PLATFORM_SHARED_CFLAGS) $(LIB_SOURCES) \
-		-Wl,--no-as-needed $(LDFLAGS) -o $@
+		$(LDFLAGS) -o $@
 
 endif  # PLATFORM_SHARED_EXT
 
