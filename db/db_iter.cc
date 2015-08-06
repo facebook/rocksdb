@@ -256,12 +256,13 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
     // If we have sequentially iterated via numerous keys and still not
     // found the next user-key, then it is better to seek so that we can
     // avoid too many key comparisons. We seek to the last occurrence of
-    // our current key by looking for sequence number 0.
+    // our current key by looking for sequence number 0 and type deletion
+    // (the smallest type).
     if (skipping && num_skipped > max_skip_) {
       num_skipped = 0;
       std::string last_key;
       AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(), 0,
-                                                     kValueTypeForSeek));
+                                                     kTypeDeletion));
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {

@@ -1644,6 +1644,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_TRUE(!db_iter->Valid());
   }
 }
+
 TEST_F(DBIteratorTest, DBIterator8) {
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
@@ -1745,6 +1746,30 @@ TEST_F(DBIteratorTest, DBIterator10) {
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), "c");
   ASSERT_EQ(db_iter->value().ToString(), "3");
+}
+
+TEST_F(DBIteratorTest, SeekToLastOccurrenceSeq0) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+      10, 0 /* force seek */));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "1");
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
 }
 
 }  // namespace rocksdb
