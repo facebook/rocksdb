@@ -150,6 +150,8 @@ void DeleteSchedulerImpl::BackgroundEmptyTrash() {
       uint64_t total_penlty =
           ((total_deleted_bytes * kMicrosInSecond) / rate_bytes_per_sec_);
       while (!closing_ && !cv_.TimedWait(start_time + total_penlty)) {}
+      TEST_SYNC_POINT_CALLBACK("DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
+                               &total_penlty);
 
       pending_files_--;
       if (pending_files_ == 0) {

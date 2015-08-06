@@ -8235,11 +8235,15 @@ TEST_F(DBTest, RateLimitedDelete) {
       {"DBTest::RateLimitedDelete:1",
        "DeleteSchedulerImpl::BackgroundEmptyTrash"},
   });
+
+  std::vector<uint64_t> penalties;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
+      [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
-  env_->no_sleep_ = true;
   options.env = env_;
 
   std::string trash_dir = test::TmpDir(env_) + "/trash";
@@ -8264,12 +8268,8 @@ TEST_F(DBTest, RateLimitedDelete) {
   // We created 4 sst files in L0
   ASSERT_EQ("4", FilesPerLevel(0));
 
-  uint64_t total_files_size = 0;
   std::vector<LiveFileMetaData> metadata;
   db_->GetLiveFilesMetaData(&metadata);
-  for (const auto& meta : metadata) {
-    total_files_size += meta.size;
-  }
 
   // Compaction will move the 4 files in L0 to trash and create 1 L1 file
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
@@ -8282,16 +8282,17 @@ TEST_F(DBTest, RateLimitedDelete) {
   reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
       ->TEST_WaitForEmptyTrash();
   uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
-  uint64_t expected_delete_time =
-      ((total_files_size * 1000000) / rate_bytes_per_sec);
-  ASSERT_GT(time_spent_deleting, expected_delete_time * 0.9);
-  ASSERT_LT(time_spent_deleting, expected_delete_time * 1.1);
-  printf("Delete time = %" PRIu64 ", Expected delete time = %" PRIu64
-         ", Ratio %f\n",
-         time_spent_deleting, expected_delete_time,
-         static_cast<double>(time_spent_deleting) / expected_delete_time);
 
-  env_->no_sleep_ = false;
+  uint64_t total_files_size = 0;
+  uint64_t expected_penlty = 0;
+  ASSERT_EQ(penalties.size(), metadata.size());
+  for (size_t i = 0; i < metadata.size(); i++) {
+    total_files_size += metadata[i].size;
+    expected_penlty = ((total_files_size * 1000000) / rate_bytes_per_sec);
+    ASSERT_EQ(expected_penlty, penalties[i]);
+  }
+  ASSERT_GT(time_spent_deleting, expected_penlty * 0.9);
+
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
@@ -8310,7 +8311,6 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   options.disable_auto_compactions = true;
   options.db_paths.emplace_back(dbname_, 1024 * 100);
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 100);
-  env_->no_sleep_ = true;
   options.env = env_;
 
   std::string trash_dir = test::TmpDir(env_) + "/trash";
@@ -8365,7 +8365,6 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
       ->TEST_WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
-  env_->no_sleep_ = false;
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
