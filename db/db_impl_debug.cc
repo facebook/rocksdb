@@ -132,8 +132,8 @@ void DBImpl::TEST_UnlockMutex() {
 
 void* DBImpl::TEST_BeginWrite() {
   auto w = new WriteThread::Writer(&mutex_);
-  Status s = write_thread_.EnterWriteThread(w, 0);
-  assert(s.ok() && !w->done);  // No timeout and nobody should do our job
+  write_thread_.EnterWriteThread(w);
+  assert(!w->done);  // Nobody should do our job
   return reinterpret_cast<void*>(w);
 }
 
@@ -146,6 +146,11 @@ void DBImpl::TEST_EndWrite(void* w) {
 size_t DBImpl::TEST_LogsToFreeSize() {
   InstrumentedMutexLock l(&mutex_);
   return logs_to_free_.size();
+}
+
+uint64_t DBImpl::TEST_LogfileNumber() {
+  InstrumentedMutexLock l(&mutex_);
+  return logfile_number_;
 }
 
 }  // namespace rocksdb

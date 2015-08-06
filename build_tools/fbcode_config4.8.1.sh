@@ -35,8 +35,8 @@ GFLAGS_INCLUDE=" -I /mnt/gvfs/third-party2/gflags/1ad047a6e6f6673991918ecadc6708
 GFLAGS_LIBS=" /mnt/gvfs/third-party2/gflags/1ad047a6e6f6673991918ecadc670868205a243a/1.6/gcc-4.8.1-glibc-2.17/c3f970a/lib/libgflags.a"
 
 # location of jemalloc
-JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/c60d854f7824f334195fe7fd34b2bc9057e3c1f9/3.6.0/gcc-4.8.1-glibc-2.17/4d53c6f/include"
-JEMALLOC_LIB=" /mnt/gvfs/third-party2/jemalloc/c60d854f7824f334195fe7fd34b2bc9057e3c1f9/3.6.0/gcc-4.8.1-glibc-2.17/4d53c6f/lib/libjemalloc.a"
+JEMALLOC_INCLUDE=" -I /mnt/gvfs/third-party2/jemalloc/3691c776ac26dd8781e84f8888b6a0fbdbc0a9ed/dev/gcc-4.8.1-glibc-2.17/4d53c6f/include"
+JEMALLOC_LIB="/mnt/gvfs/third-party2/jemalloc/3691c776ac26dd8781e84f8888b6a0fbdbc0a9ed/dev/gcc-4.8.1-glibc-2.17/4d53c6f/lib/libjemalloc.a"
 
 # location of numa
 NUMA_REV=829d10dac0230f99cd7e1778869d2adf3da24b65
@@ -87,13 +87,14 @@ else
 fi
 
 CFLAGS+=" $DEPS_INCLUDE"
-CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE"
 CFLAGS+=" -DSNAPPY -DGFLAGS=google -DZLIB -DBZIP2 -DLZ4 -DNUMA"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
 EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
+EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-4.8.1-glibc-2.17/lib"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS $STDLIBS -lgcc -lstdc++"
 

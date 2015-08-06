@@ -8,12 +8,12 @@
 #include <cstdlib>
 #include <unordered_set>
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/options.h"
 #include "rocksdb/rate_limiter.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/convenience.h"
 #include "table/block_based_table_factory.h"
 #include "util/logging.h"
 #include "util/options_helper.h"
@@ -228,8 +228,6 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
         start = end + 1;
       }
     }
-  } else if (name == "max_mem_compaction_level") {
-    new_options->max_mem_compaction_level = ParseInt(value);
   } else if (name == "verify_checksums_in_compaction") {
     new_options->verify_checksums_in_compaction = ParseBoolean(name, value);
   } else {
@@ -277,6 +275,7 @@ Status GetMutableOptionsFromStrings(
 namespace {
 
 std::string trim(const std::string& str) {
+  if (str.empty()) return std::string();
   size_t start = 0;
   size_t end = str.size() - 1;
   while (isspace(str[start]) != 0 && start <= end) {
@@ -436,9 +435,6 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
     } else if (name == "level_compaction_dynamic_level_bytes") {
       new_options->level_compaction_dynamic_level_bytes =
           ParseBoolean(name, value);
-    } else if (name == "purge_redundant_kvs_while_flush") {
-      new_options->purge_redundant_kvs_while_flush =
-          ParseBoolean(name, value);
     } else if (name == "compaction_style") {
       new_options->compaction_style = ParseCompactionStyle(value);
     } else if (name == "compaction_options_universal") {
@@ -562,8 +558,7 @@ bool ParseDBOption(const std::string& name, const std::string& value,
     } else {
       return false;
     }
-  }
-  catch (std::exception& e) {
+  } catch (const std::exception& e) {
     return false;
   }
   return true;
@@ -646,6 +641,49 @@ Status GetBlockBasedTableOptionsFromString(
   }
   return GetBlockBasedTableOptionsFromMap(table_options, opts_map,
                                           new_table_options);
+}
+
+Status GetPlainTableOptionsFromMap(
+    const PlainTableOptions& table_options,
+    const std::unordered_map<std::string, std::string>& opts_map,
+    PlainTableOptions* new_table_options) {
+  assert(new_table_options);
+  *new_table_options = table_options;
+
+  for (const auto& o : opts_map) {
+    try {
+      if (o.first == "user_key_len") {
+        new_table_options->user_key_len = ParseUint32(o.second);
+      } else if (o.first == "bloom_bits_per_key") {
+        new_table_options->bloom_bits_per_key = ParseInt(o.second);
+      } else if (o.first == "hash_table_ratio") {
+        new_table_options->hash_table_ratio = ParseDouble(o.second);
+      } else if (o.first == "index_sparseness") {
+        new_table_options->index_sparseness = ParseSizeT(o.second);
+      } else if (o.first == "huge_page_tlb_size") {
+        new_table_options->huge_page_tlb_size = ParseSizeT(o.second);
+      } else if (o.first == "encoding_type") {
+        if (o.second == "kPlain") {
+          new_table_options->encoding_type = kPlain;
+        } else if (o.second == "kPrefix") {
+          new_table_options->encoding_type = kPrefix;
+        } else {
+          throw std::invalid_argument("Unknown encoding_type: " + o.second);
+        }
+      } else if (o.first == "full_scan_mode") {
+        new_table_options->full_scan_mode = ParseBoolean(o.first, o.second);
+      } else if (o.first == "store_index_in_file") {
+        new_table_options->store_index_in_file =
+            ParseBoolean(o.first, o.second);
+      } else {
+        return Status::InvalidArgument("Unrecognized option: " + o.first);
+      }
+    } catch (std::exception& e) {
+      return Status::InvalidArgument("error parsing " + o.first + ":" +
+                                     std::string(e.what()));
+    }
+  }
+  return Status::OK();
 }
 
 Status GetColumnFamilyOptionsFromMap(

@@ -14,6 +14,7 @@
 #include "db/version_set.h"
 #include "db/log_reader.h"
 #include "db/filename.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -83,13 +84,15 @@ class TransactionLogIteratorImpl : public TransactionLogIterator {
   size_t currentFileIndex_;
   std::unique_ptr<WriteBatch> currentBatch_;
   unique_ptr<log::Reader> currentLogReader_;
-  Status OpenLogFile(const LogFile* logFile, unique_ptr<SequentialFile>* file);
+  Status OpenLogFile(const LogFile* logFile,
+                     unique_ptr<SequentialFileReader>* file);
 
   struct LogReporter : public log::Reader::Reporter {
     Env* env;
     Logger* info_log;
     virtual void Corruption(size_t bytes, const Status& s) override {
-      Log(InfoLogLevel::ERROR_LEVEL, info_log, "dropping %zu bytes; %s", bytes,
+      Log(InfoLogLevel::ERROR_LEVEL, info_log,
+          "dropping %" ROCKSDB_PRIszt " bytes; %s", bytes,
           s.ToString().c_str());
     }
     virtual void Info(const char* s) {

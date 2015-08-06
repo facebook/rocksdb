@@ -24,7 +24,9 @@ int main() {
 #include <numaif.h>
 #endif
 
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
 #include <fcntl.h>
 #include <inttypes.h>
 #include <cstddef>
@@ -67,6 +69,10 @@ int main() {
 #include "util/xxhash.h"
 #include "hdfs/env_hdfs.h"
 #include "utilities/merge_operators.h"
+
+#ifdef OS_WIN
+#include <io.h>  // open/close
+#endif
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -124,8 +130,6 @@ DEFINE_string(benchmarks,
               "\treadreverse   -- read N times in reverse order\n"
               "\treadrandom    -- read N times in random order\n"
               "\treadmissing   -- read N missing keys in random order\n"
-              "\treadhot       -- read N times in random order from 1% section "
-              "of DB\n"
               "\treadwhilewriting      -- 1 writer, N threads doing random "
               "reads\n"
               "\treadwhilemerging      -- 1 merger, N threads doing random "
@@ -226,7 +230,7 @@ DEFINE_double(compression_ratio, 0.5, "Arrange to generate values that shrink"
 
 DEFINE_double(read_random_exp_range, 0.0,
               "Read random's key will be generated using distribution of "
-              "num * exp(r) where r is uniform number from 0 to this value. "
+              "num * exp(-r) where r is uniform number from 0 to this value. "
               "The larger the number is, the more skewed the reads are. "
               "Only used in readrandom and multireadrandom benchmarks.");
 
@@ -307,8 +311,14 @@ DEFINE_int32(universal_compression_size_percent, -1,
              "The percentage of the database to compress for universal "
              "compaction. -1 means compress everything.");
 
+DEFINE_bool(universal_allow_trivial_move, false,
+            "Sllow trivial move in universal compaction.");
+
 DEFINE_int64(cache_size, -1, "Number of bytes to use as a cache of uncompressed"
              "data. Negative means use default settings.");
+
+DEFINE_bool(cache_index_and_filter_blocks, false,
+            "Cache index/filter blocks in block cache.");
 
 DEFINE_int32(block_size,
              static_cast<int32_t>(rocksdb::BlockBasedTableOptions().block_size),
@@ -321,6 +331,10 @@ DEFINE_int32(block_restart_interval,
 
 DEFINE_int64(compressed_cache_size, -1,
              "Number of bytes to use as a cache of compressed data.");
+
+DEFINE_int64(row_cache_size, 0,
+             "Number of bytes to use as a cache of individual rows"
+             " (0 = disabled).");
 
 DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time"
@@ -543,7 +557,7 @@ DEFINE_int32(thread_status_per_interval, 0,
 DEFINE_int32(perf_level, 0, "Level of perf collection");
 
 static bool ValidateRateLimit(const char* flagname, double value) {
-  static constexpr double EPSILON = 1e-10;
+  const double EPSILON = 1e-10;
   if ( value < -EPSILON ) {
     fprintf(stderr, "Invalid value for --%s: %12.6f, must be >= 0.0\n",
             flagname, value);
@@ -2268,6 +2282,14 @@ class Benchmark {
     options.max_bytes_for_level_multiplier =
         FLAGS_max_bytes_for_level_multiplier;
     options.filter_deletes = FLAGS_filter_deletes;
+    if (FLAGS_row_cache_size) {
+      if (FLAGS_cache_numshardbits >= 1) {
+        options.row_cache =
+            NewLRUCache(FLAGS_row_cache_size, FLAGS_cache_numshardbits);
+      } else {
+        options.row_cache = NewLRUCache(FLAGS_row_cache_size);
+      }
+    }
     if ((FLAGS_prefix_size == 0) && (FLAGS_rep_factory == kPrefixHash ||
                                      FLAGS_rep_factory == kHashLinkedList)) {
       fprintf(stderr, "prefix_size should be non-zero if PrefixHash or "
@@ -2359,6 +2381,8 @@ class Benchmark {
       if (cache_ == nullptr) {
         block_based_options.no_block_cache = true;
       }
+      block_based_options.cache_index_and_filter_blocks =
+          FLAGS_cache_index_and_filter_blocks;
       block_based_options.block_cache = cache_;
       block_based_options.block_cache_compressed = compressed_cache_;
       block_based_options.block_size = FLAGS_block_size;
@@ -2452,6 +2476,8 @@ class Benchmark {
       options.compaction_options_universal.compression_size_percent =
         FLAGS_universal_compression_size_percent;
     }
+    options.compaction_options_universal.allow_trivial_move =
+        FLAGS_universal_allow_trivial_move;
     if (FLAGS_thread_status_per_interval > 0) {
       options.enable_thread_tracking = true;
     }
@@ -3521,8 +3547,8 @@ class Benchmark {
 
     char msg[100];
     snprintf(msg, sizeof(msg),
-             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64 " hits:%" \
-             PRIu64 " maxlength:%zu)",
+             "(reads:%" PRIu64 " merges:%" PRIu64 " total:%" PRIu64
+             " hits:%" PRIu64 " maxlength:%" ROCKSDB_PRIszt ")",
              num_gets, num_merges, readwrites_, num_hits, max_length);
     thread->stats.AddMessage(msg);
   }

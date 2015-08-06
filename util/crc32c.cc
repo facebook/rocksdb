@@ -383,6 +383,14 @@ static inline Function Choose_Extend() {
   return isSSE42() ? ExtendImpl<Fast_CRC32> : ExtendImpl<Slow_CRC32>;
 }
 
+bool IsFastCrc32Supported() {
+#ifdef __SSE4_2__
+  return isSSE42();
+#else
+  return false;
+#endif
+}
+
 Function ChosenExtend = Choose_Extend();
 
 uint32_t Extend(uint32_t crc, const char* buf, size_t size) {

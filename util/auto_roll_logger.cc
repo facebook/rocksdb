@@ -91,7 +91,7 @@ void AutoRollLogger::Logv(const char* format, va_list ap) {
 
 void AutoRollLogger::WriteHeaderInfo() {
   mutex_.AssertHeld();
-  for (auto header : headers_) {
+  for (auto& header : headers_) {
     LogInternal("%s", header.c_str());
   }
 }

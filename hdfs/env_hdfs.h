@@ -7,9 +7,9 @@
 #pragma once
 #include <algorithm>
 #include <stdio.h>
-#include <sys/time.h>
 #include <time.h>
 #include <iostream>
+#include "port/sys_time.h"
 #include "rocksdb/env.h"
 #include "rocksdb/status.h"
 
@@ -73,7 +73,7 @@ class HdfsEnv : public Env {
   virtual Status NewDirectory(const std::string& name,
                               std::unique_ptr<Directory>* result);
 
-  virtual bool FileExists(const std::string& fname);
+  virtual Status FileExists(const std::string& fname);
 
   virtual Status GetChildren(const std::string& path,
                              std::vector<std::string>* result);
@@ -279,7 +279,9 @@ class HdfsEnv : public Env {
     return notsup;
   }
 
-  virtual bool FileExists(const std::string& fname) override { return false; }
+  virtual Status FileExists(const std::string& fname) override {
+    return notsup;
+  }
 
   virtual Status GetChildren(const std::string& path,
                              std::vector<std::string>* result) override {

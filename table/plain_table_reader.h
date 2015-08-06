@@ -22,6 +22,7 @@
 #include "table/plain_table_index.h"
 #include "util/arena.h"
 #include "util/dynamic_bloom.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -56,8 +57,8 @@ class PlainTableReader: public TableReader {
   static Status Open(const ImmutableCFOptions& ioptions,
                      const EnvOptions& env_options,
                      const InternalKeyComparator& internal_comparator,
-                     unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-                     unique_ptr<TableReader>* table,
+                     unique_ptr<RandomAccessFileReader>&& file,
+                     uint64_t file_size, unique_ptr<TableReader>* table,
                      const int bloom_bits_per_key, double hash_table_ratio,
                      size_t index_sparseness, size_t huge_page_tlb_size,
                      bool full_scan_mode);
@@ -83,7 +84,7 @@ class PlainTableReader: public TableReader {
   }
 
   PlainTableReader(const ImmutableCFOptions& ioptions,
-                   unique_ptr<RandomAccessFile>&& file,
+                   unique_ptr<RandomAccessFileReader>&& file,
                    const EnvOptions& env_options,
                    const InternalKeyComparator& internal_comparator,
                    EncodingType encoding_type, uint64_t file_size,
@@ -134,7 +135,7 @@ class PlainTableReader: public TableReader {
   Arena arena_;
 
   const ImmutableCFOptions& ioptions_;
-  unique_ptr<RandomAccessFile> file_;
+  unique_ptr<RandomAccessFileReader> file_;
   uint64_t file_size_;
   std::shared_ptr<const TableProperties> table_properties_;
 

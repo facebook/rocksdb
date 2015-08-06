@@ -13,12 +13,48 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/options.h"
 #include "rocksdb/db.h"
+#include "util/file_reader_writer.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "table/mock_table.h"
 
 namespace rocksdb {
+
+namespace {
+void VerifyInitializationOfCompactionJobStats(
+      const CompactionJobStats& compaction_job_stats) {
+#if !defined(IOS_CROSS_COMPILE)
+  ASSERT_EQ(compaction_job_stats.elapsed_micros, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_input_records, 0U);
+  ASSERT_EQ(compaction_job_stats.num_input_files, 0U);
+  ASSERT_EQ(compaction_job_stats.num_input_files_at_output_level, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
+  ASSERT_EQ(compaction_job_stats.num_output_files, 0U);
+
+  ASSERT_EQ(compaction_job_stats.is_manual_compaction, false);
+
+  ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
+  ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
+
+  ASSERT_EQ(compaction_job_stats.total_input_raw_key_bytes, 0U);
+  ASSERT_EQ(compaction_job_stats.total_input_raw_value_bytes, 0U);
+
+  ASSERT_EQ(compaction_job_stats.smallest_output_key_prefix[0], 0);
+  ASSERT_EQ(compaction_job_stats.largest_output_key_prefix[0], 0);
+
+  ASSERT_EQ(compaction_job_stats.num_records_replaced, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_input_deletion_records, 0U);
+  ASSERT_EQ(compaction_job_stats.num_expired_deletion_records, 0U);
+
+  ASSERT_EQ(compaction_job_stats.num_corrupt_keys, 0U);
+#endif  // !defined(IOS_CROSS_COMPILE)
+}
+
+}  // namespace
 
 // TODO(icanadi) Make it simpler once we mock out VersionSet
 class CompactionJobTest : public testing::Test {
@@ -53,22 +89,40 @@ class CompactionJobTest : public testing::Test {
     return TableFileName(db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
   }
 
+  // Corrupts key by changing the type
+  void CorruptKey(InternalKey* ikey) {
+    std::string keystr = ikey->Encode().ToString();
+    keystr[keystr.size() - 8] = kTypeLogData;
+    ikey->DecodeFrom(Slice(keystr.data(), keystr.size()));
+  }
+
   // returns expected result after compaction
-  mock::MockFileContents CreateTwoFiles() {
+  mock::MockFileContents CreateTwoFiles(bool gen_corrupted_keys) {
     mock::MockFileContents expected_results;
     const int kKeysPerFile = 10000;
+    const int kCorruptKeysPerFile = 200;
+    const int kMatchingKeys = kKeysPerFile / 2;
     SequenceNumber sequence_number = 0;
+
+    auto corrupt_id = [&](int id) {
+      return gen_corrupted_keys && id > 0 && id <= kCorruptKeysPerFile;
+    };
+
     for (int i = 0; i < 2; ++i) {
       mock::MockFileContents contents;
       SequenceNumber smallest_seqno = 0, largest_seqno = 0;
       InternalKey smallest, largest;
       for (int k = 0; k < kKeysPerFile; ++k) {
-        auto key = ToString(i * (kKeysPerFile / 2) + k);
+        auto key = ToString(i * kMatchingKeys + k);
         auto value = ToString(i * kKeysPerFile + k);
         InternalKey internal_key(key, ++sequence_number, kTypeValue);
         // This is how the key will look like once it's written in bottommost
         // file
         InternalKey bottommost_internal_key(key, 0, kTypeValue);
+        if (corrupt_id(k)) {
+          CorruptKey(&internal_key);
+          CorruptKey(&bottommost_internal_key);
+        }
         if (k == 0) {
           smallest = internal_key;
           smallest_seqno = sequence_number;
@@ -76,11 +130,10 @@ class CompactionJobTest : public testing::Test {
           largest = internal_key;
           largest_seqno = sequence_number;
         }
-        std::pair<std::string, std::string> key_value(
-            {bottommost_internal_key.Encode().ToString(), value});
-        contents.insert(key_value);
-        if (i == 1 || k < kKeysPerFile / 2) {
-          expected_results.insert(key_value);
+        contents.insert({internal_key.Encode().ToString(), value});
+        if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
+          expected_results.insert(
+              {bottommost_internal_key.Encode().ToString(), value});
         }
       }
 
@@ -97,7 +150,7 @@ class CompactionJobTest : public testing::Test {
                              mutable_cf_options_, &edit, &mutex_);
       mutex_.Unlock();
     }
-    versions_->SetLastSequence(sequence_number);
+    versions_->SetLastSequence(sequence_number + 1);
     return expected_results;
   }
 
@@ -112,8 +165,10 @@ class CompactionJobTest : public testing::Test {
     Status s = env_->NewWritableFile(
         manifest, &file, env_->OptimizeForManifestWrite(env_options_));
     ASSERT_OK(s);
+    unique_ptr<WritableFileWriter> file_writer(
+        new WritableFileWriter(std::move(file), EnvOptions()));
     {
-      log::Writer log(std::move(file));
+      log::Writer log(std::move(file_writer));
       std::string record;
       new_db.EncodeTo(&record);
       s = log.AddRecord(record);
@@ -121,6 +176,44 @@ class CompactionJobTest : public testing::Test {
     ASSERT_OK(s);
     // Make "CURRENT" file that points to the new manifest file.
     s = SetCurrentFile(env_, dbname_, 1, nullptr);
+  }
+
+  void RunCompaction(const std::vector<FileMetaData*>& files) {
+    auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+
+    CompactionInputFiles compaction_input_files;
+    compaction_input_files.level = 0;
+    for (auto file : files) {
+      compaction_input_files.files.push_back(file);
+    }
+    Compaction compaction(cfd->current()->storage_info(),
+                          *cfd->GetLatestMutableCFOptions(),
+                          {compaction_input_files}, 1, 1024 * 1024, 10, 0,
+                          kNoCompression, {});
+    compaction.SetInputVersion(cfd->current());
+
+    LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
+    mutex_.Lock();
+    EventLogger event_logger(db_options_.info_log.get());
+    CompactionJob compaction_job(
+        0, &compaction, db_options_, env_options_, versions_.get(),
+        &shutting_down_, &log_buffer, nullptr, nullptr, nullptr, {},
+        table_cache_, &event_logger, false, dbname_, &compaction_job_stats_);
+
+    VerifyInitializationOfCompactionJobStats(compaction_job_stats_);
+
+    compaction_job.Prepare();
+    mutex_.Unlock();
+    ASSERT_OK(compaction_job.Run());
+    mutex_.Lock();
+    Status s;
+    compaction_job.Install(&s, *cfd->GetLatestMutableCFOptions(), &mutex_);
+    ASSERT_OK(s);
+    mutex_.Unlock();
+
+    ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);
+    ASSERT_EQ(compaction_job_stats_.num_input_files, files.size());
+    ASSERT_EQ(compaction_job_stats_.num_output_files, 1U);
   }
 
   Env* env_;
@@ -136,98 +229,27 @@ class CompactionJobTest : public testing::Test {
   InstrumentedMutex mutex_;
   std::atomic<bool> shutting_down_;
   std::shared_ptr<mock::MockTableFactory> mock_table_factory_;
+  CompactionJobStats compaction_job_stats_;
 };
 
-namespace {
-void VerifyInitializationOfCompactionJobStats(
-      const CompactionJobStats& compaction_job_stats) {
-#if !defined(IOS_CROSS_COMPILE)
-  ASSERT_EQ(compaction_job_stats.elapsed_micros, 0U);
-
-  ASSERT_EQ(compaction_job_stats.num_input_records, 0U);
-  ASSERT_EQ(compaction_job_stats.num_input_files, 0U);
-  ASSERT_EQ(compaction_job_stats.num_input_files_at_output_level, 0U);
-
-  ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
-  ASSERT_EQ(compaction_job_stats.num_output_files, 0U);
-
-  ASSERT_EQ(compaction_job_stats.is_manual_compaction, 0U);
-
-  ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
-  ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
-
-  ASSERT_EQ(compaction_job_stats.total_input_raw_key_bytes, 0U);
-  ASSERT_EQ(compaction_job_stats.total_input_raw_value_bytes, 0U);
-
-  ASSERT_EQ(compaction_job_stats.smallest_output_key_prefix[0], 0);
-  ASSERT_EQ(compaction_job_stats.largest_output_key_prefix[0], 0);
-
-  ASSERT_EQ(compaction_job_stats.num_records_replaced, 0U);
-#endif  // !defined(IOS_CROSS_COMPILE)
-}
-
-void VerifyCompactionJobStats(
-    const CompactionJobStats& compaction_job_stats,
-    const std::vector<FileMetaData*>& files,
-    size_t num_output_files,
-    uint64_t min_elapsed_time) {
-  ASSERT_GE(compaction_job_stats.elapsed_micros, min_elapsed_time);
-  ASSERT_EQ(compaction_job_stats.num_input_files, files.size());
-  ASSERT_EQ(compaction_job_stats.num_output_files, num_output_files);
-}
-}  // namespace
-
 TEST_F(CompactionJobTest, Simple) {
+  auto expected_results = CreateTwoFiles(false);
   auto cfd = versions_->GetColumnFamilySet()->GetDefault();
-
-  auto expected_results = CreateTwoFiles();
-
   auto files = cfd->current()->storage_info()->LevelFiles(0);
   ASSERT_EQ(2U, files.size());
 
-  CompactionInputFiles compaction_input_files;
-  compaction_input_files.level = 0;
-  compaction_input_files.files.push_back(files[0]);
-  compaction_input_files.files.push_back(files[1]);
-  std::unique_ptr<Compaction> compaction(new Compaction(
-      cfd->current()->storage_info(), *cfd->GetLatestMutableCFOptions(),
-      {compaction_input_files}, 1, 1024 * 1024, 10, 0, kNoCompression, {}));
-  compaction->SetInputVersion(cfd->current());
-
-  int yield_callback_called = 0;
-  std::function<uint64_t()> yield_callback = [&]() {
-    yield_callback_called++;
-    return 0;
-  };
-  LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
-  mutex_.Lock();
-  EventLogger event_logger(db_options_.info_log.get());
-  std::string db_name = "dbname";
-  CompactionJobStats compaction_job_stats;
-  CompactionJob compaction_job(0, compaction.get(), db_options_, env_options_,
-                               versions_.get(), &shutting_down_, &log_buffer,
-                               nullptr, nullptr, nullptr, {}, table_cache_,
-                               std::move(yield_callback), &event_logger, false,
-                               db_name, &compaction_job_stats);
-
-  auto start_micros = Env::Default()->NowMicros();
-  VerifyInitializationOfCompactionJobStats(compaction_job_stats);
-
-  compaction_job.Prepare();
-  mutex_.Unlock();
-  ASSERT_OK(compaction_job.Run());
-  mutex_.Lock();
-  Status s;
-  compaction_job.Install(&s, *cfd->GetLatestMutableCFOptions(), &mutex_);
-  ASSERT_OK(s);
-  mutex_.Unlock();
-
-  VerifyCompactionJobStats(
-      compaction_job_stats,
-      files, 1, (Env::Default()->NowMicros() - start_micros) / 2);
-
+  RunCompaction(files);
   mock_table_factory_->AssertLatestFile(expected_results);
-  ASSERT_EQ(yield_callback_called, 20000);
+}
+
+TEST_F(CompactionJobTest, SimpleCorrupted) {
+  auto expected_results = CreateTwoFiles(true);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto files = cfd->current()->storage_info()->LevelFiles(0);
+
+  RunCompaction(files);
+  ASSERT_EQ(compaction_job_stats_.num_corrupt_keys, 400U);
+  mock_table_factory_->AssertLatestFile(expected_results);
 }
 
 }  // namespace rocksdb

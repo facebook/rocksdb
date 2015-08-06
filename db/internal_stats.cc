@@ -118,6 +118,7 @@ static const std::string is_file_deletions_enabled =
 static const std::string num_snapshots = "num-snapshots";
 static const std::string oldest_snapshot_time = "oldest-snapshot-time";
 static const std::string num_live_versions = "num-live-versions";
+static const std::string estimate_live_data_size = "estimate-live-data-size";
 static const std::string base_level = "base-level";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
@@ -158,6 +159,8 @@ const std::string DB::Properties::kOldestSnapshotTime =
                       rocksdb_prefix + oldest_snapshot_time;
 const std::string DB::Properties::kNumLiveVersions =
                       rocksdb_prefix + num_live_versions;
+const std::string DB::Properties::kEstimateLiveDataSize =
+                      rocksdb_prefix + estimate_live_data_size;
 
 DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
                                bool* need_out_of_mutex) {
@@ -222,6 +225,9 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kOldestSnapshotTime;
   } else if (in == num_live_versions) {
     return kNumLiveVersions;
+  } else if (in == estimate_live_data_size) {
+    *need_out_of_mutex = true;
+    return kEstimateLiveDataSize;
   } else if (in == base_level) {
     return kBaseLevel;
   }
@@ -232,15 +238,19 @@ bool InternalStats::GetIntPropertyOutOfMutex(DBPropertyType property_type,
                                              Version* version,
                                              uint64_t* value) const {
   assert(value != nullptr);
-  if (property_type != kEstimatedUsageByTableReaders) {
-    return false;
+  const auto* vstorage = cfd_->current()->storage_info();
+
+  switch (property_type) {
+    case kEstimatedUsageByTableReaders:
+      *value = (version == nullptr) ?
+        0 : version->GetMemoryUsageByTableReaders();
+      return true;
+    case kEstimateLiveDataSize:
+      *value = vstorage->EstimateLiveDataSize();
+      return true;
+    default:
+      return false;
   }
-  if (version == nullptr) {
-    *value = 0;
-  } else {
-    *value = version->GetMemoryUsageByTableReaders();
-  }
-  return true;
 }
 
 bool InternalStats::GetStringProperty(DBPropertyType property_type,

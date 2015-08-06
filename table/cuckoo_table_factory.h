@@ -18,12 +18,14 @@ static inline uint64_t CuckooHash(
     const Slice& user_key, uint32_t hash_cnt, bool use_module_hash,
     uint64_t table_size_, bool identity_as_first_hash,
     uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t)) {
-#ifndef NDEBUG
-  // This part is used only in unit tests.
+#if !defined NDEBUG || defined OS_WIN
+  // This part is used only in unit tests but we have to keep it for Windows
+  // build as we run test in both debug and release modes under Windows.
   if (get_slice_hash != nullptr) {
     return get_slice_hash(user_key, hash_cnt, table_size_);
   }
 #endif
+
   uint64_t value = 0;
   if (hash_cnt == 0 && identity_as_first_hash) {
     value = (*reinterpret_cast<const int64_t*>(user_key.data()));
@@ -53,15 +55,16 @@ class CuckooTableFactory : public TableFactory {
 
   const char* Name() const override { return "CuckooTable"; }
 
-  Status NewTableReader(
-      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-      const InternalKeyComparator& internal_comparator,
-      unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
-      unique_ptr<TableReader>* table) const override;
+  Status NewTableReader(const ImmutableCFOptions& ioptions,
+                        const EnvOptions& env_options,
+                        const InternalKeyComparator& internal_comparator,
+                        unique_ptr<RandomAccessFileReader>&& file,
+                        uint64_t file_size,
+                        unique_ptr<TableReader>* table) const override;
 
   TableBuilder* NewTableBuilder(
       const TableBuilderOptions& table_builder_options,
-      WritableFile* file) const override;
+      WritableFileWriter* file) const override;
 
   // Sanitizes the specified DB Options.
   Status SanitizeOptions(const DBOptions& db_opts,

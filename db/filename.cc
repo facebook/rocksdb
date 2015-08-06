@@ -18,6 +18,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "rocksdb/env.h"
+#include "util/file_reader_writer.h"
 #include "util/logging.h"
 #include "util/stop_watch.h"
 
@@ -102,8 +103,6 @@ std::string TableFileName(const std::vector<DbPath>& db_paths, uint64_t number,
   }
   return MakeTableFileName(path, number);
 }
-
-const size_t kFormatFileNumberBufSize = 38;
 
 void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
                       size_t out_buf_size) {
@@ -330,15 +329,13 @@ Status SetIdentityFile(Env* env, const std::string& dbname) {
   return s;
 }
 
-Status SyncManifest(Env* env, const DBOptions* db_options, WritableFile* file) {
+Status SyncManifest(Env* env, const DBOptions* db_options,
+                    WritableFileWriter* file) {
   if (db_options->disableDataSync) {
     return Status::OK();
-  } else if (db_options->use_fsync) {
-    StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
-    return file->Fsync();
   } else {
     StopWatch sw(env, db_options->statistics.get(), MANIFEST_FILE_SYNC_MICROS);
-    return file->Sync();
+    return file->Sync(db_options->use_fsync);
   }
 }
 

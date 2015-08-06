@@ -11,6 +11,7 @@
 #include "db/dbformat.h"
 #include "port/port.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace mock {
@@ -45,7 +46,7 @@ MockTableFactory::MockTableFactory() : next_id_(1) {}
 Status MockTableFactory::NewTableReader(
     const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
     const InternalKeyComparator& internal_key,
-    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
   uint32_t id = GetIDFromFile(file.get());
 
@@ -63,8 +64,8 @@ Status MockTableFactory::NewTableReader(
 
 TableBuilder* MockTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options,
-    WritableFile* file) const {
-  uint32_t id = GetAndWriteNextID(file);
+    WritableFileWriter* file) const {
+  uint32_t id = GetAndWriteNextID(file->writable_file());
 
   return new MockTableBuilder(id, &file_system_);
 }
@@ -90,7 +91,7 @@ uint32_t MockTableFactory::GetAndWriteNextID(WritableFile* file) const {
   return next_id;
 }
 
-uint32_t MockTableFactory::GetIDFromFile(RandomAccessFile* file) const {
+uint32_t MockTableFactory::GetIDFromFile(RandomAccessFileReader* file) const {
   char buf[4];
   Slice result;
   file->Read(0, 4, &result, buf);

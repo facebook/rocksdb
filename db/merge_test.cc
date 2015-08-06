@@ -7,6 +7,7 @@
 #include <memory>
 #include <iostream>
 
+#include "port/stack_trace.h"
 #include "rocksdb/cache.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
@@ -41,6 +42,7 @@ class CountMergeOperator : public AssociativeMergeOperator {
                      const Slice& value,
                      std::string* new_value,
                      Logger* logger) const override {
+    assert(new_value->empty());
     ++num_merge_operator_calls;
     if (existing_value == nullptr) {
       new_value->assign(value.data(), value.size());
@@ -59,6 +61,7 @@ class CountMergeOperator : public AssociativeMergeOperator {
                                  const std::deque<Slice>& operand_list,
                                  std::string* new_value,
                                  Logger* logger) const override {
+    assert(new_value->empty());
     ++num_partial_merge_calls;
     return mergeOperator_->PartialMergeMulti(key, operand_list, new_value,
                                              logger);
@@ -84,6 +87,8 @@ std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false,
   options.min_partial_merge_operands = min_partial_merge_operands;
   Status s;
   DestroyDB(dbname, Options());
+// DBWithTTL is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
   if (ttl) {
     cout << "Opening database with TTL\n";
     DBWithTTL* db_with_ttl;
@@ -92,6 +97,10 @@ std::shared_ptr<DB> OpenDb(const string& dbname, const bool ttl = false,
   } else {
     s = DB::Open(options, dbname, &db);
   }
+#else
+  assert(!ttl);
+  s = DB::Open(options, dbname, &db);
+#endif  // !ROCKSDB_LITE
   if (!s.ok()) {
     cerr << s.ToString() << endl;
     assert(false);
@@ -498,8 +507,12 @@ void runTest(int argc, const string& dbname, const bool use_ttl = false) {
 
 int main(int argc, char *argv[]) {
   //TODO: Make this test like a general rocksdb unit-test
+  rocksdb::port::InstallStackTraceHandler();
   runTest(argc, test::TmpDir() + "/merge_testdb");
+// DBWithTTL is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
   runTest(argc, test::TmpDir() + "/merge_testdbttl", true); // Run test on TTL database
+#endif  // !ROCKSDB_LITE
   printf("Passed all tests!\n");
   return 0;
 }

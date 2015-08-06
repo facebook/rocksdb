@@ -59,6 +59,7 @@ ColumnFamilyHandleImpl::~ColumnFamilyHandleImpl() {
     if (job_context.HaveSomethingToDelete()) {
       db_->PurgeObsoleteFiles(job_context);
     }
+    job_context.Clean();
   }
 }
 
@@ -136,9 +137,6 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   if (result.compaction_style == kCompactionStyleLevel &&
       result.num_levels < 2) {
     result.num_levels = 2;
-  }
-  if (result.max_mem_compaction_level >= result.num_levels) {
-    result.max_mem_compaction_level = result.num_levels - 1;
   }
   if (result.max_write_buffer_number < 2) {
     result.max_write_buffer_number = 2;

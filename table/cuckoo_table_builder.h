@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "port/port.h"
 #include "rocksdb/status.h"
 #include "table/table_builder.h"
 #include "rocksdb/table.h"
@@ -20,12 +21,13 @@ namespace rocksdb {
 
 class CuckooTableBuilder: public TableBuilder {
  public:
-  CuckooTableBuilder(
-      WritableFile* file, double max_hash_table_ratio,
-      uint32_t max_num_hash_func, uint32_t max_search_depth,
-      const Comparator* user_comparator, uint32_t cuckoo_block_size,
-      bool use_module_hash, bool identity_as_first_hash,
-      uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
+  CuckooTableBuilder(WritableFileWriter* file, double max_hash_table_ratio,
+                     uint32_t max_num_hash_func, uint32_t max_search_depth,
+                     const Comparator* user_comparator,
+                     uint32_t cuckoo_block_size, bool use_module_hash,
+                     bool identity_as_first_hash,
+                     uint64_t (*get_slice_hash)(const Slice&, uint32_t,
+                                                uint64_t));
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~CuckooTableBuilder() {}
@@ -68,7 +70,7 @@ class CuckooTableBuilder: public TableBuilder {
     // We assume number of items is <= 2^32.
     uint32_t make_space_for_key_call_id;
   };
-  static const uint32_t kMaxVectorIdx = std::numeric_limits<int32_t>::max();
+  static const uint32_t kMaxVectorIdx = port::kMaxInt32;
 
   bool MakeSpaceForKey(const autovector<uint64_t>& hash_vals,
                        const uint32_t call_id,
@@ -81,7 +83,7 @@ class CuckooTableBuilder: public TableBuilder {
   inline Slice GetValue(uint64_t idx) const;
 
   uint32_t num_hash_func_;
-  WritableFile* file_;
+  WritableFileWriter* file_;
   const double max_hash_table_ratio_;
   const uint32_t max_num_hash_func_;
   const uint32_t max_search_depth_;

@@ -70,10 +70,25 @@ struct PerfContext {
   uint64_t db_condition_wait_nanos;
   // Time spent on merge operator.
   uint64_t merge_operator_time_nanos;
+
+  // Time spent on reading index block from block cache or SST file
+  uint64_t read_index_block_nanos;
+  // Time spent on reading filter block from block cache or SST file
+  uint64_t read_filter_block_nanos;
+  // Time spent on creating data block iterator
+  uint64_t new_table_block_iter_nanos;
+  // Time spent on creating a iterator of an SST file.
+  uint64_t new_table_iterator_nanos;
+  // Time spent on seeking a key in data/index blocks
+  uint64_t block_seek_nanos;
+  // Time spent on finding or creating a table reader
+  uint64_t find_table_nanos;
 };
 
 #if defined(NPERF_CONTEXT) || defined(IOS_CROSS_COMPILE)
 extern PerfContext perf_context;
+#elif _WIN32
+extern __declspec(thread) PerfContext perf_context;
 #else
 extern __thread PerfContext perf_context;
 #endif

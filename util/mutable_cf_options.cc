@@ -11,6 +11,7 @@
 #include <limits>
 #include <cassert>
 #include <string>
+#include "port/port.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
@@ -62,17 +63,19 @@ uint64_t MutableCFOptions::ExpandedCompactionByteSizeLimit(int level) const {
 
 void MutableCFOptions::Dump(Logger* log) const {
   // Memtable related options
-  Log(log, "                        write_buffer_size: %zu", write_buffer_size);
+  Log(log, "                        write_buffer_size: %" ROCKSDB_PRIszt,
+      write_buffer_size);
   Log(log, "                  max_write_buffer_number: %d",
       max_write_buffer_number);
-  Log(log, "                         arena_block_size: %zu", arena_block_size);
+  Log(log, "                         arena_block_size: %" ROCKSDB_PRIszt,
+      arena_block_size);
   Log(log, "               memtable_prefix_bloom_bits: %" PRIu32,
       memtable_prefix_bloom_bits);
   Log(log, "             memtable_prefix_bloom_probes: %" PRIu32,
       memtable_prefix_bloom_probes);
-  Log(log, " memtable_prefix_bloom_huge_page_tlb_size: %zu",
+  Log(log, " memtable_prefix_bloom_huge_page_tlb_size: %" ROCKSDB_PRIszt,
       memtable_prefix_bloom_huge_page_tlb_size);
-  Log(log, "                    max_successive_merges: %zu",
+  Log(log, "                    max_successive_merges: %" ROCKSDB_PRIszt,
       max_successive_merges);
   Log(log, "                           filter_deletes: %d",
       filter_deletes);
@@ -110,8 +113,6 @@ void MutableCFOptions::Dump(Logger* log) const {
   }
   result.resize(result.size() - 2);
   Log(log, "max_bytes_for_level_multiplier_additional: %s", result.c_str());
-  Log(log, "                 max_mem_compaction_level: %d",
-      max_mem_compaction_level);
   Log(log, "           verify_checksums_in_compaction: %d",
       verify_checksums_in_compaction);
   Log(log, "        max_sequential_skip_in_iterations: %" PRIu64,

@@ -18,19 +18,6 @@ GLIBC_REV=7397bed99280af5d9543439cdb7d018af7542720
 GLIBC_INCLUDE="/mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.20/gcc-4.9-glibc-2.20/99df8fc/include"
 GLIBC_LIBS=" -L /mnt/gvfs/third-party2/glibc/$GLIBC_REV/2.20/gcc-4.9-glibc-2.20/99df8fc/lib"
 
-# snappy and zlib depend are bundled with MongoDB so we wan't to pick up the bundled headers when
-# building for it and disable block compressors supported by RocksDB but not used by MongoDB.
-
-if [[ -n $ROCKSDB_FOR_MONGO ]]; then
-
-MONGO_SRC="$ROCKSDB_FOR_MONGO/src/third_party"
-SNAPPY_INCLUDE=" -I $MONGO_SRC/snappy-1.1.2"
-CFLAGS+=" -DSNAPPY"
-ZLIB_INCLUDE=" -I $MONGO_SRC/zlib-1.2.8"
-CFLAGS+=" -DZLIB"
-
-else
-
 SNAPPY_INCLUDE=" -I /mnt/gvfs/third-party2/snappy/b0f269b3ca47770121aa159b99e1d8d2ab260e1f/1.0.3/gcc-4.9-glibc-2.20/c32916f/include/"
 
 if test -z $PIC_BUILD; then
@@ -55,7 +42,6 @@ if test -z $PIC_BUILD; then
   LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/include/"
   LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
-fi
 fi
 
 # location of gflags headers and libraries
@@ -125,7 +111,7 @@ else
 fi
 
 CFLAGS+=" $DEPS_INCLUDE"
-CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT"
+CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE"
 CXXFLAGS+=" $CFLAGS"
 
 EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"

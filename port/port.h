@@ -16,5 +16,7 @@
 // of what the new port_<platform>.h file must provide.
 #if defined(ROCKSDB_PLATFORM_POSIX)
 #include "port/port_posix.h"
+#elif defined(OS_WIN)
+#include "port/win/port_win.h"
 #endif
 

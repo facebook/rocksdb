@@ -7,9 +7,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#include <algorithm>
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/slice.h"
 #include "util/string_util.h"
+#include <stdio.h>
 
 namespace rocksdb {
 
@@ -90,6 +92,27 @@ class NoopTransform : public SliceTransform {
   }
 };
 
+}
+
+// Do not want to include the whole /port/port.h here for one define
+#ifdef OS_WIN
+#define snprintf _snprintf
+#endif
+
+// Return a string that contains the copy of the referenced data.
+std::string Slice::ToString(bool hex) const {
+  std::string result;  // RVO/NRVO/move
+  if (hex) {
+    char buf[10];
+    for (size_t i = 0; i < size_; i++) {
+      snprintf(buf, 10, "%02X", (unsigned char)data_[i]);
+      result += buf;
+    }
+    return result;
+  } else {
+    result.assign(data_, size_);
+    return result;
+  }
 }
 
 const SliceTransform* NewFixedPrefixTransform(size_t prefix_len) {

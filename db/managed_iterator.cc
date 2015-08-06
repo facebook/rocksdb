@@ -93,6 +93,7 @@ ManagedIterator::~ManagedIterator() {
     snapshot_created_ = false;
     read_options_.snapshot = nullptr;
   }
+  UnLock();
 }
 
 bool ManagedIterator::Valid() const { return valid_; }

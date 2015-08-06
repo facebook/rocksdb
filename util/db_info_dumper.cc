@@ -62,10 +62,10 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
         break;
       case kLogFile:
         env->GetFileSize(dbname + "/" + file, &file_size);
-        char str[8];
+        char str[16];
         snprintf(str, sizeof(str), "%" PRIu64, file_size);
         wal_info.append(file).append(" size: ").
-            append(str, sizeof(str)).append(" ;");
+            append(str).append(" ; ");
         break;
       case kTableFile:
         if (++file_num < 10) {
@@ -115,10 +115,10 @@ void DumpDBFileSummary(const DBOptions& options, const std::string& dbname) {
       if (ParseFileName(file, &number, &type)) {
         if (type == kLogFile) {
           env->GetFileSize(options.wal_dir + "/" + file, &file_size);
-          char str[8];
+          char str[16];
           snprintf(str, sizeof(str), "%" PRIu64, file_size);
           wal_info.append(file).append(" size: ").
-              append(str, sizeof(str)).append(" ;");
+              append(str).append(" ; ");
         }
       }
     }

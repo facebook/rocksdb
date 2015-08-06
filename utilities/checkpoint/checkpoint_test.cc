@@ -7,7 +7,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+// Syncpoint prevents us building and running tests in release
+#ifndef ROCKSDB_LITE
+
+#if !defined(NDEBUG) || !defined(OS_WIN)
+
+#ifndef OS_WIN
 #include <unistd.h>
+#endif
 #include <iostream>
 #include <thread>
 #include <utility>
@@ -343,8 +350,24 @@ TEST_F(DBTest, CheckpointCF) {
 
 }  // namespace rocksdb
 
+#endif
+
 int main(int argc, char** argv) {
+#if !defined(NDEBUG) || !defined(OS_WIN)
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+#else
+  return 0;
+#endif
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as Checkpoint is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

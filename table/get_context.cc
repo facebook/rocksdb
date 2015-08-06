@@ -12,6 +12,24 @@
 
 namespace rocksdb {
 
+namespace {
+
+void appendToReplayLog(std::string* replay_log, ValueType type, Slice value) {
+#ifndef ROCKSDB_LITE
+  if (replay_log) {
+    if (replay_log->empty()) {
+      // Optimization: in the common case of only one operation in the
+      // log, we allocate the exact amount of space needed.
+      replay_log->reserve(1 + VarintLength(value.size()) + value.size());
+    }
+    replay_log->push_back(type);
+    PutLengthPrefixedSlice(replay_log, value);
+  }
+#endif  // ROCKSDB_LITE
+}
+
+}  // namespace
+
 GetContext::GetContext(const Comparator* ucmp,
                        const MergeOperator* merge_operator, Logger* logger,
                        Statistics* statistics, GetState init_state,
@@ -26,7 +44,8 @@ GetContext::GetContext(const Comparator* ucmp,
       value_(ret_value),
       value_found_(value_found),
       merge_context_(merge_context),
-      env_(env) {}
+      env_(env),
+      replay_log_(nullptr) {}
 
 // Called from TableCache::Get and Table::Get when file/block in which
 // key may exist are not there in TableCache/BlockCache respectively. In this
@@ -41,6 +60,9 @@ void GetContext::MarkKeyMayExist() {
 }
 
 void GetContext::SaveValue(const Slice& value) {
+  assert(state_ == kNotFound);
+  appendToReplayLog(replay_log_, kTypeValue, value);
+
   state_ = kFound;
   value_->assign(value.data(), value.size());
 }
@@ -50,6 +72,8 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
   if (ucmp_->Compare(parsed_key.user_key, user_key_) == 0) {
+    appendToReplayLog(replay_log_, parsed_key.type, value);
+
     // Key matches. Process it
     switch (parsed_key.type) {
       case kTypeValue:
@@ -114,6 +138,25 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
 
   // state_ could be Corrupt, merge or notfound
   return false;
+}
+
+void replayGetContextLog(const Slice& replay_log, const Slice& user_key,
+                         GetContext* get_context) {
+#ifndef ROCKSDB_LITE
+  Slice s = replay_log;
+  while (s.size()) {
+    auto type = static_cast<ValueType>(*s.data());
+    s.remove_prefix(1);
+    Slice value;
+    bool ret = GetLengthPrefixedSlice(&s, &value);
+    assert(ret);
+    (void)ret;
+    // Sequence number is ignored in SaveValue, so we just pass 0.
+    get_context->SaveValue(ParsedInternalKey(user_key, 0, type), value);
+  }
+#else   // ROCKSDB_LITE
+  assert(false);
+#endif  // ROCKSDB_LITE
 }
 
 }  // namespace rocksdb

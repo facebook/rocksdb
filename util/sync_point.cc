@@ -4,9 +4,24 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 
 #include "util/sync_point.h"
+#include "port/port.h"
+#include "util/random.h"
+
+int rocksdb_kill_odds = 0;
 
 #ifndef NDEBUG
 namespace rocksdb {
+
+void TestKillRandom(int odds, const std::string& srcfile, int srcline) {
+  time_t curtime = time(nullptr);
+  Random r((uint32_t)curtime);
+
+  assert(odds > 0);
+  bool crash = r.OneIn(odds);
+  if (crash) {
+    port::Crash(srcfile, srcline);
+  }
+}
 
 SyncPoint* SyncPoint::GetInstance() {
   static SyncPoint sync_point;

@@ -92,7 +92,7 @@ CROSS_COMPILE=
 PLATFORM_CCFLAGS=
 PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS"
 PLATFORM_SHARED_EXT="so"
-PLATFORM_SHARED_LDFLAGS="-shared -Wl,-soname -Wl,"
+PLATFORM_SHARED_LDFLAGS="-Wl,--no-as-needed -shared -Wl,-soname -Wl,"
 PLATFORM_SHARED_CFLAGS="-fPIC"
 PLATFORM_SHARED_VERSIONED=true
 
@@ -293,6 +293,18 @@ EOF
             PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -ltcmalloc"
             JAVA_LDFLAGS="$JAVA_LDFLAGS -ltcmalloc"
         fi
+    fi
+
+    # Test whether malloc_usable_size is available
+    $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <malloc.h>
+      int main() {
+        size_t res = malloc_usable_size(0);
+        return 0;
+      }
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DROCKSDB_MALLOC_USABLE_SIZE"
     fi
 fi
 

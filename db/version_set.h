@@ -186,12 +186,6 @@ class VersionStorageInfo {
   bool HasOverlappingUserKey(const std::vector<FileMetaData*>* inputs,
                              int level);
 
-  // Return the level at which we should place a new memtable compaction
-  // result that covers the range [smallest_user_key,largest_user_key].
-  int PickLevelForMemTableOutput(const MutableCFOptions& mutable_cf_options,
-                                 const Slice& smallest_user_key,
-                                 const Slice& largest_user_key);
-
   int num_levels() const { return num_levels_; }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -318,6 +312,9 @@ class VersionStorageInfo {
   void CalculateBaseBytes(const ImmutableCFOptions& ioptions,
                           const MutableCFOptions& options);
 
+  // Returns an estimate of the amount of live data in bytes.
+  uint64_t EstimateLiveDataSize() const;
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -420,7 +417,8 @@ class Version {
 
   // Loads some stats information from files. Call without mutex held. It needs
   // to be called before applying the version to the version set.
-  void PrepareApply(const MutableCFOptions& mutable_cf_options);
+  void PrepareApply(const MutableCFOptions& mutable_cf_options,
+                    bool update_stats);
 
   // Reference count management (so Versions do not disappear out from
   // under live iterators)
@@ -493,7 +491,7 @@ class Version {
 
   // Update the accumulated stats associated with the current version.
   // This accumulated stats will be used in compaction.
-  void UpdateAccumulatedStats();
+  void UpdateAccumulatedStats(bool update_stats);
 
   // Sort all files for this version based on their file size and
   // record results in files_by_size_. The largest files are listed first.
@@ -572,7 +570,7 @@ class VersionSet {
 
   // printf contents (for debugging)
   Status DumpManifest(Options& options, std::string& manifestFileName,
-                      bool verbose, bool hex = false);
+                      bool verbose, bool hex = false, bool json = false);
 
 #endif  // ROCKSDB_LITE
 
@@ -612,7 +610,9 @@ class VersionSet {
   uint64_t MinLogNumber() const {
     uint64_t min_log_num = std::numeric_limits<uint64_t>::max();
     for (auto cfd : *column_family_set_) {
-      if (min_log_num > cfd->GetLogNumber()) {
+      // It's safe to ignore dropped column families here:
+      // cfd->IsDropped() becomes true after the drop is persisted in MANIFEST.
+      if (min_log_num > cfd->GetLogNumber() && !cfd->IsDropped()) {
         min_log_num = cfd->GetLogNumber();
       }
     }

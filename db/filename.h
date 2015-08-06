@@ -25,7 +25,7 @@ namespace rocksdb {
 
 class Env;
 class Directory;
-class WritableFile;
+class WritableFileWriter;
 
 enum FileType {
   kLogFile,
@@ -66,7 +66,7 @@ extern std::string TableFileName(const std::vector<DbPath>& db_paths,
                                  uint64_t number, uint32_t path_id);
 
 // Sufficient buffer size for FormatFileNumber.
-extern const size_t kFormatFileNumberBufSize;
+const size_t kFormatFileNumberBufSize = 38;
 
 extern void FormatFileNumber(uint64_t number, uint32_t path_id, char* out_buf,
                              size_t out_buf_size);
@@ -140,6 +140,6 @@ extern Status SetIdentityFile(Env* env, const std::string& dbname);
 
 // Sync manifest file `file`.
 extern Status SyncManifest(Env* env, const DBOptions* db_options,
-                           WritableFile* file);
+                           WritableFileWriter* file);
 
 }  // namespace rocksdb

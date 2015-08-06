@@ -115,6 +115,7 @@ class DBIter: public Iterator {
   virtual void SeekToLast() override;
 
  private:
+  void ReverseToBackward();
   void PrevInternal();
   void FindParseableKey(ParsedInternalKey* ikey, Direction direction);
   bool FindValueForCurrentKey();
@@ -350,10 +351,36 @@ void DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   if (direction_ == kForward) {
-    FindPrevUserKey();
-    direction_ = kReverse;
+    ReverseToBackward();
   }
   PrevInternal();
+}
+
+void DBIter::ReverseToBackward() {
+  if (current_entry_is_merged_) {
+    // Not placed in the same key. Need to call Prev() until finding the
+    // previous key.
+    if (!iter_->Valid()) {
+      iter_->SeekToLast();
+    }
+    ParsedInternalKey ikey;
+    FindParseableKey(&ikey, kReverse);
+    while (iter_->Valid() &&
+           user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) > 0) {
+      iter_->Prev();
+      FindParseableKey(&ikey, kReverse);
+    }
+  }
+#ifndef NDEBUG
+  if (iter_->Valid()) {
+    ParsedInternalKey ikey;
+    assert(ParseKey(&ikey));
+    assert(user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0);
+  }
+#endif
+
+  FindPrevUserKey();
+  direction_ = kReverse;
 }
 
 void DBIter::PrevInternal() {
@@ -664,7 +691,28 @@ void DBIter::SeekToLast() {
     PERF_TIMER_GUARD(seek_internal_seek_time);
     iter_->SeekToLast();
   }
+  // When the iterate_upper_bound is set to a value,
+  // it will seek to the last key before the
+  // ReadOptions.iterate_upper_bound
+  if (iter_->Valid() && iterate_upper_bound_ != nullptr) {
+    saved_key_.SetKey(*iterate_upper_bound_);
+    std::string last_key;
+    AppendInternalKey(&last_key,
+                      ParsedInternalKey(saved_key_.GetKey(), kMaxSequenceNumber,
+                                        kValueTypeForSeek));
 
+    iter_->Seek(last_key);
+
+    if (!iter_->Valid()) {
+      iter_->SeekToLast();
+    } else {
+      iter_->Prev();
+      if (!iter_->Valid()) {
+        valid_ = false;
+        return;
+      }
+    }
+  }
   PrevInternal();
 }
 

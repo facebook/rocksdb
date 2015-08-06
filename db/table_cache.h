@@ -63,7 +63,7 @@ class TableCache {
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
-                   const bool no_io = false);
+                   const bool no_io = false, bool record_read_stats = true);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);
@@ -94,6 +94,7 @@ class TableCache {
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
+  std::string row_cache_id_;
 };
 
 }  // namespace rocksdb

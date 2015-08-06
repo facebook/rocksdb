@@ -8,6 +8,7 @@
 #include "rocksdb/sst_dump_tool.h"
 
 #include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -20,14 +21,15 @@
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/status.h"
-#include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "table/block.h"
+#include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_builder.h"
 #include "table/format.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
+#include "util/file_reader_writer.h"
 #include "util/ldb_cmd.h"
 #include "util/random.h"
 #include "util/testharness.h"
@@ -52,11 +54,17 @@ class SstFileReader {
   Status DumpTable(const std::string& out_filename);
   Status getStatus() { return init_result_; }
 
+  int ShowAllCompressionSizes(size_t block_size);
+
  private:
   // Get the TableReader implementation for the sst file
   Status GetTableReader(const std::string& file_path);
   Status ReadTableProperties(uint64_t table_magic_number,
-                             RandomAccessFile* file, uint64_t file_size);
+                             RandomAccessFileReader* file, uint64_t file_size);
+
+  uint64_t CalculateCompressedTableSize(const TableBuilderOptions& tb_options,
+                                        size_t block_size);
+
   Status SetTableOptionsByMagicNumber(uint64_t table_magic_number);
   Status SetOldTableOptions();
 
@@ -65,7 +73,7 @@ class SstFileReader {
   Status NewTableReader(const ImmutableCFOptions& ioptions,
                         const EnvOptions& soptions,
                         const InternalKeyComparator& internal_comparator,
-                        unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+                        uint64_t file_size,
                         unique_ptr<TableReader>* table_reader);
 
   std::string file_name_;
@@ -76,7 +84,7 @@ class SstFileReader {
 
   Status init_result_;
   unique_ptr<TableReader> table_reader_;
-  unique_ptr<RandomAccessFile> file_;
+  unique_ptr<RandomAccessFileReader> file_;
   // options_ and internal_comparator_ will also be used in
   // ReadSequential internally (specifically, seek-related operations)
   Options options_;

@@ -357,7 +357,9 @@ private:
    * Otherwise an exception is thrown.
    */
   bool StringToBool(string val) {
-    std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+    std::transform(val.begin(), val.end(), val.begin(),
+                   [](char ch) -> char { return ::tolower(ch); });
+
     if (val == "true") {
       return true;
     } else if (val == "false") {
@@ -505,9 +507,11 @@ public:
 
 private:
   bool verbose_;
+  bool json_;
   string path_;
 
   static const string ARG_VERBOSE;
+  static const string ARG_JSON;
   static const string ARG_PATH;
 };
 

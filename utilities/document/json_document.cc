@@ -484,7 +484,7 @@ std::string JSONDocument::DebugString() const {
 
 JSONDocument::ItemsIteratorGenerator JSONDocument::Items() const {
   assert(IsObject());
-  return ItemsIteratorGenerator(*(static_cast<fbson::ObjectVal*>(value_)));
+  return ItemsIteratorGenerator(*(reinterpret_cast<fbson::ObjectVal*>(value_)));
 }
 
 // TODO(icanadi) (perf) allocate objects with arena

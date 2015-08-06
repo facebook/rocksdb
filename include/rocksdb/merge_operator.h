@@ -54,7 +54,8 @@ class MergeOperator {
   //                   merge operation semantics
   // existing: (IN)    null indicates that the key does not exist before this op
   // operand_list:(IN) the sequence of merge operations to apply, front() first.
-  // new_value:(OUT)   Client is responsible for filling the merge result here
+  // new_value:(OUT)   Client is responsible for filling the merge result here.
+  // The string that new_value is pointing to will be empty.
   // logger:   (IN)    Client could use this to log errors during merge.
   //
   // Return true on success.
@@ -79,6 +80,8 @@ class MergeOperator {
   // *new_value should be constructed such that a call to
   // DB::Merge(key, *new_value) would yield the same result as a call
   // to DB::Merge(key, left_op) followed by DB::Merge(key, right_op).
+  //
+  // The string that new_value is pointing to will be empty.
   //
   // The default implementation of PartialMergeMulti will use this function
   // as a helper, for backward compatibility.  Any successor class of
@@ -116,6 +119,8 @@ class MergeOperator {
   // the same result as subquential individual calls to DB::Merge(key, operand)
   // for each operand in operand_list from front() to back().
   //
+  // The string that new_value is pointing to will be empty.
+  //
   // The PartialMergeMulti function will be called only when the list of
   // operands are long enough. The minimum amount of operands that will be
   // passed to the function are specified by the "min_partial_merge_operands"
@@ -147,7 +152,8 @@ class AssociativeMergeOperator : public MergeOperator {
   // key:           (IN) The key that's associated with this merge operation.
   // existing_value:(IN) null indicates the key does not exist before this op
   // value:         (IN) the value to update/merge the existing_value with
-  // new_value:    (OUT) Client is responsible for filling the merge result here
+  // new_value:    (OUT) Client is responsible for filling the merge result
+  // here. The string that new_value is pointing to will be empty.
   // logger:        (IN) Client could use this to log errors during merge.
   //
   // Return true on success.

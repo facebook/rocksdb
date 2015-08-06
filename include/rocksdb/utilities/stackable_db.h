@@ -6,6 +6,12 @@
 #include <string>
 #include "rocksdb/db.h"
 
+#ifdef _WIN32
+// Windows API macro interference
+#undef DeleteFile
+#endif
+
+
 namespace rocksdb {
 
 // This class contains APIs to stack rocksdb wrappers.Eg. Stack TTL over base d
@@ -184,6 +190,10 @@ class StackableDB : public DB {
   virtual Status Flush(const FlushOptions& fopts,
                        ColumnFamilyHandle* column_family) override {
     return db_->Flush(fopts, column_family);
+  }
+
+  virtual Status SyncWAL() override {
+    return db_->SyncWAL();
   }
 
 #ifndef ROCKSDB_LITE

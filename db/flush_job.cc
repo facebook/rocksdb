@@ -276,27 +276,13 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
   // Note that if file_size is zero, the file has been deleted and
   // should not be added to the manifest.
-  int level = 0;
   if (s.ok() && meta->fd.GetFileSize() > 0) {
-    const Slice min_user_key = meta->smallest.user_key();
-    const Slice max_user_key = meta->largest.user_key();
     // if we have more than 1 background thread, then we cannot
     // insert files directly into higher levels because some other
     // threads could be concurrently producing compacted files for
     // that key range.
-    if (base != nullptr && db_options_.max_background_compactions <= 1 &&
-        db_options_.max_background_flushes == 0 &&
-        cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
-      level = base->storage_info()->PickLevelForMemTableOutput(
-          mutable_cf_options_, min_user_key, max_user_key);
-      // If level does not match path id, reset level back to 0
-      uint32_t fdpath = LevelCompactionPicker::GetPathId(
-          *cfd_->ioptions(), mutable_cf_options_, level);
-      if (fdpath != 0) {
-        level = 0;
-      }
-    }
-    edit->AddFile(level, meta->fd.GetNumber(), meta->fd.GetPathId(),
+    // Add file to L0
+    edit->AddFile(0 /* level */, meta->fd.GetNumber(), meta->fd.GetPathId(),
                   meta->fd.GetFileSize(), meta->smallest, meta->largest,
                   meta->smallest_seqno, meta->largest_seqno,
                   meta->marked_for_compaction);
@@ -305,7 +291,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   InternalStats::CompactionStats stats(1);
   stats.micros = db_options_.env->NowMicros() - start_micros;
   stats.bytes_written = meta->fd.GetFileSize();
-  cfd_->internal_stats()->AddCompactionStats(level, stats);
+  cfd_->internal_stats()->AddCompactionStats(0 /* level */, stats);
   cfd_->internal_stats()->AddCFStats(InternalStats::BYTES_FLUSHED,
                                      meta->fd.GetFileSize());
   RecordTick(stats_, COMPACT_WRITE_BYTES, meta->fd.GetFileSize());

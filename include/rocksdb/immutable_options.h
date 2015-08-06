@@ -35,8 +35,6 @@ struct ImmutableCFOptions {
 
   CompactionFilterFactory* compaction_filter_factory;
 
-  CompactionFilterFactoryV2* compaction_filter_factory_v2;
-
   bool inplace_update_support;
 
   UpdateStatus (*inplace_callback)(char* existing_value,
@@ -98,6 +96,8 @@ struct ImmutableCFOptions {
   // A vector of EventListeners which call-back functions will be called
   // when specific RocksDB event happens.
   std::vector<std::shared_ptr<EventListener>> listeners;
+
+  std::shared_ptr<Cache> row_cache;
 };
 
 }  // namespace rocksdb

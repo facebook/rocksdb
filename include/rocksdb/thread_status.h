@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <stdint.h>
 #include <cstddef>
 #include <map>
 #include <string>
@@ -31,7 +32,11 @@ namespace rocksdb {
 
 // TODO(yhchiang): remove this function once c++14 is available
 //                 as std::max will be able to cover this.
-constexpr int constexpr_max(int a, int b) { return a > b ? a : b; }
+// Current MS compiler does not support constexpr
+template <int A, int B>
+struct constexpr_max {
+  static const int result = (A > B) ? A : B;
+};
 
 // A structure that describes the current status of a thread.
 // The status of active threads can be fetched using
@@ -62,7 +67,6 @@ struct ThreadStatus {
     STAGE_COMPACTION_PREPARE,
     STAGE_COMPACTION_RUN,
     STAGE_COMPACTION_PROCESS_KV,
-    STAGE_COMPACTION_FILTER_V2,
     STAGE_COMPACTION_INSTALL,
     STAGE_COMPACTION_SYNC_FILE,
     STAGE_PICK_MEMTABLES_TO_FLUSH,
@@ -91,7 +95,7 @@ struct ThreadStatus {
   // The maximum number of properties of an operation.
   // This number should be set to the biggest NUM_XXX_PROPERTIES.
   static const int kNumOperationProperties =
-      constexpr_max(NUM_COMPACTION_PROPERTIES, NUM_FLUSH_PROPERTIES);
+      constexpr_max<NUM_COMPACTION_PROPERTIES, NUM_FLUSH_PROPERTIES>::result;
 
   // The type used to refer to a thread state.
   // A state describes lower-level action of a thread

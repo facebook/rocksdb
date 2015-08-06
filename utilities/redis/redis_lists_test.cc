@@ -15,6 +15,7 @@
  * @author Deon Nicholas (dnicholas@fb.com)
  */
 
+#ifndef ROCKSDB_LITE
 
 #include <iostream>
 #include <cctype>
@@ -38,7 +39,8 @@ class RedisListsTest : public testing::Test {
   }
 };
 
-const string RedisListsTest::kDefaultDbName = "/tmp/redisdefaultdb/";
+const string RedisListsTest::kDefaultDbName =
+    test::TmpDir() + "/redis_lists_test";
 Options RedisListsTest::options = Options();
 
 // operator== and operator<< are defined below for vectors (lists)
@@ -882,3 +884,12 @@ int main(int argc, char* argv[]) {
   }
 }
 
+#else
+#include <stdio.h>
+
+int main(int argc, char* argv[]) {
+  fprintf(stderr, "SKIPPED as redis is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

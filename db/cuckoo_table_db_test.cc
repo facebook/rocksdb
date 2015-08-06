@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -39,7 +41,6 @@ class CuckooTableDBTest : public testing::Test {
     options.memtable_factory.reset(NewHashLinkListRepFactory(4, 0, 3, true));
     options.allow_mmap_reads = true;
     options.create_if_missing = true;
-    options.max_mem_compaction_level = 0;
     return options;
   }
 
@@ -320,3 +321,13 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as Cuckoo table is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // ROCKSDB_LITE

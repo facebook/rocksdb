@@ -22,6 +22,7 @@
 #include "table/block_prefix_index.h"
 #include "util/coding.h"
 #include "util/logging.h"
+#include "util/perf_context_imp.h"
 
 namespace rocksdb {
 
@@ -82,6 +83,7 @@ void BlockIter::Prev() {
 }
 
 void BlockIter::Seek(const Slice& target) {
+  PERF_TIMER_GUARD(block_seek_nanos);
   if (data_ == nullptr) {  // Not init yet
     return;
   }
@@ -359,7 +361,7 @@ void Block::SetBlockPrefixIndex(BlockPrefixIndex* prefix_index) {
 }
 
 size_t Block::ApproximateMemoryUsage() const {
-  size_t usage = size();
+  size_t usage = usable_size();
   if (hash_index_) {
     usage += hash_index_->ApproximateMemoryUsage();
   }

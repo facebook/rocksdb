@@ -35,6 +35,13 @@
 
 namespace rocksdb {
 
+const double GeoDBImpl::PI = 3.141592653589793;
+const double GeoDBImpl::EarthRadius = 6378137;
+const double GeoDBImpl::MinLatitude = -85.05112878;
+const double GeoDBImpl::MaxLatitude = 85.05112878;
+const double GeoDBImpl::MinLongitude = -180;
+const double GeoDBImpl::MaxLongitude = 180;
+
 GeoDBImpl::GeoDBImpl(DB* db, const GeoDBOptions& options) :
   GeoDB(db, options), db_(db), options_(options) {
 }

@@ -8,13 +8,20 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/arena.h"
+#ifndef OS_WIN
 #include <sys/mman.h>
+#endif
+#include "port/port.h"
 #include <algorithm>
 #include "rocksdb/env.h"
 
 namespace rocksdb {
 
+// MSVC complains that it is already defined since it is static in the header.
+#ifndef OS_WIN
 const size_t Arena::kInlineSize;
+#endif
+
 const size_t Arena::kMinBlockSize = 4096;
 const size_t Arena::kMaxBlockSize = 2 << 30;
 static const int kAlignUnit = sizeof(void*);
@@ -52,12 +59,15 @@ Arena::~Arena() {
   for (const auto& block : blocks_) {
     delete[] block;
   }
+
+#ifdef MAP_HUGETLB
   for (const auto& mmap_info : huge_blocks_) {
     auto ret = munmap(mmap_info.addr_, mmap_info.length_);
     if (ret != 0) {
       // TODO(sdong): Better handling
     }
   }
+#endif
 }
 
 char* Arena::AllocateFallback(size_t bytes, bool aligned) {

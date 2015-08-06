@@ -160,15 +160,21 @@ bool Compaction::IsTrivialMove() const {
 
   if (is_manual_compaction_ &&
       (cfd_->ioptions()->compaction_filter != nullptr ||
-       cfd_->ioptions()->compaction_filter_factory != nullptr ||
-       cfd_->ioptions()->compaction_filter_factory_v2 != nullptr)) {
+       cfd_->ioptions()->compaction_filter_factory != nullptr)) {
     // This is a manual compaction and we have a compaction filter that should
     // be executed, we cannot do a trivial move
     return false;
   }
 
+  // Used in universal compaction, where trivial move can be done if the
+  // input files are non overlapping
+  if ((cfd_->ioptions()->compaction_options_universal.allow_trivial_move) &&
+      (output_level_ != 0)) {
+    return is_trivial_move_;
+  }
+
   return (start_level_ != output_level_ && num_input_levels() == 1 &&
-          input(0, 0)->fd.GetPathId() == GetOutputPathId() &&
+          input(0, 0)->fd.GetPathId() == output_path_id() &&
           InputCompressionMatchesOutput() &&
           TotalFileSize(grandparents_) <= max_grandparent_overlap_bytes_);
 }
@@ -264,7 +270,8 @@ const char* Compaction::InputLevelSummary(
       is_first = false;
     }
     len += snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
-                    "%zu@%d", input_level.size(), input_level.level);
+                    "%" ROCKSDB_PRIszt "@%d", input_level.size(),
+                    input_level.level);
   }
   snprintf(scratch->buffer + len, sizeof(scratch->buffer) - len,
            " files to L%d", output_level());
@@ -367,20 +374,6 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
   context.is_manual_compaction = is_manual_compaction_;
   return cfd_->ioptions()->compaction_filter_factory->CreateCompactionFilter(
       context);
-}
-
-std::unique_ptr<CompactionFilterV2>
-    Compaction::CreateCompactionFilterV2() const {
-  if (!cfd_->ioptions()->compaction_filter_factory_v2) {
-    return nullptr;
-  }
-
-  CompactionFilterContext context;
-  context.is_full_compaction = is_full_compaction_;
-  context.is_manual_compaction = is_manual_compaction_;
-  return
-    cfd_->ioptions()->compaction_filter_factory_v2->CreateCompactionFilterV2(
-        context);
 }
 
 }  // namespace rocksdb

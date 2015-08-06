@@ -14,6 +14,8 @@
 namespace rocksdb {
 namespace crc32c {
 
+extern bool IsFastCrc32Supported();
+
 // Return the crc32c of concat(A, data[0,n-1]) where init_crc is the
 // crc32c of some string A.  Extend() is often used to maintain the
 // crc32c of a stream of data.

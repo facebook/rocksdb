@@ -308,10 +308,14 @@ class InMemoryEnv : public EnvWrapper {
     return Status::OK();
   }
 
-  virtual bool FileExists(const std::string& fname) override {
+  virtual Status FileExists(const std::string& fname) override {
     std::string nfname = NormalizeFileName(fname);
     MutexLock lock(&mutex_);
-    return file_map_.find(nfname) != file_map_.end();
+    if (file_map_.find(nfname) != file_map_.end()) {
+      return Status::OK();
+    } else {
+      return Status::NotFound();
+    }
   }
 
   virtual Status GetChildren(const std::string& dir,

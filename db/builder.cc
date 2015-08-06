@@ -21,6 +21,7 @@
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
 #include "table/block_based_table_builder.h"
+#include "util/file_reader_writer.h"
 #include "util/iostats_context_imp.h"
 #include "util/thread_status_util.h"
 #include "util/stop_watch.h"
@@ -34,7 +35,7 @@ TableBuilder* NewTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFile* file, const CompressionType compression_type,
+    WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters) {
   return ioptions.table_factory->NewTableBuilder(
       TableBuilderOptions(ioptions, internal_comparator,
@@ -64,7 +65,7 @@ Status BuildTable(
   // If the sequence number of the smallest entry in the memtable is
   // smaller than the most recent snapshot, then we do not trigger
   // removal of duplicate/deleted keys as part of this builder.
-  bool purge = ioptions.purge_redundant_kvs_while_flush;
+  bool purge = true;
   if (earliest_seqno_in_memtable <= newest_snapshot) {
     purge = false;
   }
@@ -72,16 +73,22 @@ Status BuildTable(
   std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
   if (iter->Valid()) {
-    unique_ptr<WritableFile> file;
-    s = env->NewWritableFile(fname, &file, env_options);
-    if (!s.ok()) {
-      return s;
-    }
-    file->SetIOPriority(io_priority);
+    TableBuilder* builder;
+    unique_ptr<WritableFileWriter> file_writer;
+    {
+      unique_ptr<WritableFile> file;
+      s = env->NewWritableFile(fname, &file, env_options);
+      if (!s.ok()) {
+        return s;
+      }
+      file->SetIOPriority(io_priority);
 
-    TableBuilder* builder = NewTableBuilder(
-        ioptions, internal_comparator, int_tbl_prop_collector_factories,
-        file.get(), compression, compression_opts);
+      file_writer.reset(new WritableFileWriter(std::move(file), env_options));
+
+      builder = NewTableBuilder(
+          ioptions, internal_comparator, int_tbl_prop_collector_factories,
+          file_writer.get(), compression, compression_opts);
+    }
 
     {
       // the first key is the smallest key
@@ -232,16 +239,11 @@ Status BuildTable(
 
     // Finish and check for file errors
     if (s.ok() && !ioptions.disable_data_sync) {
-      if (ioptions.use_fsync) {
-        StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-        s = file->Fsync();
-      } else {
-        StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
-        s = file->Sync();
-      }
+      StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
+      file_writer->Sync(ioptions.use_fsync);
     }
     if (s.ok()) {
-      s = file->Close();
+      s = file_writer->Close();
     }
 
     if (s.ok()) {

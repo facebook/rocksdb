@@ -19,7 +19,12 @@ class UtilityDB {
   // This function is here only for backwards compatibility. Please use the
   // functions defined in DBWithTTl (rocksdb/utilities/db_ttl.h)
   // (deprecated)
-  __attribute__((deprecated)) static Status OpenTtlDB(const Options& options,
+#if defined(__GNUC__) || defined(__clang__)
+  __attribute__((deprecated))
+#elif _WIN32
+   __declspec(deprecated)
+#endif
+    static Status OpenTtlDB(const Options& options,
                                                       const std::string& name,
                                                       StackableDB** dbptr,
                                                       int32_t ttl = 0,

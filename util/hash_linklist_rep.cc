@@ -82,11 +82,18 @@ struct Node {
 
   void NoBarrier_SetNext(Node* x) { next_.store(x, std::memory_order_relaxed); }
 
+  // Needed for placement new below which is fine
+  Node() {}
+
  private:
   std::atomic<Node*> next_;
 
+  // Prohibit copying due to the below
+  Node(const Node&) = delete;
+  Node& operator=(const Node&) = delete;
+
  public:
-  char key[0];
+  char key[1];
 };
 
 // Memory structure of the mem table:
@@ -587,9 +594,9 @@ void HashLinkListRep::Insert(KeyHandle handle) {
   if (bucket_entries_logging_threshold_ > 0 &&
       header->GetNumEntries() ==
           static_cast<uint32_t>(bucket_entries_logging_threshold_)) {
-    Info(logger_,
-         "HashLinkedList bucket %zu has more than %d "
-         "entries. Key to insert: %s",
+    Info(logger_, "HashLinkedList bucket %" ROCKSDB_PRIszt
+                  " has more than %d "
+                  "entries. Key to insert: %s",
          GetHash(transformed), header->GetNumEntries(),
          GetLengthPrefixedSlice(x->key).ToString(true).c_str());
   }

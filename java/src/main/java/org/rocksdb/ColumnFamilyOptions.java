@@ -145,6 +145,13 @@ public class ColumnFamilyOptions extends RocksObject
     return this;
   }
 
+  public ColumnFamilyOptions setCompactionFilter(
+        final AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter) {
+    setCompactionFilterHandle(nativeHandle_, compactionFilter.nativeHandle_);
+    compactionFilter_ = compactionFilter;
+    return this;
+  }
+
   @Override
   public ColumnFamilyOptions setWriteBufferSize(final long writeBufferSize) {
     assert(isInitialized());
@@ -188,6 +195,13 @@ public class ColumnFamilyOptions extends RocksObject
   public ColumnFamilyOptions useFixedLengthPrefixExtractor(final int n) {
     assert(isInitialized());
     useFixedLengthPrefixExtractor(nativeHandle_, n);
+    return this;
+  }
+
+  @Override
+  public ColumnFamilyOptions useCappedPrefixExtractor(final int n) {
+    assert(isInitialized());
+    useCappedPrefixExtractor(nativeHandle_, n);
     return this;
   }
 
@@ -276,13 +290,12 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public ColumnFamilyOptions setMaxMemCompactionLevel(
       final int maxMemCompactionLevel) {
-    setMaxMemCompactionLevel(nativeHandle_, maxMemCompactionLevel);
     return this;
   }
 
   @Override
   public int maxMemCompactionLevel() {
-    return maxMemCompactionLevel(nativeHandle_);
+    return 0;
   }
 
   @Override
@@ -466,6 +479,20 @@ public class ColumnFamilyOptions extends RocksObject
   @Override
   public CompactionStyle compactionStyle() {
     return CompactionStyle.values()[compactionStyle(nativeHandle_)];
+  }
+
+  @Override
+  public ColumnFamilyOptions setMaxTableFilesSizeFIFO(
+      final long maxTableFilesSize) {
+    assert(maxTableFilesSize > 0); // unsigned native type
+    assert(isInitialized());
+    setMaxTableFilesSizeFIFO(nativeHandle_, maxTableFilesSize);
+    return this;
+  }
+
+  @Override
+  public long maxTableFilesSizeFIFO() {
+    return maxTableFilesSizeFIFO(nativeHandle_);
   }
 
   @Override
@@ -666,6 +693,7 @@ public class ColumnFamilyOptions extends RocksObject
       long handle, String name);
   private native void setMergeOperator(
       long handle, long mergeOperatorHandle);
+  private native void setCompactionFilterHandle(long handle, long compactionFilterHandle);
   private native void setWriteBufferSize(long handle, long writeBufferSize)
       throws IllegalArgumentException;
   private native long writeBufferSize(long handle);
@@ -682,6 +710,8 @@ public class ColumnFamilyOptions extends RocksObject
   private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
+  private native void useCappedPrefixExtractor(
+      long handle, int prefixLength);
   private native void setNumLevels(
       long handle, int numLevels);
   private native int numLevels(long handle);
@@ -694,9 +724,6 @@ public class ColumnFamilyOptions extends RocksObject
   private native void setLevelZeroStopWritesTrigger(
       long handle, int numFiles);
   private native int levelZeroStopWritesTrigger(long handle);
-  private native void setMaxMemCompactionLevel(
-      long handle, int maxMemCompactionLevel);
-  private native int maxMemCompactionLevel(long handle);
   private native void setTargetFileSizeBase(
       long handle, long targetFileSizeBase);
   private native long targetFileSizeBase(long handle);
@@ -740,6 +767,9 @@ public class ColumnFamilyOptions extends RocksObject
   private native boolean disableAutoCompactions(long handle);
   private native void setCompactionStyle(long handle, byte compactionStyle);
   private native byte compactionStyle(long handle);
+   private native void setMaxTableFilesSizeFIFO(
+      long handle, long max_table_files_size);
+  private native long maxTableFilesSizeFIFO(long handle);
   private native void setPurgeRedundantKvsWhileFlush(
       long handle, boolean purgeRedundantKvsWhileFlush);
   private native boolean purgeRedundantKvsWhileFlush(long handle);
@@ -786,4 +816,5 @@ public class ColumnFamilyOptions extends RocksObject
   MemTableConfig memTableConfig_;
   TableFormatConfig tableFormatConfig_;
   AbstractComparator<? extends AbstractSlice<?>> comparator_;
+  AbstractCompactionFilter<? extends AbstractSlice<?>> compactionFilter_;
 }

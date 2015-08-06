@@ -3,6 +3,9 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+
+#ifndef ROCKSDB_LITE
+
 #include "rocksdb/db.h"
 #include "db/db_impl.h"
 #include "db/version_set.h"
@@ -21,8 +24,7 @@ public:
     db_ = nullptr;
   }
 
-  Status OpenDB(bool create_if_missing, int levels,
-      int mem_table_compact_level);
+  Status OpenDB(bool create_if_missing, int levels);
 
   Status Put(const std::string& k, const std::string& v) {
     return db_->Put(WriteOptions(), k, v);
@@ -40,12 +42,19 @@ public:
     return result;
   }
 
-  Status CompactMemTable() {
+  Status Flush() {
     if (db_ == nullptr) {
       return Status::InvalidArgument("DB not opened.");
     }
     DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
     return db_impl->TEST_FlushMemTable();
+  }
+
+  void MoveL0FileToLevel(int level) {
+    DBImpl* db_impl = reinterpret_cast<DBImpl*>(db_);
+    for (int i = 0; i < level; ++i) {
+      ASSERT_OK(db_impl->TEST_CompactRange(i, nullptr, nullptr));
+    }
   }
 
   void CloseDB() {
@@ -69,13 +78,10 @@ private:
   DB* db_;
 };
 
-Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels,
-    int mem_table_compact_level) {
+Status ReduceLevelTest::OpenDB(bool create_if_missing, int num_levels) {
   rocksdb::Options opt;
   opt.num_levels = num_levels;
   opt.create_if_missing = create_if_missing;
-  opt.max_mem_compaction_level = mem_table_compact_level;
-  opt.max_background_flushes = 0;
   rocksdb::Status st = rocksdb::DB::Open(opt, dbname_, &db_);
   if (!st.ok()) {
     fprintf(stderr, "Can't open the db:%s\n", st.ToString().c_str());
@@ -95,71 +101,73 @@ bool ReduceLevelTest::ReduceLevels(int target_level) {
 }
 
 TEST_F(ReduceLevelTest, Last_Level) {
-  // create files on all levels;
-  ASSERT_OK(OpenDB(true, 4, 3));
+  ASSERT_OK(OpenDB(true, 4));
   ASSERT_OK(Put("aaaa", "11111"));
-  ASSERT_OK(CompactMemTable());
+  Flush();
+  MoveL0FileToLevel(3);
   ASSERT_EQ(FilesOnLevel(3), 1);
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(3));
-  ASSERT_OK(OpenDB(true, 3, 1));
+  ASSERT_OK(OpenDB(true, 3));
   ASSERT_EQ(FilesOnLevel(2), 1);
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(2));
-  ASSERT_OK(OpenDB(true, 2, 1));
+  ASSERT_OK(OpenDB(true, 2));
   ASSERT_EQ(FilesOnLevel(1), 1);
   CloseDB();
 }
 
 TEST_F(ReduceLevelTest, Top_Level) {
-  // create files on all levels;
-  ASSERT_OK(OpenDB(true, 5, 0));
+  ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("aaaa", "11111"));
-  ASSERT_OK(CompactMemTable());
+  Flush();
   ASSERT_EQ(FilesOnLevel(0), 1);
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(4));
-  ASSERT_OK(OpenDB(true, 4, 0));
+  ASSERT_OK(OpenDB(true, 4));
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(3));
-  ASSERT_OK(OpenDB(true, 3, 0));
+  ASSERT_OK(OpenDB(true, 3));
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(2));
-  ASSERT_OK(OpenDB(true, 2, 0));
+  ASSERT_OK(OpenDB(true, 2));
   CloseDB();
 }
 
 TEST_F(ReduceLevelTest, All_Levels) {
-  // create files on all levels;
-  ASSERT_OK(OpenDB(true, 5, 1));
+  ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("a", "a11111"));
-  ASSERT_OK(CompactMemTable());
-  ASSERT_EQ(FilesOnLevel(1), 1);
+  ASSERT_OK(Flush());
+  MoveL0FileToLevel(4);
+  ASSERT_EQ(FilesOnLevel(4), 1);
   CloseDB();
 
-  ASSERT_OK(OpenDB(true, 5, 2));
+  ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("b", "b11111"));
-  ASSERT_OK(CompactMemTable());
-  ASSERT_EQ(FilesOnLevel(1), 1);
-  ASSERT_EQ(FilesOnLevel(2), 1);
+  ASSERT_OK(Flush());
+  MoveL0FileToLevel(3);
+  ASSERT_EQ(FilesOnLevel(3), 1);
+  ASSERT_EQ(FilesOnLevel(4), 1);
   CloseDB();
 
-  ASSERT_OK(OpenDB(true, 5, 3));
+  ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("c", "c11111"));
-  ASSERT_OK(CompactMemTable());
-  ASSERT_EQ(FilesOnLevel(1), 1);
+  ASSERT_OK(Flush());
+  MoveL0FileToLevel(2);
   ASSERT_EQ(FilesOnLevel(2), 1);
   ASSERT_EQ(FilesOnLevel(3), 1);
+  ASSERT_EQ(FilesOnLevel(4), 1);
   CloseDB();
 
-  ASSERT_OK(OpenDB(true, 5, 4));
+  ASSERT_OK(OpenDB(true, 5));
   ASSERT_OK(Put("d", "d11111"));
-  ASSERT_OK(CompactMemTable());
+  ASSERT_OK(Flush());
+  MoveL0FileToLevel(1);
   ASSERT_EQ(FilesOnLevel(1), 1);
   ASSERT_EQ(FilesOnLevel(2), 1);
   ASSERT_EQ(FilesOnLevel(3), 1);
@@ -167,7 +175,7 @@ TEST_F(ReduceLevelTest, All_Levels) {
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(4));
-  ASSERT_OK(OpenDB(true, 4, 0));
+  ASSERT_OK(OpenDB(true, 4));
   ASSERT_EQ("a11111", Get("a"));
   ASSERT_EQ("b11111", Get("b"));
   ASSERT_EQ("c11111", Get("c"));
@@ -175,7 +183,7 @@ TEST_F(ReduceLevelTest, All_Levels) {
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(3));
-  ASSERT_OK(OpenDB(true, 3, 0));
+  ASSERT_OK(OpenDB(true, 3));
   ASSERT_EQ("a11111", Get("a"));
   ASSERT_EQ("b11111", Get("b"));
   ASSERT_EQ("c11111", Get("c"));
@@ -183,7 +191,7 @@ TEST_F(ReduceLevelTest, All_Levels) {
   CloseDB();
 
   ASSERT_TRUE(ReduceLevels(2));
-  ASSERT_OK(OpenDB(true, 2, 0));
+  ASSERT_OK(OpenDB(true, 2));
   ASSERT_EQ("a11111", Get("a"));
   ASSERT_EQ("b11111", Get("b"));
   ASSERT_EQ("c11111", Get("c"));
@@ -197,3 +205,13 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as LDBCommand is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

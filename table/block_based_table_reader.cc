@@ -37,6 +37,7 @@
 #include "table/get_context.h"
 
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/string_util.h"
@@ -62,7 +63,7 @@ const size_t kMaxCacheKeyPrefixSize __attribute__((unused)) =
 // The only relevant option is options.verify_checksums for now.
 // On failure return non-OK.
 // On success fill *result and return OK - caller owns *result
-Status ReadBlockFromFile(RandomAccessFile* file, const Footer& footer,
+Status ReadBlockFromFile(RandomAccessFileReader* file, const Footer& footer,
                          const ReadOptions& options, const BlockHandle& handle,
                          std::unique_ptr<Block>* result, Env* env,
                          bool do_uncompress = true) {
@@ -147,6 +148,8 @@ class BlockBasedTable::IndexReader {
 
   // The size of the index.
   virtual size_t size() const = 0;
+  // Memory usage of the index block
+  virtual size_t usable_size() const = 0;
 
   // Report an approximation of how much memory has been used other than memory
   // that was allocated in block cache.
@@ -165,7 +168,7 @@ class BinarySearchIndexReader : public IndexReader {
   // `BinarySearchIndexReader`.
   // On success, index_reader will be populated; otherwise it will remain
   // unmodified.
-  static Status Create(RandomAccessFile* file, const Footer& footer,
+  static Status Create(RandomAccessFileReader* file, const Footer& footer,
                        const BlockHandle& index_handle, Env* env,
                        const Comparator* comparator,
                        IndexReader** index_reader) {
@@ -187,6 +190,9 @@ class BinarySearchIndexReader : public IndexReader {
   }
 
   virtual size_t size() const override { return index_block_->size(); }
+  virtual size_t usable_size() const override {
+    return index_block_->usable_size();
+  }
 
   virtual size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
@@ -207,8 +213,8 @@ class BinarySearchIndexReader : public IndexReader {
 class HashIndexReader : public IndexReader {
  public:
   static Status Create(const SliceTransform* hash_key_extractor,
-                       const Footer& footer, RandomAccessFile* file, Env* env,
-                       const Comparator* comparator,
+                       const Footer& footer, RandomAccessFileReader* file,
+                       Env* env, const Comparator* comparator,
                        const BlockHandle& index_handle,
                        Iterator* meta_index_iter, IndexReader** index_reader,
                        bool hash_index_allow_collision) {
@@ -295,6 +301,9 @@ class HashIndexReader : public IndexReader {
   }
 
   virtual size_t size() const override { return index_block_->size(); }
+  virtual size_t usable_size() const override {
+    return index_block_->usable_size();
+  }
 
   virtual size_t ApproximateMemoryUsage() const override {
     assert(index_block_);
@@ -339,7 +348,7 @@ struct BlockBasedTable::Rep {
   const FilterPolicy* const filter_policy;
   const InternalKeyComparator& internal_comparator;
   Status status;
-  unique_ptr<RandomAccessFile> file;
+  unique_ptr<RandomAccessFileReader> file;
   char cache_key_prefix[kMaxCacheKeyPrefixSize];
   size_t cache_key_prefix_size = 0;
   char compressed_cache_key_prefix[kMaxCacheKeyPrefixSize];
@@ -397,13 +406,12 @@ void BlockBasedTable::SetupCacheKeyPrefix(Rep* rep) {
   rep->cache_key_prefix_size = 0;
   rep->compressed_cache_key_prefix_size = 0;
   if (rep->table_options.block_cache != nullptr) {
-    GenerateCachePrefix(rep->table_options.block_cache.get(), rep->file.get(),
-                        &rep->cache_key_prefix[0],
-                        &rep->cache_key_prefix_size);
+    GenerateCachePrefix(rep->table_options.block_cache.get(), rep->file->file(),
+                        &rep->cache_key_prefix[0], &rep->cache_key_prefix_size);
   }
   if (rep->table_options.block_cache_compressed != nullptr) {
     GenerateCachePrefix(rep->table_options.block_cache_compressed.get(),
-                        rep->file.get(), &rep->compressed_cache_key_prefix[0],
+                        rep->file->file(), &rep->compressed_cache_key_prefix[0],
                         &rep->compressed_cache_key_prefix_size);
   }
 }
@@ -461,7 +469,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
                              const EnvOptions& env_options,
                              const BlockBasedTableOptions& table_options,
                              const InternalKeyComparator& internal_comparator,
-                             unique_ptr<RandomAccessFile>&& file,
+                             unique_ptr<RandomAccessFileReader>&& file,
                              uint64_t file_size,
                              unique_ptr<TableReader>* table_reader,
                              const bool prefetch_index_and_filter) {
@@ -702,9 +710,9 @@ Status BlockBasedTable::GetDataBlockFromCache(
     assert(block->value->compression_type() == kNoCompression);
     if (block_cache != nullptr && block->value->cachable() &&
         read_options.fill_cache) {
-      block->cache_handle =
-          block_cache->Insert(block_cache_key, block->value,
-                              block->value->size(), &DeleteCachedEntry<Block>);
+      block->cache_handle = block_cache->Insert(block_cache_key, block->value,
+                                                block->value->usable_size(),
+                                                &DeleteCachedEntry<Block>);
       assert(reinterpret_cast<Block*>(
                  block_cache->Value(block->cache_handle)) == block->value);
     }
@@ -747,7 +755,7 @@ Status BlockBasedTable::PutDataBlockToCache(
   if (block_cache_compressed != nullptr && raw_block != nullptr &&
       raw_block->cachable()) {
     auto cache_handle = block_cache_compressed->Insert(
-        compressed_block_cache_key, raw_block, raw_block->size(),
+        compressed_block_cache_key, raw_block, raw_block->usable_size(),
         &DeleteCachedEntry<Block>);
     block_cache_compressed->Release(cache_handle);
     RecordTick(statistics, BLOCK_CACHE_COMPRESSED_MISS);
@@ -759,9 +767,9 @@ Status BlockBasedTable::PutDataBlockToCache(
   // insert into uncompressed block cache
   assert((block->value->compression_type() == kNoCompression));
   if (block_cache != nullptr && block->value->cachable()) {
-    block->cache_handle =
-        block_cache->Insert(block_cache_key, block->value, block->value->size(),
-                            &DeleteCachedEntry<Block>);
+    block->cache_handle = block_cache->Insert(block_cache_key, block->value,
+                                              block->value->usable_size(),
+                                              &DeleteCachedEntry<Block>);
     RecordTick(statistics, BLOCK_CACHE_ADD);
     assert(reinterpret_cast<Block*>(block_cache->Value(block->cache_handle)) ==
            block->value);
@@ -822,6 +830,8 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     return {rep_->filter.get(), nullptr /* cache handle */};
   }
 
+  PERF_TIMER_GUARD(read_filter_block_nanos);
+
   Cache* block_cache = rep_->table_options.block_cache.get();
   if (rep_->filter_policy == nullptr /* do not use filter */ ||
       block_cache == nullptr /* no block cache at all */) {
@@ -873,6 +883,7 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
     return rep_->index_reader->NewIterator(
         input_iter, read_options.total_order_seek);
   }
+  PERF_TIMER_GUARD(read_index_block_nanos);
 
   bool no_io = read_options.read_tier == kBlockCacheTier;
   Cache* block_cache = rep_->table_options.block_cache.get();
@@ -913,8 +924,9 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
       }
     }
 
-    cache_handle = block_cache->Insert(key, index_reader, index_reader->size(),
-                                       &DeleteCachedEntry<IndexReader>);
+    cache_handle =
+        block_cache->Insert(key, index_reader, index_reader->usable_size(),
+                            &DeleteCachedEntry<IndexReader>);
     RecordTick(statistics, BLOCK_CACHE_ADD);
   }
 
@@ -932,6 +944,8 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
 Iterator* BlockBasedTable::NewDataBlockIterator(Rep* rep,
     const ReadOptions& ro, const Slice& index_value,
     BlockIter* input_iter) {
+  PERF_TIMER_GUARD(new_table_block_iter_nanos);
+
   const bool no_io = (ro.read_tier == kBlockCacheTier);
   Cache* block_cache = rep->table_options.block_cache.get();
   Cache* block_cache_compressed =

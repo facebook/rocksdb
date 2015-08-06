@@ -296,6 +296,15 @@ class BackupableDBOptionsJni : public RocksDBNativeClass<
   }
 };
 
+class BackupEngineJni : public RocksDBNativeClass<
+    rocksdb::BackupEngine*, BackupEngineJni> {
+ public:
+  static jclass getJClass(JNIEnv* env) {
+    return RocksDBNativeClass::getJClass(env,
+        "org/rocksdb/BackupEngine");
+  }
+};
+
 // The portal class for org.rocksdb.RocksIterator
 class IteratorJni : public RocksDBNativeClass<
     rocksdb::Iterator*, IteratorJni> {

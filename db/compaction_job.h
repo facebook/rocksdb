@@ -58,7 +58,6 @@ class CompactionJob {
                 Statistics* stats,
                 std::vector<SequenceNumber> existing_snapshots,
                 std::shared_ptr<Cache> table_cache,
-                std::function<uint64_t()> yield_callback,
                 EventLogger* event_logger, bool paranoid_file_checks,
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats);
@@ -74,23 +73,31 @@ class CompactionJob {
   void Prepare();
   // REQUIRED mutex not held
   Status Run();
+
   // REQUIRED: mutex held
   // status is the return of Run()
   void Install(Status* status, const MutableCFOptions& mutable_cf_options,
                InstrumentedMutex* db_mutex);
 
  private:
+  // REQUIRED: mutex not held
+  Status SubCompactionRun(Slice* start, Slice* end);
+
+  void GetSubCompactionBoundaries();
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
-  // Call compaction filter if is_compaction_v2 is not true. Then iterate
-  // through input and compact the kv-pairs
+  // Call compaction filter. Then iterate through input and compact the
+  // kv-pairs
   Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input,
-                                   bool is_compaction_v2);
-  // Call compaction_filter_v2->Filter() on kv-pairs in compact
-  void CallCompactionFilterV2(CompactionFilterV2* compaction_filter_v2,
-                              uint64_t* time);
-  Status FinishCompactionOutputFile(Iterator* input);
+                                    Slice* start = nullptr,
+                                    Slice* end = nullptr);
+
+  Status WriteKeyValue(const Slice& key, const Slice& value,
+                       const ParsedInternalKey& ikey,
+                       const Status& input_status);
+
+  Status FinishCompactionOutputFile(const Status& input_status);
   Status InstallCompactionResults(InstrumentedMutex* db_mutex,
                                   const MutableCFOptions& mutable_cf_options);
   SequenceNumber findEarliestVisibleSnapshot(
@@ -105,9 +112,11 @@ class CompactionJob {
                          int64_t* key_drop_newer_entry,
                          int64_t* key_drop_obsolete);
 
-  void UpdateCompactionInputStats();
+  void UpdateCompactionStats();
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
+
+  void LogCompaction(ColumnFamilyData* cfd, Compaction* compaction);
 
   int job_id_;
 
@@ -141,12 +150,10 @@ class CompactionJob {
   std::vector<SequenceNumber> existing_snapshots_;
   std::shared_ptr<Cache> table_cache_;
 
-  // yield callback
-  std::function<uint64_t()> yield_callback_;
-
   EventLogger* event_logger_;
 
   bool paranoid_file_checks_;
+  std::vector<Slice> sub_compaction_boundaries_;
 };
 
 }  // namespace rocksdb

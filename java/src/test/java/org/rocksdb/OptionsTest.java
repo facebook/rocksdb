@@ -143,21 +143,6 @@ public class OptionsTest {
   }
 
   @Test
-  public void maxMemCompactionLevel() {
-    Options opt = null;
-    try {
-      opt = new Options();
-      int intValue = rand.nextInt();
-      opt.setMaxMemCompactionLevel(intValue);
-      assertThat(opt.maxMemCompactionLevel()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void targetFileSizeBase() {
     Options opt = null;
     try {
@@ -1109,6 +1094,25 @@ public class OptionsTest {
   }
 
   @Test
+  public void maxTableFilesSizeFIFO() {
+    Options opt = null;
+    try {
+      opt = new Options();
+      long longValue = rand.nextLong();
+      // Size has to be positive
+      longValue = (longValue < 0) ? -longValue : longValue;
+      longValue = (longValue == 0) ? longValue + 1 : longValue;
+      opt.setMaxTableFilesSizeFIFO(longValue);
+      assertThat(opt.maxTableFilesSizeFIFO()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
+      }
+    }
+  }
+
+  @Test
   public void rateLimiterConfig() {
     Options options = null;
     Options anotherOptions = null;
@@ -1144,6 +1148,21 @@ public class OptionsTest {
       }
     }
   }
+
+  @Test
+  public void shouldSetTestCappedPrefixExtractor() {
+    Options options = null;
+    try {
+      options = new Options();
+      options.useCappedPrefixExtractor(100);
+      options.useCappedPrefixExtractor(10);
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
 
   @Test
   public void shouldTestMemTableFactoryName()

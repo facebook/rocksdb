@@ -18,6 +18,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "table/table_reader.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -26,12 +27,11 @@ class TableReader;
 
 class CuckooTableReader: public TableReader {
  public:
-  CuckooTableReader(
-      const ImmutableCFOptions& ioptions,
-      std::unique_ptr<RandomAccessFile>&& file,
-      uint64_t file_size,
-      const Comparator* user_comparator,
-      uint64_t (*get_slice_hash)(const Slice&, uint32_t, uint64_t));
+  CuckooTableReader(const ImmutableCFOptions& ioptions,
+                    std::unique_ptr<RandomAccessFileReader>&& file,
+                    uint64_t file_size, const Comparator* user_comparator,
+                    uint64_t (*get_slice_hash)(const Slice&, uint32_t,
+                                               uint64_t));
   ~CuckooTableReader() {}
 
   std::shared_ptr<const TableProperties> GetTableProperties() const override {
@@ -57,7 +57,7 @@ class CuckooTableReader: public TableReader {
  private:
   friend class CuckooTableIterator;
   void LoadAllKeys(std::vector<std::pair<Slice, uint32_t>>* key_to_bucket_id);
-  std::unique_ptr<RandomAccessFile> file_;
+  std::unique_ptr<RandomAccessFileReader> file_;
   Slice file_data_;
   bool is_last_level_;
   bool identity_as_first_hash_;

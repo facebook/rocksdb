@@ -56,8 +56,9 @@ class GeoDBImpl : public GeoDB {
   const WriteOptions woptions_;
   const ReadOptions roptions_;
 
+  // MSVC requires the definition for this static const to be in .CC file
   // The value of PI
-  static constexpr double PI = 3.141592653589793;
+  static const double PI;
 
   // convert degrees to radians
   static double radians(double x);
@@ -95,11 +96,12 @@ class GeoDBImpl : public GeoDB {
   // http://www.tuicool.com/articles/NBrE73
   //
   const int Detail = 23;
-  static constexpr double EarthRadius = 6378137;
-  static constexpr double MinLatitude = -85.05112878;
-  static constexpr double MaxLatitude = 85.05112878;
-  static constexpr double MinLongitude = -180;
-  static constexpr double MaxLongitude = 180;
+  // MSVC requires the definition for this static const to be in .CC file
+  static const double EarthRadius;
+  static const double MinLatitude;
+  static const double MaxLatitude;
+  static const double MinLongitude;
+  static const double MaxLongitude;
 
   // clips a number to the specified minimum and maximum values.
   static double clip(double n, double minValue, double maxValue) {

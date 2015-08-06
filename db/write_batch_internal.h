@@ -92,6 +92,10 @@ class WriteBatchInternal {
   // this batch.
   static void SetSequence(WriteBatch* batch, SequenceNumber seq);
 
+  // Returns the offset of the first entry in the batch.
+  // This offset is only valid if the batch is not empty.
+  static size_t GetFirstOffset(WriteBatch* batch);
+
   static Slice Contents(const WriteBatch* batch) {
     return Slice(batch->rep_);
   }

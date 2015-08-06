@@ -15,6 +15,7 @@
 
 #include <inttypes.h>
 #include <limits>
+#include <queue>
 #include <string>
 #include <utility>
 
@@ -37,6 +38,69 @@ uint64_t TotalCompensatedFileSize(const std::vector<FileMetaData*>& files) {
   return sum;
 }
 
+// Universal compaction is not supported in ROCKSDB_LITE
+#ifndef ROCKSDB_LITE
+
+// Used in universal compaction when trivial move is enabled.
+// This structure is used for the construction of min heap
+// that contains the file meta data, the level of the file
+// and the index of the file in that level
+
+struct InputFileInfo {
+  InputFileInfo() : f(nullptr) {}
+
+  FileMetaData* f;
+  size_t level;
+  size_t index;
+};
+
+// Used in universal compaction when trivial move is enabled.
+// This comparator is used for the construction of min heap
+// based on the smallest key of the file.
+struct UserKeyComparator {
+  explicit UserKeyComparator(const Comparator* ucmp) { ucmp_ = ucmp; }
+
+  bool operator()(InputFileInfo i1, InputFileInfo i2) const {
+    return (ucmp_->Compare(i1.f->smallest.user_key(),
+                           i2.f->smallest.user_key()) > 0);
+  }
+
+ private:
+  const Comparator* ucmp_;
+};
+
+typedef std::priority_queue<InputFileInfo, std::vector<InputFileInfo>,
+                            UserKeyComparator> SmallestKeyHeap;
+
+// This function creates the heap that is used to find if the files are
+// overlapping during universal compaction when the allow_trivial_move
+// is set.
+SmallestKeyHeap create_level_heap(Compaction* c, const Comparator* ucmp) {
+  SmallestKeyHeap smallest_key_priority_q =
+      SmallestKeyHeap(UserKeyComparator(ucmp));
+
+  InputFileInfo input_file;
+
+  for (size_t l = 0; l < c->num_input_levels(); l++) {
+    if (c->num_input_files(l) != 0) {
+      if (l == 0 && c->start_level() == 0) {
+        for (size_t i = 0; i < c->num_input_files(0); i++) {
+          input_file.f = c->input(0, i);
+          input_file.level = 0;
+          input_file.index = i;
+          smallest_key_priority_q.push(std::move(input_file));
+        }
+      } else {
+        input_file.f = c->input(l, 0);
+        input_file.level = l;
+        input_file.index = 0;
+        smallest_key_priority_q.push(std::move(input_file));
+      }
+    }
+  }
+  return smallest_key_priority_q;
+}
+#endif  // !ROCKSDB_LITE
 }  // anonymous namespace
 
 // Determine compression type, based on user options, level of the output
@@ -342,8 +406,9 @@ bool CompactionPicker::SetupOtherInputs(
       if (expanded1.size() == output_level_inputs->size() &&
           !FilesInCompaction(expanded1)) {
         Log(InfoLogLevel::INFO_LEVEL, ioptions_.info_log,
-            "[%s] Expanding@%d %zu+%zu (%" PRIu64 "+%" PRIu64
-            " bytes) to %zu+%zu (%" PRIu64 "+%" PRIu64 "bytes)\n",
+            "[%s] Expanding@%d %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt "(%" PRIu64
+            "+%" PRIu64 " bytes) to %" ROCKSDB_PRIszt "+%" ROCKSDB_PRIszt
+            " (%" PRIu64 "+%" PRIu64 "bytes)\n",
             cf_name.c_str(), input_level, inputs->size(),
             output_level_inputs->size(), inputs0_size, inputs1_size,
             expanded0.size(), expanded1.size(), expanded0_size, inputs1_size);
@@ -645,7 +710,12 @@ Status CompactionPicker::SanitizeCompactionInputFilesForAllLevels(
     aggregated_file_meta.largestkey = largestkey;
 
     // For all lower levels, include all overlapping files.
-    for (int m = l + 1; m <= output_level; ++m) {
+    // We need to add overlapping files from the current level too because even
+    // if there no input_files in level l, we would still need to add files
+    // which overlap with the range containing the input_files in levels 0 to l
+    // Level 0 doesn't need to be handled this way because files are sorted by
+    // time and not by key
+    for (int m = std::max(l, 1); m <= output_level; ++m) {
       for (auto& next_lv_file : levels[m].files) {
         if (HaveOverlappingKeyRanges(
             comparator, aggregated_file_meta, next_lv_file)) {
@@ -1049,7 +1119,7 @@ void UniversalCompactionPicker::SortedRun::DumpSizeInfo(
 
 std::vector<UniversalCompactionPicker::SortedRun>
 UniversalCompactionPicker::CalculateSortedRuns(
-    const VersionStorageInfo& vstorage) {
+    const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions) {
   std::vector<UniversalCompactionPicker::SortedRun> ret;
   for (FileMetaData* f : vstorage.LevelFiles(0)) {
     ret.emplace_back(0, f, f->fd.GetFileSize(), f->compensated_file_size,
@@ -1063,10 +1133,18 @@ UniversalCompactionPicker::CalculateSortedRuns(
     for (FileMetaData* f : vstorage.LevelFiles(level)) {
       total_compensated_size += f->compensated_file_size;
       total_size += f->fd.GetFileSize();
-      // Compaction always includes all files for a non-zero level, so for a
-      // non-zero level, all the files should share the same being_compacted
-      // value.
-      assert(is_first || f->being_compacted == being_compacted);
+      if (ioptions.compaction_options_universal.allow_trivial_move == true) {
+        if (f->being_compacted) {
+          being_compacted = f->being_compacted;
+        }
+      } else {
+        // Compaction always includes all files for a non-zero level, so for a
+        // non-zero level, all the files should share the same being_compacted
+        // value.
+        // This assumption is only valid when
+        // ioptions.compaction_options_universal.allow_trivial_move is false
+        assert(is_first || f->being_compacted == being_compacted);
+      }
       if (is_first) {
         being_compacted = f->being_compacted;
         is_first = false;
@@ -1106,6 +1184,50 @@ void GetSmallestLargestSeqno(const std::vector<FileMetaData*>& files,
 }  // namespace
 #endif
 
+// Algorithm that checks to see if there are any overlapping
+// files in the input
+bool CompactionPicker::IsInputNonOverlapping(Compaction* c) {
+  auto comparator = icmp_->user_comparator();
+  int first_iter = 1;
+
+  InputFileInfo prev, curr, next;
+
+  SmallestKeyHeap smallest_key_priority_q =
+      create_level_heap(c, icmp_->user_comparator());
+
+  while (!smallest_key_priority_q.empty()) {
+    curr = smallest_key_priority_q.top();
+    smallest_key_priority_q.pop();
+
+    if (first_iter) {
+      prev = curr;
+      first_iter = 0;
+    } else {
+      if (comparator->Compare(prev.f->largest.user_key(),
+                              curr.f->smallest.user_key()) >= 0) {
+        // found overlapping files, return false
+        return false;
+      }
+      assert(comparator->Compare(curr.f->largest.user_key(),
+                                 prev.f->largest.user_key()) > 0);
+      prev = curr;
+    }
+
+    next.f = nullptr;
+
+    if (curr.level != 0 && curr.index < c->num_input_files(curr.level) - 1) {
+      next.f = c->input(curr.level, curr.index + 1);
+      next.level = curr.level;
+      next.index = curr.index + 1;
+    }
+
+    if (next.f) {
+      smallest_key_priority_q.push(std::move(next));
+    }
+  }
+  return true;
+}
+
 // Universal style of compaction. Pick files that are contiguous in
 // time-range to compact.
 //
@@ -1114,7 +1236,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     VersionStorageInfo* vstorage, LogBuffer* log_buffer) {
   const int kLevel0 = 0;
   double score = vstorage->CompactionScore(kLevel0);
-  std::vector<SortedRun> sorted_runs = CalculateSortedRuns(*vstorage);
+  std::vector<SortedRun> sorted_runs =
+      CalculateSortedRuns(*vstorage, ioptions_);
 
   if (sorted_runs.size() <
       (unsigned int)mutable_cf_options.level0_file_num_compaction_trigger) {
@@ -1122,7 +1245,8 @@ Compaction* UniversalCompactionPicker::PickCompaction(
     return nullptr;
   }
   VersionStorageInfo::LevelSummaryStorage tmp;
-  LogToBuffer(log_buffer, 3072, "[%s] Universal: sorted runs files(%zu): %s\n",
+  LogToBuffer(log_buffer, 3072,
+              "[%s] Universal: sorted runs files(%" ROCKSDB_PRIszt "): %s\n",
               cf_name.c_str(), sorted_runs.size(),
               vstorage->LevelSummary(&tmp));
 
@@ -1166,6 +1290,10 @@ Compaction* UniversalCompactionPicker::PickCompaction(
   }
   if (c == nullptr) {
     return nullptr;
+  }
+
+  if (ioptions_.compaction_options_universal.allow_trivial_move == true) {
+    c->set_is_trivial_move(IsInputNonOverlapping(c));
   }
 
 // validate that all the chosen files of L0 are non overlapping in time

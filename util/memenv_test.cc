@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+#ifndef ROCKSDB_LITE
+
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -33,7 +35,7 @@ TEST_F(MemEnvTest, Basics) {
   ASSERT_OK(env_->CreateDir("/dir"));
 
   // Check that the directory is empty.
-  ASSERT_TRUE(!env_->FileExists("/dir/non_existent"));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists("/dir/non_existent"));
   ASSERT_TRUE(!env_->GetFileSize("/dir/non_existent", &file_size).ok());
   ASSERT_OK(env_->GetChildren("/dir", &children));
   ASSERT_EQ(0U, children.size());
@@ -43,7 +45,7 @@ TEST_F(MemEnvTest, Basics) {
   writable_file.reset();
 
   // Check that the file exists.
-  ASSERT_TRUE(env_->FileExists("/dir/f"));
+  ASSERT_OK(env_->FileExists("/dir/f"));
   ASSERT_OK(env_->GetFileSize("/dir/f", &file_size));
   ASSERT_EQ(0U, file_size);
   ASSERT_OK(env_->GetChildren("/dir", &children));
@@ -62,8 +64,8 @@ TEST_F(MemEnvTest, Basics) {
   // Check that renaming works.
   ASSERT_TRUE(!env_->RenameFile("/dir/non_existent", "/dir/g").ok());
   ASSERT_OK(env_->RenameFile("/dir/f", "/dir/g"));
-  ASSERT_TRUE(!env_->FileExists("/dir/f"));
-  ASSERT_TRUE(env_->FileExists("/dir/g"));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists("/dir/f"));
+  ASSERT_OK(env_->FileExists("/dir/g"));
   ASSERT_OK(env_->GetFileSize("/dir/g", &file_size));
   ASSERT_EQ(3U, file_size);
 
@@ -80,7 +82,7 @@ TEST_F(MemEnvTest, Basics) {
   // Check that deleting works.
   ASSERT_TRUE(!env_->DeleteFile("/dir/non_existent").ok());
   ASSERT_OK(env_->DeleteFile("/dir/g"));
-  ASSERT_TRUE(!env_->FileExists("/dir/g"));
+  ASSERT_EQ(Status::NotFound(), env_->FileExists("/dir/g"));
   ASSERT_OK(env_->GetChildren("/dir", &children));
   ASSERT_EQ(0U, children.size());
   ASSERT_OK(env_->DeleteDir("/dir"));
@@ -239,3 +241,13 @@ int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED as MemEnv is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

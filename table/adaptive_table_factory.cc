@@ -6,6 +6,7 @@
 #include "table/adaptive_table_factory.h"
 
 #include "table/format.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -40,8 +41,9 @@ extern const uint64_t kCuckooTableMagicNumber;
 
 Status AdaptiveTableFactory::NewTableReader(
     const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-    const InternalKeyComparator& icomp, unique_ptr<RandomAccessFile>&& file,
-    uint64_t file_size, unique_ptr<TableReader>* table) const {
+    const InternalKeyComparator& icomp,
+    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    unique_ptr<TableReader>* table) const {
   Footer footer;
   auto s = ReadFooterFromFile(file.get(), file_size, &footer);
   if (!s.ok()) {
@@ -65,7 +67,7 @@ Status AdaptiveTableFactory::NewTableReader(
 
 TableBuilder* AdaptiveTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options,
-    WritableFile* file) const {
+    WritableFileWriter* file) const {
   return table_factory_to_write_->NewTableBuilder(table_builder_options, file);
 }
 

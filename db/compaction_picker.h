@@ -105,6 +105,12 @@ class CompactionPicker {
       const VersionStorageInfo* vstorage,
       const CompactionOptions& compact_options) const;
 
+  // Used in universal compaction when the enabled_trivial_move
+  // option is set. Checks whether there are any overlapping files
+  // in the input. Returns true if the input files are non
+  // overlapping.
+  bool IsInputNonOverlapping(Compaction* c);
+
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }
 
@@ -269,7 +275,7 @@ class UniversalCompactionPicker : public CompactionPicker {
       const std::vector<SortedRun>& sorted_runs, LogBuffer* log_buffer);
 
   static std::vector<SortedRun> CalculateSortedRuns(
-      const VersionStorageInfo& vstorage);
+      const VersionStorageInfo& vstorage, const ImmutableCFOptions& ioptions);
 
   // Pick a path ID to place a newly generated file, with its estimated file
   // size.

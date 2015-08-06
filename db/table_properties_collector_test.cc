@@ -18,6 +18,7 @@
 #include "table/plain_table_factory.h"
 #include "table/table_builder.h"
 #include "util/coding.h"
+#include "util/file_reader_writer.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
@@ -31,74 +32,17 @@ class TablePropertiesTest : public testing::Test,
   bool backward_mode_;
 };
 
-// TODO(kailiu) the following classes should be moved to some more general
-// places, so that other tests can also make use of them.
-// `FakeWritableFile` and `FakeRandomeAccessFile` bypass the real file system
-// and therefore enable us to quickly setup the tests.
-class FakeWritableFile : public WritableFile {
- public:
-  ~FakeWritableFile() { }
-
-  const std::string& contents() const { return contents_; }
-
-  virtual Status Close() override { return Status::OK(); }
-  virtual Status Flush() override { return Status::OK(); }
-  virtual Status Sync() override { return Status::OK(); }
-
-  virtual Status Append(const Slice& data) override {
-    contents_.append(data.data(), data.size());
-    return Status::OK();
-  }
-
- private:
-  std::string contents_;
-};
-
-
-class FakeRandomeAccessFile : public RandomAccessFile {
- public:
-  explicit FakeRandomeAccessFile(const Slice& contents)
-      : contents_(contents.data(), contents.size()) {
-  }
-
-  virtual ~FakeRandomeAccessFile() { }
-
-  uint64_t Size() const { return contents_.size(); }
-
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override {
-    if (offset > contents_.size()) {
-      return Status::InvalidArgument("invalid Read offset");
-    }
-    if (offset + n > contents_.size()) {
-      n = contents_.size() - offset;
-    }
-    memcpy(scratch, &contents_[offset], n);
-    *result = Slice(scratch, n);
-    return Status::OK();
-  }
-
- private:
-  std::string contents_;
-};
-
-
-class DumbLogger : public Logger {
- public:
-  using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {}
-  virtual size_t GetLogFileSize() const override { return 0; }
-};
-
 // Utilities test functions
 namespace {
 void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                  const InternalKeyComparator& internal_comparator,
                  const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
                      int_tbl_prop_collector_factories,
-                 std::unique_ptr<FakeWritableFile>* writable,
+                 std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
-  writable->reset(new FakeWritableFile);
+  unique_ptr<WritableFile> wf(new test::StringSink);
+  writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
+
   builder->reset(NewTableBuilder(
       ioptions, internal_comparator, int_tbl_prop_collector_factories,
       writable->get(), options.compression, options.compression_opts));
@@ -267,8 +211,8 @@ class FlushBlockEveryThreePolicyFactory : public FlushBlockPolicyFactory {
   }
 };
 
-extern uint64_t kBlockBasedTableMagicNumber;
-extern uint64_t kPlainTableMagicNumber;
+extern const uint64_t kBlockBasedTableMagicNumber;
+extern const uint64_t kPlainTableMagicNumber;
 namespace {
 void TestCustomizedTablePropertiesCollector(
     bool backward_mode, uint64_t magic_number, bool test_int_tbl_prop_collector,
@@ -289,7 +233,7 @@ void TestCustomizedTablePropertiesCollector(
 
   // -- Step 1: build table
   std::unique_ptr<TableBuilder> builder;
-  std::unique_ptr<FakeWritableFile> writable;
+  std::unique_ptr<WritableFileWriter> writer;
   const ImmutableCFOptions ioptions(options);
   std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
       int_tbl_prop_collector_factories;
@@ -300,7 +244,7 @@ void TestCustomizedTablePropertiesCollector(
     GetIntTblPropCollectorFactory(options, &int_tbl_prop_collector_factories);
   }
   MakeBuilder(options, ioptions, internal_comparator,
-              &int_tbl_prop_collector_factories, &writable, &builder);
+              &int_tbl_prop_collector_factories, &writer, &builder);
 
   SequenceNumber seqNum = 0U;
   for (const auto& kv : kvs) {
@@ -310,18 +254,17 @@ void TestCustomizedTablePropertiesCollector(
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
+  writer->Flush();
 
   // -- Step 2: Read properties
-  FakeRandomeAccessFile readable(writable->contents());
+  test::StringSink* fwf =
+      static_cast<test::StringSink*>(writer->writable_file());
+  std::unique_ptr<RandomAccessFileReader> fake_file_reader(
+      test::GetRandomAccessFileReader(
+          new test::StringSource(fwf->contents())));
   TableProperties* props;
-  Status s = ReadTableProperties(
-      &readable,
-      writable->contents().size(),
-      magic_number,
-      Env::Default(),
-      nullptr,
-      &props
-  );
+  Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
+                                 magic_number, Env::Default(), nullptr, &props);
   std::unique_ptr<TableProperties> props_guard(props);
   ASSERT_OK(s);
 
@@ -363,10 +306,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
   // for block based table
   for (bool encode_as_internal : { true, false }) {
-    if (!backward_mode_ && !encode_as_internal) {
-      continue;
-    }
-
     Options options;
     BlockBasedTableOptions table_options;
     table_options.flush_block_policy_factory =
@@ -383,6 +322,7 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
                                            kBlockBasedTableMagicNumber,
                                            encode_as_internal, options, ikc);
 
+#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
     // test plain table
     PlainTableOptions plain_table_options;
     plain_table_options.user_key_len = 8;
@@ -394,6 +334,7 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
     TestCustomizedTablePropertiesCollector(backward_mode_,
                                            kPlainTableMagicNumber,
                                            encode_as_internal, options, ikc);
+#endif  // !ROCKSDB_LITE
   }
 }
 
@@ -412,7 +353,7 @@ void TestInternalKeyPropertiesCollector(
   };
 
   std::unique_ptr<TableBuilder> builder;
-  std::unique_ptr<FakeWritableFile> writable;
+  std::unique_ptr<WritableFileWriter> writable;
   Options options;
   test::PlainInternalKeyComparator pikc(options.comparator);
 
@@ -427,7 +368,7 @@ void TestInternalKeyPropertiesCollector(
     auto comparator = options.comparator;
     // HACK: Set options.info_log to avoid writing log in
     // SanitizeOptions().
-    options.info_log = std::make_shared<DumbLogger>();
+    options.info_log = std::make_shared<test::NullLogger>();
     options = SanitizeOptions("db",            // just a place holder
                               &pikc,
                               options);
@@ -447,12 +388,16 @@ void TestInternalKeyPropertiesCollector(
     }
 
     ASSERT_OK(builder->Finish());
+    writable->Flush();
 
-    FakeRandomeAccessFile readable(writable->contents());
+    test::StringSink* fwf =
+        static_cast<test::StringSink*>(writable->writable_file());
+    unique_ptr<RandomAccessFileReader> reader(test::GetRandomAccessFileReader(
+        new test::StringSource(fwf->contents())));
     TableProperties* props;
     Status s =
-        ReadTableProperties(&readable, writable->contents().size(),
-                            magic_number, Env::Default(), nullptr, &props);
+        ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,
+                            Env::Default(), nullptr, &props);
     ASSERT_OK(s);
 
     std::unique_ptr<TableProperties> props_guard(props);
@@ -495,6 +440,7 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
         std::make_shared<BlockBasedTableFactory>());
   }
 
+#ifndef ROCKSDB_LITE  // PlainTable is not supported in Lite
   PlainTableOptions plain_table_options;
   plain_table_options.user_key_len = 8;
   plain_table_options.bloom_bits_per_key = 8;
@@ -503,6 +449,7 @@ TEST_P(TablePropertiesTest, InternalKeyPropertiesCollector) {
   TestInternalKeyPropertiesCollector(
       backward_mode_, kPlainTableMagicNumber, false /* not sanitize */,
       std::make_shared<PlainTableFactory>(plain_table_options));
+#endif  // !ROCKSDB_LITE
 }
 
 INSTANTIATE_TEST_CASE_P(InternalKeyPropertiesCollector, TablePropertiesTest,

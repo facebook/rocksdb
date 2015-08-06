@@ -105,6 +105,11 @@ abstract class AbstractSlice<T> extends RocksObject {
     return compare0(nativeHandle_, other.nativeHandle_);
   }
 
+  @Override
+  public int hashCode() {
+    return toString().hashCode();
+  }
+
   /**
    * If other is a slice object, then
    * we defer to {@link #compare(AbstractSlice) compare}

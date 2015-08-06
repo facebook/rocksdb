@@ -15,9 +15,9 @@
 #include <inttypes.h>
 
 #include "rocksdb/cache.h"
+#include "rocksdb/convenience.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table.h"
-#include "rocksdb/utilities/convenience.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
 #include "util/random.h"
@@ -51,12 +51,12 @@ Options PrintAndGetOptions(size_t total_write_buffer_limit,
   StderrLogger logger;
 
   if (FLAGS_enable_print) {
-    printf(
-        "---- total_write_buffer_limit: %zu "
-        "read_amplification_threshold: %d write_amplification_threshold: %d "
-        "target_db_size %" PRIu64 " ----\n",
-        total_write_buffer_limit, read_amplification_threshold,
-        write_amplification_threshold, target_db_size);
+    printf("---- total_write_buffer_limit: %" ROCKSDB_PRIszt
+           " "
+           "read_amplification_threshold: %d write_amplification_threshold: %d "
+           "target_db_size %" PRIu64 " ----\n",
+           total_write_buffer_limit, read_amplification_threshold,
+           write_amplification_threshold, target_db_size);
   }
 
   Options options =
@@ -110,7 +110,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"level0_file_num_compaction_trigger", "8"},
       {"level0_slowdown_writes_trigger", "9"},
       {"level0_stop_writes_trigger", "10"},
-      {"max_mem_compaction_level", "11"},
       {"target_file_size_base", "12"},
       {"target_file_size_multiplier", "13"},
       {"max_bytes_for_level_base", "14"},
@@ -124,7 +123,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"hard_rate_limit", "2.1"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
-      {"purge_redundant_kvs_while_flush", "1"},
       {"compaction_style", "kCompactionStyleLevel"},
       {"verify_checksums_in_compaction", "false"},
       {"compaction_options_fifo", "23"},
@@ -199,7 +197,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.level0_file_num_compaction_trigger, 8);
   ASSERT_EQ(new_cf_opt.level0_slowdown_writes_trigger, 9);
   ASSERT_EQ(new_cf_opt.level0_stop_writes_trigger, 10);
-  ASSERT_EQ(new_cf_opt.max_mem_compaction_level, 11);
   ASSERT_EQ(new_cf_opt.target_file_size_base, static_cast<uint64_t>(12));
   ASSERT_EQ(new_cf_opt.target_file_size_multiplier, 13);
   ASSERT_EQ(new_cf_opt.max_bytes_for_level_base, 14U);
@@ -216,7 +213,6 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.hard_rate_limit, 2.1);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
-  ASSERT_EQ(new_cf_opt.purge_redundant_kvs_while_flush, true);
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
   ASSERT_EQ(new_cf_opt.verify_checksums_in_compaction, false);
   ASSERT_EQ(new_cf_opt.compaction_options_fifo.max_table_files_size,
@@ -327,26 +323,33 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // Missing option name
   ASSERT_NOK(GetColumnFamilyOptionsFromString(base_cf_opt,
              "write_buffer_size=13; =100;", &new_cf_opt));
+
+  const int64_t kilo = 1024UL;
+  const int64_t mega = 1024 * kilo;
+  const int64_t giga = 1024 * mega;
+  const int64_t tera = 1024 * giga;
+
   // Units (k)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "memtable_prefix_bloom_bits=14k;max_write_buffer_number=-15K",
             &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 14UL*1024UL);
-  ASSERT_EQ(new_cf_opt.max_write_buffer_number, -15*1024);
+  ASSERT_EQ(new_cf_opt.memtable_prefix_bloom_bits, 14UL * kilo);
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number, -15 * kilo);
   // Units (m)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "max_write_buffer_number=16m;inplace_update_num_locks=17M",
             &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16*1024*1024);
-  ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17*1024UL*1024UL);
+  ASSERT_EQ(new_cf_opt.max_write_buffer_number, 16 * mega);
+  ASSERT_EQ(new_cf_opt.inplace_update_num_locks, 17 * mega);
   // Units (g)
   ASSERT_OK(GetColumnFamilyOptionsFromString(
       base_cf_opt,
       "write_buffer_size=18g;prefix_extractor=capped:8;"
       "arena_block_size=19G",
       &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 18*1024UL*1024UL*1024UL);
-  ASSERT_EQ(new_cf_opt.arena_block_size, 19*1024UL*1024UL*1024UL);
+
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 18 * giga);
+  ASSERT_EQ(new_cf_opt.arena_block_size, 19 * giga);
   ASSERT_TRUE(new_cf_opt.prefix_extractor.get() != nullptr);
   std::string prefix_name(new_cf_opt.prefix_extractor->Name());
   ASSERT_EQ(prefix_name, "rocksdb.CappedPrefix.8");
@@ -354,8 +357,8 @@ TEST_F(OptionsTest, GetColumnFamilyOptionsFromStringTest) {
   // Units (t)
   ASSERT_OK(GetColumnFamilyOptionsFromString(base_cf_opt,
             "write_buffer_size=20t;arena_block_size=21T", &new_cf_opt));
-  ASSERT_EQ(new_cf_opt.write_buffer_size, 20*1024UL*1024UL*1024UL*1024UL);
-  ASSERT_EQ(new_cf_opt.arena_block_size, 21*1024UL*1024UL*1024UL*1024UL);
+  ASSERT_EQ(new_cf_opt.write_buffer_size, 20 * tera);
+  ASSERT_EQ(new_cf_opt.arena_block_size, 21 * tera);
 
   // Nested block based table options
   // Emtpy

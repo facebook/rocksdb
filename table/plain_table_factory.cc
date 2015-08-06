@@ -14,12 +14,11 @@
 
 namespace rocksdb {
 
-Status PlainTableFactory::NewTableReader(const ImmutableCFOptions& ioptions,
-                                         const EnvOptions& env_options,
-                                         const InternalKeyComparator& icomp,
-                                         unique_ptr<RandomAccessFile>&& file,
-                                         uint64_t file_size,
-                                         unique_ptr<TableReader>* table) const {
+Status PlainTableFactory::NewTableReader(
+    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
+    const InternalKeyComparator& icomp,
+    unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
+    unique_ptr<TableReader>* table) const {
   return PlainTableReader::Open(ioptions, env_options, icomp, std::move(file),
                                 file_size, table, bloom_bits_per_key_,
                                 hash_table_ratio_, index_sparseness_,
@@ -28,7 +27,7 @@ Status PlainTableFactory::NewTableReader(const ImmutableCFOptions& ioptions,
 
 TableBuilder* PlainTableFactory::NewTableBuilder(
     const TableBuilderOptions& table_builder_options,
-    WritableFile* file) const {
+    WritableFileWriter* file) const {
   // Ignore the skip_filters flag. PlainTable format is optimized for small
   // in-memory dbs. The skip_filters optimization is not useful for plain
   // tables
@@ -55,10 +54,10 @@ std::string PlainTableFactory::GetPrintableTableOptions() const {
   snprintf(buffer, kBufferSize, "  hash_table_ratio: %lf\n",
            hash_table_ratio_);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  index_sparseness: %zu\n",
+  snprintf(buffer, kBufferSize, "  index_sparseness: %" ROCKSDB_PRIszt "\n",
            index_sparseness_);
   ret.append(buffer);
-  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %zu\n",
+  snprintf(buffer, kBufferSize, "  huge_page_tlb_size: %" ROCKSDB_PRIszt "\n",
            huge_page_tlb_size_);
   ret.append(buffer);
   snprintf(buffer, kBufferSize, "  encoding_type: %d\n",

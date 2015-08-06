@@ -13,17 +13,11 @@
 #include "db/writebuffer.h"
 #include "rocksdb/db.h"
 #include "rocksdb/status.h"
+#include "util/testutil.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 
 namespace rocksdb {
-
-class DumbLogger : public Logger {
- public:
-  using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {}
-  virtual size_t GetLogFileSize() const override { return 0; }
-};
 
 class MemTableListTest : public testing::Test {
  public:
@@ -58,7 +52,7 @@ class MemTableListTest : public testing::Test {
       MemTableList* list, const MutableCFOptions& mutable_cf_options,
       const autovector<MemTable*>& m, autovector<MemTable*>* to_delete) {
     // Create a mock Logger
-    DumbLogger logger;
+    test::NullLogger logger;
     LogBuffer log_buffer(DEBUG_LEVEL, &logger);
 
     // Create a mock VersionSet

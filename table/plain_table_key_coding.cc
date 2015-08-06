@@ -6,8 +6,9 @@
 #ifndef ROCKSDB_LITE
 #include "table/plain_table_key_coding.h"
 
-#include "table/plain_table_factory.h"
 #include "db/dbformat.h"
+#include "table/plain_table_factory.h"
+#include "util/file_reader_writer.h"
 
 namespace rocksdb {
 
@@ -64,7 +65,8 @@ const char* DecodeSize(const char* offset, const char* limit,
 }
 }  // namespace
 
-Status PlainTableKeyEncoder::AppendKey(const Slice& key, WritableFile* file,
+Status PlainTableKeyEncoder::AppendKey(const Slice& key,
+                                       WritableFileWriter* file,
                                        uint64_t* offset, char* meta_bytes_buf,
                                        size_t* meta_bytes_buf_size) {
   ParsedInternalKey parsed_key;

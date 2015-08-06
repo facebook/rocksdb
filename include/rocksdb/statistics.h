@@ -74,8 +74,13 @@ enum Tickers : uint32_t {
   NUMBER_KEYS_READ,
   // Number keys updated, if inplace update is enabled
   NUMBER_KEYS_UPDATED,
-  // Bytes written / read
+  // The number of uncompressed bytes issued by DB::Put(), DB::Delete(),
+  // DB::Merge(), and DB::Write().
   BYTES_WRITTEN,
+  // The number of uncompressed bytes read from DB::Get().  It could be
+  // either from memtables, cache, or table files.
+  // For the number of logical bytes read from DB::MultiGet(),
+  // please use NUMBER_MULTIGET_BYTES_READ.
   BYTES_READ,
   NO_FILE_CLOSES,
   NO_FILE_OPENS,
@@ -141,6 +146,11 @@ enum Tickers : uint32_t {
   NUMBER_BLOCK_NOT_COMPRESSED,
   MERGE_OPERATION_TOTAL_TIME,
   FILTER_OPERATION_TOTAL_TIME,
+
+  // Row cache.
+  ROW_CACHE_HIT,
+  ROW_CACHE_MISS,
+
   TICKER_ENUM_MAX
 };
 
@@ -196,7 +206,6 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {WAL_FILE_BYTES, "rocksdb.wal.bytes"},
     {WRITE_DONE_BY_SELF, "rocksdb.write.self"},
     {WRITE_DONE_BY_OTHER, "rocksdb.write.other"},
-    {WRITE_TIMEDOUT, "rocksdb.write.timedout"},
     {WRITE_WITH_WAL, "rocksdb.write.wal"},
     {FLUSH_WRITE_BYTES, "rocksdb.flush.write.bytes"},
     {COMPACT_READ_BYTES, "rocksdb.compact.read.bytes"},
@@ -209,6 +218,8 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_BLOCK_NOT_COMPRESSED, "rocksdb.number.block.not_compressed"},
     {MERGE_OPERATION_TOTAL_TIME, "rocksdb.merge.operation.time.nanos"},
     {FILTER_OPERATION_TOTAL_TIME, "rocksdb.filter.operation.time.nanos"},
+    {ROW_CACHE_HIT, "rocksdb.row.cache.hit"},
+    {ROW_CACHE_MISS, "rocksdb.row.cache.miss"},
 };
 
 /**
@@ -240,30 +251,32 @@ enum Histograms : uint32_t {
   NUM_FILES_IN_SINGLE_COMPACTION,
   DB_SEEK,
   WRITE_STALL,
+  SST_READ_MICROS,
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
 
 const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
-  { DB_GET, "rocksdb.db.get.micros" },
-  { DB_WRITE, "rocksdb.db.write.micros" },
-  { COMPACTION_TIME, "rocksdb.compaction.times.micros" },
-  { TABLE_SYNC_MICROS, "rocksdb.table.sync.micros" },
-  { COMPACTION_OUTFILE_SYNC_MICROS, "rocksdb.compaction.outfile.sync.micros" },
-  { WAL_FILE_SYNC_MICROS, "rocksdb.wal.file.sync.micros" },
-  { MANIFEST_FILE_SYNC_MICROS, "rocksdb.manifest.file.sync.micros" },
-  { TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros" },
-  { DB_MULTIGET, "rocksdb.db.multiget.micros" },
-  { READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros" },
-  { READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros" },
-  { WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros" },
-  { STALL_L0_SLOWDOWN_COUNT, "rocksdb.l0.slowdown.count"},
-  { STALL_MEMTABLE_COMPACTION_COUNT, "rocksdb.memtable.compaction.count"},
-  { STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
-  { HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
-  { SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
-  { NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction" },
-  { DB_SEEK, "rocksdb.db.seek.micros" },
-  { WRITE_STALL, "rocksdb.db.write.stall" },
+    {DB_GET, "rocksdb.db.get.micros"},
+    {DB_WRITE, "rocksdb.db.write.micros"},
+    {COMPACTION_TIME, "rocksdb.compaction.times.micros"},
+    {TABLE_SYNC_MICROS, "rocksdb.table.sync.micros"},
+    {COMPACTION_OUTFILE_SYNC_MICROS, "rocksdb.compaction.outfile.sync.micros"},
+    {WAL_FILE_SYNC_MICROS, "rocksdb.wal.file.sync.micros"},
+    {MANIFEST_FILE_SYNC_MICROS, "rocksdb.manifest.file.sync.micros"},
+    {TABLE_OPEN_IO_MICROS, "rocksdb.table.open.io.micros"},
+    {DB_MULTIGET, "rocksdb.db.multiget.micros"},
+    {READ_BLOCK_COMPACTION_MICROS, "rocksdb.read.block.compaction.micros"},
+    {READ_BLOCK_GET_MICROS, "rocksdb.read.block.get.micros"},
+    {WRITE_RAW_BLOCK_MICROS, "rocksdb.write.raw.block.micros"},
+    {STALL_L0_SLOWDOWN_COUNT, "rocksdb.l0.slowdown.count"},
+    {STALL_MEMTABLE_COMPACTION_COUNT, "rocksdb.memtable.compaction.count"},
+    {STALL_L0_NUM_FILES_COUNT, "rocksdb.num.files.stall.count"},
+    {HARD_RATE_LIMIT_DELAY_COUNT, "rocksdb.hard.rate.limit.delay.count"},
+    {SOFT_RATE_LIMIT_DELAY_COUNT, "rocksdb.soft.rate.limit.delay.count"},
+    {NUM_FILES_IN_SINGLE_COMPACTION, "rocksdb.numfiles.in.singlecompaction"},
+    {DB_SEEK, "rocksdb.db.seek.micros"},
+    {WRITE_STALL, "rocksdb.db.write.stall"},
+    {SST_READ_MICROS, "rocksdb.sst.read.micros"},
 };
 
 struct HistogramData {
@@ -282,7 +295,7 @@ class Statistics {
   virtual uint64_t getTickerCount(uint32_t tickerType) const = 0;
   virtual void histogramData(uint32_t type,
                              HistogramData* const data) const = 0;
-
+  virtual std::string getHistogramString(uint32_t type) const { return ""; }
   virtual void recordTick(uint32_t tickerType, uint64_t count = 0) = 0;
   virtual void setTickerCount(uint32_t tickerType, uint64_t count) = 0;
   virtual void measureTime(uint32_t histogramType, uint64_t time) = 0;

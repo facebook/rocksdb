@@ -23,6 +23,10 @@
 //    data: uint8[len]
 
 #include "rocksdb/write_batch.h"
+
+#include <stack>
+#include <stdexcept>
+
 #include "rocksdb/merge_operator.h"
 #include "db/dbformat.h"
 #include "db/db_impl.h"
@@ -32,7 +36,6 @@
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
 #include "util/statistics.h"
-#include <stdexcept>
 #include "util/perf_context_imp.h"
 
 namespace rocksdb {
@@ -40,12 +43,26 @@ namespace rocksdb {
 // WriteBatch header has an 8-byte sequence number followed by a 4-byte count.
 static const size_t kHeader = 12;
 
-WriteBatch::WriteBatch(size_t reserved_bytes) {
+struct SavePoint {
+  size_t size;  // size of rep_
+  int count;    // count of elements in rep_
+  SavePoint(size_t s, int c) : size(s), count(c) {}
+};
+
+struct SavePoints {
+  std::stack<SavePoint> stack;
+};
+
+WriteBatch::WriteBatch(size_t reserved_bytes) : save_points_(nullptr) {
   rep_.reserve((reserved_bytes > kHeader) ? reserved_bytes : kHeader);
   Clear();
 }
 
-WriteBatch::~WriteBatch() { }
+WriteBatch::~WriteBatch() {
+  if (save_points_ != nullptr) {
+    delete save_points_;
+  }
+}
 
 WriteBatch::Handler::~Handler() { }
 
@@ -61,6 +78,12 @@ bool WriteBatch::Handler::Continue() {
 void WriteBatch::Clear() {
   rep_.clear();
   rep_.resize(kHeader);
+
+  if (save_points_ != nullptr) {
+    while (!save_points_->stack.empty()) {
+      save_points_->stack.pop();
+    }
+  }
 }
 
 int WriteBatch::Count() const {
@@ -188,6 +211,8 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
+size_t WriteBatchInternal::GetFirstOffset(WriteBatch* b) { return kHeader; }
+
 void WriteBatchInternal::Put(WriteBatch* b, uint32_t column_family_id,
                              const Slice& key, const Slice& value) {
   WriteBatchInternal::SetCount(b, WriteBatchInternal::Count(b) + 1);
@@ -299,6 +324,38 @@ void WriteBatch::Merge(ColumnFamilyHandle* column_family,
 void WriteBatch::PutLogData(const Slice& blob) {
   rep_.push_back(static_cast<char>(kTypeLogData));
   PutLengthPrefixedSlice(&rep_, blob);
+}
+
+void WriteBatch::SetSavePoint() {
+  if (save_points_ == nullptr) {
+    save_points_ = new SavePoints();
+  }
+  // Record length and count of current batch of writes.
+  save_points_->stack.push(SavePoint(GetDataSize(), Count()));
+}
+
+Status WriteBatch::RollbackToSavePoint() {
+  if (save_points_ == nullptr || save_points_->stack.size() == 0) {
+    return Status::NotFound();
+  }
+
+  // Pop the most recent savepoint off the stack
+  SavePoint savepoint = save_points_->stack.top();
+  save_points_->stack.pop();
+
+  assert(savepoint.size <= rep_.size());
+
+  if (savepoint.size == rep_.size()) {
+    // No changes to rollback
+  } else if (savepoint.size == 0) {
+    // Rollback everything
+    Clear();
+  } else {
+    rep_.resize(savepoint.size);
+    WriteBatchInternal::SetCount(this, savepoint.count);
+  }
+
+  return Status::OK();
 }
 
 namespace {

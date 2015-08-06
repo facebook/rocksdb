@@ -166,7 +166,7 @@ class Footer {
 // Read the footer from file
 // If enforce_table_magic_number != 0, ReadFooterFromFile() will return
 // corruption if table_magic number is not equal to enforce_table_magic_number
-Status ReadFooterFromFile(RandomAccessFile* file, uint64_t file_size,
+Status ReadFooterFromFile(RandomAccessFileReader* file, uint64_t file_size,
                           Footer* footer,
                           uint64_t enforce_table_magic_number = 0);
 
@@ -191,11 +191,22 @@ struct BlockContents {
         cachable(_cachable),
         compression_type(_compression_type),
         allocation(std::move(_data)) {}
+
+  BlockContents(BlockContents&& other) { *this = std::move(other); }
+
+  BlockContents& operator=(BlockContents&& other) {
+    data = std::move(other.data);
+    cachable = other.cachable;
+    compression_type = other.compression_type;
+    allocation = std::move(other.allocation);
+    return *this;
+  }
 };
 
 // Read the block identified by "handle" from "file".  On failure
 // return non-OK.  On success fill *result and return OK.
-extern Status ReadBlockContents(RandomAccessFile* file, const Footer& footer,
+extern Status ReadBlockContents(RandomAccessFileReader* file,
+                                const Footer& footer,
                                 const ReadOptions& options,
                                 const BlockHandle& handle,
                                 BlockContents* contents, Env* env,

@@ -11,6 +11,7 @@
 namespace rocksdb {
 
 class Slice;
+class Status;
 class ColumnFamilyHandle;
 class WriteBatch;
 struct SliceParts;
@@ -72,6 +73,16 @@ class WriteBatchBase {
   // converting any WriteBatchBase(eg WriteBatchWithIndex) into a basic
   // WriteBatch.
   virtual WriteBatch* GetWriteBatch() = 0;
+
+  // Records the state of the batch for future calls to RollbackToSavePoint().
+  // May be called multiple times to set multiple save points.
+  virtual void SetSavePoint() = 0;
+
+  // Remove all entries in this batch (Put, Merge, Delete, PutLogData) since the
+  // most recent call to SetSavePoint() and removes the most recent save point.
+  // If there is no previous call to SetSavePoint(), behaves the same as
+  // Clear().
+  virtual Status RollbackToSavePoint() = 0;
 };
 
 }  // namespace rocksdb

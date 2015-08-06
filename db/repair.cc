@@ -81,6 +81,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
+#include "util/file_reader_writer.h"
 #include "util/scoped_arena_iterator.h"
 
 namespace rocksdb {
@@ -127,7 +128,7 @@ class Repairer {
       }
       Log(InfoLogLevel::WARN_LEVEL, options_.info_log,
           "**** Repaired rocksdb %s; "
-          "recovered %zu files; %" PRIu64
+          "recovered %" ROCKSDB_PRIszt " files; %" PRIu64
           "bytes. "
           "Some data may have been lost. "
           "****",
@@ -236,6 +237,8 @@ class Repairer {
     if (!status.ok()) {
       return status;
     }
+    unique_ptr<SequentialFileReader> lfile_reader(
+        new SequentialFileReader(std::move(lfile)));
 
     // Create the log reader.
     LogReporter reporter;
@@ -246,8 +249,8 @@ class Repairer {
     // corruptions cause entire commits to be skipped instead of
     // propagating bad information (like overly large sequence
     // numbers).
-    log::Reader reader(std::move(lfile), &reporter, true /*enable checksum*/,
-                       0/*initial_offset*/);
+    log::Reader reader(std::move(lfile_reader), &reporter,
+                       true /*enable checksum*/, 0 /*initial_offset*/);
 
     // Read all the records and add to a memtable
     std::string scratch;
@@ -378,8 +381,8 @@ class Repairer {
   Status WriteDescriptor() {
     std::string tmp = TempFileName(dbname_, 1);
     unique_ptr<WritableFile> file;
-    Status status = env_->NewWritableFile(
-        tmp, &file, env_->OptimizeForManifestWrite(env_options_));
+    EnvOptions env_options = env_->OptimizeForManifestWrite(env_options_);
+    Status status = env_->NewWritableFile(tmp, &file, env_options);
     if (!status.ok()) {
       return status;
     }
@@ -407,7 +410,9 @@ class Repairer {
 
     //fprintf(stderr, "NewDescriptor:\n%s\n", edit_.DebugString().c_str());
     {
-      log::Writer log(std::move(file));
+      unique_ptr<WritableFileWriter> file_writer(
+          new WritableFileWriter(std::move(file), env_options));
+      log::Writer log(std::move(file_writer));
       std::string record;
       edit_->EncodeTo(&record);
       status = log.AddRecord(record);

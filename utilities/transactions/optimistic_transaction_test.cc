@@ -843,4 +843,14 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
-#endif  // ROCKSDB_LITE
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(
+      stderr,
+      "SKIPPED as optimistic_transaction is not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
+#endif  // !ROCKSDB_LITE

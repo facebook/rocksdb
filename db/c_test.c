@@ -11,8 +11,30 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <unistd.h>
+#ifndef OS_WIN
+#  include <unistd.h>
+#endif
 #include <inttypes.h>
+
+// Can not use port/port.h macros as this is a c file
+#ifdef OS_WIN
+
+#include <Windows.h>
+
+# define snprintf _snprintf
+
+// Ok for uniqueness
+int geteuid() {
+
+  int result = 0;
+
+  result = ((int)GetCurrentProcessId() << 16);
+  result |= (int)GetCurrentThreadId();
+
+  return result;
+}
+
+#endif
 
 const char* phase = "";
 static char dbname[200];
@@ -227,79 +249,6 @@ static rocksdb_t* CheckCompaction(rocksdb_t* db, rocksdb_options_t* options,
   CheckGet(db, roptions, "bar", NULL);
   CheckGet(db, roptions, "baz", "newbazvalue");
   return db;
-}
-
-// Custom compaction filter V2.
-static void CompactionFilterV2Destroy(void* arg) { }
-static const char* CompactionFilterV2Name(void* arg) {
-  return "TestCompactionFilterV2";
-}
-static void CompactionFilterV2Filter(
-    void* arg, int level, size_t num_keys,
-    const char* const* keys_list, const size_t* keys_list_sizes,
-    const char* const* existing_values_list, const size_t* existing_values_list_sizes,
-    char** new_values_list, size_t* new_values_list_sizes,
-    unsigned char* to_delete_list) {
-  size_t i;
-  for (i = 0; i < num_keys; i++) {
-    // If any value is "gc", it's removed.
-    if (existing_values_list_sizes[i] == 2 && memcmp(existing_values_list[i], "gc", 2) == 0) {
-      to_delete_list[i] = 1;
-    } else if (existing_values_list_sizes[i] == 6 && memcmp(existing_values_list[i], "gc all", 6) == 0) {
-      // If any value is "gc all", all keys are removed.
-      size_t j;
-      for (j = 0; j < num_keys; j++) {
-        to_delete_list[j] = 1;
-      }
-      return;
-    } else if (existing_values_list_sizes[i] == 6 && memcmp(existing_values_list[i], "change", 6) == 0) {
-      // If value is "change", set changed value to "changed".
-      size_t len;
-      len = strlen("changed");
-      new_values_list[i] = malloc(len);
-      memcpy(new_values_list[i], "changed", len);
-      new_values_list_sizes[i] = len;
-    } else {
-      // Otherwise, no keys are removed.
-    }
-  }
-}
-
-// Custom prefix extractor for compaction filter V2 which extracts first 3 characters.
-static void CFV2PrefixExtractorDestroy(void* arg) { }
-static char* CFV2PrefixExtractorTransform(void* arg, const char* key, size_t length, size_t* dst_length) {
-  // Verify keys are maximum length 4; this verifies fix for a
-  // prior bug which was passing the RocksDB-encoded key with
-  // logical timestamp suffix instead of parsed user key.
-  if (length > 4) {
-    fprintf(stderr, "%s:%d: %s: key %s is not user key\n", __FILE__, __LINE__, phase, key);
-    abort();
-  }
-  *dst_length = length < 3 ? length : 3;
-  return (char*)key;
-}
-static unsigned char CFV2PrefixExtractorInDomain(void* state, const char* key, size_t length) {
-  return 1;
-}
-static unsigned char CFV2PrefixExtractorInRange(void* state, const char* key, size_t length) {
-  return 1;
-}
-static const char* CFV2PrefixExtractorName(void* state) {
-  return "TestCFV2PrefixExtractor";
-}
-
-// Custom compaction filter factory V2.
-static void CompactionFilterFactoryV2Destroy(void* arg) {
-  rocksdb_slicetransform_destroy((rocksdb_slicetransform_t*)arg);
-}
-static const char* CompactionFilterFactoryV2Name(void* arg) {
-  return "TestCompactionFilterFactoryV2";
-}
-static rocksdb_compactionfilterv2_t* CompactionFilterFactoryV2Create(
-    void* state, const rocksdb_compactionfiltercontext_t* context) {
-  return rocksdb_compactionfilterv2_create(state, CompactionFilterV2Destroy,
-                                           CompactionFilterV2Filter,
-                                           CompactionFilterV2Name);
 }
 
 // Custom merge operator
@@ -698,50 +647,6 @@ int main(int argc, char** argv) {
     rocksdb_options_set_compaction_filter_factory(
         options_with_filter_factory, NULL);
     rocksdb_options_destroy(options_with_filter_factory);
-  }
-
-  StartPhase("compaction_filter_v2");
-  {
-    rocksdb_compactionfilterfactoryv2_t* factory;
-    rocksdb_slicetransform_t* prefix_extractor;
-    prefix_extractor = rocksdb_slicetransform_create(
-        NULL, CFV2PrefixExtractorDestroy, CFV2PrefixExtractorTransform,
-        CFV2PrefixExtractorInDomain, CFV2PrefixExtractorInRange,
-        CFV2PrefixExtractorName);
-    factory = rocksdb_compactionfilterfactoryv2_create(
-        prefix_extractor, prefix_extractor, CompactionFilterFactoryV2Destroy,
-        CompactionFilterFactoryV2Create, CompactionFilterFactoryV2Name);
-    // Create new database
-    rocksdb_close(db);
-    rocksdb_destroy_db(options, dbname, &err);
-    rocksdb_options_set_compaction_filter_factory_v2(options, factory);
-    db = rocksdb_open(options, dbname, &err);
-    CheckNoError(err);
-    // Only foo2 is GC'd, foo3 is changed.
-    rocksdb_put(db, woptions, "foo1", 4, "no gc", 5, &err);
-    CheckNoError(err);
-    rocksdb_put(db, woptions, "foo2", 4, "gc", 2, &err);
-    CheckNoError(err);
-    rocksdb_put(db, woptions, "foo3", 4, "change", 6, &err);
-    CheckNoError(err);
-    // All bars are GC'd.
-    rocksdb_put(db, woptions, "bar1", 4, "no gc", 5, &err);
-    CheckNoError(err);
-    rocksdb_put(db, woptions, "bar2", 4, "gc all", 6, &err);
-    CheckNoError(err);
-    rocksdb_put(db, woptions, "bar3", 4, "no gc", 5, &err);
-    CheckNoError(err);
-    // Compact the DB to garbage collect.
-    rocksdb_compact_range(db, NULL, 0, NULL, 0);
-
-    // Verify foo entries.
-    CheckGet(db, roptions, "foo1", "no gc");
-    CheckGet(db, roptions, "foo2", NULL);
-    CheckGet(db, roptions, "foo3", "changed");
-    // Verify bar entries were all deleted.
-    CheckGet(db, roptions, "bar1", NULL);
-    CheckGet(db, roptions, "bar2", NULL);
-    CheckGet(db, roptions, "bar3", NULL);
   }
 
   StartPhase("merge_operator");

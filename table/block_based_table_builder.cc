@@ -374,12 +374,15 @@ Slice CompressBlock(const Slice& raw,
 // kBlockBasedTableMagicNumber was picked by running
 //    echo rocksdb.table.block_based | sha1sum
 // and taking the leading 64 bits.
-// Please note that kBlockBasedTableMagicNumber may also be accessed by
-// other .cc files so it have to be explicitly declared with "extern".
-extern const uint64_t kBlockBasedTableMagicNumber = 0x88e241b785f4cff7ull;
+// Please note that kBlockBasedTableMagicNumber may also be accessed by other
+// .cc files
+// for that reason we declare it extern in the header but to get the space
+// allocated
+// it must be not extern in one place.
+const uint64_t kBlockBasedTableMagicNumber = 0x88e241b785f4cff7ull;
 // We also support reading and writing legacy block based table format (for
 // backwards compatibility)
-extern const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
+const uint64_t kLegacyBlockBasedTableMagicNumber = 0xdb4775248b80fb57ull;
 
 // A collector that collects properties of interest to block-based table.
 // For now this class looks heavy-weight since we only write one additional
@@ -434,7 +437,7 @@ struct BlockBasedTableBuilder::Rep {
   const ImmutableCFOptions ioptions;
   const BlockBasedTableOptions table_options;
   const InternalKeyComparator& internal_comparator;
-  WritableFile* file;
+  WritableFileWriter* file;
   uint64_t offset = 0;
   Status status;
   BlockBuilder data_block;
@@ -464,7 +467,7 @@ struct BlockBasedTableBuilder::Rep {
       const InternalKeyComparator& icomparator,
       const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
           int_tbl_prop_collector_factories,
-      WritableFile* f, const CompressionType _compression_type,
+      WritableFileWriter* f, const CompressionType _compression_type,
       const CompressionOptions& _compression_opts, const bool skip_filters)
       : ioptions(_ioptions),
         table_options(table_opt),
@@ -499,7 +502,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
     const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    WritableFile* file, const CompressionType compression_type,
+    WritableFileWriter* file, const CompressionType compression_type,
     const CompressionOptions& compression_opts, const bool skip_filters) {
   BlockBasedTableOptions sanitized_table_options(table_options);
   if (sanitized_table_options.format_version == 0 &&
@@ -521,7 +524,7 @@ BlockBasedTableBuilder::BlockBasedTableBuilder(
   }
   if (table_options.block_cache_compressed.get() != nullptr) {
     BlockBasedTable::GenerateCachePrefix(
-        table_options.block_cache_compressed.get(), file,
+        table_options.block_cache_compressed.get(), file->writable_file(),
         &rep_->compressed_cache_key_prefix[0],
         &rep_->compressed_cache_key_prefix_size);
   }
@@ -703,8 +706,8 @@ Status BlockBasedTableBuilder::InsertBlockInCache(const Slice& block_contents,
               (end - r->compressed_cache_key_prefix));
 
     // Insert into compressed block cache.
-    cache_handle = block_cache_compressed->Insert(key, block, block->size(),
-                                                  &DeleteCachedBlock);
+    cache_handle = block_cache_compressed->Insert(
+        key, block, block->usable_size(), &DeleteCachedBlock);
     block_cache_compressed->Release(cache_handle);
 
     // Invalidate OS cache.

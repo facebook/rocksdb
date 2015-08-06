@@ -181,21 +181,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void maxMemCompactionLevel() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setMaxMemCompactionLevel(intValue);
-      assertThat(opt.maxMemCompactionLevel()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void targetFileSizeBase() {
     ColumnFamilyOptions opt = null;
     try {
@@ -630,6 +615,21 @@ public class ColumnFamilyOptionsTest {
     }
   }
 
+
+  @Test
+  public void shouldSetTestCappedPrefixExtractor() {
+    ColumnFamilyOptions options = null;
+    try {
+      options = new ColumnFamilyOptions();
+      options.useCappedPrefixExtractor(100);
+      options.useCappedPrefixExtractor(10);
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
   @Test
   public void compressionTypes() {
     ColumnFamilyOptions columnFamilyOptions = null;
@@ -720,6 +720,25 @@ public class ColumnFamilyOptionsTest {
     } finally {
       if (ColumnFamilyOptions != null) {
         ColumnFamilyOptions.dispose();
+      }
+    }
+  }
+
+  @Test
+  public void maxTableFilesSizeFIFO() {
+    ColumnFamilyOptions opt = null;
+    try {
+      opt = new ColumnFamilyOptions();
+      long longValue = rand.nextLong();
+      // Size has to be positive
+      longValue = (longValue < 0) ? -longValue : longValue;
+      longValue = (longValue == 0) ? longValue + 1 : longValue;
+      opt.setMaxTableFilesSizeFIFO(longValue);
+      assertThat(opt.maxTableFilesSizeFIFO()).
+          isEqualTo(longValue);
+    } finally {
+      if (opt != null) {
+        opt.dispose();
       }
     }
   }

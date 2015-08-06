@@ -87,6 +87,11 @@ struct BackupableDBOptions {
   // *turn it on only if you know what you're doing*
   bool share_files_with_checksum;
 
+  // Up to this many background threads will copy files for CreateNewBackup()
+  // and RestoreDBFromBackup()
+  // Default: 1
+  int max_background_operations;
+
   void Dump(Logger* logger) const;
 
   explicit BackupableDBOptions(const std::string& _backup_dir,
@@ -96,7 +101,8 @@ struct BackupableDBOptions {
                                bool _destroy_old_data = false,
                                bool _backup_log_files = true,
                                uint64_t _backup_rate_limit = 0,
-                               uint64_t _restore_rate_limit = 0)
+                               uint64_t _restore_rate_limit = 0,
+                               int _max_background_operations = 1)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -106,7 +112,8 @@ struct BackupableDBOptions {
         backup_log_files(_backup_log_files),
         backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
-        share_files_with_checksum(false) {
+        share_files_with_checksum(false),
+        max_background_operations(_max_background_operations) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
@@ -171,10 +178,6 @@ class BackupEngineReadOnly {
  public:
   virtual ~BackupEngineReadOnly() {}
 
-  static BackupEngineReadOnly* NewReadOnlyBackupEngine(
-      Env* db_env, const BackupableDBOptions& options)
-      __attribute__((deprecated("Please use Open() instead")));
-
   static Status Open(Env* db_env, const BackupableDBOptions& options,
                      BackupEngineReadOnly** backup_engine_ptr);
 
@@ -200,10 +203,6 @@ class BackupEngineReadOnly {
 class BackupEngine {
  public:
   virtual ~BackupEngine() {}
-
-  static BackupEngine* NewBackupEngine(Env* db_env,
-                                       const BackupableDBOptions& options)
-    __attribute__((deprecated("Please use Open() instead")));
 
   static Status Open(Env* db_env,
                      const BackupableDBOptions& options,
@@ -265,6 +264,7 @@ class BackupableDB : public StackableDB {
 
  private:
   BackupEngine* backup_engine_;
+  Status status_;
 };
 
 // Use this class to access information about backups and restore from them
@@ -310,6 +310,7 @@ class RestoreBackupableDB {
 
  private:
   BackupEngine* backup_engine_;
+  Status status_;
 };
 
 }  // namespace rocksdb

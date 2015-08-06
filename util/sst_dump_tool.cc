@@ -24,7 +24,6 @@ SstFileReader::SstFileReader(const std::string& file_path,
     output_hex_(output_hex), ioptions_(options_),
     internal_comparator_(BytewiseComparator()) {
   fprintf(stdout, "Process %s\n", file_path.c_str());
-
   init_result_ = GetTableReader(file_name_);
 }
 
@@ -32,6 +31,8 @@ extern const uint64_t kBlockBasedTableMagicNumber;
 extern const uint64_t kLegacyBlockBasedTableMagicNumber;
 extern const uint64_t kPlainTableMagicNumber;
 extern const uint64_t kLegacyPlainTableMagicNumber;
+
+const char* testFileName = "test_file_name";
 
 Status SstFileReader::GetTableReader(const std::string& file_path) {
   uint64_t magic_number;
@@ -41,10 +42,13 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
 
   unique_ptr<RandomAccessFile> file;
   uint64_t file_size;
-  Status s = options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
+  Status s = options_.env->NewRandomAccessFile(file_path, &file, soptions_);
   if (s.ok()) {
     s = options_.env->GetFileSize(file_path, &file_size);
   }
+
+  file_.reset(new RandomAccessFileReader(std::move(file)));
+
   if (s.ok()) {
     s = ReadFooterFromFile(file_.get(), file_size, &footer);
   }
@@ -56,7 +60,8 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
     if (magic_number == kPlainTableMagicNumber ||
         magic_number == kLegacyPlainTableMagicNumber) {
       soptions_.use_mmap_reads = true;
-      options_.env->NewRandomAccessFile(file_path, &file_, soptions_);
+      options_.env->NewRandomAccessFile(file_path, &file, soptions_);
+      file_.reset(new RandomAccessFileReader(std::move(file)));
     }
     options_.comparator = &internal_comparator_;
     // For old sst format, ReadTableProperties might fail but file can be read
@@ -68,16 +73,15 @@ Status SstFileReader::GetTableReader(const std::string& file_path) {
   }
 
   if (s.ok()) {
-    s = NewTableReader(ioptions_, soptions_, internal_comparator_,
-                       std::move(file_), file_size, &table_reader_);
+    s = NewTableReader(ioptions_, soptions_, internal_comparator_, file_size,
+                       &table_reader_);
   }
   return s;
 }
 
 Status SstFileReader::NewTableReader(
     const ImmutableCFOptions& ioptions, const EnvOptions& soptions,
-    const InternalKeyComparator& internal_comparator,
-    unique_ptr<RandomAccessFile>&& file, uint64_t file_size,
+    const InternalKeyComparator& internal_comparator, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) {
   // We need to turn off pre-fetching of index and filter nodes for
   // BlockBasedTable
@@ -107,8 +111,75 @@ Status SstFileReader::DumpTable(const std::string& out_filename) {
   return s;
 }
 
+uint64_t SstFileReader::CalculateCompressedTableSize(
+    const TableBuilderOptions& tb_options, size_t block_size) {
+  unique_ptr<WritableFile> out_file;
+  unique_ptr<Env> env(NewMemEnv(Env::Default()));
+  env->NewWritableFile(testFileName, &out_file, soptions_);
+  unique_ptr<WritableFileWriter> dest_writer;
+  dest_writer.reset(new WritableFileWriter(std::move(out_file), soptions_));
+  BlockBasedTableOptions table_options;
+  table_options.block_size = block_size;
+  BlockBasedTableFactory block_based_tf(table_options);
+  unique_ptr<TableBuilder> table_builder;
+  table_builder.reset(block_based_tf.NewTableBuilder(
+                         tb_options, dest_writer.get()));
+  unique_ptr<Iterator> iter(table_reader_->NewIterator(ReadOptions()));
+  for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+    if (!iter->status().ok()) {
+      fputs(iter->status().ToString().c_str(), stderr);
+      exit(1);
+    }
+    table_builder->Add(iter->key(), iter->value());
+  }
+  Status s = table_builder->Finish();
+  if (!s.ok()) {
+    fputs(s.ToString().c_str(), stderr);
+    exit(1);
+  }
+  uint64_t size = table_builder->FileSize();
+  env->DeleteFile(testFileName);
+  return size;
+}
+
+int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
+  ReadOptions read_options;
+  Options opts;
+  const ImmutableCFOptions imoptions(opts);
+  rocksdb::InternalKeyComparator ikc(opts.comparator);
+  std::vector<std::unique_ptr<IntTblPropCollectorFactory> >
+      block_based_table_factories;
+
+  std::map<CompressionType, const char*> compress_type;
+  compress_type.insert(
+      std::make_pair(CompressionType::kNoCompression, "kNoCompression"));
+  compress_type.insert(std::make_pair(CompressionType::kSnappyCompression,
+                                      "kSnappyCompression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kZlibCompression, "kZlibCompression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kBZip2Compression, "kBZip2Compression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kLZ4Compression, "kLZ4Compression"));
+  compress_type.insert(
+      std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
+
+  fprintf(stdout, "Block Size: %lu\n", block_size);
+
+  for (CompressionType i = CompressionType::kNoCompression;
+       i != CompressionType::kLZ4HCCompression; i = CompressionType(i + 1)) {
+    CompressionOptions compress_opt;
+    TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
+                                compress_opt, false);
+    uint64_t file_size = CalculateCompressedTableSize(tb_opts, block_size);
+    fprintf(stdout, "Compression: %s", compress_type.find(i)->second);
+    fprintf(stdout, " Size: %" PRIu64 "\n", file_size);
+  }
+  return 0;
+}
+
 Status SstFileReader::ReadTableProperties(uint64_t table_magic_number,
-                                          RandomAccessFile* file,
+                                          RandomAccessFileReader* file,
                                           uint64_t file_size) {
   TableProperties* table_properties = nullptr;
   Status s = rocksdb::ReadTableProperties(file, file_size, table_magic_number,
@@ -248,7 +319,9 @@ void print_help() {
           " [--from=<user_key>]"
           " [--to=<user_key>]"
           " [--read_num=NUM]"
-          " [--show_properties]\n");
+          " [--show_properties]"
+          " [--show_compression_sizes]"
+          " [--show_compression_sizes [--set_block_size=<block_size>]]\n");
 }
 
 string HexToString(const string& str) {
@@ -283,8 +356,12 @@ int SSTDumpTool::Run(int argc, char** argv) {
   bool has_from = false;
   bool has_to = false;
   bool show_properties = false;
+  bool show_compression_sizes = false;
+  bool set_block_size = false;
   std::string from_key;
   std::string to_key;
+  std::string block_size_str;
+  size_t block_size;
   for (int i = 1; i < argc; i++) {
     if (strncmp(argv[i], "--file=", 7) == 0) {
       dir_or_file = argv[i] + 7;
@@ -308,6 +385,17 @@ int SSTDumpTool::Run(int argc, char** argv) {
       has_to = true;
     } else if (strcmp(argv[i], "--show_properties") == 0) {
       show_properties = true;
+    } else if (strcmp(argv[i], "--show_compression_sizes") == 0) {
+      show_compression_sizes = true;
+    } else if (strncmp(argv[i], "--set_block_size=", 17) == 0) {
+      set_block_size = true;
+      block_size_str = argv[i] + 17;
+      std::istringstream iss(block_size_str);
+      if (iss.fail()) {
+        fprintf(stderr, "block size must be numeric");
+        exit(1);
+      }
+      iss >> block_size;
     } else {
       print_help();
       exit(1);
@@ -360,6 +448,15 @@ int SSTDumpTool::Run(int argc, char** argv) {
       fprintf(stderr, "%s: %s\n", filename.c_str(),
               reader.getStatus().ToString().c_str());
       exit(1);
+    }
+
+    if (show_compression_sizes) {
+      if (set_block_size) {
+        reader.ShowAllCompressionSizes(block_size);
+      } else {
+        reader.ShowAllCompressionSizes(16384);
+      }
+      return 0;
     }
 
     if (command == "raw") {

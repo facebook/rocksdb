@@ -30,6 +30,10 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#if defined OS_WIN && !defined snprintf
+#define snprintf _snprintf
+#endif
+
 #include <inttypes.h>
 #include <iostream>
 

@@ -125,9 +125,12 @@ class FbsonDocument {
     uint8_t ver_;
   } header_;
 
-  char payload_[0];
+  char payload_[1];
 
   FbsonDocument();
+
+  FbsonDocument(const FbsonDocument&) = delete;
+  FbsonDocument& operator=(const FbsonDocument&) = delete;
 };
 
 /*
@@ -449,7 +452,7 @@ class BlobVal : public FbsonValue {
 
  protected:
   uint32_t size_;
-  char payload_[0];
+  char payload_[1];
 
   // set new blob bytes
   bool internalSetVal(const char* blob, uint32_t blobSize) {
@@ -468,6 +471,11 @@ class BlobVal : public FbsonValue {
   }
 
   BlobVal();
+
+ private:
+  // Disable as this class can only be allocated dynamically
+  BlobVal(const BlobVal&) = delete;
+  BlobVal& operator=(const BlobVal&) = delete;
 };
 
 /*
@@ -524,9 +532,12 @@ class ContainerVal : public FbsonValue {
 
  protected:
   uint32_t size_;
-  char payload_[0];
+  char payload_[1];
 
   ContainerVal();
+
+  ContainerVal(const ContainerVal&) = delete;
+  ContainerVal& operator=(const ContainerVal&) = delete;
 };
 
 /*

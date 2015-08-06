@@ -10,7 +10,11 @@
 namespace rocksdb {
 
 #ifndef IOS_CROSS_COMPILE
+# ifdef _WIN32
+__declspec(thread) IOStatsContext iostats_context;
+# else
 __thread IOStatsContext iostats_context;
+# endif
 #endif  // IOS_CROSS_COMPILE
 
 void IOStatsContext::Reset() {
@@ -20,6 +24,7 @@ void IOStatsContext::Reset() {
   open_nanos = 0;
   allocate_nanos = 0;
   write_nanos = 0;
+  read_nanos = 0;
   range_sync_nanos = 0;
   logger_nanos = 0;
 }
@@ -34,6 +39,7 @@ std::string IOStatsContext::ToString() const {
      << OUTPUT(open_nanos)
      << OUTPUT(allocate_nanos)
      << OUTPUT(write_nanos)
+     << OUTPUT(read_nanos)
      << OUTPUT(range_sync_nanos)
      << OUTPUT(logger_nanos);
 

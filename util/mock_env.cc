@@ -8,7 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/mock_env.h"
-#include <sys/time.h>
+#include "port/sys_time.h"
 #include <algorithm>
 #include <chrono>
 #include "util/rate_limiter.h"
@@ -468,12 +468,12 @@ Status MockEnv::NewDirectory(const std::string& name,
   return Status::OK();
 }
 
-bool MockEnv::FileExists(const std::string& fname) {
+Status MockEnv::FileExists(const std::string& fname) {
   auto fn = NormalizePath(fname);
   MutexLock lock(&mutex_);
   if (file_map_.find(fn) != file_map_.end()) {
     // File exists
-    return true;
+    return Status::OK();
   }
   // Now also check if fn exists as a dir
   for (const auto& iter : file_map_) {
@@ -481,10 +481,10 @@ bool MockEnv::FileExists(const std::string& fname) {
     if (filename.size() >= fn.size() + 1 &&
         filename[fn.size()] == '/' &&
         Slice(filename).starts_with(Slice(fn))) {
-      return true;
+      return Status::OK();
     }
   }
-  return false;
+  return Status::NotFound();
 }
 
 Status MockEnv::GetChildren(const std::string& dir,

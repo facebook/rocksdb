@@ -57,6 +57,11 @@ class CorruptionTest : public testing::Test {
      DestroyDB(dbname_, Options());
   }
 
+  void CloseDb() {
+    delete db_;
+    db_ = nullptr;
+  }
+
   Status TryReopen(Options* options = nullptr) {
     delete db_;
     db_ = nullptr;
@@ -229,6 +234,16 @@ class CorruptionTest : public testing::Test {
 TEST_F(CorruptionTest, Recovery) {
   Build(100);
   Check(100, 100);
+#ifdef OS_WIN
+  // On Wndows OS Disk cache does not behave properly
+  // We do not call FlushBuffers on every Flush. If we do not close
+  // the log file prior to the corruption we end up with the first
+  // block not corrupted but only the second. However, under the debugger
+  // things work just fine but never pass when running normally
+  // For that reason people may want to run with unbuffered I/O. That option
+  // is not available for WAL though.
+  CloseDb();
+#endif
   Corrupt(kLogFile, 19, 1);      // WriteBatch tag for first record
   Corrupt(kLogFile, log::kBlockSize + 1000, 1);  // Somewhere in second block
   ASSERT_TRUE(!TryReopen().ok());
@@ -336,13 +351,13 @@ TEST_F(CorruptionTest, CorruptedDescriptor) {
 
 TEST_F(CorruptionTest, CompactionInputError) {
   Options options;
-  options.max_background_flushes = 0;
   Reopen(&options);
   Build(10);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
   dbi->TEST_FlushMemTable();
-  const int last = dbi->MaxMemCompactionLevel();
-  ASSERT_EQ(1, Property("rocksdb.num-files-at-level" + NumberToString(last)));
+  dbi->TEST_CompactRange(0, nullptr, nullptr);
+  dbi->TEST_CompactRange(1, nullptr, nullptr);
+  ASSERT_EQ(1, Property("rocksdb.num-files-at-level2"));
 
   Corrupt(kTableFile, 100, 1);
   Check(9, 9);
@@ -357,18 +372,20 @@ TEST_F(CorruptionTest, CompactionInputErrorParanoid) {
   options.paranoid_checks = true;
   options.write_buffer_size = 131072;
   options.max_write_buffer_number = 2;
-  options.max_background_flushes = 0;
   Reopen(&options);
   DBImpl* dbi = reinterpret_cast<DBImpl*>(db_);
 
-  // Fill levels >= 1 so memtable flush outputs to level 0
+  // Fill levels >= 1
   for (int level = 1; level < dbi->NumberLevels(); level++) {
     dbi->Put(WriteOptions(), "", "begin");
     dbi->Put(WriteOptions(), "~", "end");
     dbi->TEST_FlushMemTable();
+    for (int comp_level = 0; comp_level < dbi->NumberLevels() - level;
+         ++comp_level) {
+      dbi->TEST_CompactRange(comp_level, nullptr, nullptr);
+    }
   }
 
-  options.max_mem_compaction_level = 0;
   Reopen(&options);
 
   dbi = reinterpret_cast<DBImpl*>(db_);
