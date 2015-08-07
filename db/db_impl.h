@@ -19,11 +19,11 @@
 #include <string>
 
 #include "db/dbformat.h"
-#include "db/log_writer.h"
-#include "db/snapshot.h"
 #include "db/column_family.h"
 #include "db/compaction_job.h"
 #include "db/flush_job.h"
+#include "db/log_writer.h"
+#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/writebuffer.h"

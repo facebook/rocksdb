@@ -32,7 +32,7 @@
 #include "db/db_impl.h"
 #include "db/column_family.h"
 #include "db/memtable.h"
-#include "db/snapshot.h"
+#include "db/snapshot_impl.h"
 #include "db/write_batch_internal.h"
 #include "util/coding.h"
 #include "util/statistics.h"

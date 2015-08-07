@@ -39,11 +39,12 @@
 #include "rocksdb/env.h"
 #include "rocksdb/experimental.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/table.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
@@ -3026,22 +3027,23 @@ TEST_F(DBTest, Snapshot) {
     Put(0, "foo", "0v3");
     Put(1, "foo", "1v3");
 
-    const Snapshot* s3 = db_->GetSnapshot();
-    ASSERT_EQ(3U, GetNumSnapshots());
-    ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
+    {
+      ManagedSnapshot s3(db_);
+      ASSERT_EQ(3U, GetNumSnapshots());
+      ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
 
-    Put(0, "foo", "0v4");
-    Put(1, "foo", "1v4");
-    ASSERT_EQ("0v1", Get(0, "foo", s1));
-    ASSERT_EQ("1v1", Get(1, "foo", s1));
-    ASSERT_EQ("0v2", Get(0, "foo", s2));
-    ASSERT_EQ("1v2", Get(1, "foo", s2));
-    ASSERT_EQ("0v3", Get(0, "foo", s3));
-    ASSERT_EQ("1v3", Get(1, "foo", s3));
-    ASSERT_EQ("0v4", Get(0, "foo"));
-    ASSERT_EQ("1v4", Get(1, "foo"));
+      Put(0, "foo", "0v4");
+      Put(1, "foo", "1v4");
+      ASSERT_EQ("0v1", Get(0, "foo", s1));
+      ASSERT_EQ("1v1", Get(1, "foo", s1));
+      ASSERT_EQ("0v2", Get(0, "foo", s2));
+      ASSERT_EQ("1v2", Get(1, "foo", s2));
+      ASSERT_EQ("0v3", Get(0, "foo", s3.snapshot()));
+      ASSERT_EQ("1v3", Get(1, "foo", s3.snapshot()));
+      ASSERT_EQ("0v4", Get(0, "foo"));
+      ASSERT_EQ("1v4", Get(1, "foo"));
+    }
 
-    db_->ReleaseSnapshot(s3);
     ASSERT_EQ(2U, GetNumSnapshots());
     ASSERT_EQ(time_snap1, GetTimeOldestSnapshots());
     ASSERT_EQ("0v1", Get(0, "foo", s1));

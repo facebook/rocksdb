@@ -22,6 +22,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/thread_status.h"
 
 #ifdef _WIN32
@@ -67,18 +68,6 @@ struct ColumnFamilyDescriptor {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
-
-// Abstract handle to particular state of a DB.
-// A Snapshot is an immutable object and can therefore be safely
-// accessed from multiple threads without any external synchronization.
-class Snapshot {
- public:
-  // returns Snapshot's sequence number
-  virtual SequenceNumber GetSequenceNumber() const = 0;
-
- protected:
-  virtual ~Snapshot();
-};
 
 // A range of keys
 struct Range {
