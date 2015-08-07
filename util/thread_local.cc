@@ -140,13 +140,29 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
 
   // OnThreadExit is not getting called on the main thread.
   // Call through the static destructor mechanism to avoid memory leak.
+  //
+  // Caveats: ~A() will be invoked _after_ ~StaticMeta for the global
+  // singleton (destructors are invoked in reverse order of constructor
+  // _completion_); the latter must not mutate internal members. This
+  // cleanup mechanism inherently relies on use-after-release of the
+  // StaticMeta, and is brittle with respect to compiler-specific handling
+  // of memory backing destructed statically-scoped objects. Perhaps
+  // registering with atexit(3) would be more robust.
+  //
+  // This is not required on Windows.
+#if !defined(OS_WIN)
   static struct A {
     ~A() {
+#if defined(OS_MACOSX)
+      ThreadData* tls_ =
+        static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
+#endif
       if (tls_) {
         OnThreadExit(tls_);
       }
     }
   } a;
+#endif
 
   head_.next = &head_;
   head_.prev = &head_;
