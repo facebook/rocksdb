@@ -59,6 +59,7 @@ public:
   static const string ARG_WRITE_BUFFER_SIZE;
   static const string ARG_FILE_SIZE;
   static const string ARG_CREATE_IF_MISSING;
+  static const string ARG_COLUMN_FAMILIES;
 
   static LDBCommand* InitFromCmdLineArgs(
     const vector<string>& args,
@@ -166,6 +167,7 @@ protected:
   DBWithTTL* db_ttl_;
   vector<ColumnFamilyDescriptor> column_descriptors_;
   vector<ColumnFamilyHandle*> column_handles_;
+  vector<size_t> limited_families_; // Indices into column_handles_
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -224,6 +226,43 @@ protected:
     timestamp_ = IsFlagPresent(flags, ARG_TIMESTAMP);
   }
 
+  void ValidateColumnFamiliesArg() {
+    string arg;
+    if (!ParseStringOption(option_map_, ARG_COLUMN_FAMILIES, &arg)) {
+        return;
+    }
+
+    assert(column_descriptors_.size() == column_handles_.size());
+
+    map<string, size_t> name_to_idx;
+    for (size_t i = 0; i < column_handles_.size(); ++i) {
+        name_to_idx[column_descriptors_[i].name] = i;
+    }
+
+    vector<string> families = StringSplit(arg, ',');
+    for (string const& family : families) {
+      if (family == "*") {
+        // An empty "limited_families_" set is equivalent to "default".
+        // This simplifies preserving pre-column-family behavior, but
+        // does lead to the following awkwardness:
+        limited_families_.clear();
+        for (size_t i = 0; i < column_handles_.size(); ++i) {
+            limited_families_.push_back(i);
+        }
+        break;
+      }
+
+      auto it = name_to_idx.find(family);
+      if (it == name_to_idx.end()) {
+        fprintf(stderr, "Warning: column family %s not recognized\n",
+          family.c_str());
+        continue;
+      }
+
+      limited_families_.push_back(it->second);
+    }
+  }
+
   void OpenDB() {
     Options opt = PrepareOptionsForOpenDB();
     if (!exec_state_.IsNotStarted()) {
@@ -260,6 +299,10 @@ protected:
     if (!st.ok()) {
       string msg = st.ToString();
       exec_state_ = LDBCommandExecuteResult::Failed(msg);
+    } else {
+      assert(column_descriptors_.size() == column_handles_.size());
+      // Validate column families passed as an argument, if any
+      ValidateColumnFamiliesArg();
     }
 
     options_ = opt;
@@ -454,6 +497,8 @@ public:
   virtual void DoCommand() override;
 
 private:
+  void DoCommandHelper(Iterator *iter);
+
   bool null_from_;
   string from_;
   bool null_to_;
