@@ -113,6 +113,7 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/string_append/stringappend2.cc      \
   utilities/merge_operators/string_append/stringappend.cc       \
   utilities/merge_operators/uint64add.cc                        \
+  utilities/merge_operators/bytesxor.cc                         \
   utilities/redis/redis_lists.cc                                \
   utilities/spatialdb/spatial_db.cc                             \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
