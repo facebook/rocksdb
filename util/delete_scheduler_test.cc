@@ -131,8 +131,8 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     }
     ASSERT_EQ(CountFilesInDir(dummy_files_dir_), 0);
 
-    TEST_SYNC_POINT("DeleteSchedulerTest::BasicRateLimiting:1");
     uint64_t delete_start_time = env_->NowMicros();
+    TEST_SYNC_POINT("DeleteSchedulerTest::BasicRateLimiting:1");
     WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
@@ -211,9 +211,8 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
       threads[i].join();
     }
 
-    TEST_SYNC_POINT("DeleteSchedulerTest::RateLimitingMultiThreaded:1");
-
     uint64_t delete_start_time = env_->NowMicros();
+    TEST_SYNC_POINT("DeleteSchedulerTest::RateLimitingMultiThreaded:1");
     WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
