@@ -625,6 +625,7 @@ Status CompactionJob::WriteKeyValue(const Slice& key, const Slice& value,
       return status;
     }
   }
+  assert(compact_->builder != nullptr);
 
   SequenceNumber seqno = GetInternalKeySeqno(newkey);
   if (compact_->builder->NumEntries() == 0) {

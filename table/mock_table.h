@@ -12,6 +12,7 @@
 #include <map>
 #include <string>
 
+#include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
 #include "table/table_reader.h"
 #include "table/table_builder.h"
@@ -23,8 +24,23 @@
 namespace rocksdb {
 namespace mock {
 
-typedef std::map<std::string, std::string> MockFileContents;
-// NOTE this currently only supports bitwise comparator
+struct MockFileContentsCmp {
+  MockFileContentsCmp() : icmp_(BytewiseComparator()) {}
+
+  bool operator() (const std::string& x, const std::string& y) const {
+    InternalKey ikey_x;
+    InternalKey ikey_y;
+    ikey_x.DecodeFrom(x);
+    ikey_y.DecodeFrom(y);
+    return icmp_.Compare(ikey_x, ikey_y) < 0;
+  }
+
+  InternalKeyComparator icmp_;
+};
+
+// NOTE: this currently only supports the bytewise comparator
+typedef std::map<std::string, std::string, MockFileContentsCmp>
+    MockFileContents;
 
 struct MockTableFileSystem {
   port::Mutex mutex;

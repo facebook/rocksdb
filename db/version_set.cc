@@ -1130,7 +1130,6 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
 } // anonymous namespace
 
 void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
-  assert(level < num_levels());
   auto* level_files = &files_[level];
   // Must not overlap
   assert(level <= 0 || level_files->empty() ||
