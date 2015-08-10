@@ -369,6 +369,8 @@ void DBOptions::Dump(Logger* log) const {
         bytes_per_sync);
     Warn(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
         wal_bytes_per_sync);
+    Warn(log, "                       Options.wal_recovery_mode: %d",
+        wal_recovery_mode);
     Warn(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
     if (row_cache) {
