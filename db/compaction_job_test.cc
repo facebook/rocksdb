@@ -230,7 +230,7 @@ class CompactionJobTest : public testing::Test {
     for (size_t level = 0; level < input_files.size(); level++) {
       auto level_files = input_files[level];
       CompactionInputFiles compaction_level;
-      compaction_level.level = level;
+      compaction_level.level = static_cast<int>(level);
       compaction_level.files.insert(compaction_level.files.end(),
           level_files.begin(), level_files.end());
       compaction_input_files.push_back(compaction_level);
