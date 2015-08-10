@@ -164,6 +164,8 @@ protected:
   string db_path_;
   DB* db_;
   DBWithTTL* db_ttl_;
+  vector<ColumnFamilyDescriptor> column_descriptors_;
+  vector<ColumnFamilyHandle*> column_handles_;
 
   /**
    * true implies that this command can work if the db is opened in read-only
@@ -227,8 +229,21 @@ protected:
     if (!exec_state_.IsNotStarted()) {
       return;
     }
+
+    // Get the full list of column families
+    Status st = InitColumnFamilies(opt);
+    if (st.IsNotFound()) {
+      // Swallow not-found errors, assuming that the command has
+      // create-if-not-exists semantics; we'll take the normal failure
+      // path if that's not the case.
+      assert(column_descriptors_.empty());
+      column_descriptors_.push_back(ColumnFamilyDescriptor());
+    } else if (!st.ok()) {
+      string msg = st.ToString();
+      exec_state_ = LDBCommandExecuteResult::Failed(msg);
+    }
+
     // Open the DB.
-    Status st;
     if (is_db_ttl_) {
       if (is_read_only_) {
         st = DBWithTTL::Open(opt, db_path_, &db_ttl_, 0, true);
@@ -237,9 +252,10 @@ protected:
       }
       db_ = db_ttl_;
     } else if (is_read_only_) {
-      st = DB::OpenForReadOnly(opt, db_path_, &db_);
+      st = DB::OpenForReadOnly(opt, db_path_, column_descriptors_,
+              &column_handles_, &db_);
     } else {
-      st = DB::Open(opt, db_path_, &db_);
+      st = DB::Open(opt, db_path_, column_descriptors_, &column_handles_, &db_);
     }
     if (!st.ok()) {
       string msg = st.ToString();
@@ -249,8 +265,25 @@ protected:
     options_ = opt;
   }
 
+  Status InitColumnFamilies(Options& opt) {
+    vector<string> names;
+    Status s = DB::ListColumnFamilies(DBOptions(), db_path_, &names);
+    if (!s.ok()) {
+      return s;
+    }
+    for (auto const& name : names) {
+      column_descriptors_.emplace_back(name, ColumnFamilyOptions(opt));
+    }
+    return Status::OK();
+  }
+
   void CloseDB () {
     if (db_ != nullptr) {
+      for (auto* handle : column_handles_) {
+        delete handle;
+      }
+      column_handles_.clear();
+
       delete db_;
       db_ = nullptr;
     }
