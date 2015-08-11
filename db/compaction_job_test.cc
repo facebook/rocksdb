@@ -38,7 +38,7 @@ void VerifyInitializationOfCompactionJobStats(
   ASSERT_EQ(compaction_job_stats.num_output_records, 0U);
   ASSERT_EQ(compaction_job_stats.num_output_files, 0U);
 
-  ASSERT_EQ(compaction_job_stats.is_manual_compaction, false);
+  ASSERT_EQ(compaction_job_stats.is_manual_compaction, true);
 
   ASSERT_EQ(compaction_job_stats.total_input_bytes, 0U);
   ASSERT_EQ(compaction_job_stats.total_output_bytes, 0U);
@@ -240,7 +240,7 @@ class CompactionJobTest : public testing::Test {
     Compaction compaction(cfd->current()->storage_info(),
                           *cfd->GetLatestMutableCFOptions(),
                           compaction_input_files, 1, 1024 * 1024, 10, 0,
-                          kNoCompression, {});
+                          kNoCompression, {}, true);
     compaction.SetInputVersion(cfd->current());
 
     LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options_.info_log.get());
