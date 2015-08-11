@@ -15,7 +15,7 @@
 namespace rocksdb {
 
 port::Mutex ThreadLocalPtr::StaticMeta::mutex_;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
 
@@ -149,19 +149,20 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   // of memory backing destructed statically-scoped objects. Perhaps
   // registering with atexit(3) would be more robust.
   //
-  // This is not required on Windows.  Also, it's not required on Mac
-  // as ThreadLocal is not supported in Mac.
-#if !defined(OS_MACOSX) && !defined(IOS_CROSS_COMPILE) && !defined(OS_WIN)
+// This is not required on Windows.
+#if !defined(OS_WIN)
   static struct A {
     ~A() {
+#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
       ThreadData* tls_ =
         static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
+#endif
       if (tls_) {
         OnThreadExit(tls_);
       }
     }
   } a;
-#endif
+#endif  // !defined(OS_WIN)
 
   head_.next = &head_;
   head_.prev = &head_;
@@ -190,7 +191,7 @@ void ThreadLocalPtr::StaticMeta::RemoveThreadData(
 }
 
 ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
   // Make this local variable name look like a member variable so that we
   // can share all the code below
   ThreadData* tls_ =
