@@ -85,23 +85,14 @@ class ReverseBytewiseComparatorImpl : public BytewiseComparatorImpl {
 
 }// namespace
 
-static port::OnceType once = LEVELDB_ONCE_INIT;
-static std::unique_ptr<const Comparator> bytewise;
-static std::unique_ptr<const Comparator> rbytewise;
-
-static void InitModule() {
-  bytewise.reset(new BytewiseComparatorImpl);
-  rbytewise.reset(new ReverseBytewiseComparatorImpl);
-}
-
 const Comparator* BytewiseComparator() {
-  port::InitOnce(&once, InitModule);
-  return bytewise.get();
+  static BytewiseComparatorImpl bytewise;
+  return &bytewise;
 }
 
 const Comparator* ReverseBytewiseComparator() {
-  port::InitOnce(&once, InitModule);
-  return rbytewise.get();
+  static ReverseBytewiseComparatorImpl rbytewise;
+  return &rbytewise;
 }
 
 }  // namespace rocksdb

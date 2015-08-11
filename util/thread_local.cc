@@ -149,14 +149,13 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   // of memory backing destructed statically-scoped objects. Perhaps
   // registering with atexit(3) would be more robust.
   //
-  // This is not required on Windows.
-#if !defined(OS_WIN)
+  // This is not required on Windows.  Also, it's not required on Mac
+  // as ThreadLocal is not supported in Mac.
+#if !defined(OS_MACOSX) && !defined(IOS_CROSS_COMPILE) && !defined(OS_WIN)
   static struct A {
     ~A() {
-#if defined(OS_MACOSX)
       ThreadData* tls_ =
         static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
-#endif
       if (tls_) {
         OnThreadExit(tls_);
       }
