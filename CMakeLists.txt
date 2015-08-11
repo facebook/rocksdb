@@ -102,6 +102,7 @@ set(SOURCES
         db/merge_operator.cc
         db/repair.cc
         db/slice.cc
+        db/snapshot_impl.cc
         db/table_cache.cc
         db/table_properties_collector.cc
         db/transaction_log_impl.cc
@@ -218,7 +219,7 @@ set(SOURCES
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
-        utilities/transactions/optimistic_transaction_impl.cc        
+        utilities/transactions/optimistic_transaction_impl.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
