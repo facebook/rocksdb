@@ -652,7 +652,7 @@ void DBIter::Seek(const Slice& target) {
   if (iter_->Valid()) {
     direction_ = kForward;
     ClearSavedValue();
-    FindNextUserEntry(false /*not skipping */);
+    FindNextUserEntry(false /* not skipping */);
   } else {
     valid_ = false;
   }
@@ -660,7 +660,7 @@ void DBIter::Seek(const Slice& target) {
 
 void DBIter::SeekToFirst() {
   // Don't use iter_::Seek() if we set a prefix extractor
-  // because prefix seek wiil be used.
+  // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
@@ -681,7 +681,7 @@ void DBIter::SeekToFirst() {
 
 void DBIter::SeekToLast() {
   // Don't use iter_::Seek() if we set a prefix extractor
-  // because prefix seek wiil be used.
+  // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }

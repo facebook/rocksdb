@@ -40,24 +40,25 @@ int main() {
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "rocksdb/statistics.h"
+#include "hdfs/env_hdfs.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/env.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/write_batch.h"
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/testutil.h"
-#include "util/logging.h"
-#include "hdfs/env_hdfs.h"
-#include "utilities/merge_operators.h"
 #include "util/string_util.h"
+#include "util/testutil.h"
+#include "utilities/merge_operators.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -1811,29 +1812,8 @@ class StressTest {
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
-    const char* compression = "";
-    switch (FLAGS_compression_type_e) {
-      case rocksdb::kNoCompression:
-        compression = "none";
-        break;
-      case rocksdb::kSnappyCompression:
-        compression = "snappy";
-        break;
-      case rocksdb::kZlibCompression:
-        compression = "zlib";
-        break;
-      case rocksdb::kBZip2Compression:
-        compression = "bzip2";
-        break;
-      case rocksdb::kLZ4Compression:
-        compression = "lz4";
-        break;
-      case rocksdb::kLZ4HCCompression:
-        compression = "lz4hc";
-        break;
-      }
-
-    fprintf(stdout, "Compression         : %s\n", compression);
+    std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
+    fprintf(stdout, "Compression         : %s\n", compression.c_str());
 
     const char* memtablerep = "";
     switch (FLAGS_rep_factory) {

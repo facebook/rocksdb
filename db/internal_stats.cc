@@ -333,7 +333,7 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
       return true;
     case kCompactionPending:
-      // 1 if the system already determines at least one compacdtion is needed.
+      // 1 if the system already determines at least one compaction is needed.
       // 0 otherwise,
       *value = (cfd_->compaction_picker()->NeedsCompaction(vstorage) ? 1 : 0);
       return true;
@@ -385,11 +385,9 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
     case kNumLiveVersions:
       *value = cfd_->GetNumLiveVersions();
       return true;
-#ifndef ROCKSDB_LITE
     case kIsFileDeletionEnabled:
       *value = db->IsFileDeletionsEnabled();
       return true;
-#endif
     case kBaseLevel:
       *value = vstorage->base_level();
       return true;

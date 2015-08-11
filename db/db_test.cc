@@ -621,7 +621,7 @@ TEST_F(DBTest, GetSnapshot) {
       ASSERT_OK(Put(1, key, "v1"));
       const Snapshot* s1 = db_->GetSnapshot();
       if (option_config_ == kHashCuckoo) {
-        // NOt supported case.
+        // Unsupported case.
         ASSERT_TRUE(s1 == nullptr);
         break;
       }
