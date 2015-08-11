@@ -11,6 +11,9 @@ class FbcodeCppLinter extends ArcanistLinter {
   private $rawLintOutput = array();
 
   public function willLintPaths(array $paths) {
+    if (!file_exists(self::FLINT)) {
+      return;
+    }
     $futures = array();
     foreach ($paths as $p) {
       $lpath = $this->getEngine()->getFilePathOnDisk($p);

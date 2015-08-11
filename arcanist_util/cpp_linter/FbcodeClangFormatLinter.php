@@ -35,9 +35,15 @@ final class FbcodeClangFormatLinter extends BaseDirectoryScopedFormatLinter {
       $args .= " --lines=$key:$key";
     }
 
+    $binary = self::CLANG_FORMAT_BINARY;
+    if (!file_exists($binary)) {
+      // trust the $PATH
+      $binary = "clang-format";
+    }
+
     return new ExecFuture(
       "%s %s $args",
-      self::CLANG_FORMAT_BINARY,
+      $binary,
       $this->getEngine()->getFilePathOnDisk($path));
   }
 
