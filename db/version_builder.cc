@@ -15,7 +15,9 @@
 
 #include <inttypes.h>
 #include <algorithm>
+#include <atomic>
 #include <set>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -278,12 +280,26 @@ class VersionBuilder::Rep {
     CheckConsistency(vstorage);
   }
 
-  void LoadTableHandlers() {
+  void LoadTableHandlers(int max_threads) {
     assert(table_cache_ != nullptr);
+    std::vector<FileMetaData*> files_meta;
     for (int level = 0; level < base_vstorage_->num_levels(); level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
         assert(!file_meta->table_reader_handle);
+        files_meta.push_back(file_meta);
+      }
+    }
+
+    std::atomic<size_t> next_file_meta_idx(0);
+    std::function<void()> load_handlers_func = [&]() {
+      while (true) {
+        size_t file_idx = next_file_meta_idx.fetch_add(1);
+        if (file_idx >= files_meta.size()) {
+          break;
+        }
+
+        auto* file_meta = files_meta[file_idx];
         table_cache_->FindTable(
             env_options_, *(base_vstorage_->InternalComparator()),
             file_meta->fd, &file_meta->table_reader_handle, false);
@@ -292,6 +308,19 @@ class VersionBuilder::Rep {
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
               file_meta->table_reader_handle);
         }
+      }
+    };
+
+    if (max_threads <= 1) {
+      load_handlers_func();
+    } else {
+      std::vector<std::thread> threads;
+      for (int i = 0; i < max_threads; i++) {
+        threads.emplace_back(load_handlers_func);
+      }
+
+      for (auto& t : threads) {
+        t.join();
       }
     }
   }
@@ -321,7 +350,9 @@ void VersionBuilder::Apply(VersionEdit* edit) { rep_->Apply(edit); }
 void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
   rep_->SaveTo(vstorage);
 }
-void VersionBuilder::LoadTableHandlers() { rep_->LoadTableHandlers(); }
+void VersionBuilder::LoadTableHandlers(int max_threads) {
+  rep_->LoadTableHandlers(max_threads);
+}
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
                                   FileMetaData* f) {
   rep_->MaybeAddFile(vstorage, level, f);

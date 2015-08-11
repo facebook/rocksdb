@@ -208,6 +208,7 @@ DBOptions::DBOptions()
       info_log_level(DEBUG_LEVEL),
 #endif  // NDEBUG
       max_open_files(5000),
+      max_file_opening_threads(1),
       max_total_wal_size(0),
       statistics(nullptr),
       disableDataSync(false),
@@ -256,6 +257,7 @@ DBOptions::DBOptions(const Options& options)
       info_log(options.info_log),
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
+      max_file_opening_threads(options.max_file_opening_threads),
       max_total_wal_size(options.max_total_wal_size),
       statistics(options.statistics),
       disableDataSync(options.disableDataSync),
@@ -306,6 +308,7 @@ void DBOptions::Dump(Logger* log) const {
     Warn(log, "                     Options.env: %p", env);
     Warn(log, "                Options.info_log: %p", info_log.get());
     Warn(log, "          Options.max_open_files: %d", max_open_files);
+    Warn(log, "Options.max_file_opening_threads: %d", max_file_opening_threads);
     Warn(log, "      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Warn(log, "       Options.disableDataSync: %d", disableDataSync);
     Warn(log, "             Options.use_fsync: %d", use_fsync);

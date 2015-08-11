@@ -8377,6 +8377,62 @@ TEST_F(DBTest, UnsupportedManualSync) {
   ASSERT_TRUE(s.IsNotSupported());
 }
 
+TEST_F(DBTest, OpenDBWithInfiniteMaxOpenFiles) {
+  // Open DB with infinite max open files
+  //  - First iteration use 1 thread to open files
+  //  - Second iteration use 5 threads to open files
+  for (int iter = 0; iter < 2; iter++) {
+    Options options;
+    options.create_if_missing = true;
+    options.write_buffer_size = 100000;
+    options.disable_auto_compactions = true;
+    options.max_open_files = -1;
+    if (iter == 0) {
+      options.max_file_opening_threads = 1;
+    } else {
+      options.max_file_opening_threads = 5;
+    }
+    options = CurrentOptions(options);
+    DestroyAndReopen(options);
+
+    // Create 12 Files in L0 (then move then to L2)
+    for (int i = 0; i < 12; i++) {
+      std::string k = "L2_" + Key(i);
+      ASSERT_OK(Put(k, k + std::string(1000, 'a')));
+      ASSERT_OK(Flush());
+    }
+    CompactRangeOptions compact_options;
+    compact_options.change_level = true;
+    compact_options.target_level = 2;
+    db_->CompactRange(compact_options, nullptr, nullptr);
+
+    // Create 12 Files in L0
+    for (int i = 0; i < 12; i++) {
+      std::string k = "L0_" + Key(i);
+      ASSERT_OK(Put(k, k + std::string(1000, 'a')));
+      ASSERT_OK(Flush());
+    }
+    Close();
+
+    // Reopening the DB will load all exisitng files
+    Reopen(options);
+    ASSERT_EQ("12,0,12", FilesPerLevel(0));
+    std::vector<std::vector<FileMetaData>> files;
+    dbfull()->TEST_GetFilesMetaData(db_->DefaultColumnFamily(), &files);
+
+    for (const auto& level : files) {
+      for (const auto& file : level) {
+        ASSERT_TRUE(file.table_reader_handle != nullptr);
+      }
+    }
+
+    for (int i = 0; i < 12; i++) {
+      ASSERT_EQ(Get("L0_" + Key(i)), "L0_" + Key(i) + std::string(1000, 'a'));
+      ASSERT_EQ(Get("L2_" + Key(i)), "L2_" + Key(i) + std::string(1000, 'a'));
+    }
+  }
+}
+
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Values(1, 4));
 

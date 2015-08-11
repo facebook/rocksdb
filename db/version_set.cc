@@ -2393,9 +2393,9 @@ Status VersionSet::Recover(
       auto* builder = builders_iter->second->version_builder();
 
       if (db_options_->max_open_files == -1) {
-      // unlimited table cache. Pre-load table handle now.
-      // Need to do it out of the mutex.
-        builder->LoadTableHandlers();
+        // unlimited table cache. Pre-load table handle now.
+        // Need to do it out of the mutex.
+        builder->LoadTableHandlers(db_options_->max_file_opening_threads);
       }
 
       Version* v = new Version(cfd, this, current_version_number_++);

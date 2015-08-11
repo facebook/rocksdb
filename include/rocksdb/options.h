@@ -810,6 +810,11 @@ struct DBOptions {
   // Default: 5000
   int max_open_files;
 
+  // If max_open_files is -1, DB will open all files on DB::Open(). You can
+  // use this option to increase the number of threads used to open the files.
+  // Default: 1
+  int max_file_opening_threads;
+
   // Once write-ahead logs exceed this size, we will start forcing the flush of
   // column families whose memtables are backed by the oldest live WAL file
   // (i.e. the ones that are causing all the space amplification). If set to 0
