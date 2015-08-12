@@ -104,24 +104,4 @@ class WritableFileWriter {
   size_t RequestToken(size_t bytes);
   Status SyncInternal(bool use_fsync);
 };
-
-class RandomRWFileAccessor {
- private:
-  std::unique_ptr<RandomRWFile> random_rw_file_;
-  bool pending_sync_;
-  bool pending_fsync_;
-
- public:
-  explicit RandomRWFileAccessor(std::unique_ptr<RandomRWFile>&& f)
-      : random_rw_file_(std::move(f)),
-        pending_sync_(false),
-        pending_fsync_(false) {}
-  Status Write(uint64_t offset, const Slice& data);
-
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
-
-  Status Close();
-
-  Status Sync(bool use_fsync);
-};
 }  // namespace rocksdb

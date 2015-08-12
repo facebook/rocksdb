@@ -1,5 +1,10 @@
 # Rocksdb Change Log
 
+## Unreleased
+
+### Public API Changes
+* Removed class Env::RandomRWFile and Env::NewRandomRWFile().
+
 ## 3.13.0 (8/6/2015)
 ### New Features
 * RollbackToSavePoint() in WriteBatch/WriteBatchWithIndex

@@ -456,12 +456,6 @@ Status MockEnv::NewWritableFile(const std::string& fname,
   return Status::OK();
 }
 
-Status MockEnv::NewRandomRWFile(const std::string& fname,
-                                   unique_ptr<RandomRWFile>* result,
-                                   const EnvOptions& options) {
-  return Status::OK();
-}
-
 Status MockEnv::NewDirectory(const std::string& name,
                                 unique_ptr<Directory>* result) {
   result->reset(new MockEnvDirectory());

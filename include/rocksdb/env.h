@@ -40,7 +40,6 @@ class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
-class RandomRWFile;
 class Directory;
 struct DBOptions;
 class RateLimiter;
@@ -135,15 +134,6 @@ class Env {
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) = 0;
-
-  // Create an object that both reads and writes to a file on
-  // specified offsets (random access). If file already exists,
-  // does not overwrite it. On success, stores a pointer to the
-  // new file in *result and returns OK. On failure stores nullptr
-  // in *result and returns non-OK.
-  virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) = 0;
 
   // Create an object that represents a directory. Will fail if directory
@@ -568,55 +558,6 @@ class WritableFile {
   Env::IOPriority io_priority_;
 };
 
-// A file abstraction for random reading and writing.
-class RandomRWFile {
- public:
-  RandomRWFile() {}
-  virtual ~RandomRWFile() {}
-
-  // Write data from Slice data to file starting from offset
-  // Returns IOError on failure, but does not guarantee
-  // atomicity of a write.  Returns OK status on success.
-  //
-  // Safe for concurrent use.
-  virtual Status Write(uint64_t offset, const Slice& data) = 0;
-  // Read up to "n" bytes from the file starting at "offset".
-  // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
-  // to the data that was read (including if fewer than "n" bytes were
-  // successfully read).  May set "*result" to point at data in
-  // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
-  // "*result" is used.  If an error was encountered, returns a non-OK
-  // status.
-  //
-  // Safe for concurrent use by multiple threads.
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const = 0;
-  virtual Status Close() = 0; // closes the file
-  virtual Status Sync() = 0; // sync data
-
-  /*
-   * Sync data and/or metadata as well.
-   * By default, sync only data.
-   * Override this method for environments where we need to sync
-   * metadata as well.
-   */
-  virtual Status Fsync() {
-    return Sync();
-  }
-
-  /*
-   * Pre-allocate space for a file.
-   */
-  virtual Status Allocate(off_t offset, off_t len) {
-    return Status::OK();
-  }
-
- private:
-  // No copying allowed
-  RandomRWFile(const RandomRWFile&);
-  void operator=(const RandomRWFile&);
-};
-
 // Directory object represents collection of files and implements
 // filesystem operations that can be executed on directories.
 class Directory {
@@ -765,10 +706,6 @@ class EnvWrapper : public Env {
   Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
-  }
-  Status NewRandomRWFile(const std::string& f, unique_ptr<RandomRWFile>* r,
-                         const EnvOptions& options) override {
-    return target_->NewRandomRWFile(f, r, options);
   }
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {

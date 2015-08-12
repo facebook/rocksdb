@@ -283,26 +283,22 @@ class FileManager : public EnvWrapper {
   }
 
   Status CorruptFile(const std::string& fname, uint64_t bytes_to_corrupt) {
-    uint64_t size;
-    Status s = GetFileSize(fname, &size);
+    std::string file_contents;
+    Status s = ReadFileToString(this, fname, &file_contents);
     if (!s.ok()) {
       return s;
     }
-    unique_ptr<RandomRWFile> file;
-    EnvOptions env_options;
-    env_options.use_mmap_writes = false;
-    s = NewRandomRWFile(fname, &file, env_options);
+    s = DeleteFile(fname);
     if (!s.ok()) {
       return s;
     }
-    RandomRWFileAccessor accessor(std::move(file));
-    for (uint64_t i = 0; s.ok() && i < bytes_to_corrupt; ++i) {
+
+    for (uint64_t i = 0; i < bytes_to_corrupt; ++i) {
       std::string tmp;
-      // write one random byte to a random position
-      s = accessor.Write(rnd_.Next() % size,
-                         test::RandomString(&rnd_, 1, &tmp));
+      test::RandomString(&rnd_, 1, &tmp);
+      file_contents[rnd_.Next() % file_contents.size()] = tmp[0];
     }
-    return s;
+    return WriteToFile(fname, file_contents);
   }
 
   Status CorruptChecksum(const std::string& fname, bool appear_valid) {
