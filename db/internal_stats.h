@@ -98,6 +98,7 @@ class InternalStats {
         comp_stats_(num_levels),
         stall_leveln_slowdown_count_hard_(num_levels),
         stall_leveln_slowdown_count_soft_(num_levels),
+        file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
         env_(env),
@@ -238,6 +239,10 @@ class InternalStats {
     db_stats_[type] += value;
   }
 
+  HistogramImpl* GetFileReadHist(int level) {
+    return &file_read_latency_[level];
+  }
+
   uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }
 
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
@@ -265,6 +270,7 @@ class InternalStats {
   // These count the number of microseconds for which MakeRoomForWrite stalls.
   std::vector<uint64_t> stall_leveln_slowdown_count_hard_;
   std::vector<uint64_t> stall_leveln_slowdown_count_soft_;
+  std::vector<HistogramImpl> file_read_latency_;
 
   // Used to compute per-interval statistics
   struct CFStatsSnapshot {
@@ -388,6 +394,8 @@ class InternalStats {
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
   void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+
+  HistogramImpl* GetFileReadHist(int level) { return nullptr; }
 
   uint64_t GetBackgroundErrorCount() const { return 0; }
 

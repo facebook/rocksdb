@@ -28,6 +28,7 @@ class Env;
 class Arena;
 struct FileDescriptor;
 class GetContext;
+class HistogramImpl;
 
 class TableCache {
  public:
@@ -46,6 +47,7 @@ class TableCache {
                         const InternalKeyComparator& internal_comparator,
                         const FileDescriptor& file_fd,
                         TableReader** table_reader_ptr = nullptr,
+                        HistogramImpl* file_read_hist = nullptr,
                         bool for_compaction = false, Arena* arena = nullptr);
 
   // If a seek to internal key "k" in specified file finds an entry,
@@ -54,7 +56,7 @@ class TableCache {
   Status Get(const ReadOptions& options,
              const InternalKeyComparator& internal_comparator,
              const FileDescriptor& file_fd, const Slice& k,
-             GetContext* get_context);
+             GetContext* get_context, HistogramImpl* file_read_hist = nullptr);
 
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
@@ -63,7 +65,8 @@ class TableCache {
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
                    const FileDescriptor& file_fd, Cache::Handle**,
-                   const bool no_io = false, bool record_read_stats = true);
+                   const bool no_io = false, bool record_read_stats = true,
+                   HistogramImpl* file_read_hist = nullptr);
 
   // Get TableReader from a cache handle.
   TableReader* GetTableReaderFromHandle(Cache::Handle* handle);

@@ -24,6 +24,7 @@
 #include <string>
 
 #include "db/filename.h"
+#include "db/internal_stats.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
 #include "db/memtable.h"
@@ -474,13 +475,18 @@ class LevelFileNumIterator : public Iterator {
 class LevelFileIteratorState : public TwoLevelIteratorState {
  public:
   LevelFileIteratorState(TableCache* table_cache,
-    const ReadOptions& read_options, const EnvOptions& env_options,
-    const InternalKeyComparator& icomparator, bool for_compaction,
-    bool prefix_enabled)
-    : TwoLevelIteratorState(prefix_enabled),
-      table_cache_(table_cache), read_options_(read_options),
-      env_options_(env_options), icomparator_(icomparator),
-      for_compaction_(for_compaction) {}
+                         const ReadOptions& read_options,
+                         const EnvOptions& env_options,
+                         const InternalKeyComparator& icomparator,
+                         HistogramImpl* file_read_hist, bool for_compaction,
+                         bool prefix_enabled)
+      : TwoLevelIteratorState(prefix_enabled),
+        table_cache_(table_cache),
+        read_options_(read_options),
+        env_options_(env_options),
+        icomparator_(icomparator),
+        file_read_hist_(file_read_hist),
+        for_compaction_(for_compaction) {}
 
   Iterator* NewSecondaryIterator(const Slice& meta_handle) override {
     if (meta_handle.size() != sizeof(FileDescriptor)) {
@@ -491,7 +497,8 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
           reinterpret_cast<const FileDescriptor*>(meta_handle.data());
       return table_cache_->NewIterator(
           read_options_, env_options_, icomparator_, *fd,
-          nullptr /* don't need reference to table*/, for_compaction_);
+          nullptr /* don't need reference to table*/, file_read_hist_,
+          for_compaction_);
     }
   }
 
@@ -504,6 +511,7 @@ class LevelFileIteratorState : public TwoLevelIteratorState {
   const ReadOptions read_options_;
   const EnvOptions& env_options_;
   const InternalKeyComparator& icomparator_;
+  HistogramImpl* file_read_hist_;
   bool for_compaction_;
 };
 
@@ -705,7 +713,7 @@ void Version::AddIterators(const ReadOptions& read_options,
     const auto& file = storage_info_.LevelFilesBrief(0).files[i];
     merge_iter_builder->AddIterator(cfd_->table_cache()->NewIterator(
         read_options, soptions, cfd_->internal_comparator(), file.fd, nullptr,
-        false, arena));
+        cfd_->internal_stats()->GetFileReadHist(0), false, arena));
   }
 
   // For levels > 0, we can use a concatenating iterator that sequentially
@@ -714,10 +722,12 @@ void Version::AddIterators(const ReadOptions& read_options,
   for (int level = 1; level < storage_info_.num_non_empty_levels(); level++) {
     if (storage_info_.LevelFilesBrief(level).num_files != 0) {
       auto* mem = arena->AllocateAligned(sizeof(LevelFileIteratorState));
-      auto* state = new (mem) LevelFileIteratorState(
-          cfd_->table_cache(), read_options, soptions,
-          cfd_->internal_comparator(), false /* for_compaction */,
-          cfd_->ioptions()->prefix_extractor != nullptr);
+      auto* state = new (mem)
+          LevelFileIteratorState(cfd_->table_cache(), read_options, soptions,
+                                 cfd_->internal_comparator(),
+                                 cfd_->internal_stats()->GetFileReadHist(level),
+                                 false /* for_compaction */,
+                                 cfd_->ioptions()->prefix_extractor != nullptr);
       mem = arena->AllocateAligned(sizeof(LevelFileNumIterator));
       auto* first_level_iter = new (mem) LevelFileNumIterator(
           cfd_->internal_comparator(), &storage_info_.LevelFilesBrief(level));
@@ -810,8 +820,9 @@ void Version::Get(const ReadOptions& read_options,
       user_comparator(), internal_comparator());
   FdWithKeyRange* f = fp.GetNextFile();
   while (f != nullptr) {
-    *status = table_cache_->Get(read_options, *internal_comparator(), f->fd,
-                                ikey, &get_context);
+    *status = table_cache_->Get(
+        read_options, *internal_comparator(), f->fd, ikey, &get_context,
+        cfd_->internal_stats()->GetFileReadHist(fp.GetHitFileLevel()));
     // TODO: examine the behavior for corrupted key
     if (!status->ok()) {
       return;
@@ -3059,14 +3070,17 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
           list[num++] = cfd->table_cache()->NewIterator(
               read_options, env_options_compactions_,
               cfd->internal_comparator(), flevel->files[i].fd, nullptr,
+              nullptr, /* no per level latency histogram*/
               true /* for compaction */);
         }
       } else {
         // Create concatenating iterator for the files from this level
-        list[num++] = NewTwoLevelIterator(new LevelFileIteratorState(
-              cfd->table_cache(), read_options, env_options_,
-              cfd->internal_comparator(), true /* for_compaction */,
-              false /* prefix enabled */),
+        list[num++] = NewTwoLevelIterator(
+            new LevelFileIteratorState(
+                cfd->table_cache(), read_options, env_options_,
+                cfd->internal_comparator(),
+                nullptr /* no per level latency histogram */,
+                true /* for_compaction */, false /* prefix enabled */),
             new LevelFileNumIterator(cfd->internal_comparator(),
                                      c->input_levels(which)));
       }

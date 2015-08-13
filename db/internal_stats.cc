@@ -540,6 +540,16 @@ void InternalStats::DumpDBStats(std::string* value) {
                10000.0 / std::max(interval_seconds_up, 0.001));
   value->append(buf);
 
+  for (int level = 0; level < number_levels_; level++) {
+    if (!file_read_latency_[level].Empty()) {
+      char buf2[5000];
+      snprintf(buf2, sizeof(buf2),
+               "** Level %d read latency histogram (micros):\n%s\n", level,
+               file_read_latency_[level].ToString().c_str());
+      value->append(buf2);
+    }
+  }
+
   db_stats_snapshot_.seconds_up = seconds_up;
   db_stats_snapshot_.ingest_bytes = user_bytes_written;
   db_stats_snapshot_.write_other = write_other;

@@ -1293,8 +1293,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           iter.get(), &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), newest_snapshot,
           earliest_seqno_in_memtable, GetCompressionFlush(*cfd->ioptions()),
-          cfd->ioptions()->compression_opts, paranoid_file_checks, Env::IO_HIGH,
-          &info.table_properties);
+          cfd->ioptions()->compression_opts, paranoid_file_checks,
+          cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[%s] [WriteLevel0TableForRecovery]"

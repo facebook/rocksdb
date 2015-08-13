@@ -12,6 +12,7 @@
 #include <vector>
 #include "db/dbformat.h"
 #include "db/filename.h"
+#include "db/internal_stats.h"
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
@@ -54,7 +55,8 @@ Status BuildTable(
     const SequenceNumber earliest_seqno_in_memtable,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    const Env::IOPriority io_priority, TableProperties* table_properties) {
+    InternalStats* internal_stats, const Env::IOPriority io_priority,
+    TableProperties* table_properties) {
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
@@ -248,8 +250,11 @@ Status BuildTable(
 
     if (s.ok()) {
       // Verify that the table is usable
-      Iterator* it = table_cache->NewIterator(ReadOptions(), env_options,
-                                              internal_comparator, meta->fd);
+      Iterator* it = table_cache->NewIterator(
+          ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
+          (internal_stats == nullptr) ? nullptr
+                                      : internal_stats->GetFileReadHist(0),
+          false);
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {}

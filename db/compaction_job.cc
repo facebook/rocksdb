@@ -760,7 +760,9 @@ Status CompactionJob::FinishCompactionOutputFile(const Status& input_status) {
     FileDescriptor fd(output_number, output_path_id, current_bytes);
     Iterator* iter = cfd->table_cache()->NewIterator(
         ReadOptions(), env_options_, cfd->internal_comparator(), fd, nullptr,
-        true);
+        cfd->internal_stats()->GetFileReadHist(
+            compact_->compaction->output_level()),
+        false);
     s = iter->status();
 
     if (s.ok() && paranoid_file_checks_) {

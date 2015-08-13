@@ -12,6 +12,7 @@
 namespace rocksdb {
 
 class Statistics;
+class HistogramImpl;
 
 class SequentialFileReader {
  private:
@@ -33,16 +34,19 @@ class RandomAccessFileReader : public RandomAccessFile {
   Env* env_;
   Statistics* stats_;
   uint32_t hist_type_;
+  HistogramImpl* file_read_hist_;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
                                   Env* env = nullptr,
                                   Statistics* stats = nullptr,
-                                  uint32_t hist_type = 0)
+                                  uint32_t hist_type = 0,
+                                  HistogramImpl* file_read_hist = nullptr)
       : file_(std::move(raf)),
         env_(env),
         stats_(stats),
-        hist_type_(hist_type) {}
+        hist_type_(hist_type),
+        file_read_hist_(file_read_hist) {}
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
