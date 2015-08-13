@@ -33,6 +33,11 @@ void CompactionJobStats::Reset() {
   num_expired_deletion_records = 0;
 
   num_corrupt_keys = 0;
+
+  file_write_nanos = 0;
+  file_range_sync_nanos = 0;
+  file_fsync_nanos = 0;
+  file_prepare_write_nanos = 0;
 }
 
 #else

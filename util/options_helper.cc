@@ -2,6 +2,7 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
+#include "util/options_helper.h"
 
 #include <cassert>
 #include <cctype>
@@ -16,7 +17,6 @@
 #include "rocksdb/table.h"
 #include "table/block_based_table_factory.h"
 #include "util/logging.h"
-#include "util/options_helper.h"
 
 namespace rocksdb {
 
@@ -449,6 +449,8 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       new_options->min_partial_merge_operands = ParseUint32(value);
     } else if (name == "inplace_update_support") {
       new_options->inplace_update_support = ParseBoolean(name, value);
+    } else if (name == "compaction_measure_io_stats") {
+      new_options->compaction_measure_io_stats = ParseBoolean(name, value);
     } else if (name == "prefix_extractor") {
       const std::string kFixedPrefixName = "fixed:";
       const std::string kCappedPrefixName = "capped:";

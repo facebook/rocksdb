@@ -15,7 +15,6 @@
 #include <memory>
 #include <vector>
 #include <limits>
-#include <stdint.h>
 #include <unordered_map>
 
 #include "rocksdb/version.h"
@@ -735,6 +734,10 @@ struct ColumnFamilyOptions {
   // After writing every SST file, reopen it and read all the keys.
   // Default: false
   bool paranoid_file_checks;
+
+  // Measure IO stats in compactions, if true.
+  // Default: false
+  bool compaction_measure_io_stats;
 
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();

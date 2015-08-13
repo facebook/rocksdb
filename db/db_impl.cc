@@ -1669,7 +1669,8 @@ Status DBImpl::CompactFilesImpl(
       &shutting_down_, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->output_path_id()), stats_, snapshots_.GetAll(),
       table_cache_, &event_logger_,
-      c->mutable_cf_options()->paranoid_file_checks, dbname_,
+      c->mutable_cf_options()->paranoid_file_checks,
+      c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
@@ -2683,7 +2684,8 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_,
         snapshots_.GetAll(), table_cache_, &event_logger_,
-        c->mutable_cf_options()->paranoid_file_checks, dbname_,
+        c->mutable_cf_options()->paranoid_file_checks,
+        c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
         &compaction_job_stats);
     compaction_job.Prepare();
 

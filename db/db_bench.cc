@@ -465,6 +465,9 @@ DEFINE_int32(transaction_sleep, 0,
              "Max microseconds to sleep in between "
              "reading and writing a value (used in RandomTransaction only). ");
 
+DEFINE_bool(compaction_measure_io_stats, false,
+            "Measure times spents on I/Os while in compactions. ");
+
 namespace {
 enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
   assert(ctype);
@@ -2379,6 +2382,7 @@ class Benchmark {
       exit(1);
     }
     options.max_successive_merges = FLAGS_max_successive_merges;
+    options.compaction_measure_io_stats = FLAGS_compaction_measure_io_stats;
 
     // set universal style compaction configurations, if applicable
     if (FLAGS_universal_size_ratio != 0) {

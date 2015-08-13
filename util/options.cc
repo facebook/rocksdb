@@ -121,7 +121,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_successive_merges(0),
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false),
-      paranoid_file_checks(false) {
+      paranoid_file_checks(false),
+      compaction_measure_io_stats(false) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -185,7 +186,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
-      paranoid_file_checks(options.paranoid_file_checks) {
+      paranoid_file_checks(options.paranoid_file_checks),
+      compaction_measure_io_stats(options.compaction_measure_io_stats) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -514,6 +516,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
          max_successive_merges);
     Warn(log, "               Options.optimize_fllters_for_hits: %d",
         optimize_filters_for_hits);
+    Warn(log, "               Options.paranoid_file_checks: %d",
+         paranoid_file_checks);
+    Warn(log, "               Options.compaction_measure_io_stats: %d",
+         compaction_measure_io_stats);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

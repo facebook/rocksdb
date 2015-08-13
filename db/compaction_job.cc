@@ -96,7 +96,7 @@ CompactionJob::CompactionJob(
     Directory* db_directory, Directory* output_directory, Statistics* stats,
     std::vector<SequenceNumber> existing_snapshots,
     std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
-    bool paranoid_file_checks, const std::string& dbname,
+    bool paranoid_file_checks, bool measure_io_stats, const std::string& dbname,
     CompactionJobStats* compaction_job_stats)
     : job_id_(job_id),
       compact_(new CompactionState(compaction)),
@@ -115,7 +115,8 @@ CompactionJob::CompactionJob(
       existing_snapshots_(std::move(existing_snapshots)),
       table_cache_(std::move(table_cache)),
       event_logger_(event_logger),
-      paranoid_file_checks_(paranoid_file_checks) {
+      paranoid_file_checks_(paranoid_file_checks),
+      measure_io_stats_(measure_io_stats) {
   assert(log_buffer_ != nullptr);
   ThreadStatusUtil::SetColumnFamily(compact_->compaction->column_family_data());
   ThreadStatusUtil::SetThreadOperation(ThreadStatus::OP_COMPACTION);
@@ -270,6 +271,22 @@ Status CompactionJob::Run() {
 }
 
 Status CompactionJob::SubCompactionRun(Slice* start, Slice* end) {
+  PerfLevel prev_perf_level = PerfLevel::kEnableTime;
+  uint64_t prev_write_nanos = 0;
+  uint64_t prev_fsync_nanos = 0;
+  uint64_t prev_range_sync_nanos = 0;
+  uint64_t prev_prepare_write_nanos = 0;
+  bool enabled_io_stats = false;
+  if (measure_io_stats_ && compaction_job_stats_ != nullptr) {
+    prev_perf_level = GetPerfLevel();
+    SetPerfLevel(PerfLevel::kEnableTime);
+    prev_write_nanos = iostats_context.write_nanos;
+    prev_fsync_nanos = iostats_context.fsync_nanos;
+    prev_range_sync_nanos = iostats_context.range_sync_nanos;
+    prev_prepare_write_nanos = iostats_context.prepare_write_nanos;
+    enabled_io_stats = true;
+  }
+
   auto* compaction = compact_->compaction;
   const uint64_t start_micros = env_->NowMicros();
   int64_t imm_micros = 0;  // Micros spent doing imm_ compactions
@@ -286,6 +303,21 @@ Status CompactionJob::SubCompactionRun(Slice* start, Slice* end) {
 
   compaction_stats_.micros = env_->NowMicros() - start_micros - imm_micros;
   MeasureTime(stats_, COMPACTION_TIME, compaction_stats_.micros);
+
+  if (enabled_io_stats) {
+    // Not supporting parallel running yet
+    compaction_job_stats_->file_write_nanos +=
+        iostats_context.write_nanos - prev_write_nanos;
+    compaction_job_stats_->file_fsync_nanos +=
+        iostats_context.fsync_nanos - prev_fsync_nanos;
+    compaction_job_stats_->file_range_sync_nanos +=
+        iostats_context.range_sync_nanos - prev_range_sync_nanos;
+    compaction_job_stats_->file_prepare_write_nanos +=
+        iostats_context.prepare_write_nanos - prev_prepare_write_nanos;
+    if (prev_perf_level != PerfLevel::kEnableTime) {
+      SetPerfLevel(prev_perf_level);
+    }
+  }
   return status;
 }
 
@@ -340,6 +372,16 @@ void CompactionJob::Install(Status* status,
          << "total_output_size" << compact_->total_bytes
          << "num_input_records" << compact_->num_input_records
          << "num_output_records" << compact_->num_output_records;
+
+  if (measure_io_stats_ && compaction_job_stats_ != nullptr) {
+    stream << "file_write_nanos" << compaction_job_stats_->file_write_nanos;
+    stream << "file_range_sync_nanos"
+           << compaction_job_stats_->file_range_sync_nanos;
+    stream << "file_fsync_nanos" << compaction_job_stats_->file_fsync_nanos;
+    stream << "file_prepare_write_nanos"
+           << compaction_job_stats_->file_prepare_write_nanos;
+  }
+
   stream << "lsm_state";
   stream.StartArray();
   for (int level = 0; level < vstorage->num_levels(); ++level) {

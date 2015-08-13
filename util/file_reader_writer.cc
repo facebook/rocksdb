@@ -43,7 +43,11 @@ Status WritableFileWriter::Append(const Slice& data) {
 
   TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
 
-  writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left);
+  {
+    IOSTATS_TIMER_GUARD(prepare_write_nanos);
+    TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
+    writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left);
+  }
   // if there is no space in the cache, then flush
   if (cursize_ + left > capacity_) {
     s = Flush();
@@ -105,6 +109,7 @@ Status WritableFileWriter::Flush() {
     size_t size = RequestToken(left);
     {
       IOSTATS_TIMER_GUARD(write_nanos);
+      TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
       Status s = writable_file_->Append(Slice(src, size));
       if (!s.ok()) {
         return s;
@@ -182,6 +187,8 @@ Status WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
 
 Status WritableFileWriter::SyncInternal(bool use_fsync) {
   Status s;
+  IOSTATS_TIMER_GUARD(fsync_nanos);
+  TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
   if (use_fsync) {
     s = writable_file_->Fsync();
   } else {
@@ -192,6 +199,7 @@ Status WritableFileWriter::SyncInternal(bool use_fsync) {
 
 Status WritableFileWriter::RangeSync(off_t offset, off_t nbytes) {
   IOSTATS_TIMER_GUARD(range_sync_nanos);
+  TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
   return writable_file_->RangeSync(offset, nbytes);
 }
 

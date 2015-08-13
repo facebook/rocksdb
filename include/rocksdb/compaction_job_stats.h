@@ -58,6 +58,21 @@ struct CompactionJobStats {
   // the key) encountered and written out.
   uint64_t num_corrupt_keys;
 
+  // Following counters are only populated if
+  // options.compaction_measure_io_stats = true;
+
+  // Time spent on file's Append() call.
+  uint64_t file_write_nanos;
+
+  // Time spent on sync file range.
+  uint64_t file_range_sync_nanos;
+
+  // Time spent on file fsync.
+  uint64_t file_fsync_nanos;
+
+  // Time spent on preparing file write (falocate, etc)
+  uint64_t file_prepare_write_nanos;
+
   // 0-terminated strings storing the first 8 bytes of the smallest and
   // largest key in the output.
   static const size_t kMaxPrefixLength = 8;

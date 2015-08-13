@@ -57,8 +57,8 @@ class CompactionJob {
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats,
                 std::vector<SequenceNumber> existing_snapshots,
-                std::shared_ptr<Cache> table_cache,
-                EventLogger* event_logger, bool paranoid_file_checks,
+                std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+                bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats);
 
@@ -153,6 +153,7 @@ class CompactionJob {
   EventLogger* event_logger_;
 
   bool paranoid_file_checks_;
+  bool measure_io_stats_;
   std::vector<Slice> sub_compaction_boundaries_;
 };
 
