@@ -377,20 +377,23 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze
+	analyze tools
 
-all: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
+
+all: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
-dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
+tools: $(TOOLS)
+
+dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib tools db_bench
 
 coverage:
 	$(MAKE) clean
