@@ -21,7 +21,8 @@ const char* Status::CopyState(const char* state) {
   return result;
 }
 
-Status::Status(Code _code, const Slice& msg, const Slice& msg2) : code_(_code) {
+Status::Status(Code _code, const Slice& msg, const Slice& msg2)
+    : code_(_code), subcode_(kNone) {
   assert(code_ != kOk);
   const uint32_t len1 = static_cast<uint32_t>(msg.size());
   const uint32_t len2 = static_cast<uint32_t>(msg2.size());
@@ -89,6 +90,12 @@ std::string Status::ToString() const {
       break;
   }
   std::string result(type);
+  if (subcode_ != kNone) {
+    uint32_t index = static_cast<int32_t>(subcode_);
+    assert(sizeof(msgs) > index);
+    result.append(msgs[index]);
+  }
+
   if (state_ != nullptr) {
     uint32_t length;
     memcpy(&length, state_, sizeof(length));

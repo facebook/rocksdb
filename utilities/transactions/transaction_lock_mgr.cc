@@ -232,7 +232,7 @@ Status TransactionLockMgr::AcquireWithTimeout(LockMap* lock_map,
 
   if (!locked) {
     // timeout acquiring mutex
-    return Status::TimedOut("Timeout Acquiring Mutex");
+    return Status::TimedOut(Status::SubCode::kMutexTimeout);
   }
 
   // Acquire lock if we are able to
@@ -313,15 +313,14 @@ Status TransactionLockMgr::AcquireLocked(LockMap* lock_map,
         lock_info.expiration_time = txn_lock_info.expiration_time;
         // lock_cnt does not change
       } else {
-        result = Status::TimedOut("lock held");
+        result = Status::TimedOut(Status::SubCode::kLockTimeout);
       }
     }
   } else {  // Lock not held.
     // Check lock limit
     if (max_num_locks_ > 0 &&
         lock_map->lock_cnt.load(std::memory_order_acquire) >= max_num_locks_) {
-      result =
-          Status::Busy("Failed to acquire lock due to max_num_locks limit");
+      result = Status::Busy(Status::SubCode::kLockLimit);
     } else {
       // acquire lock
       stripe->keys.insert({key, txn_lock_info});

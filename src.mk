@@ -145,6 +145,7 @@ LIB_SOURCES =                                                   \
   util/sst_dump_tool.cc                                         \
   util/statistics.cc                                            \
   util/status.cc                                                \
+  util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
   util/thread_local.cc                                          \
