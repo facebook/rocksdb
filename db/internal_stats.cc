@@ -123,6 +123,8 @@ static const std::string num_live_versions = "num-live-versions";
 static const std::string estimate_live_data_size = "estimate-live-data-size";
 static const std::string base_level = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
+static const std::string estimate_pending_comp_bytes =
+    "estimate-pending-compaction-bytes";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -168,6 +170,8 @@ const std::string DB::Properties::kEstimateLiveDataSize =
                       rocksdb_prefix + estimate_live_data_size;
 const std::string DB::Properties::kTotalSstFilesSize =
                       rocksdb_prefix + total_sst_files_size;
+const std::string DB::Properties::kEstimatePendingCompactionBytes =
+    rocksdb_prefix + estimate_pending_comp_bytes;
 
 DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
                                bool* need_out_of_mutex) {
@@ -241,6 +245,8 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kBaseLevel;
   } else if (in == total_sst_files_size) {
     return kTotalSstFilesSize;
+  } else if (in == estimate_pending_comp_bytes) {
+    return kEstimatePendingCompactionBytes;
   }
   return kUnknown;
 }
@@ -408,6 +414,9 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       return true;
     case kTotalSstFilesSize:
       *value = cfd_->GetTotalSstFilesSize();
+      return true;
+    case kEstimatePendingCompactionBytes:
+      *value = vstorage->estimated_compaction_needed_bytes();
       return true;
     default:
       return false;

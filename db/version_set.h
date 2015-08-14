@@ -121,6 +121,10 @@ class VersionStorageInfo {
       const MutableCFOptions& mutable_cf_options,
       const CompactionOptionsFIFO& compaction_options_fifo);
 
+  // Estimate est_comp_needed_bytes_
+  void EstimateCompactionBytesNeeded(
+      const MutableCFOptions& mutable_cf_options);
+
   // This computes files_marked_for_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
@@ -315,6 +319,10 @@ class VersionStorageInfo {
   // Returns an estimate of the amount of live data in bytes.
   uint64_t EstimateLiveDataSize() const;
 
+  uint64_t estimated_compaction_needed_bytes() const {
+    return estimated_compaction_needed_bytes_;
+  }
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -389,6 +397,9 @@ class VersionStorageInfo {
   uint64_t accumulated_num_deletions_;
   // the number of samples
   uint64_t num_samples_;
+  // Estimated bytes needed to be compacted until all levels' size is down to
+  // target sizes.
+  uint64_t estimated_compaction_needed_bytes_;
 
   bool finalized_;
 

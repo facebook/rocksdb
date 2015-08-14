@@ -762,6 +762,7 @@ VersionStorageInfo::VersionStorageInfo(
       accumulated_num_non_deletions_(0),
       accumulated_num_deletions_(0),
       num_samples_(0),
+      estimated_compaction_needed_bytes_(0),
       finalized_(false) {
   if (ref_vstorage != nullptr) {
     accumulated_file_size_ = ref_vstorage->accumulated_file_size_;
@@ -1014,6 +1015,62 @@ int VersionStorageInfo::MaxInputLevel() const {
   return 0;
 }
 
+void VersionStorageInfo::EstimateCompactionBytesNeeded(
+    const MutableCFOptions& mutable_cf_options) {
+  // Only implemented for level-based compaction
+  if (compaction_style_ != kCompactionStyleLevel) {
+    return;
+  }
+
+  // Start from Level 0, if level 0 qualifies compaction to level 1,
+  // we estimate the size of compaction.
+  // Then we move on to the next level and see whether it qualifies compaction
+  // to the next level. The size of the level is estimated as the actual size
+  // on the level plus the input bytes from the previous level if there is any.
+  // If it exceeds, take the exceeded bytes as compaction input and add the size
+  // of the compaction size to tatal size.
+  // We keep doing it to Level 2, 3, etc, until the last level and return the
+  // accumulated bytes.
+
+  size_t bytes_compact_to_next_level = 0;
+  // Level 0
+  bool level0_compact_triggered = false;
+  if (static_cast<int>(files_[0].size()) >
+      mutable_cf_options.level0_file_num_compaction_trigger) {
+    level0_compact_triggered = true;
+    for (auto* f : files_[0]) {
+      bytes_compact_to_next_level += f->fd.GetFileSize();
+    }
+    estimated_compaction_needed_bytes_ = bytes_compact_to_next_level;
+  } else {
+    estimated_compaction_needed_bytes_ = 0;
+  }
+
+  // Level 1 and up.
+  for (int level = base_level(); level <= MaxInputLevel(); level++) {
+    size_t level_size = 0;
+    for (auto* f : files_[level]) {
+      level_size += f->fd.GetFileSize();
+    }
+    if (level == base_level() && level0_compact_triggered) {
+      // Add base level size to compaction if level0 compaction triggered.
+      estimated_compaction_needed_bytes_ += level_size;
+    }
+    // Add size added by previous compaction
+    level_size += bytes_compact_to_next_level;
+    bytes_compact_to_next_level = 0;
+    size_t level_target = MaxBytesForLevel(level);
+    if (level_size > level_target) {
+      bytes_compact_to_next_level = level_size - level_target;
+      // Simplify to assume the actual compaction fan-out ratio is always
+      // mutable_cf_options.max_bytes_for_level_multiplier.
+      estimated_compaction_needed_bytes_ +=
+          bytes_compact_to_next_level *
+          (1 + mutable_cf_options.max_bytes_for_level_multiplier);
+    }
+  }
+}
+
 void VersionStorageInfo::ComputeCompactionScore(
     const MutableCFOptions& mutable_cf_options,
     const CompactionOptionsFIFO& compaction_options_fifo) {
@@ -1098,6 +1155,7 @@ void VersionStorageInfo::ComputeCompactionScore(
     }
   }
   ComputeFilesMarkedForCompaction();
+  EstimateCompactionBytesNeeded(mutable_cf_options);
 }
 
 void VersionStorageInfo::ComputeFilesMarkedForCompaction() {

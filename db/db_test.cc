@@ -2287,6 +2287,58 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   ASSERT_EQ(unflushed_mem, all_mem);
 }
 
+TEST_F(DBTest, EstimatePendingCompBytes) {
+  // Set sizes to both background thread pool to be 1 and block them.
+  env_->SetBackgroundThreads(1, Env::HIGH);
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  Options options = CurrentOptions();
+  WriteOptions writeOpt = WriteOptions();
+  writeOpt.disableWAL = true;
+  options.compaction_style = kCompactionStyleLevel;
+  options.level0_file_num_compaction_trigger = 2;
+  options.max_background_compactions = 1;
+  options.max_background_flushes = 1;
+  options.max_write_buffer_number = 10;
+  options.min_write_buffer_number_to_merge = 1;
+  options.max_write_buffer_number_to_maintain = 0;
+  options.write_buffer_size = 1000000;
+  Reopen(options);
+
+  std::string big_value(1000000 * 2, 'x');
+  std::string num;
+  uint64_t int_num;
+
+  ASSERT_OK(dbfull()->Put(writeOpt, "k1", big_value));
+  Flush();
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      "rocksdb.estimate-pending-compaction-bytes", &int_num));
+  ASSERT_EQ(int_num, 0U);
+
+  ASSERT_OK(dbfull()->Put(writeOpt, "k2", big_value));
+  Flush();
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      "rocksdb.estimate-pending-compaction-bytes", &int_num));
+  ASSERT_EQ(int_num, 0U);
+
+  ASSERT_OK(dbfull()->Put(writeOpt, "k3", big_value));
+  Flush();
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      "rocksdb.estimate-pending-compaction-bytes", &int_num));
+  ASSERT_GT(int_num, 0U);
+
+  sleeping_task_low.WakeUp();
+  sleeping_task_low.WaitUntilDone();
+
+  dbfull()->TEST_WaitForCompact();
+  ASSERT_TRUE(dbfull()->GetIntProperty(
+      "rocksdb.estimate-pending-compaction-bytes", &int_num));
+  ASSERT_EQ(int_num, 0U);
+}
+
 TEST_F(DBTest, FLUSH) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());

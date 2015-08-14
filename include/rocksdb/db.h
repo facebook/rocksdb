@@ -330,6 +330,10 @@ class DB {
 //  "rocksdb.estimate-live-data-size"
 //  "rocksdb.total-sst-files-size" - total size of all used sst files, this may
 //      slow down online queries if there are too many files.
+//  "rocksdb.base-level"
+//  "rocksdb.estimate-pending-compaction-bytes" - estimated total number of
+//      bytes compaction needs to rewrite the data to get all levels down
+//      to under target size. Not valid for other compactions than level-based.
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -356,6 +360,7 @@ class DB {
     static const std::string kNumLiveVersions;
     static const std::string kEstimateLiveDataSize;
     static const std::string kTotalSstFilesSize;
+    static const std::string kEstimatePendingCompactionBytes;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -387,6 +392,8 @@ class DB {
   //  "rocksdb.num-live-versions"
   //  "rocksdb.estimate-live-data-size"
   //  "rocksdb.total-sst-files-size"
+  //  "rocksdb.base-level"
+  //  "rocksdb.estimate-pending-compaction-bytes"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
