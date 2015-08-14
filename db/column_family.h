@@ -19,12 +19,10 @@
 #include "db/write_controller.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
-#include "db/flush_scheduler.h"
 #include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/instrumented_mutex.h"
 #include "util/mutable_cf_options.h"
 #include "util/thread_local.h"
 
@@ -134,6 +132,9 @@ struct SuperVersion {
 
 extern Status CheckCompressionSupported(const ColumnFamilyOptions& cf_options);
 
+extern Status CheckConcurrentWritesSupported(
+    const ColumnFamilyOptions& cf_options);
+
 extern ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
                                            const InternalKeyComparator* icmp,
                                            const ColumnFamilyOptions& src);
@@ -158,14 +159,16 @@ class ColumnFamilyData {
   // thread-safe
   const std::string& GetName() const { return name_; }
 
-  // Ref() can only be called whily holding a DB mutex or during a
-  // single-threaded write.
+  // Ref() can only be called from a context where the caller can guarantee
+  // that ColumnFamilyData is alive (while holding a non-zero ref already,
+  // holding a DB mutex, or as the leader in a write batch group).
   void Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
-  // will just decrease reference count to 0, but will not delete it. returns
-  // true if the ref count was decreased to zero. in that case, it can be
-  // deleted by the caller immediately, or later, by calling
-  // FreeDeadColumnFamilies()
-  // Unref() can only be called while holding a DB mutex
+
+  // Unref decreases the reference count, but does not handle deletion
+  // when the count goes to 0.  If this method returns true then the
+  // caller should delete the instance immediately, or later, by calling
+  // FreeDeadColumnFamilies().  Unref() can only be called while holding
+  // a DB mutex, or during single-threaded recovery.
   bool Unref() {
     int old_refs = refs_.fetch_sub(1, std::memory_order_relaxed);
     assert(old_refs > 0);
@@ -497,15 +500,18 @@ class ColumnFamilySet {
 // memtables of different column families (specified by ID in the write batch)
 class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
  public:
-  explicit ColumnFamilyMemTablesImpl(ColumnFamilySet* column_family_set,
-                                     FlushScheduler* flush_scheduler)
-      : column_family_set_(column_family_set),
-        current_(nullptr),
-        flush_scheduler_(flush_scheduler) {}
+  explicit ColumnFamilyMemTablesImpl(ColumnFamilySet* column_family_set)
+      : column_family_set_(column_family_set), current_(nullptr) {}
+
+  // Constructs a ColumnFamilyMemTablesImpl equivalent to one constructed
+  // with the arguments used to construct *orig.
+  explicit ColumnFamilyMemTablesImpl(ColumnFamilyMemTablesImpl* orig)
+      : column_family_set_(orig->column_family_set_), current_(nullptr) {}
 
   // sets current_ to ColumnFamilyData with column_family_id
   // returns false if column family doesn't exist
-  // REQUIRES: under a DB mutex OR from a write thread
+  // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
+  //           under a DB mutex OR from a write thread
   bool Seek(uint32_t column_family_id) override;
 
   // Returns log number of the selected column family
@@ -513,20 +519,23 @@ class ColumnFamilyMemTablesImpl : public ColumnFamilyMemTables {
   uint64_t GetLogNumber() const override;
 
   // REQUIRES: Seek() called first
-  // REQUIRES: under a DB mutex OR from a write thread
+  // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
+  //           under a DB mutex OR from a write thread
   virtual MemTable* GetMemTable() const override;
 
   // Returns column family handle for the selected column family
-  // REQUIRES: under a DB mutex OR from a write thread
+  // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
+  //           under a DB mutex OR from a write thread
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() override;
 
-  // REQUIRES: under a DB mutex OR from a write thread
-  virtual void CheckMemtableFull() override;
+  // Cannot be called while another thread is calling Seek().
+  // REQUIRES: use this function of DBImpl::column_family_memtables_ should be
+  //           under a DB mutex OR from a write thread
+  virtual ColumnFamilyData* current() { return current_; }
 
  private:
   ColumnFamilySet* column_family_set_;
   ColumnFamilyData* current_;
-  FlushScheduler* flush_scheduler_;
   ColumnFamilyHandleInternal handle_;
 };
 

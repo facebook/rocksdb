@@ -145,7 +145,7 @@ enum Tickers : uint32_t {
   // Writes can be processed by requesting thread or by the thread at the
   // head of the writers queue.
   WRITE_DONE_BY_SELF,
-  WRITE_DONE_BY_OTHER,
+  WRITE_DONE_BY_OTHER,  // Equivalent to writes done for others
   WRITE_TIMEDOUT,       // Number of writes ending up with timed-out.
   WRITE_WITH_WAL,       // Number of Write calls that request WAL
   COMPACT_READ_BYTES,   // Bytes read during compaction

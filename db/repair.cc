@@ -270,7 +270,7 @@ class Repairer {
         continue;
       }
       WriteBatchInternal::SetContents(&batch, record);
-      status = WriteBatchInternal::InsertInto(&batch, cf_mems_default);
+      status = WriteBatchInternal::InsertInto(&batch, cf_mems_default, nullptr);
       if (status.ok()) {
         counter += WriteBatchInternal::Count(&batch);
       } else {

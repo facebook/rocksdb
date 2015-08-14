@@ -485,14 +485,14 @@ void InternalStats::DumpDBStats(std::string* value) {
            seconds_up, interval_seconds_up);
   value->append(buf);
   // Cumulative
-  uint64_t user_bytes_written = db_stats_[InternalStats::BYTES_WRITTEN];
-  uint64_t num_keys_written = db_stats_[InternalStats::NUMBER_KEYS_WRITTEN];
-  uint64_t write_other = db_stats_[InternalStats::WRITE_DONE_BY_OTHER];
-  uint64_t write_self = db_stats_[InternalStats::WRITE_DONE_BY_SELF];
-  uint64_t wal_bytes = db_stats_[InternalStats::WAL_FILE_BYTES];
-  uint64_t wal_synced = db_stats_[InternalStats::WAL_FILE_SYNCED];
-  uint64_t write_with_wal = db_stats_[InternalStats::WRITE_WITH_WAL];
-  uint64_t write_stall_micros = db_stats_[InternalStats::WRITE_STALL_MICROS];
+  uint64_t user_bytes_written = GetDBStats(InternalStats::BYTES_WRITTEN);
+  uint64_t num_keys_written = GetDBStats(InternalStats::NUMBER_KEYS_WRITTEN);
+  uint64_t write_other = GetDBStats(InternalStats::WRITE_DONE_BY_OTHER);
+  uint64_t write_self = GetDBStats(InternalStats::WRITE_DONE_BY_SELF);
+  uint64_t wal_bytes = GetDBStats(InternalStats::WAL_FILE_BYTES);
+  uint64_t wal_synced = GetDBStats(InternalStats::WAL_FILE_SYNCED);
+  uint64_t write_with_wal = GetDBStats(InternalStats::WRITE_WITH_WAL);
+  uint64_t write_stall_micros = GetDBStats(InternalStats::WRITE_STALL_MICROS);
   uint64_t compact_bytes_read = 0;
   uint64_t compact_bytes_write = 0;
   uint64_t compact_micros = 0;

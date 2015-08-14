@@ -109,24 +109,16 @@ class InternalStats {
   };
 
   InternalStats(int num_levels, Env* env, ColumnFamilyData* cfd)
-      : db_stats_(INTERNAL_DB_STATS_ENUM_MAX),
-        cf_stats_value_(INTERNAL_CF_STATS_ENUM_MAX),
-        cf_stats_count_(INTERNAL_CF_STATS_ENUM_MAX),
+      : db_stats_{},
+        cf_stats_value_{},
+        cf_stats_count_{},
         comp_stats_(num_levels),
         file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
         env_(env),
         cfd_(cfd),
-        started_at_(env->NowMicros()) {
-    for (int i = 0; i< INTERNAL_DB_STATS_ENUM_MAX; ++i) {
-      db_stats_[i] = 0;
-    }
-    for (int i = 0; i< INTERNAL_CF_STATS_ENUM_MAX; ++i) {
-      cf_stats_value_[i] = 0;
-      cf_stats_count_[i] = 0;
-    }
-  }
+        started_at_(env->NowMicros()) {}
 
   // Per level compaction stats.  comp_stats_[level] stores the stats for
   // compactions that produced data for the specified "level".
@@ -239,7 +231,13 @@ class InternalStats {
   }
 
   void AddDBStats(InternalDBStatsType type, uint64_t value) {
-    db_stats_[type] += value;
+    auto& v = db_stats_[type];
+    v.store(v.load(std::memory_order_relaxed) + value,
+            std::memory_order_relaxed);
+  }
+
+  uint64_t GetDBStats(InternalDBStatsType type) {
+    return db_stats_[type].load(std::memory_order_relaxed);
   }
 
   HistogramImpl* GetFileReadHist(int level) {
@@ -264,10 +262,10 @@ class InternalStats {
   void DumpCFStats(std::string* value);
 
   // Per-DB stats
-  std::vector<uint64_t> db_stats_;
+  std::atomic<uint64_t> db_stats_[INTERNAL_DB_STATS_ENUM_MAX];
   // Per-ColumnFamily stats
-  std::vector<uint64_t> cf_stats_value_;
-  std::vector<uint64_t> cf_stats_count_;
+  uint64_t cf_stats_value_[INTERNAL_CF_STATS_ENUM_MAX];
+  uint64_t cf_stats_count_[INTERNAL_CF_STATS_ENUM_MAX];
   // Per-ColumnFamily/level compaction stats
   std::vector<CompactionStats> comp_stats_;
   std::vector<HistogramImpl> file_read_latency_;

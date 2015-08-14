@@ -247,6 +247,10 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       max_total_in_memory_state_(0),
       is_snapshot_supported_(true),
       write_buffer_(options.db_write_buffer_size),
+      write_thread_(options.enable_write_thread_adaptive_yield
+                        ? options.write_thread_max_yield_usec
+                        : 0,
+                    options.write_thread_slow_yield_usec),
       write_controller_(options.delayed_write_rate),
       last_batch_group_size_(0),
       unscheduled_flushes_(0),
@@ -282,8 +286,8 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   versions_.reset(new VersionSet(dbname_, &db_options_, env_options_,
                                  table_cache_.get(), &write_buffer_,
                                  &write_controller_));
-  column_family_memtables_.reset(new ColumnFamilyMemTablesImpl(
-      versions_->GetColumnFamilySet(), &flush_scheduler_));
+  column_family_memtables_.reset(
+      new ColumnFamilyMemTablesImpl(versions_->GetColumnFamilySet()));
 
   DumpRocksDBBuildVersion(db_options_.info_log.get());
   DumpDBFileSummary(db_options_, dbname_);
@@ -1235,8 +1239,9 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
       // insert. We don't want to fail the whole write batch in that case --
       // we just ignore the update.
       // That's why we set ignore missing column families to true
-      status = WriteBatchInternal::InsertInto(
-          &batch, column_family_memtables_.get(), true, log_number);
+      status =
+          WriteBatchInternal::InsertInto(&batch, column_family_memtables_.get(),
+                                         &flush_scheduler_, true, log_number);
 
       MaybeIgnoreError(&status);
       if (!status.ok()) {
@@ -1257,7 +1262,7 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         // DB and there is only a single thread operating on DB
         ColumnFamilyData* cfd;
 
-        while ((cfd = flush_scheduler_.GetNextColumnFamily()) != nullptr) {
+        while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
           cfd->Unref();
           // If this asserts, it means that InsertInto failed in
           // filtering updates to already-flushed column families
@@ -3623,6 +3628,9 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
   *handle = nullptr;
 
   s = CheckCompressionSupported(cf_options);
+  if (s.ok() && db_options_.allow_concurrent_memtable_write) {
+    s = CheckConcurrentWritesSupported(cf_options);
+  }
   if (!s.ok()) {
     return s;
   }
@@ -4071,7 +4079,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   w.sync = write_options.sync;
   w.disableWAL = write_options.disableWAL;
   w.in_batch_group = false;
-  w.done = false;
   w.has_callback = (callback != nullptr) ? true : false;
 
   if (!write_options.disableWAL) {
@@ -4081,12 +4088,35 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   StopWatch write_sw(env_, db_options_.statistics.get(), DB_WRITE);
 
   write_thread_.JoinBatchGroup(&w);
-  if (w.done) {
-    // write was done by someone else, no need to grab mutex
+  if (w.state == WriteThread::STATE_PARALLEL_FOLLOWER) {
+    // we are a non-leader in a parallel group
+    PERF_TIMER_GUARD(write_memtable_time);
+
+    ColumnFamilyMemTablesImpl column_family_memtables(
+        versions_->GetColumnFamilySet());
+    WriteBatchInternal::SetSequence(w.batch, w.sequence);
+    w.status = WriteBatchInternal::InsertInto(
+        w.batch, &column_family_memtables, &flush_scheduler_,
+        write_options.ignore_missing_column_families, 0 /*log_number*/, this,
+        true /*dont_filter_deletes*/, true /*concurrent_memtable_writes*/);
+
+    if (write_thread_.CompleteParallelWorker(&w)) {
+      // we're responsible for early exit
+      auto last_sequence = w.parallel_group->last_writer->sequence;
+      SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
+      versions_->SetLastSequence(last_sequence);
+      write_thread_.EarlyExitParallelGroup(&w);
+    }
+    assert(w.state == WriteThread::STATE_COMPLETED);
+    // STATE_COMPLETED conditional below handles exit
+  }
+  if (w.state == WriteThread::STATE_COMPLETED) {
+    // write is complete and leader has updated sequence
     RecordTick(stats_, WRITE_DONE_BY_OTHER);
     return w.status;
   }
   // else we are the leader of the write batch group
+  assert(w.state == WriteThread::STATE_GROUP_LEADER);
 
   WriteContext context;
   mutex_.Lock();
@@ -4108,9 +4138,9 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   uint64_t max_total_wal_size = (db_options_.max_total_wal_size == 0)
                                     ? 4 * max_total_in_memory_state_
                                     : db_options_.max_total_wal_size;
-  if (UNLIKELY(!single_column_family_mode_) &&
-      alive_log_files_.begin()->getting_flushed == false &&
-      total_log_size_ > max_total_wal_size) {
+  if (UNLIKELY(!single_column_family_mode_ &&
+               alive_log_files_.begin()->getting_flushed == false &&
+               total_log_size_ > max_total_wal_size)) {
     uint64_t flush_column_family_if_log_file = alive_log_files_.begin()->number;
     alive_log_files_.begin()->getting_flushed = true;
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
@@ -4175,8 +4205,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     status = ScheduleFlushes(&context);
   }
 
-  if (UNLIKELY(status.ok()) &&
-      (write_controller_.IsStopped() || write_controller_.NeedsDelay())) {
+  if (UNLIKELY(status.ok() && (write_controller_.IsStopped() ||
+                               write_controller_.NeedsDelay()))) {
     PERF_TIMER_STOP(write_pre_and_post_process_time);
     PERF_TIMER_GUARD(write_delay_time);
     // We don't know size of curent batch so that we always use the size
@@ -4194,9 +4224,6 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
 
   if (status.ok()) {
-    last_batch_group_size_ = write_thread_.EnterAsBatchGroupLeader(
-        &w, &last_writer, &write_batch_group);
-
     if (need_log_sync) {
       while (logs_.front().getting_synced) {
         log_sync_cv_.Wait();
@@ -4226,153 +4253,203 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   // At this point the mutex is unlocked
 
+  bool exit_completed_early = false;
+  last_batch_group_size_ = write_thread_.EnterAsBatchGroupLeader(
+      &w, &last_writer, &write_batch_group);
+
   if (status.ok()) {
-      int total_count = 0;
-      uint64_t total_byte_size = 0;
-      for (auto b : write_batch_group) {
-        total_count += WriteBatchInternal::Count(b);
-        total_byte_size = WriteBatchInternal::AppendedByteSize(
-            total_byte_size, WriteBatchInternal::ByteSize(b));
-      }
+    // Rules for when we can update the memtable concurrently
+    // 1. supported by memtable
+    // 2. Puts are not okay if inplace_update_support
+    // 3. Deletes or SingleDeletes are not okay if filtering deletes
+    //    (controlled by both batch and memtable setting)
+    // 4. Merges are not okay
+    //
+    // Rules 1..3 are enforced by checking the options
+    // during startup (CheckConcurrentWritesSupported), so if
+    // options.allow_concurrent_memtable_write is true then they can be
+    // assumed to be true.  Rule 4 is checked for each batch.  We could
+    // relax rules 2 and 3 if we could prevent write batches from referring
+    // more than once to a particular key.
+    bool parallel = db_options_.allow_concurrent_memtable_write &&
+                    write_batch_group.size() > 1;
+    int total_count = 0;
+    uint64_t total_byte_size = 0;
+    for (auto b : write_batch_group) {
+      total_count += WriteBatchInternal::Count(b);
+      total_byte_size = WriteBatchInternal::AppendedByteSize(
+          total_byte_size, WriteBatchInternal::ByteSize(b));
+      parallel = parallel && !b->HasMerge();
+    }
 
-      const SequenceNumber current_sequence = last_sequence + 1;
-      last_sequence += total_count;
+    const SequenceNumber current_sequence = last_sequence + 1;
+    last_sequence += total_count;
 
-      // Record statistics
-      RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
-      RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
-      PERF_TIMER_STOP(write_pre_and_post_process_time);
+    // Record statistics
+    RecordTick(stats_, NUMBER_KEYS_WRITTEN, total_count);
+    RecordTick(stats_, BYTES_WRITTEN, total_byte_size);
+    PERF_TIMER_STOP(write_pre_and_post_process_time);
 
-      if (write_options.disableWAL) {
-        flush_on_destroy_ = true;
-      }
+    if (write_options.disableWAL) {
+      flush_on_destroy_ = true;
+    }
 
-      uint64_t log_size = 0;
-      if (!write_options.disableWAL) {
-        PERF_TIMER_GUARD(write_wal_time);
+    uint64_t log_size = 0;
+    if (!write_options.disableWAL) {
+      PERF_TIMER_GUARD(write_wal_time);
 
-        WriteBatch* merged_batch = nullptr;
-        if (write_batch_group.size() == 1) {
-          merged_batch = write_batch_group[0];
-        } else {
-          // WAL needs all of the batches flattened into a single batch.
-          // We could avoid copying here with an iov-like AddRecord
-          // interface
-          merged_batch = &tmp_batch_;
-          for (auto b : write_batch_group) {
-            WriteBatchInternal::Append(merged_batch, b);
-          }
-        }
-        WriteBatchInternal::SetSequence(merged_batch, current_sequence);
-
-        assert(WriteBatchInternal::Count(merged_batch) == total_count);
-        assert(WriteBatchInternal::ByteSize(merged_batch) == total_byte_size);
-
-        Slice log_entry = WriteBatchInternal::Contents(merged_batch);
-        status = logs_.back().writer->AddRecord(log_entry);
-        total_log_size_ += log_entry.size();
-        alive_log_files_.back().AddSize(log_entry.size());
-        log_empty_ = false;
-        log_size = log_entry.size();
-        RecordTick(stats_, WAL_FILE_BYTES, log_size);
-        if (status.ok() && need_log_sync) {
-          RecordTick(stats_, WAL_FILE_SYNCED);
-          StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
-          // It's safe to access logs_ with unlocked mutex_ here because:
-          //  - we've set getting_synced=true for all logs,
-          //    so other threads won't pop from logs_ while we're here,
-          //  - only writer thread can push to logs_, and we're in
-          //    writer thread, so no one will push to logs_,
-          //  - as long as other threads don't modify it, it's safe to read
-          //    from std::deque from multiple threads concurrently.
-          for (auto& log : logs_) {
-            status = log.writer->file()->Sync(db_options_.use_fsync);
-            if (!status.ok()) {
-              break;
-            }
-          }
-          if (status.ok() && need_log_dir_sync) {
-            // We only sync WAL directory the first time WAL syncing is
-            // requested, so that in case users never turn on WAL sync,
-            // we can avoid the disk I/O in the write code path.
-            status = directories_.GetWalDir()->Fsync();
-          }
-        }
-
-        if (merged_batch == &tmp_batch_) {
-          tmp_batch_.Clear();
+      WriteBatch* merged_batch = nullptr;
+      if (write_batch_group.size() == 1) {
+        merged_batch = write_batch_group[0];
+      } else {
+        // WAL needs all of the batches flattened into a single batch.
+        // We could avoid copying here with an iov-like AddRecord
+        // interface
+        merged_batch = &tmp_batch_;
+        for (auto b : write_batch_group) {
+          WriteBatchInternal::Append(merged_batch, b);
         }
       }
-      if (status.ok()) {
-        PERF_TIMER_GUARD(write_memtable_time);
+      WriteBatchInternal::SetSequence(merged_batch, current_sequence);
 
+      assert(WriteBatchInternal::Count(merged_batch) == total_count);
+      assert(WriteBatchInternal::ByteSize(merged_batch) == total_byte_size);
+
+      Slice log_entry = WriteBatchInternal::Contents(merged_batch);
+      status = logs_.back().writer->AddRecord(log_entry);
+      total_log_size_ += log_entry.size();
+      alive_log_files_.back().AddSize(log_entry.size());
+      log_empty_ = false;
+      log_size = log_entry.size();
+      RecordTick(stats_, WAL_FILE_BYTES, log_size);
+      if (status.ok() && need_log_sync) {
+        RecordTick(stats_, WAL_FILE_SYNCED);
+        StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
+        // It's safe to access logs_ with unlocked mutex_ here because:
+        //  - we've set getting_synced=true for all logs,
+        //    so other threads won't pop from logs_ while we're here,
+        //  - only writer thread can push to logs_, and we're in
+        //    writer thread, so no one will push to logs_,
+        //  - as long as other threads don't modify it, it's safe to read
+        //    from std::deque from multiple threads concurrently.
+        for (auto& log : logs_) {
+          status = log.writer->file()->Sync(db_options_.use_fsync);
+          if (!status.ok()) {
+            break;
+          }
+        }
+        if (status.ok() && need_log_dir_sync) {
+          // We only sync WAL directory the first time WAL syncing is
+          // requested, so that in case users never turn on WAL sync,
+          // we can avoid the disk I/O in the write code path.
+          status = directories_.GetWalDir()->Fsync();
+        }
+      }
+
+      if (merged_batch == &tmp_batch_) {
+        tmp_batch_.Clear();
+      }
+    }
+    if (status.ok()) {
+      PERF_TIMER_GUARD(write_memtable_time);
+
+      {
+        // Update stats while we are an exclusive group leader, so we know
+        // that nobody else can be writing to these particular stats.
+        // We're optimistic, updating the stats before we successfully
+        // commit.  That lets us release our leader status early in
+        // some cases.
+        auto stats = default_cf_internal_stats_;
+        stats->AddDBStats(InternalStats::BYTES_WRITTEN, total_byte_size);
+        stats->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN, total_count);
+        if (!write_options.disableWAL) {
+          if (write_options.sync) {
+            stats->AddDBStats(InternalStats::WAL_FILE_SYNCED, 1);
+          }
+          stats->AddDBStats(InternalStats::WAL_FILE_BYTES, log_size);
+        }
+        uint64_t for_other = write_batch_group.size() - 1;
+        if (for_other > 0) {
+          stats->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER, for_other);
+          if (!write_options.disableWAL) {
+            stats->AddDBStats(InternalStats::WRITE_WITH_WAL, for_other);
+          }
+        }
+      }
+
+      if (!parallel) {
         status = WriteBatchInternal::InsertInto(
             write_batch_group, current_sequence, column_family_memtables_.get(),
-            write_options.ignore_missing_column_families,
-            /*log_number*/ 0, this, /*dont_filter_deletes*/ false);
+            &flush_scheduler_, write_options.ignore_missing_column_families,
+            0 /*log_number*/, this, false /*dont_filter_deletes*/);
+      } else {
+        WriteThread::ParallelGroup pg{};
+        pg.leader = &w;
+        pg.last_writer = last_writer;
+        pg.early_exit_allowed = !need_log_sync;
+        pg.running.store(write_batch_group.size(), std::memory_order_relaxed);
+        write_thread_.LaunchParallelFollowers(&pg, current_sequence);
 
-        // A non-OK status here indicates that the state implied by the
-        // WAL has diverged from the in-memory state.  This could be
-        // because of a corrupt write_batch (very bad), or because the
-        // client specified an invalid column family and didn't specify
-        // ignore_missing_column_families.
-        //
-        // Is setting bg_error_ enough here?  This will at least stop
-        // compaction and fail any further writes.
-        if (!status.ok() && bg_error_.ok()) {
-          bg_error_ = status;
-        }
+        ColumnFamilyMemTablesImpl column_family_memtables(
+            versions_->GetColumnFamilySet());
+        assert(w.sequence == current_sequence);
+        WriteBatchInternal::SetSequence(w.batch, w.sequence);
+        w.status = WriteBatchInternal::InsertInto(
+            w.batch, &column_family_memtables, &flush_scheduler_,
+            write_options.ignore_missing_column_families, 0 /*log_number*/,
+            this, true /*dont_filter_deletes*/,
+            true /*concurrent_memtable_writes*/);
 
+        assert(last_writer->sequence == last_sequence);
+        // CompleteParallelWorker returns true if this thread should
+        // handle exit, false means somebody else did
+        exit_completed_early = !write_thread_.CompleteParallelWorker(&w);
+        status = w.status;
+        assert(status.ok() || !exit_completed_early);
+      }
+
+      if (status.ok() && !exit_completed_early) {
         SetTickerCount(stats_, SEQUENCE_NUMBER, last_sequence);
-      }
-      PERF_TIMER_START(write_pre_and_post_process_time);
-      mutex_.Lock();
-
-      // internal stats
-      default_cf_internal_stats_->AddDBStats(InternalStats::BYTES_WRITTEN,
-                                             total_byte_size);
-      default_cf_internal_stats_->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN,
-                                             total_count);
-      if (!write_options.disableWAL) {
-        if (write_options.sync) {
-          default_cf_internal_stats_->AddDBStats(InternalStats::WAL_FILE_SYNCED,
-                                                 1);
-        }
-        default_cf_internal_stats_->AddDBStats(
-            InternalStats::WAL_FILE_BYTES, log_size);
-      }
-      if (status.ok()) {
         versions_->SetLastSequence(last_sequence);
+        if (!need_log_sync) {
+          write_thread_.ExitAsBatchGroupLeader(&w, last_writer, status);
+          exit_completed_early = true;
+        }
       }
-  } else {
-    // Operation failed.  Make sure sure mutex is held for cleanup code below.
-    mutex_.Lock();
-  }
 
-  if (db_options_.paranoid_checks && !status.ok() && !callback_failed &&
-      !status.IsBusy() && bg_error_.ok()) {
-    bg_error_ = status; // stop compaction & fail any further writes
-  }
-
-  mutex_.AssertHeld();
-
-  if (need_log_sync) {
-    MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
-  }
-
-  uint64_t writes_for_other = write_batch_group.size() - 1;
-  if (writes_for_other > 0) {
-    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
-                                           writes_for_other);
-    if (!write_options.disableWAL) {
-      default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL,
-                                             writes_for_other);
+      // A non-OK status here indicates that the state implied by the
+      // WAL has diverged from the in-memory state.  This could be
+      // because of a corrupt write_batch (very bad), or because the
+      // client specified an invalid column family and didn't specify
+      // ignore_missing_column_families.
+      //
+      // Is setting bg_error_ enough here?  This will at least stop
+      // compaction and fail any further writes.
+      if (!status.ok() && bg_error_.ok()) {
+        bg_error_ = status;
+      }
     }
   }
+  PERF_TIMER_START(write_pre_and_post_process_time);
 
-  mutex_.Unlock();
+  if (db_options_.paranoid_checks && !status.ok() && !callback_failed &&
+      !status.IsBusy()) {
+    mutex_.Lock();
+    if (bg_error_.ok()) {
+      bg_error_ = status;  // stop compaction & fail any further writes
+    }
+    mutex_.Unlock();
+  }
 
-  write_thread_.ExitAsBatchGroupLeader(&w, last_writer, status);
+  if (need_log_sync) {
+    mutex_.Lock();
+    MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
+    mutex_.Unlock();
+  }
+
+  if (!exit_completed_early) {
+    write_thread_.ExitAsBatchGroupLeader(&w, last_writer, status);
+  }
 
   return status;
 }
@@ -4411,7 +4488,7 @@ Status DBImpl::DelayWrite(uint64_t num_bytes) {
 
 Status DBImpl::ScheduleFlushes(WriteContext* context) {
   ColumnFamilyData* cfd;
-  while ((cfd = flush_scheduler_.GetNextColumnFamily()) != nullptr) {
+  while ((cfd = flush_scheduler_.TakeNextColumnFamily()) != nullptr) {
     auto status = SwitchMemtable(cfd, context);
     if (cfd->Unref()) {
       delete cfd;
@@ -5084,6 +5161,9 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
 
   for (auto& cfd : column_families) {
     s = CheckCompressionSupported(cfd.options);
+    if (s.ok() && db_options.allow_concurrent_memtable_write) {
+      s = CheckConcurrentWritesSupported(cfd.options);
+    }
     if (!s.ok()) {
       return s;
     }

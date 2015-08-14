@@ -20,10 +20,12 @@
 //
 // Thread safety -------------
 //
-// Writes require external synchronization, most likely a mutex.  Reads
-// require a guarantee that the InlineSkipList will not be destroyed while
-// the read is in progress.  Apart from that, reads progress without any
-// internal locking or synchronization.
+// Writes via Insert require external synchronization, most likely a mutex.
+// InsertConcurrently can be safely called concurrently with reads and
+// with other concurrent inserts.  Reads require a guarantee that the
+// InlineSkipList will not be destroyed while the read is in progress.
+// Apart from that, reads progress without any internal locking or
+// synchronization.
 //
 // Invariants:
 //
@@ -63,15 +65,20 @@ class InlineSkipList {
                           int32_t max_height = 12,
                           int32_t branching_factor = 4);
 
-  // Allocates a key and a skip-list node, returning a pointer to the
-  // key portion of the node.
+  // Allocates a key and a skip-list node, returning a pointer to the key
+  // portion of the node.  This method is thread-safe if the allocator
+  // is thread-safe.
   char* AllocateKey(size_t key_size);
 
   // Inserts a key allocated by AllocateKey, after the actual key value
   // has been filled in.
   //
   // REQUIRES: nothing that compares equal to key is currently in the list.
+  // REQUIRES: no concurrent calls to INSERT
   void Insert(const char* key);
+
+  // Like Insert, but external synchronization is not required.
+  void InsertConcurrently(const char* key);
 
   // Returns true iff an entry that compares equal to key is in the list.
   bool Contains(const char* key) const;
@@ -124,6 +131,8 @@ class InlineSkipList {
   };
 
  private:
+  enum MaxPossibleHeightEnum : uint16_t { kMaxPossibleHeight = 32 };
+
   const uint16_t kMaxHeight_;
   const uint16_t kBranching_;
   const uint32_t kScaledInverseBranching_;
@@ -139,11 +148,11 @@ class InlineSkipList {
   std::atomic<int> max_height_;  // Height of the entire list
 
   // Used for optimizing sequential insert patterns.  Tricky.  prev_[i] for
-  // i up to max_height_ is the predecessor of prev_[0] and prev_height_
-  // is the height of prev_[0].  prev_[0] can only be equal to head before
-  // insertion, in which case max_height_ and prev_height_ are 1.
+  // i up to max_height_ - 1 (inclusive) is the predecessor of prev_[0].
+  // prev_height_ is the height of prev_[0].  prev_[0] can only be equal
+  // to head when max_height_ and prev_height_ are both 1.
   Node** prev_;
-  int32_t prev_height_;
+  std::atomic<int32_t> prev_height_;
 
   inline int GetMaxHeight() const {
     return max_height_.load(std::memory_order_relaxed);
@@ -174,6 +183,15 @@ class InlineSkipList {
   // Return the last node in the list.
   // Return head_ if list is empty.
   Node* FindLast() const;
+
+  // Traverses a single level of the list, setting *out_prev to the last
+  // node before the key and *out_next to the first node after. Assumes
+  // that the key is not present in the skip list. On entry, before should
+  // point to a node that is before the key, and after should point to
+  // a node that is after the key.  after should be nullptr if a good after
+  // node isn't conveniently available.
+  void FindLevelSplice(const char* key, Node* before, Node* after, int level,
+                       Node** out_prev, Node** out_next);
 
   // No copying allowed
   InlineSkipList(const InlineSkipList&);
@@ -221,6 +239,11 @@ struct InlineSkipList<Comparator>::Node {
     // Use a 'release store' so that anybody who reads through this
     // pointer observes a fully initialized version of the inserted node.
     next_[-n].store(x, std::memory_order_release);
+  }
+
+  bool CASNext(int n, Node* expected, Node* x) {
+    assert(n >= 0);
+    return next_[-n].compare_exchange_strong(expected, x);
   }
 
   // No-barrier variants that can be safely used in a few locations.
@@ -305,11 +328,13 @@ int InlineSkipList<Comparator>::RandomHeight() {
 
   // Increase height with probability 1 in kBranching
   int height = 1;
-  while (height < kMaxHeight_ && rnd->Next() < kScaledInverseBranching_) {
+  while (height < kMaxHeight_ && height < kMaxPossibleHeight &&
+         rnd->Next() < kScaledInverseBranching_) {
     height++;
   }
   assert(height > 0);
   assert(height <= kMaxHeight_);
+  assert(height <= kMaxPossibleHeight);
   return height;
 }
 
@@ -440,7 +465,7 @@ InlineSkipList<Comparator>::InlineSkipList(const Comparator cmp,
       max_height_(1),
       prev_height_(1) {
   assert(max_height > 0 && kMaxHeight_ == static_cast<uint32_t>(max_height));
-  assert(branching_factor > 0 &&
+  assert(branching_factor > 1 &&
          kBranching_ == static_cast<uint32_t>(branching_factor));
   assert(kScaledInverseBranching_ > 0);
   // Allocate the prev_ Node* array, directly from the passed-in allocator.
@@ -485,16 +510,23 @@ InlineSkipList<Comparator>::AllocateNode(size_t key_size, int height) {
 
 template <class Comparator>
 void InlineSkipList<Comparator>::Insert(const char* key) {
+  // InsertConcurrently can't maintain the prev_ invariants when it needs
+  // to increase max_height_.  In that case it sets prev_height_ to zero,
+  // letting us know that we should ignore it.  A relaxed load suffices
+  // here because write thread synchronization separates Insert calls
+  // from InsertConcurrently calls.
+  auto prev_height = prev_height_.load(std::memory_order_relaxed);
+
   // fast path for sequential insertion
-  if (!KeyIsAfterNode(key, prev_[0]->NoBarrier_Next(0)) &&
+  if (prev_height > 0 && !KeyIsAfterNode(key, prev_[0]->NoBarrier_Next(0)) &&
       (prev_[0] == head_ || KeyIsAfterNode(key, prev_[0]))) {
-    assert(prev_[0] != head_ || (prev_height_ == 1 && GetMaxHeight() == 1));
+    assert(prev_[0] != head_ || (prev_height == 1 && GetMaxHeight() == 1));
 
     // Outside of this method prev_[1..max_height_] is the predecessor
     // of prev_[0], and prev_height_ refers to prev_[0].  Inside Insert
     // prev_[0..max_height - 1] is the predecessor of key.  Switch from
     // the external state to the internal
-    for (int i = 1; i < prev_height_; i++) {
+    for (int i = 1; i < prev_height; i++) {
       prev_[i] = prev_[0];
     }
   } else {
@@ -534,7 +566,73 @@ void InlineSkipList<Comparator>::Insert(const char* key) {
     prev_[i]->SetNext(i, x);
   }
   prev_[0] = x;
-  prev_height_ = height;
+  prev_height_.store(height, std::memory_order_relaxed);
+}
+
+template <class Comparator>
+void InlineSkipList<Comparator>::FindLevelSplice(const char* key, Node* before,
+                                                 Node* after, int level,
+                                                 Node** out_prev,
+                                                 Node** out_next) {
+  while (true) {
+    Node* next = before->Next(level);
+    assert(before == head_ || next == nullptr ||
+           KeyIsAfterNode(next->Key(), before));
+    assert(before == head_ || KeyIsAfterNode(key, before));
+    if (next == after || !KeyIsAfterNode(key, next)) {
+      // found it
+      *out_prev = before;
+      *out_next = next;
+      return;
+    }
+    before = next;
+  }
+}
+
+template <class Comparator>
+void InlineSkipList<Comparator>::InsertConcurrently(const char* key) {
+  Node* x = reinterpret_cast<Node*>(const_cast<char*>(key)) - 1;
+  int height = x->UnstashHeight();
+  assert(height >= 1 && height <= kMaxHeight_);
+
+  int max_height = max_height_.load(std::memory_order_relaxed);
+  while (height > max_height) {
+    if (max_height_.compare_exchange_strong(max_height, height)) {
+      // successfully updated it
+      max_height = height;
+
+      // we dont have a lock-free algorithm for fixing up prev_, so just
+      // mark it invalid
+      prev_height_.store(0, std::memory_order_relaxed);
+      break;
+    }
+    // else retry, possibly exiting the loop because somebody else
+    // increased it
+  }
+  assert(max_height <= kMaxPossibleHeight);
+
+  Node* prev[kMaxPossibleHeight + 1];
+  Node* next[kMaxPossibleHeight + 1];
+  prev[max_height] = head_;
+  next[max_height] = nullptr;
+  for (int i = max_height - 1; i >= 0; --i) {
+    FindLevelSplice(key, prev[i + 1], next[i + 1], i, &prev[i], &next[i]);
+  }
+  for (int i = 0; i < height; ++i) {
+    while (true) {
+      x->NoBarrier_SetNext(i, next[i]);
+      if (prev[i]->CASNext(i, next[i], x)) {
+        // success
+        break;
+      }
+      // CAS failed, we need to recompute prev and next. It is unlikely
+      // to be helpful to try to use a different level as we redo the
+      // search, because it should be unlikely that lots of nodes have
+      // been inserted between prev[i] and next[i]. No point in using
+      // next[i] as the after hint, because we know it is stale.
+      FindLevelSplice(key, prev[i], nullptr, i, &prev[i], &next[i]);
+    }
+  }
 }
 
 template <class Comparator>

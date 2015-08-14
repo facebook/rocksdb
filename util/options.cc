@@ -262,6 +262,10 @@ DBOptions::DBOptions()
       listeners(),
       enable_thread_tracking(false),
       delayed_write_rate(2 * 1024U * 1024U),
+      allow_concurrent_memtable_write(false),
+      enable_write_thread_adaptive_yield(false),
+      write_thread_max_yield_usec(100),
+      write_thread_slow_yield_usec(3),
       skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords),
       row_cache(nullptr),
@@ -325,6 +329,11 @@ DBOptions::DBOptions(const Options& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       delayed_write_rate(options.delayed_write_rate),
+      allow_concurrent_memtable_write(options.allow_concurrent_memtable_write),
+      enable_write_thread_adaptive_yield(
+          options.enable_write_thread_adaptive_yield),
+      write_thread_max_yield_usec(options.write_thread_max_yield_usec),
+      write_thread_slow_yield_usec(options.write_thread_slow_yield_usec),
       skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
       row_cache(options.row_cache),
@@ -435,6 +444,14 @@ void DBOptions::Dump(Logger* log) const {
         wal_recovery_mode);
     Header(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
+    Header(log, "         Options.allow_concurrent_memtable_write: %d",
+           allow_concurrent_memtable_write);
+    Header(log, "      Options.enable_write_thread_adaptive_yield: %d",
+           enable_write_thread_adaptive_yield);
+    Header(log, "             Options.write_thread_max_yield_usec: %" PRIu64,
+           write_thread_max_yield_usec);
+    Header(log, "            Options.write_thread_slow_yield_usec: %" PRIu64,
+           write_thread_slow_yield_usec);
     if (row_cache) {
       Header(log, "                               Options.row_cache: %" PRIu64,
            row_cache->GetCapacity());

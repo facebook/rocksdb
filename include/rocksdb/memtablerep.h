@@ -36,7 +36,9 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
 #include <stdint.h>
+#include <stdlib.h>
 
 namespace rocksdb {
 
@@ -68,25 +70,36 @@ class MemTableRep {
 
   explicit MemTableRep(MemTableAllocator* allocator) : allocator_(allocator) {}
 
-  // Allocate a buf of len size for storing key. The idea is that a specific
-  // memtable representation knows its underlying data structure better. By
-  // allowing it to allocate memory, it can possibly put correlated stuff
-  // in consecutive memory area to make processor prefetching more efficient.
+  // Allocate a buf of len size for storing key. The idea is that a
+  // specific memtable representation knows its underlying data structure
+  // better. By allowing it to allocate memory, it can possibly put
+  // correlated stuff in consecutive memory area to make processor
+  // prefetching more efficient.
   virtual KeyHandle Allocate(const size_t len, char** buf);
 
   // Insert key into the collection. (The caller will pack key and value into a
   // single buffer and pass that in as the parameter to Insert).
   // REQUIRES: nothing that compares equal to key is currently in the
-  // collection.
+  // collection, and no concurrent modifications to the table in progress
   virtual void Insert(KeyHandle handle) = 0;
+
+  // Like Insert(handle), but may be called concurrent with other calls
+  // to InsertConcurrently for other handles
+  virtual void InsertConcurrently(KeyHandle handle) {
+#ifndef ROCKSDB_LITE
+    throw std::runtime_error("concurrent insert not supported");
+#else
+    abort();
+#endif
+  }
 
   // Returns true iff an entry that compares equal to key is in the collection.
   virtual bool Contains(const char* key) const = 0;
 
-  // Notify this table rep that it will no longer be added to. By default, does
-  // nothing.  After MarkReadOnly() is called, this table rep will not be
-  // written to (ie No more calls to Allocate(), Insert(), or any writes done
-  // directly to entries accessed through the iterator.)
+  // Notify this table rep that it will no longer be added to. By default,
+  // does nothing.  After MarkReadOnly() is called, this table rep will
+  // not be written to (ie No more calls to Allocate(), Insert(),
+  // or any writes done directly to entries accessed through the iterator.)
   virtual void MarkReadOnly() { }
 
   // Look up key from the mem table, since the first key in the mem table whose
@@ -94,6 +107,7 @@ class MemTableRep {
   // callback_args directly forwarded as the first parameter, and the mem table
   // key as the second parameter. If the return value is false, then terminates.
   // Otherwise, go through the next key.
+  //
   // It's safe for Get() to terminate after having finished all the potential
   // key for the k.user_key(), or not.
   //
@@ -109,7 +123,7 @@ class MemTableRep {
   }
 
   // Report an approximation of how much memory has been used other than memory
-  // that was allocated through the allocator.
+  // that was allocated through the allocator.  Safe to call from any thread.
   virtual size_t ApproximateMemoryUsage() = 0;
 
   virtual ~MemTableRep() { }
@@ -173,6 +187,10 @@ class MemTableRep {
   // Return true if the current MemTableRep supports snapshot
   // Default: true
   virtual bool IsSnapshotSupported() const { return true; }
+
+  // Return true if the current MemTableRep supports concurrent inserts
+  // Default: false
+  virtual bool IsInsertConcurrentlySupported() const { return false; }
 
  protected:
   // When *key is an internal key concatenated with the value, returns the

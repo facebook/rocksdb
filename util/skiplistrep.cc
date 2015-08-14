@@ -25,6 +25,8 @@ public:
       transform_(transform), lookahead_(lookahead) {
   }
 
+  virtual bool IsInsertConcurrentlySupported() const override { return true; }
+
   virtual KeyHandle Allocate(const size_t len, char** buf) override {
     *buf = skip_list_.AllocateKey(len);
     return static_cast<KeyHandle>(*buf);
@@ -34,6 +36,10 @@ public:
   // REQUIRES: nothing that compares equal to key is currently in the list.
   virtual void Insert(KeyHandle handle) override {
     skip_list_.Insert(static_cast<char*>(handle));
+  }
+
+  virtual void InsertConcurrently(KeyHandle handle) override {
+    skip_list_.InsertConcurrently(static_cast<char*>(handle));
   }
 
   // Returns true iff an entry that compares equal to key is in the list.

@@ -646,6 +646,20 @@ DEFINE_uint64(delayed_write_rate, 8388608u,
               "Limited bytes allowed to DB when soft_rate_limit or "
               "level0_slowdown_writes_trigger triggers");
 
+DEFINE_bool(allow_concurrent_memtable_write, false,
+            "Allow multi-writers to update mem tables in parallel.");
+
+DEFINE_bool(enable_write_thread_adaptive_yield, false,
+            "Use a yielding spin loop for brief writer thread waits.");
+
+DEFINE_uint64(
+    write_thread_max_yield_usec, 100,
+    "Maximum microseconds for enable_write_thread_adaptive_yield operation.");
+
+DEFINE_uint64(write_thread_slow_yield_usec, 3,
+              "The threshold at which a slow yield is considered a signal that "
+              "other processes or threads want the core.");
+
 DEFINE_int32(rate_limit_delay_max_milliseconds, 1000,
              "When hard_rate_limit is set then this is the max time a put will"
              " be stalled.");
@@ -2552,6 +2566,12 @@ class Benchmark {
     options.hard_pending_compaction_bytes_limit =
         FLAGS_hard_pending_compaction_bytes_limit;
     options.delayed_write_rate = FLAGS_delayed_write_rate;
+    options.allow_concurrent_memtable_write =
+        FLAGS_allow_concurrent_memtable_write;
+    options.enable_write_thread_adaptive_yield =
+        FLAGS_enable_write_thread_adaptive_yield;
+    options.write_thread_max_yield_usec = FLAGS_write_thread_max_yield_usec;
+    options.write_thread_slow_yield_usec = FLAGS_write_thread_slow_yield_usec;
     options.rate_limit_delay_max_milliseconds =
       FLAGS_rate_limit_delay_max_milliseconds;
     options.table_cache_numshardbits = FLAGS_table_cache_numshardbits;

@@ -167,7 +167,7 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
     aligned_alloc_ptr_ += needed;
     alloc_bytes_remaining_ -= needed;
   } else {
-    // AllocateFallback always returned aligned memory
+    // AllocateFallback always returns aligned memory
     result = AllocateFallback(bytes, true /* aligned */);
   }
   assert((reinterpret_cast<uintptr_t>(result) & (kAlignUnit - 1)) == 0);

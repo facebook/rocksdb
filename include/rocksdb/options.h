@@ -1173,6 +1173,47 @@ struct DBOptions {
   // Default: 2MB/s
   uint64_t delayed_write_rate;
 
+  // If true, allow multi-writers to update mem tables in parallel.
+  // Only some memtable_factory-s support concurrent writes; currently it
+  // is implemented only for SkipListFactory.  Concurrent memtable writes
+  // are not compatible with inplace_update_support or filter_deletes.
+  // It is strongly recommended to set enable_write_thread_adaptive_yield
+  // if you are going to use this feature.
+  //
+  // THIS FEATURE IS NOT STABLE YET.
+  //
+  // Default: false
+  bool allow_concurrent_memtable_write;
+
+  // If true, threads synchronizing with the write batch group leader will
+  // wait for up to write_thread_max_yield_usec before blocking on a mutex.
+  // This can substantially improve throughput for concurrent workloads,
+  // regardless of whether allow_concurrent_memtable_write is enabled.
+  //
+  // THIS FEATURE IS NOT STABLE YET.
+  //
+  // Default: false
+  bool enable_write_thread_adaptive_yield;
+
+  // The maximum number of microseconds that a write operation will use
+  // a yielding spin loop to coordinate with other write threads before
+  // blocking on a mutex.  (Assuming write_thread_slow_yield_usec is
+  // set properly) increasing this value is likely to increase RocksDB
+  // throughput at the expense of increased CPU usage.
+  //
+  // Default: 100
+  uint64_t write_thread_max_yield_usec;
+
+  // The latency in microseconds after which a std::this_thread::yield
+  // call (sched_yield on Linux) is considered to be a signal that
+  // other processes or threads would like to use the current core.
+  // Increasing this makes writer threads more likely to take CPU
+  // by spinning, which will show up as an increase in the number of
+  // involuntary context switches.
+  //
+  // Default: 3
+  uint64_t write_thread_slow_yield_usec;
+
   // If true, then DB::Open() will not update the statistics used to optimize
   // compaction decision by loading table properties from many files.
   // Turning off this feature will improve DBOpen time especially in

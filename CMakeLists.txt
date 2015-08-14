@@ -191,6 +191,7 @@ set(SOURCES
         util/coding.cc
         util/compaction_job_stats_impl.cc
         util/comparator.cc
+        util/concurrent_arena.cc
         util/crc32c.cc
         util/db_info_dumper.cc
         util/delete_scheduler_impl.cc

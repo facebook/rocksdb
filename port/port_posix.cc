@@ -10,6 +10,9 @@
 #include "port/port_posix.h"
 
 #include <assert.h>
+#if defined(__i386__) || defined(__x86_64__)
+#include <cpuid.h>
+#endif
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -131,6 +134,19 @@ void RWMutex::WriteLock() { PthreadCall("write lock", pthread_rwlock_wrlock(&mu_
 void RWMutex::ReadUnlock() { PthreadCall("read unlock", pthread_rwlock_unlock(&mu_)); }
 
 void RWMutex::WriteUnlock() { PthreadCall("write unlock", pthread_rwlock_unlock(&mu_)); }
+
+int PhysicalCoreID() {
+#if defined(__i386__) || defined(__x86_64__)
+  // if you ever find that this function is hot on Linux, you can go from
+  // ~200 nanos to ~20 nanos by adding the machinery to use __vdso_getcpu
+  unsigned eax, ebx = 0, ecx, edx;
+  __get_cpuid(1, &eax, &ebx, &ecx, &edx);
+  return ebx >> 24;
+#else
+  // getcpu or sched_getcpu could work here
+  return -1;
+#endif
+}
 
 void InitOnce(OnceType* once, void (*initializer)()) {
   PthreadCall("once", pthread_once(once, initializer));

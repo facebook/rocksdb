@@ -60,7 +60,7 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
       moptions_(ioptions, mutable_cf_options),
       refs_(0),
       kArenaBlockSize(OptimizeBlockSize(moptions_.arena_block_size)),
-      arena_(moptions_.arena_block_size),
+      arena_(moptions_.arena_block_size, 0),
       allocator_(&arena_, write_buffer),
       table_(ioptions.memtable_factory->CreateMemTableRep(
           comparator_, &allocator_, ioptions.prefix_extractor,
@@ -78,12 +78,12 @@ MemTable::MemTable(const InternalKeyComparator& cmp,
                  ? moptions_.inplace_update_num_locks
                  : 0),
       prefix_extractor_(ioptions.prefix_extractor),
-      should_flush_(ShouldFlushNow()),
-      flush_scheduled_(false),
+      flush_state_(FLUSH_NOT_REQUESTED),
       env_(ioptions.env) {
-  // if should_flush_ == true without an entry inserted, something must have
-  // gone wrong already.
-  assert(!should_flush_);
+  UpdateFlushState();
+  // something went wrong if we need to flush before inserting anything
+  assert(!ShouldScheduleFlush());
+
   if (prefix_extractor_ && moptions_.memtable_prefix_bloom_bits > 0) {
     prefix_bloom_.reset(new DynamicBloom(
         &allocator_,
@@ -165,6 +165,17 @@ bool MemTable::ShouldFlushNow() const {
   // as: "arena block size * 0.25 / write buffer size". User who specify a small
   // write buffer size and/or big arena block size may suffer.
   return arena_.AllocatedAndUnused() < kArenaBlockSize / 4;
+}
+
+void MemTable::UpdateFlushState() {
+  auto state = flush_state_.load(std::memory_order_relaxed);
+  if (state == FLUSH_NOT_REQUESTED && ShouldFlushNow()) {
+    // ignore CAS failure, because that means somebody else requested
+    // a flush
+    flush_state_.compare_exchange_strong(state, FLUSH_REQUESTED,
+                                         std::memory_order_relaxed,
+                                         std::memory_order_relaxed);
+  }
 }
 
 int MemTable::KeyComparator::operator()(const char* prefix_len_key1,
@@ -335,7 +346,7 @@ uint64_t MemTable::ApproximateSize(const Slice& start_ikey,
 
 void MemTable::Add(SequenceNumber s, ValueType type,
                    const Slice& key, /* user key */
-                   const Slice& value) {
+                   const Slice& value, bool allow_concurrent) {
   // Format of an entry is concatenation of:
   //  key_size     : varint32 of internal_key.size()
   //  key bytes    : char[internal_key.size()]
@@ -349,7 +360,7 @@ void MemTable::Add(SequenceNumber s, ValueType type,
                                val_size;
   char* buf = nullptr;
   KeyHandle handle = table_->Allocate(encoded_len, &buf);
-  assert(buf != nullptr);
+
   char* p = EncodeVarint32(buf, internal_key_size);
   memcpy(p, key.data(), key_size);
   p += key_size;
@@ -359,32 +370,64 @@ void MemTable::Add(SequenceNumber s, ValueType type,
   p = EncodeVarint32(p, val_size);
   memcpy(p, value.data(), val_size);
   assert((unsigned)(p + val_size - buf) == (unsigned)encoded_len);
-  table_->Insert(handle);
-  num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+  if (!allow_concurrent) {
+    table_->Insert(handle);
+
+    // this is a bit ugly, but is the way to avoid locked instructions
+    // when incrementing an atomic
+    num_entries_.store(num_entries_.load(std::memory_order_relaxed) + 1,
+                       std::memory_order_relaxed);
+    data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
                      std::memory_order_relaxed);
-  data_size_.store(data_size_.load(std::memory_order_relaxed) + encoded_len,
-                   std::memory_order_relaxed);
-  if (type == kTypeDeletion) {
-    num_deletes_++;
-  }
-
-  if (prefix_bloom_) {
-    assert(prefix_extractor_);
-    prefix_bloom_->Add(prefix_extractor_->Transform(key));
-  }
-
-  // The first sequence number inserted into the memtable
-  assert(first_seqno_ == 0 || s > first_seqno_);
-  if (first_seqno_ == 0) {
-    first_seqno_ = s;
-
-    if (earliest_seqno_ == kMaxSequenceNumber) {
-      earliest_seqno_ = first_seqno_;
+    if (type == kTypeDeletion) {
+      num_deletes_.store(num_deletes_.load(std::memory_order_relaxed) + 1,
+                         std::memory_order_relaxed);
     }
-    assert(first_seqno_ >= earliest_seqno_);
+
+    if (prefix_bloom_) {
+      assert(prefix_extractor_);
+      prefix_bloom_->Add(prefix_extractor_->Transform(key));
+    }
+
+    // The first sequence number inserted into the memtable
+    assert(first_seqno_ == 0 || s > first_seqno_);
+    if (first_seqno_ == 0) {
+      first_seqno_.store(s, std::memory_order_relaxed);
+
+      if (earliest_seqno_ == kMaxSequenceNumber) {
+        earliest_seqno_.store(GetFirstSequenceNumber(),
+                              std::memory_order_relaxed);
+      }
+      assert(first_seqno_.load() >= earliest_seqno_.load());
+    }
+  } else {
+    table_->InsertConcurrently(handle);
+
+    num_entries_.fetch_add(1, std::memory_order_relaxed);
+    data_size_.fetch_add(encoded_len, std::memory_order_relaxed);
+    if (type == kTypeDeletion) {
+      num_deletes_.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    if (prefix_bloom_) {
+      assert(prefix_extractor_);
+      prefix_bloom_->AddConcurrently(prefix_extractor_->Transform(key));
+    }
+
+    // atomically update first_seqno_ and earliest_seqno_.
+    uint64_t cur_seq_num = first_seqno_.load(std::memory_order_relaxed);
+    while ((cur_seq_num == 0 || s < cur_seq_num) &&
+           !first_seqno_.compare_exchange_weak(cur_seq_num, s)) {
+    }
+    uint64_t cur_earliest_seqno =
+        earliest_seqno_.load(std::memory_order_relaxed);
+    while (
+        (cur_earliest_seqno == kMaxSequenceNumber || s < cur_earliest_seqno) &&
+        !first_seqno_.compare_exchange_weak(cur_earliest_seqno, s)) {
+    }
   }
 
-  should_flush_ = ShouldFlushNow();
+  UpdateFlushState();
 }
 
 // Callback from MemTable::Get()
@@ -685,16 +728,16 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
               }
             }
             RecordTick(moptions_.statistics, NUMBER_KEYS_UPDATED);
-            should_flush_ = ShouldFlushNow();
+            UpdateFlushState();
             return true;
           } else if (status == UpdateStatus::UPDATED) {
             Add(seq, kTypeValue, key, Slice(str_value));
             RecordTick(moptions_.statistics, NUMBER_KEYS_WRITTEN);
-            should_flush_ = ShouldFlushNow();
+            UpdateFlushState();
             return true;
           } else if (status == UpdateStatus::UPDATE_FAILED) {
             // No action required. Return.
-            should_flush_ = ShouldFlushNow();
+            UpdateFlushState();
             return true;
           }
         }

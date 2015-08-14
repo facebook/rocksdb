@@ -8,6 +8,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
+#include <vector>
 #include "rocksdb/types.h"
 #include "rocksdb/write_batch.h"
 #include "rocksdb/db.h"
@@ -17,6 +18,8 @@
 namespace rocksdb {
 
 class MemTable;
+class FlushScheduler;
+class ColumnFamilyData;
 
 class ColumnFamilyMemTables {
  public:
@@ -28,7 +31,7 @@ class ColumnFamilyMemTables {
   virtual uint64_t GetLogNumber() const = 0;
   virtual MemTable* GetMemTable() const = 0;
   virtual ColumnFamilyHandle* GetColumnFamilyHandle() = 0;
-  virtual void CheckMemtableFull() = 0;
+  virtual ColumnFamilyData* current() { return nullptr; }
 };
 
 class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
@@ -49,8 +52,6 @@ class ColumnFamilyMemTablesDefault : public ColumnFamilyMemTables {
   }
 
   ColumnFamilyHandle* GetColumnFamilyHandle() override { return nullptr; }
-
-  void CheckMemtableFull() override {}
 
  private:
   bool ok_;
@@ -127,19 +128,29 @@ class WriteBatchInternal {
   //
   // If log_number is non-zero, the memtable will be updated only if
   // memtables->GetLogNumber() >= log_number.
+  //
+  // If flush_scheduler is non-null, it will be invoked if the memtable
+  // should be flushed.
+  //
+  // Under concurrent use, the caller is responsible for making sure that
+  // the memtables object itself is thread-local.
   static Status InsertInto(const autovector<WriteBatch*>& batches,
                            SequenceNumber sequence,
                            ColumnFamilyMemTables* memtables,
+                           FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           const bool dont_filter_deletes = true);
+                           const bool dont_filter_deletes = true,
+                           bool concurrent_memtable_writes = false);
 
   // Convenience form of InsertInto when you have only one batch
   static Status InsertInto(const WriteBatch* batch,
                            ColumnFamilyMemTables* memtables,
+                           FlushScheduler* flush_scheduler,
                            bool ignore_missing_column_families = false,
                            uint64_t log_number = 0, DB* db = nullptr,
-                           const bool dont_filter_deletes = true);
+                           const bool dont_filter_deletes = true,
+                           bool concurrent_memtable_writes = false);
 
   static void Append(WriteBatch* dst, const WriteBatch* src);
 

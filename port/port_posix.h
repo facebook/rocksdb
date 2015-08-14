@@ -43,8 +43,9 @@
 #include <pthread.h>
 
 #include <stdint.h>
-#include <string>
 #include <string.h>
+#include <limits>
+#include <string>
 
 #ifndef PLATFORM_IS_LITTLE_ENDIAN
 #define PLATFORM_IS_LITTLE_ENDIAN (__BYTE_ORDER == __LITTLE_ENDIAN)
@@ -70,8 +71,6 @@
 // when targeting older platforms.
 #define fdatasync fsync
 #endif
-
-#include <limits>
 
 namespace rocksdb {
 namespace port {
@@ -141,6 +140,20 @@ class CondVar {
   pthread_cond_t cv_;
   Mutex* mu_;
 };
+
+static inline void AsmVolatilePause() {
+#if defined(__i386__) || defined(__x86_64__)
+  asm volatile("pause");
+#elif defined(__aarch64__)
+  asm volatile("wfe");
+#elif defined(__powerpc64__)
+  asm volatile("or 27,27,27");
+#endif
+  // it's okay for other platforms to be no-ops
+}
+
+// Returns -1 if not available on this platform
+extern int PhysicalCoreID();
 
 typedef pthread_once_t OnceType;
 #define LEVELDB_ONCE_INIT PTHREAD_ONCE_INIT

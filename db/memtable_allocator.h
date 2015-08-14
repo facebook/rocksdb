@@ -11,17 +11,18 @@
 // to WriteBuffer so we can track and enforce overall write buffer limits.
 
 #pragma once
+
+#include <atomic>
 #include "util/allocator.h"
 
 namespace rocksdb {
 
-class Arena;
 class Logger;
 class WriteBuffer;
 
 class MemTableAllocator : public Allocator {
  public:
-  explicit MemTableAllocator(Arena* arena, WriteBuffer* write_buffer);
+  explicit MemTableAllocator(Allocator* allocator, WriteBuffer* write_buffer);
   ~MemTableAllocator();
 
   // Allocator interface
@@ -35,9 +36,9 @@ class MemTableAllocator : public Allocator {
   void DoneAllocating();
 
  private:
-  Arena* arena_;
+  Allocator* allocator_;
   WriteBuffer* write_buffer_;
-  size_t bytes_allocated_;
+  std::atomic<size_t> bytes_allocated_;
 
   // No copying allowed
   MemTableAllocator(const MemTableAllocator&);

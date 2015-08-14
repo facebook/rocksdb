@@ -100,6 +100,8 @@ void CondVar::Signal() { cv_.notify_one(); }
 
 void CondVar::SignalAll() { cv_.notify_all(); }
 
+int PhysicalCoreID() { return GetCurrentProcessorNumber(); }
+
 void InitOnce(OnceType* once, void (*initializer)()) {
   std::call_once(once->flag_, initializer);
 }

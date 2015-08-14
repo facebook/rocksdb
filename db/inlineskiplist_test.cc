@@ -10,7 +10,7 @@
 #include "db/inlineskiplist.h"
 #include <set>
 #include "rocksdb/env.h"
-#include "util/arena.h"
+#include "util/concurrent_arena.h"
 #include "util/hash.h"
 #include "util/random.h"
 #include "util/testharness.h"
@@ -67,7 +67,7 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
   const int R = 5000;
   Random rnd(1000);
   std::set<Key> keys;
-  Arena arena;
+  ConcurrentArena arena;
   TestComparator cmp;
   InlineSkipList<TestComparator> list(cmp, &arena);
   for (int i = 0; i < N; i++) {
@@ -167,9 +167,10 @@ TEST_F(InlineSkipTest, InsertAndLookup) {
 // check that it is either expected given the initial snapshot or has
 // been concurrently added since the iterator started.
 class ConcurrentTest {
- private:
-  static const uint32_t K = 4;
+ public:
+  static const uint32_t K = 8;
 
+ private:
   static uint64_t key(Key key) { return (key >> 40); }
   static uint64_t gen(Key key) { return (key >> 8) & 0xffffffffu; }
   static uint64_t hash(Key key) { return key & 0xff; }
@@ -222,7 +223,7 @@ class ConcurrentTest {
   // Current state of the test
   State current_;
 
-  Arena arena_;
+  ConcurrentArena arena_;
 
   // InlineSkipList is not protected by mu_.  We just use a single writer
   // thread to modify it.
@@ -231,7 +232,7 @@ class ConcurrentTest {
  public:
   ConcurrentTest() : list_(TestComparator(), &arena_) {}
 
-  // REQUIRES: External synchronization
+  // REQUIRES: No concurrent calls to WriteStep or ConcurrentWriteStep
   void WriteStep(Random* rnd) {
     const uint32_t k = rnd->Next() % K;
     const int g = current_.Get(k) + 1;
@@ -239,6 +240,17 @@ class ConcurrentTest {
     char* buf = list_.AllocateKey(sizeof(Key));
     memcpy(buf, &new_key, sizeof(Key));
     list_.Insert(buf);
+    current_.Set(k, g);
+  }
+
+  // REQUIRES: No concurrent calls for the same k
+  void ConcurrentWriteStep(uint32_t k) {
+    const int g = current_.Get(k) + 1;
+    const Key new_key = MakeKey(k, g);
+    char* buf = list_.AllocateKey(sizeof(Key));
+    memcpy(buf, &new_key, sizeof(Key));
+    list_.InsertConcurrently(buf);
+    ASSERT_EQ(g, current_.Get(k) + 1);
     current_.Set(k, g);
   }
 
@@ -304,7 +316,7 @@ const uint32_t ConcurrentTest::K;
 
 // Simple test that does single-threaded testing of the ConcurrentTest
 // scaffolding.
-TEST_F(InlineSkipTest, ConcurrentWithoutThreads) {
+TEST_F(InlineSkipTest, ConcurrentReadWithoutThreads) {
   ConcurrentTest test;
   Random rnd(test::RandomSeed());
   for (int i = 0; i < 10000; i++) {
@@ -313,16 +325,33 @@ TEST_F(InlineSkipTest, ConcurrentWithoutThreads) {
   }
 }
 
+TEST_F(InlineSkipTest, ConcurrentInsertWithoutThreads) {
+  ConcurrentTest test;
+  Random rnd(test::RandomSeed());
+  for (int i = 0; i < 10000; i++) {
+    test.ReadStep(&rnd);
+    uint32_t base = rnd.Next();
+    for (int j = 0; j < 4; ++j) {
+      test.ConcurrentWriteStep((base + j) % ConcurrentTest::K);
+    }
+  }
+}
+
 class TestState {
  public:
   ConcurrentTest t_;
   int seed_;
   std::atomic<bool> quit_flag_;
+  std::atomic<uint32_t> next_writer_;
 
   enum ReaderState { STARTING, RUNNING, DONE };
 
   explicit TestState(int s)
-      : seed_(s), quit_flag_(false), state_(STARTING), state_cv_(&mu_) {}
+      : seed_(s),
+        quit_flag_(false),
+        state_(STARTING),
+        pending_writers_(0),
+        state_cv_(&mu_) {}
 
   void Wait(ReaderState s) {
     mu_.Lock();
@@ -339,9 +368,27 @@ class TestState {
     mu_.Unlock();
   }
 
+  void AdjustPendingWriters(int delta) {
+    mu_.Lock();
+    pending_writers_ += delta;
+    if (pending_writers_ == 0) {
+      state_cv_.Signal();
+    }
+    mu_.Unlock();
+  }
+
+  void WaitForPendingWriters() {
+    mu_.Lock();
+    while (pending_writers_ != 0) {
+      state_cv_.Wait();
+    }
+    mu_.Unlock();
+  }
+
  private:
   port::Mutex mu_;
   ReaderState state_;
+  int pending_writers_;
   port::CondVar state_cv_;
 };
 
@@ -357,7 +404,14 @@ static void ConcurrentReader(void* arg) {
   state->Change(TestState::DONE);
 }
 
-static void RunConcurrent(int run) {
+static void ConcurrentWriter(void* arg) {
+  TestState* state = reinterpret_cast<TestState*>(arg);
+  uint32_t k = state->next_writer_++ % ConcurrentTest::K;
+  state->t_.ConcurrentWriteStep(k);
+  state->AdjustPendingWriters(-1);
+}
+
+static void RunConcurrentRead(int run) {
   const int seed = test::RandomSeed() + (run * 100);
   Random rnd(seed);
   const int N = 1000;
@@ -369,7 +423,7 @@ static void RunConcurrent(int run) {
     TestState state(seed + 1);
     Env::Default()->Schedule(ConcurrentReader, &state);
     state.Wait(TestState::RUNNING);
-    for (int k = 0; k < kSize; k++) {
+    for (int k = 0; k < kSize; ++k) {
       state.t_.WriteStep(&rnd);
     }
     state.quit_flag_.store(true, std::memory_order_release);
@@ -377,11 +431,41 @@ static void RunConcurrent(int run) {
   }
 }
 
-TEST_F(InlineSkipTest, Concurrent1) { RunConcurrent(1); }
-TEST_F(InlineSkipTest, Concurrent2) { RunConcurrent(2); }
-TEST_F(InlineSkipTest, Concurrent3) { RunConcurrent(3); }
-TEST_F(InlineSkipTest, Concurrent4) { RunConcurrent(4); }
-TEST_F(InlineSkipTest, Concurrent5) { RunConcurrent(5); }
+static void RunConcurrentInsert(int run, int write_parallelism = 4) {
+  Env::Default()->SetBackgroundThreads(1 + write_parallelism,
+                                       Env::Priority::LOW);
+  const int seed = test::RandomSeed() + (run * 100);
+  Random rnd(seed);
+  const int N = 1000;
+  const int kSize = 1000;
+  for (int i = 0; i < N; i++) {
+    if ((i % 100) == 0) {
+      fprintf(stderr, "Run %d of %d\n", i, N);
+    }
+    TestState state(seed + 1);
+    Env::Default()->Schedule(ConcurrentReader, &state);
+    state.Wait(TestState::RUNNING);
+    for (int k = 0; k < kSize; k += write_parallelism) {
+      state.next_writer_ = rnd.Next();
+      state.AdjustPendingWriters(write_parallelism);
+      for (int p = 0; p < write_parallelism; ++p) {
+        Env::Default()->Schedule(ConcurrentWriter, &state);
+      }
+      state.WaitForPendingWriters();
+    }
+    state.quit_flag_.store(true, std::memory_order_release);
+    state.Wait(TestState::DONE);
+  }
+}
+
+TEST_F(InlineSkipTest, ConcurrentRead1) { RunConcurrentRead(1); }
+TEST_F(InlineSkipTest, ConcurrentRead2) { RunConcurrentRead(2); }
+TEST_F(InlineSkipTest, ConcurrentRead3) { RunConcurrentRead(3); }
+TEST_F(InlineSkipTest, ConcurrentRead4) { RunConcurrentRead(4); }
+TEST_F(InlineSkipTest, ConcurrentRead5) { RunConcurrentRead(5); }
+TEST_F(InlineSkipTest, ConcurrentInsert1) { RunConcurrentInsert(1); }
+TEST_F(InlineSkipTest, ConcurrentInsert2) { RunConcurrentInsert(2); }
+TEST_F(InlineSkipTest, ConcurrentInsert3) { RunConcurrentInsert(3); }
 
 }  // namespace rocksdb
 

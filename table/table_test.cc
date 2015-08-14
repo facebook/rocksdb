@@ -2041,7 +2041,8 @@ TEST_F(MemTableTest, Simple) {
   batch.Put(std::string("k3"), std::string("v3"));
   batch.Put(std::string("largekey"), std::string("vlarge"));
   ColumnFamilyMemTablesDefault cf_mems_default(memtable);
-  ASSERT_TRUE(WriteBatchInternal::InsertInto(&batch, &cf_mems_default).ok());
+  ASSERT_TRUE(
+      WriteBatchInternal::InsertInto(&batch, &cf_mems_default, nullptr).ok());
 
   Arena arena;
   ScopedArenaIterator iter(memtable->NewIterator(ReadOptions(), &arena));

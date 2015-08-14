@@ -243,6 +243,15 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 
 #define CACHE_LINE_SIZE 64U
 
+static inline void AsmVolatilePause() {
+#if defined(_M_IX86) || defined(_M_X64)
+  ::_mm_pause();
+#endif
+  // it would be nice to get "wfe" on ARM here
+}
+
+extern int PhysicalCoreID();
+
 // For Thread Local Storage abstraction
 typedef DWORD pthread_key_t;
 
