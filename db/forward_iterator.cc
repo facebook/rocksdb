@@ -341,6 +341,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
 
 void ForwardIterator::Next() {
   assert(valid_);
+  bool update_prev_key = false;
 
   if (sv_ == nullptr ||
       sv_->version_number != cfd_->GetSuperVersionNumber()) {
@@ -355,13 +356,15 @@ void ForwardIterator::Next() {
   } else if (current_ != mutable_iter_) {
     // It is going to advance immutable iterator
 
-    bool update_prev_key = true;
     if (is_prev_set_ && prefix_extractor_) {
       // advance prev_key_ to current_ only if they share the same prefix
       update_prev_key =
         prefix_extractor_->Transform(prev_key_.GetKey()).compare(
           prefix_extractor_->Transform(current_->key())) == 0;
+    } else {
+      update_prev_key = true;
     }
+
 
     if (update_prev_key) {
       prev_key_.SetKey(current_->key());
@@ -376,6 +379,8 @@ void ForwardIterator::Next() {
       immutable_status_ = current_->status();
     } else if (current_->Valid()) {
       immutable_min_heap_.push(current_);
+    } else if ((!mutable_iter_->Valid()) && update_prev_key) {
+        mutable_iter_->Seek(prev_key_.GetKey());
     }
   }
 

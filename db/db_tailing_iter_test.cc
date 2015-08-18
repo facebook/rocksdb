@@ -68,6 +68,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
   read_options.tailing = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
   std::string value(1024, 'a');
 
   const int num_records = 1000;
@@ -88,6 +89,13 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
     iter->Seek(target);
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().compare(key), 0);
+    if (i == 1) {
+      itern->SeekToFirst();
+    } else {
+      itern->Next();
+    }
+    ASSERT_TRUE(itern->Valid());
+    ASSERT_EQ(itern->key().compare(key), 0);
   }
   for (int i = 2 * num_records; i > 0; --i) {
     char buf1[32];
