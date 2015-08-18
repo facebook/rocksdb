@@ -173,12 +173,28 @@ Status BuildTable(
             prev_key.assign(keys.front());
             ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
             assert(ok);
+
+            // The front item has the smallest seqno in the merge queue
+            meta->smallest_seqno = std::min(meta->smallest_seqno, prev_ikey.sequence);
+            if (keys.size() == 1) {
+              // If queue size is 1, the smallest seqno is also the largest
+              meta->largest_seqno = std::max(meta->largest_seqno, prev_ikey.sequence);
+            }
+            else {
+              // The back item has the largest seqno in the merge queue
+              ParsedInternalKey temp_ikey;
+              ok = ParseInternalKey(Slice(keys.back()), &temp_ikey);
+              assert(ok);
+              meta->largest_seqno = std::max(meta->largest_seqno, temp_ikey.sequence);
+            }
           } else {
             // Handle Put/Delete-type keys by simply writing them
             builder->Add(key, value);
             prev_key.assign(key.data(), key.size());
             ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
             assert(ok);
+            meta->smallest_seqno = std::min(meta->smallest_seqno, prev_ikey.sequence);
+            meta->largest_seqno = std::max(meta->largest_seqno, prev_ikey.sequence);
           }
         }
 
@@ -194,9 +210,6 @@ Status BuildTable(
 
       // The last key is the largest key
       meta->largest.DecodeFrom(Slice(prev_key));
-      SequenceNumber seqno = GetInternalKeySeqno(Slice(prev_key));
-      meta->smallest_seqno = std::min(meta->smallest_seqno, seqno);
-      meta->largest_seqno = std::max(meta->largest_seqno, seqno);
 
     } else {
       for (; iter->Valid(); iter->Next()) {

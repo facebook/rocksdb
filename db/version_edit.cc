@@ -384,6 +384,10 @@ std::string VersionEdit::DebugString(bool hex_key) const {
     r.append(" ");
     AppendNumberTo(&r, f.fd.GetFileSize());
     r.append(" ");
+    AppendNumberTo(&r, f.smallest_seqno);
+    r.append(" ");
+    AppendNumberTo(&r, f.largest_seqno);
+    r.append(" ");
     r.append(f.smallest.DebugString(hex_key));
     r.append(" .. ");
     r.append(f.largest.DebugString(hex_key));
