@@ -324,9 +324,6 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
   Compaction* c = compact_->compaction;
   auto& bounds = sub_compaction_boundaries_;
   if (c->IsSubCompaction()) {
-    // TODO(aekmekji): take the option num_subcompactions into account
-    // when dividing up the key range between multiple iterators instead
-    // of just assigning each iterator one L1 file's key range
     auto* cmp = c->column_family_data()->user_comparator();
     for (size_t which = 0; which < c->num_input_levels(); which++) {
       if (c->level(which) == 1) {
@@ -334,6 +331,7 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
         size_t num_files = flevel->num_files;
 
         if (num_files > 1) {
+          std::vector<Slice> candidates;
           auto& files = flevel->files;
           Slice global_min = ExtractUserKey(files[0].smallest_key);
           Slice global_max = ExtractUserKey(files[num_files - 1].largest_key);
@@ -351,8 +349,30 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
             if ( (i == num_files - 1 && cmp->Compare(s1, global_max) < 0)
               || (i < num_files - 1 && cmp->Compare(s1, s2) < 0 &&
                     cmp->Compare(s1, global_min) > 0)) {
-              bounds.emplace_back(s1);
+              candidates.emplace_back(s1);
             }
+          }
+
+          // Divide the potential L1 file boundaries (those that passed the
+          // checks above) into 'num_subcompactions' groups such that each have
+          // as close to an equal number of files in it as possible
+          // TODO(aekmekji): refine this later to depend on file size
+          size_t files_left = candidates.size();
+          size_t subcompactions_left =
+              static_cast<size_t>(db_options_.num_subcompactions) < files_left
+                ? db_options_.num_subcompactions
+                : files_left;
+
+          size_t num_to_include;
+          size_t index = 0;
+
+          while (files_left > 1 && subcompactions_left > 1) {
+            // Cheaper way to do 'round(num_files / num_subcompactions)'
+            num_to_include = files_left / subcompactions_left;
+            index += num_to_include;
+            sub_compaction_boundaries_.emplace_back(candidates[index]);
+            files_left -= num_to_include;
+            subcompactions_left--;
           }
         }
         break;
