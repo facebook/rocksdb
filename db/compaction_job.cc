@@ -84,8 +84,16 @@ struct CompactionJob::SubCompactionState {
   std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
   Output* current_output() {
-    assert(!outputs.empty());
-    return &outputs.back();
+    if (outputs.empty()) {
+      // This subcompaction's ouptut could be empty if compaction was aborted
+      // before this subcompaction had a chance to generate any output files.
+      // When subcompactions are executed sequentially this is more likely and
+      // will be particulalry likely for the last subcompaction to be empty.
+      // Once they are run in parallel however it should be much rarer.
+      return nullptr;
+    } else {
+      return &outputs.back();
+    }
   }
 
   // State during the sub-compaction
@@ -152,15 +160,26 @@ struct CompactionJob::CompactionState {
   }
 
   Slice SmallestUserKey() {
-    assert(!sub_compact_states.empty() &&
-           sub_compact_states[0].start == nullptr);
-    return sub_compact_states[0].outputs[0].smallest.user_key();
+    for (size_t i = 0; i < sub_compact_states.size(); i++) {
+      if (!sub_compact_states[i].outputs.empty()) {
+        return sub_compact_states[i].outputs[0].smallest.user_key();
+      }
+    }
+    // TODO(aekmekji): should we exit with an error if it reaches here?
+    assert(0);
+    return Slice(nullptr, 0);
   }
 
   Slice LargestUserKey() {
-    assert(!sub_compact_states.empty() &&
-           sub_compact_states.back().end == nullptr);
-    return sub_compact_states.back().current_output()->largest.user_key();
+    for (int i = static_cast<int>(sub_compact_states.size() - 1); i >= 0; i--) {
+      if (!sub_compact_states[i].outputs.empty()) {
+        assert(sub_compact_states[i].current_output() != nullptr);
+        return sub_compact_states[i].current_output()->largest.user_key();
+      }
+    }
+    // TODO(aekmekji): should we exit with an error if it reaches here?
+    assert(0);
+    return Slice(nullptr, 0);
   }
 };
 
@@ -768,6 +787,7 @@ Status CompactionJob::WriteKeyValue(const Slice& key, const Slice& value,
     }
   }
   assert(sub_compact->builder != nullptr);
+  assert(sub_compact->current_output() != nullptr);
 
   SequenceNumber seqno = GetInternalKeySeqno(newkey);
   if (sub_compact->builder->NumEntries() == 0) {
@@ -825,6 +845,7 @@ Status CompactionJob::FinishCompactionOutputFile(const Status& input_status,
   assert(sub_compact != nullptr);
   assert(sub_compact->outfile);
   assert(sub_compact->builder != nullptr);
+  assert(sub_compact->current_output() != nullptr);
 
   const uint64_t output_number = sub_compact->current_output()->number;
   const uint32_t output_path_id = sub_compact->current_output()->path_id;
