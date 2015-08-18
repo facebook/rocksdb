@@ -253,8 +253,8 @@ class CompactionJobTest : public testing::Test {
     s = compaction_job.Run();
     ASSERT_OK(s);
     mutex_.Lock();
-    compaction_job.Install(&s, *cfd->GetLatestMutableCFOptions(), &mutex_);
-    ASSERT_OK(s);
+    ASSERT_OK(compaction_job.Install(*cfd->GetLatestMutableCFOptions(),
+                                     &mutex_));
     mutex_.Unlock();
 
     ASSERT_GE(compaction_job_stats_.elapsed_micros, 0U);

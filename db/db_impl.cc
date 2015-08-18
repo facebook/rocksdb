@@ -1687,10 +1687,10 @@ Status DBImpl::CompactFilesImpl(
   compaction_job.Prepare();
 
   mutex_.Unlock();
-  Status status = compaction_job.Run();
+  compaction_job.Run();
   mutex_.Lock();
 
-  compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
+  Status status = compaction_job.Install(*c->mutable_cf_options(), &mutex_);
   if (status.ok()) {
     InstallSuperVersionAndScheduleWorkWrapper(
         c->column_family_data(), job_context, *c->mutable_cf_options());
@@ -2689,11 +2689,11 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     compaction_job.Prepare();
 
     mutex_.Unlock();
-    status = compaction_job.Run();
+    compaction_job.Run();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
-    compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
+    status = compaction_job.Install(*c->mutable_cf_options(), &mutex_);
     if (status.ok()) {
       InstallSuperVersionAndScheduleWorkWrapper(
           c->column_family_data(), job_context, *c->mutable_cf_options());

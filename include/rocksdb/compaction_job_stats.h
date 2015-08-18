@@ -12,6 +12,8 @@ namespace rocksdb {
 struct CompactionJobStats {
   CompactionJobStats() { Reset(); }
   void Reset();
+  // Aggregate the CompactionJobStats from another instance with this one
+  void Add(const CompactionJobStats& stats);
 
   // the elapsed time in micro of this compaction.
   uint64_t elapsed_micros;

@@ -226,6 +226,12 @@ DEFINE_int32(set_in_place_one_in, 0,
 DEFINE_int64(cache_size, 2 * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
 
+DEFINE_uint64(subcompactions, 1,
+             "Maximum number of subcompactions to divide L0-L1 compactions "
+             "into.");
+static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
+    RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
+
 static bool ValidateInt32Positive(const char* flagname, int32_t value) {
   if (value < 0) {
     fprintf(stderr, "Invalid value for --%s: %d, must be >=0\n",
@@ -1877,6 +1883,7 @@ class StressTest {
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
+    options_.num_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");

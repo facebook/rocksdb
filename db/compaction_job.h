@@ -75,48 +75,51 @@ class CompactionJob {
   Status Run();
 
   // REQUIRED: mutex held
-  // status is the return of Run()
-  void Install(Status* status, const MutableCFOptions& mutable_cf_options,
-               InstrumentedMutex* db_mutex);
+  Status Install(const MutableCFOptions& mutable_cf_options,
+                 InstrumentedMutex* db_mutex);
 
  private:
-  // REQUIRED: mutex not held
-  Status SubCompactionRun(Slice* start, Slice* end);
+  struct SubCompactionState;
 
-  void GetSubCompactionBoundaries();
+  void AggregateStatistics();
+  // Set up the individual states used by each subcompaction
+  void InitializeSubCompactions(const SequenceNumber& earliest,
+                                const SequenceNumber& visible,
+                                const SequenceNumber& latest);
+
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
   // Call compaction filter. Then iterate through input and compact the
   // kv-pairs
-  Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input,
-                                    Slice* start = nullptr,
-                                    Slice* end = nullptr);
+  void ProcessKeyValueCompaction(SubCompactionState* sub_compact);
 
   Status WriteKeyValue(const Slice& key, const Slice& value,
                        const ParsedInternalKey& ikey,
-                       const Status& input_status);
+                       const Status& input_status,
+                       SubCompactionState* sub_compact);
 
-  Status FinishCompactionOutputFile(const Status& input_status);
-  Status InstallCompactionResults(InstrumentedMutex* db_mutex,
-                                  const MutableCFOptions& mutable_cf_options);
-  SequenceNumber findEarliestVisibleSnapshot(
-      SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
-      SequenceNumber* prev_snapshot);
+  Status FinishCompactionOutputFile(const Status& input_status,
+                                    SubCompactionState* sub_compact);
+  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
+                                  InstrumentedMutex* db_mutex);
+  SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
+                                             SequenceNumber* prev_snapshot);
   void RecordCompactionIOStats();
-  Status OpenCompactionOutputFile();
-  void CleanupCompaction(const Status& status);
+  Status OpenCompactionOutputFile(SubCompactionState* sub_compact);
+  void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
   void RecordDroppedKeys(int64_t* key_drop_user,
                          int64_t* key_drop_newer_entry,
-                         int64_t* key_drop_obsolete);
+                         int64_t* key_drop_obsolete,
+                         CompactionJobStats* compaction_job_stats = nullptr);
 
   void UpdateCompactionStats();
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
-  void LogCompaction(ColumnFamilyData* cfd, Compaction* compaction);
+  void LogCompaction();
 
   int job_id_;
 
@@ -126,9 +129,6 @@ class CompactionJob {
   CompactionJobStats* compaction_job_stats_;
 
   bool bottommost_level_;
-  SequenceNumber earliest_snapshot_;
-  SequenceNumber visible_at_tip_;
-  SequenceNumber latest_snapshot_;
 
   InternalStats::CompactionStats compaction_stats_;
 
