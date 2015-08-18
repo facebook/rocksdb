@@ -587,31 +587,24 @@ Status CompactionJob::ProcessKeyValueCompaction(int64_t* imm_micros,
       merge.MergeUntil(input, prev_snapshot, bottommost_level_,
                        db_options_.statistics.get(), env_);
 
-      if (merge.IsSuccess()) {
-        // Successfully found Put/Delete/(end-of-key-range) while merging
-        // Get the merge result
-        key = merge.key();
-        ParseInternalKey(key, &ikey);
-        status = WriteKeyValue(key, merge.value(), ikey, input->status());
-      } else {
-        // Did not find a Put/Delete/(end-of-key-range) while merging
-        // We now have some stack of merge operands to write out.
-        // NOTE: key,value, and ikey are now referring to old entries.
-        //       These will be correctly set below.
-        const auto& keys = merge.keys();
-        const auto& values = merge.values();
-        assert(!keys.empty());
-        assert(keys.size() == values.size());
+      // NOTE: key, value, and ikey refer to old entries.
+      //       These will be correctly set below.
+      const auto& keys = merge.keys();
+      const auto& values = merge.values();
+      assert(!keys.empty());
+      assert(keys.size() == values.size());
 
-        // We have a list of keys to write, write all keys in the list.
-        for (auto key_iter = keys.rbegin(), value_iter = values.rbegin();
-             !status.ok() || key_iter != keys.rend();
-             key_iter++, value_iter++) {
-          key = Slice(*key_iter);
-          value = Slice(*value_iter);
-          ParseInternalKey(key, &ikey);
-          status = WriteKeyValue(key, value, ikey, input->status());
-        }
+      // We have a list of keys to write, write all keys in the list.
+      for (auto key_iter = keys.rbegin(), value_iter = values.rbegin();
+           !status.ok() || key_iter != keys.rend(); key_iter++, value_iter++) {
+        key = Slice(*key_iter);
+        value = Slice(*value_iter);
+        bool valid_key __attribute__((__unused__)) =
+            ParseInternalKey(key, &ikey);
+        // MergeUntil stops when it encounters a corrupt key and does not
+        // include them in the result, so we expect the keys here to valid.
+        assert(valid_key);
+        status = WriteKeyValue(key, value, ikey, input->status());
       }
     } else {
       status = WriteKeyValue(key, value, ikey, input->status());

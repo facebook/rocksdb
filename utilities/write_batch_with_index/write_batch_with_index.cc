@@ -633,7 +633,7 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
       s = Status::NotFound();
       break;
     case WriteBatchWithIndexInternal::Result::kMergeInProgress:
-      s = Status::MergeInProgress("");
+      s = Status::MergeInProgress();
       break;
     default:
       assert(false);

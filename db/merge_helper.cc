@@ -4,16 +4,17 @@
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
 
+#include "db/merge_helper.h"
+
 #include <stdio.h>
 #include <string>
 
-#include "merge_helper.h"
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
 #include "rocksdb/merge_operator.h"
-#include "util/statistics.h"
 #include "util/perf_context_imp.h"
+#include "util/statistics.h"
 #include "util/stop_watch.h"
 
 namespace rocksdb {
@@ -58,9 +59,9 @@ Status MergeHelper::TimedFullMerge(const Slice& key, const Slice* value,
 //       keys_ stores the list of keys encountered while merging.
 //       operands_ stores the list of merge operands encountered while merging.
 //       keys_[i] corresponds to operands_[i] for each i.
-void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
-                             const bool at_bottom, Statistics* stats,
-                             Env* env_) {
+Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
+                               const bool at_bottom, Statistics* stats,
+                               Env* env_) {
   // Get a copy of the internal key, before it's invalidated by iter->Next()
   // Also maintain the list of merge operands seen.
   assert(HasOperator());
@@ -70,8 +71,6 @@ void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
   operands_.push_front(iter->value().ToString());
   assert(user_merge_operator_);
 
-  success_ = false;   // Will become true if we hit Put/Delete or bottom
-
   // We need to parse the internal key again as the parsed key is
   // backed by the internal key!
   // Assume no internal key corruption as it has been successfully parsed
@@ -80,6 +79,7 @@ void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
   ParsedInternalKey orig_ikey;
   ParseInternalKey(keys_.back(), &orig_ikey);
 
+  Status s;
   bool hit_the_next_user_key = false;
   for (iter->Next(); iter->Valid(); iter->Next()) {
     ParsedInternalKey ikey;
@@ -114,28 +114,33 @@ void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
       //   => store result in operands_.back() (and update keys_.back())
       //   => change the entry type to kTypeValue for keys_.back()
       // We are done! Success!
+      //
+      // TODO(noetzli) If the merge operator returns false, we are currently
+      // (almost) silently dropping the put/delete. That's probably not what we
+      // want.
       const Slice val = iter->value();
       const Slice* val_ptr = (kTypeValue == ikey.type) ? &val : nullptr;
       std::string merge_result;
-      Status s =
-          TimedFullMerge(ikey.user_key, val_ptr, operands_,
+      s = TimedFullMerge(ikey.user_key, val_ptr, operands_,
                          user_merge_operator_, stats, env_, logger_,
                          &merge_result);
 
       // We store the result in keys_.back() and operands_.back()
       // if nothing went wrong (i.e.: no operand corruption on disk)
       if (s.ok()) {
-        std::string& original_key =
-            keys_.back();  // The original key encountered
+        // The original key encountered
+        std::string original_key = std::move(keys_.back());
         orig_ikey.type = kTypeValue;
         UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
-        operands_.back() = std::move(merge_result);
-        success_ = true;
+        keys_.clear();
+        operands_.clear();
+        keys_.emplace_front(std::move(original_key));
+        operands_.emplace_front(std::move(merge_result));
       }
 
       // move iter to the next entry
       iter->Next();
-      return;
+      return s;
     } else {
       // hit a merge
       //   => merge the operand into the front of the operands_ list
@@ -173,28 +178,28 @@ void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
     assert(operands_.size() >= 1);
     assert(operands_.size() == keys_.size());
     std::string merge_result;
-    {
-      StopWatchNano timer(env_, stats != nullptr);
-      PERF_TIMER_GUARD(merge_operator_time_nanos);
-      success_ = user_merge_operator_->FullMerge(
-          orig_ikey.user_key, nullptr, operands_, &merge_result, logger_);
-      RecordTick(stats, MERGE_OPERATION_TOTAL_TIME,
-                 env_ != nullptr ? timer.ElapsedNanos() : 0);
-    }
-    if (success_) {
-      std::string& original_key = keys_.back();  // The original key encountered
+    s = TimedFullMerge(orig_ikey.user_key, nullptr, operands_,
+                       user_merge_operator_, stats, env_, logger_,
+                       &merge_result);
+    if (s.ok()) {
+      // The original key encountered
+      std::string original_key = std::move(keys_.back());
       orig_ikey.type = kTypeValue;
       UpdateInternalKey(&original_key, orig_ikey.sequence, orig_ikey.type);
-      operands_.back() = std::move(merge_result);
-    } else {
-      RecordTick(stats, NUMBER_MERGE_FAILURES);
-      // Do nothing if not success_. Leave keys() and operands() as they are.
+      keys_.clear();
+      operands_.clear();
+      keys_.emplace_front(std::move(original_key));
+      operands_.emplace_front(std::move(merge_result));
     }
   } else {
     // We haven't seen the beginning of the key nor a Put/Delete.
     // Attempt to use the user's associative merge function to
     // merge the stacked merge operands into a single operand.
-
+    //
+    // TODO(noetzli) The docblock of MergeUntil suggests that a successful
+    // partial merge returns Status::OK(). Should we change the status code
+    // after a successful partial merge?
+    s = Status::MergeInProgress();
     if (operands_.size() >= 2 &&
         operands_.size() >= min_partial_merge_operands_) {
       bool merge_success = false;
@@ -218,6 +223,8 @@ void MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
       }
     }
   }
+
+  return s;
 }
 
 } // namespace rocksdb

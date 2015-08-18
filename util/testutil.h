@@ -218,10 +218,11 @@ class StringSink: public WritableFile {
 
 class StringSource: public RandomAccessFile {
  public:
-  StringSource(const Slice& contents, uint64_t uniq_id = 0, bool mmap = false)
-    : contents_(contents.data(), contents.size()), uniq_id_(uniq_id),
-    mmap_(mmap) {
-    }
+  explicit StringSource(const Slice& contents, uint64_t uniq_id = 0,
+                        bool mmap = false)
+      : contents_(contents.data(), contents.size()),
+        uniq_id_(uniq_id),
+        mmap_(mmap) {}
 
   virtual ~StringSource() { }
 
@@ -267,6 +268,9 @@ class NullLogger : public Logger {
   virtual void Logv(const char* format, va_list ap) override {}
   virtual size_t GetLogFileSize() const override { return 0; }
 };
+
+// Corrupts key by changing the type
+extern void CorruptKeyType(InternalKey* ikey);
 
 }  // namespace test
 }  // namespace rocksdb

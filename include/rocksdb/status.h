@@ -57,9 +57,7 @@ class Status {
   static Status IOError(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, msg, msg2);
   }
-  static Status MergeInProgress(const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kMergeInProgress, msg, msg2);
-  }
+  static Status MergeInProgress() { return Status(kMergeInProgress); }
   static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIncomplete, msg, msg2);
   }

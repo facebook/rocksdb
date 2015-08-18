@@ -92,13 +92,6 @@ class CompactionJobTest : public testing::Test {
     return InternalKey(user_key, seq_num, t).Encode().ToString();
   }
 
-  // Corrupts key by changing the type
-  void CorruptKeyType(InternalKey* ikey) {
-    std::string keystr = ikey->Encode().ToString();
-    keystr[keystr.size() - 8] = kTypeLogData;
-    ikey->DecodeFrom(Slice(keystr.data(), keystr.size()));
-  }
-
   void AddMockFile(const mock::MockFileContents& contents, int level = 0) {
     assert(contents.size() > 0);
 
@@ -171,8 +164,8 @@ class CompactionJobTest : public testing::Test {
         // file
         InternalKey bottommost_internal_key(key, 0, kTypeValue);
         if (corrupt_id(k)) {
-          CorruptKeyType(&internal_key);
-          CorruptKeyType(&bottommost_internal_key);
+          test::CorruptKeyType(&internal_key);
+          test::CorruptKeyType(&bottommost_internal_key);
         }
         contents.insert({ internal_key.Encode().ToString(), value });
         if (i == 1 || k < kMatchingKeys || corrupt_id(k - kMatchingKeys)) {
