@@ -534,7 +534,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
 
   // No change to value, since we have not yet found a Put/Delete
   if (!found_final_value && merge_in_progress) {
-    *s = Status::MergeInProgress("");
+    *s = Status::MergeInProgress();
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;

@@ -54,6 +54,7 @@
 #include "port/likely.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
+#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
 #include "rocksdb/version.h"
@@ -368,6 +369,9 @@ DBImpl::~DBImpl() {
   for (auto l : logs_to_free_) {
     delete l;
   }
+  for (auto& log : logs_) {
+    log.ClearWriter();
+  }
   logs_.clear();
 
   // versions need to be destroyed before table_cache since it can hold
@@ -556,7 +560,7 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
         // logs_ could have changed while we were waiting.
         continue;
       }
-      logs_to_free_.push_back(log.writer.release());
+      logs_to_free_.push_back(log.ReleaseWriter());
       logs_.pop_front();
     }
     // Current log cannot be obsolete.
@@ -609,11 +613,6 @@ void DBImpl::FindObsoleteFiles(JobContext* job_context, bool force,
       }
     }
   }
-}
-
-Status DBImpl::SyncLog(log::Writer* log) {
-  assert(log);
-  return log->file()->Sync(db_options_.use_fsync);
 }
 
 namespace {
@@ -750,7 +749,13 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
       continue;
     }
 #endif  // !ROCKSDB_LITE
-    auto file_deletion_status = env_->DeleteFile(fname);
+    Status file_deletion_status;
+    if (db_options_.delete_scheduler != nullptr && type == kTableFile &&
+        path_id == 0) {
+      file_deletion_status = db_options_.delete_scheduler->DeleteFile(fname);
+    } else {
+      file_deletion_status = env_->DeleteFile(fname);
+    }
     if (file_deletion_status.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
@@ -1288,8 +1293,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
           iter.get(), &meta, cfd->internal_comparator(),
           cfd->int_tbl_prop_collector_factories(), newest_snapshot,
           earliest_seqno_in_memtable, GetCompressionFlush(*cfd->ioptions()),
-          cfd->ioptions()->compression_opts, paranoid_file_checks, Env::IO_HIGH,
-          &info.table_properties);
+          cfd->ioptions()->compression_opts, paranoid_file_checks,
+          cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
           "[%s] [WriteLevel0TableForRecovery]"
@@ -1664,7 +1669,8 @@ Status DBImpl::CompactFilesImpl(
       &shutting_down_, log_buffer, directories_.GetDbDir(),
       directories_.GetDataDir(c->output_path_id()), stats_, snapshots_.GetAll(),
       table_cache_, &event_logger_,
-      c->mutable_cf_options()->paranoid_file_checks, dbname_,
+      c->mutable_cf_options()->paranoid_file_checks,
+      c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
       nullptr);  // Here we pass a nullptr for CompactionJobStats because
                  // CompactFiles does not trigger OnCompactionCompleted(),
                  // which is the only place where CompactionJobStats is
@@ -1681,10 +1687,10 @@ Status DBImpl::CompactFilesImpl(
   compaction_job.Prepare();
 
   mutex_.Unlock();
-  Status status = compaction_job.Run();
+  compaction_job.Run();
   mutex_.Lock();
 
-  compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
+  Status status = compaction_job.Install(*c->mutable_cf_options(), &mutex_);
   if (status.ok()) {
     InstallSuperVersionAndScheduleWorkWrapper(
         c->column_family_data(), job_context, *c->mutable_cf_options());
@@ -1944,6 +1950,85 @@ Status DBImpl::Flush(const FlushOptions& flush_options,
   return FlushMemTable(cfh->cfd(), flush_options);
 }
 
+Status DBImpl::SyncWAL() {
+  autovector<log::Writer*, 1> logs_to_sync;
+  bool need_log_dir_sync;
+  uint64_t current_log_number;
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    assert(!logs_.empty());
+
+    // This SyncWAL() call only cares about logs up to this number.
+    current_log_number = logfile_number_;
+
+    while (logs_.front().number <= current_log_number &&
+           logs_.front().getting_synced) {
+      log_sync_cv_.Wait();
+    }
+    // First check that logs are safe to sync in background.
+    for (auto it = logs_.begin();
+         it != logs_.end() && it->number <= current_log_number; ++it) {
+      if (!it->writer->file()->writable_file()->IsSyncThreadSafe()) {
+        return Status::NotSupported(
+          "SyncWAL() is not supported for this implementation of WAL file",
+          db_options_.allow_mmap_writes
+            ? "try setting Options::allow_mmap_writes to false"
+            : Slice());
+      }
+    }
+    for (auto it = logs_.begin();
+         it != logs_.end() && it->number <= current_log_number; ++it) {
+      auto& log = *it;
+      assert(!log.getting_synced);
+      log.getting_synced = true;
+      logs_to_sync.push_back(log.writer);
+    }
+
+    need_log_dir_sync = !log_dir_synced_;
+  }
+
+  Status status;
+  for (log::Writer* log : logs_to_sync) {
+    status = log->file()->SyncWithoutFlush(db_options_.use_fsync);
+    if (!status.ok()) {
+      break;
+    }
+  }
+  if (status.ok() && need_log_dir_sync) {
+    status = directories_.GetWalDir()->Fsync();
+  }
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    MarkLogsSynced(current_log_number, need_log_dir_sync, status);
+  }
+
+  return status;
+}
+
+void DBImpl::MarkLogsSynced(
+    uint64_t up_to, bool synced_dir, const Status& status) {
+  mutex_.AssertHeld();
+  if (synced_dir &&
+      logfile_number_ == up_to &&
+      status.ok()) {
+    log_dir_synced_ = true;
+  }
+  for (auto it = logs_.begin(); it != logs_.end() && it->number <= up_to;) {
+    auto& log = *it;
+    assert(log.getting_synced);
+    if (status.ok() && logs_.size() > 1) {
+      logs_to_free_.push_back(log.ReleaseWriter());
+      logs_.erase(it++);
+    } else {
+      log.getting_synced = false;
+      ++it;
+    }
+  }
+  log_sync_cv_.SignalAll();
+}
+
 SequenceNumber DBImpl::GetLatestSequenceNumber() const {
   return versions_->LastSequence();
 }
@@ -2046,14 +2131,13 @@ Status DBImpl::FlushMemTable(ColumnFamilyData* cfd,
       return Status::OK();
     }
 
-    WriteThread::Writer w(&mutex_);
-    write_thread_.EnterWriteThread(&w);
-    assert(!w.done);  // Nobody should do our job
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
 
     // SwitchMemtable() will release and reacquire mutex
     // during execution
     s = SwitchMemtable(cfd, &context);
-    write_thread_.ExitWriteThread(&w, &w, s);
+    write_thread_.ExitUnbatched(&w);
 
     cfd->imm()->FlushRequested();
 
@@ -2542,8 +2626,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     int32_t moved_files = 0;
     int64_t moved_bytes = 0;
     for (unsigned int l = 0; l < c->num_input_levels(); l++) {
-      if (l == static_cast<unsigned int>(c->output_level()) ||
-          (c->output_level() == 0)) {
+      if (c->level(l) == c->output_level()) {
         continue;
       }
       for (size_t i = 0; i < c->num_input_files(l); i++) {
@@ -2591,23 +2674,26 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
   } else {
-    TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial");
+    int output_level  __attribute__((unused)) = c->output_level();
+    TEST_SYNC_POINT_CALLBACK("DBImpl::BackgroundCompaction:NonTrivial",
+                             &output_level);
     assert(is_snapshot_supported_ || snapshots_.empty());
     CompactionJob compaction_job(
         job_context->job_id, c.get(), db_options_, env_options_,
         versions_.get(), &shutting_down_, log_buffer, directories_.GetDbDir(),
         directories_.GetDataDir(c->output_path_id()), stats_,
         snapshots_.GetAll(), table_cache_, &event_logger_,
-        c->mutable_cf_options()->paranoid_file_checks, dbname_,
+        c->mutable_cf_options()->paranoid_file_checks,
+        c->mutable_cf_options()->compaction_measure_io_stats, dbname_,
         &compaction_job_stats);
     compaction_job.Prepare();
 
     mutex_.Unlock();
-    status = compaction_job.Run();
+    compaction_job.Run();
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:NonTrivial:AfterRun");
     mutex_.Lock();
 
-    compaction_job.Install(&status, *c->mutable_cf_options(), &mutex_);
+    status = compaction_job.Install(*c->mutable_cf_options(), &mutex_);
     if (status.ok()) {
       InstallSuperVersionAndScheduleWorkWrapper(
           c->column_family_data(), job_context, *c->mutable_cf_options());
@@ -2986,15 +3072,14 @@ Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
     // ColumnFamilyData object
     Options opt(db_options_, cf_options);
     {  // write thread
-      WriteThread::Writer w(&mutex_);
-      write_thread_.EnterWriteThread(&w);
-      assert(!w.done);  // Nobody should do our job
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
       // LogAndApply will both write the creation in MANIFEST and create
       // ColumnFamilyData object
       s = versions_->LogAndApply(
           nullptr, MutableCFOptions(opt, ImmutableCFOptions(opt)), &edit,
           &mutex_, directories_.GetDbDir(), false, &cf_options);
-      write_thread_.ExitWriteThread(&w, &w, s);
+      write_thread_.ExitUnbatched(&w);
     }
     if (s.ok()) {
       single_column_family_mode_ = false;
@@ -3048,12 +3133,11 @@ Status DBImpl::DropColumnFamily(ColumnFamilyHandle* column_family) {
     }
     if (s.ok()) {
       // we drop column family from a single write thread
-      WriteThread::Writer w(&mutex_);
-      write_thread_.EnterWriteThread(&w);
-      assert(!w.done);  // Nobody should do our job
+      WriteThread::Writer w;
+      write_thread_.EnterUnbatched(&w, &mutex_);
       s = versions_->LogAndApply(cfd, *cfd->GetLatestMutableCFOptions(),
                                  &edit, &mutex_);
-      write_thread_.ExitWriteThread(&w, &w, s);
+      write_thread_.ExitUnbatched(&w);
     }
 
     if (!cf_support_snapshot) {
@@ -3342,6 +3426,8 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   Status status;
+  bool callback_failed = false;
+
   bool xfunc_attempted_write = false;
   XFUNC_TEST("transaction", "transaction_xftest_write_impl",
              xf_transaction_write1, xf_transaction_write, write_options,
@@ -3353,7 +3439,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   }
 
   PERF_TIMER_GUARD(write_pre_and_post_process_time);
-  WriteThread::Writer w(&mutex_);
+  WriteThread::Writer w;
   w.batch = my_batch;
   w.sync = write_options.sync;
   w.disableWAL = write_options.disableWAL;
@@ -3367,20 +3453,19 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
 
   StopWatch write_sw(env_, db_options_.statistics.get(), DB_WRITE);
 
+  write_thread_.JoinBatchGroup(&w);
+  if (w.done) {
+    // write was done by someone else, no need to grab mutex
+    RecordTick(stats_, WRITE_DONE_BY_OTHER);
+    return w.status;
+  }
+  // else we are the leader of the write batch group
+
   WriteContext context;
   mutex_.Lock();
 
   if (!write_options.disableWAL) {
     default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL, 1);
-  }
-
-  write_thread_.EnterWriteThread(&w);
-  if (w.done) {  // write was done by someone else
-    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
-                                           1);
-    mutex_.Unlock();
-    RecordTick(stats_, WRITE_DONE_BY_OTHER);
-    return w.status;
   }
 
   RecordTick(stats_, WRITE_DONE_BY_SELF);
@@ -3467,13 +3552,14 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
   uint64_t last_sequence = versions_->LastSequence();
   WriteThread::Writer* last_writer = &w;
   autovector<WriteBatch*> write_batch_group;
-  bool need_wal_sync = !write_options.disableWAL && write_options.sync;
+  bool need_log_sync = !write_options.disableWAL && write_options.sync;
+  bool need_log_dir_sync = need_log_sync && !log_dir_synced_;
 
   if (status.ok()) {
-    last_batch_group_size_ =
-        write_thread_.BuildBatchGroup(&last_writer, &write_batch_group);
+    last_batch_group_size_ = write_thread_.EnterAsBatchGroupLeader(
+        &w, &last_writer, &write_batch_group);
 
-    if (need_wal_sync) {
+    if (need_log_sync) {
       while (logs_.front().getting_synced) {
         log_sync_cv_.Wait();
       }
@@ -3494,6 +3580,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       // If this write has a validation callback, check to see if this write
       // is able to be written.  Must be called on the write thread.
       status = callback->Callback(this);
+      callback_failed = true;
     }
   } else {
     mutex_.Unlock();
@@ -3535,7 +3622,7 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
         log_empty_ = false;
         log_size = log_entry.size();
         RecordTick(stats_, WAL_FILE_BYTES, log_size);
-        if (status.ok() && need_wal_sync) {
+        if (status.ok() && need_log_sync) {
           RecordTick(stats_, WAL_FILE_SYNCED);
           StopWatch sw(env_, stats_, WAL_FILE_SYNC_MICROS);
           // It's safe to access logs_ with unlocked mutex_ here because:
@@ -3546,18 +3633,17 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
           //  - as long as other threads don't modify it, it's safe to read
           //    from std::deque from multiple threads concurrently.
           for (auto& log : logs_) {
-            status = SyncLog(log.writer.get());
+            status = log.writer->file()->Sync(db_options_.use_fsync);
             if (!status.ok()) {
               break;
             }
           }
-          if (status.ok() && !log_dir_synced_) {
+          if (status.ok() && need_log_dir_sync) {
             // We only sync WAL directory the first time WAL syncing is
             // requested, so that in case users never turn on WAL sync,
             // we can avoid the disk I/O in the write code path.
             status = directories_.GetWalDir()->Fsync();
           }
-          log_dir_synced_ = true;
         }
       }
       if (status.ok()) {
@@ -3601,28 +3687,30 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
     mutex_.Lock();
   }
 
-  if (db_options_.paranoid_checks && !status.ok() &&
+  if (db_options_.paranoid_checks && !status.ok() && !callback_failed &&
       !status.IsBusy() && bg_error_.ok()) {
     bg_error_ = status; // stop compaction & fail any further writes
   }
 
   mutex_.AssertHeld();
 
-  if (need_wal_sync) {
-    while (logs_.size() > 1) {
-      auto& log = logs_.front();
-      assert(log.getting_synced);
-      logs_to_free_.push_back(log.writer.release());
-      logs_.pop_front();
-    }
-    assert(logs_.back().getting_synced);
-    logs_.back().getting_synced = false;
-    log_sync_cv_.SignalAll();
+  if (need_log_sync) {
+    MarkLogsSynced(logfile_number_, need_log_dir_sync, status);
   }
 
-  write_thread_.ExitWriteThread(&w, last_writer, status);
+  uint64_t writes_for_other = write_batch_group.size() - 1;
+  if (writes_for_other > 0) {
+    default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_DONE_BY_OTHER,
+                                           writes_for_other);
+    if (!write_options.disableWAL) {
+      default_cf_internal_stats_->AddDBStats(InternalStats::WRITE_WITH_WAL,
+                                             writes_for_other);
+    }
+  }
 
   mutex_.Unlock();
+
+  write_thread_.ExitAsBatchGroupLeader(&w, last_writer, status);
 
   return status;
 }
@@ -3706,7 +3794,6 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
         unique_ptr<WritableFileWriter> file_writer(
             new WritableFileWriter(std::move(lfile), opt_env_opt));
         new_log = new log::Writer(std::move(file_writer));
-        log_dir_synced_ = false;
       }
     }
 
@@ -3731,7 +3818,8 @@ Status DBImpl::SwitchMemtable(ColumnFamilyData* cfd, WriteContext* context) {
     logfile_number_ = new_log_number;
     assert(new_log != nullptr);
     log_empty_ = true;
-    logs_.emplace_back(logfile_number_, std::unique_ptr<log::Writer>(new_log));
+    log_dir_synced_ = false;
+    logs_.emplace_back(logfile_number_, new_log);
     alive_log_files_.push_back(LogFileNumberSize(logfile_number_));
     for (auto loop_cfd : *versions_->GetColumnFamilySet()) {
       // all this is just optimization to delete logs that
@@ -3867,6 +3955,22 @@ SuperVersion* DBImpl::GetAndRefSuperVersion(uint32_t column_family_id) {
   return GetAndRefSuperVersion(cfd);
 }
 
+// REQUIRED:  mutex is NOT held
+SuperVersion* DBImpl::GetAndRefSuperVersionUnlocked(uint32_t column_family_id) {
+  ColumnFamilyData* cfd;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    auto column_family_set = versions_->GetColumnFamilySet();
+    cfd = column_family_set->GetColumnFamily(column_family_id);
+  }
+
+  if (!cfd) {
+    return nullptr;
+  }
+
+  return GetAndRefSuperVersion(cfd);
+}
+
 void DBImpl::ReturnAndCleanupSuperVersion(ColumnFamilyData* cfd,
                                           SuperVersion* sv) {
   bool unref_sv = !cfd->ReturnThreadLocalSuperVersion(sv);
@@ -3897,10 +4001,40 @@ void DBImpl::ReturnAndCleanupSuperVersion(uint32_t column_family_id,
   ReturnAndCleanupSuperVersion(cfd, sv);
 }
 
+// REQUIRED: Mutex should NOT be held.
+void DBImpl::ReturnAndCleanupSuperVersionUnlocked(uint32_t column_family_id,
+                                                  SuperVersion* sv) {
+  ColumnFamilyData* cfd;
+  {
+    InstrumentedMutexLock l(&mutex_);
+    auto column_family_set = versions_->GetColumnFamilySet();
+    cfd = column_family_set->GetColumnFamily(column_family_id);
+  }
+
+  // If SuperVersion is held, and we successfully fetched a cfd using
+  // GetAndRefSuperVersion(), it must still exist.
+  assert(cfd != nullptr);
+  ReturnAndCleanupSuperVersion(cfd, sv);
+}
+
 // REQUIRED: this function should only be called on the write thread or if the
 // mutex is held.
 ColumnFamilyHandle* DBImpl::GetColumnFamilyHandle(uint32_t column_family_id) {
   ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  if (!cf_memtables->Seek(column_family_id)) {
+    return nullptr;
+  }
+
+  return cf_memtables->GetColumnFamilyHandle();
+}
+
+// REQUIRED: mutex is NOT held.
+ColumnFamilyHandle* DBImpl::GetColumnFamilyHandleUnlocked(
+    uint32_t column_family_id) {
+  ColumnFamilyMemTables* cf_memtables = column_family_memtables_.get();
+
+  InstrumentedMutexLock l(&mutex_);
 
   if (!cf_memtables->Seek(column_family_id)) {
     return nullptr;
@@ -4264,10 +4398,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
       impl->logfile_number_ = new_log_number;
       unique_ptr<WritableFileWriter> file_writer(
           new WritableFileWriter(std::move(lfile), opt_env_options));
-      impl->logs_.emplace_back(
-          new_log_number,
-          std::unique_ptr<log::Writer>(
-            new log::Writer(std::move(file_writer))));
+      impl->logs_.emplace_back(new_log_number,
+                               new log::Writer(std::move(file_writer)));
 
       // set column family handles
       for (auto cf : column_families) {

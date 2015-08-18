@@ -19,11 +19,11 @@
 #include <string>
 
 #include "db/dbformat.h"
-#include "db/log_writer.h"
-#include "db/snapshot.h"
 #include "db/column_family.h"
 #include "db/compaction_job.h"
 #include "db/flush_job.h"
+#include "db/log_writer.h"
+#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
 #include "db/writebuffer.h"
@@ -158,6 +158,7 @@ class DBImpl : public DB {
   using DB::Flush;
   virtual Status Flush(const FlushOptions& options,
                        ColumnFamilyHandle* column_family) override;
+  virtual Status SyncWAL() override;
 
   virtual SequenceNumber GetLatestSequenceNumber() const override;
 
@@ -308,8 +309,6 @@ class DBImpl : public DB {
   // It is not necessary to hold the mutex when invoking this method.
   void PurgeObsoleteFiles(const JobContext& background_contet);
 
-  Status SyncLog(log::Writer* log);
-
   ColumnFamilyHandle* DefaultColumnFamily() const override;
 
   const SnapshotList& snapshots() const { return snapshots_; }
@@ -327,6 +326,9 @@ class DBImpl : public DB {
   // mutex is held.
   SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
 
+  // Same as above, should called without mutex held and not on write thread.
+  SuperVersion* GetAndRefSuperVersionUnlocked(uint32_t column_family_id);
+
   // Un-reference the super version and return it to thread local cache if
   // needed. If it is the last reference of the super version. Clean it up
   // after un-referencing it.
@@ -337,10 +339,17 @@ class DBImpl : public DB {
   // REQUIRED: this function should only be called on the write thread.
   void ReturnAndCleanupSuperVersion(uint32_t colun_family_id, SuperVersion* sv);
 
+  // Same as above, should called without mutex held and not on write thread.
+  void ReturnAndCleanupSuperVersionUnlocked(uint32_t colun_family_id,
+                                            SuperVersion* sv);
+
   // REQUIRED: this function should only be called on the write thread or if the
   // mutex is held.  Return value only valid until next call to this function or
   // mutex is released.
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
+
+  // Same as above, should called without mutex held and not on write thread.
+  ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
 
  protected:
   Env* const env_;
@@ -497,6 +506,9 @@ class DBImpl : public DB {
   void AddToFlushQueue(ColumnFamilyData* cfd);
   ColumnFamilyData* PopFirstFromFlushQueue();
 
+  // helper function to call after some of the logs_ were synced
+  void MarkLogsSynced(uint64_t up_to, bool synced_dir, const Status& status);
+
   // table_cache_ provides its own synchronization
   std::shared_ptr<Cache> table_cache_;
 
@@ -530,10 +542,24 @@ class DBImpl : public DB {
     bool getting_flushed = false;
   };
   struct LogWriterNumber {
-    LogWriterNumber(uint64_t _number, std::unique_ptr<log::Writer> _writer)
-        : number(_number), writer(std::move(_writer)) {}
+    // pass ownership of _writer
+    LogWriterNumber(uint64_t _number, log::Writer* _writer)
+        : number(_number), writer(_writer) {}
+
+    log::Writer* ReleaseWriter() {
+      auto* w = writer;
+      writer = nullptr;
+      return w;
+    }
+    void ClearWriter() {
+      delete writer;
+      writer = nullptr;
+    }
+
     uint64_t number;
-    std::unique_ptr<log::Writer> writer;
+    // Visual Studio doesn't support deque's member to be noncopyable because
+    // of a unique_ptr as a member.
+    log::Writer* writer;  // own
     // true for some prefix of logs_
     bool getting_synced = false;
   };

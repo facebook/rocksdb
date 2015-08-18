@@ -103,7 +103,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                            kMaxSequenceNumber);
   new_mem->Ref();
-  std::map<std::string, std::string> inserted_keys;
+  mock::MockFileContents inserted_keys;
   for (int i = 1; i < 10000; ++i) {
     std::string key(ToString(i));
     std::string value("value" + ToString(i));

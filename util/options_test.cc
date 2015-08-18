@@ -129,6 +129,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"filter_deletes", "0"},
       {"max_sequential_skip_in_iterations", "24"},
       {"inplace_update_support", "true"},
+      {"compaction_measure_io_stats", "true"},
       {"inplace_update_num_locks", "25"},
       {"memtable_prefix_bloom_bits", "26"},
       {"memtable_prefix_bloom_probes", "27"},

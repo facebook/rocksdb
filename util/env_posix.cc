@@ -350,8 +350,6 @@ class PosixMmapFile : public WritableFile {
   char* dst_;             // Where to write next  (in range [base_,limit_])
   char* last_sync_;       // Where have we synced up to
   uint64_t file_offset_;  // Offset of base_ in file
-  // Have we done an munmap of unsynced data?
-  bool pending_sync_;
 #ifdef ROCKSDB_FALLOCATE_PRESENT
   bool fallocate_with_keep_size_;
 #endif
@@ -370,10 +368,6 @@ class PosixMmapFile : public WritableFile {
   Status UnmapCurrentRegion() {
     TEST_KILL_RANDOM(rocksdb_kill_odds);
     if (base_ != nullptr) {
-      if (last_sync_ < limit_) {
-        // Defer syncing this data until next Sync() call, if any
-        pending_sync_ = true;
-      }
       int munmap_status = munmap(base_, limit_ - base_);
       if (munmap_status != 0) {
         return IOError(filename_, munmap_status);
@@ -427,6 +421,22 @@ class PosixMmapFile : public WritableFile {
 #else
     return Status::NotSupported("This platform doesn't support fallocate()");
 #endif
+  }
+
+  Status Msync() {
+    if (dst_ == last_sync_) {
+      return Status::OK();
+    }
+    // Find the beginnings of the pages that contain the first and last
+    // bytes to be synced.
+    size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
+    size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
+    last_sync_ = dst_;
+    TEST_KILL_RANDOM(rocksdb_kill_odds);
+    if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
+      return IOError(filename_, errno);
+    }
+    return Status::OK();
   }
 
  public:
@@ -514,38 +524,22 @@ class PosixMmapFile : public WritableFile {
   }
 
   virtual Status Sync() override {
-    Status s;
-
-      if (fdatasync(fd_) < 0) {
-        s = IOError(filename_, errno);
-      }
-
-    if (dst_ > last_sync_) {
-      // Find the beginnings of the pages that contain the first and last
-      // bytes to be synced.
-      size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
-      size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
-      last_sync_ = dst_;
-      TEST_KILL_RANDOM(rocksdb_kill_odds);
-      if (msync(base_ + p1, p2 - p1 + page_size_, MS_SYNC) < 0) {
-        s = IOError(filename_, errno);
-      }
+    if (fdatasync(fd_) < 0) {
+      return IOError(filename_, errno);
     }
 
-    return s;
+    return Msync();
   }
 
   /**
    * Flush data as well as metadata to stable storage.
    */
   virtual Status Fsync() override {
-      // Some unmapped data was not synced
-      if (fsync(fd_) < 0) {
-        return IOError(filename_, errno);
-      }
-    // This invocation to Sync will not issue the call to
-    // fdatasync because pending_sync_ has already been cleared.
-    return Sync();
+    if (fsync(fd_) < 0) {
+      return IOError(filename_, errno);
+    }
+
+    return Msync();
   }
 
   /**
@@ -685,6 +679,10 @@ class PosixWritableFile : public WritableFile {
     return Status::OK();
   }
 
+  virtual bool IsSyncThreadSafe() const override {
+    return true;
+  }
+
   virtual uint64_t GetFileSize() override { return filesize_; }
 
   virtual Status InvalidateCache(size_t offset, size_t length) override {
@@ -723,113 +721,6 @@ class PosixWritableFile : public WritableFile {
   }
   virtual size_t GetUniqueId(char* id, size_t max_size) const override {
     return GetUniqueIdFromFile(fd_, id, max_size);
-  }
-#endif
-};
-
-class PosixRandomRWFile : public RandomRWFile {
- private:
-  const std::string filename_;
-  int fd_;
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-  bool fallocate_with_keep_size_;
-#endif
-
- public:
-  PosixRandomRWFile(const std::string& fname, int fd, const EnvOptions& options)
-      : filename_(fname), fd_(fd) {
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-    fallocate_with_keep_size_ = options.fallocate_with_keep_size;
-#endif
-    assert(!options.use_mmap_writes && !options.use_mmap_reads);
-  }
-
-  ~PosixRandomRWFile() {
-    if (fd_ >= 0) {
-      Close();
-    }
-  }
-
-  virtual Status Write(uint64_t offset, const Slice& data) override {
-    const char* src = data.data();
-    size_t left = data.size();
-    Status s;
-
-    while (left != 0) {
-      ssize_t done = pwrite(fd_, src, left, offset);
-      if (done < 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        return IOError(filename_, errno);
-      }
-
-      left -= done;
-      src += done;
-      offset += done;
-    }
-
-    return Status::OK();
-  }
-
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override {
-    Status s;
-    ssize_t r = -1;
-    size_t left = n;
-    char* ptr = scratch;
-    while (left > 0) {
-      r = pread(fd_, ptr, left, static_cast<off_t>(offset));
-      if (r <= 0) {
-        if (errno == EINTR) {
-          continue;
-        }
-        break;
-      }
-      ptr += r;
-      offset += r;
-      left -= r;
-    }
-    *result = Slice(scratch, (r < 0) ? 0 : n - left);
-    if (r < 0) {
-      s = IOError(filename_, errno);
-    }
-    return s;
-  }
-
-  virtual Status Close() override {
-    Status s = Status::OK();
-    if (fd_ >= 0 && close(fd_) < 0) {
-      s = IOError(filename_, errno);
-    }
-    fd_ = -1;
-    return s;
-  }
-
-  virtual Status Sync() override {
-    if (fdatasync(fd_) < 0) {
-      return IOError(filename_, errno);
-    }
-    return Status::OK();
-  }
-
-  virtual Status Fsync() override {
-    if (fsync(fd_) < 0) {
-      return IOError(filename_, errno);
-    }
-    return Status::OK();
-  }
-
-#ifdef ROCKSDB_FALLOCATE_PRESENT
-  virtual Status Allocate(off_t offset, off_t len) override {
-    IOSTATS_TIMER_GUARD(allocate_nanos);
-    int alloc_status = fallocate(
-        fd_, fallocate_with_keep_size_ ? FALLOC_FL_KEEP_SIZE : 0, offset, len);
-    if (alloc_status == 0) {
-      return Status::OK();
-    } else {
-      return IOError(filename_, errno);
-    }
   }
 #endif
 };
@@ -1013,29 +904,6 @@ class PosixEnv : public Env {
 
         result->reset(new PosixWritableFile(fname, fd, no_mmap_writes_options));
       }
-    }
-    return s;
-  }
-
-  virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options) override {
-    result->reset();
-    // no support for mmap yet
-    if (options.use_mmap_writes || options.use_mmap_reads) {
-      return Status::NotSupported("No support for mmap read/write yet");
-    }
-    Status s;
-    int fd;
-    {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      fd = open(fname.c_str(), O_CREAT | O_RDWR, 0644);
-    }
-    if (fd < 0) {
-      s = IOError(fname, errno);
-    } else {
-      SetFD_CLOEXEC(fd, &options);
-      result->reset(new PosixRandomRWFile(fname, fd, options));
     }
     return s;
   }

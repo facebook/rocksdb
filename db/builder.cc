@@ -9,9 +9,12 @@
 
 #include "db/builder.h"
 
+#include <deque>
 #include <vector>
+
 #include "db/dbformat.h"
 #include "db/filename.h"
+#include "db/internal_stats.h"
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/version_edit.h"
@@ -23,8 +26,8 @@
 #include "table/block_based_table_builder.h"
 #include "util/file_reader_writer.h"
 #include "util/iostats_context_imp.h"
-#include "util/thread_status_util.h"
 #include "util/stop_watch.h"
+#include "util/thread_status_util.h"
 
 namespace rocksdb {
 
@@ -54,7 +57,8 @@ Status BuildTable(
     const SequenceNumber earliest_seqno_in_memtable,
     const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
-    const Env::IOPriority io_priority, TableProperties* table_properties) {
+    InternalStats* internal_stats, const Env::IOPriority io_priority,
+    TableProperties* table_properties) {
   // Reports the IOStats for flush for every following bytes.
   const size_t kReportFlushIOStatsEvery = 1048576;
   Status s;
@@ -148,36 +152,27 @@ Status BuildTable(
             // TODO: pass statistics to MergeUntil
             merge.MergeUntil(iter, 0 /* don't worry about snapshot */);
             iterator_at_next = true;
-            if (merge.IsSuccess()) {
-              // Merge completed correctly.
-              // Add the resulting merge key/value and continue to next
-              builder->Add(merge.key(), merge.value());
-              prev_key.assign(merge.key().data(), merge.key().size());
-              ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-              assert(ok);
-            } else {
-              // Merge did not find a Put/Delete.
-              // Can not compact these merges into a kValueType.
-              // Write them out one-by-one. (Proceed back() to front())
-              const std::deque<std::string>& keys = merge.keys();
-              const std::deque<std::string>& values = merge.values();
-              assert(keys.size() == values.size() && keys.size() >= 1);
-              std::deque<std::string>::const_reverse_iterator key_iter;
-              std::deque<std::string>::const_reverse_iterator value_iter;
-              for (key_iter=keys.rbegin(), value_iter = values.rbegin();
-                   key_iter != keys.rend() && value_iter != values.rend();
-                   ++key_iter, ++value_iter) {
 
-                builder->Add(Slice(*key_iter), Slice(*value_iter));
-              }
-
-              // Sanity check. Both iterators should end at the same time
-              assert(key_iter == keys.rend() && value_iter == values.rend());
-
-              prev_key.assign(keys.front());
-              ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-              assert(ok);
+            // Write them out one-by-one. (Proceed back() to front())
+            // If the merge successfully merged the input into
+            // a kTypeValue, the list contains a single element.
+            const std::deque<std::string>& keys = merge.keys();
+            const std::deque<std::string>& values = merge.values();
+            assert(keys.size() == values.size() && keys.size() >= 1);
+            std::deque<std::string>::const_reverse_iterator key_iter;
+            std::deque<std::string>::const_reverse_iterator value_iter;
+            for (key_iter = keys.rbegin(), value_iter = values.rbegin();
+                 key_iter != keys.rend() && value_iter != values.rend();
+                 ++key_iter, ++value_iter) {
+              builder->Add(Slice(*key_iter), Slice(*value_iter));
             }
+
+            // Sanity check. Both iterators should end at the same time
+            assert(key_iter == keys.rend() && value_iter == values.rend());
+
+            prev_key.assign(keys.front());
+            ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
+            assert(ok);
           } else {
             // Handle Put/Delete-type keys by simply writing them
             builder->Add(key, value);
@@ -248,8 +243,11 @@ Status BuildTable(
 
     if (s.ok()) {
       // Verify that the table is usable
-      Iterator* it = table_cache->NewIterator(ReadOptions(), env_options,
-                                              internal_comparator, meta->fd);
+      Iterator* it = table_cache->NewIterator(
+          ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
+          (internal_stats == nullptr) ? nullptr
+                                      : internal_stats->GetFileReadHist(0),
+          false);
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
         for (it->SeekToFirst(); it->Valid(); it->Next()) {}

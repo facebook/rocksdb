@@ -102,6 +102,7 @@ set(SOURCES
         db/merge_operator.cc
         db/repair.cc
         db/slice.cc
+        db/snapshot_impl.cc
         db/table_cache.cc
         db/table_properties_collector.cc
         db/transaction_log_impl.cc
@@ -155,6 +156,7 @@ set(SOURCES
         util/comparator.cc
         util/crc32c.cc
         util/db_info_dumper.cc
+        util/delete_scheduler_impl.cc
         util/db_test_util.cc
         util/dynamic_bloom.cc
         util/env.cc
@@ -216,8 +218,13 @@ set(SOURCES
         utilities/merge_operators/uint64add.cc
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
-        utilities/transactions/optimistic_transaction_impl.cc        
+        utilities/table_properties_collectors/compact_on_deletion_collector.cc
+        utilities/transactions/optimistic_transaction_impl.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
+        utilities/transactions/transaction_impl.cc
+        utilities/transactions/transaction_db_impl.cc
+        utilities/transactions/transaction_lock_mgr.cc
+        utilities/transactions/transaction_util.cc
         utilities/ttl/db_ttl_impl.cc
         utilities/write_batch_with_index/write_batch_with_index.cc
         utilities/write_batch_with_index/write_batch_with_index_internal.cc
@@ -262,6 +269,7 @@ set(TESTS
         db/db_inplace_update_test.cc
         db/db_log_iter_test.cc
         db/db_universal_compaction_test.cc
+        db/db_wal_test.cc
         db/db_tailing_iter_test.cc
         db/dbformat_test.cc
         db/deletefile_test.cc
@@ -327,7 +335,9 @@ set(TESTS
         utilities/merge_operators/string_append/stringappend_test.cc
         utilities/redis/redis_lists_test.cc
         utilities/spatialdb/spatial_db_test.cc
+        utilities/table_properties_collectors/compact_on_deletion_collector_test.cc
         utilities/transactions/optimistic_transaction_test.cc
+        utilities/transactions/transaction_test.cc
         utilities/ttl/ttl_test.cc
         utilities/write_batch_with_index/write_batch_with_index_test.cc
 )

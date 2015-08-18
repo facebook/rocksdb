@@ -157,6 +157,22 @@ class WriteBatchWithIndex : public WriteBatchBase {
                            ColumnFamilyHandle* column_family, const Slice& key,
                            std::string* value);
 
+  // Records the state of the batch for future calls to RollbackToSavePoint().
+  // May be called multiple times to set multiple save points.
+  void SetSavePoint() override;
+
+  // Remove all entries in this batch (Put, Merge, Delete, PutLogData) since the
+  // most recent call to SetSavePoint() and removes the most recent save point.
+  // If there is no previous call to SetSavePoint(), behaves the same as
+  // Clear().
+  //
+  // Calling RollbackToSavePoint invalidates any open iterators on this batch.
+  //
+  // Returns Status::OK() on success,
+  //         Status::NotFound() if no previous call to SetSavePoint(),
+  //         or other Status on corruption.
+  Status RollbackToSavePoint() override;
+
  private:
   struct Rep;
   Rep* rep;

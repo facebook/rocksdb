@@ -32,7 +32,8 @@ LIB_SOURCES =                                                   \
   db/merge_helper.cc                                            \
   db/merge_operator.cc                                          \
   db/repair.cc                                                  \
-  db/slice.cc                                                  \
+  db/slice.cc                                                   \
+  db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
@@ -83,12 +84,13 @@ LIB_SOURCES =                                                   \
   util/compaction_job_stats_impl.cc                             \
   util/crc32c.cc                                                \
   util/db_info_dumper.cc                                        \
+  util/delete_scheduler_impl.cc                                 \
   util/dynamic_bloom.cc                                         \
   util/env.cc                                                   \
   util/env_hdfs.cc                                              \
   util/env_posix.cc                                             \
   util/file_util.cc                                             \
-	util/file_reader_writer.cc                                    \
+  util/file_reader_writer.cc                                    \
   util/filter_policy.cc                                         \
   util/hash.cc                                                  \
   util/hash_cuckoo_rep.cc                                       \
@@ -98,7 +100,9 @@ LIB_SOURCES =                                                   \
   util/instrumented_mutex.cc                                    \
   util/iostats_context.cc                                       \
   utilities/backupable/backupable_db.cc                         \
+  utilities/convenience/info_log_finder.cc                      \
   utilities/checkpoint/checkpoint.cc                            \
+  utilities/compaction_filters/remove_emptyvalue_compactionfilter.cc    \
   utilities/document/document_db.cc                             \
   utilities/document/json_document_builder.cc                   \
   utilities/document/json_document.cc                           \
@@ -111,8 +115,13 @@ LIB_SOURCES =                                                   \
   utilities/merge_operators/uint64add.cc                        \
   utilities/redis/redis_lists.cc                                \
   utilities/spatialdb/spatial_db.cc                             \
+  utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/transactions/optimistic_transaction_impl.cc         \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
+  utilities/transactions/transaction_db_impl.cc                 \
+  utilities/transactions/transaction_lock_mgr.cc                \
+  utilities/transactions/transaction_impl.cc                    \
+  utilities/transactions/transaction_util.cc                    \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
@@ -165,12 +174,13 @@ TEST_BENCH_SOURCES =                                                    \
   db/db_iter_test.cc                                                    \
   db/db_test.cc                                                         \
   db/db_compaction_filter_test.cc                                       \
-  db/db_compaction_test.cc                                       \
+  db/db_compaction_test.cc                                              \
   db/db_dynamic_level_test.cc                                           \
   db/db_inplace_update_test.cc                                          \
   db/db_log_iter_test.cc                                                \
   db/db_universal_compaction_test.cc                                    \
   db/db_tailing_iter_test.cc                                            \
+  db/db_wal_test.cc                                                     \
   db/deletefile_test.cc                                                 \
   db/fault_injection_test.cc                                            \
   db/file_indexer_test.cc                                               \
@@ -227,9 +237,11 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/merge_operators/string_append/stringappend_test.cc          \
   utilities/redis/redis_lists_test.cc                                   \
   utilities/spatialdb/spatial_db_test.cc                                \
-  utilities/transactions/optimistic_transaction_test.cc               \
+  utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
+  utilities/transactions/optimistic_transaction_test.cc                 \
+  utilities/transactions/transaction_test.cc                            \
   utilities/ttl/ttl_test.cc                                             \
-  utilities/write_batch_with_index/write_batch_with_index_test.cc	\
+  utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   util/log_write_bench.cc                                               \
   util/manual_compaction_test.cc                                        \
   util/memenv_test.cc                                                   \
@@ -245,9 +257,11 @@ TEST_BENCH_SOURCES =                                                    \
   util/thread_local_test.cc
 
 JNI_NATIVE_SOURCES =                                          \
+  java/rocksjni/backupenginejni.cc                            \
   java/rocksjni/backupablejni.cc                              \
   java/rocksjni/checkpoint.cc                                 \
   java/rocksjni/columnfamilyhandle.cc                         \
+  java/rocksjni/compaction_filter.cc                          \
   java/rocksjni/comparator.cc                                 \
   java/rocksjni/comparatorjnicallback.cc                      \
   java/rocksjni/env.cc                                        \
@@ -258,6 +272,7 @@ JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/merge_operator.cc                             \
   java/rocksjni/options.cc                                    \
   java/rocksjni/ratelimiterjni.cc                             \
+  java/rocksjni/remove_emptyvalue_compactionfilterjni.cc      \
   java/rocksjni/restorejni.cc                                 \
   java/rocksjni/rocksjni.cc                                   \
   java/rocksjni/slice.cc                                      \

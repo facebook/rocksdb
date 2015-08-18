@@ -47,7 +47,8 @@ class LevelIterator : public Iterator {
     assert(file_index_ < files_.size());
     file_iter_.reset(cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd, nullptr /* table_reader_ptr */, false));
+        files_[file_index_]->fd, nullptr /* table_reader_ptr */, nullptr,
+        false));
   }
   void SeekToLast() override {
     status_ = Status::NotSupported("LevelIterator::SeekToLast()");

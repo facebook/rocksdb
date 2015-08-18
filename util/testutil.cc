@@ -123,5 +123,11 @@ SequentialFileReader* GetSequentialFileReader(SequentialFile* se) {
   return new SequentialFileReader(std::move(file));
 }
 
+void CorruptKeyType(InternalKey* ikey) {
+  std::string keystr = ikey->Encode().ToString();
+  keystr[keystr.size() - 8] = kTypeLogData;
+  ikey->DecodeFrom(Slice(keystr.data(), keystr.size()));
+}
+
 }  // namespace test
 }  // namespace rocksdb

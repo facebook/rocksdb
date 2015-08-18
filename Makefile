@@ -227,6 +227,7 @@ TESTS = \
 	db_inplace_update_test \
 	db_tailing_iter_test \
 	db_universal_compaction_test \
+	db_wal_test \
 	block_hash_index_test \
 	autovector_test \
 	column_family_test \
@@ -285,6 +286,7 @@ TESTS = \
 	thread_local_test \
 	geodb_test \
 	rate_limiter_test \
+	delete_scheduler_test \
 	options_test \
 	event_logger_test \
 	cuckoo_table_builder_test \
@@ -300,8 +302,10 @@ TESTS = \
 	perf_context_test \
 	optimistic_transaction_test \
 	write_callback_test \
+	heap_test \
+	compact_on_deletion_collector_test \
 	compaction_job_stats_test \
-	heap_test
+	transaction_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -345,9 +349,16 @@ SHARED_MAJOR = $(ROCKSDB_MAJOR)
 SHARED_MINOR = $(ROCKSDB_MINOR)
 SHARED_PATCH = $(ROCKSDB_PATCH)
 SHARED1 = ${LIBNAME}.$(PLATFORM_SHARED_EXT)
+ifeq ($(PLATFORM), OS_MACOSX)
+SHARED_OSX = $(LIBNAME).$(SHARED_MAJOR)
+SHARED2 = $(SHARED_OSX).$(PLATFORM_SHARED_EXT)
+SHARED3 = $(SHARED_OSX).$(SHARED_MINOR).$(PLATFORM_SHARED_EXT)
+SHARED4 = $(SHARED_OSX).$(SHARED_MINOR).$(SHARED_PATCH).$(PLATFORM_SHARED_EXT)
+else
 SHARED2 = $(SHARED1).$(SHARED_MAJOR)
 SHARED3 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR)
 SHARED4 = $(SHARED1).$(SHARED_MAJOR).$(SHARED_MINOR).$(SHARED_PATCH)
+endif
 SHARED = $(SHARED1) $(SHARED2) $(SHARED3) $(SHARED4)
 $(SHARED1): $(SHARED4)
 	ln -fs $(SHARED4) $(SHARED1)
@@ -366,20 +377,23 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze
+	analyze tools
 
-all: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
+
+all: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
-dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
+tools: $(TOOLS)
+
+dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib tools db_bench
 
 coverage:
 	$(MAKE) clean
@@ -541,9 +555,11 @@ ldb_tests: ldb
 crash_test: whitebox_crash_test blackbox_crash_test
 
 blackbox_crash_test: db_stress
+	python -u tools/db_crashtest.py -s
 	python -u tools/db_crashtest.py
 
 whitebox_crash_test: db_stress
+	python -u tools/db_crashtest2.py -s
 	python -u tools/db_crashtest2.py
 
 asan_check:
@@ -563,8 +579,11 @@ valgrind_check: $(TESTS)
 	for t in $(filter-out skiplist_test,$(TESTS)); do \
 		stime=`date '+%s'`; \
 		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
-		if [ $$? -eq $(VALGRIND_ERROR) ] ; then \
+		ret_code=$$?; \
+		if [ $$ret_code -eq $(VALGRIND_ERROR) ] ; then \
 			echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
+		elif [ $$ret_code -ne 0 ]; then \
+			exit $$ret_code; \
 		fi; \
 		etime=`date '+%s'`; \
 		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
@@ -709,6 +728,9 @@ db_iter_test: db/db_iter_test.o $(LIBOBJECTS) $(TESTHARNESS)
 db_universal_compaction_test: db/db_universal_compaction_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+db_wal_test: db/db_wal_test.o util/db_test_util.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 log_write_bench: util/log_write_bench.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK) $(pg)
 
@@ -757,6 +779,9 @@ compaction_job_test: db/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
 compaction_job_stats_test: db/compaction_job_stats_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
+compact_on_deletion_collector_test: utilities/table_properties_collectors/compact_on_deletion_collector_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 wal_manager_test: db/wal_manager_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
@@ -770,6 +795,9 @@ fault_injection_test: db/fault_injection_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 rate_limiter_test: util/rate_limiter_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+delete_scheduler_test: util/delete_scheduler_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 filename_test: db/filename_test.o $(LIBOBJECTS) $(TESTHARNESS)
@@ -893,6 +921,9 @@ write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 heap_test: util/heap_test.o $(GTEST)
+	$(AM_LINK)
+
+transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
@@ -1037,7 +1068,7 @@ rocksdbjava: $(java_libobjects)
 jclean:
 	cd java;$(MAKE) clean;
 
-jtest:
+jtest: rocksdbjava
 	cd java;$(MAKE) sample;$(MAKE) test;
 
 jdb_bench:
@@ -1045,7 +1076,7 @@ jdb_bench:
 
 commit-prereq:
 	$(MAKE) clean && $(MAKE) all check;
-	$(MAKE) clean && $(MAKE) rocksdbjava;
+	$(MAKE) clean && $(MAKE) jclean && $(MAKE) rocksdbjava;
 	$(MAKE) clean && USE_CLANG=1 $(MAKE) all;
 	$(MAKE) clean && OPT=-DROCKSDB_LITE $(MAKE) static_lib;
 

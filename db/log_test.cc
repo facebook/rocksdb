@@ -45,46 +45,6 @@ static std::string RandomSkewedString(int i, Random* rnd) {
 
 class LogTest : public testing::Test {
  private:
-  class StringDest : public WritableFile {
-   public:
-    std::string contents_;
-
-    explicit StringDest(Slice& reader_contents) :
-      WritableFile(),
-      contents_(""),
-      reader_contents_(reader_contents),
-      last_flush_(0) {
-      reader_contents_ = Slice(contents_.data(), 0);
-    };
-
-    virtual Status Close() override { return Status::OK(); }
-    virtual Status Flush() override {
-      EXPECT_TRUE(reader_contents_.size() <= last_flush_);
-      size_t offset = last_flush_ - reader_contents_.size();
-      reader_contents_ = Slice(
-          contents_.data() + offset,
-          contents_.size() - offset);
-      last_flush_ = contents_.size();
-
-      return Status::OK();
-    }
-    virtual Status Sync() override { return Status::OK(); }
-    virtual Status Append(const Slice& slice) override {
-      contents_.append(slice.data(), slice.size());
-      return Status::OK();
-    }
-    void Drop(size_t bytes) {
-      contents_.resize(contents_.size() - bytes);
-      reader_contents_ = Slice(
-          reader_contents_.data(), reader_contents_.size() - bytes);
-      last_flush_ = contents_.size();
-    }
-
-   private:
-    Slice& reader_contents_;
-    size_t last_flush_;
-  };
-
   class StringSource : public SequentialFile {
    public:
     Slice& contents_;
@@ -165,14 +125,15 @@ class LogTest : public testing::Test {
   };
 
   std::string& dest_contents() {
-    auto dest = dynamic_cast<StringDest*>(writer_.file()->writable_file());
+    auto dest =
+      dynamic_cast<test::StringSink*>(writer_.file()->writable_file());
     assert(dest);
     return dest->contents_;
   }
 
   const std::string& dest_contents() const {
     auto dest =
-        dynamic_cast<const StringDest*>(writer_.file()->writable_file());
+      dynamic_cast<const test::StringSink*>(writer_.file()->writable_file());
     assert(dest);
     return dest->contents_;
   }
@@ -198,7 +159,8 @@ class LogTest : public testing::Test {
   LogTest()
       : reader_contents_(),
         dest_holder_(
-            test::GetWritableFileWriter(new StringDest(reader_contents_))),
+            test::GetWritableFileWriter(
+              new test::StringSink(&reader_contents_))),
         source_holder_(
             test::GetSequentialFileReader(new StringSource(reader_contents_))),
         writer_(std::move(dest_holder_)),
@@ -232,7 +194,8 @@ class LogTest : public testing::Test {
   }
 
   void ShrinkSize(int bytes) {
-    auto dest = dynamic_cast<StringDest*>(writer_.file()->writable_file());
+    auto dest =
+      dynamic_cast<test::StringSink*>(writer_.file()->writable_file());
     assert(dest);
     dest->Drop(bytes);
   }

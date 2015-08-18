@@ -1,5 +1,7 @@
-NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
+NATIVE_JAVA_CLASSES = org.rocksdb.AbstractCompactionFilter\
+        org.rocksdb.AbstractComparator\
 	org.rocksdb.AbstractSlice\
+	org.rocksdb.BackupEngine\
 	org.rocksdb.BackupableDB\
 	org.rocksdb.BackupableDBOptions\
 	org.rocksdb.BlockBasedTableConfig\
@@ -23,6 +25,7 @@ NATIVE_JAVA_CLASSES = org.rocksdb.AbstractComparator\
 	org.rocksdb.Options\
 	org.rocksdb.PlainTableConfig\
 	org.rocksdb.ReadOptions\
+	org.rocksdb.RemoveEmptyValueCompactionFilter\
 	org.rocksdb.RestoreBackupableDB\
 	org.rocksdb.RestoreOptions\
 	org.rocksdb.RocksDB\
@@ -58,6 +61,7 @@ ROCKSDB_JAR = rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH)-osx.
 endif
 
 JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
+        org.rocksdb.BackupEngineTest\
 	org.rocksdb.BackupableDBTest\
 	org.rocksdb.BlockBasedTableConfigTest\
 	org.rocksdb.CheckPointTest\
@@ -74,11 +78,11 @@ JAVA_TESTS = org.rocksdb.BackupableDBOptionsTest\
 	org.rocksdb.FlushTest\
 	org.rocksdb.InfoLogLevelTest\
 	org.rocksdb.KeyMayExistTest\
-    org.rocksdb.LoggerTest\
+        org.rocksdb.LoggerTest\
 	org.rocksdb.MemTableTest\
 	org.rocksdb.MergeTest\
 	org.rocksdb.MixedOptionsTest\
-    org.rocksdb.NativeLibraryLoaderTest\
+        org.rocksdb.NativeLibraryLoaderTest\
 	org.rocksdb.OptionsTest\
 	org.rocksdb.PlainTableConfigTest\
 	org.rocksdb.ReadOnlyTest\

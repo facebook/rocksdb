@@ -15,7 +15,7 @@
 namespace rocksdb {
 
 port::Mutex ThreadLocalPtr::StaticMeta::mutex_;
-#if !defined(OS_MACOSX) && !defined(OS_WIN)
+#if ROCKSDB_SUPPORT_THREAD_LOCAL
 __thread ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::tls_ = nullptr;
 #endif
 
@@ -137,6 +137,33 @@ ThreadLocalPtr::StaticMeta::StaticMeta() : next_instance_id_(0) {
   if (pthread_key_create(&pthread_key_, &OnThreadExit) != 0) {
     abort();
   }
+
+  // OnThreadExit is not getting called on the main thread.
+  // Call through the static destructor mechanism to avoid memory leak.
+  //
+  // Caveats: ~A() will be invoked _after_ ~StaticMeta for the global
+  // singleton (destructors are invoked in reverse order of constructor
+  // _completion_); the latter must not mutate internal members. This
+  // cleanup mechanism inherently relies on use-after-release of the
+  // StaticMeta, and is brittle with respect to compiler-specific handling
+  // of memory backing destructed statically-scoped objects. Perhaps
+  // registering with atexit(3) would be more robust.
+  //
+// This is not required on Windows.
+#if !defined(OS_WIN)
+  static struct A {
+    ~A() {
+#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
+      ThreadData* tls_ =
+        static_cast<ThreadData*>(pthread_getspecific(Instance()->pthread_key_));
+#endif
+      if (tls_) {
+        OnThreadExit(tls_);
+      }
+    }
+  } a;
+#endif  // !defined(OS_WIN)
+
   head_.next = &head_;
   head_.prev = &head_;
 
@@ -164,7 +191,7 @@ void ThreadLocalPtr::StaticMeta::RemoveThreadData(
 }
 
 ThreadLocalPtr::ThreadData* ThreadLocalPtr::StaticMeta::GetThreadLocal() {
-#if defined(OS_MACOSX) || defined(OS_WIN)
+#if !(ROCKSDB_SUPPORT_THREAD_LOCAL)
   // Make this local variable name look like a member variable so that we
   // can share all the code below
   ThreadData* tls_ =

@@ -668,6 +668,13 @@ public class Options extends RocksObject
   }
 
   @Override
+  public Options useCappedPrefixExtractor(final int n) {
+    assert(isInitialized());
+    useCappedPrefixExtractor(nativeHandle_, n);
+    return this;
+  }
+
+  @Override
   public CompressionType compressionType() {
     return CompressionType.values()[compressionType(nativeHandle_)];
   }
@@ -763,13 +770,12 @@ public class Options extends RocksObject
 
   @Override
   public int maxMemCompactionLevel() {
-    return maxMemCompactionLevel(nativeHandle_);
+    return 0;
   }
 
   @Override
   public Options setMaxMemCompactionLevel(
       final int maxMemCompactionLevel) {
-    setMaxMemCompactionLevel(nativeHandle_, maxMemCompactionLevel);
     return this;
   }
 
@@ -1215,6 +1221,8 @@ public class Options extends RocksObject
   private native List<Byte> compressionPerLevel(long handle);
   private native void useFixedLengthPrefixExtractor(
       long handle, int prefixLength);
+  private native void useCappedPrefixExtractor(
+      long handle, int prefixLength);
   private native void setNumLevels(
       long handle, int numLevels);
   private native int numLevels(long handle);
@@ -1227,9 +1235,6 @@ public class Options extends RocksObject
   private native void setLevelZeroStopWritesTrigger(
       long handle, int numFiles);
   private native int levelZeroStopWritesTrigger(long handle);
-  private native void setMaxMemCompactionLevel(
-      long handle, int maxMemCompactionLevel);
-  private native int maxMemCompactionLevel(long handle);
   private native void setTargetFileSizeBase(
       long handle, long targetFileSizeBase);
   private native long targetFileSizeBase(long handle);

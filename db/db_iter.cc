@@ -115,6 +115,7 @@ class DBIter: public Iterator {
   virtual void SeekToLast() override;
 
  private:
+  void ReverseToBackward();
   void PrevInternal();
   void FindParseableKey(ParsedInternalKey* ikey, Direction direction);
   bool FindValueForCurrentKey();
@@ -255,12 +256,13 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
     // If we have sequentially iterated via numerous keys and still not
     // found the next user-key, then it is better to seek so that we can
     // avoid too many key comparisons. We seek to the last occurrence of
-    // our current key by looking for sequence number 0.
+    // our current key by looking for sequence number 0 and type deletion
+    // (the smallest type).
     if (skipping && num_skipped > max_skip_) {
       num_skipped = 0;
       std::string last_key;
       AppendInternalKey(&last_key, ParsedInternalKey(saved_key_.GetKey(), 0,
-                                                     kValueTypeForSeek));
+                                                     kTypeDeletion));
       iter_->Seek(last_key);
       RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
     } else {
@@ -350,10 +352,36 @@ void DBIter::MergeValuesNewToOld() {
 void DBIter::Prev() {
   assert(valid_);
   if (direction_ == kForward) {
-    FindPrevUserKey();
-    direction_ = kReverse;
+    ReverseToBackward();
   }
   PrevInternal();
+}
+
+void DBIter::ReverseToBackward() {
+  if (current_entry_is_merged_) {
+    // Not placed in the same key. Need to call Prev() until finding the
+    // previous key.
+    if (!iter_->Valid()) {
+      iter_->SeekToLast();
+    }
+    ParsedInternalKey ikey;
+    FindParseableKey(&ikey, kReverse);
+    while (iter_->Valid() &&
+           user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) > 0) {
+      iter_->Prev();
+      FindParseableKey(&ikey, kReverse);
+    }
+  }
+#ifndef NDEBUG
+  if (iter_->Valid()) {
+    ParsedInternalKey ikey;
+    assert(ParseKey(&ikey));
+    assert(user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) <= 0);
+  }
+#endif
+
+  FindPrevUserKey();
+  direction_ = kReverse;
 }
 
 void DBIter::PrevInternal() {
@@ -624,7 +652,7 @@ void DBIter::Seek(const Slice& target) {
   if (iter_->Valid()) {
     direction_ = kForward;
     ClearSavedValue();
-    FindNextUserEntry(false /*not skipping */);
+    FindNextUserEntry(false /* not skipping */);
   } else {
     valid_ = false;
   }
@@ -632,7 +660,7 @@ void DBIter::Seek(const Slice& target) {
 
 void DBIter::SeekToFirst() {
   // Don't use iter_::Seek() if we set a prefix extractor
-  // because prefix seek wiil be used.
+  // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }
@@ -653,7 +681,7 @@ void DBIter::SeekToFirst() {
 
 void DBIter::SeekToLast() {
   // Don't use iter_::Seek() if we set a prefix extractor
-  // because prefix seek wiil be used.
+  // because prefix seek will be used.
   if (prefix_extractor_ != nullptr) {
     max_skip_ = std::numeric_limits<uint64_t>::max();
   }

@@ -40,24 +40,25 @@ int main() {
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "rocksdb/statistics.h"
+#include "hdfs/env_hdfs.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/env.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/write_batch.h"
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/testutil.h"
-#include "util/logging.h"
-#include "hdfs/env_hdfs.h"
-#include "utilities/merge_operators.h"
 #include "util/string_util.h"
+#include "util/testutil.h"
+#include "utilities/merge_operators.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -86,7 +87,7 @@ DEFINE_int64(max_key, 1 * KB* KB,
 DEFINE_int32(column_families, 10, "Number of column families");
 
 DEFINE_bool(test_batches_snapshots, false,
-            "If set, the test uses MultiGet(), Multiut() and MultiDelete()"
+            "If set, the test uses MultiGet(), MultiPut() and MultiDelete()"
             " which read/write/delete multiple keys in a batch. In this mode,"
             " we do not verify db content by comparing the content with the "
             "pre-allocated array. Instead, we do partial verification inside"
@@ -192,7 +193,7 @@ DEFINE_int32(compaction_thread_pool_adjust_interval, 0,
              "size. Don't change it periodically if the value is 0.");
 
 DEFINE_int32(compaction_thread_pool_variations, 2,
-             "Range of bakground thread pool size variations when adjusted "
+             "Range of background thread pool size variations when adjusted "
              "periodically.");
 
 DEFINE_int32(max_background_flushes, rocksdb::Options().max_background_flushes,
@@ -224,6 +225,12 @@ DEFINE_int32(set_in_place_one_in, 0,
 
 DEFINE_int64(cache_size, 2 * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
+
+DEFINE_uint64(subcompactions, 1,
+             "Maximum number of subcompactions to divide L0-L1 compactions "
+             "into.");
+static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
+    RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
 static bool ValidateInt32Positive(const char* flagname, int32_t value) {
   if (value < 0) {
@@ -275,7 +282,7 @@ DEFINE_int32(target_file_size_base, 64 * KB,
              "Target level-1 file size for compaction");
 
 DEFINE_int32(target_file_size_multiplier, 1,
-             "A multiplier to compute targe level-N file size (N >= 2)");
+             "A multiplier to compute target level-N file size (N >= 2)");
 
 DEFINE_uint64(max_bytes_for_level_base, 256 * KB, "Max bytes for level-1");
 
@@ -302,7 +309,7 @@ static const bool FLAGS_prefixpercent_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_prefixpercent, &ValidateInt32Percent);
 
 DEFINE_int32(writepercent, 45,
-             " Ratio of deletes to total workload (expressed as a percentage)");
+             "Ratio of writes to total workload (expressed as a percentage)");
 static const bool FLAGS_writepercent_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_writepercent, &ValidateInt32Percent);
 
@@ -1811,29 +1818,8 @@ class StressTest {
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
-    const char* compression = "";
-    switch (FLAGS_compression_type_e) {
-      case rocksdb::kNoCompression:
-        compression = "none";
-        break;
-      case rocksdb::kSnappyCompression:
-        compression = "snappy";
-        break;
-      case rocksdb::kZlibCompression:
-        compression = "zlib";
-        break;
-      case rocksdb::kBZip2Compression:
-        compression = "bzip2";
-        break;
-      case rocksdb::kLZ4Compression:
-        compression = "lz4";
-        break;
-      case rocksdb::kLZ4HCCompression:
-        compression = "lz4hc";
-        break;
-      }
-
-    fprintf(stdout, "Compression         : %s\n", compression);
+    std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
+    fprintf(stdout, "Compression         : %s\n", compression.c_str());
 
     const char* memtablerep = "";
     switch (FLAGS_rep_factory) {
@@ -1897,6 +1883,7 @@ class StressTest {
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
+    options_.num_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");

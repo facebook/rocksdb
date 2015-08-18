@@ -8,14 +8,16 @@
 #include <algorithm>
 #include <utility>
 
+#include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/statistics.h"
-#include "db/db_iter.h"
+#include "table/merger.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "util/testharness.h"
 #include "utilities/merge_operators.h"
 
@@ -48,8 +50,13 @@ class TestIterator : public Iterator {
   }
 
   void Add(std::string argkey, ValueType type, std::string argvalue) {
+    Add(argkey, type, argvalue, sequence_number_++);
+  }
+
+  void Add(std::string argkey, ValueType type, std::string argvalue,
+           size_t seq_num) {
     valid_ = true;
-    ParsedInternalKey internal_key(argkey, sequence_number_++, type);
+    ParsedInternalKey internal_key(argkey, seq_num, type);
     data_.push_back(
         std::pair<std::string, std::string>(std::string(), argvalue));
     AppendInternalKey(&data_.back().first, internal_key);
@@ -1644,6 +1651,7 @@ TEST_F(DBIteratorTest, DBIterator7) {
     ASSERT_TRUE(!db_iter->Valid());
   }
 }
+
 TEST_F(DBIteratorTest, DBIterator8) {
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
@@ -1670,7 +1678,7 @@ TEST_F(DBIteratorTest, DBIterator8) {
 
 // TODO(3.13): fix the issue of Seek() then Prev() which might not necessary
 //             return the biggest element smaller than the seek key.
-TEST_F(DBIteratorTest, DISABLED_DBIterator9) {
+TEST_F(DBIteratorTest, DBIterator9) {
   Options options;
   options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
   {
@@ -1720,7 +1728,7 @@ TEST_F(DBIteratorTest, DISABLED_DBIterator9) {
 
 // TODO(3.13): fix the issue of Seek() then Prev() which might not necessary
 //             return the biggest element smaller than the seek key.
-TEST_F(DBIteratorTest, DISABLED_DBIterator10) {
+TEST_F(DBIteratorTest, DBIterator10) {
   Options options;
 
   TestIterator* internal_iter = new TestIterator(BytewiseComparator());
@@ -1745,6 +1753,236 @@ TEST_F(DBIteratorTest, DISABLED_DBIterator10) {
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), "c");
   ASSERT_EQ(db_iter->value().ToString(), "3");
+}
+
+TEST_F(DBIteratorTest, SeekToLastOccurrenceSeq0) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter,
+      10, 0 /* force seek */));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "1");
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  ASSERT_EQ(db_iter->value().ToString(), "2");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+}
+
+class DBIterWithMergeIterTest : public testing::Test {
+ public:
+  DBIterWithMergeIterTest()
+      : env_(Env::Default()), icomp_(BytewiseComparator()) {
+    options_.merge_operator = nullptr;
+
+    internal_iter1_ = new TestIterator(BytewiseComparator());
+    internal_iter1_->Add("a", kTypeValue, "1", 3u);
+    internal_iter1_->Add("f", kTypeValue, "2", 5u);
+    internal_iter1_->Add("g", kTypeValue, "3", 7u);
+    internal_iter1_->Finish();
+
+    internal_iter2_ = new TestIterator(BytewiseComparator());
+    internal_iter2_->Add("a", kTypeValue, "4", 6u);
+    internal_iter2_->Add("b", kTypeValue, "5", 1u);
+    internal_iter2_->Add("c", kTypeValue, "6", 2u);
+    internal_iter2_->Add("d", kTypeValue, "7", 3u);
+    internal_iter2_->Finish();
+
+    std::vector<Iterator*> child_iters;
+    child_iters.push_back(internal_iter1_);
+    child_iters.push_back(internal_iter2_);
+    InternalKeyComparator icomp(BytewiseComparator());
+    Iterator* merge_iter = NewMergingIterator(&icomp_, &child_iters[0], 2u);
+
+    db_iter_.reset(NewDBIterator(env_, ImmutableCFOptions(options_),
+                                 BytewiseComparator(), merge_iter,
+                                 8 /* read data earlier than seqId 8 */,
+                                 3 /* max iterators before reseek */));
+  }
+
+  Env* env_;
+  Options options_;
+  TestIterator* internal_iter1_;
+  TestIterator* internal_iter2_;
+  InternalKeyComparator icomp_;
+  Iterator* merge_iter_;
+  std::unique_ptr<Iterator> db_iter_;
+};
+
+TEST_F(DBIterWithMergeIterTest, InnerMergeIterator1) {
+  db_iter_->SeekToFirst();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "a");
+  ASSERT_EQ(db_iter_->value().ToString(), "4");
+  db_iter_->Next();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "b");
+  ASSERT_EQ(db_iter_->value().ToString(), "5");
+  db_iter_->Next();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "c");
+  ASSERT_EQ(db_iter_->value().ToString(), "6");
+  db_iter_->Next();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "d");
+  ASSERT_EQ(db_iter_->value().ToString(), "7");
+  db_iter_->Next();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "f");
+  ASSERT_EQ(db_iter_->value().ToString(), "2");
+  db_iter_->Next();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "g");
+  ASSERT_EQ(db_iter_->value().ToString(), "3");
+  db_iter_->Next();
+  ASSERT_FALSE(db_iter_->Valid());
+}
+
+TEST_F(DBIterWithMergeIterTest, InnerMergeIterator2) {
+  // Test Prev() when one child iterator is at its end.
+  db_iter_->Seek("g");
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "g");
+  ASSERT_EQ(db_iter_->value().ToString(), "3");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "f");
+  ASSERT_EQ(db_iter_->value().ToString(), "2");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "d");
+  ASSERT_EQ(db_iter_->value().ToString(), "7");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "c");
+  ASSERT_EQ(db_iter_->value().ToString(), "6");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "b");
+  ASSERT_EQ(db_iter_->value().ToString(), "5");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "a");
+  ASSERT_EQ(db_iter_->value().ToString(), "4");
+}
+
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
+  // Test Prev() when one child iterator is at its end but more rows
+  // are added.
+  db_iter_->Seek("f");
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "f");
+  ASSERT_EQ(db_iter_->value().ToString(), "2");
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "MergeIterator::Prev:BeforeSeekToLast",
+      [&](void* arg) { internal_iter2_->Add("z", kTypeValue, "7", 12u); });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "d");
+  ASSERT_EQ(db_iter_->value().ToString(), "7");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "c");
+  ASSERT_EQ(db_iter_->value().ToString(), "6");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "b");
+  ASSERT_EQ(db_iter_->value().ToString(), "5");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "a");
+  ASSERT_EQ(db_iter_->value().ToString(), "4");
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// Not passing for a bug of not handling the case
+TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace2) {
+  // Test Prev() when one child iterator is at its end but more rows
+  // are added.
+  db_iter_->Seek("f");
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "f");
+  ASSERT_EQ(db_iter_->value().ToString(), "2");
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "MergeIterator::Prev:BeforeSeekToLast", [&](void* arg) {
+        internal_iter2_->Add("z", kTypeValue, "7", 12u);
+        internal_iter2_->Add("z", kTypeValue, "7", 11u);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "d");
+  ASSERT_EQ(db_iter_->value().ToString(), "7");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "c");
+  ASSERT_EQ(db_iter_->value().ToString(), "6");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "b");
+  ASSERT_EQ(db_iter_->value().ToString(), "5");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "a");
+  ASSERT_EQ(db_iter_->value().ToString(), "4");
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+// Not passing for a bug of not handling the case
+TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace3) {
+  // Test Prev() when one child iterator is at its end but more rows
+  // are added and max_skipped is triggered.
+  db_iter_->Seek("f");
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "f");
+  ASSERT_EQ(db_iter_->value().ToString(), "2");
+
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "MergeIterator::Prev:BeforeSeekToLast", [&](void* arg) {
+        internal_iter2_->Add("z", kTypeValue, "7", 16u);
+        internal_iter2_->Add("z", kTypeValue, "7", 15u);
+        internal_iter2_->Add("z", kTypeValue, "7", 14u);
+        internal_iter2_->Add("z", kTypeValue, "7", 13u);
+        internal_iter2_->Add("z", kTypeValue, "7", 12u);
+        internal_iter2_->Add("z", kTypeValue, "7", 11u);
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "d");
+  ASSERT_EQ(db_iter_->value().ToString(), "7");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "c");
+  ASSERT_EQ(db_iter_->value().ToString(), "6");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "b");
+  ASSERT_EQ(db_iter_->value().ToString(), "5");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "a");
+  ASSERT_EQ(db_iter_->value().ToString(), "4");
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb

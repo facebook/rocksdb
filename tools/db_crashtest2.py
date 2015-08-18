@@ -15,12 +15,12 @@ import shutil
 
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv, "hd:t:k:o:b:")
+        opts, args = getopt.getopt(argv, "hsd:t:k:o:b:")
     except getopt.GetoptError:
         print str(getopt.GetoptError)
         print "db_crashtest2.py -d <duration_test> -t <#threads> " \
               "-k <kills with prob 1/k> -o <ops_per_thread> "\
-              "-b <write_buffer_size>\n"
+              "-b <write_buffer_size> [-s (simple mode)]\n"
         sys.exit(2)
 
     # default values, will be overridden by cmdline args
@@ -29,13 +29,19 @@ def main(argv):
     threads = 32
     ops_per_thread = 200000
     write_buf_size = 4 * 1024 * 1024
+    simple_mode = False
+    write_buf_size_set = False
 
     for opt, arg in opts:
         if opt == '-h':
             print "db_crashtest2.py -d <duration_test> -t <#threads> " \
                   "-k <kills with prob 1/k> -o <ops_per_thread> " \
-                  "-b <write_buffer_size>\n"
+                  "-b <write_buffer_size> [-s (simple mode)]\n"
             sys.exit()
+        elif opt == '-s':
+            simple_mode = True
+            if not write_buf_size_set:
+                write_buf_size = 32 * 1024 * 1024
         elif opt == "-d":
             duration = int(arg)
         elif opt == "-t":
@@ -46,6 +52,7 @@ def main(argv):
             ops_per_thread = int(arg)
         elif opt == "-b":
             write_buf_size = int(arg)
+            write_buf_size_set = True
         else:
             print "unrecognized option " + str(opt) + "\n"
             print "db_crashtest2.py -d <duration_test> -t <#threads> " \
@@ -53,7 +60,9 @@ def main(argv):
                   "-b <write_buffer_size>\n"
             sys.exit(2)
 
-    exit_time = time.time() + duration
+    cur_time = time.time()
+    exit_time = cur_time + duration
+    half_time = cur_time + duration / 2
 
     print "Running whitebox-crash-test with \ntotal-duration=" + str(duration) \
           + "\nthreads=" + str(threads) + "\nops_per_thread=" \
@@ -62,6 +71,13 @@ def main(argv):
 
     total_check_mode = 4
     check_mode = 0
+
+    test_tmpdir = os.environ.get("TEST_TMPDIR")
+    if test_tmpdir is None or test_tmpdir == "":
+        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest2_')
+    else:
+        dbname = test_tmpdir + "/rocksdb_crashtest2"
+        shutil.rmtree(dbname, True)
 
     while time.time() < exit_time:
         killoption = ""
@@ -85,46 +101,85 @@ def main(argv):
             # normal run
             additional_opts = "--ops_per_thread=" + str(ops_per_thread)
 
-        dbname = tempfile.mkdtemp(prefix='rocksdb_crashtest_')
-        cmd = re.sub('\s+', ' ', """
-            ./db_stress
-            --test_batches_snapshots=%s
-            --threads=%s
-            --write_buffer_size=%s
-            --destroy_db_initially=0
-            --reopen=20
-            --readpercent=45
-            --prefixpercent=5
-            --writepercent=35
-            --delpercent=5
-            --iterpercent=10
-            --db=%s
-            --max_key=100000000
-            --mmap_read=%s
-            --block_size=16384
-            --cache_size=1048576
-            --open_files=500000
-            --verify_checksum=1
-            --sync=0
-            --progress_reports=0
-            --disable_wal=0
-            --disable_data_sync=1
-            --target_file_size_base=2097152
-            --target_file_size_multiplier=2
-            --max_write_buffer_number=3
-            --max_background_compactions=20
-            --max_bytes_for_level_base=10485760
-            --filter_deletes=%s
-            --memtablerep=prefix_hash
-            --prefix_size=7
-            %s
-            """ % (random.randint(0, 1),
-                   threads,
-                   write_buf_size,
-                   dbname,
-                   random.randint(0, 1),
-                   random.randint(0, 1),
-                   additional_opts))
+        if simple_mode:
+            cmd = re.sub('\s+', ' ', """
+                ./db_stress
+                --column_families=1
+                --threads=%s
+                --write_buffer_size=%s
+                --destroy_db_initially=0
+                --reopen=20
+                --prefixpercent=0
+                --readpercent=50
+                --writepercent=35
+                --delpercent=5
+                --iterpercent=10
+                --db=%s
+                --max_key=100000000
+                --mmap_read=%s
+                --block_size=16384
+                --cache_size=1048576
+                --open_files=500000
+                --verify_checksum=1
+                --sync=0
+                --progress_reports=0
+                --disable_wal=0
+                --disable_data_sync=1
+                --target_file_size_base=16777216
+                --target_file_size_multiplier=1
+                --max_write_buffer_number=3
+                --max_background_compactions=1
+                --max_bytes_for_level_base=67108864
+                --filter_deletes=%s
+                --memtablerep=skip_list
+                --prefix_size=0
+                 %s
+                """ % (threads,
+                       write_buf_size,
+                       dbname,
+                       random.randint(0, 1),
+                       random.randint(0, 1),
+                       additional_opts))
+        else:
+            cmd = re.sub('\s+', ' ', """
+                ./db_stress
+                --test_batches_snapshots=%s
+                --threads=%s
+                --write_buffer_size=%s
+                --destroy_db_initially=0
+                --reopen=20
+                --readpercent=45
+                --prefixpercent=5
+                --writepercent=35
+                --delpercent=5
+                --iterpercent=10
+                --db=%s
+                --max_key=100000000
+                --mmap_read=%s
+                --block_size=16384
+                --cache_size=1048576
+                --open_files=500000
+                --verify_checksum=1
+                --sync=0
+                --progress_reports=0
+                --disable_wal=0
+                --disable_data_sync=1
+                --target_file_size_base=2097152
+                --target_file_size_multiplier=2
+                --max_write_buffer_number=3
+                --max_background_compactions=20
+                --max_bytes_for_level_base=10485760
+                --filter_deletes=%s
+                --memtablerep=prefix_hash
+                --prefix_size=7
+                %s
+                """ % (random.randint(0, 1),
+                       threads,
+                       write_buf_size,
+                       dbname,
+                       random.randint(0, 1),
+                       random.randint(0, 1),
+                       additional_opts))
 
         print "Running:" + cmd + "\n"
 
@@ -161,10 +216,14 @@ def main(argv):
         if (stdoutdata.find('fail') >= 0):
             print "TEST FAILED. Output has 'fail'!!!\n"
             sys.exit(2)
-        # we need to clean up after ourselves -- only do this on test success
-        shutil.rmtree(dbname, True)
 
-        check_mode = (check_mode + 1) % total_check_mode
+        # First half of the duration, keep doing kill test. For the next half,
+        # try different modes.
+        if time.time() > half_time:
+            # we need to clean up after ourselves -- only do this on test
+            # success
+            shutil.rmtree(dbname, True)
+            check_mode = (check_mode + 1) % total_check_mode
 
         time.sleep(1)  # time to stabilize after a kill
 

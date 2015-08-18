@@ -28,6 +28,7 @@ SpecialEnv::SpecialEnv(Env* base)
   manifest_sync_error_.store(false, std::memory_order_release);
   manifest_write_error_.store(false, std::memory_order_release);
   log_write_error_.store(false, std::memory_order_release);
+  random_file_open_counter_.store(0, std::memory_order_relaxed);
   log_write_slowdown_ = 0;
   bytes_written_ = 0;
   sync_counter_ = 0;
@@ -145,6 +146,13 @@ bool DBTestBase::ChangeCompactOptions() {
     Destroy(last_options_);
     auto options = CurrentOptions();
     options.create_if_missing = true;
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kUniversalCompactionMultiLevel) {
+    option_config_ = kLevelSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    options.num_subcompactions = 4;
     TryReopen(options);
     return true;
   } else {
@@ -300,6 +308,10 @@ Options DBTestBase::CurrentOptions(
     }
     case kRowCache: {
       options.row_cache = NewLRUCache(1024 * 1024);
+      break;
+    }
+    case kLevelSubcompactions: {
+      options.num_subcompactions = 2;
       break;
     }
 

@@ -19,7 +19,7 @@ class OptimisticTransactionDBImpl : public OptimisticTransactionDB {
 
   ~OptimisticTransactionDBImpl() {}
 
-  OptimisticTransaction* BeginTransaction(
+  Transaction* BeginTransaction(
       const WriteOptions& write_options,
       const OptimisticTransactionOptions& txn_options) override;
 

@@ -232,14 +232,14 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
 
       TEST_SYNC_POINT_CALLBACK("FlushJob::WriteLevel0Table:output_compression",
                                &output_compression_);
-      s = BuildTable(dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
-                     cfd_->table_cache(), iter.get(), meta,
-                     cfd_->internal_comparator(),
-                     cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
-                     earliest_seqno_in_memtable, output_compression_,
-                     cfd_->ioptions()->compression_opts,
-                     mutable_cf_options_.paranoid_file_checks, Env::IO_HIGH,
-                     &info.table_properties);
+      s = BuildTable(
+          dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
+          cfd_->table_cache(), iter.get(), meta, cfd_->internal_comparator(),
+          cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
+          earliest_seqno_in_memtable, output_compression_,
+          cfd_->ioptions()->compression_opts,
+          mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
+          Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
     }
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,

@@ -32,65 +32,6 @@ class TablePropertiesTest : public testing::Test,
   bool backward_mode_;
 };
 
-// TODO(kailiu) the following classes should be moved to some more general
-// places, so that other tests can also make use of them.
-// `FakeWritableFileWriter* file system
-// and therefore enable us to quickly setup the tests.
-class FakeWritableFile : public WritableFile {
- public:
-  ~FakeWritableFile() { }
-
-  const std::string& contents() const { return contents_; }
-
-  virtual Status Close() override { return Status::OK(); }
-  virtual Status Flush() override { return Status::OK(); }
-  virtual Status Sync() override { return Status::OK(); }
-
-  virtual Status Append(const Slice& data) override {
-    contents_.append(data.data(), data.size());
-    return Status::OK();
-  }
-
- private:
-  std::string contents_;
-};
-
-
-class FakeRandomeAccessFile : public RandomAccessFile {
- public:
-  explicit FakeRandomeAccessFile(const Slice& contents)
-      : contents_(contents.data(), contents.size()) {
-  }
-
-  virtual ~FakeRandomeAccessFile() { }
-
-  uint64_t Size() const { return contents_.size(); }
-
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override {
-    if (offset > contents_.size()) {
-      return Status::InvalidArgument("invalid Read offset");
-    }
-    if (offset + n > contents_.size()) {
-      n = contents_.size() - offset;
-    }
-    memcpy(scratch, &contents_[offset], n);
-    *result = Slice(scratch, n);
-    return Status::OK();
-  }
-
- private:
-  std::string contents_;
-};
-
-
-class DumbLogger : public Logger {
- public:
-  using Logger::Logv;
-  virtual void Logv(const char* format, va_list ap) override {}
-  virtual size_t GetLogFileSize() const override { return 0; }
-};
-
 // Utilities test functions
 namespace {
 void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
@@ -99,7 +40,7 @@ void MakeBuilder(const Options& options, const ImmutableCFOptions& ioptions,
                      int_tbl_prop_collector_factories,
                  std::unique_ptr<WritableFileWriter>* writable,
                  std::unique_ptr<TableBuilder>* builder) {
-  unique_ptr<WritableFile> wf(new FakeWritableFile);
+  unique_ptr<WritableFile> wf(new test::StringSink);
   writable->reset(new WritableFileWriter(std::move(wf), EnvOptions()));
 
   builder->reset(NewTableBuilder(
@@ -316,11 +257,11 @@ void TestCustomizedTablePropertiesCollector(
   writer->Flush();
 
   // -- Step 2: Read properties
-  FakeWritableFile* fwf =
-      static_cast<FakeWritableFile*>(writer->writable_file());
+  test::StringSink* fwf =
+      static_cast<test::StringSink*>(writer->writable_file());
   std::unique_ptr<RandomAccessFileReader> fake_file_reader(
       test::GetRandomAccessFileReader(
-          new FakeRandomeAccessFile(fwf->contents())));
+          new test::StringSource(fwf->contents())));
   TableProperties* props;
   Status s = ReadTableProperties(fake_file_reader.get(), fwf->contents().size(),
                                  magic_number, Env::Default(), nullptr, &props);
@@ -365,10 +306,6 @@ TEST_P(TablePropertiesTest, CustomizedTablePropertiesCollector) {
   // Test properties collectors with internal keys or regular keys
   // for block based table
   for (bool encode_as_internal : { true, false }) {
-    if (!backward_mode_ && !encode_as_internal) {
-      continue;
-    }
-
     Options options;
     BlockBasedTableOptions table_options;
     table_options.flush_block_policy_factory =
@@ -431,7 +368,7 @@ void TestInternalKeyPropertiesCollector(
     auto comparator = options.comparator;
     // HACK: Set options.info_log to avoid writing log in
     // SanitizeOptions().
-    options.info_log = std::make_shared<DumbLogger>();
+    options.info_log = std::make_shared<test::NullLogger>();
     options = SanitizeOptions("db",            // just a place holder
                               &pikc,
                               options);
@@ -453,10 +390,10 @@ void TestInternalKeyPropertiesCollector(
     ASSERT_OK(builder->Finish());
     writable->Flush();
 
-    FakeWritableFile* fwf =
-        static_cast<FakeWritableFile*>(writable->writable_file());
+    test::StringSink* fwf =
+        static_cast<test::StringSink*>(writable->writable_file());
     unique_ptr<RandomAccessFileReader> reader(test::GetRandomAccessFileReader(
-        new FakeRandomeAccessFile(fwf->contents())));
+        new test::StringSource(fwf->contents())));
     TableProperties* props;
     Status s =
         ReadTableProperties(reader.get(), fwf->contents().size(), magic_number,

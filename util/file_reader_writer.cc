@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include "port/port.h"
+#include "util/histogram.h"
 #include "util/iostats_context_imp.h"
 #include "util/random.h"
 #include "util/rate_limiter.h"
@@ -27,9 +28,18 @@ Status SequentialFileReader::Skip(uint64_t n) { return file_->Skip(n); }
 
 Status RandomAccessFileReader::Read(uint64_t offset, size_t n, Slice* result,
                                     char* scratch) const {
-  IOSTATS_TIMER_GUARD(read_nanos);
-  Status s = file_->Read(offset, n, result, scratch);
-  IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+  Status s;
+  uint64_t elapsed = 0;
+  {
+    StopWatch sw(env_, stats_, hist_type_,
+                 (stats_ != nullptr) ? &elapsed : nullptr);
+    IOSTATS_TIMER_GUARD(read_nanos);
+    s = file_->Read(offset, n, result, scratch);
+    IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
+  }
+  if (stats_ != nullptr && file_read_hist_ != nullptr) {
+    file_read_hist_->Add(elapsed);
+  }
   return s;
 }
 
@@ -42,7 +52,11 @@ Status WritableFileWriter::Append(const Slice& data) {
 
   TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
 
-  writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left);
+  {
+    IOSTATS_TIMER_GUARD(prepare_write_nanos);
+    TEST_SYNC_POINT("WritableFileWriter::Append:BeforePrepareWrite");
+    writable_file_->PrepareWrite(static_cast<size_t>(GetFileSize()), left);
+  }
   // if there is no space in the cache, then flush
   if (cursize_ + left > capacity_) {
     s = Flush();
@@ -104,6 +118,7 @@ Status WritableFileWriter::Flush() {
     size_t size = RequestToken(left);
     {
       IOSTATS_TIMER_GUARD(write_nanos);
+      TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
       Status s = writable_file_->Append(Slice(src, size));
       if (!s.ok()) {
         return s;
@@ -154,11 +169,7 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   }
   TEST_KILL_RANDOM(rocksdb_kill_odds);
   if (pending_sync_) {
-    if (use_fsync) {
-      s = writable_file_->Fsync();
-    } else {
-      s = writable_file_->Sync();
-    }
+    s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
     }
@@ -171,8 +182,33 @@ Status WritableFileWriter::Sync(bool use_fsync) {
   return Status::OK();
 }
 
+Status WritableFileWriter::SyncWithoutFlush(bool use_fsync) {
+  if (!writable_file_->IsSyncThreadSafe()) {
+    return Status::NotSupported(
+      "Can't WritableFileWriter::SyncWithoutFlush() because "
+      "WritableFile::IsSyncThreadSafe() is false");
+  }
+  TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:1");
+  Status s = SyncInternal(use_fsync);
+  TEST_SYNC_POINT("WritableFileWriter::SyncWithoutFlush:2");
+  return s;
+}
+
+Status WritableFileWriter::SyncInternal(bool use_fsync) {
+  Status s;
+  IOSTATS_TIMER_GUARD(fsync_nanos);
+  TEST_SYNC_POINT("WritableFileWriter::SyncInternal:0");
+  if (use_fsync) {
+    s = writable_file_->Fsync();
+  } else {
+    s = writable_file_->Sync();
+  }
+  return s;
+}
+
 Status WritableFileWriter::RangeSync(off_t offset, off_t nbytes) {
   IOSTATS_TIMER_GUARD(range_sync_nanos);
+  TEST_SYNC_POINT("WritableFileWriter::RangeSync:0");
   return writable_file_->RangeSync(offset, nbytes);
 }
 
@@ -185,58 +221,5 @@ size_t WritableFileWriter::RequestToken(size_t bytes) {
     rate_limiter_->Request(bytes, io_priority);
   }
   return bytes;
-}
-
-Status RandomRWFileAccessor::Write(uint64_t offset, const Slice& data) {
-  Status s;
-  pending_sync_ = true;
-  pending_fsync_ = true;
-
-  {
-    IOSTATS_TIMER_GUARD(write_nanos);
-    s = random_rw_file_->Write(offset, data);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  IOSTATS_ADD(bytes_written, data.size());
-
-  return s;
-}
-
-Status RandomRWFileAccessor::Read(uint64_t offset, size_t n, Slice* result,
-                                  char* scratch) const {
-  Status s;
-  {
-    IOSTATS_TIMER_GUARD(read_nanos);
-    s = random_rw_file_->Read(offset, n, result, scratch);
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  IOSTATS_ADD_IF_POSITIVE(bytes_read, result->size());
-  return s;
-}
-
-Status RandomRWFileAccessor::Close() { return random_rw_file_->Close(); }
-
-Status RandomRWFileAccessor::Sync(bool use_fsync) {
-  Status s;
-  if (pending_sync_) {
-    if (use_fsync) {
-      s = random_rw_file_->Fsync();
-    } else {
-      s = random_rw_file_->Sync();
-    }
-    if (!s.ok()) {
-      return s;
-    }
-  }
-  if (use_fsync) {
-    pending_fsync_ = false;
-  }
-  pending_sync_ = false;
-
-  return s;
 }
 }  // namespace rocksdb

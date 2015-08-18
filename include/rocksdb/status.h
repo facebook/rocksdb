@@ -57,9 +57,7 @@ class Status {
   static Status IOError(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, msg, msg2);
   }
-  static Status MergeInProgress(const Slice& msg, const Slice& msg2 = Slice()) {
-    return Status(kMergeInProgress, msg, msg2);
-  }
+  static Status MergeInProgress() { return Status(kMergeInProgress); }
   static Status Incomplete(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIncomplete, msg, msg2);
   }
@@ -79,6 +77,18 @@ class Status {
   static Status Busy() { return Status(kBusy); }
   static Status Busy(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kBusy, msg, msg2);
+  }
+  static Status TimedOut() { return Status(kTimedOut); }
+  static Status TimedOut(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kTimedOut, msg, msg2);
+  }
+  static Status Expired() { return Status(kExpired); }
+  static Status Expired(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kExpired, msg, msg2);
+  }
+  static Status TryAgain() { return Status(kTryAgain); }
+  static Status TryAgain(const Slice& msg, const Slice& msg2 = Slice()) {
+    return Status(kTryAgain, msg, msg2);
   }
 
   // Returns true iff the status indicates success.
@@ -116,6 +126,14 @@ class Status {
   // temporarily could not be acquired.
   bool IsBusy() const { return code() == kBusy; }
 
+  // Returns true iff the status indicated that the operation has Expired.
+  bool IsExpired() const { return code() == kExpired; }
+
+  // Returns true iff the status indicates a TryAgain error.
+  // This usually means that the operation failed, but may succeed if
+  // re-attempted.
+  bool IsTryAgain() const { return code() == kTryAgain; }
+
   // Return a string representation of this status suitable for printing.
   // Returns the string "OK" for success.
   std::string ToString() const;
@@ -133,6 +151,8 @@ class Status {
     kTimedOut = 9,
     kAborted = 10,
     kBusy = 11,
+    kExpired = 12,
+    kTryAgain = 13
   };
 
   Code code() const {

@@ -10,6 +10,10 @@
 #include "rocksdb/env.h"
 
 namespace rocksdb {
+
+class Statistics;
+class HistogramImpl;
+
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;
@@ -27,10 +31,22 @@ class SequentialFileReader {
 class RandomAccessFileReader : public RandomAccessFile {
  private:
   std::unique_ptr<RandomAccessFile> file_;
+  Env* env_;
+  Statistics* stats_;
+  uint32_t hist_type_;
+  HistogramImpl* file_read_hist_;
 
  public:
-  explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf)
-      : file_(std::move(raf)) {}
+  explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
+                                  Env* env = nullptr,
+                                  Statistics* stats = nullptr,
+                                  uint32_t hist_type = 0,
+                                  HistogramImpl* file_read_hist = nullptr)
+      : file_(std::move(raf)),
+        env_(env),
+        stats_(stats),
+        hist_type_(hist_type),
+        file_read_hist_(file_read_hist) {}
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
@@ -74,6 +90,11 @@ class WritableFileWriter {
 
   Status Sync(bool use_fsync);
 
+  // Sync only the data that was already Flush()ed. Safe to call concurrently
+  // with Append() and Flush(). If !writable_file_->IsSyncThreadSafe(),
+  // returns NotSupported status.
+  Status SyncWithoutFlush(bool use_fsync);
+
   uint64_t GetFileSize() { return filesize_; }
 
   Status InvalidateCache(size_t offset, size_t length) {
@@ -85,25 +106,6 @@ class WritableFileWriter {
  private:
   Status RangeSync(off_t offset, off_t nbytes);
   size_t RequestToken(size_t bytes);
-};
-
-class RandomRWFileAccessor {
- private:
-  std::unique_ptr<RandomRWFile> random_rw_file_;
-  bool pending_sync_;
-  bool pending_fsync_;
-
- public:
-  explicit RandomRWFileAccessor(std::unique_ptr<RandomRWFile>&& f)
-      : random_rw_file_(std::move(f)),
-        pending_sync_(false),
-        pending_fsync_(false) {}
-  Status Write(uint64_t offset, const Slice& data);
-
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
-
-  Status Close();
-
-  Status Sync(bool use_fsync);
+  Status SyncInternal(bool use_fsync);
 };
 }  // namespace rocksdb

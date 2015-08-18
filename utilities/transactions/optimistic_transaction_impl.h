@@ -7,6 +7,7 @@
 
 #ifndef ROCKSDB_LITE
 
+#include <stack>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -14,19 +15,17 @@
 #include "db/write_callback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/slice.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/status.h"
 #include "rocksdb/types.h"
-#include "rocksdb/utilities/optimistic_transaction.h"
+#include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
-using TransactionKeyMap =
-    std::unordered_map<uint32_t,
-                       std::unordered_map<std::string, SequenceNumber>>;
-
-class OptimisticTransactionImpl : public OptimisticTransaction {
+class OptimisticTransactionImpl : public Transaction {
  public:
   OptimisticTransactionImpl(OptimisticTransactionDB* db,
                             const WriteOptions& write_options,
@@ -37,6 +36,10 @@ class OptimisticTransactionImpl : public OptimisticTransaction {
   Status Commit() override;
 
   void Rollback() override;
+
+  void SetSavePoint() override;
+
+  Status RollbackToSavePoint() override;
 
   Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
              const Slice& key, std::string* value) override;
@@ -84,64 +87,70 @@ class OptimisticTransactionImpl : public OptimisticTransaction {
                              keys, values);
   }
 
-  void Put(ColumnFamilyHandle* column_family, const Slice& key,
-           const Slice& value) override;
-  void Put(const Slice& key, const Slice& value) override {
-    Put(nullptr, key, value);
-  }
+  Iterator* GetIterator(const ReadOptions& read_options) override;
+  Iterator* GetIterator(const ReadOptions& read_options,
+                        ColumnFamilyHandle* column_family) override;
 
-  void Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-           const SliceParts& value) override;
-  void Put(const SliceParts& key, const SliceParts& value) override {
-    Put(nullptr, key, value);
-  }
-
-  void Merge(ColumnFamilyHandle* column_family, const Slice& key,
+  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
              const Slice& value) override;
-  void Merge(const Slice& key, const Slice& value) override {
-    Merge(nullptr, key, value);
+  Status Put(const Slice& key, const Slice& value) override {
+    return Put(nullptr, key, value);
   }
 
-  void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
-  void Delete(const Slice& key) override { Delete(nullptr, key); }
-  void Delete(ColumnFamilyHandle* column_family,
-              const SliceParts& key) override;
-  void Delete(const SliceParts& key) override { Delete(nullptr, key); }
-
-  void PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
-                    const Slice& value) override;
-  void PutUntracked(const Slice& key, const Slice& value) override {
-    PutUntracked(nullptr, key, value);
+  Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
+             const SliceParts& value) override;
+  Status Put(const SliceParts& key, const SliceParts& value) override {
+    return Put(nullptr, key, value);
   }
 
-  void PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,
-                    const SliceParts& value) override;
-  void PutUntracked(const SliceParts& key, const SliceParts& value) override {
-    PutUntracked(nullptr, key, value);
+  Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
+               const Slice& value) override;
+  Status Merge(const Slice& key, const Slice& value) override {
+    return Merge(nullptr, key, value);
   }
 
-  void MergeUntracked(ColumnFamilyHandle* column_family, const Slice& key,
+  Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
+  Status Delete(const Slice& key) override { return Delete(nullptr, key); }
+  Status Delete(ColumnFamilyHandle* column_family,
+                const SliceParts& key) override;
+  Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
+
+  Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
                       const Slice& value) override;
-  void MergeUntracked(const Slice& key, const Slice& value) override {
-    MergeUntracked(nullptr, key, value);
+  Status PutUntracked(const Slice& key, const Slice& value) override {
+    return PutUntracked(nullptr, key, value);
   }
 
-  void DeleteUntracked(ColumnFamilyHandle* column_family,
-                       const Slice& key) override;
-  void DeleteUntracked(const Slice& key) override {
-    DeleteUntracked(nullptr, key);
+  Status PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,
+                      const SliceParts& value) override;
+  Status PutUntracked(const SliceParts& key, const SliceParts& value) override {
+    return PutUntracked(nullptr, key, value);
   }
-  void DeleteUntracked(ColumnFamilyHandle* column_family,
-                       const SliceParts& key) override;
-  void DeleteUntracked(const SliceParts& key) override {
-    DeleteUntracked(nullptr, key);
+
+  Status MergeUntracked(ColumnFamilyHandle* column_family, const Slice& key,
+                        const Slice& value) override;
+  Status MergeUntracked(const Slice& key, const Slice& value) override {
+    return MergeUntracked(nullptr, key, value);
+  }
+
+  Status DeleteUntracked(ColumnFamilyHandle* column_family,
+                         const Slice& key) override;
+  Status DeleteUntracked(const Slice& key) override {
+    return DeleteUntracked(nullptr, key);
+  }
+  Status DeleteUntracked(ColumnFamilyHandle* column_family,
+                         const SliceParts& key) override;
+  Status DeleteUntracked(const SliceParts& key) override {
+    return DeleteUntracked(nullptr, key);
   }
 
   void PutLogData(const Slice& blob) override;
 
   const TransactionKeyMap* GetTrackedKeys() const { return &tracked_keys_; }
 
-  const Snapshot* GetSnapshot() const override { return snapshot_; }
+  const Snapshot* GetSnapshot() const override {
+        return snapshot_ ? snapshot_->snapshot() : nullptr;
+  }
 
   void SetSnapshot() override;
 
@@ -151,13 +160,20 @@ class OptimisticTransactionImpl : public OptimisticTransaction {
   OptimisticTransactionDB* const txn_db_;
   DB* db_;
   const WriteOptions write_options_;
-  const Snapshot* snapshot_;
-  SequenceNumber start_sequence_number_;
-  WriteBatchWithIndex write_batch_;
+  std::shared_ptr<ManagedSnapshot> snapshot_;
+  const Comparator* cmp_;
+  std::unique_ptr<WriteBatchWithIndex> write_batch_;
 
  private:
-  // Map of Column Family IDs to keys and their sequence numbers
+  // Map of Column Family IDs to keys and corresponding sequence numbers.
+  // The sequence number stored for a key will be used during commit to make
+  // sure this key has
+  // not changed since this sequence number.
   TransactionKeyMap tracked_keys_;
+
+  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
+  // nullptr if there was no snapshot at the time SetSavePoint() was called.
+  std::unique_ptr<std::stack<std::shared_ptr<ManagedSnapshot>>> save_points_;
 
   friend class OptimisticTransactionCallback;
 
@@ -171,6 +187,8 @@ class OptimisticTransactionImpl : public OptimisticTransaction {
   void RecordOperation(ColumnFamilyHandle* column_family, const Slice& key);
   void RecordOperation(ColumnFamilyHandle* column_family,
                        const SliceParts& key);
+
+  void Cleanup();
 
   // No copying allowed
   OptimisticTransactionImpl(const OptimisticTransactionImpl&);

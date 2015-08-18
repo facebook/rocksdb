@@ -33,8 +33,7 @@ public class TtlDBTest {
     try {
       options = new Options().
           setCreateIfMissing(true).
-          setMaxGrandparentOverlapFactor(0).
-          setMaxMemCompactionLevel(0);
+          setMaxGrandparentOverlapFactor(0);
       ttlDB = TtlDB.open(options,
           dbFolder.getRoot().getAbsolutePath());
       ttlDB.put("key".getBytes(), "value".getBytes());
@@ -59,8 +58,7 @@ public class TtlDBTest {
     try {
       options = new Options().
           setCreateIfMissing(true).
-          setMaxGrandparentOverlapFactor(0).
-          setMaxMemCompactionLevel(0);
+          setMaxGrandparentOverlapFactor(0);
       ttlDB = TtlDB.open(options, dbFolder.getRoot().getAbsolutePath(),
           1, false);
       ttlDB.put("key".getBytes(), "value".getBytes());

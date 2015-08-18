@@ -415,12 +415,6 @@ Status HdfsEnv::NewWritableFile(const std::string& fname,
   return Status::OK();
 }
 
-Status HdfsEnv::NewRandomRWFile(const std::string& fname,
-                                unique_ptr<RandomRWFile>* result,
-                                const EnvOptions& options) {
-  return Status::NotSupported("NewRandomRWFile not supported on HdfsEnv");
-}
-
 class HdfsDirectory : public Directory {
  public:
   explicit HdfsDirectory(int fd) : fd_(fd) {}

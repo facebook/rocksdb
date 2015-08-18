@@ -333,7 +333,7 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       *value = (cfd_->imm()->IsFlushPending() ? 1 : 0);
       return true;
     case kCompactionPending:
-      // 1 if the system already determines at least one compacdtion is needed.
+      // 1 if the system already determines at least one compaction is needed.
       // 0 otherwise,
       *value = (cfd_->compaction_picker()->NeedsCompaction(vstorage) ? 1 : 0);
       return true;
@@ -385,11 +385,9 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
     case kNumLiveVersions:
       *value = cfd_->GetNumLiveVersions();
       return true;
-#ifndef ROCKSDB_LITE
     case kIsFileDeletionEnabled:
       *value = db->IsFileDeletionsEnabled();
       return true;
-#endif
     case kBaseLevel:
       *value = vstorage->base_level();
       return true;
@@ -541,6 +539,16 @@ void InternalStats::DumpDBStats(std::string* value) {
            (write_stall_micros - db_stats_snapshot_.write_stall_micros) /
                10000.0 / std::max(interval_seconds_up, 0.001));
   value->append(buf);
+
+  for (int level = 0; level < number_levels_; level++) {
+    if (!file_read_latency_[level].Empty()) {
+      char buf2[5000];
+      snprintf(buf2, sizeof(buf2),
+               "** Level %d read latency histogram (micros):\n%s\n", level,
+               file_read_latency_[level].ToString().c_str());
+      value->append(buf2);
+    }
+  }
 
   db_stats_snapshot_.seconds_up = seconds_up;
   db_stats_snapshot_.ingest_bytes = user_bytes_written;

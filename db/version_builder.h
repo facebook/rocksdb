@@ -30,7 +30,7 @@ class VersionBuilder {
                                   int level);
   void Apply(VersionEdit* edit);
   void SaveTo(VersionStorageInfo* vstorage);
-  void LoadTableHandlers();
+  void LoadTableHandlers(int max_threads = 1);
   void MaybeAddFile(VersionStorageInfo* vstorage, int level, FileMetaData* f);
 
  private:

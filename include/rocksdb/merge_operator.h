@@ -6,9 +6,10 @@
 #ifndef STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
 #define STORAGE_ROCKSDB_INCLUDE_MERGE_OPERATOR_H_
 
+#include <deque>
 #include <memory>
 #include <string>
-#include <deque>
+
 #include "rocksdb/slice.h"
 
 namespace rocksdb {

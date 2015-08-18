@@ -21,6 +21,7 @@
 #include "rocksdb/cache.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/comparator.h"
+#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/merge_operator.h"
@@ -120,7 +121,8 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       max_successive_merges(0),
       min_partial_merge_operands(2),
       optimize_filters_for_hits(false),
-      paranoid_file_checks(false) {
+      paranoid_file_checks(false),
+      compaction_measure_io_stats(false) {
   assert(memtable_factory.get() != nullptr);
 }
 
@@ -184,7 +186,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       max_successive_merges(options.max_successive_merges),
       min_partial_merge_operands(options.min_partial_merge_operands),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
-      paranoid_file_checks(options.paranoid_file_checks) {
+      paranoid_file_checks(options.paranoid_file_checks),
+      compaction_measure_io_stats(options.compaction_measure_io_stats) {
   assert(memtable_factory.get() != nullptr);
   if (max_bytes_for_level_multiplier_additional.size() <
       static_cast<unsigned int>(num_levels)) {
@@ -199,6 +202,7 @@ DBOptions::DBOptions()
       paranoid_checks(true),
       env(Env::Default()),
       rate_limiter(nullptr),
+      delete_scheduler(nullptr),
       info_log(nullptr),
 #ifdef NDEBUG
       info_log_level(INFO_LEVEL),
@@ -206,6 +210,7 @@ DBOptions::DBOptions()
       info_log_level(DEBUG_LEVEL),
 #endif  // NDEBUG
       max_open_files(5000),
+      max_file_opening_threads(1),
       max_total_wal_size(0),
       statistics(nullptr),
       disableDataSync(false),
@@ -214,6 +219,7 @@ DBOptions::DBOptions()
       wal_dir(""),
       delete_obsolete_files_period_micros(6 * 60 * 60 * 1000000UL),
       max_background_compactions(1),
+      num_subcompactions(1),
       max_background_flushes(1),
       max_log_file_size(0),
       log_file_time_to_roll(0),
@@ -238,6 +244,7 @@ DBOptions::DBOptions()
       listeners(),
       enable_thread_tracking(false),
       delayed_write_rate(1024U * 1024U),
+      skip_stats_update_on_db_open(false),
       wal_recovery_mode(WALRecoveryMode::kTolerateCorruptedTailRecords) {
 }
 
@@ -248,9 +255,11 @@ DBOptions::DBOptions(const Options& options)
       paranoid_checks(options.paranoid_checks),
       env(options.env),
       rate_limiter(options.rate_limiter),
+      delete_scheduler(options.delete_scheduler),
       info_log(options.info_log),
       info_log_level(options.info_log_level),
       max_open_files(options.max_open_files),
+      max_file_opening_threads(options.max_file_opening_threads),
       max_total_wal_size(options.max_total_wal_size),
       statistics(options.statistics),
       disableDataSync(options.disableDataSync),
@@ -261,6 +270,7 @@ DBOptions::DBOptions(const Options& options)
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
       max_background_compactions(options.max_background_compactions),
+      num_subcompactions(options.num_subcompactions),
       max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),
@@ -285,6 +295,7 @@ DBOptions::DBOptions(const Options& options)
       listeners(options.listeners),
       enable_thread_tracking(options.enable_thread_tracking),
       delayed_write_rate(options.delayed_write_rate),
+      skip_stats_update_on_db_open(options.skip_stats_update_on_db_open),
       wal_recovery_mode(options.wal_recovery_mode),
       row_cache(options.row_cache) {}
 
@@ -299,6 +310,7 @@ void DBOptions::Dump(Logger* log) const {
     Warn(log, "                     Options.env: %p", env);
     Warn(log, "                Options.info_log: %p", info_log.get());
     Warn(log, "          Options.max_open_files: %d", max_open_files);
+    Warn(log, "Options.max_file_opening_threads: %d", max_file_opening_threads);
     Warn(log, "      Options.max_total_wal_size: %" PRIu64, max_total_wal_size);
     Warn(log, "       Options.disableDataSync: %d", disableDataSync);
     Warn(log, "             Options.use_fsync: %d", use_fsync);
@@ -356,10 +368,14 @@ void DBOptions::Dump(Logger* log) const {
         use_adaptive_mutex);
     Warn(log, "                            Options.rate_limiter: %p",
         rate_limiter.get());
+    Warn(log, "     Options.delete_scheduler.rate_bytes_per_sec: %" PRIi64,
+         delete_scheduler ? delete_scheduler->GetRateBytesPerSecond() : 0);
     Warn(log, "                          Options.bytes_per_sync: %" PRIu64,
         bytes_per_sync);
     Warn(log, "                      Options.wal_bytes_per_sync: %" PRIu64,
         wal_bytes_per_sync);
+    Warn(log, "                       Options.wal_recovery_mode: %d",
+        wal_recovery_mode);
     Warn(log, "                  Options.enable_thread_tracking: %d",
         enable_thread_tracking);
     if (row_cache) {
@@ -500,6 +516,10 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
          max_successive_merges);
     Warn(log, "               Options.optimize_fllters_for_hits: %d",
         optimize_filters_for_hits);
+    Warn(log, "               Options.paranoid_file_checks: %d",
+         paranoid_file_checks);
+    Warn(log, "               Options.compaction_measure_io_stats: %d",
+         compaction_measure_io_stats);
 }  // ColumnFamilyOptions::Dump
 
 void Options::Dump(Logger* log) const {

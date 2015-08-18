@@ -22,6 +22,7 @@
 #include "rocksdb/types.h"
 #include "rocksdb/transaction_log.h"
 #include "rocksdb/listener.h"
+#include "rocksdb/snapshot.h"
 #include "rocksdb/thread_status.h"
 
 #ifdef _WIN32
@@ -67,18 +68,6 @@ struct ColumnFamilyDescriptor {
 
 static const int kMajorVersion = __ROCKSDB_MAJOR__;
 static const int kMinorVersion = __ROCKSDB_MINOR__;
-
-// Abstract handle to particular state of a DB.
-// A Snapshot is an immutable object and can therefore be safely
-// accessed from multiple threads without any external synchronization.
-class Snapshot {
- public:
-  // returns Snapshot's sequence number
-  virtual SequenceNumber GetSequenceNumber() const = 0;
-
- protected:
-  virtual ~Snapshot();
-};
 
 // A range of keys
 struct Range {
@@ -405,7 +394,9 @@ class DB {
   // if the user data compresses by a factor of ten, the returned
   // sizes will be one-tenth the size of the corresponding user data size.
   //
-  // The results may not include the sizes of recently written data.
+  // If include_memtable is set to true, then the result will also
+  // include those recently written data in the mem-tables if
+  // the mem-table type supports it.
   virtual void GetApproximateSizes(ColumnFamilyHandle* column_family,
                                    const Range* range, int n, uint64_t* sizes,
                                    bool include_memtable = false) = 0;
@@ -542,6 +533,12 @@ class DB {
   virtual Status Flush(const FlushOptions& options) {
     return Flush(options, DefaultColumnFamily());
   }
+
+  // Sync the wal. Note that Write() followed by SyncWAL() is not exactly the
+  // same as Write() with sync=true: in the latter case the changes won't be
+  // visible until the sync is done.
+  // Currently only works if allow_mmap_writes = false in Options.
+  virtual Status SyncWAL() = 0;
 
   // The sequence number of the most recent transaction.
   virtual SequenceNumber GetLatestSequenceNumber() const = 0;

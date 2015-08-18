@@ -181,21 +181,6 @@ public class ColumnFamilyOptionsTest {
   }
 
   @Test
-  public void maxMemCompactionLevel() {
-    ColumnFamilyOptions opt = null;
-    try {
-      opt = new ColumnFamilyOptions();
-      int intValue = rand.nextInt();
-      opt.setMaxMemCompactionLevel(intValue);
-      assertThat(opt.maxMemCompactionLevel()).isEqualTo(intValue);
-    } finally {
-      if (opt != null) {
-        opt.dispose();
-      }
-    }
-  }
-
-  @Test
   public void targetFileSizeBase() {
     ColumnFamilyOptions opt = null;
     try {
@@ -623,6 +608,21 @@ public class ColumnFamilyOptionsTest {
       options = new ColumnFamilyOptions();
       options.useFixedLengthPrefixExtractor(100);
       options.useFixedLengthPrefixExtractor(10);
+    } finally {
+      if (options != null) {
+        options.dispose();
+      }
+    }
+  }
+
+
+  @Test
+  public void shouldSetTestCappedPrefixExtractor() {
+    ColumnFamilyOptions options = null;
+    try {
+      options = new ColumnFamilyOptions();
+      options.useCappedPrefixExtractor(100);
+      options.useCappedPrefixExtractor(10);
     } finally {
       if (options != null) {
         options.dispose();

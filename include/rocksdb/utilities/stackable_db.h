@@ -192,6 +192,10 @@ class StackableDB : public DB {
     return db_->Flush(fopts, column_family);
   }
 
+  virtual Status SyncWAL() override {
+    return db_->SyncWAL();
+  }
+
 #ifndef ROCKSDB_LITE
 
   virtual Status DisableFileDeletions() override {

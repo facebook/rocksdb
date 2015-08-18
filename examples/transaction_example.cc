@@ -8,8 +8,8 @@
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
 #include "rocksdb/slice.h"
-#include "rocksdb/utilities/optimistic_transaction.h"
-#include "rocksdb/utilities/optimistic_transaction_db.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 
 using namespace rocksdb;
 
@@ -18,17 +18,16 @@ std::string kDBPath = "/tmp/rocksdb_transaction_example";
 int main() {
   // open DB
   Options options;
+  TransactionDBOptions txn_db_options;
   options.create_if_missing = true;
-  DB* db;
-  OptimisticTransactionDB* txn_db;
+  TransactionDB* txn_db;
 
-  Status s = OptimisticTransactionDB::Open(options, kDBPath, &txn_db);
+  Status s = TransactionDB::Open(options, txn_db_options, kDBPath, &txn_db);
   assert(s.ok());
-  db = txn_db->GetBaseDB();
 
   WriteOptions write_options;
   ReadOptions read_options;
-  OptimisticTransactionOptions txn_options;
+  TransactionOptions txn_options;
   std::string value;
 
   ////////////////////////////////////////////////////////
@@ -38,7 +37,7 @@ int main() {
   ////////////////////////////////////////////////////////
 
   // Start a transaction
-  OptimisticTransaction* txn = txn_db->BeginTransaction(write_options);
+  Transaction* txn = txn_db->BeginTransaction(write_options);
   assert(txn);
 
   // Read a key in this transaction
@@ -46,15 +45,16 @@ int main() {
   assert(s.IsNotFound());
 
   // Write a key in this transaction
-  txn->Put("abc", "def");
+  s = txn->Put("abc", "def");
+  assert(s.ok());
 
   // Read a key OUTSIDE this transaction. Does not affect txn.
-  s = db->Get(read_options, "abc", &value);
+  s = txn_db->Get(read_options, "abc", &value);
 
   // Write a key OUTSIDE of this transaction.
   // Does not affect txn since this is an unrelated key.  If we wrote key 'abc'
   // here, the transaction would fail to commit.
-  s = db->Put(write_options, "xyz", "zzz");
+  s = txn_db->Put(write_options, "xyz", "zzz");
 
   // Commit transaction
   s = txn->Commit();
@@ -75,19 +75,16 @@ int main() {
   const Snapshot* snapshot = txn->GetSnapshot();
 
   // Write a key OUTSIDE of transaction
-  db->Put(write_options, "abc", "xyz");
+  s = txn_db->Put(write_options, "abc", "xyz");
+  assert(s.ok());
 
-  // Read a key using the snapshot
+  // Attempt to read a key using the snapshot.  This will fail since
+  // the previous write outside this txn conflicts with this read.
   read_options.snapshot = snapshot;
   s = txn->GetForUpdate(read_options, "abc", &value);
-  assert(value == "def");
-
-  // Attempt to commit transaction
-  s = txn->Commit();
-
-  // Transaction could not commit since the write outside of the txn conflicted
-  // with the read!
   assert(s.IsBusy());
+
+  txn->Rollback();
 
   delete txn;
   // Clear snapshot from read options since it is no longer valid
@@ -110,23 +107,28 @@ int main() {
   txn = txn_db->BeginTransaction(write_options, txn_options);
 
   // Do some reads and writes to key "x"
-  read_options.snapshot = db->GetSnapshot();
+  read_options.snapshot = txn_db->GetSnapshot();
   s = txn->Get(read_options, "x", &value);
   txn->Put("x", "x");
 
   // Do a write outside of the transaction to key "y"
-  s = db->Put(write_options, "y", "y");
+  s = txn_db->Put(write_options, "y", "y");
 
   // Set a new snapshot in the transaction
   txn->SetSnapshot();
-  read_options.snapshot = db->GetSnapshot();
+  txn->SetSavePoint();
+  read_options.snapshot = txn_db->GetSnapshot();
 
   // Do some reads and writes to key "y"
+  // Since the snapshot was advanced, the write done outside of the
+  // transaction does not conflict.
   s = txn->GetForUpdate(read_options, "y", &value);
   txn->Put("y", "y");
 
-  // Commit.  Since the snapshot was advanced, the write done outside of the
-  // transaction does not prevent this transaction from Committing.
+  // Decide we want to revert the last write from this transaction.
+  txn->RollbackToSavePoint();
+
+  // Commit.
   s = txn->Commit();
   assert(s.ok());
   delete txn;
