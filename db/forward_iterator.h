@@ -104,7 +104,6 @@ class ForwardIterator : public Iterator {
   Status immutable_status_;
   bool valid_;
   bool has_iter_trimmed_for_upper_bound_;
-  bool has_iter_filtered_by_range_;
   Slice smallest_file_key_bound;
 
   IterKey prev_key_;

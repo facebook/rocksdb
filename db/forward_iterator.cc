@@ -646,7 +646,6 @@ void ForwardIterator::DeleteCurrentIter() {
   }
 
   for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
-    const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(level);
     if (level_iters_[level - 1] == nullptr) {
       continue;
     }
