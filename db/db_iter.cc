@@ -625,21 +625,6 @@ void DBIter::FindParseableKey(ParsedInternalKey* ikey, Direction direction) {
 
 void DBIter::Seek(const Slice& target) {
   StopWatch sw(env_, statistics_, DB_SEEK);
-
-  // total ordering is not guaranteed if prefix_extractor is set
-  // hence prefix based seeks will not give correct results
-  if (iterate_upper_bound_ != nullptr && prefix_extractor_ != nullptr) {
-    if (!prefix_extractor_->InDomain(*iterate_upper_bound_) ||
-        !prefix_extractor_->InDomain(target) ||
-        prefix_extractor_->Transform(*iterate_upper_bound_).compare(
-          prefix_extractor_->Transform(target)) != 0) {
-      status_ = Status::InvalidArgument("read_options.iterate_*_bound "
-                  " and seek target need to have the same prefix.");
-      valid_ = false;
-      return;
-    }
-  }
-
   saved_key_.Clear();
   // now savved_key is used to store internal key.
   saved_key_.SetInternalKey(target, sequence_);

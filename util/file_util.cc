@@ -3,10 +3,14 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 //
+#include "util/file_util.h"
+
 #include <string>
 #include <algorithm>
-#include "util/file_util.h"
+
+#include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
+#include "rocksdb/options.h"
 #include "db/filename.h"
 #include "util/file_reader_writer.h"
 
@@ -62,6 +66,15 @@ Status CopyFile(Env* env, const std::string& source,
     size -= slice.size();
   }
   return Status::OK();
+}
+
+Status DeleteOrMoveToTrash(const DBOptions* db_options,
+                           const std::string& fname) {
+  if (db_options->delete_scheduler == nullptr) {
+    return db_options->env->DeleteFile(fname);
+  } else {
+    return db_options->delete_scheduler->DeleteFile(fname);
+  }
 }
 
 }  // namespace rocksdb

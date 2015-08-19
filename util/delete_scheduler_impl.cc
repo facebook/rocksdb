@@ -3,12 +3,13 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include "util/delete_scheduler_impl.h"
+
 #include <thread>
 #include <vector>
 
 #include "port/port.h"
 #include "rocksdb/env.h"
-#include "util/delete_scheduler_impl.h"
 #include "util/mutexlock.h"
 #include "util/sync_point.h"
 
@@ -155,7 +156,7 @@ void DeleteSchedulerImpl::BackgroundEmptyTrash() {
 
       pending_files_--;
       if (pending_files_ == 0) {
-        // Unblock TEST_WaitForEmptyTrash since there are no more files waiting
+        // Unblock WaitForEmptyTrash since there are no more files waiting
         // to be deleted
         cv_.SignalAll();
       }
@@ -185,7 +186,7 @@ Status DeleteSchedulerImpl::DeleteTrashFile(const std::string& path_in_trash,
   return s;
 }
 
-void DeleteSchedulerImpl::TEST_WaitForEmptyTrash() {
+void DeleteSchedulerImpl::WaitForEmptyTrash() {
   MutexLock l(&mu_);
   while (pending_files_ > 0 && !closing_) {
     cv_.Wait();

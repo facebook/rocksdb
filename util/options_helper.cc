@@ -17,6 +17,7 @@
 #include "rocksdb/table.h"
 #include "table/block_based_table_factory.h"
 #include "util/logging.h"
+#include "util/string_util.h"
 
 namespace rocksdb {
 
@@ -483,82 +484,103 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
   return true;
 }
 
+bool SerializeSingleDBOption(const DBOptions& db_options,
+                             const std::string& name, std::string* opt_string) {
+  auto iter = db_options_type_info.find(name);
+  if (iter == db_options_type_info.end()) {
+    return false;
+  }
+  auto& opt_info = iter->second;
+  const char* opt_address =
+      reinterpret_cast<const char*>(&db_options) + opt_info.offset;
+  std::string value;
+
+  switch (opt_info.type) {
+    case OptionType::kBoolean:
+      value = *(reinterpret_cast<const bool*>(opt_address)) ? "true" : "false";
+      break;
+    case OptionType::kInt:
+      value = ToString(*(reinterpret_cast<const int*>(opt_address)));
+      break;
+    case OptionType::kUInt:
+      value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
+      break;
+    case OptionType::kUInt32T:
+      value = ToString(*(reinterpret_cast<const uint32_t*>(opt_address)));
+      break;
+    case OptionType::kUInt64T:
+      value = ToString(*(reinterpret_cast<const uint64_t*>(opt_address)));
+      break;
+    case OptionType::kSizeT:
+      value = ToString(*(reinterpret_cast<const size_t*>(opt_address)));
+      break;
+    case OptionType::kString:
+      value = *(reinterpret_cast<const std::string*>(opt_address));
+      break;
+    default:
+      return false;
+  }
+
+  *opt_string = name + " = " + value + ";  ";
+  return true;
+}
+
+Status GetStringFromDBOptions(const DBOptions& db_options,
+                              std::string* opt_string) {
+  assert(opt_string);
+  opt_string->clear();
+  for (auto iter = db_options_type_info.begin();
+       iter != db_options_type_info.end(); ++iter) {
+    std::string single_output;
+    bool result =
+        SerializeSingleDBOption(db_options, iter->first, &single_output);
+    assert(result);
+    if (result) {
+      opt_string->append(single_output);
+    }
+  }
+  return Status::OK();
+}
+
 bool ParseDBOption(const std::string& name, const std::string& value,
                    DBOptions* new_options) {
   try {
-    if (name == "create_if_missing") {
-      new_options->create_if_missing = ParseBoolean(name, value);
-    } else if (name == "create_missing_column_families") {
-      new_options->create_missing_column_families =
-          ParseBoolean(name, value);
-    } else if (name == "error_if_exists") {
-      new_options->error_if_exists = ParseBoolean(name, value);
-    } else if (name == "paranoid_checks") {
-      new_options->paranoid_checks = ParseBoolean(name, value);
-    } else if (name == "rate_limiter_bytes_per_sec") {
+    if (name == "rate_limiter_bytes_per_sec") {
       new_options->rate_limiter.reset(
           NewGenericRateLimiter(static_cast<int64_t>(ParseUint64(value))));
-    } else if (name == "max_open_files") {
-      new_options->max_open_files = ParseInt(value);
-    } else if (name == "max_total_wal_size") {
-      new_options->max_total_wal_size = ParseUint64(value);
-    } else if (name == "disable_data_sync") {
-      new_options->disableDataSync = ParseBoolean(name, value);
-    } else if (name == "use_fsync") {
-      new_options->use_fsync = ParseBoolean(name, value);
-    } else if (name == "db_paths") {
-      // TODO(ljin): add support
-      return false;
-    } else if (name == "db_log_dir") {
-      new_options->db_log_dir = value;
-    } else if (name == "wal_dir") {
-      new_options->wal_dir = value;
-    } else if (name == "delete_obsolete_files_period_micros") {
-      new_options->delete_obsolete_files_period_micros = ParseUint64(value);
-    } else if (name == "max_background_compactions") {
-      new_options->max_background_compactions = ParseInt(value);
-    } else if (name == "max_background_flushes") {
-      new_options->max_background_flushes = ParseInt(value);
-    } else if (name == "max_log_file_size") {
-      new_options->max_log_file_size = ParseSizeT(value);
-    } else if (name == "log_file_time_to_roll") {
-      new_options->log_file_time_to_roll = ParseSizeT(value);
-    } else if (name == "keep_log_file_num") {
-      new_options->keep_log_file_num = ParseSizeT(value);
-    } else if (name == "max_manifest_file_size") {
-      new_options->max_manifest_file_size = ParseUint64(value);
-    } else if (name == "table_cache_numshardbits") {
-      new_options->table_cache_numshardbits = ParseInt(value);
-    } else if (name == "WAL_ttl_seconds") {
-      new_options->WAL_ttl_seconds = ParseUint64(value);
-    } else if (name == "WAL_size_limit_MB") {
-      new_options->WAL_size_limit_MB = ParseUint64(value);
-    } else if (name == "manifest_preallocation_size") {
-      new_options->manifest_preallocation_size = ParseSizeT(value);
-    } else if (name == "allow_os_buffer") {
-      new_options->allow_os_buffer = ParseBoolean(name, value);
-    } else if (name == "allow_mmap_reads") {
-      new_options->allow_mmap_reads = ParseBoolean(name, value);
-    } else if (name == "allow_mmap_writes") {
-      new_options->allow_mmap_writes = ParseBoolean(name, value);
-    } else if (name == "is_fd_close_on_exec") {
-      new_options->is_fd_close_on_exec = ParseBoolean(name, value);
-    } else if (name == "skip_log_error_on_recovery") {
-      new_options->skip_log_error_on_recovery = ParseBoolean(name, value);
-    } else if (name == "stats_dump_period_sec") {
-      new_options->stats_dump_period_sec = ParseUint32(value);
-    } else if (name == "advise_random_on_open") {
-      new_options->advise_random_on_open = ParseBoolean(name, value);
-    } else if (name == "db_write_buffer_size") {
-      new_options->db_write_buffer_size = ParseUint64(value);
-    } else if (name == "use_adaptive_mutex") {
-      new_options->use_adaptive_mutex = ParseBoolean(name, value);
-    } else if (name == "bytes_per_sync") {
-      new_options->bytes_per_sync = ParseUint64(value);
-    } else if (name == "wal_bytes_per_sync") {
-      new_options->wal_bytes_per_sync = ParseUint64(value);
     } else {
-      return false;
+      auto iter = db_options_type_info.find(name);
+      if (iter == db_options_type_info.end()) {
+        return false;
+      }
+      auto& opt_info = iter->second;
+      char* opt_address =
+          reinterpret_cast<char*>(new_options) + opt_info.offset;
+      switch (opt_info.type) {
+        case OptionType::kBoolean:
+          *reinterpret_cast<bool*>(opt_address) = ParseBoolean("", value);
+          break;
+        case OptionType::kInt:
+          *reinterpret_cast<int*>(opt_address) = ParseInt(value);
+          break;
+        case OptionType::kUInt:
+          *reinterpret_cast<unsigned int*>(opt_address) = ParseUint32(value);
+          break;
+        case OptionType::kUInt32T:
+          *reinterpret_cast<uint32_t*>(opt_address) = ParseUint32(value);
+          break;
+        case OptionType::kUInt64T:
+          *reinterpret_cast<uint64_t*>(opt_address) = ParseUint64(value);
+          break;
+        case OptionType::kSizeT:
+          *reinterpret_cast<size_t*>(opt_address) = ParseUint32(value);
+          break;
+        case OptionType::kString:
+          *reinterpret_cast<std::string*>(opt_address) = value;
+          break;
+        default:
+          return false;
+      }
     }
   } catch (const std::exception& e) {
     return false;

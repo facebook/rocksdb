@@ -21,13 +21,12 @@
 
 #include "db/compaction_picker.h"
 #include "db/db_impl.h"
-#include "db/job_context.h"
-#include "db/version_set.h"
-#include "db/writebuffer.h"
 #include "db/internal_stats.h"
+#include "db/job_context.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
+#include "db/writebuffer.h"
 #include "util/autovector.h"
 #include "util/compression.h"
 #include "util/hash_skiplist_rep.h"
@@ -242,6 +241,9 @@ void SuperVersion::Cleanup() {
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
+    auto* memory_usage = current->cfd()->imm()->current_memory_usage();
+    assert(*memory_usage >= m->ApproximateMemoryUsage());
+    *memory_usage -= m->ApproximateMemoryUsage();
     to_delete.push_back(m);
   }
   current->Unref();

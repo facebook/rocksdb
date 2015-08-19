@@ -312,22 +312,22 @@ class DB {
   //  "rocksdb.compaction-pending" - 1 if at least one compaction is pending
   //  "rocksdb.background-errors" - accumulated number of background errors
   //  "rocksdb.cur-size-active-mem-table"
-  //  "rocksdb.cur-size-all-mem-tables"
-  //  "rocksdb.num-entries-active-mem-table"
-  //  "rocksdb.num-entries-imm-mem-tables"
-  //  "rocksdb.num-deletes-active-mem-table"
-  //  "rocksdb.num-deletes-imm-mem-tables"
-  //  "rocksdb.estimate-num-keys" - estimated keys in the column family
-  //  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
-  //      SST tables, that is not counted as a part of block cache.
-  //  "rocksdb.is-file-deletions-enabled"
-  //  "rocksdb.num-snapshots"
-  //  "rocksdb.oldest-snapshot-time"
-  //  "rocksdb.num-live-versions" - `version` is an internal data structure.
-  //      See version_set.h for details. More live versions often mean more SST
-  //      files are held from being deleted, by iterators or unfinished
-  //      compactions.
-  //  "rocksdb.estimate-live-data-size"
+//  "rocksdb.size-all-mem-tables"
+//  "rocksdb.num-entries-active-mem-table"
+//  "rocksdb.num-entries-imm-mem-tables"
+//  "rocksdb.num-deletes-active-mem-table"
+//  "rocksdb.num-deletes-imm-mem-tables"
+//  "rocksdb.estimate-num-keys" - estimated keys in the column family
+//  "rocksdb.estimate-table-readers-mem" - estimated memory used for reding
+//      SST tables, that is not counted as a part of block cache.
+//  "rocksdb.is-file-deletions-enabled"
+//  "rocksdb.num-snapshots"
+//  "rocksdb.oldest-snapshot-time"
+//  "rocksdb.num-live-versions" - `version` is an internal data structure.
+//      See version_set.h for details. More live versions often mean more SST
+//      files are held from being deleted, by iterators or unfinished
+//      compactions.
+//  "rocksdb.estimate-live-data-size"
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -341,6 +341,7 @@ class DB {
     static const std::string kBackgroundErrors;
     static const std::string kCurSizeActiveMemTable;
     static const std::string kCurSizeAllMemTables;
+    static const std::string kSizeAllMemTables;
     static const std::string kNumEntriesActiveMemTable;
     static const std::string kNumEntriesImmMemTables;
     static const std::string kNumDeletesActiveMemTable;
@@ -370,6 +371,7 @@ class DB {
   //  "rocksdb.background-errors"
   //  "rocksdb.cur-size-active-mem-table"
   //  "rocksdb.cur-size-all-mem-tables"
+  //  "rocksdb.size-all-mem-tables"
   //  "rocksdb.num-entries-active-mem-table"
   //  "rocksdb.num-entries-imm-mem-tables"
   //  "rocksdb.num-deletes-active-mem-table"

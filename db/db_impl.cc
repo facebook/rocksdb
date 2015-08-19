@@ -750,9 +750,8 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
     }
 #endif  // !ROCKSDB_LITE
     Status file_deletion_status;
-    if (db_options_.delete_scheduler != nullptr && type == kTableFile &&
-        path_id == 0) {
-      file_deletion_status = db_options_.delete_scheduler->DeleteFile(fname);
+    if (type == kTableFile && path_id == 0) {
+      file_deletion_status = DeleteOrMoveToTrash(&db_options_, fname);
     } else {
       file_deletion_status = env_->DeleteFile(fname);
     }
@@ -4518,10 +4517,13 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       if (ParseFileName(filenames[i], &number, info_log_prefix.prefix, &type) &&
           type != kDBLockFile) {  // Lock file will be deleted at end
         Status del;
+        std::string path_to_delete = dbname + "/" + filenames[i];
         if (type == kMetaDatabase) {
-          del = DestroyDB(dbname + "/" + filenames[i], options);
+          del = DestroyDB(path_to_delete, options);
+        } else if (type == kTableFile) {
+          del = DeleteOrMoveToTrash(&options, path_to_delete);
         } else {
-          del = env->DeleteFile(dbname + "/" + filenames[i]);
+          del = env->DeleteFile(path_to_delete);
         }
         if (result.ok() && !del.ok()) {
           result = del;
@@ -4529,12 +4531,19 @@ Status DestroyDB(const std::string& dbname, const Options& options) {
       }
     }
 
-    for (auto& db_path : options.db_paths) {
+    for (size_t path_id = 0; path_id < options.db_paths.size(); path_id++) {
+      const auto& db_path = options.db_paths[path_id];
       env->GetChildren(db_path.path, &filenames);
       for (size_t i = 0; i < filenames.size(); i++) {
         if (ParseFileName(filenames[i], &number, &type) &&
             type == kTableFile) {  // Lock file will be deleted at end
-          Status del = env->DeleteFile(db_path.path + "/" + filenames[i]);
+          Status del;
+          std::string table_path = db_path.path + "/" + filenames[i];
+          if (path_id == 0) {
+            del = DeleteOrMoveToTrash(&options, table_path);
+          } else {
+            del = env->DeleteFile(table_path);
+          }
           if (result.ok() && !del.ok()) {
             result = del;
           }

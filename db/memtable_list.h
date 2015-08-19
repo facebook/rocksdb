@@ -10,14 +10,11 @@
 #include <vector>
 #include <set>
 #include <deque>
-#include "rocksdb/db.h"
-#include "rocksdb/options.h"
-#include "rocksdb/iterator.h"
 
 #include "db/dbformat.h"
 #include "db/filename.h"
-#include "db/skiplist.h"
 #include "db/memtable.h"
+#include "db/skiplist.h"
 #include "rocksdb/db.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/options.h"
@@ -41,8 +38,10 @@ class MergeIteratorBuilder;
 // (such as holding the db mutex or being on the write thread).
 class MemTableListVersion {
  public:
-  explicit MemTableListVersion(MemTableListVersion* old = nullptr);
-  explicit MemTableListVersion(int max_write_buffer_number_to_maintain);
+  explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
+                               MemTableListVersion* old = nullptr);
+  explicit MemTableListVersion(size_t* parent_memtable_list_memory_usage,
+                               int max_write_buffer_number_to_maintain);
 
   void Ref();
   void Unref(autovector<MemTable*>* to_delete = nullptr);
@@ -104,6 +103,10 @@ class MemTableListVersion {
                    std::string* value, Status* s, MergeContext* merge_context,
                    SequenceNumber* seq);
 
+  void AddMemTable(MemTable* m);
+
+  void UnrefMemTable(autovector<MemTable*>* to_delete, MemTable* m);
+
   friend class MemTableList;
 
   // Immutable MemTables that have not yet been flushed.
@@ -118,6 +121,8 @@ class MemTableListVersion {
   const int max_write_buffer_number_to_maintain_;
 
   int refs_ = 0;
+
+  size_t* parent_memtable_list_memory_usage_;
 };
 
 // This class stores references to all the immutable memtables.
@@ -138,11 +143,13 @@ class MemTableList {
                         int max_write_buffer_number_to_maintain)
       : imm_flush_needed(false),
         min_write_buffer_number_to_merge_(min_write_buffer_number_to_merge),
-        current_(new MemTableListVersion(max_write_buffer_number_to_maintain)),
+        current_(new MemTableListVersion(&current_memory_usage_,
+                                         max_write_buffer_number_to_maintain)),
         num_flush_not_started_(0),
         commit_in_progress_(false),
         flush_requested_(false) {
     current_->Ref();
+    current_memory_usage_ = 0;
   }
 
   // Should not delete MemTableList without making sure MemTableList::current()
@@ -190,6 +197,10 @@ class MemTableList {
   // Returns an estimate of the number of bytes of data in use.
   size_t ApproximateMemoryUsage();
 
+  // Returns an estimate of the number of bytes of data used by
+  // the unflushed mem-tables.
+  size_t ApproximateUnflushedMemTablesMemoryUsage();
+
   // Request a flush of all existing memtables to storage.  This will
   // cause future calls to IsFlushPending() to return true if this list is
   // non-empty (regardless of the min_write_buffer_number_to_merge
@@ -200,6 +211,8 @@ class MemTableList {
   // Copying allowed
   // MemTableList(const MemTableList&);
   // void operator=(const MemTableList&);
+
+  size_t* current_memory_usage() { return &current_memory_usage_; }
 
  private:
   // DB mutex held
@@ -218,6 +231,8 @@ class MemTableList {
   // Requested a flush of all memtables to storage
   bool flush_requested_;
 
+  // The current memory usage.
+  size_t current_memory_usage_;
 };
 
 }  // namespace rocksdb

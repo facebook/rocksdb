@@ -84,8 +84,16 @@ struct CompactionJob::SubCompactionState {
   std::unique_ptr<WritableFileWriter> outfile;
   std::unique_ptr<TableBuilder> builder;
   Output* current_output() {
-    assert(!outputs.empty());
-    return &outputs.back();
+    if (outputs.empty()) {
+      // This subcompaction's ouptut could be empty if compaction was aborted
+      // before this subcompaction had a chance to generate any output files.
+      // When subcompactions are executed sequentially this is more likely and
+      // will be particulalry likely for the last subcompaction to be empty.
+      // Once they are run in parallel however it should be much rarer.
+      return nullptr;
+    } else {
+      return &outputs.back();
+    }
   }
 
   // State during the sub-compaction
@@ -174,15 +182,26 @@ struct CompactionJob::CompactionState {
   }
 
   Slice SmallestUserKey() {
-    assert(!sub_compact_states.empty() &&
-           sub_compact_states[0].start == nullptr);
-    return sub_compact_states[0].outputs[0].smallest.user_key();
+    for (size_t i = 0; i < sub_compact_states.size(); i++) {
+      if (!sub_compact_states[i].outputs.empty()) {
+        return sub_compact_states[i].outputs[0].smallest.user_key();
+      }
+    }
+    // TODO(aekmekji): should we exit with an error if it reaches here?
+    assert(0);
+    return Slice(nullptr, 0);
   }
 
   Slice LargestUserKey() {
-    assert(!sub_compact_states.empty() &&
-           sub_compact_states.back().end == nullptr);
-    return sub_compact_states.back().current_output()->largest.user_key();
+    for (int i = static_cast<int>(sub_compact_states.size() - 1); i >= 0; i--) {
+      if (!sub_compact_states[i].outputs.empty()) {
+        assert(sub_compact_states[i].current_output() != nullptr);
+        return sub_compact_states[i].current_output()->largest.user_key();
+      }
+    }
+    // TODO(aekmekji): should we exit with an error if it reaches here?
+    assert(0);
+    return Slice(nullptr, 0);
   }
 };
 
@@ -288,14 +307,13 @@ void CompactionJob::Prepare() {
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
   // Generate file_levels_ for compaction berfore making Iterator
-  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-  assert(cfd != nullptr);
-
-  assert(cfd->current()->storage_info()->NumLevelFiles(
-             compact_->compaction->level()) > 0);
+  auto* c = compact_->compaction;
+  assert(c->column_family_data() != nullptr);
+  assert(c->column_family_data()->current()->storage_info()
+      ->NumLevelFiles(compact_->compaction->level()) > 0);
 
   // Is this compaction producing files at the bottommost level?
-  bottommost_level_ = compact_->compaction->bottommost_level();
+  bottommost_level_ = c->bottommost_level();
 
   // Initialize subcompaction states
   SequenceNumber earliest_snapshot;
@@ -327,9 +345,6 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
   Compaction* c = compact_->compaction;
   auto& bounds = sub_compaction_boundaries_;
   if (c->IsSubCompaction()) {
-    // TODO(aekmekji): take the option num_subcompactions into account
-    // when dividing up the key range between multiple iterators instead
-    // of just assigning each iterator one L1 file's key range
     auto* cmp = c->column_family_data()->user_comparator();
     for (size_t which = 0; which < c->num_input_levels(); which++) {
       if (c->level(which) == 1) {
@@ -337,6 +352,7 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
         size_t num_files = flevel->num_files;
 
         if (num_files > 1) {
+          std::vector<Slice> candidates;
           auto& files = flevel->files;
           Slice global_min = ExtractUserKey(files[0].smallest_key);
           Slice global_max = ExtractUserKey(files[num_files - 1].largest_key);
@@ -354,8 +370,29 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
             if ( (i == num_files - 1 && cmp->Compare(s1, global_max) < 0)
               || (i < num_files - 1 && cmp->Compare(s1, s2) < 0 &&
                     cmp->Compare(s1, global_min) > 0)) {
-              bounds.emplace_back(s1);
+              candidates.emplace_back(s1);
             }
+          }
+
+          // Divide the potential L1 file boundaries (those that passed the
+          // checks above) into 'num_subcompactions' groups such that each have
+          // as close to an equal number of files in it as possible
+          // TODO(aekmekji): refine this later to depend on file size
+          size_t files_left = candidates.size();
+          size_t subcompactions_left =
+              static_cast<size_t>(db_options_.num_subcompactions) < files_left
+                ? db_options_.num_subcompactions
+                : files_left;
+
+          size_t num_to_include;
+          size_t index = 0;
+
+          while (files_left > 1 && subcompactions_left > 1) {
+            num_to_include = files_left / subcompactions_left;
+            index += num_to_include;
+            sub_compaction_boundaries_.emplace_back(candidates[index]);
+            files_left -= num_to_include;
+            subcompactions_left--;
           }
         }
         break;
@@ -512,7 +549,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubCompactionState* sub_compact) {
   bool has_current_user_key = false;
   IterKey delete_key;
 
-  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  SequenceNumber last_sequence_for_key __attribute__((unused)) =
+        kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   MergeHelper merge(cfd->user_comparator(), cfd->ioptions()->merge_operator,
@@ -790,6 +828,7 @@ Status CompactionJob::WriteKeyValue(const Slice& key, const Slice& value,
     }
   }
   assert(sub_compact->builder != nullptr);
+  assert(sub_compact->current_output() != nullptr);
 
   SequenceNumber seqno = GetInternalKeySeqno(newkey);
   if (sub_compact->builder->NumEntries() == 0) {
@@ -847,6 +886,7 @@ Status CompactionJob::FinishCompactionOutputFile(const Status& input_status,
   assert(sub_compact != nullptr);
   assert(sub_compact->outfile);
   assert(sub_compact->builder != nullptr);
+  assert(sub_compact->current_output() != nullptr);
 
   const uint64_t output_number = sub_compact->current_output()->number;
   const uint32_t output_path_id = sub_compact->current_output()->path_id;

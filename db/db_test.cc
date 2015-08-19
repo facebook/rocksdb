@@ -60,7 +60,6 @@
 #include "utilities/merge_operators.h"
 #include "util/logging.h"
 #include "util/compression.h"
-#include "util/delete_scheduler_impl.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
@@ -2182,6 +2181,110 @@ TEST_F(DBTest, GetProperty) {
         dbfull()->GetIntProperty("rocksdb.num-live-versions", &int_num));
     ASSERT_EQ(int_num, 1U);
   }
+}
+
+TEST_F(DBTest, ApproximateMemoryUsage) {
+  const int kNumRounds = 10;
+  const int kFlushesPerRound = 10;
+  const int kWritesPerFlush = 10;
+  const int kKeySize = 100;
+  const int kValueSize = 1000;
+  Options options;
+  options.write_buffer_size = 1000;  // small write buffer
+  options.min_write_buffer_number_to_merge = 4;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  std::vector<Iterator*> iters;
+
+  uint64_t active_mem;
+  uint64_t unflushed_mem;
+  uint64_t all_mem;
+  uint64_t prev_all_mem;
+
+  // Phase 0.  The verify the initial value of all these properties are
+  // the same as we have no mem-tables.
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  ASSERT_EQ(all_mem, active_mem);
+  ASSERT_EQ(all_mem, unflushed_mem);
+
+  // Phase 1. Simply issue Put() and expect "cur-size-all-mem-tabless"
+  // equals to "size-all-mem-tables"
+  for (int r = 0; r < kNumRounds; ++r) {
+    for (int f = 0; f < kFlushesPerRound; ++f) {
+      for (int w = 0; w < kWritesPerFlush; ++w) {
+        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+      }
+    }
+    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless",
+                             &unflushed_mem);
+    dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+    // in no iterator case, these two number should be the same.
+    ASSERT_EQ(unflushed_mem, all_mem);
+  }
+  prev_all_mem = all_mem;
+
+  // Phase 2. Keep issuing Put() but also create new iterator.  This time
+  // we expect "size-all-mem-tables" > "cur-size-all-mem-tabless".
+  for (int r = 0; r < kNumRounds; ++r) {
+    iters.push_back(db_->NewIterator(ReadOptions()));
+    for (int f = 0; f < kFlushesPerRound; ++f) {
+      for (int w = 0; w < kWritesPerFlush; ++w) {
+        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+      }
+    }
+    // In the second round, add iterators.
+    dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless",
+                             &unflushed_mem);
+    dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+    ASSERT_GT(all_mem, active_mem);
+    ASSERT_GT(all_mem, unflushed_mem);
+    ASSERT_GT(all_mem, prev_all_mem);
+    prev_all_mem = all_mem;
+  }
+
+  // Phase 3.  Delete iterators and expect "size-all-mem-tables"
+  // shrinks whenever we release an iterator.
+  for (auto* iter : iters) {
+    delete iter;
+    if (iters.size() != 0) {
+      dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+      // Expect the size shrinking
+      ASSERT_LT(all_mem, prev_all_mem);
+    }
+    prev_all_mem = all_mem;
+  }
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  // now we expect "cur-size-all-mem-tabless" and
+  // "size-all-mem-tables" are the same again after we
+  // released all iterators.
+  ASSERT_EQ(all_mem, unflushed_mem);
+  ASSERT_GE(all_mem, active_mem);
+
+  // Phase 4. Perform flush, and expect all these three counters are the same.
+  Flush();
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  ASSERT_EQ(active_mem, unflushed_mem);
+  ASSERT_EQ(unflushed_mem, all_mem);
+
+  // Phase 5. Reopen, and expect all these three counters are the same again.
+  Reopen(options);
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  ASSERT_EQ(active_mem, unflushed_mem);
+  ASSERT_EQ(unflushed_mem, all_mem);
 }
 
 TEST_F(DBTest, FLUSH) {
@@ -5844,15 +5947,22 @@ TEST_F(DBTest, DBIteratorBoundTest) {
   // This should be an error
   {
     ReadOptions ro;
-    Slice prefix("g1");
-    ro.iterate_upper_bound = &prefix;
+    Slice upper_bound("g");
+    ro.iterate_upper_bound = &upper_bound;
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
     iter->Seek("foo");
 
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("foo", iter->key().ToString());
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("foo1", iter->key().ToString());
+
+    iter->Next();
     ASSERT_TRUE(!iter->Valid());
-    ASSERT_TRUE(iter->status().IsInvalidArgument());
   }
 
   // testing that iterate_upper_bound prevents iterating over deleted items
@@ -8277,12 +8387,10 @@ TEST_F(DBTest, RateLimitedDelete) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
+  uint64_t delete_start_time = env_->NowMicros();
   // Hold BackgroundEmptyTrash
   TEST_SYNC_POINT("DBTest::RateLimitedDelete:1");
-
-  uint64_t delete_start_time = env_->NowMicros();
-  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
-      ->TEST_WaitForEmptyTrash();
+  options.delete_scheduler->WaitForEmptyTrash();
   uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
   uint64_t total_files_size = 0;
@@ -8354,8 +8462,7 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
   ASSERT_EQ("0,2", FilesPerLevel(0));
 
-  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
-      ->TEST_WaitForEmptyTrash();
+  options.delete_scheduler->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
   compact_options.bottommost_level_compaction =
@@ -8363,11 +8470,45 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
-  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
-      ->TEST_WaitForEmptyTrash();
+  options.delete_scheduler->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, DestroyDBWithRateLimitedDelete) {
+  int bg_delete_file = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      [&](void* arg) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  // Create 4 files in L0
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
+    ASSERT_OK(Flush());
+  }
+  // We created 4 sst files in L0
+  ASSERT_EQ("4", FilesPerLevel(0));
+
+  // Close DB and destory it using DeleteScheduler
+  Close();
+  std::string trash_dir = test::TmpDir(env_) + "/trash";
+  int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
+  Status s;
+  options.delete_scheduler.reset(NewDeleteScheduler(
+      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  ASSERT_OK(s);
+  ASSERT_OK(DestroyDB(dbname_, options));
+
+  options.delete_scheduler->WaitForEmptyTrash();
+  // We have deleted the 4 sst files in the delete_scheduler
+  ASSERT_EQ(bg_delete_file, 4);
 }
 
 TEST_F(DBTest, UnsupportedManualSync) {

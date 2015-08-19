@@ -1288,11 +1288,8 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
     compact_options.target_path_id = 1;
     db_->CompactRange(compact_options, handles_[1], nullptr, nullptr);
 
-    int num_files = options.num_subcompactions > 1 ? 2 : 1;
-    std::string files_string = options.num_subcompactions > 1 ? "0,2" : "0,1";
-
-    ASSERT_EQ(files_string, FilesPerLevel(1));
-    ASSERT_EQ(num_files, GetSstFileCount(options.db_paths[1].path));
+    ASSERT_EQ("0,1", FilesPerLevel(1));
+    ASSERT_EQ(1, GetSstFileCount(options.db_paths[1].path));
     ASSERT_EQ(0, GetSstFileCount(options.db_paths[0].path));
     ASSERT_EQ(0, GetSstFileCount(dbname_));
 

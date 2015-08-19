@@ -504,6 +504,137 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
   ASSERT_EQ(new_options.max_open_files, 1);
   ASSERT_TRUE(new_options.rate_limiter.get() != nullptr);
 }
+
+namespace {
+void VerifyDBOptions(const DBOptions& base_opt, const DBOptions& new_opt) {
+  // boolean options
+  ASSERT_EQ(base_opt.advise_random_on_open, new_opt.advise_random_on_open);
+  ASSERT_EQ(base_opt.allow_mmap_reads, new_opt.allow_mmap_reads);
+  ASSERT_EQ(base_opt.allow_mmap_writes, new_opt.allow_mmap_writes);
+  ASSERT_EQ(base_opt.allow_os_buffer, new_opt.allow_os_buffer);
+  ASSERT_EQ(base_opt.create_if_missing, new_opt.create_if_missing);
+  ASSERT_EQ(base_opt.create_missing_column_families,
+            new_opt.create_missing_column_families);
+  ASSERT_EQ(base_opt.disableDataSync, new_opt.disableDataSync);
+  ASSERT_EQ(base_opt.enable_thread_tracking, new_opt.enable_thread_tracking);
+  ASSERT_EQ(base_opt.error_if_exists, new_opt.error_if_exists);
+  ASSERT_EQ(base_opt.is_fd_close_on_exec, new_opt.is_fd_close_on_exec);
+  ASSERT_EQ(base_opt.paranoid_checks, new_opt.paranoid_checks);
+  ASSERT_EQ(base_opt.skip_log_error_on_recovery,
+            new_opt.skip_log_error_on_recovery);
+  ASSERT_EQ(base_opt.skip_stats_update_on_db_open,
+            new_opt.skip_stats_update_on_db_open);
+  ASSERT_EQ(base_opt.use_adaptive_mutex, new_opt.use_adaptive_mutex);
+  ASSERT_EQ(base_opt.use_fsync, new_opt.use_fsync);
+
+  // int options
+  ASSERT_EQ(base_opt.max_background_compactions,
+            new_opt.max_background_compactions);
+  ASSERT_EQ(base_opt.max_background_flushes, new_opt.max_background_flushes);
+  ASSERT_EQ(base_opt.max_file_opening_threads,
+            new_opt.max_file_opening_threads);
+  ASSERT_EQ(base_opt.max_open_files, new_opt.max_open_files);
+  ASSERT_EQ(base_opt.table_cache_numshardbits,
+            new_opt.table_cache_numshardbits);
+
+  // size_t options
+  ASSERT_EQ(base_opt.db_write_buffer_size, new_opt.db_write_buffer_size);
+  ASSERT_EQ(base_opt.keep_log_file_num, new_opt.keep_log_file_num);
+  ASSERT_EQ(base_opt.log_file_time_to_roll, new_opt.log_file_time_to_roll);
+  ASSERT_EQ(base_opt.manifest_preallocation_size,
+            new_opt.manifest_preallocation_size);
+  ASSERT_EQ(base_opt.max_log_file_size, new_opt.max_log_file_size);
+
+  // std::string options
+  ASSERT_EQ(base_opt.db_log_dir, new_opt.db_log_dir);
+  ASSERT_EQ(base_opt.wal_dir, new_opt.wal_dir);
+
+  // uint32_t options
+  ASSERT_EQ(base_opt.num_subcompactions, new_opt.num_subcompactions);
+
+  // uint64_t options
+  ASSERT_EQ(base_opt.WAL_size_limit_MB, new_opt.WAL_size_limit_MB);
+  ASSERT_EQ(base_opt.WAL_ttl_seconds, new_opt.WAL_ttl_seconds);
+  ASSERT_EQ(base_opt.bytes_per_sync, new_opt.bytes_per_sync);
+  ASSERT_EQ(base_opt.delayed_write_rate, new_opt.delayed_write_rate);
+  ASSERT_EQ(base_opt.delete_obsolete_files_period_micros,
+            new_opt.delete_obsolete_files_period_micros);
+  ASSERT_EQ(base_opt.max_manifest_file_size, new_opt.max_manifest_file_size);
+  ASSERT_EQ(base_opt.max_total_wal_size, new_opt.max_total_wal_size);
+  ASSERT_EQ(base_opt.wal_bytes_per_sync, new_opt.wal_bytes_per_sync);
+
+  // unsigned int options
+  ASSERT_EQ(base_opt.stats_dump_period_sec, new_opt.stats_dump_period_sec);
+}
+}  // namespace
+
+TEST_F(OptionsTest, DBOptionsSerialization) {
+  Options base_options, new_options;
+  Random rnd(301);
+
+  // Phase 1: Make big change in base_options
+  // boolean options
+  base_options.advise_random_on_open = rnd.Uniform(2);
+  base_options.allow_mmap_reads = rnd.Uniform(2);
+  base_options.allow_mmap_writes = rnd.Uniform(2);
+  base_options.allow_os_buffer = rnd.Uniform(2);
+  base_options.create_if_missing = rnd.Uniform(2);
+  base_options.create_missing_column_families = rnd.Uniform(2);
+  base_options.disableDataSync = rnd.Uniform(2);
+  base_options.enable_thread_tracking = rnd.Uniform(2);
+  base_options.error_if_exists = rnd.Uniform(2);
+  base_options.is_fd_close_on_exec = rnd.Uniform(2);
+  base_options.paranoid_checks = rnd.Uniform(2);
+  base_options.skip_log_error_on_recovery = rnd.Uniform(2);
+  base_options.skip_stats_update_on_db_open = rnd.Uniform(2);
+  base_options.use_adaptive_mutex = rnd.Uniform(2);
+  base_options.use_fsync = rnd.Uniform(2);
+
+  // int options
+  base_options.max_background_compactions = rnd.Uniform(100);
+  base_options.max_background_flushes = rnd.Uniform(100);
+  base_options.max_file_opening_threads = rnd.Uniform(100);
+  base_options.max_open_files = rnd.Uniform(100);
+  base_options.table_cache_numshardbits = rnd.Uniform(100);
+
+  // size_t options
+  base_options.db_write_buffer_size = rnd.Uniform(10000);
+  base_options.keep_log_file_num = rnd.Uniform(10000);
+  base_options.log_file_time_to_roll = rnd.Uniform(10000);
+  base_options.manifest_preallocation_size = rnd.Uniform(10000);
+  base_options.max_log_file_size = rnd.Uniform(10000);
+
+  // std::string options
+  base_options.db_log_dir = "path/to/db_log_dir";
+  base_options.wal_dir = "path/to/wal_dir";
+
+  // uint32_t options
+  base_options.num_subcompactions = rnd.Uniform(100000);
+
+  // uint64_t options
+  static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
+  base_options.WAL_size_limit_MB = uint_max + rnd.Uniform(100000);
+  base_options.WAL_ttl_seconds = uint_max + rnd.Uniform(100000);
+  base_options.bytes_per_sync = uint_max + rnd.Uniform(100000);
+  base_options.delayed_write_rate = uint_max + rnd.Uniform(100000);
+  base_options.delete_obsolete_files_period_micros =
+      uint_max + rnd.Uniform(100000);
+  base_options.max_manifest_file_size = uint_max + rnd.Uniform(100000);
+  base_options.max_total_wal_size = uint_max + rnd.Uniform(100000);
+  base_options.wal_bytes_per_sync = uint_max + rnd.Uniform(100000);
+
+  // unsigned int options
+  base_options.stats_dump_period_sec = rnd.Uniform(100000);
+
+  // Phase 2: obtain a string from base_option
+  std::string base_opt_string;
+  ASSERT_OK(GetStringFromDBOptions(base_options, &base_opt_string));
+
+  // Phase 3: Set new_options from the derived string and expect
+  //          new_options == base_options
+  ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_opt_string, &new_options));
+  VerifyDBOptions(base_options, new_options);
+}
 #endif  // !ROCKSDB_LITE
 
 
