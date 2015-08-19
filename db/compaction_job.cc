@@ -285,14 +285,13 @@ void CompactionJob::Prepare() {
       ThreadStatus::STAGE_COMPACTION_PREPARE);
 
   // Generate file_levels_ for compaction berfore making Iterator
-  ColumnFamilyData* cfd = compact_->compaction->column_family_data();
-  assert(cfd != nullptr);
-
-  assert(cfd->current()->storage_info()->NumLevelFiles(
-             compact_->compaction->level()) > 0);
+  auto* c = compact_->compaction;
+  assert(c->column_family_data() != nullptr);
+  assert(c->column_family_data()->current()->storage_info()
+      ->NumLevelFiles(compact_->compaction->level()) > 0);
 
   // Is this compaction producing files at the bottommost level?
-  bottommost_level_ = compact_->compaction->bottommost_level();
+  bottommost_level_ = c->bottommost_level();
 
   // Initialize subcompaction states
   SequenceNumber earliest_snapshot;
@@ -367,7 +366,6 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
           size_t index = 0;
 
           while (files_left > 1 && subcompactions_left > 1) {
-            // Cheaper way to do 'round(num_files / num_subcompactions)'
             num_to_include = files_left / subcompactions_left;
             index += num_to_include;
             sub_compaction_boundaries_.emplace_back(candidates[index]);
@@ -529,7 +527,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubCompactionState* sub_compact) {
   bool has_current_user_key = false;
   IterKey delete_key;
 
-  SequenceNumber last_sequence_for_key = kMaxSequenceNumber;
+  SequenceNumber last_sequence_for_key __attribute__((unused)) =
+        kMaxSequenceNumber;
   SequenceNumber visible_in_snapshot = kMaxSequenceNumber;
   ColumnFamilyData* cfd = sub_compact->compaction->column_family_data();
   MergeHelper merge(cfd->user_comparator(), cfd->ioptions()->merge_operator,
