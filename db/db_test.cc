@@ -2184,6 +2184,110 @@ TEST_F(DBTest, GetProperty) {
   }
 }
 
+TEST_F(DBTest, ApproximateMemoryUsage) {
+  const int kNumRounds = 10;
+  const int kFlushesPerRound = 10;
+  const int kWritesPerFlush = 10;
+  const int kKeySize = 100;
+  const int kValueSize = 1000;
+  Options options;
+  options.write_buffer_size = 1000;  // small write buffer
+  options.min_write_buffer_number_to_merge = 4;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  Random rnd(301);
+
+  std::vector<Iterator*> iters;
+
+  uint64_t active_mem;
+  uint64_t unflushed_mem;
+  uint64_t all_mem;
+  uint64_t prev_all_mem;
+
+  // Phase 0.  The verify the initial value of all these properties are
+  // the same as we have no mem-tables.
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  ASSERT_EQ(all_mem, active_mem);
+  ASSERT_EQ(all_mem, unflushed_mem);
+
+  // Phase 1. Simply issue Put() and expect "cur-size-all-mem-tabless"
+  // equals to "size-all-mem-tables"
+  for (int r = 0; r < kNumRounds; ++r) {
+    for (int f = 0; f < kFlushesPerRound; ++f) {
+      for (int w = 0; w < kWritesPerFlush; ++w) {
+        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+      }
+    }
+    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless",
+                             &unflushed_mem);
+    dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+    // in no iterator case, these two number should be the same.
+    ASSERT_EQ(unflushed_mem, all_mem);
+  }
+  prev_all_mem = all_mem;
+
+  // Phase 2. Keep issuing Put() but also create new iterator.  This time
+  // we expect "size-all-mem-tables" > "cur-size-all-mem-tabless".
+  for (int r = 0; r < kNumRounds; ++r) {
+    iters.push_back(db_->NewIterator(ReadOptions()));
+    for (int f = 0; f < kFlushesPerRound; ++f) {
+      for (int w = 0; w < kWritesPerFlush; ++w) {
+        Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
+      }
+    }
+    // In the second round, add iterators.
+    dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless",
+                             &unflushed_mem);
+    dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+    ASSERT_GT(all_mem, active_mem);
+    ASSERT_GT(all_mem, unflushed_mem);
+    ASSERT_GT(all_mem, prev_all_mem);
+    prev_all_mem = all_mem;
+  }
+
+  // Phase 3.  Delete iterators and expect "size-all-mem-tables"
+  // shrinks whenever we release an iterator.
+  for (auto* iter : iters) {
+    delete iter;
+    if (iters.size() != 0) {
+      dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+      // Expect the size shrinking
+      ASSERT_LT(all_mem, prev_all_mem);
+    }
+    prev_all_mem = all_mem;
+  }
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  // now we expect "cur-size-all-mem-tabless" and
+  // "size-all-mem-tables" are the same again after we
+  // released all iterators.
+  ASSERT_EQ(all_mem, unflushed_mem);
+  ASSERT_GE(all_mem, active_mem);
+
+  // Phase 4. Perform flush, and expect all these three counters are the same.
+  Flush();
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  ASSERT_EQ(active_mem, unflushed_mem);
+  ASSERT_EQ(unflushed_mem, all_mem);
+
+  // Phase 5. Reopen, and expect all these three counters are the same again.
+  Reopen(options);
+  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+  ASSERT_EQ(active_mem, unflushed_mem);
+  ASSERT_EQ(unflushed_mem, all_mem);
+}
+
 TEST_F(DBTest, FLUSH) {
   do {
     CreateAndReopenWithCF({"pikachu"}, CurrentOptions());

@@ -101,7 +101,9 @@ static const std::string compaction_pending = "compaction-pending";
 static const std::string background_errors = "background-errors";
 static const std::string cur_size_active_mem_table =
                           "cur-size-active-mem-table";
-static const std::string cur_size_all_mem_tables = "cur-size-all-mem-tables";
+static const std::string cur_size_unflushed_mem_tables =
+    "cur-size-all-mem-tabless";
+static const std::string cur_size_all_mem_tables = "size-all-mem-tables";
 static const std::string num_entries_active_mem_table =
                           "num-entries-active-mem-table";
 static const std::string num_entries_imm_mem_tables =
@@ -138,7 +140,9 @@ const std::string DB::Properties::kBackgroundErrors =
 const std::string DB::Properties::kCurSizeActiveMemTable =
                       rocksdb_prefix + cur_size_active_mem_table;
 const std::string DB::Properties::kCurSizeAllMemTables =
-                      rocksdb_prefix + cur_size_all_mem_tables;
+    rocksdb_prefix + cur_size_unflushed_mem_tables;
+const std::string DB::Properties::kSizeAllMemTables =
+    rocksdb_prefix + cur_size_all_mem_tables;
 const std::string DB::Properties::kNumEntriesActiveMemTable =
                       rocksdb_prefix + num_entries_active_mem_table;
 const std::string DB::Properties::kNumEntriesImmMemTables =
@@ -202,8 +206,10 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kBackgroundErrors;
   } else if (in == cur_size_active_mem_table) {
     return kCurSizeActiveMemTable;
-  } else if (in == cur_size_all_mem_tables) {
+  } else if (in == cur_size_unflushed_mem_tables) {
     return kCurSizeAllMemTables;
+  } else if (in == cur_size_all_mem_tables) {
+    return kSizeAllMemTables;
   } else if (in == num_entries_active_mem_table) {
     return kNumEntriesInMutableMemtable;
   } else if (in == num_entries_imm_mem_tables) {
@@ -347,6 +353,10 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
       return true;
     case kCurSizeAllMemTables:
       // Current size of the active memtable + immutable memtables
+      *value = cfd_->mem()->ApproximateMemoryUsage() +
+               cfd_->imm()->ApproximateUnflushedMemTablesMemoryUsage();
+      return true;
+    case kSizeAllMemTables:
       *value = cfd_->mem()->ApproximateMemoryUsage() +
                cfd_->imm()->ApproximateMemoryUsage();
       return true;
