@@ -386,8 +386,8 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
           size_t files_left = candidates.size();
           size_t subcompactions_left =
               static_cast<size_t>(db_options_.num_subcompactions) < files_left
-                ? db_options_.num_subcompactions
-                : files_left;
+                  ? db_options_.num_subcompactions
+                  : files_left;
 
           size_t num_to_include;
           size_t index = 0;

@@ -180,6 +180,7 @@ class MergingIterator : public Iterator {
           child.Seek(key());
           if (child.Valid()) {
             // Child is at first entry >= key().  Step back one to be < key()
+            TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
             child.Prev();
           } else {
             // Child has no entries >= key().  Position at last entry.
