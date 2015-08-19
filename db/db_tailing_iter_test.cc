@@ -117,6 +117,80 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
   }
 }
 
+TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  ReadOptions read_options;
+  read_options.tailing = true;
+
+  char bufe[32];
+  snprintf(bufe, sizeof(bufe), "00b0%016d", 0);
+  Slice keyu(bufe, 20);
+  read_options.iterate_upper_bound = &keyu;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
+  std::unique_ptr<Iterator> iterh(db_->NewIterator(read_options, handles_[1]));
+  std::string value(1024, 'a');
+
+  const int num_records = 1000;
+  for (int i = 1; i < num_records; ++i) {
+    char buf1[32];
+    char buf2[32];
+    char buf3[32];
+    char buf4[32];
+    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+    snprintf(buf3, sizeof(buf1), "00b0%016d", i * 5);
+
+    Slice key(buf1, 20);
+    ASSERT_OK(Put(1, key, value));
+    Slice keyn(buf3, 20);
+    ASSERT_OK(Put(1, keyn, value));
+
+    if (i % 100 == 99) {
+      ASSERT_OK(Flush(1));
+      dbfull()->TEST_WaitForCompact();
+      snprintf(buf4, sizeof(buf1), "00a0%016d", i * 5 / 2);
+      Slice target(buf4, 20);
+      iterh->Seek(target);
+      ASSERT_TRUE(iter->Valid());
+      for (int j = (i + 1) * 5 / 2; j < i * 5; j += 5) {
+        iterh->Next();
+        ASSERT_TRUE(iterh->Valid());
+      }
+    }
+
+    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+    Slice target(buf2, 20);
+    iter->Seek(target);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+    if (i == 1) {
+      itern->SeekToFirst();
+    } else {
+      itern->Next();
+    }
+    ASSERT_TRUE(itern->Valid());
+    ASSERT_EQ(itern->key().compare(key), 0);
+  }
+  for (int i = 2 * num_records; i > 0; --i) {
+    char buf1[32];
+    char buf2[32];
+    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+
+    Slice key(buf1, 20);
+    ASSERT_OK(Put(1, key, value));
+
+    if (i % 100 == 99) {
+      ASSERT_OK(Flush(1));
+    }
+
+    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+    Slice target(buf2, 20);
+    iter->Seek(target);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+  }
+}
+
 TEST_F(DBTestTailingIterator, TailingIteratorDeletes) {
   CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
   ReadOptions read_options;

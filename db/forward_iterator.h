@@ -78,9 +78,13 @@ class ForwardIterator : public Iterator {
   void SeekInternal(const Slice& internal_key, bool seek_to_first);
   void UpdateCurrent();
   bool NeedToSeekImmutable(const Slice& internal_key);
+  bool NeedToRebuildTrimmed(const Slice& internal_key);
+  void DeleteCurrentIter();
   uint32_t FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right);
+
+  bool IsOverUpperBound(const Slice& internal_key) const;
 
   DBImpl* const db_;
   const ReadOptions read_options_;
@@ -99,6 +103,9 @@ class ForwardIterator : public Iterator {
   Status status_;
   Status immutable_status_;
   bool valid_;
+  bool has_iter_trimmed_for_upper_bound_;
+  bool has_iter_filtered_by_range_;
+  Slice smallest_file_key_bound;
 
   IterKey prev_key_;
   bool is_prev_set_;
