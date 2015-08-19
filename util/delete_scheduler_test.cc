@@ -15,7 +15,6 @@
 #include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
-#include "util/delete_scheduler_impl.h"
 #include "util/string_util.h"
 #include "util/sync_point.h"
 #include "util/testharness.h"
@@ -36,11 +35,6 @@ class DeleteSchedulerTest : public testing::Test {
     rocksdb::SyncPoint::GetInstance()->LoadDependency({});
     rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
     DestroyDir(dummy_files_dir_);
-  }
-
-  void WaitForEmptyTrash() {
-    reinterpret_cast<DeleteSchedulerImpl*>(delete_scheduler_.get())
-        ->TEST_WaitForEmptyTrash();
   }
 
   void DestroyDir(const std::string& dir) {
@@ -133,7 +127,7 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
 
     uint64_t delete_start_time = env_->NowMicros();
     TEST_SYNC_POINT("DeleteSchedulerTest::BasicRateLimiting:1");
-    WaitForEmptyTrash();
+    delete_scheduler_->WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
     uint64_t total_files_size = 0;
@@ -213,7 +207,7 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     uint64_t delete_start_time = env_->NowMicros();
     TEST_SYNC_POINT("DeleteSchedulerTest::RateLimitingMultiThreaded:1");
-    WaitForEmptyTrash();
+    delete_scheduler_->WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
     uint64_t total_files_size = 0;
@@ -289,7 +283,7 @@ TEST_F(DeleteSchedulerTest, ConflictNames) {
 
   // Hold BackgroundEmptyTrash
   TEST_SYNC_POINT("DeleteSchedulerTest::ConflictNames:1");
-  WaitForEmptyTrash();
+  delete_scheduler_->WaitForEmptyTrash();
   ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
 
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
@@ -333,7 +327,7 @@ TEST_F(DeleteSchedulerTest, BackgroundError) {
 
   // Hold BackgroundEmptyTrash
   TEST_SYNC_POINT("DeleteSchedulerTest::BackgroundError:1");
-  WaitForEmptyTrash();
+  delete_scheduler_->WaitForEmptyTrash();
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
   ASSERT_EQ(bg_errors.size(), 10);
 
@@ -359,7 +353,7 @@ TEST_F(DeleteSchedulerTest, TrashWithExistingFiles) {
       env_, trash_dir_, rate_bytes_per_sec_, nullptr, true, &s));
   ASSERT_OK(s);
 
-  WaitForEmptyTrash();
+  delete_scheduler_->WaitForEmptyTrash();
   ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
 
   auto bg_errors = delete_scheduler_->GetBackgroundErrors();
@@ -390,7 +384,7 @@ TEST_F(DeleteSchedulerTest, StartBGEmptyTrashMultipleTimes) {
       ASSERT_OK(delete_scheduler_->DeleteFile(NewDummyFile(file_name)));
     }
     ASSERT_EQ(CountFilesInDir(dummy_files_dir_), 0);
-    WaitForEmptyTrash();
+    delete_scheduler_->WaitForEmptyTrash();
     ASSERT_EQ(bg_delete_file, 10 * run);
     ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
 

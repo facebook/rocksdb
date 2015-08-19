@@ -60,7 +60,6 @@
 #include "utilities/merge_operators.h"
 #include "util/logging.h"
 #include "util/compression.h"
-#include "util/delete_scheduler_impl.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
@@ -8388,12 +8387,10 @@ TEST_F(DBTest, RateLimitedDelete) {
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
+  uint64_t delete_start_time = env_->NowMicros();
   // Hold BackgroundEmptyTrash
   TEST_SYNC_POINT("DBTest::RateLimitedDelete:1");
-
-  uint64_t delete_start_time = env_->NowMicros();
-  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
-      ->TEST_WaitForEmptyTrash();
+  options.delete_scheduler->WaitForEmptyTrash();
   uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
   uint64_t total_files_size = 0;
@@ -8465,8 +8462,7 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   ASSERT_OK(db_->CompactRange(compact_options, &begin, &end));
   ASSERT_EQ("0,2", FilesPerLevel(0));
 
-  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
-      ->TEST_WaitForEmptyTrash();
+  options.delete_scheduler->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
   compact_options.bottommost_level_compaction =
@@ -8474,11 +8470,45 @@ TEST_F(DBTest, DeleteSchedulerMultipleDBPaths) {
   ASSERT_OK(db_->CompactRange(compact_options, nullptr, nullptr));
   ASSERT_EQ("0,1", FilesPerLevel(0));
 
-  reinterpret_cast<DeleteSchedulerImpl*>(options.delete_scheduler.get())
-      ->TEST_WaitForEmptyTrash();
+  options.delete_scheduler->WaitForEmptyTrash();
   ASSERT_EQ(bg_delete_file, 8);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
+TEST_F(DBTest, DestroyDBWithRateLimitedDelete) {
+  int bg_delete_file = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "DeleteSchedulerImpl::DeleteTrashFile:DeleteFile",
+      [&](void* arg) { bg_delete_file++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.env = env_;
+  DestroyAndReopen(options);
+
+  // Create 4 files in L0
+  for (int i = 0; i < 4; i++) {
+    ASSERT_OK(Put("Key" + ToString(i), DummyString(1024, 'A')));
+    ASSERT_OK(Flush());
+  }
+  // We created 4 sst files in L0
+  ASSERT_EQ("4", FilesPerLevel(0));
+
+  // Close DB and destory it using DeleteScheduler
+  Close();
+  std::string trash_dir = test::TmpDir(env_) + "/trash";
+  int64_t rate_bytes_per_sec = 1024 * 1024;  // 1 Mb / Sec
+  Status s;
+  options.delete_scheduler.reset(NewDeleteScheduler(
+      env_, trash_dir, rate_bytes_per_sec, nullptr, false, &s));
+  ASSERT_OK(s);
+  ASSERT_OK(DestroyDB(dbname_, options));
+
+  options.delete_scheduler->WaitForEmptyTrash();
+  // We have deleted the 4 sst files in the delete_scheduler
+  ASSERT_EQ(bg_delete_file, 4);
 }
 
 TEST_F(DBTest, UnsupportedManualSync) {
