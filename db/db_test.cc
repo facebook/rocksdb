@@ -5844,15 +5844,22 @@ TEST_F(DBTest, DBIteratorBoundTest) {
   // This should be an error
   {
     ReadOptions ro;
-    Slice prefix("g1");
-    ro.iterate_upper_bound = &prefix;
+    Slice upper_bound("g");
+    ro.iterate_upper_bound = &upper_bound;
 
     std::unique_ptr<Iterator> iter(db_->NewIterator(ro));
 
     iter->Seek("foo");
 
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("foo", iter->key().ToString());
+
+    iter->Next();
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ("foo1", iter->key().ToString());
+
+    iter->Next();
     ASSERT_TRUE(!iter->Valid());
-    ASSERT_TRUE(iter->status().IsInvalidArgument());
   }
 
   // testing that iterate_upper_bound prevents iterating over deleted items
