@@ -104,9 +104,17 @@ TEST_F(FlushJobTest, NonEmpty) {
                                            kMaxSequenceNumber);
   new_mem->Ref();
   mock::MockFileContents inserted_keys;
+  // Test data:
+  //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
+  //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
+  // Expected:
+  //   smallest_key   = "0"
+  //   largest_key    = "9999"
+  //   smallest_seqno = 1
+  //   smallest_seqno = 9999
   for (int i = 1; i < 10000; ++i) {
-    std::string key(ToString(i));
-    std::string value("value" + ToString(i));
+    std::string key(ToString((i + 1000) % 10000));
+    std::string value("value" + key);
     new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
     InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
     inserted_keys.insert({internal_key.Encode().ToString(), value});
@@ -124,9 +132,14 @@ TEST_F(FlushJobTest, NonEmpty) {
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
                      SequenceNumber(), &job_context, nullptr, nullptr, nullptr,
                      kNoCompression, nullptr, &event_logger);
+  FileMetaData fd;
   mutex_.Lock();
-  ASSERT_OK(flush_job.Run());
+  ASSERT_OK(flush_job.Run(&fd));
   mutex_.Unlock();
+  ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
+  ASSERT_EQ(ToString(9999), fd.largest.user_key().ToString());
+  ASSERT_EQ(1, fd.smallest_seqno);
+  ASSERT_EQ(9999, fd.largest_seqno);
   mock_table_factory_->AssertSingleFile(inserted_keys);
   job_context.Clean();
 }
