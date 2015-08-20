@@ -114,8 +114,8 @@ struct CompactionJob::SubCompactionState {
   std::vector<size_t> level_ptrs;
 
   SubCompactionState(Compaction* c, Slice* _start, Slice* _end,
-                           SequenceNumber earliest, SequenceNumber visible,
-                           SequenceNumber latest)
+                     SequenceNumber earliest, SequenceNumber visible,
+                     SequenceNumber latest)
     : compaction(c),
       start(_start),
       end(_end),
