@@ -13,6 +13,10 @@
 #include "util/sync_point.h"
 namespace rocksdb {
 
+// SYNC_POINT is not supported in released Windows mode.
+#if !(defined NDEBUG) || !defined(OS_WIN)
+
+
 class DBCompactionTest : public DBTestBase {
  public:
   DBCompactionTest() : DBTestBase("/db_compaction_test") {}
@@ -1647,8 +1651,6 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   Destroy(options);
 }
 
-// SYNC_POINT is not supported in released Windows mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
 // This tests for a bug that could cause two level0 compactions running
 // concurrently
 TEST_P(DBCompactionTestWithParam, SuggestCompactRangeNoTwoLevel0Compactions) {
@@ -1705,7 +1707,6 @@ TEST_P(DBCompactionTestWithParam, SuggestCompactRangeNoTwoLevel0Compactions) {
   dbfull()->TEST_WaitForCompact();
 }
 
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
   int32_t trivial_move = 0;
@@ -1792,7 +1793,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 
 INSTANTIATE_TEST_CASE_P(DBCompactionTestWithParam, DBCompactionTestWithParam,
                         ::testing::Values(1, 4));
-
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
