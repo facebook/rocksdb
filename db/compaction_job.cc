@@ -59,7 +59,7 @@ namespace rocksdb {
 
 // Maintains state for each sub-compaction
 struct CompactionJob::SubCompactionState {
-  Compaction* const compaction;
+  Compaction* compaction;
 
   // The boundaries of the key-range this compaction is interested in. No two
   // subcompactions may have overlapping key-ranges.
@@ -113,7 +113,7 @@ struct CompactionJob::SubCompactionState {
   // is in or beyond the last file checked during the previous call
   std::vector<size_t> level_ptrs;
 
-  explicit SubCompactionState(Compaction* c, Slice* _start, Slice* _end,
+  SubCompactionState(Compaction* c, Slice* _start, Slice* _end,
                            SequenceNumber earliest, SequenceNumber visible,
                            SequenceNumber latest)
     : compaction(c),
@@ -130,6 +130,33 @@ struct CompactionJob::SubCompactionState {
         assert(compaction != nullptr);
         level_ptrs = std::vector<size_t>(compaction->number_levels(), 0);
       }
+
+  SubCompactionState(SubCompactionState&& o) {
+    *this = std::move(o);
+  }
+
+  SubCompactionState& operator=(SubCompactionState&& o) {
+    compaction = std::move(o.compaction);
+    start = std::move(o.start);
+    end = std::move(o.end);
+    status = std::move(o.status);
+    outputs = std::move(o.outputs);
+    outfile = std::move(o.outfile);
+    builder = std::move(o.builder);
+    total_bytes = std::move(o.total_bytes);
+    num_input_records = std::move(o.num_input_records);
+    num_output_records = std::move(o.num_output_records);
+    earliest_snapshot = std::move(o.earliest_snapshot);
+    visible_at_tip = std::move(o.visible_at_tip);
+    latest_snapshot = std::move(o.latest_snapshot);
+    level_ptrs = std::move(o.level_ptrs);
+    return *this;
+  }
+
+  // Because member unique_ptrs do not have these.
+  SubCompactionState(const SubCompactionState&) = delete;
+
+  SubCompactionState& operator=(const SubCompactionState&) = delete;
 };
 
 // Maintains state for the entire compaction
