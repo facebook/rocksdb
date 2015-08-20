@@ -8574,6 +8574,183 @@ TEST_F(DBTest, OpenDBWithInfiniteMaxOpenFiles) {
   }
 }
 
+TEST_F(DBTest, GetTotalSstFilesSize) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+  // Generate 5 files in L0
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 10; j++) {
+      std::string val = "val_file_" + ToString(i);
+      ASSERT_OK(Put(Key(j), val));
+    }
+    Flush();
+  }
+  ASSERT_EQ("5", FilesPerLevel(0));
+
+  std::vector<LiveFileMetaData> live_files_meta;
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 5);
+  uint64_t single_file_size = live_files_meta[0].size;
+
+  uint64_t live_sst_files_size = 0;
+  uint64_t total_sst_files_size = 0;
+  for (const auto& file_meta : live_files_meta) {
+    live_sst_files_size += file_meta.size;
+  }
+
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 5
+  // Total SST files = 5
+  ASSERT_EQ(live_sst_files_size, 5 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, 5 * single_file_size);
+
+  // hold current version
+  std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
+
+  // Compact 5 files into 1 file in L0
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,1", FilesPerLevel(0));
+
+  live_files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 1);
+
+  live_sst_files_size = 0;
+  total_sst_files_size = 0;
+  for (const auto& file_meta : live_files_meta) {
+    live_sst_files_size += file_meta.size;
+  }
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 1 (compacted file)
+  // Total SST files = 6 (5 original files + compacted file)
+  ASSERT_EQ(live_sst_files_size, 1 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
+
+  // hold current version
+  std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
+
+  // Delete all keys and compact, this will delete all live files
+  for (int i = 0; i < 10; i++) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  Flush();
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  live_files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 0);
+
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 0
+  // Total SST files = 6 (5 original files + compacted file)
+  ASSERT_EQ(total_sst_files_size, 6 * single_file_size);
+
+  iter1.reset();
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 0
+  // Total SST files = 1 (compacted file)
+  ASSERT_EQ(total_sst_files_size, 1 * single_file_size);
+
+  iter2.reset();
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 0
+  // Total SST files = 0
+  ASSERT_EQ(total_sst_files_size, 0);
+}
+
+TEST_F(DBTest, GetTotalSstFilesSizeVersionsFilesShared) {
+  Options options = CurrentOptions();
+  options.disable_auto_compactions = true;
+  options.compression = kNoCompression;
+  DestroyAndReopen(options);
+  // Generate 5 files in L0
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(Put(Key(i), "val"));
+    Flush();
+  }
+  ASSERT_EQ("5", FilesPerLevel(0));
+
+  std::vector<LiveFileMetaData> live_files_meta;
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 5);
+  uint64_t single_file_size = live_files_meta[0].size;
+
+  uint64_t live_sst_files_size = 0;
+  uint64_t total_sst_files_size = 0;
+  for (const auto& file_meta : live_files_meta) {
+    live_sst_files_size += file_meta.size;
+  }
+
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+
+  // Live SST files = 5
+  // Total SST files = 5
+  ASSERT_EQ(live_sst_files_size, 5 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, 5 * single_file_size);
+
+  // hold current version
+  std::unique_ptr<Iterator> iter1(dbfull()->NewIterator(ReadOptions()));
+
+  // Compaction will do trivial move from L0 to L1
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("0,5", FilesPerLevel(0));
+
+  live_files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 5);
+
+  live_sst_files_size = 0;
+  total_sst_files_size = 0;
+  for (const auto& file_meta : live_files_meta) {
+    live_sst_files_size += file_meta.size;
+  }
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 5
+  // Total SST files = 5 (used in 2 version)
+  ASSERT_EQ(live_sst_files_size, 5 * single_file_size);
+  ASSERT_EQ(total_sst_files_size, 5 * single_file_size);
+
+  // hold current version
+  std::unique_ptr<Iterator> iter2(dbfull()->NewIterator(ReadOptions()));
+
+  // Delete all keys and compact, this will delete all live files
+  for (int i = 0; i < 5; i++) {
+    ASSERT_OK(Delete(Key(i)));
+  }
+  Flush();
+  ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ("", FilesPerLevel(0));
+
+  live_files_meta.clear();
+  dbfull()->GetLiveFilesMetaData(&live_files_meta);
+  ASSERT_EQ(live_files_meta.size(), 0);
+
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 0
+  // Total SST files = 5 (used in 2 version)
+  ASSERT_EQ(total_sst_files_size, 5 * single_file_size);
+
+  iter1.reset();
+  iter2.reset();
+
+  ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.total-sst-files-size",
+                                       &total_sst_files_size));
+  // Live SST files = 0
+  // Total SST files = 0
+  ASSERT_EQ(total_sst_files_size, 0);
+}
+
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Values(1, 4));
 

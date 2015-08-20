@@ -478,6 +478,10 @@ uint64_t ColumnFamilyData::GetNumLiveVersions() const {
   return VersionSet::GetNumLiveVersions(dummy_versions_);
 }
 
+uint64_t ColumnFamilyData::GetTotalSstFilesSize() const {
+  return VersionSet::GetTotalSstFilesSize(dummy_versions_);
+}
+
 MemTable* ColumnFamilyData::ConstructNewMemtable(
     const MutableCFOptions& mutable_cf_options, SequenceNumber earliest_seq) {
   assert(current_ != nullptr);

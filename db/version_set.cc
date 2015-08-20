@@ -3239,4 +3239,22 @@ uint64_t VersionSet::GetNumLiveVersions(Version* dummy_versions) {
   return count;
 }
 
+uint64_t VersionSet::GetTotalSstFilesSize(Version* dummy_versions) {
+  std::unordered_set<uint64_t> unique_files;
+  uint64_t total_files_size = 0;
+  for (Version* v = dummy_versions->next_; v != dummy_versions; v = v->next_) {
+    VersionStorageInfo* storage_info = v->storage_info();
+    for (int level = 0; level < storage_info->num_levels_; level++) {
+      for (const auto& file_meta : storage_info->LevelFiles(level)) {
+        if (unique_files.find(file_meta->fd.packed_number_and_path_id) ==
+            unique_files.end()) {
+          unique_files.insert(file_meta->fd.packed_number_and_path_id);
+          total_files_size += file_meta->fd.GetFileSize();
+        }
+      }
+    }
+  }
+  return total_files_size;
+}
+
 }  // namespace rocksdb

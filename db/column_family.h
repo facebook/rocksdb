@@ -226,6 +226,7 @@ class ColumnFamilyData {
   Version* dummy_versions() { return dummy_versions_; }
   void SetCurrent(Version* current);
   uint64_t GetNumLiveVersions() const;  // REQUIRE: DB mutex held
+  uint64_t GetTotalSstFilesSize() const;  // REQUIRE: DB mutex held
   void SetMemtable(MemTable* new_mem) { mem_ = new_mem; }
 
   // See Memtable constructor for explanation of earliest_seq param.

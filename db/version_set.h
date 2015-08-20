@@ -651,6 +651,8 @@ class VersionSet {
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
 
+  static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
+
  private:
   struct ManifestWriter;
 

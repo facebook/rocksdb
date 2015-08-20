@@ -328,6 +328,8 @@ class DB {
 //      files are held from being deleted, by iterators or unfinished
 //      compactions.
 //  "rocksdb.estimate-live-data-size"
+//  "rocksdb.total-sst-files-size" - total size of all used sst files, this may
+//      slow down online queries if there are too many files.
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -353,6 +355,7 @@ class DB {
     static const std::string kOldestSnapshotTime;
     static const std::string kNumLiveVersions;
     static const std::string kEstimateLiveDataSize;
+    static const std::string kTotalSstFilesSize;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -383,6 +386,7 @@ class DB {
   //  "rocksdb.oldest-snapshot-time"
   //  "rocksdb.num-live-versions"
   //  "rocksdb.estimate-live-data-size"
+  //  "rocksdb.total-sst-files-size"
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
