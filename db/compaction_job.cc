@@ -127,9 +127,9 @@ struct CompactionJob::SubCompactionState {
       earliest_snapshot(earliest),
       visible_at_tip(visible),
       latest_snapshot(latest) {
-        assert(compaction != nullptr);
-        level_ptrs = std::vector<size_t>(compaction->number_levels(), 0);
-      }
+    assert(compaction != nullptr);
+    level_ptrs = std::vector<size_t>(compaction->number_levels(), 0);
+  }
 
   SubCompactionState(SubCompactionState&& o) {
     *this = std::move(o);
