@@ -27,11 +27,7 @@ struct WriteOptions;
 OptimisticTransactionImpl::OptimisticTransactionImpl(
     OptimisticTransactionDB* txn_db, const WriteOptions& write_options,
     const OptimisticTransactionOptions& txn_options)
-    : txn_db_(txn_db),
-      db_(txn_db->GetBaseDB()),
-      write_options_(write_options),
-      cmp_(txn_options.cmp),
-      write_batch_(new WriteBatchWithIndex(txn_options.cmp, 0, true)) {
+    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options), txn_db_(txn_db) {
   if (txn_options.set_snapshot) {
     SetSnapshot();
   }
@@ -44,10 +40,6 @@ void OptimisticTransactionImpl::Cleanup() {
   tracked_keys_.clear();
   save_points_.reset(nullptr);
   write_batch_->Clear();
-}
-
-void OptimisticTransactionImpl::SetSnapshot() {
-  snapshot_.reset(new ManagedSnapshot(db_));
 }
 
 Status OptimisticTransactionImpl::Commit() {
@@ -77,34 +69,12 @@ void OptimisticTransactionImpl::Rollback() {
   Cleanup();
 }
 
-void OptimisticTransactionImpl::SetSavePoint() {
-  if (save_points_ == nullptr) {
-    save_points_.reset(new std::stack<std::shared_ptr<ManagedSnapshot>>());
-  }
-  save_points_->push(snapshot_);
-  write_batch_->SetSavePoint();
-}
-
-Status OptimisticTransactionImpl::RollbackToSavePoint() {
-  if (save_points_ != nullptr && save_points_->size() > 0) {
-    // Restore saved snapshot
-    snapshot_ = save_points_->top();
-    save_points_->pop();
-
-    // Rollback batch
-    Status s = write_batch_->RollbackToSavePoint();
-    assert(s.ok());
-
-    return s;
-  } else {
-    assert(write_batch_->RollbackToSavePoint().IsNotFound());
-    return Status::NotFound();
-  }
-}
-
 // Record this key so that we can check it for conflicts at commit time.
-void OptimisticTransactionImpl::RecordOperation(
-    ColumnFamilyHandle* column_family, const Slice& key) {
+Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
+                                          const Slice& key, bool untracked) {
+  if (untracked) {
+    return Status::OK();
+  }
   uint32_t cfh_id = GetColumnFamilyID(column_family);
 
   SequenceNumber seq;
@@ -128,188 +98,9 @@ void OptimisticTransactionImpl::RecordOperation(
       tracked_keys_[cfh_id][key_str] = seq;
     }
   }
-}
 
-void OptimisticTransactionImpl::RecordOperation(
-    ColumnFamilyHandle* column_family, const SliceParts& key) {
-  size_t key_size = 0;
-  for (int i = 0; i < key.num_parts; ++i) {
-    key_size += key.parts[i].size();
-  }
-
-  std::string str;
-  str.reserve(key_size);
-
-  for (int i = 0; i < key.num_parts; ++i) {
-    str.append(key.parts[i].data(), key.parts[i].size());
-  }
-
-  RecordOperation(column_family, str);
-}
-
-Status OptimisticTransactionImpl::Get(const ReadOptions& read_options,
-                                      ColumnFamilyHandle* column_family,
-                                      const Slice& key, std::string* value) {
-  return write_batch_->GetFromBatchAndDB(db_, read_options, column_family, key,
-                                         value);
-}
-
-Status OptimisticTransactionImpl::GetForUpdate(
-    const ReadOptions& read_options, ColumnFamilyHandle* column_family,
-    const Slice& key, std::string* value) {
-  // Regardless of whether the Get succeeded, track this key.
-  RecordOperation(column_family, key);
-
-  if (value == nullptr) {
-    return Status::OK();
-  } else {
-    return Get(read_options, column_family, key, value);
-  }
-}
-
-std::vector<Status> OptimisticTransactionImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  // Regardless of whether the MultiGet succeeded, track these keys.
-  size_t num_keys = keys.size();
-  values->resize(num_keys);
-
-  // TODO(agiardullo): optimize multiget?
-  std::vector<Status> stat_list(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = Get(read_options, column_family[i], keys[i], value);
-  }
-
-  return stat_list;
-}
-
-std::vector<Status> OptimisticTransactionImpl::MultiGetForUpdate(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  // Regardless of whether the MultiGet succeeded, track these keys.
-  size_t num_keys = keys.size();
-  values->resize(num_keys);
-
-  // TODO(agiardullo): optimize multiget?
-  std::vector<Status> stat_list(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    // Regardless of whether the Get succeeded, track this key.
-    RecordOperation(column_family[i], keys[i]);
-
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = Get(read_options, column_family[i], keys[i], value);
-  }
-
-  return stat_list;
-}
-
-Iterator* OptimisticTransactionImpl::GetIterator(
-    const ReadOptions& read_options) {
-  Iterator* db_iter = db_->NewIterator(read_options);
-  assert(db_iter);
-
-  return write_batch_->NewIteratorWithBase(db_iter);
-}
-
-Iterator* OptimisticTransactionImpl::GetIterator(
-    const ReadOptions& read_options, ColumnFamilyHandle* column_family) {
-  Iterator* db_iter = db_->NewIterator(read_options, column_family);
-  assert(db_iter);
-
-  return write_batch_->NewIteratorWithBase(column_family, db_iter);
-}
-
-Status OptimisticTransactionImpl::Put(ColumnFamilyHandle* column_family,
-                                      const Slice& key, const Slice& value) {
-  RecordOperation(column_family, key);
-
-  write_batch_->Put(column_family, key, value);
-
+  // Always return OK. Confilct checking will happen at commit time.
   return Status::OK();
-}
-
-Status OptimisticTransactionImpl::Put(ColumnFamilyHandle* column_family,
-                                      const SliceParts& key,
-                                      const SliceParts& value) {
-  RecordOperation(column_family, key);
-
-  write_batch_->Put(column_family, key, value);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::Merge(ColumnFamilyHandle* column_family,
-                                        const Slice& key, const Slice& value) {
-  RecordOperation(column_family, key);
-
-  write_batch_->Merge(column_family, key, value);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::Delete(ColumnFamilyHandle* column_family,
-                                         const Slice& key) {
-  RecordOperation(column_family, key);
-
-  write_batch_->Delete(column_family, key);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::Delete(ColumnFamilyHandle* column_family,
-                                         const SliceParts& key) {
-  RecordOperation(column_family, key);
-
-  write_batch_->Delete(column_family, key);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::PutUntracked(
-    ColumnFamilyHandle* column_family, const Slice& key, const Slice& value) {
-  write_batch_->Put(column_family, key, value);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::PutUntracked(
-    ColumnFamilyHandle* column_family, const SliceParts& key,
-    const SliceParts& value) {
-  write_batch_->Put(column_family, key, value);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::MergeUntracked(
-    ColumnFamilyHandle* column_family, const Slice& key, const Slice& value) {
-  write_batch_->Merge(column_family, key, value);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::DeleteUntracked(
-    ColumnFamilyHandle* column_family, const Slice& key) {
-  write_batch_->Delete(column_family, key);
-
-  return Status::OK();
-}
-
-Status OptimisticTransactionImpl::DeleteUntracked(
-    ColumnFamilyHandle* column_family, const SliceParts& key) {
-  write_batch_->Delete(column_family, key);
-
-  return Status::OK();
-}
-
-void OptimisticTransactionImpl::PutLogData(const Slice& blob) {
-  write_batch_->PutLogData(blob);
-}
-
-WriteBatchWithIndex* OptimisticTransactionImpl::GetWriteBatch() {
-  return write_batch_.get();
 }
 
 // Returns OK if it is safe to commit this transaction.  Returns Status::Busy

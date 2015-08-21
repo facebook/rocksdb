@@ -22,6 +22,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "utilities/transactions/transaction_base.h"
 #include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
@@ -30,7 +31,7 @@ using TransactionID = uint64_t;
 
 class TransactionDBImpl;
 
-class TransactionImpl : public Transaction {
+class TransactionImpl : public TransactionBaseImpl {
  public:
   TransactionImpl(TransactionDB* db, const WriteOptions& write_options,
                   const TransactionOptions& txn_options);
@@ -42,123 +43,6 @@ class TransactionImpl : public Transaction {
   Status CommitBatch(WriteBatch* batch);
 
   void Rollback() override;
-
-  void SetSavePoint() override;
-
-  Status RollbackToSavePoint() override;
-
-  Status Get(const ReadOptions& options, ColumnFamilyHandle* column_family,
-             const Slice& key, std::string* value) override;
-
-  Status Get(const ReadOptions& options, const Slice& key,
-             std::string* value) override {
-    return Get(options, db_->DefaultColumnFamily(), key, value);
-  }
-
-  Status GetForUpdate(const ReadOptions& options,
-                      ColumnFamilyHandle* column_family, const Slice& key,
-                      std::string* value) override;
-
-  Status GetForUpdate(const ReadOptions& options, const Slice& key,
-                      std::string* value) override {
-    return GetForUpdate(options, db_->DefaultColumnFamily(), key, value);
-  }
-
-  std::vector<Status> MultiGet(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
-
-  std::vector<Status> MultiGet(const ReadOptions& options,
-                               const std::vector<Slice>& keys,
-                               std::vector<std::string>* values) override {
-    return MultiGet(options, std::vector<ColumnFamilyHandle*>(
-                                 keys.size(), db_->DefaultColumnFamily()),
-                    keys, values);
-  }
-
-  std::vector<Status> MultiGetForUpdate(
-      const ReadOptions& options,
-      const std::vector<ColumnFamilyHandle*>& column_family,
-      const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override;
-
-  std::vector<Status> MultiGetForUpdate(
-      const ReadOptions& options, const std::vector<Slice>& keys,
-      std::vector<std::string>* values) override {
-    return MultiGetForUpdate(options,
-                             std::vector<ColumnFamilyHandle*>(
-                                 keys.size(), db_->DefaultColumnFamily()),
-                             keys, values);
-  }
-
-  Iterator* GetIterator(const ReadOptions& read_options) override;
-  Iterator* GetIterator(const ReadOptions& read_options,
-                        ColumnFamilyHandle* column_family) override;
-
-  Status Put(ColumnFamilyHandle* column_family, const Slice& key,
-             const Slice& value) override;
-  Status Put(const Slice& key, const Slice& value) override {
-    return Put(nullptr, key, value);
-  }
-
-  Status Put(ColumnFamilyHandle* column_family, const SliceParts& key,
-             const SliceParts& value) override;
-  Status Put(const SliceParts& key, const SliceParts& value) override {
-    return Put(nullptr, key, value);
-  }
-
-  Status Merge(ColumnFamilyHandle* column_family, const Slice& key,
-               const Slice& value) override;
-  Status Merge(const Slice& key, const Slice& value) override {
-    return Merge(nullptr, key, value);
-  }
-
-  Status Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
-  Status Delete(const Slice& key) override { return Delete(nullptr, key); }
-  Status Delete(ColumnFamilyHandle* column_family,
-                const SliceParts& key) override;
-  Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
-
-  Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
-                      const Slice& value) override;
-  Status PutUntracked(const Slice& key, const Slice& value) override {
-    return PutUntracked(nullptr, key, value);
-  }
-
-  Status PutUntracked(ColumnFamilyHandle* column_family, const SliceParts& key,
-                      const SliceParts& value) override;
-  Status PutUntracked(const SliceParts& key, const SliceParts& value) override {
-    return PutUntracked(nullptr, key, value);
-  }
-
-  Status MergeUntracked(ColumnFamilyHandle* column_family, const Slice& key,
-                        const Slice& value) override;
-  Status MergeUntracked(const Slice& key, const Slice& value) override {
-    return MergeUntracked(nullptr, key, value);
-  }
-
-  Status DeleteUntracked(ColumnFamilyHandle* column_family,
-                         const Slice& key) override;
-  Status DeleteUntracked(const Slice& key) override {
-    return DeleteUntracked(nullptr, key);
-  }
-  Status DeleteUntracked(ColumnFamilyHandle* column_family,
-                         const SliceParts& key) override;
-  Status DeleteUntracked(const SliceParts& key) override {
-    return DeleteUntracked(nullptr, key);
-  }
-
-  void PutLogData(const Slice& blob) override;
-
-  const Snapshot* GetSnapshot() const override {
-    return snapshot_ ? snapshot_->snapshot() : nullptr;
-  }
-
-  void SetSnapshot() override;
-
-  WriteBatchWithIndex* GetWriteBatch() override;
 
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
@@ -178,9 +62,11 @@ class TransactionImpl : public Transaction {
   int64_t GetLockTimeout() const { return lock_timeout_; }
   void SetLockTimeout(int64_t timeout) { lock_timeout_ = timeout; }
 
- private:
-  TransactionDB* const db_;
+ protected:
+  Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
+                 bool untracked = false) override;
 
+ private:
   TransactionDBImpl* txn_db_impl_;
 
   // Used to create unique ids for transactions.
@@ -188,21 +74,6 @@ class TransactionImpl : public Transaction {
 
   // Unique ID for this transaction
   const TransactionID txn_id_;
-
-  const WriteOptions write_options_;
-
-  // If snapshot_ is set, all keys that locked must also have not been written
-  // since this snapshot
-  std::shared_ptr<ManagedSnapshot> snapshot_;
-
-  const Comparator* cmp_;
-
-  std::unique_ptr<WriteBatchWithIndex> write_batch_;
-
-  // If expiration_ is non-zero, start_time_ stores that time the txn was
-  // constructed,
-  // in milliseconds.
-  const uint64_t start_time_;
 
   // If non-zero, this transaction should not be committed after this time (in
   // milliseconds)
@@ -217,14 +88,6 @@ class TransactionImpl : public Transaction {
   // stored.
   TransactionKeyMap tracked_keys_;
 
-  // Stack of the Snapshot saved at each save point.  Saved snapshots may be
-  // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<std::shared_ptr<ManagedSnapshot>>> save_points_;
-
-  Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool check_snapshot = true);
-  Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
-                 bool check_snapshot = true);
   void Cleanup();
 
   Status CheckKeySequence(ColumnFamilyHandle* column_family, const Slice& key);

@@ -36,18 +36,13 @@ TransactionID TransactionImpl::GenTxnID() {
 TransactionImpl::TransactionImpl(TransactionDB* txn_db,
                                  const WriteOptions& write_options,
                                  const TransactionOptions& txn_options)
-    : db_(txn_db),
+    : TransactionBaseImpl(txn_db->GetBaseDB(), write_options),
       txn_db_impl_(nullptr),
       txn_id_(GenTxnID()),
-      write_options_(write_options),
-      cmp_(GetColumnFamilyUserComparator(txn_db->DefaultColumnFamily())),
-      write_batch_(new WriteBatchWithIndex(cmp_, 0, true)),
-      start_time_(
-          txn_options.expiration >= 0 ? db_->GetEnv()->NowMicros() / 1000 : 0),
       expiration_time_(txn_options.expiration >= 0
-                           ? start_time_ + txn_options.expiration
-                       : 0),
-  lock_timeout_(txn_options.lock_timeout) {
+                           ? start_time_ / 1000 + txn_options.expiration
+                           : 0),
+      lock_timeout_(txn_options.lock_timeout) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
 
@@ -63,10 +58,6 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
 
 TransactionImpl::~TransactionImpl() {
   txn_db_impl_->UnLock(this, &tracked_keys_);
-}
-
-void TransactionImpl::SetSnapshot() {
-  snapshot_.reset(new ManagedSnapshot(db_));
 }
 
 void TransactionImpl::Cleanup() {
@@ -112,10 +103,6 @@ Status TransactionImpl::Commit() {
 Status TransactionImpl::DoCommit(WriteBatch* batch) {
   Status s;
 
-  // Do write directly on base db as TransctionDB::Write() would attempt to
-  // do conflict checking that we've already done.
-  DB* db = db_->GetBaseDB();
-
   if (expiration_time_ > 0) {
     // We cannot commit a transaction that is expired as its locks might have
     // been released.
@@ -123,42 +110,20 @@ Status TransactionImpl::DoCommit(WriteBatch* batch) {
     // expiration time once we're on the writer thread.
     TransactionCallback callback(this);
 
-    assert(dynamic_cast<DBImpl*>(db) != nullptr);
-    auto db_impl = reinterpret_cast<DBImpl*>(db);
+    // Do write directly on base db as TransctionDB::Write() would attempt to
+    // do conflict checking that we've already done.
+    assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+    auto db_impl = reinterpret_cast<DBImpl*>(db_);
+
     s = db_impl->WriteWithCallback(write_options_, batch, &callback);
   } else {
-    s = db->Write(write_options_, batch);
+    s = db_->Write(write_options_, batch);
   }
 
   return s;
 }
 
 void TransactionImpl::Rollback() { Cleanup(); }
-
-void TransactionImpl::SetSavePoint() {
-  if (save_points_ == nullptr) {
-    save_points_.reset(new std::stack<std::shared_ptr<ManagedSnapshot>>());
-  }
-  save_points_->push(snapshot_);
-  write_batch_->SetSavePoint();
-}
-
-Status TransactionImpl::RollbackToSavePoint() {
-  if (save_points_ != nullptr && save_points_->size() > 0) {
-    // Restore saved snapshot
-    snapshot_ = save_points_->top();
-    save_points_->pop();
-
-    // Rollback batch
-    Status s = write_batch_->RollbackToSavePoint();
-    assert(s.ok());
-
-    return s;
-  } else {
-    assert(write_batch_->RollbackToSavePoint().IsNotFound());
-    return Status::NotFound();
-  }
-}
 
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
@@ -234,34 +199,25 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
   return s;
 }
 
-Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                const SliceParts& key, bool check_snapshot) {
-  size_t key_size = 0;
-  for (int i = 0; i < key.num_parts; ++i) {
-    key_size += key.parts[i].size();
-  }
-
-  std::string str;
-  str.reserve(key_size);
-
-  for (int i = 0; i < key.num_parts; ++i) {
-    str.append(key.parts[i].data(), key.parts[i].size());
-  }
-
-  return TryLock(column_family, str, check_snapshot);
-}
-
 // Attempt to lock this key.
 // Returns OK if the key has been successfully locked.  Non-ok, otherwise.
 // If check_shapshot is true and this transaction has a snapshot set,
 // this key will only be locked if there have been no writes to this key since
 // the snapshot time.
 Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                const Slice& key, bool check_snapshot) {
+                                const Slice& key, bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
   Status s;
+
+  // Even though we do not care about doing conflict checking for this write,
+  // we still need to take a lock to make sure we do not cause a conflict with
+  // some other write.  However, we do not need to check if there have been
+  // any writes since this transaction's snapshot.
+  // TODO(agiardullo): could optimize by supporting shared txn locks in the
+  // future
+  bool check_snapshot = !untracked;
 
   // lock this key if this transactions hasn't already locked it
   auto iter = tracked_keys_[cfh_id].find(key_str);
@@ -327,8 +283,8 @@ Status TransactionImpl::CheckKeySequence(ColumnFamilyHandle* column_family,
                                          const Slice& key) {
   Status result;
   if (snapshot_ != nullptr) {
-    assert(dynamic_cast<DBImpl*>(db_->GetBaseDB()) != nullptr);
-    auto db_impl = reinterpret_cast<DBImpl*>(db_->GetBaseDB());
+    assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+    auto db_impl = reinterpret_cast<DBImpl*>(db_);
 
     ColumnFamilyHandle* cfh = column_family ? column_family :
       db_impl->DefaultColumnFamily();
@@ -339,213 +295,6 @@ Status TransactionImpl::CheckKeySequence(ColumnFamilyHandle* column_family,
   }
 
   return result;
-}
-
-Status TransactionImpl::Get(const ReadOptions& read_options,
-                            ColumnFamilyHandle* column_family, const Slice& key,
-                            std::string* value) {
-  return write_batch_->GetFromBatchAndDB(db_, read_options, column_family, key,
-                                         value);
-}
-
-Status TransactionImpl::GetForUpdate(const ReadOptions& read_options,
-                                     ColumnFamilyHandle* column_family,
-                                     const Slice& key, std::string* value) {
-  Status s = TryLock(column_family, key);
-
-  if (s.ok() && value != nullptr) {
-    s = Get(read_options, column_family, key, value);
-  }
-  return s;
-}
-
-std::vector<Status> TransactionImpl::MultiGet(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  size_t num_keys = keys.size();
-  values->resize(num_keys);
-
-  std::vector<Status> stat_list(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = Get(read_options, column_family[i], keys[i], value);
-  }
-
-  return stat_list;
-}
-
-std::vector<Status> TransactionImpl::MultiGetForUpdate(
-    const ReadOptions& read_options,
-    const std::vector<ColumnFamilyHandle*>& column_family,
-    const std::vector<Slice>& keys, std::vector<std::string>* values) {
-  // Regardless of whether the MultiGet succeeded, track these keys.
-  size_t num_keys = keys.size();
-  values->resize(num_keys);
-
-  // Lock all keys
-  for (size_t i = 0; i < num_keys; ++i) {
-    Status s = TryLock(column_family[i], keys[i]);
-    if (!s.ok()) {
-      // Fail entire multiget if we cannot lock all keys
-      return std::vector<Status>(num_keys, s);
-    }
-  }
-
-  // TODO(agiardullo): optimize multiget?
-  std::vector<Status> stat_list(num_keys);
-  for (size_t i = 0; i < num_keys; ++i) {
-    std::string* value = values ? &(*values)[i] : nullptr;
-    stat_list[i] = Get(read_options, column_family[i], keys[i], value);
-  }
-
-  return stat_list;
-}
-
-Iterator* TransactionImpl::GetIterator(const ReadOptions& read_options) {
-  Iterator* db_iter = db_->NewIterator(read_options);
-  assert(db_iter);
-
-  return write_batch_->NewIteratorWithBase(db_iter);
-}
-
-Iterator* TransactionImpl::GetIterator(const ReadOptions& read_options,
-                                       ColumnFamilyHandle* column_family) {
-  Iterator* db_iter = db_->NewIterator(read_options, column_family);
-  assert(db_iter);
-
-  return write_batch_->NewIteratorWithBase(column_family, db_iter);
-}
-
-Status TransactionImpl::Put(ColumnFamilyHandle* column_family, const Slice& key,
-                            const Slice& value) {
-  Status s = TryLock(column_family, key);
-
-  if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::Put(ColumnFamilyHandle* column_family,
-                            const SliceParts& key, const SliceParts& value) {
-  Status s = TryLock(column_family, key);
-
-  if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::Merge(ColumnFamilyHandle* column_family,
-                              const Slice& key, const Slice& value) {
-  Status s = TryLock(column_family, key);
-
-  if (s.ok()) {
-    write_batch_->Merge(column_family, key, value);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::Delete(ColumnFamilyHandle* column_family,
-                               const Slice& key) {
-  Status s = TryLock(column_family, key);
-
-  if (s.ok()) {
-    write_batch_->Delete(column_family, key);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::Delete(ColumnFamilyHandle* column_family,
-                               const SliceParts& key) {
-  Status s = TryLock(column_family, key);
-
-  if (s.ok()) {
-    write_batch_->Delete(column_family, key);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::PutUntracked(ColumnFamilyHandle* column_family,
-                                     const Slice& key, const Slice& value) {
-  // Even though we do not care about doing conflict checking for this write,
-  // we still need to take a lock to make sure we do not cause a conflict with
-  // some other write.  However, we do not need to check if there have been
-  // any writes since this transaction's snapshot.
-  bool check_snapshot = false;
-
-  // TODO(agiardullo): could optimize by supporting shared txn locks in the
-  // future
-  Status s = TryLock(column_family, key, check_snapshot);
-
-  if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::PutUntracked(ColumnFamilyHandle* column_family,
-                                     const SliceParts& key,
-                                     const SliceParts& value) {
-  bool check_snapshot = false;
-  Status s = TryLock(column_family, key, check_snapshot);
-
-  if (s.ok()) {
-    write_batch_->Put(column_family, key, value);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::MergeUntracked(ColumnFamilyHandle* column_family,
-                                       const Slice& key, const Slice& value) {
-  bool check_snapshot = false;
-  Status s = TryLock(column_family, key, check_snapshot);
-
-  if (s.ok()) {
-    write_batch_->Merge(column_family, key, value);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
-                                        const Slice& key) {
-  bool check_snapshot = false;
-  Status s = TryLock(column_family, key, check_snapshot);
-
-  if (s.ok()) {
-    write_batch_->Delete(column_family, key);
-  }
-
-  return s;
-}
-
-Status TransactionImpl::DeleteUntracked(ColumnFamilyHandle* column_family,
-                                        const SliceParts& key) {
-  bool check_snapshot = false;
-  Status s = TryLock(column_family, key, check_snapshot);
-
-  if (s.ok()) {
-    write_batch_->Delete(column_family, key);
-  }
-
-  return s;
-}
-
-void TransactionImpl::PutLogData(const Slice& blob) {
-  write_batch_->PutLogData(blob);
-}
-
-WriteBatchWithIndex* TransactionImpl::GetWriteBatch() {
-  return write_batch_.get();
 }
 
 }  // namespace rocksdb
