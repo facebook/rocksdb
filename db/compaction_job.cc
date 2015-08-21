@@ -380,13 +380,13 @@ void CompactionJob::InitializeSubCompactions(const SequenceNumber& earliest,
           }
 
           // Divide the potential L1 file boundaries (those that passed the
-          // checks above) into 'num_subcompactions' groups such that each have
+          // checks above) into 'max_subcompactions' groups such that each have
           // as close to an equal number of files in it as possible
           // TODO(aekmekji): refine this later to depend on file size
           size_t files_left = candidates.size();
           size_t subcompactions_left =
-              static_cast<size_t>(db_options_.num_subcompactions) < files_left
-                  ? db_options_.num_subcompactions
+              static_cast<size_t>(db_options_.max_subcompactions) < files_left
+                  ? db_options_.max_subcompactions
                   : files_left;
 
           size_t num_to_include;

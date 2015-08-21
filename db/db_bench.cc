@@ -221,6 +221,17 @@ static bool ValidateKeySize(const char* flagname, int32_t value) {
   return true;
 }
 
+static bool ValidateUint32Range(const char* flagname, uint64_t value) {
+  if (value > std::numeric_limits<uint32_t>::max()) {
+    fprintf(stderr,
+            "Invalid value for --%s: %lu, overflow\n",
+            flagname,
+            (unsigned long)value);
+    return false;
+  }
+  return true;
+}
+
 DEFINE_int32(key_size, 16, "size of each key");
 
 DEFINE_int32(num_multi_db, 0,
@@ -285,6 +296,12 @@ DEFINE_int32(max_background_compactions,
              rocksdb::Options().max_background_compactions,
              "The maximum number of concurrent background compactions"
              " that can occur in parallel.");
+
+DEFINE_uint64(subcompactions, 1,
+             "Maximum number of subcompactions to divide L0-L1 compactions "
+             "into.");
+static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
+    RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
 DEFINE_int32(max_background_flushes,
              rocksdb::Options().max_background_flushes,
@@ -2158,6 +2175,7 @@ class Benchmark {
     options.max_write_buffer_number_to_maintain =
         FLAGS_max_write_buffer_number_to_maintain;
     options.max_background_compactions = FLAGS_max_background_compactions;
+    options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
     if (FLAGS_prefix_size != 0) {

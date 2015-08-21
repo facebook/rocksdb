@@ -152,7 +152,7 @@ bool DBTestBase::ChangeCompactOptions() {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
-    options.num_subcompactions = 4;
+    options.max_subcompactions = 4;
     TryReopen(options);
     return true;
   } else {
@@ -312,7 +312,7 @@ Options DBTestBase::CurrentOptions(
       break;
     }
     case kLevelSubcompactions: {
-      options.num_subcompactions = 2;
+      options.max_subcompactions = 2;
       break;
     }
 

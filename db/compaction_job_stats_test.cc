@@ -92,7 +92,7 @@ class CompactionJobStatsTest : public testing::Test,
   Env* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
-  uint32_t num_subcompactions_;
+  uint32_t max_subcompactions_;
 
   Options last_options_;
 
@@ -103,8 +103,8 @@ class CompactionJobStatsTest : public testing::Test,
     alternative_wal_dir_ = dbname_ + "/wal";
     Options options;
     options.create_if_missing = true;
-    num_subcompactions_ = GetParam();
-    options.num_subcompactions = num_subcompactions_;
+    max_subcompactions_ = GetParam();
+    options.max_subcompactions = max_subcompactions_;
     auto delete_options = options;
     delete_options.wal_dir = alternative_wal_dir_;
     EXPECT_OK(DestroyDB(dbname_, delete_options));
@@ -656,7 +656,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   options.level0_file_num_compaction_trigger = kTestScale + 1;
   options.num_levels = 3;
   options.compression = kNoCompression;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options.bytes_per_sync = 512 * 1024;
 
   options.compaction_measure_io_stats = true;
@@ -740,7 +740,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     // by 1 because multiple threads are consuming the input and generating
     // output files without coordinating to see if the output could fit into
     // a smaller number of files like it does when it runs sequentially
-    int num_output_files = options.num_subcompactions > 1 ? 2 : 1;
+    int num_output_files = options.max_subcompactions > 1 ? 2 : 1;
     for (uint64_t start_key = key_base;
          num_L0_files > 1;
          start_key += key_base * sparseness) {
@@ -760,7 +760,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
       Compact(1, smallest_key, largest_key);
       // TODO(aekmekji): account for whether parallel L0-L1 compaction is
       // enabled or not. If so then num_L1_files will increase by 1
-      if (options.num_subcompactions == 1) {
+      if (options.max_subcompactions == 1) {
         --num_L1_files;
       }
       snprintf(buf, kBufSize, "%d,%d", --num_L0_files, num_L1_files);
@@ -783,7 +783,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
     Compact(1, smallest_key, largest_key);
 
-    num_L1_files = options.num_subcompactions > 1 ? 7 : 4;
+    num_L1_files = options.max_subcompactions > 1 ? 7 : 4;
     char L1_buf[4];
     snprintf(L1_buf, sizeof(L1_buf), "0,%d", num_L1_files);
     std::string L1_files(L1_buf);
@@ -880,7 +880,7 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   options.num_levels = 3;
   options.compression = kNoCompression;
   options.max_bytes_for_level_multiplier = 2;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -972,7 +972,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.size_ratio = 1;
   options.compaction_options_universal.max_size_amplification_percent = 1000;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);

@@ -120,15 +120,13 @@ class DBTest : public DBTestBase {
 class DBTestWithParam : public DBTest,
                         public testing::WithParamInterface<uint32_t> {
  public:
-  DBTestWithParam() {
-    num_subcompactions_ = GetParam();
-  }
+  DBTestWithParam() { max_subcompactions_ = GetParam(); }
 
   // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  uint32_t num_subcompactions_;
+  uint32_t max_subcompactions_;
 };
 
 TEST_F(DBTest, Empty) {
@@ -5745,7 +5743,7 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
     options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
     options.compression = kNoCompression;
     options.create_if_missing = true;
-    options.num_subcompactions = num_subcompactions_;
+    options.max_subcompactions = max_subcompactions_;
     if (iter == 1) {
       options.disable_auto_compactions = true;
     }
@@ -6389,7 +6387,7 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
   options.enable_thread_tracking = true;
   const int kNumL0Files = 4;
   options.level0_file_num_compaction_trigger = kNumL0Files;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"DBTest::ThreadStatusSingleCompaction:0", "DBImpl::BGWorkCompaction"},
@@ -6438,7 +6436,7 @@ TEST_P(DBTestWithParam, ThreadStatusSingleCompaction) {
 TEST_P(DBTestWithParam, PreShutdownManualCompaction) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -6524,7 +6522,7 @@ TEST_P(DBTestWithParam, PreShutdownMultipleCompaction) {
   options.max_background_compactions = kLowPriCount;
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   TryReopen(options);
   Random rnd(301);
@@ -6613,7 +6611,7 @@ TEST_P(DBTestWithParam, PreShutdownCompactionMiddle) {
   options.max_background_compactions = kLowPriCount;
   options.level0_stop_writes_trigger = 1 << 10;
   options.level0_slowdown_writes_trigger = 1 << 10;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   TryReopen(options);
   Random rnd(301);
@@ -6938,7 +6936,7 @@ TEST_P(DBTestWithParam, DynamicCompactionOptions) {
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = k128KB;
   options.max_bytes_for_level_multiplier = 4;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   // Block flush thread and disable compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -7670,7 +7668,7 @@ TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
   options.statistics = rocksdb::CreateDBStatistics();
   options.merge_operator.reset(new DelayedMergeOperator(this));
   options.compaction_style = kCompactionStyleUniversal;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   DestroyAndReopen(options);
 
   for (int i = 0; i < 1000; i++) {
@@ -7690,7 +7688,7 @@ TEST_P(DBTestWithParam, FilterCompactionTimeTest) {
   options.disable_auto_compactions = true;
   options.create_if_missing = true;
   options.statistics = rocksdb::CreateDBStatistics();
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 

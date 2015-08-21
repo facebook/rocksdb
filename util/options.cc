@@ -221,7 +221,7 @@ DBOptions::DBOptions()
       wal_dir(""),
       delete_obsolete_files_period_micros(6 * 60 * 60 * 1000000UL),
       max_background_compactions(1),
-      num_subcompactions(1),
+      max_subcompactions(1),
       max_background_flushes(1),
       max_log_file_size(0),
       log_file_time_to_roll(0),
@@ -273,7 +273,7 @@ DBOptions::DBOptions(const Options& options)
       delete_obsolete_files_period_micros(
           options.delete_obsolete_files_period_micros),
       max_background_compactions(options.max_background_compactions),
-      num_subcompactions(options.num_subcompactions),
+      max_subcompactions(options.max_subcompactions),
       max_background_flushes(options.max_background_flushes),
       max_log_file_size(options.max_log_file_size),
       log_file_time_to_roll(options.log_file_time_to_roll),

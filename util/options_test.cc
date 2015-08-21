@@ -552,7 +552,7 @@ void VerifyDBOptions(const DBOptions& base_opt, const DBOptions& new_opt) {
   ASSERT_EQ(base_opt.wal_dir, new_opt.wal_dir);
 
   // uint32_t options
-  ASSERT_EQ(base_opt.num_subcompactions, new_opt.num_subcompactions);
+  ASSERT_EQ(base_opt.max_subcompactions, new_opt.max_subcompactions);
 
   // uint64_t options
   ASSERT_EQ(base_opt.WAL_size_limit_MB, new_opt.WAL_size_limit_MB);
@@ -611,7 +611,7 @@ TEST_F(OptionsTest, DBOptionsSerialization) {
   base_options.wal_dir = "path/to/wal_dir";
 
   // uint32_t options
-  base_options.num_subcompactions = rnd.Uniform(100000);
+  base_options.max_subcompactions = rnd.Uniform(100000);
 
   // uint64_t options
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);

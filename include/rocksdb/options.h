@@ -908,7 +908,7 @@ struct DBOptions {
   // into multiple, smaller ones that are run simultaneously. This is still
   // under development and is only available for level-based compaction.
   // Default: 1
-  uint32_t num_subcompactions;
+  uint32_t max_subcompactions;
 
   // Maximum number of concurrent background memtable flush jobs, submitted to
   // the HIGH priority thread pool.

@@ -1883,7 +1883,7 @@ class StressTest {
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
-    options_.num_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
+    options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");

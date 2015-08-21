@@ -26,14 +26,14 @@ class DBCompactionTestWithParam : public DBTestBase,
                                 public testing::WithParamInterface<uint32_t> {
  public:
   DBCompactionTestWithParam() : DBTestBase("/db_compaction_test") {
-    num_subcompactions_ = GetParam();
+    max_subcompactions_ = GetParam();
   }
 
   // Required if inheriting from testing::WithParamInterface<>
   static void SetUpTestCase() {}
   static void TearDownTestCase() {}
 
-  uint32_t num_subcompactions_;
+  uint32_t max_subcompactions_;
 };
 
 namespace {
@@ -214,12 +214,12 @@ const SstFileMetaData* PickFileRandomly(
 }  // anonymous namespace
 
 // All the TEST_P tests run once with sub_compactions disabled (i.e.
-// options.num_subcompactions = 1) and once with it enabled
+// options.max_subcompactions = 1) and once with it enabled
 TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
   for (int tid = 0; tid < 3; ++tid) {
     uint64_t db_size[2];
     Options options = CurrentOptions(DeletionTriggerOptions());
-    options.num_subcompactions = num_subcompactions_;
+    options.max_subcompactions = max_subcompactions_;
 
     if (tid == 1) {
       // the following only disable stats update in DB::Open()
@@ -392,7 +392,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
   for (int tid = 0; tid < 2; ++tid) {
     uint64_t db_size[3];
     Options options = CurrentOptions(DeletionTriggerOptions());
-    options.num_subcompactions = num_subcompactions_;
+    options.max_subcompactions = max_subcompactions_;
 
     if (tid == 1) {
       // second pass with universal compaction
@@ -508,7 +508,7 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   options.write_buffer_size = 100 << 10;  // 100KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -541,7 +541,7 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
 TEST_P(DBCompactionTestWithParam, CompactionsGenerateMultipleFiles) {
   Options options;
   options.write_buffer_size = 100000000;        // Large write buffer
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -628,7 +628,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveOneFile) {
 
   Options options;
   options.write_buffer_size = 100000000;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
@@ -687,7 +687,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveNonOverlappingFiles) {
   Options options = CurrentOptions();
   options.disable_auto_compactions = true;
   options.write_buffer_size = 10 * 1024 * 1024;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
   // non overlapping ranges
@@ -784,7 +784,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveTargetLevel) {
   options.disable_auto_compactions = true;
   options.write_buffer_size = 10 * 1024 * 1024;
   options.num_levels = 7;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
   int32_t value_size = 10 * 1024;  // 10 KB
@@ -840,7 +840,7 @@ TEST_P(DBCompactionTestWithParam, TrivialMoveToLastLevelWithFiles) {
 
   Options options;
   options.write_buffer_size = 100000000;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
@@ -896,7 +896,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   //  options = CurrentOptions(options);
 
   std::vector<std::string> filenames;
@@ -1010,7 +1010,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   //  options = CurrentOptions(options);
 
   std::vector<std::string> filenames;
@@ -1129,7 +1129,7 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   options.max_bytes_for_level_multiplier = 1;
   options.target_file_size_base = 200 << 10;  // 200KB
   options.target_file_size_multiplier = 1;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -1267,7 +1267,7 @@ TEST_F(DBCompactionTest, L0_CompactionBug_Issue44_b) {
 
 TEST_P(DBCompactionTestWithParam, ManualCompaction) {
   Options options = CurrentOptions();
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -1319,7 +1319,7 @@ TEST_P(DBCompactionTestWithParam, ManualLevelCompactionOutputPathId) {
   options.db_paths.emplace_back(dbname_ + "_2", 2 * 10485760);
   options.db_paths.emplace_back(dbname_ + "_3", 100 * 10485760);
   options.db_paths.emplace_back(dbname_ + "_4", 120 * 10485760);
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   CreateAndReopenWithCF({"pikachu"}, options);
 
   // iter - 0 with 7 levels
@@ -1423,7 +1423,7 @@ TEST_P(DBCompactionTestWithParam, DISABLED_CompactFilesOnLevelCompaction) {
   options.level0_stop_writes_trigger = 2;
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   CreateAndReopenWithCF({"pikachu"}, options);
 
@@ -1483,7 +1483,7 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
       options.target_file_size_base;
   options.max_bytes_for_level_multiplier = 2;
   options.compression = kNoCompression;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
@@ -1564,7 +1564,7 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
         2;  // trigger compaction when we have 2 files
     OnFileDeletionListener* listener = new OnFileDeletionListener();
     options.listeners.emplace_back(listener);
-    options.num_subcompactions = num_subcompactions_;
+    options.max_subcompactions = max_subcompactions_;
     DestroyAndReopen(options);
 
     Random rnd(301);
@@ -1638,7 +1638,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   // First two levels have no compression, so that a trivial move between
   // them will be allowed. Level 2 has Zlib compression so that a trivial
   // move to level 3 will not be allowed
@@ -1751,7 +1751,7 @@ TEST_P(DBCompactionTestWithParam, SuggestCompactRangeNoTwoLevel0Compactions) {
   options.target_file_size_base = 98 << 10;
   options.max_write_buffer_number = 2;
   options.max_background_compactions = 2;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
 
@@ -1808,7 +1808,7 @@ TEST_P(DBCompactionTestWithParam, ForceBottommostLevelCompaction) {
 
   Options options;
   options.write_buffer_size = 100000000;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
   options = CurrentOptions(options);
   DestroyAndReopen(options);
 
