@@ -11,7 +11,6 @@
 #include "util/db_test_util.h"
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/sync_point.h"
-#endif
 
 namespace rocksdb {
 
@@ -112,9 +111,6 @@ class DelayFilterFactory : public CompactionFilterFactory {
   DBTestBase* db_test;
 };
 }  // namespace
-
-// SyncPoint is not supported in released Windows mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
 
 // TODO(kailiu) The tests on UniversalCompaction has some issues:
 //  1. A lot of magic numbers ("11" or "12").
@@ -257,7 +253,6 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
   Options options;
@@ -1240,6 +1235,8 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         ::testing::Values(1, 8));
 
 }  // namespace rocksdb
+
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)
