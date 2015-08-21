@@ -47,7 +47,7 @@ duration=${DURATION:-0}
 num_keys=${NUM_KEYS:-$((1 * G))}
 key_size=20
 value_size=${VALUE_SIZE:-400}
-block_size=${BLOCK_SIZE:-4096}
+block_size=${BLOCK_SIZE:-8192}
 
 const_params="
   --db=$DB_DIR \
@@ -61,11 +61,12 @@ const_params="
   --block_size=$block_size \
   --cache_size=$cache_size \
   --cache_numshardbits=6 \
-  --compression_type=zlib \
+  --compression_type=snappy \
   --min_level_to_compress=3 \
   --compression_ratio=0.5 \
   --level_compaction_dynamic_level_bytes=true \
-  --bytes_per_sync=$((2 * M)) \
+  --bytes_per_sync=$((8 * M)) \
+  --cache_index_and_filter_blocks=0 \
   \
   --hard_rate_limit=3 \
   --rate_limit_delay_max_milliseconds=1000000 \
@@ -79,14 +80,14 @@ const_params="
   --max_grandparent_overlap_factor=8 \
   --max_bytes_for_level_multiplier=8 \
   \
-  --statistics=1 \
+  --statistics=0 \
   --stats_per_interval=1 \
   --stats_interval_seconds=60 \
   --histogram=1 \
   \
   --memtablerep=skip_list \
   --bloom_bits=10 \
-  --open_files=$((20 * K))"
+  --open_files=-1"
 
 l0_config="
   --level0_file_num_compaction_trigger=4 \
