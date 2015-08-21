@@ -87,7 +87,6 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
 }
 
 FlushJob::~FlushJob() {
-  TEST_SYNC_POINT("FlushJob::~FlushJob()");
   ThreadStatusUtil::ResetThreadStatus();
 }
 
@@ -262,6 +261,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
       EventHelpers::LogAndNotifyTableFileCreation(
           event_logger_, db_options_.listeners,
           meta->fd, info);
+      TEST_SYNC_POINT("FlushJob::LogAndNotifyTableFileCreation()");
     }
 
     if (!db_options_.disableDataSync && output_file_directory_ != nullptr) {

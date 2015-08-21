@@ -6293,7 +6293,8 @@ TEST_F(DBTest, ThreadStatusFlush) {
 
   rocksdb::SyncPoint::GetInstance()->LoadDependency({
       {"FlushJob::FlushJob()", "DBTest::ThreadStatusFlush:1"},
-      {"DBTest::ThreadStatusFlush:2", "FlushJob::~FlushJob()"},
+      {"DBTest::ThreadStatusFlush:2",
+       "FlushJob::LogAndNotifyTableFileCreation()"},
   });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
 
@@ -6305,12 +6306,14 @@ TEST_F(DBTest, ThreadStatusFlush) {
   VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
 
   Put(1, "k1", std::string(100000, 'x'));  // Fill memtable
-  VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 0);
   Put(1, "k2", std::string(100000, 'y'));  // Trigger flush
-  // wait for flush to be scheduled
-  env_->SleepForMicroseconds(250000);
+
+  // The first sync point is to make sure there's one flush job
+  // running when we perform VerifyOperationCount().
   TEST_SYNC_POINT("DBTest::ThreadStatusFlush:1");
   VerifyOperationCount(env_, ThreadStatus::OP_FLUSH, 1);
+  // This second sync point is to ensure the flush job will not
+  // be completed until we already perform VerifyOperationCount().
   TEST_SYNC_POINT("DBTest::ThreadStatusFlush:2");
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
