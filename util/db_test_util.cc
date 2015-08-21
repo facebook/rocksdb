@@ -166,7 +166,7 @@ bool DBTestBase::ChangeFilterOptions() {
   if (option_config_ == kDefault) {
     option_config_ = kFilter;
   } else if (option_config_ == kFilter) {
-    option_config_ = kFullFilter;
+    option_config_ = kFullFilterWithNewTableReaderForCompactions;
   } else {
     return false;
   }
@@ -228,8 +228,9 @@ Options DBTestBase::CurrentOptions(
     case kFilter:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
       break;
-    case kFullFilter:
+    case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      options.new_table_reader_for_compaction_inputs = true;
       break;
     case kUncompressed:
       options.compression = kNoCompression;

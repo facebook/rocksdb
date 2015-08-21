@@ -419,7 +419,7 @@ class DBTestBase : public testing::Test {
     kHashCuckoo = 8,
     kMergePut = 9,
     kFilter = 10,
-    kFullFilter = 11,
+    kFullFilterWithNewTableReaderForCompactions = 11,
     kUncompressed = 12,
     kNumLevel_3 = 13,
     kDBLogDir = 14,

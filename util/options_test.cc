@@ -142,37 +142,38 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   };
 
   std::unordered_map<std::string, std::string> db_options_map = {
-    {"create_if_missing", "false"},
-    {"create_missing_column_families", "true"},
-    {"error_if_exists", "false"},
-    {"paranoid_checks", "true"},
-    {"max_open_files", "32"},
-    {"max_total_wal_size", "33"},
-    {"disable_data_sync", "false"},
-    {"use_fsync", "true"},
-    {"db_log_dir", "/db_log_dir"},
-    {"wal_dir", "/wal_dir"},
-    {"delete_obsolete_files_period_micros", "34"},
-    {"max_background_compactions", "35"},
-    {"max_background_flushes", "36"},
-    {"max_log_file_size", "37"},
-    {"log_file_time_to_roll", "38"},
-    {"keep_log_file_num", "39"},
-    {"max_manifest_file_size", "40"},
-    {"table_cache_numshardbits", "41"},
-    {"WAL_ttl_seconds", "43"},
-    {"WAL_size_limit_MB", "44"},
-    {"manifest_preallocation_size", "45"},
-    {"allow_os_buffer", "false"},
-    {"allow_mmap_reads", "true"},
-    {"allow_mmap_writes", "false"},
-    {"is_fd_close_on_exec", "true"},
-    {"skip_log_error_on_recovery", "false"},
-    {"stats_dump_period_sec", "46"},
-    {"advise_random_on_open", "true"},
-    {"use_adaptive_mutex", "false"},
-    {"bytes_per_sync", "47"},
-    {"wal_bytes_per_sync", "48"},
+      {"create_if_missing", "false"},
+      {"create_missing_column_families", "true"},
+      {"error_if_exists", "false"},
+      {"paranoid_checks", "true"},
+      {"max_open_files", "32"},
+      {"max_total_wal_size", "33"},
+      {"disable_data_sync", "false"},
+      {"use_fsync", "true"},
+      {"db_log_dir", "/db_log_dir"},
+      {"wal_dir", "/wal_dir"},
+      {"delete_obsolete_files_period_micros", "34"},
+      {"max_background_compactions", "35"},
+      {"max_background_flushes", "36"},
+      {"max_log_file_size", "37"},
+      {"log_file_time_to_roll", "38"},
+      {"keep_log_file_num", "39"},
+      {"max_manifest_file_size", "40"},
+      {"table_cache_numshardbits", "41"},
+      {"WAL_ttl_seconds", "43"},
+      {"WAL_size_limit_MB", "44"},
+      {"manifest_preallocation_size", "45"},
+      {"allow_os_buffer", "false"},
+      {"allow_mmap_reads", "true"},
+      {"allow_mmap_writes", "false"},
+      {"is_fd_close_on_exec", "true"},
+      {"skip_log_error_on_recovery", "false"},
+      {"stats_dump_period_sec", "46"},
+      {"advise_random_on_open", "true"},
+      {"use_adaptive_mutex", "false"},
+      {"new_table_reader_for_compaction_inputs", "true"},
+      {"bytes_per_sync", "47"},
+      {"wal_bytes_per_sync", "48"},
   };
 
   ColumnFamilyOptions base_cf_opt;
@@ -277,6 +278,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_db_opt.stats_dump_period_sec, 46U);
   ASSERT_EQ(new_db_opt.advise_random_on_open, true);
   ASSERT_EQ(new_db_opt.use_adaptive_mutex, false);
+  ASSERT_EQ(new_db_opt.new_table_reader_for_compaction_inputs, true);
   ASSERT_EQ(new_db_opt.bytes_per_sync, static_cast<uint64_t>(47));
   ASSERT_EQ(new_db_opt.wal_bytes_per_sync, static_cast<uint64_t>(48));
 }

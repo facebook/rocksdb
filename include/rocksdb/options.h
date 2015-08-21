@@ -1026,6 +1026,18 @@ struct DBOptions {
   };
   AccessHint access_hint_on_compaction_start;
 
+  // If true, always create a new file descriptor and new table reader
+  // for compaction inputs. Turn this parameter on may introduce extra
+  // memory usage in the table reader, if it allocates extra memory
+  // for indexes. This will allow file descriptor prefetch options
+  // to be set for compaction input files and not to impact file
+  // descriptors for the same file used by user queries.
+  // Suggest to enable BlockBasedTableOptions.cache_index_and_filter_blocks
+  // for this mode if using block-based table.
+  //
+  // Default: false
+  bool new_table_reader_for_compaction_inputs;
+
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not
   // heavily contended. However, if the mutex is hot, we could end up

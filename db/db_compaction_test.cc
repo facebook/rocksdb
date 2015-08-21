@@ -300,6 +300,93 @@ TEST_F(DBCompactionTest, SkipStatsUpdateTest) {
   ASSERT_GT(env_->random_file_open_counter_.load(), 5);
 }
 
+TEST_F(DBCompactionTest, TestTableReaderForCompaction) {
+  Options options;
+  options = CurrentOptions(options);
+  options.env = env_;
+  options.new_table_reader_for_compaction_inputs = true;
+  options.max_open_files = 100;
+  options.level0_file_num_compaction_trigger = 3;
+  DestroyAndReopen(options);
+  Random rnd(301);
+
+  int num_table_cache_lookup = 0;
+  int num_new_table_reader = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::FindTable:0", [&](void* arg) {
+        assert(arg != nullptr);
+        bool no_io = *(reinterpret_cast<bool*>(arg));
+        if (!no_io) {
+          // filter out cases for table properties queries.
+          num_table_cache_lookup++;
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "TableCache::GetTableReader:0",
+      [&](void* arg) { num_new_table_reader++; });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  for (int k = 0; k < options.level0_file_num_compaction_trigger; ++k) {
+    ASSERT_OK(Put(Key(k), Key(k)));
+    ASSERT_OK(Put(Key(10 - k), "bar"));
+    if (k < options.level0_file_num_compaction_trigger - 1) {
+      num_table_cache_lookup = 0;
+      Flush();
+      dbfull()->TEST_WaitForCompact();
+      // preloading iterator issues one table cache lookup and create
+      // a new table reader.
+      ASSERT_EQ(num_table_cache_lookup, 1);
+      ASSERT_EQ(num_new_table_reader, 1);
+
+      num_table_cache_lookup = 0;
+      num_new_table_reader = 0;
+      ASSERT_EQ(Key(k), Get(Key(k)));
+      // lookup iterator from table cache and no need to create a new one.
+      ASSERT_EQ(num_table_cache_lookup, 1);
+      ASSERT_EQ(num_new_table_reader, 0);
+    }
+  }
+
+  num_table_cache_lookup = 0;
+  num_new_table_reader = 0;
+  Flush();
+  dbfull()->TEST_WaitForCompact();
+  // Preloading iterator issues one table cache lookup and creates
+  // a new table reader. One file is created for flush and one for compaction.
+  // Compaction inputs make no table cache look-up.
+  ASSERT_EQ(num_table_cache_lookup, 2);
+  // Create new iterator for:
+  // (1) 1 for verifying flush results
+  // (2) 3 for compaction input files
+  // (3) 1 for verifying compaction results.
+  ASSERT_EQ(num_new_table_reader, 5);
+
+  num_table_cache_lookup = 0;
+  num_new_table_reader = 0;
+  ASSERT_EQ(Key(1), Get(Key(1)));
+  ASSERT_EQ(num_table_cache_lookup, 1);
+  ASSERT_EQ(num_new_table_reader, 0);
+
+  num_table_cache_lookup = 0;
+  num_new_table_reader = 0;
+  CompactRangeOptions cro;
+  cro.change_level = true;
+  cro.target_level = 2;
+  cro.bottommost_level_compaction = BottommostLevelCompaction::kForce;
+  db_->CompactRange(cro, nullptr, nullptr);
+  // Only verifying compaction outputs issues one table cache lookup.
+  ASSERT_EQ(num_table_cache_lookup, 1);
+  // One for compaction input, one for verifying compaction results.
+  ASSERT_EQ(num_new_table_reader, 2);
+
+  num_table_cache_lookup = 0;
+  num_new_table_reader = 0;
+  ASSERT_EQ(Key(1), Get(Key(1)));
+  ASSERT_EQ(num_table_cache_lookup, 1);
+  ASSERT_EQ(num_new_table_reader, 0);
+
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+}
 
 TEST_P(DBCompactionTestWithParam, CompactionDeletionTriggerReopen) {
   for (int tid = 0; tid < 2; ++tid) {
