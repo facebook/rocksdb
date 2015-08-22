@@ -120,11 +120,11 @@ function summarize_result {
   wamp=$( echo "scale=1; $sum_wgb / $lo_wgb" | bc )
   wmb_ps=$( echo "scale=1; ( $sum_wgb * 1024.0 ) / $uptime" | bc )
   usecs_op=$( grep ^${bench_name} $test_out | awk '{ printf "%.1f", $3 }' )
-  p50=$( grep "^Percentiles:" $test_out | awk '{ printf "%.1f", $3 }' )
-  p75=$( grep "^Percentiles:" $test_out | awk '{ printf "%.1f", $5 }' )
-  p99=$( grep "^Percentiles:" $test_out | awk '{ printf "%.0f", $7 }' )
-  p999=$( grep "^Percentiles:" $test_out | awk '{ printf "%.0f", $9 }' )
-  p9999=$( grep "^Percentiles:" $test_out | awk '{ printf "%.0f", $11 }' )
+  p50=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $3 }' )
+  p75=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.1f", $5 }' )
+  p99=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $7 }' )
+  p999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $9 }' )
+  p9999=$( grep "^Percentiles:" $test_out | tail -1 | awk '{ printf "%.0f", $11 }' )
   echo -e "$ops_sec\t$mb_sec\t$sum_size\t$lo_wgb\t$sum_wgb\t$wamp\t$wmb_ps\t$usecs_op\t$p50\t$p75\t$p99\t$p999\t$p9999\t$uptime\t$stall_time\t$stall_pct\t$test_name" \
     >> $output_dir/report.txt
 }
