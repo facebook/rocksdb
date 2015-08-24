@@ -3280,22 +3280,16 @@ TEST_F(DBTest, CompactBetweenSnapshots) {
     Put(1, "foo", "sixth");
 
     // All entries (including duplicates) exist
-    // before any compaction is triggered.
-    ASSERT_OK(Flush(1));
-    ASSERT_EQ("sixth", Get(1, "foo"));
-    ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
-    ASSERT_EQ("first", Get(1, "foo", snapshot1));
+    // before any compaction or flush is triggered.
     ASSERT_EQ(AllEntriesFor("foo", 1),
               "[ sixth, fifth, fourth, third, second, first ]");
-
-    // After a compaction, "second", "third" and "fifth" should
-    // be removed
-    FillLevels("a", "z", 1);
-    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
-                           nullptr);
     ASSERT_EQ("sixth", Get(1, "foo"));
     ASSERT_EQ("fourth", Get(1, "foo", snapshot2));
     ASSERT_EQ("first", Get(1, "foo", snapshot1));
+
+    // After a flush, "second", "third" and "fifth" should
+    // be removed
+    ASSERT_OK(Flush(1));
     ASSERT_EQ(AllEntriesFor("foo", 1), "[ sixth, fourth, first ]");
 
     // after we release the snapshot1, only two values left

@@ -1274,9 +1274,6 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
   TableProperties table_properties;
   {
     ScopedArenaIterator iter(mem->NewIterator(ro, &arena));
-    const SequenceNumber newest_snapshot = snapshots_.GetNewest();
-    const SequenceNumber earliest_seqno_in_memtable =
-        mem->GetFirstSequenceNumber();
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
         "[%s] [WriteLevel0TableForRecovery]"
         " Level-0 table #%" PRIu64 ": started",
@@ -1290,8 +1287,8 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
       s = BuildTable(
           dbname_, env_, *cfd->ioptions(), env_options_, cfd->table_cache(),
           iter.get(), &meta, cfd->internal_comparator(),
-          cfd->int_tbl_prop_collector_factories(), newest_snapshot,
-          earliest_seqno_in_memtable, GetCompressionFlush(*cfd->ioptions()),
+          cfd->int_tbl_prop_collector_factories(), snapshots_.GetAll(),
+          GetCompressionFlush(*cfd->ioptions()),
           cfd->ioptions()->compression_opts, paranoid_file_checks,
           cfd->internal_stats(), Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
@@ -1348,7 +1345,7 @@ Status DBImpl::FlushMemTableToOutputFile(
 
   FlushJob flush_job(dbname_, cfd, db_options_, mutable_cf_options,
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     snapshots_.GetNewest(), job_context, log_buffer,
+                     snapshots_.GetAll(), job_context, log_buffer,
                      directories_.GetDbDir(), directories_.GetDataDir(0U),
                      GetCompressionFlush(*cfd->ioptions()), stats_,
                      &event_logger_);

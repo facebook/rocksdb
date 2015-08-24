@@ -9,6 +9,7 @@
 
 #include "db/builder.h"
 
+#include <algorithm>
 #include <deque>
 #include <vector>
 
@@ -30,6 +31,28 @@
 #include "util/thread_status_util.h"
 
 namespace rocksdb {
+
+namespace {
+inline SequenceNumber EarliestVisibleSnapshot(
+    SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
+    SequenceNumber* prev_snapshot) {
+  if (snapshots.empty()) {
+    *prev_snapshot = 0;  // 0 means no previous snapshot
+    return kMaxSequenceNumber;
+  }
+  SequenceNumber prev = 0;
+  for (const auto cur : snapshots) {
+    assert(prev <= cur);
+    if (cur >= in) {
+      *prev_snapshot = prev;
+      return cur;
+    }
+    prev = cur;  // assignment
+  }
+  *prev_snapshot = prev;
+  return kMaxSequenceNumber;
+}
+}  // namespace
 
 class TableFactory;
 
@@ -53,9 +76,7 @@ Status BuildTable(
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    const SequenceNumber newest_snapshot,
-    const SequenceNumber earliest_seqno_in_memtable,
-    const CompressionType compression,
+    std::vector<SequenceNumber> snapshots, const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
     InternalStats* internal_stats, const Env::IOPriority io_priority,
     TableProperties* table_properties) {
@@ -65,14 +86,6 @@ Status BuildTable(
   meta->fd.file_size = 0;
   meta->smallest_seqno = meta->largest_seqno = 0;
   iter->SeekToFirst();
-
-  // If the sequence number of the smallest entry in the memtable is
-  // smaller than the most recent snapshot, then we do not trigger
-  // removal of duplicate/deleted keys as part of this builder.
-  bool purge = true;
-  if (earliest_seqno_in_memtable <= newest_snapshot) {
-    purge = false;
-  }
 
   std::string fname = TableFileName(ioptions.db_paths, meta->fd.GetNumber(),
                                     meta->fd.GetPathId());
@@ -107,112 +120,112 @@ Status BuildTable(
                       ioptions.min_partial_merge_operands,
                       true /* internal key corruption is not ok */);
 
-    if (purge) {
+    IterKey current_user_key;
+    bool has_current_user_key = false;
+    // If has_current_user_key == true, this variable remembers the earliest
+    // snapshot in which this current key already exists. If two internal keys
+    // have the same user key AND the earlier one should be visible in the
+    // snapshot in which we already have a user key, we can drop the earlier
+    // user key
+    SequenceNumber current_user_key_exists_in_snapshot = kMaxSequenceNumber;
+
+    while (iter->Valid()) {
+      // Get current key
+      ParsedInternalKey ikey;
+      Slice key = iter->key();
+      Slice value = iter->value();
+
+      // In-memory key corruption is not ok;
+      // TODO: find a clean way to treat in memory key corruption
       // Ugly walkaround to avoid compiler error for release build
       bool ok __attribute__((unused)) = true;
+      ok = ParseInternalKey(key, &ikey);
+      assert(ok);
 
-      // Will write to builder if current key != prev key
-      ParsedInternalKey prev_ikey;
-      std::string prev_key;
-      bool is_first_key = true;    // Also write if this is the very first key
+      meta->smallest_seqno = std::min(meta->smallest_seqno, ikey.sequence);
+      meta->largest_seqno = std::max(meta->largest_seqno, ikey.sequence);
 
-      while (iter->Valid()) {
-        bool iterator_at_next = false;
-
-        // Get current key
-        ParsedInternalKey this_ikey;
-        Slice key = iter->key();
-        Slice value = iter->value();
-
-        // In-memory key corruption is not ok;
-        // TODO: find a clean way to treat in memory key corruption
-        ok = ParseInternalKey(key, &this_ikey);
-        assert(ok);
-        assert(this_ikey.sequence >= earliest_seqno_in_memtable);
-
-        // If the key is the same as the previous key (and it is not the
-        // first key), then we skip it, since it is an older version.
-        // Otherwise we output the key and mark it as the "new" previous key.
-        if (!is_first_key && !internal_comparator.user_comparator()->Compare(
-                                  prev_ikey.user_key, this_ikey.user_key)) {
-          // seqno within the same key are in decreasing order
-          assert(this_ikey.sequence < prev_ikey.sequence);
-        } else {
-          is_first_key = false;
-
-          if (this_ikey.type == kTypeMerge) {
-            // TODO(tbd): Add a check here to prevent RocksDB from crash when
-            // reopening a DB w/o properly specifying the merge operator.  But
-            // currently we observed a memory leak on failing in RocksDB
-            // recovery, so we decide to let it crash instead of causing
-            // memory leak for now before we have identified the real cause
-            // of the memory leak.
-
-            // Handle merge-type keys using the MergeHelper
-            // TODO: pass statistics to MergeUntil
-            merge.MergeUntil(iter, 0 /* don't worry about snapshot */);
-            iterator_at_next = true;
-
-            // Write them out one-by-one. (Proceed back() to front())
-            // If the merge successfully merged the input into
-            // a kTypeValue, the list contains a single element.
-            const std::deque<std::string>& keys = merge.keys();
-            const std::deque<std::string>& values = merge.values();
-            assert(keys.size() == values.size() && keys.size() >= 1);
-            std::deque<std::string>::const_reverse_iterator key_iter;
-            std::deque<std::string>::const_reverse_iterator value_iter;
-            for (key_iter = keys.rbegin(), value_iter = values.rbegin();
-                 key_iter != keys.rend() && value_iter != values.rend();
-                 ++key_iter, ++value_iter) {
-              builder->Add(Slice(*key_iter), Slice(*value_iter));
-            }
-
-            // Sanity check. Both iterators should end at the same time
-            assert(key_iter == keys.rend() && value_iter == values.rend());
-
-            prev_key.assign(keys.front());
-            ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-            assert(ok);
-          } else {
-            // Handle Put/Delete-type keys by simply writing them
-            builder->Add(key, value);
-            prev_key.assign(key.data(), key.size());
-            ok = ParseInternalKey(Slice(prev_key), &prev_ikey);
-            assert(ok);
-          }
-        }
-
-        if (io_priority == Env::IO_HIGH &&
-            IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-          ThreadStatusUtil::IncreaseThreadOperationProperty(
-              ThreadStatus::FLUSH_BYTES_WRITTEN,
-              IOSTATS(bytes_written));
-          IOSTATS_RESET(bytes_written);
-        }
-        if (!iterator_at_next) iter->Next();
+      // If the key is the same as the previous key (and it is not the
+      // first key), then we skip it, since it is an older version.
+      // Otherwise we output the key and mark it as the "new" previous key.
+      if (!has_current_user_key ||
+          internal_comparator.user_comparator()->Compare(
+              ikey.user_key, current_user_key.GetKey()) != 0) {
+        // First occurrence of this user key
+        current_user_key.SetKey(ikey.user_key);
+        has_current_user_key = true;
+        current_user_key_exists_in_snapshot = 0;
       }
 
-      // The last key is the largest key
-      meta->largest.DecodeFrom(Slice(prev_key));
-      SequenceNumber seqno = GetInternalKeySeqno(Slice(prev_key));
-      meta->smallest_seqno = std::min(meta->smallest_seqno, seqno);
-      meta->largest_seqno = std::max(meta->largest_seqno, seqno);
+      // If there are no snapshots, then this kv affect visibility at tip.
+      // Otherwise, search though all existing snapshots to find
+      // the earlist snapshot that is affected by this kv.
+      SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
+      SequenceNumber key_needs_to_exist_in_snapshot =
+          EarliestVisibleSnapshot(ikey.sequence, snapshots, &prev_snapshot);
 
-    } else {
-      for (; iter->Valid(); iter->Next()) {
-        Slice key = iter->key();
+      if (current_user_key_exists_in_snapshot ==
+          key_needs_to_exist_in_snapshot) {
+        // If this user key already exists in snapshot in which it needs to
+        // exist, we can drop it.
+        // In other words, if the earliest snapshot is which this key is visible
+        // in is the same as the visibily of a previous instance of the
+        // same key, then this kv is not visible in any snapshot.
+        // Hidden by an newer entry for same user key
+        iter->Next();
+      } else if (ikey.type == kTypeMerge) {
         meta->largest.DecodeFrom(key);
-        builder->Add(key, iter->value());
-        SequenceNumber seqno = GetInternalKeySeqno(key);
-        meta->smallest_seqno = std::min(meta->smallest_seqno, seqno);
-        meta->largest_seqno = std::max(meta->largest_seqno, seqno);
-        if (io_priority == Env::IO_HIGH &&
-            IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-          ThreadStatusUtil::IncreaseThreadOperationProperty(
-              ThreadStatus::FLUSH_BYTES_WRITTEN,
-              IOSTATS(bytes_written));
-          IOSTATS_RESET(bytes_written);
+
+        // TODO(tbd): Add a check here to prevent RocksDB from crash when
+        // reopening a DB w/o properly specifying the merge operator.  But
+        // currently we observed a memory leak on failing in RocksDB
+        // recovery, so we decide to let it crash instead of causing
+        // memory leak for now before we have identified the real cause
+        // of the memory leak.
+
+        // Handle merge-type keys using the MergeHelper
+        // TODO: pass statistics to MergeUntil
+        merge.MergeUntil(iter, prev_snapshot, false, nullptr, env);
+        // IMPORTANT: Slice key doesn't point to a valid value anymore!!
+
+        const auto& keys = merge.keys();
+        const auto& values = merge.values();
+        assert(!keys.empty());
+        assert(keys.size() == values.size());
+
+        // largest possible sequence number in a merge queue is already stored
+        // in ikey.sequence.
+        // we additionally have to consider the front of the merge queue, which
+        // might have the smallest sequence number (out of all the merges with
+        // the same key)
+        meta->smallest_seqno =
+            std::min(meta->smallest_seqno, GetInternalKeySeqno(keys.front()));
+
+        // We have a list of keys to write, write all keys in the list.
+        for (auto key_iter = keys.rbegin(), value_iter = values.rbegin();
+             key_iter != keys.rend(); key_iter++, value_iter++) {
+          key = Slice(*key_iter);
+          value = Slice(*value_iter);
+          bool valid_key __attribute__((__unused__)) =
+              ParseInternalKey(key, &ikey);
+          // MergeUntil stops when it encounters a corrupt key and does not
+          // include them in the result, so we expect the keys here to valid.
+          assert(valid_key);
+          builder->Add(key, value);
         }
+      } else {  // just write out the key-value
+        builder->Add(key, value);
+        meta->largest.DecodeFrom(key);
+        iter->Next();
+      }
+
+      current_user_key_exists_in_snapshot = key_needs_to_exist_in_snapshot;
+
+      if (io_priority == Env::IO_HIGH &&
+          IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
+        ThreadStatusUtil::IncreaseThreadOperationProperty(
+            ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
+        IOSTATS_RESET(bytes_written);
       }
     }
 

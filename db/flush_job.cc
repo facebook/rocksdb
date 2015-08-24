@@ -60,9 +60,9 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
                    const EnvOptions& env_options, VersionSet* versions,
                    InstrumentedMutex* db_mutex,
                    std::atomic<bool>* shutting_down,
-                   SequenceNumber newest_snapshot, JobContext* job_context,
-                   LogBuffer* log_buffer, Directory* db_directory,
-                   Directory* output_file_directory,
+                   std::vector<SequenceNumber> existing_snapshots,
+                   JobContext* job_context, LogBuffer* log_buffer,
+                   Directory* db_directory, Directory* output_file_directory,
                    CompressionType output_compression, Statistics* stats,
                    EventLogger* event_logger)
     : dbname_(dbname),
@@ -73,7 +73,7 @@ FlushJob::FlushJob(const std::string& dbname, ColumnFamilyData* cfd,
       versions_(versions),
       db_mutex_(db_mutex),
       shutting_down_(shutting_down),
-      newest_snapshot_(newest_snapshot),
+      existing_snapshots_(std::move(existing_snapshots)),
       job_context_(job_context),
       log_buffer_(log_buffer),
       db_directory_(db_directory),
@@ -188,8 +188,6 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
   // path 0 for level 0 file.
   meta->fd = FileDescriptor(versions_->NewFileNumber(), 0, 0);
 
-  const SequenceNumber earliest_seqno_in_memtable =
-      mems[0]->GetFirstSequenceNumber();
   Version* base = cfd_->current();
   base->Ref();  // it is likely that we do not need this reference
   Status s;
@@ -234,9 +232,8 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
       s = BuildTable(
           dbname_, db_options_.env, *cfd_->ioptions(), env_options_,
           cfd_->table_cache(), iter.get(), meta, cfd_->internal_comparator(),
-          cfd_->int_tbl_prop_collector_factories(), newest_snapshot_,
-          earliest_seqno_in_memtable, output_compression_,
-          cfd_->ioptions()->compression_opts,
+          cfd_->int_tbl_prop_collector_factories(), existing_snapshots_,
+          output_compression_, cfd_->ioptions()->compression_opts,
           mutable_cf_options_.paranoid_file_checks, cfd_->internal_stats(),
           Env::IO_HIGH, &info.table_properties);
       LogFlush(db_options_.info_log);
