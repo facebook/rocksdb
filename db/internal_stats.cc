@@ -102,7 +102,7 @@ static const std::string background_errors = "background-errors";
 static const std::string cur_size_active_mem_table =
                           "cur-size-active-mem-table";
 static const std::string cur_size_unflushed_mem_tables =
-    "cur-size-all-mem-tabless";
+    "cur-size-all-mem-tables";
 static const std::string cur_size_all_mem_tables = "size-all-mem-tables";
 static const std::string num_entries_active_mem_table =
                           "num-entries-active-mem-table";

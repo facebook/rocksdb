@@ -2207,12 +2207,12 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   // Phase 0.  The verify the initial value of all these properties are
   // the same as we have no mem-tables.
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
-  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
   ASSERT_EQ(all_mem, active_mem);
   ASSERT_EQ(all_mem, unflushed_mem);
 
-  // Phase 1. Simply issue Put() and expect "cur-size-all-mem-tabless"
+  // Phase 1. Simply issue Put() and expect "cur-size-all-mem-tables"
   // equals to "size-all-mem-tables"
   for (int r = 0; r < kNumRounds; ++r) {
     for (int f = 0; f < kFlushesPerRound; ++f) {
@@ -2220,8 +2220,7 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
         Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
       }
     }
-    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless",
-                             &unflushed_mem);
+    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
     dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
     // in no iterator case, these two number should be the same.
     ASSERT_EQ(unflushed_mem, all_mem);
@@ -2229,7 +2228,7 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   prev_all_mem = all_mem;
 
   // Phase 2. Keep issuing Put() but also create new iterator.  This time
-  // we expect "size-all-mem-tables" > "cur-size-all-mem-tabless".
+  // we expect "size-all-mem-tables" > "cur-size-all-mem-tables".
   for (int r = 0; r < kNumRounds; ++r) {
     iters.push_back(db_->NewIterator(ReadOptions()));
     for (int f = 0; f < kFlushesPerRound; ++f) {
@@ -2239,8 +2238,7 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
     }
     // In the second round, add iterators.
     dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
-    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless",
-                             &unflushed_mem);
+    dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
     dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
     ASSERT_GT(all_mem, active_mem);
     ASSERT_GT(all_mem, unflushed_mem);
@@ -2260,9 +2258,9 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
     prev_all_mem = all_mem;
   }
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
-  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
-  // now we expect "cur-size-all-mem-tabless" and
+  // now we expect "cur-size-all-mem-tables" and
   // "size-all-mem-tables" are the same again after we
   // released all iterators.
   ASSERT_EQ(all_mem, unflushed_mem);
@@ -2271,7 +2269,7 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   // Phase 4. Perform flush, and expect all these three counters are the same.
   Flush();
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
-  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
   ASSERT_EQ(active_mem, unflushed_mem);
   ASSERT_EQ(unflushed_mem, all_mem);
@@ -2279,7 +2277,7 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   // Phase 5. Reopen, and expect all these three counters are the same again.
   Reopen(options);
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
-  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tabless", &unflushed_mem);
+  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
   ASSERT_EQ(active_mem, unflushed_mem);
   ASSERT_EQ(unflushed_mem, all_mem);
