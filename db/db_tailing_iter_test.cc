@@ -97,7 +97,6 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
     }
     ASSERT_TRUE(itern->Valid());
     ASSERT_EQ(itern->key().compare(key), 0);
-    file_iters_deleted = false;
   }
   rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
@@ -192,6 +191,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
     }
     ASSERT_TRUE(itern->Valid());
     ASSERT_EQ(itern->key().compare(key), 0);
+    file_iters_deleted = false;
   }
 
   read_options.read_tier = kBlockCacheTier;
