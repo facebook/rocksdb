@@ -847,10 +847,10 @@ class WinSequentialFile : public SequentialFile {
     // While it is possible to read in a loop if n is > UINT_MAX
     // it is a highly unlikely case.
     if (n > UINT_MAX) {      
-      return IOErrorFromWindowsError(filename_, ERROR_INVALID_DATA);
+      return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
     }
 
-    DWORD bytesToRead = static_cast<DWORD>(n);  //cast is safe due to check above
+    DWORD bytesToRead = static_cast<DWORD>(n);  //cast is safe due to the check above
     DWORD bytesRead = 0;
     BOOL ret = ReadFile(file_, scratch, bytesToRead, &bytesRead, NULL);
     if (ret == TRUE) {
@@ -863,30 +863,18 @@ class WinSequentialFile : public SequentialFile {
 
     *result = Slice(scratch, r);
 
-    if (r < n) {
-      //check for EOF by doing another read
-      DWORD bytesRemaining = static_cast<DWORD>(n - r);  //cast is safe due to check above
-      BOOL ret = ReadFile(file_, scratch + r, bytesRemaining, &bytesRead, NULL);
-      if (ret == TRUE && bytesRead == 0) {
-        // EOF - treat it as success
-      } else {
-         // A partial read without EOF: return a non-ok status
-        return IOErrorFromWindowsError(filename_, GetLastError());
-      }
-    }
-
     return s;
   }
 
   virtual Status Skip(uint64_t n) override {
-    //can't handle more than signed max as SetFilePointerEx takes signed 64-bit integer, 
-    //but it is a highly unlikley case to have n so large.
+    // Can't handle more than signed max as SetFilePointerEx accepts a signed 64-bit
+    // integer. As such it is a highly unlikley case to have n so large.
     if (n > _I64_MAX) {
-      return IOErrorFromWindowsError(filename_, ERROR_INVALID_DATA);
+      return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
     }
 
     LARGE_INTEGER li;
-    li.QuadPart = static_cast<int64_t>(n); //cast is safe due to check above
+    li.QuadPart = static_cast<int64_t>(n); //cast is safe due to the check above
     BOOL ret = SetFilePointerEx(file_, li, NULL, FILE_CURRENT);
     if (ret == FALSE) {
       return IOErrorFromWindowsError(filename_, GetLastError());
