@@ -223,9 +223,7 @@ static bool ValidateKeySize(const char* flagname, int32_t value) {
 
 static bool ValidateUint32Range(const char* flagname, uint64_t value) {
   if (value > std::numeric_limits<uint32_t>::max()) {
-    fprintf(stderr,
-            "Invalid value for --%s: %lu, overflow\n",
-            flagname,
+    fprintf(stderr, "Invalid value for --%s: %lu, overflow\n", flagname,
             (unsigned long)value);
     return false;
   }
@@ -298,10 +296,11 @@ DEFINE_int32(max_background_compactions,
              " that can occur in parallel.");
 
 DEFINE_uint64(subcompactions, 1,
-             "Maximum number of subcompactions to divide L0-L1 compactions "
-             "into.");
-static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
-    RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
+              "Maximum number of subcompactions to divide L0-L1 compactions "
+              "into.");
+static const bool FLAGS_subcompactions_dummy
+    __attribute__((unused)) = RegisterFlagValidator(&FLAGS_subcompactions,
+                                                    &ValidateUint32Range);
 
 DEFINE_int32(max_background_flushes,
              rocksdb::Options().max_background_flushes,

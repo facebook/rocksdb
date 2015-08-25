@@ -1338,7 +1338,7 @@ Status DBImpl::WriteLevel0TableForRecovery(int job_id, ColumnFamilyData* cfd,
 
 Status DBImpl::FlushMemTableToOutputFile(
     ColumnFamilyData* cfd, const MutableCFOptions& mutable_cf_options,
-    bool* madeProgress, JobContext* job_context, LogBuffer* log_buffer) {
+    bool* made_progress, JobContext* job_context, LogBuffer* log_buffer) {
   mutex_.AssertHeld();
   assert(cfd->imm()->NumNotFlushed() != 0);
   assert(cfd->imm()->IsFlushPending());
@@ -1363,8 +1363,8 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (s.ok()) {
     InstallSuperVersionAndScheduleWorkWrapper(cfd, job_context,
                                               mutable_cf_options);
-    if (madeProgress) {
-      *madeProgress = 1;
+    if (made_progress) {
+      *made_progress = 1;
     }
     VersionStorageInfo::LevelSummaryStorage tmp;
     LogToBuffer(log_buffer, "[%s] Level summary: %s\n", cfd->GetName().c_str(),
@@ -2276,7 +2276,7 @@ void DBImpl::BGWorkCompaction(void* db) {
   reinterpret_cast<DBImpl*>(db)->BackgroundCallCompaction();
 }
 
-Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
+Status DBImpl::BackgroundFlush(bool* made_progress, JobContext* job_context,
                                LogBuffer* log_buffer) {
   mutex_.AssertHeld();
 
@@ -2317,7 +2317,7 @@ Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
         cfd->GetName().c_str(),
         db_options_.max_background_flushes - bg_flush_scheduled_,
         db_options_.max_background_compactions - bg_compaction_scheduled_);
-    status = FlushMemTableToOutputFile(cfd, mutable_cf_options, madeProgress,
+    status = FlushMemTableToOutputFile(cfd, mutable_cf_options, made_progress,
                                        job_context, log_buffer);
     if (cfd->Unref()) {
       delete cfd;
@@ -2327,7 +2327,7 @@ Status DBImpl::BackgroundFlush(bool* madeProgress, JobContext* job_context,
 }
 
 void DBImpl::BackgroundCallFlush() {
-  bool madeProgress = false;
+  bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
   assert(bg_flush_scheduled_);
 
@@ -2338,7 +2338,7 @@ void DBImpl::BackgroundCallFlush() {
     auto pending_outputs_inserted_elem =
         CaptureCurrentFileNumberInPendingOutputs();
 
-    Status s = BackgroundFlush(&madeProgress, &job_context, &log_buffer);
+    Status s = BackgroundFlush(&made_progress, &job_context, &log_buffer);
     if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background flush in
       // case this is an environmental problem and we do not want to
@@ -2392,7 +2392,7 @@ void DBImpl::BackgroundCallFlush() {
 }
 
 void DBImpl::BackgroundCallCompaction() {
-  bool madeProgress = false;
+  bool made_progress = false;
   JobContext job_context(next_job_id_.fetch_add(1), true);
 
   MaybeDumpStats();
@@ -2404,7 +2404,7 @@ void DBImpl::BackgroundCallCompaction() {
         CaptureCurrentFileNumberInPendingOutputs();
 
     assert(bg_compaction_scheduled_);
-    Status s = BackgroundCompaction(&madeProgress, &job_context, &log_buffer);
+    Status s = BackgroundCompaction(&made_progress, &job_context, &log_buffer);
     if (!s.ok() && !s.IsShutdownInProgress()) {
       // Wait a little bit before retrying background compaction in
       // case this is an environmental problem and we do not want to
@@ -2453,9 +2453,9 @@ void DBImpl::BackgroundCallCompaction() {
 
     // See if there's more work to be done
     MaybeScheduleFlushOrCompaction();
-    if (madeProgress || bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
+    if (made_progress || bg_compaction_scheduled_ == 0 || bg_manual_only_ > 0) {
       // signal if
-      // * madeProgress -- need to wakeup DelayWrite
+      // * made_progress -- need to wakeup DelayWrite
       // * bg_compaction_scheduled_ == 0 -- need to wakeup ~DBImpl
       // * bg_manual_only_ > 0 -- need to wakeup RunManualCompaction
       // If none of this is true, there is no need to signal since nobody is
@@ -2469,9 +2469,10 @@ void DBImpl::BackgroundCallCompaction() {
   }
 }
 
-Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
+Status DBImpl::BackgroundCompaction(bool* made_progress,
+                                    JobContext* job_context,
                                     LogBuffer* log_buffer) {
-  *madeProgress = false;
+  *made_progress = false;
   mutex_.AssertHeld();
 
   bool is_manual = (manual_compaction_ != nullptr) &&
@@ -2608,7 +2609,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
     LogToBuffer(log_buffer, "[%s] Deleted %d files\n",
                 c->column_family_data()->GetName().c_str(),
                 c->num_input_files(0));
-    *madeProgress = true;
+    *made_progress = true;
   } else if (!trivial_move_disallowed && c->IsTrivialMove()) {
     TEST_SYNC_POINT("DBImpl::BackgroundCompaction:TrivialMove");
     // Instrument for event update
@@ -2665,7 +2666,7 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
         c->column_family_data()->GetName().c_str(), moved_files,
         c->output_level(), moved_bytes, status.ToString().c_str(),
         c->column_family_data()->current()->storage_info()->LevelSummary(&tmp));
-    *madeProgress = true;
+    *made_progress = true;
 
     // Clear Instrument
     ThreadStatusUtil::ResetThreadStatus();
@@ -2694,14 +2695,14 @@ Status DBImpl::BackgroundCompaction(bool* madeProgress, JobContext* job_context,
       InstallSuperVersionAndScheduleWorkWrapper(
           c->column_family_data(), job_context, *c->mutable_cf_options());
     }
-    *madeProgress = true;
+    *made_progress = true;
   }
   if (c != nullptr) {
     NotifyOnCompactionCompleted(
         c->column_family_data(), c.get(), status,
         compaction_job_stats, job_context->job_id);
     c->ReleaseCompactionFiles(status);
-    *madeProgress = true;
+    *made_progress = true;
   }
   // this will unref its input_version and column_family_data
   c.reset();

@@ -218,6 +218,7 @@ Status FlushJob::WriteLevel0Table(const autovector<MemTable*>& mems,
                          << total_num_entries << "num_deletes"
                          << total_num_deletes << "memory_usage"
                          << total_memory_usage;
+
     TableFileCreationInfo info;
     {
       ScopedArenaIterator iter(

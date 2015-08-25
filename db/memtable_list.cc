@@ -324,7 +324,7 @@ Status MemTableList::InstallMemtableFlushResults(
 
     // All the later memtables that have the same filenum
     // are part of the same batch. They can be committed now.
-    uint64_t mem_id = 1;  // how many memtables has been flushed.
+    uint64_t mem_id = 1;  // how many memtables have been flushed.
     do {
       if (s.ok()) { // commit new state
         LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
@@ -333,7 +333,7 @@ Status MemTableList::InstallMemtableFlushResults(
         assert(m->file_number_ > 0);
         current_->Remove(m, to_delete);
       } else {
-        //commit failed. setup state so that we can flush again.
+        // commit failed. setup state so that we can flush again.
         LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
                                 ": memtable #%" PRIu64 " failed",
                     m->file_number_, mem_id);

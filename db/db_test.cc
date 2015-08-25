@@ -6113,6 +6113,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   const uint64_t k64KB = 1 << 16;
   const uint64_t k128KB = 1 << 17;
   const uint64_t k5KB = 5 * 1024;
+  const int kNumPutsBeforeWaitForFlush = 64;
   Options options;
   options.env = env_;
   options.create_if_missing = true;
@@ -6130,6 +6131,15 @@ TEST_F(DBTest, DynamicMemtableOptions) {
     Random rnd(301);
     for (int i = 0; i < size; i++) {
       ASSERT_OK(Put(Key(i), RandomString(&rnd, 1024)));
+
+      // The following condition prevents a race condition between flush jobs
+      // acquiring work and this thread filling up multiple memtables. Without
+      // this, the flush might produce less files than expected because
+      // multiple memtables are flushed into a single L0 file. This race
+      // condition affects assertion (A).
+      if (i % kNumPutsBeforeWaitForFlush == kNumPutsBeforeWaitForFlush - 1) {
+        dbfull()->TEST_WaitForFlushMemTable();
+      }
     }
     dbfull()->TEST_WaitForFlushMemTable();
   };
@@ -6153,7 +6163,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // the next memtable will be 128KB in size. Write 256KB total, we should
   // have a 64KB L0 file, a 128KB L0 file, and a memtable with 64KB data
   gen_l0_kb(256);
-  ASSERT_EQ(NumTableFilesAtLevel(0), 2);
+  ASSERT_EQ(NumTableFilesAtLevel(0), 2);  // (A)
   ASSERT_LT(SizeAtLevel(0), k128KB + k64KB + 2 * k5KB);
   ASSERT_GT(SizeAtLevel(0), k128KB + k64KB - 2 * k5KB);
 
