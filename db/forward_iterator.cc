@@ -514,7 +514,7 @@ void ForwardIterator::ResetIncompleteIterators() {
   const auto& l0_files = sv_->current->storage_info()->LevelFiles(0);
   for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
     assert(i < l0_files.size());
-    if (!l0_iters_[i]->status().IsIncomplete()) {
+    if (!l0_iters_[i] || !l0_iters_[i]->status().IsIncomplete()) {
       continue;
     }
     delete l0_iters_[i];

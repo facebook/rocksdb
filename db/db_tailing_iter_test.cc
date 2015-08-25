@@ -171,6 +171,15 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
     ASSERT_TRUE(itern->Valid());
     ASSERT_EQ(itern->key().compare(key), 0);
   }
+
+  read_options.read_tier = kBlockCacheTier;
+  std::unique_ptr<Iterator> iteri(db_->NewIterator(read_options, handles_[1]));
+  char buf5[32];
+  snprintf(buf5, sizeof(buf5), "00a0%016d", (num_records / 2) * 5 - 2);
+  Slice target1(buf5, 20);
+  iteri->Seek(target1);
+  ASSERT_TRUE(iteri->Valid() || iteri->status().IsIncomplete());
+
   for (int i = 2 * num_records; i > 0; --i) {
     char buf1[32];
     char buf2[32];
