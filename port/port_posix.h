@@ -16,7 +16,7 @@
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"
 
-#define NOEXCEPT noexcept
+#define ROCKSDB_NOEXCEPT noexcept
 
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)

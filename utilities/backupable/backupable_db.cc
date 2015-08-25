@@ -344,9 +344,9 @@ class BackupEngineImpl : public BackupEngine {
     CopyWorkItem(const CopyWorkItem&) = delete;
     CopyWorkItem& operator=(const CopyWorkItem&) = delete;
 
-    CopyWorkItem(CopyWorkItem&& o) NOEXCEPT { *this = std::move(o); }
+    CopyWorkItem(CopyWorkItem&& o) ROCKSDB_NOEXCEPT { *this = std::move(o); }
 
-    CopyWorkItem& operator=(CopyWorkItem&& o) NOEXCEPT {
+    CopyWorkItem& operator=(CopyWorkItem&& o) ROCKSDB_NOEXCEPT {
       src_path = std::move(o.src_path);
       dst_path = std::move(o.dst_path);
       src_env = o.src_env;
@@ -384,11 +384,11 @@ class BackupEngineImpl : public BackupEngine {
     std::string dst_relative;
     BackupAfterCopyWorkItem() {}
 
-    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) NOEXCEPT {
+    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) ROCKSDB_NOEXCEPT {
       *this = std::move(o);
     }
 
-    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) NOEXCEPT {
+    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) ROCKSDB_NOEXCEPT {
       result = std::move(o.result);
       shared = o.shared;
       needed_to_copy = o.needed_to_copy;
@@ -419,11 +419,11 @@ class BackupEngineImpl : public BackupEngine {
     RestoreAfterCopyWorkItem(std::future<CopyResult>&& _result,
                              uint32_t _checksum_value)
         : result(std::move(_result)), checksum_value(_checksum_value) {}
-    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) NOEXCEPT {
+    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) ROCKSDB_NOEXCEPT {
       *this = std::move(o);
     }
 
-    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) NOEXCEPT {
+    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) ROCKSDB_NOEXCEPT {
       result = std::move(o.result);
       checksum_value = o.checksum_value;
       return *this;

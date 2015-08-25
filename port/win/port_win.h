@@ -58,7 +58,7 @@ typedef SSIZE_T ssize_t;
 #define ROCKSDB_PRIszt "Iu"
 #endif
 
-#define NOEXCEPT
+#define ROCKSDB_NOEXCEPT
 
 #define __attribute__(A)
 
