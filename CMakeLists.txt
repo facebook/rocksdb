@@ -219,9 +219,9 @@ set(SOURCES
         utilities/redis/redis_lists.cc
         utilities/spatialdb/spatial_db.cc
         utilities/table_properties_collectors/compact_on_deletion_collector.cc
-        utilities/transactions/optimistic_transaction_base.cc
         utilities/transactions/optimistic_transaction_impl.cc
         utilities/transactions/optimistic_transaction_db_impl.cc
+        utilities/transactions/transaction_base.cc
         utilities/transactions/transaction_impl.cc
         utilities/transactions/transaction_db_impl.cc
         utilities/transactions/transaction_lock_mgr.cc
