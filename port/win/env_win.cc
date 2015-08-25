@@ -850,7 +850,7 @@ class WinSequentialFile : public SequentialFile {
       return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
     }
 
-    DWORD bytesToRead = static_cast<DWORD>(n);  //cast is safe due to the check above
+    DWORD bytesToRead = static_cast<DWORD>(n); //cast is safe due to the check above
     DWORD bytesRead = 0;
     BOOL ret = ReadFile(file_, scratch, bytesToRead, &bytesRead, NULL);
     if (ret == TRUE) {
