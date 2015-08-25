@@ -70,6 +70,7 @@ class ForwardIterator : public Iterator {
   virtual Slice key() const override;
   virtual Slice value() const override;
   virtual Status status() const override;
+  bool TEST_CheckDeletedIters();
 
  private:
   void Cleanup(bool release_sv);

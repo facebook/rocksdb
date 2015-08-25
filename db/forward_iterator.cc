@@ -19,6 +19,7 @@
 #include "rocksdb/slice_transform.h"
 #include "table/merger.h"
 #include "db/dbformat.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -389,6 +390,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
   }
 
   UpdateCurrent();
+  TEST_SYNC_POINT_CALLBACK("ForwardIterator::SeekInternal:Return", this);
 }
 
 void ForwardIterator::Next() {
@@ -443,6 +445,7 @@ void ForwardIterator::Next() {
     }
   }
   UpdateCurrent();
+  TEST_SYNC_POINT_CALLBACK("ForwardIterator::Next:Return", this);
 }
 
 Slice ForwardIterator::key() const {
@@ -474,6 +477,7 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+  has_iter_trimmed_for_upper_bound_ = false;
 
   const auto* vstorage = sv_->current->storage_info();
   const auto& l0_files = vstorage->LevelFiles(0);
@@ -499,6 +503,9 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
                                     level_files[0]->smallest.user_key()) <
           0))) {
       level_iters_.push_back(nullptr);
+      if (!level_files.empty()) {
+        has_iter_trimmed_for_upper_bound_ = true;
+      }
     } else {
       level_iters_.push_back(
           new LevelIterator(cfd_, read_options_, level_files));
@@ -507,7 +514,6 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
 
   current_ = nullptr;
   is_prev_set_ = false;
-  has_iter_trimmed_for_upper_bound_ = false;
 }
 
 void ForwardIterator::ResetIncompleteIterators() {
@@ -657,6 +663,33 @@ void ForwardIterator::DeleteCurrentIter() {
   }
 }
 
+bool ForwardIterator::TEST_CheckDeletedIters() {
+  if (!has_iter_trimmed_for_upper_bound_) {
+    return false;
+  }
+  for (size_t i = 0; i < imm_iters_.size(); i++) {
+    auto& m = imm_iters_[i];
+    if (!m) {
+      return true;
+    }
+  }
+
+  const VersionStorageInfo* vstorage = sv_->current->storage_info();
+  const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
+  for (uint32_t i = 0; i < l0.size(); ++i) {
+    if (!l0_iters_[i]) {
+      return true;
+    }
+  }
+
+  for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
+    if ((level_iters_[level - 1] == nullptr) &&
+        (!vstorage->LevelFiles(level).empty())) {
+      return true;
+    }
+  }
+  return false;
+}
 uint32_t ForwardIterator::FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right) {

@@ -12,6 +12,7 @@
 // which is a pity, it is a good test
 #if !(defined NDEBUG) || !defined(OS_WIN)
 
+#include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "util/db_test_util.h"
 
@@ -96,7 +97,10 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
     }
     ASSERT_TRUE(itern->Valid());
     ASSERT_EQ(itern->key().compare(key), 0);
+    file_iters_deleted = false;
   }
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   for (int i = 2 * num_records; i > 0; --i) {
     char buf1[32];
     char buf2[32];
@@ -130,7 +134,18 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
   std::unique_ptr<Iterator> iterh(db_->NewIterator(read_options, handles_[1]));
   std::string value(1024, 'a');
-
+  bool file_iters_deleted = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::SeekInternal:Return", [&](void* arg) {
+        ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+        ASSERT_TRUE(!file_iters_deleted || fiter->TEST_CheckDeletedIters());
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::Next:Return", [&](void* arg) {
+        ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+        ASSERT_TRUE(!file_iters_deleted || fiter->TEST_CheckDeletedIters());
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   const int num_records = 1000;
   for (int i = 1; i < num_records; ++i) {
     char buf1[32];
@@ -148,6 +163,9 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
     if (i % 100 == 99) {
       ASSERT_OK(Flush(1));
       dbfull()->TEST_WaitForCompact();
+      if (i == 299) {
+        file_iters_deleted = true;
+      }
       snprintf(buf4, sizeof(buf1), "00a0%016d", i * 5 / 2);
       Slice target(buf4, 20);
       iterh->Seek(target);
@@ -156,8 +174,12 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
         iterh->Next();
         ASSERT_TRUE(iterh->Valid());
       }
+      if (i == 299) {
+        file_iters_deleted = false;
+      }
     }
 
+    file_iters_deleted = ((i > 99) && (i % 400 != 399));
     snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
     Slice target(buf2, 20);
     iter->Seek(target);
