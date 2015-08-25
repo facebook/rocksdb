@@ -335,9 +335,10 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   }
 
   // expect fail since universal compaction only allow L0 output
-  ASSERT_TRUE(!dbfull()->CompactFiles(
-      CompactionOptions(), handles_[1],
-      compaction_input_file_names, 1).ok());
+  ASSERT_FALSE(dbfull()
+                   ->CompactFiles(CompactionOptions(), handles_[1],
+                                  compaction_input_file_names, 1)
+                   .ok());
 
   // expect ok and verify the compacted files no longer exist.
   ASSERT_OK(dbfull()->CompactFiles(

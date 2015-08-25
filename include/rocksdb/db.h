@@ -489,10 +489,10 @@ class DB {
     return SetOptions(DefaultColumnFamily(), new_options);
   }
 
-  // CompactFiles() inputs a list of files specified by file numbers
-  // and compacts them to the specified level.  Note that the behavior
-  // is different from CompactRange in that CompactFiles() will
-  // perform the compaction job using the CURRENT thread.
+  // CompactFiles() inputs a list of files specified by file numbers and
+  // compacts them to the specified level. Note that the behavior is different
+  // from CompactRange() in that CompactFiles() performs the compaction job
+  // using the CURRENT thread.
   //
   // @see GetDataBaseMetaData
   // @see GetColumnFamilyMetaData

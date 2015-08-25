@@ -188,7 +188,7 @@ Options DBTestBase::CurrentOptions(
 Options DBTestBase::CurrentOptions(
     const Options& defaultOptions,
     const anon::OptionsOverride& options_override) {
-  // this redudant copy is to minimize code change w/o having lint error.
+  // this redundant copy is to minimize code change w/o having lint error.
   Options options = defaultOptions;
   XFUNC_TEST("", "dbtest_options", inplace_options1, GetXFTestOptions,
              reinterpret_cast<Options*>(&options),

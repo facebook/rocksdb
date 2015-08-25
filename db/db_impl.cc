@@ -1469,7 +1469,7 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   } else {
     for (int level = 0; level <= max_level_with_files; level++) {
       int output_level;
-      // in case the compaction is unversal or if we're compacting the
+      // in case the compaction is universal or if we're compacting the
       // bottom-most level, the output level will be the same as input one.
       // level 0 can never be the bottommost level (i.e. if all files are in
       // level 0, we will compact to level 1)
@@ -1485,8 +1485,8 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
                        BottommostLevelCompaction::kIfHaveCompactionFilter &&
                    cfd->ioptions()->compaction_filter == nullptr &&
                    cfd->ioptions()->compaction_filter_factory == nullptr) {
-          // Skip bottommost level compaction since we dont have
-          // compaction filter
+          // Skip bottommost level compaction since we don't have a compaction
+          // filter
           continue;
         }
         output_level = level;

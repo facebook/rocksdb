@@ -261,10 +261,10 @@ Compaction* CompactionPicker::FormCompaction(
           mutable_cf_options.MaxGrandParentOverlapBytes(output_level + 1) :
           std::numeric_limits<uint64_t>::max();
   assert(input_files.size());
-  return new Compaction(vstorage, mutable_cf_options, input_files, output_level,
-                        compact_options.output_file_size_limit,
-                        max_grandparent_overlap_bytes, output_path_id,
-                        compact_options.compression, /* grandparents */ {});
+  return new Compaction(
+      vstorage, mutable_cf_options, input_files, output_level,
+      compact_options.output_file_size_limit, max_grandparent_overlap_bytes,
+      output_path_id, compact_options.compression, /* grandparents */ {}, true);
 }
 
 Status CompactionPicker::GetCompactionInputsFromFileNumbers(
