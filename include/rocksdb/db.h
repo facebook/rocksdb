@@ -361,6 +361,8 @@ class DB {
     static const std::string kEstimateLiveDataSize;
     static const std::string kTotalSstFilesSize;
     static const std::string kEstimatePendingCompactionBytes;
+    static const std::string kAggregatedTableProperties;
+    static const std::string kAggregatedTablePropertiesAtLevel;
   };
 #endif /* ROCKSDB_LITE */
 
@@ -394,6 +396,9 @@ class DB {
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
+  //  "rocksdb.aggregated-table-properties"
+  //  "rocksdb.aggregated-table-properties-at-levelN", where "N" should be
+  //  replaced by the target level.
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {

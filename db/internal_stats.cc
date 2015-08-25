@@ -13,6 +13,7 @@
 #endif
 
 #include <inttypes.h>
+#include <string>
 #include <algorithm>
 #include <vector>
 #include "db/column_family.h"
@@ -125,6 +126,10 @@ static const std::string base_level = "base-level";
 static const std::string total_sst_files_size = "total-sst-files-size";
 static const std::string estimate_pending_comp_bytes =
     "estimate-pending-compaction-bytes";
+static const std::string aggregated_table_properties =
+    "aggregated-table-properties";
+static const std::string aggregated_table_properties_at_level =
+    aggregated_table_properties + "-at-level";
 
 const std::string DB::Properties::kNumFilesAtLevelPrefix =
                       rocksdb_prefix + num_files_at_level_prefix;
@@ -172,6 +177,10 @@ const std::string DB::Properties::kTotalSstFilesSize =
                       rocksdb_prefix + total_sst_files_size;
 const std::string DB::Properties::kEstimatePendingCompactionBytes =
     rocksdb_prefix + estimate_pending_comp_bytes;
+const std::string DB::Properties::kAggregatedTableProperties =
+    rocksdb_prefix + aggregated_table_properties;
+const std::string DB::Properties::kAggregatedTablePropertiesAtLevel =
+    rocksdb_prefix + aggregated_table_properties_at_level;
 
 DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
                                bool* need_out_of_mutex) {
@@ -198,6 +207,10 @@ DBPropertyType GetPropertyType(const Slice& property, bool* is_int_property,
     return kDBStats;
   } else if (in == sstables) {
     return kSsTables;
+  } else if (in == aggregated_table_properties) {
+    return kAggregatedTableProperties;
+  } else if (in.starts_with(aggregated_table_properties_at_level)) {
+    return kAggregatedTablePropertiesAtLevel;
   }
 
   *is_int_property = true;
@@ -328,6 +341,32 @@ bool InternalStats::GetStringProperty(DBPropertyType property_type,
     case kSsTables:
       *value = current->DebugString();
       return true;
+    case kAggregatedTableProperties: {
+      std::shared_ptr<const TableProperties> tp;
+      auto s = cfd_->current()->GetAggregatedTableProperties(&tp);
+      if (!s.ok()) {
+        return false;
+      }
+      *value = tp->ToString();
+      return true;
+    }
+    case kAggregatedTablePropertiesAtLevel: {
+      in.remove_prefix(
+          DB::Properties::kAggregatedTablePropertiesAtLevel.length());
+      uint64_t level;
+      bool ok = ConsumeDecimalNumber(&in, &level) && in.empty();
+      if (!ok || static_cast<int>(level) >= number_levels_) {
+        return false;
+      }
+      std::shared_ptr<const TableProperties> tp;
+      auto s = cfd_->current()->GetAggregatedTableProperties(
+          &tp, static_cast<int>(level));
+      if (!s.ok()) {
+        return false;
+      }
+      *value = tp->ToString();
+      return true;
+    }
     default:
       return false;
   }

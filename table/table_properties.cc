@@ -74,6 +74,16 @@ std::string TableProperties::ToString(
   return result;
 }
 
+void TableProperties::Add(const TableProperties& tp) {
+  data_size += tp.data_size;
+  index_size += tp.index_size;
+  filter_size += tp.filter_size;
+  raw_key_size += tp.raw_key_size;
+  raw_value_size += tp.raw_value_size;
+  num_data_blocks += tp.num_data_blocks;
+  num_entries += tp.num_entries;
+}
+
 const std::string TablePropertiesNames::kDataSize  =
     "rocksdb.data.size";
 const std::string TablePropertiesNames::kIndexSize =

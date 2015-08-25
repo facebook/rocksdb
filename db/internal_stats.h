@@ -64,6 +64,11 @@ enum DBPropertyType : uint32_t {
   kTotalSstFilesSize,               // Total size of all sst files.
   kBaseLevel,                       // The level that L0 data is compacted to
   kEstimatePendingCompactionBytes,  // Estimated bytes to compaction
+  kAggregatedTableProperties,  // Return a string that contains the aggregated
+                               // table properties.
+  kAggregatedTablePropertiesAtLevel,  // Return a string that contains the
+                                      // aggregated
+  // table properties at the specified level.
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,

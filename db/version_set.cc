@@ -592,23 +592,55 @@ Status Version::GetTableProperties(std::shared_ptr<const TableProperties>* tp,
 }
 
 Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props) {
+  Status s;
   for (int level = 0; level < storage_info_.num_levels_; level++) {
-    for (const auto& file_meta : storage_info_.files_[level]) {
-      auto fname =
-          TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
-                        file_meta->fd.GetPathId());
-      // 1. If the table is already present in table cache, load table
-      // properties from there.
-      std::shared_ptr<const TableProperties> table_properties;
-      Status s = GetTableProperties(&table_properties, file_meta, &fname);
-      if (s.ok()) {
-        props->insert({fname, table_properties});
-      } else {
-        return s;
-      }
+    s = GetPropertiesOfAllTables(props, level);
+    if (!s.ok()) {
+      return s;
     }
   }
 
+  return Status::OK();
+}
+
+Status Version::GetPropertiesOfAllTables(TablePropertiesCollection* props,
+                                         int level) {
+  for (const auto& file_meta : storage_info_.files_[level]) {
+    auto fname =
+        TableFileName(vset_->db_options_->db_paths, file_meta->fd.GetNumber(),
+                      file_meta->fd.GetPathId());
+    // 1. If the table is already present in table cache, load table
+    // properties from there.
+    std::shared_ptr<const TableProperties> table_properties;
+    Status s = GetTableProperties(&table_properties, file_meta, &fname);
+    if (s.ok()) {
+      props->insert({fname, table_properties});
+    } else {
+      return s;
+    }
+  }
+
+  return Status::OK();
+}
+
+Status Version::GetAggregatedTableProperties(
+    std::shared_ptr<const TableProperties>* tp, int level) {
+  TablePropertiesCollection props;
+  Status s;
+  if (level < 0) {
+    s = GetPropertiesOfAllTables(&props);
+  } else {
+    s = GetPropertiesOfAllTables(&props, level);
+  }
+  if (!s.ok()) {
+    return s;
+  }
+
+  auto* new_tp = new TableProperties();
+  for (const auto& item : props) {
+    new_tp->Add(*item.second);
+  }
+  tp->reset(new_tp);
   return Status::OK();
 }
 

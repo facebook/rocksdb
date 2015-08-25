@@ -468,6 +468,206 @@ TEST_F(DBTest, GetPropertiesOfAllTablesTest) {
   VerifyTableProperties(db_, 10 + 11 + 12 + 13);
 }
 
+namespace {
+void ResetTableProperties(TableProperties* tp) {
+  tp->data_size = 0;
+  tp->index_size = 0;
+  tp->filter_size = 0;
+  tp->raw_key_size = 0;
+  tp->raw_value_size = 0;
+  tp->num_data_blocks = 0;
+  tp->num_entries = 0;
+}
+
+void ParseTablePropertiesString(std::string tp_string, TableProperties* tp) {
+  double dummy_double;
+  std::replace(tp_string.begin(), tp_string.end(), ';', ' ');
+  std::replace(tp_string.begin(), tp_string.end(), '=', ' ');
+  ResetTableProperties(tp);
+
+  sscanf(tp_string.c_str(), "# data blocks %" SCNu64
+                            " # entries %" SCNu64
+                            " raw key size %" SCNu64
+                            " raw average key size %lf "
+                            " raw value size %" SCNu64
+                            " raw average value size %lf "
+                            " data block size %" SCNu64
+                            " index block size %" SCNu64
+                            " filter block size %" SCNu64,
+         &tp->num_data_blocks, &tp->num_entries, &tp->raw_key_size,
+         &dummy_double, &tp->raw_value_size, &dummy_double, &tp->data_size,
+         &tp->index_size, &tp->filter_size);
+}
+
+void VerifySimilar(uint64_t a, uint64_t b, double bias) {
+  ASSERT_EQ(a == 0U, b == 0U);
+  if (a == 0) {
+    return;
+  }
+  double dbl_a = static_cast<double>(a);
+  double dbl_b = static_cast<double>(b);
+  if (dbl_a > dbl_b) {
+    ASSERT_LT(static_cast<double>(dbl_a - dbl_b) / (dbl_a + dbl_b), bias);
+  } else {
+    ASSERT_LT(static_cast<double>(dbl_b - dbl_a) / (dbl_a + dbl_b), bias);
+  }
+}
+
+void VerifyTableProperties(const TableProperties& base_tp,
+                           const TableProperties& new_tp,
+                           double filter_size_bias = 0.1,
+                           double index_size_bias = 0.1,
+                           double data_size_bias = 0.1,
+                           double num_data_blocks_bias = 0.05) {
+  VerifySimilar(base_tp.data_size, new_tp.data_size, data_size_bias);
+  VerifySimilar(base_tp.index_size, new_tp.index_size, index_size_bias);
+  VerifySimilar(base_tp.filter_size, new_tp.filter_size, filter_size_bias);
+  VerifySimilar(base_tp.num_data_blocks, new_tp.num_data_blocks,
+                num_data_blocks_bias);
+  ASSERT_EQ(base_tp.raw_key_size, new_tp.raw_key_size);
+  ASSERT_EQ(base_tp.raw_value_size, new_tp.raw_value_size);
+  ASSERT_EQ(base_tp.num_entries, new_tp.num_entries);
+}
+
+void GetExpectedTableProperties(TableProperties* expected_tp,
+                                const int kKeySize, const int kValueSize,
+                                const int kKeysPerTable, const int kTableCount,
+                                const int kBloomBitsPerKey,
+                                const size_t kBlockSize) {
+  const int kKeyCount = kTableCount * kKeysPerTable;
+  const int kAvgSuccessorSize = kKeySize / 2;
+  const int kEncodingSavePerKey = kKeySize / 4;
+  expected_tp->raw_key_size = kKeyCount * (kKeySize + 8);
+  expected_tp->raw_value_size = kKeyCount * kValueSize;
+  expected_tp->num_entries = kKeyCount;
+  expected_tp->num_data_blocks =
+      kTableCount *
+      (kKeysPerTable * (kKeySize - kEncodingSavePerKey + kValueSize)) /
+      kBlockSize;
+  expected_tp->data_size =
+      kTableCount * (kKeysPerTable * (kKeySize + 8 + kValueSize));
+  expected_tp->index_size =
+      expected_tp->num_data_blocks * (kAvgSuccessorSize + 12);
+  expected_tp->filter_size =
+      kTableCount * (kKeysPerTable * kBloomBitsPerKey / 8);
+}
+}  // namespace
+
+TEST_F(DBTest, AggregatedTableProperties) {
+  for (int kTableCount = 40; kTableCount <= 100; kTableCount += 30) {
+    const int kKeysPerTable = 100;
+    const int kKeySize = 80;
+    const int kValueSize = 200;
+    const int kBloomBitsPerKey = 20;
+
+    Options options = CurrentOptions();
+    options.level0_file_num_compaction_trigger = 8;
+    options.compression = kNoCompression;
+    options.create_if_missing = true;
+
+    BlockBasedTableOptions table_options;
+    table_options.filter_policy.reset(
+        NewBloomFilterPolicy(kBloomBitsPerKey, false));
+    table_options.block_size = 1024;
+    options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+    DestroyAndReopen(options);
+
+    Random rnd(5632);
+    for (int table = 1; table <= kTableCount; ++table) {
+      for (int i = 0; i < kKeysPerTable; ++i) {
+        db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
+                 RandomString(&rnd, kValueSize));
+      }
+      db_->Flush(FlushOptions());
+    }
+    std::string property;
+    db_->GetProperty(DB::Properties::kAggregatedTableProperties, &property);
+
+    TableProperties expected_tp;
+    GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
+                               kKeysPerTable, kTableCount, kBloomBitsPerKey,
+                               table_options.block_size);
+
+    TableProperties output_tp;
+    ParseTablePropertiesString(property, &output_tp);
+
+    VerifyTableProperties(expected_tp, output_tp);
+  }
+}
+
+TEST_F(DBTest, AggregatedTablePropertiesAtLevel) {
+  const int kTableCount = 100;
+  const int kKeysPerTable = 10;
+  const int kKeySize = 50;
+  const int kValueSize = 400;
+  const int kMaxLevel = 7;
+  const int kBloomBitsPerKey = 20;
+  Random rnd(301);
+  Options options = CurrentOptions();
+  options.level0_file_num_compaction_trigger = 8;
+  options.compression = kNoCompression;
+  options.create_if_missing = true;
+  options.level0_file_num_compaction_trigger = 2;
+  options.target_file_size_base = 8192;
+  options.max_bytes_for_level_base = 10000;
+  options.max_bytes_for_level_multiplier = 2;
+  // This ensures there no compaction happening when we call GetProperty().
+  options.disable_auto_compactions = true;
+
+  BlockBasedTableOptions table_options;
+  table_options.filter_policy.reset(
+      NewBloomFilterPolicy(kBloomBitsPerKey, false));
+  table_options.block_size = 1024;
+  options.table_factory.reset(new BlockBasedTableFactory(table_options));
+
+  DestroyAndReopen(options);
+
+  std::string level_tp_strings[kMaxLevel];
+  std::string tp_string;
+  TableProperties level_tps[kMaxLevel];
+  TableProperties tp, sum_tp, expected_tp;
+  for (int table = 1; table <= kTableCount; ++table) {
+    for (int i = 0; i < kKeysPerTable; ++i) {
+      db_->Put(WriteOptions(), RandomString(&rnd, kKeySize),
+               RandomString(&rnd, kValueSize));
+    }
+    db_->Flush(FlushOptions());
+    db_->CompactRange(CompactRangeOptions(), nullptr, nullptr);
+    ResetTableProperties(&sum_tp);
+    for (int level = 0; level < kMaxLevel; ++level) {
+      db_->GetProperty(
+          DB::Properties::kAggregatedTablePropertiesAtLevel + ToString(level),
+          &level_tp_strings[level]);
+      ParseTablePropertiesString(level_tp_strings[level], &level_tps[level]);
+      sum_tp.data_size += level_tps[level].data_size;
+      sum_tp.index_size += level_tps[level].index_size;
+      sum_tp.filter_size += level_tps[level].filter_size;
+      sum_tp.raw_key_size += level_tps[level].raw_key_size;
+      sum_tp.raw_value_size += level_tps[level].raw_value_size;
+      sum_tp.num_data_blocks += level_tps[level].num_data_blocks;
+      sum_tp.num_entries += level_tps[level].num_entries;
+    }
+    db_->GetProperty(DB::Properties::kAggregatedTableProperties, &tp_string);
+    ParseTablePropertiesString(tp_string, &tp);
+    ASSERT_EQ(sum_tp.data_size, tp.data_size);
+    ASSERT_EQ(sum_tp.index_size, tp.index_size);
+    ASSERT_EQ(sum_tp.filter_size, tp.filter_size);
+    ASSERT_EQ(sum_tp.raw_key_size, tp.raw_key_size);
+    ASSERT_EQ(sum_tp.raw_value_size, tp.raw_value_size);
+    ASSERT_EQ(sum_tp.num_data_blocks, tp.num_data_blocks);
+    ASSERT_EQ(sum_tp.num_entries, tp.num_entries);
+    if (table > 3) {
+      GetExpectedTableProperties(&expected_tp, kKeySize, kValueSize,
+                                 kKeysPerTable, table, kBloomBitsPerKey,
+                                 table_options.block_size);
+      // Gives larger bias here as index block size, filter block size,
+      // and data block size become much harder to estimate in this test.
+      VerifyTableProperties(tp, expected_tp, 0.5, 0.4, 0.4, 0.25);
+    }
+  }
+}
+
 class CoutingUserTblPropCollector : public TablePropertiesCollector {
  public:
   const char* Name() const override { return "CoutingUserTblPropCollector"; }

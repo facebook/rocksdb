@@ -462,6 +462,14 @@ class Version {
   // tables' propertis, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
 
+  Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
+
+  // REQUIRES: lock is held
+  // On success, "tp" will contains the aggregated table property amoug
+  // the table properties of all sst files in this version.
+  Status GetAggregatedTableProperties(
+      std::shared_ptr<const TableProperties>* tp, int level = -1);
+
   uint64_t GetEstimatedActiveKeys() {
     return storage_info_.GetEstimatedActiveKeys();
   }

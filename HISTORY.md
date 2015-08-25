@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### New Features
+* DB::GetProperty() now accept "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
+
 ### Public API Changes
 * Removed class Env::RandomRWFile and Env::NewRandomRWFile().
 * Renamed DBOptions.num_subcompactions to DBOptions.max_subcompactions to make the name better match the actual funcionality of the option.
