@@ -18,13 +18,16 @@
 #include <atomic>
 
 #include "rocksdb/env.h"
+
+#include <Windows.h>
+
 #include "port/win/win_logger.h"
 #include "port/sys_time.h"
 #include "util/iostats_context_imp.h"
 
 namespace rocksdb {
 
-WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, FILE* file,
+WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, HANDLE file,
                      const InfoLogLevel log_level)
     : Logger(log_level),
       gettid_(gettid),
@@ -35,20 +38,21 @@ WinLogger::WinLogger(uint64_t (*gettid)(), Env* env, FILE* file,
       file_(file) {}
 
 void WinLogger::DebugWriter(const char* str, int len) {
-  size_t sz = fwrite(str, 1, len, file_);
-  if (sz == 0) {
+  DWORD bytesWritten = 0;    
+  BOOL ret = WriteFile(file_, str, len, &bytesWritten, NULL);
+  if (ret == FALSE) {
     perror("fwrite .. [BAD]");
   }
 }
 
 WinLogger::~WinLogger() { close(); }
 
-void WinLogger::close() { fclose(file_); }
+void WinLogger::close() { CloseHandle(file_); }
 
 void WinLogger::Flush() {
   if (flush_pending_) {
     flush_pending_ = false;
-    fflush(file_);
+    FlushFileBuffers(file_);
   }
 
   last_flush_micros_ = env_->NowMicros();
@@ -118,14 +122,15 @@ void WinLogger::Logv(const char* format, va_list ap) {
     assert(p <= limit);
     const size_t write_size = p - base;
 
-    size_t sz = fwrite(base, 1, write_size, file_);
-    if (sz == 0) {
+    DWORD bytesWritten = 0;    
+    BOOL ret = WriteFile(file_, base, write_size, &bytesWritten, NULL);
+    if (ret == FALSE) {
       perror("fwrite .. [BAD]");
     }
 
     flush_pending_ = true;
-    assert(sz == write_size);
-    if (sz > 0) {
+    assert(bytesWritten == write_size);
+    if (bytesWritten > 0) {
       log_size_ += write_size;
     }
 
@@ -133,7 +138,7 @@ void WinLogger::Logv(const char* format, va_list ap) {
         static_cast<uint64_t>(now_tv.tv_sec) * 1000000 + now_tv.tv_usec;
     if (now_micros - last_flush_micros_ >= flush_every_seconds_ * 1000000) {
       flush_pending_ = false;
-      fflush(file_);
+      FlushFileBuffers(file_);
       last_flush_micros_ = now_micros;
     }
     break;
