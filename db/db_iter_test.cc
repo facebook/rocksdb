@@ -1920,8 +1920,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace1) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// Not passing for a bug of not handling the case
-TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace2) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace2) {
   // Test Prev() when one child iterator is at its end but more rows
   // are added.
   db_iter_->Seek("f");
@@ -1959,8 +1958,7 @@ TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace2) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-// Not passing for a bug of not handling the case
-TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace3) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace3) {
   // Test Prev() when one child iterator is at its end but more rows
   // are added and max_skipped is triggered.
   db_iter_->Seek("f");
@@ -2002,7 +2000,7 @@ TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace3) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace4) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace4) {
   // Test Prev() when one child iterator has more rows inserted
   // between Seek() and Prev() when changing directions.
   internal_iter2_->Add("z", kTypeValue, "9", 4u);
@@ -2053,7 +2051,7 @@ TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace4) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace5) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace5) {
   internal_iter2_->Add("z", kTypeValue, "9", 4u);
 
   // Test Prev() when one child iterator has more rows inserted
@@ -2146,7 +2144,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace6) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
-TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace7) {
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace7) {
   internal_iter1_->Add("u", kTypeValue, "10", 4u);
   internal_iter1_->Add("v", kTypeValue, "11", 4u);
   internal_iter1_->Add("w", kTypeValue, "12", 4u);
@@ -2200,6 +2198,42 @@ TEST_F(DBIterWithMergeIterTest, DISABLED_InnerMergeIteratorDataRace7) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
+  // internal_iter1_: a, f, g
+  // internal_iter2_: a, b, c, d, adding (z)
+  internal_iter2_->Add("z", kTypeValue, "9", 4u);
+
+  // Test Prev() when one child iterator has more rows inserted
+  // between Seek() and Prev() when changing directions.
+  db_iter_->Seek("g");
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "g");
+  ASSERT_EQ(db_iter_->value().ToString(), "3");
+
+  // Test call back inserts two keys before "z" in mem table after
+  // MergeIterator::Prev() calls mem table iterator's Seek() and
+  // before calling Prev()
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "MergeIterator::Prev:BeforePrev", [&](void* arg) {
+        IteratorWrapper* it = reinterpret_cast<IteratorWrapper*>(arg);
+        if (it->key().starts_with("z")) {
+          internal_iter2_->Add("x", kTypeValue, "7", 16u, true);
+          internal_iter2_->Add("y", kTypeValue, "7", 17u, true);
+        }
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "f");
+  ASSERT_EQ(db_iter_->value().ToString(), "2");
+  db_iter_->Prev();
+  ASSERT_TRUE(db_iter_->Valid());
+  ASSERT_EQ(db_iter_->key().ToString(), "d");
+  ASSERT_EQ(db_iter_->value().ToString(), "7");
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

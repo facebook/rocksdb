@@ -595,19 +595,23 @@ void DBIter::FindPrevUserKey() {
   size_t num_skipped = 0;
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kReverse);
-  while (iter_->Valid() &&
-         user_comparator_->Compare(ikey.user_key, saved_key_.GetKey()) == 0) {
-    if (num_skipped >= max_skip_) {
-      num_skipped = 0;
-      IterKey last_key;
-      last_key.SetInternalKey(ParsedInternalKey(
-          saved_key_.GetKey(), kMaxSequenceNumber, kValueTypeForSeek));
-      iter_->Seek(last_key.GetKey());
-      RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+  int cmp;
+  while (iter_->Valid() && ((cmp = user_comparator_->Compare(
+                                 ikey.user_key, saved_key_.GetKey())) == 0 ||
+                            (cmp > 0 && ikey.sequence > sequence_))) {
+    if (cmp == 0) {
+      if (num_skipped >= max_skip_) {
+        num_skipped = 0;
+        IterKey last_key;
+        last_key.SetInternalKey(ParsedInternalKey(
+            saved_key_.GetKey(), kMaxSequenceNumber, kValueTypeForSeek));
+        iter_->Seek(last_key.GetKey());
+        RecordTick(statistics_, NUMBER_OF_RESEEKS_IN_ITERATION);
+      } else {
+        ++num_skipped;
+      }
     }
-
     iter_->Prev();
-    ++num_skipped;
     FindParseableKey(&ikey, kReverse);
   }
 }
