@@ -83,9 +83,7 @@ class CompactionJob {
 
   void AggregateStatistics();
   // Set up the individual states used by each subcompaction
-  void InitializeSubCompactions(const SequenceNumber& earliest,
-                                const SequenceNumber& visible,
-                                const SequenceNumber& latest);
+  void InitializeSubCompactions();
 
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
@@ -131,6 +129,10 @@ class CompactionJob {
   bool bottommost_level_;
 
   InternalStats::CompactionStats compaction_stats_;
+
+  SequenceNumber earliest_snapshot_;
+  SequenceNumber latest_snapshot_;
+  SequenceNumber visible_at_tip_;
 
   // DBImpl state
   const std::string& dbname_;

@@ -7,7 +7,7 @@
 
 ### Public API Changes
 * Removed class Env::RandomRWFile and Env::NewRandomRWFile().
-* Renamed DBOptions.num_subcompactions to DBOptions.max_subcompactions to make the name better match the actual funcionality of the option.
+* Renamed DBOptions.num_subcompactions to DBOptions.max_subcompactions to make the name better match the actual functionality of the option.
 
 ## 3.13.0 (8/6/2015)
 ### New Features
