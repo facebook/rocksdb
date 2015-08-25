@@ -334,6 +334,12 @@ class DB {
 //  "rocksdb.estimate-pending-compaction-bytes" - estimated total number of
 //      bytes compaction needs to rewrite the data to get all levels down
 //      to under target size. Not valid for other compactions than level-based.
+//  "rocksdb.aggregated-table-properties" - returns a string representation of
+//      the aggregated table properties of the target column family.
+//  "rocksdb.aggregated-table-properties-at-level<N>", same as the previous
+//      one but only returns the aggregated table properties of the specified
+//      level "N" at the target column family.
+//  replaced by the target level.
 #ifndef ROCKSDB_LITE
   struct Properties {
     static const std::string kNumFilesAtLevelPrefix;
@@ -396,9 +402,6 @@ class DB {
   //  "rocksdb.total-sst-files-size"
   //  "rocksdb.base-level"
   //  "rocksdb.estimate-pending-compaction-bytes"
-  //  "rocksdb.aggregated-table-properties"
-  //  "rocksdb.aggregated-table-properties-at-levelN", where "N" should be
-  //  replaced by the target level.
   virtual bool GetIntProperty(ColumnFamilyHandle* column_family,
                               const Slice& property, uint64_t* value) = 0;
   virtual bool GetIntProperty(const Slice& property, uint64_t* value) {
