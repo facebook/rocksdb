@@ -44,6 +44,8 @@ class TransactionImpl : public TransactionBaseImpl {
 
   void Rollback() override;
 
+  uint64_t GetNumKeys() const override;
+
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
 
@@ -90,7 +92,7 @@ class TransactionImpl : public TransactionBaseImpl {
   // stored.
   TransactionKeyMap tracked_keys_;
 
-  void Cleanup();
+  void Clear() override;
 
   Status CheckKeySequence(ColumnFamilyHandle* column_family, const Slice& key);
 

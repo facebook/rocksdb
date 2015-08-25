@@ -55,12 +55,16 @@ TEST_F(TransactionTest, SuccessTest) {
   Transaction* txn = db->BeginTransaction(write_options, TransactionOptions());
   ASSERT_TRUE(txn);
 
+  ASSERT_EQ(0, txn->GetNumPuts());
+
   s = txn->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
   ASSERT_EQ(value, "bar");
 
   s = txn->Put(Slice("foo"), Slice("bar2"));
   ASSERT_OK(s);
+
+  ASSERT_EQ(1, txn->GetNumPuts());
 
   s = txn->GetForUpdate(read_options, "foo", &value);
   ASSERT_OK(s);
@@ -141,6 +145,8 @@ TEST_F(TransactionTest, WriteConflictTest2) {
 
   s = db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "barz");
+
+  ASSERT_EQ(2, txn->GetNumKeys());
 
   s = txn->Commit();
   ASSERT_OK(s);  // Txn should commit, but only write foo2 and foo3
@@ -535,6 +541,7 @@ TEST_F(TransactionTest, ColumnFamiliesTest) {
   s = txn->Put(handles[2], SliceParts(&key_slice, 1),
                SliceParts(value_slices, 2));
   ASSERT_OK(s);
+  ASSERT_EQ(3, txn->GetNumKeys());
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -595,6 +602,8 @@ TEST_F(TransactionTest, ColumnFamiliesTest) {
   ASSERT_OK(s);
   s = txn->Put(handles[2], "AAAZZZ", "barbarbar");
   ASSERT_OK(s);
+
+  ASSERT_EQ(5, txn->GetNumKeys());
 
   // Txn should commit
   s = txn->Commit();
@@ -1299,6 +1308,8 @@ TEST_F(TransactionTest, SavepointTest) {
   Transaction* txn = db->BeginTransaction(write_options);
   ASSERT_TRUE(txn);
 
+  ASSERT_EQ(0, txn->GetNumPuts());
+
   s = txn->RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
 
@@ -1310,6 +1321,9 @@ TEST_F(TransactionTest, SavepointTest) {
 
   s = txn->Put("B", "b");
   ASSERT_OK(s);
+
+  ASSERT_EQ(1, txn->GetNumPuts());
+  ASSERT_EQ(0, txn->GetNumDeletes());
 
   s = txn->Commit();
   ASSERT_OK(s);
@@ -1342,7 +1356,13 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Put("D", "d");
   ASSERT_OK(s);
 
+  ASSERT_EQ(5, txn->GetNumPuts());
+  ASSERT_EQ(1, txn->GetNumDeletes());
+
   ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to 2
+
+  ASSERT_EQ(3, txn->GetNumPuts());
+  ASSERT_EQ(0, txn->GetNumDeletes());
 
   s = txn->Get(read_options, "A", &value);
   ASSERT_OK(s);
@@ -1365,10 +1385,16 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Put("E", "e");
   ASSERT_OK(s);
 
+  ASSERT_EQ(5, txn->GetNumPuts());
+  ASSERT_EQ(0, txn->GetNumDeletes());
+
   // Rollback to beginning of txn
   s = txn->RollbackToSavePoint();
   ASSERT_TRUE(s.IsNotFound());
   txn->Rollback();
+
+  ASSERT_EQ(0, txn->GetNumPuts());
+  ASSERT_EQ(0, txn->GetNumDeletes());
 
   s = txn->Get(read_options, "A", &value);
   ASSERT_TRUE(s.IsNotFound());
@@ -1392,6 +1418,9 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Put("F", "f");
   ASSERT_OK(s);
 
+  ASSERT_EQ(2, txn->GetNumPuts());
+  ASSERT_EQ(0, txn->GetNumDeletes());
+
   txn->SetSavePoint();  // 3
   txn->SetSavePoint();  // 4
 
@@ -1414,7 +1443,13 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Get(read_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
 
+  ASSERT_EQ(3, txn->GetNumPuts());
+  ASSERT_EQ(2, txn->GetNumDeletes());
+
   ASSERT_OK(txn->RollbackToSavePoint());  // Rollback to 3
+
+  ASSERT_EQ(2, txn->GetNumPuts());
+  ASSERT_EQ(0, txn->GetNumDeletes());
 
   s = txn->Get(read_options, "F", &value);
   ASSERT_OK(s);
@@ -1486,6 +1521,9 @@ TEST_F(TransactionTest, TimeoutTest) {
   // the transaction expires.
   s = db->Put(write_options, "aaa", "xxx");
   ASSERT_OK(s);
+
+  ASSERT_GE(txn1->GetElapsedTime(),
+            static_cast<uint64_t>(txn_options0.expiration));
 
   s = txn1->Commit();
   ASSERT_TRUE(s.IsExpired());  // expired!

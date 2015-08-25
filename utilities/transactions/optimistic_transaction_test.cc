@@ -89,6 +89,7 @@ TEST_F(OptimisticTransactionTest, WriteConflictTest) {
 
   s = db->Get(read_options, "foo", &value);
   ASSERT_EQ(value, "barz");
+  ASSERT_EQ(1, txn->GetNumKeys());
 
   s = txn->Commit();
   ASSERT_TRUE(s.IsBusy());  // Txn should not commit
@@ -490,6 +491,8 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   Slice value_slices[2] = {Slice("bar"), Slice("bar")};
   txn->Put(handles[2], SliceParts(&key_slice, 1), SliceParts(value_slices, 2));
 
+  ASSERT_EQ(3, txn->GetNumKeys());
+
   // Txn should commit
   s = txn->Commit();
   ASSERT_OK(s);
@@ -543,6 +546,8 @@ TEST_F(OptimisticTransactionTest, ColumnFamiliesTest) {
   txn->Put(handles[2], "ZZZ", "YYYY");
   txn->Delete(handles[2], "ZZZ");
   txn->Put(handles[2], "AAAZZZ", "barbarbar");
+
+  ASSERT_EQ(5, txn->GetNumKeys());
 
   // Txn should commit
   s = txn->Commit();

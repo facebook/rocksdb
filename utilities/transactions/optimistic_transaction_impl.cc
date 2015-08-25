@@ -36,10 +36,9 @@ OptimisticTransactionImpl::OptimisticTransactionImpl(
 OptimisticTransactionImpl::~OptimisticTransactionImpl() {
 }
 
-void OptimisticTransactionImpl::Cleanup() {
+void OptimisticTransactionImpl::Clear() {
+  TransactionBaseImpl::Clear();
   tracked_keys_.clear();
-  save_points_.reset(nullptr);
-  write_batch_->Clear();
 }
 
 Status OptimisticTransactionImpl::Commit() {
@@ -59,15 +58,13 @@ Status OptimisticTransactionImpl::Commit() {
       write_options_, write_batch_->GetWriteBatch(), &callback);
 
   if (s.ok()) {
-    Cleanup();
+    Clear();
   }
 
   return s;
 }
 
-void OptimisticTransactionImpl::Rollback() {
-  Cleanup();
-}
+void OptimisticTransactionImpl::Rollback() { Clear(); }
 
 // Record this key so that we can check it for conflicts at commit time.
 Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
@@ -117,6 +114,18 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   auto db_impl = reinterpret_cast<DBImpl*>(db);
 
   return TransactionUtil::CheckKeysForConflicts(db_impl, &tracked_keys_);
+}
+
+uint64_t OptimisticTransactionImpl::GetNumKeys() const {
+  uint64_t count = 0;
+
+  // sum up locked keys in all column families
+  for (const auto& key_map_iter : tracked_keys_) {
+    const auto& keys = key_map_iter.second;
+    count += keys.size();
+  }
+
+  return count;
 }
 
 }  // namespace rocksdb

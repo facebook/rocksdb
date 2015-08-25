@@ -38,6 +38,8 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   void Rollback() override;
 
+  uint64_t GetNumKeys() const override;
+
   const TransactionKeyMap* GetTrackedKeys() const { return &tracked_keys_; }
 
  protected:
@@ -62,7 +64,7 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
   // Should only be called on writer thread.
   Status CheckTransactionForConflicts(DB* db);
 
-  void Cleanup();
+  void Clear() override;
 
   // No copying allowed
   OptimisticTransactionImpl(const OptimisticTransactionImpl&);

@@ -250,6 +250,22 @@ class Transaction {
   // Similar to WriteBatch::PutLogData
   virtual void PutLogData(const Slice& blob) = 0;
 
+  // Returns the number of distinct Keys being tracked by this transaction.
+  // If this transaction was created by a TransactinDB, this is the number of
+  // keys that are currently locked by this transaction.
+  // If this transaction was created by an OptimisticTransactionDB, this is the
+  // number of keys that need to be checked for conflicts at commit time.
+  virtual uint64_t GetNumKeys() const = 0;
+
+  // Returns the number of Puts/Deletes/Merges that have been applied to this
+  // transaction so far.
+  virtual uint64_t GetNumPuts() const = 0;
+  virtual uint64_t GetNumDeletes() const = 0;
+  virtual uint64_t GetNumMerges() const = 0;
+
+  // Returns the elapsed time in milliseconds since this Transaction began.
+  virtual uint64_t GetElapsedTime() const = 0;
+
   // Fetch the underlying write batch that contains all pending changes to be
   // committed.
   //

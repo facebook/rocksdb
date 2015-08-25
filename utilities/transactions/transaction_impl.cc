@@ -61,11 +61,11 @@ TransactionImpl::~TransactionImpl() {
   txn_db_impl_->UnLock(this, &tracked_keys_);
 }
 
-void TransactionImpl::Cleanup() {
-  write_batch_->Clear();
+void TransactionImpl::Clear() {
+  TransactionBaseImpl::Clear();
+
   txn_db_impl_->UnLock(this, &tracked_keys_);
   tracked_keys_.clear();
-  save_points_.reset(nullptr);
 }
 
 bool TransactionImpl::IsExpired() const {
@@ -96,7 +96,7 @@ Status TransactionImpl::CommitBatch(WriteBatch* batch) {
 Status TransactionImpl::Commit() {
   Status s = DoCommit(write_batch_->GetWriteBatch());
 
-  Cleanup();
+  Clear();
 
   return s;
 }
@@ -124,7 +124,7 @@ Status TransactionImpl::DoCommit(WriteBatch* batch) {
   return s;
 }
 
-void TransactionImpl::Rollback() { Cleanup(); }
+void TransactionImpl::Rollback() { Clear(); }
 
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
@@ -296,6 +296,18 @@ Status TransactionImpl::CheckKeySequence(ColumnFamilyHandle* column_family,
   }
 
   return result;
+}
+
+uint64_t TransactionImpl::GetNumKeys() const {
+  uint64_t count = 0;
+
+  // sum up locked keys in all column families
+  for (const auto& key_map_iter : tracked_keys_) {
+    const auto& keys = key_map_iter.second;
+    count += keys.size();
+  }
+
+  return count;
 }
 
 }  // namespace rocksdb

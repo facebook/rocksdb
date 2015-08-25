@@ -28,6 +28,9 @@ class TransactionBaseImpl : public Transaction {
 
   virtual ~TransactionBaseImpl();
 
+  // Remove pending operations queued in this transaction.
+  virtual void Clear();
+
   // Called before executing Put, Merge, Delete, and GetForUpdate.  If TryLock
   // returns non-OK, the Put/Merge/Delete/GetForUpdate will be failed.
   // untracked will be true if called from PutUntracked, DeleteUntracked, or
@@ -155,6 +158,14 @@ class TransactionBaseImpl : public Transaction {
 
   void SetSnapshot() override;
 
+  uint64_t GetElapsedTime() const override;
+
+  uint64_t GetNumPuts() const override;
+
+  uint64_t GetNumDeletes() const override;
+
+  uint64_t GetNumMerges() const override;
+
  protected:
   DB* const db_;
 
@@ -172,9 +183,28 @@ class TransactionBaseImpl : public Transaction {
   // no snapshot is currently set.
   std::shared_ptr<ManagedSnapshot> snapshot_;
 
+  // Count of various operations pending in this transaction
+  uint64_t num_puts_ = 0;
+  uint64_t num_deletes_ = 0;
+  uint64_t num_merges_ = 0;
+
+  struct SavePoint {
+    std::shared_ptr<ManagedSnapshot> snapshot_;
+    uint64_t num_puts_;
+    uint64_t num_deletes_;
+    uint64_t num_merges_;
+
+    SavePoint(std::shared_ptr<ManagedSnapshot> snapshot, uint64_t num_puts,
+              uint64_t num_deletes, uint64_t num_merges)
+        : snapshot_(snapshot),
+          num_puts_(num_puts),
+          num_deletes_(num_deletes),
+          num_merges_(num_merges) {}
+  };
+
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
-  std::unique_ptr<std::stack<std::shared_ptr<ManagedSnapshot>>> save_points_;
+  std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint>> save_points_;
 
  private:
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
