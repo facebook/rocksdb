@@ -18,6 +18,7 @@
 #include "util/logging.h"
 #include "util/string_util.h"
 #include "rocksdb/transaction_log.h"
+#include "port/port.h"
 
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
@@ -343,9 +344,9 @@ class BackupEngineImpl : public BackupEngine {
     CopyWorkItem(const CopyWorkItem&) = delete;
     CopyWorkItem& operator=(const CopyWorkItem&) = delete;
 
-    CopyWorkItem(CopyWorkItem&& o) noexcept { *this = std::move(o); }
+    CopyWorkItem(CopyWorkItem&& o) NOEXCEPT { *this = std::move(o); }
 
-    CopyWorkItem& operator=(CopyWorkItem&& o) noexcept {
+    CopyWorkItem& operator=(CopyWorkItem&& o) NOEXCEPT {
       src_path = std::move(o.src_path);
       dst_path = std::move(o.dst_path);
       src_env = o.src_env;
@@ -383,11 +384,11 @@ class BackupEngineImpl : public BackupEngine {
     std::string dst_relative;
     BackupAfterCopyWorkItem() {}
 
-    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) noexcept {
+    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) NOEXCEPT {
       *this = std::move(o);
     }
 
-    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) noexcept {
+    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) NOEXCEPT {
       result = std::move(o.result);
       shared = o.shared;
       needed_to_copy = o.needed_to_copy;
@@ -418,11 +419,11 @@ class BackupEngineImpl : public BackupEngine {
     RestoreAfterCopyWorkItem(std::future<CopyResult>&& _result,
                              uint32_t _checksum_value)
         : result(std::move(_result)), checksum_value(_checksum_value) {}
-    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) noexcept {
+    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) NOEXCEPT {
       *this = std::move(o);
     }
 
-    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) noexcept {
+    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) NOEXCEPT {
       result = std::move(o.result);
       checksum_value = o.checksum_value;
       return *this;

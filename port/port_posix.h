@@ -16,6 +16,8 @@
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"
 
+#define NOEXCEPT noexcept
+
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>
