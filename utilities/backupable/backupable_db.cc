@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <vector>
 #include <map>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <limits>
@@ -51,7 +52,10 @@ class BackupRateLimiter {
         micros_start_time_(env->NowMicros()),
         bytes_since_start_(0) {}
 
+  // thread safe
   void ReportAndWait(uint64_t bytes_since_last_call) {
+    std::unique_lock<std::mutex> lk(lock_);
+
     bytes_since_start_ += bytes_since_last_call;
     if (bytes_since_start_ < bytes_per_check_) {
       // not enough bytes to be rate-limited
@@ -75,6 +79,7 @@ class BackupRateLimiter {
 
  private:
   Env* env_;
+  std::mutex lock_;
   uint64_t max_bytes_per_second_;
   uint64_t bytes_per_check_;
   uint64_t micros_start_time_;
@@ -338,9 +343,9 @@ class BackupEngineImpl : public BackupEngine {
     CopyWorkItem(const CopyWorkItem&) = delete;
     CopyWorkItem& operator=(const CopyWorkItem&) = delete;
 
-    CopyWorkItem(CopyWorkItem&& o) { *this = std::move(o); }
+    CopyWorkItem(CopyWorkItem&& o) noexcept { *this = std::move(o); }
 
-    CopyWorkItem& operator=(CopyWorkItem&& o) {
+    CopyWorkItem& operator=(CopyWorkItem&& o) noexcept {
       src_path = std::move(o.src_path);
       dst_path = std::move(o.dst_path);
       src_env = o.src_env;
@@ -378,11 +383,11 @@ class BackupEngineImpl : public BackupEngine {
     std::string dst_relative;
     BackupAfterCopyWorkItem() {}
 
-    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) {
+    BackupAfterCopyWorkItem(BackupAfterCopyWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
-    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) {
+    BackupAfterCopyWorkItem& operator=(BackupAfterCopyWorkItem&& o) noexcept {
       result = std::move(o.result);
       shared = o.shared;
       needed_to_copy = o.needed_to_copy;
@@ -413,11 +418,11 @@ class BackupEngineImpl : public BackupEngine {
     RestoreAfterCopyWorkItem(std::future<CopyResult>&& _result,
                              uint32_t _checksum_value)
         : result(std::move(_result)), checksum_value(_checksum_value) {}
-    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) {
+    RestoreAfterCopyWorkItem(RestoreAfterCopyWorkItem&& o) noexcept {
       *this = std::move(o);
     }
 
-    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) {
+    RestoreAfterCopyWorkItem& operator=(RestoreAfterCopyWorkItem&& o) noexcept {
       result = std::move(o.result);
       checksum_value = o.checksum_value;
       return *this;
@@ -672,11 +677,6 @@ Status BackupEngineImpl::Initialize() {
 
 Status BackupEngineImpl::CreateNewBackup(DB* db, bool flush_before_backup) {
   assert(initialized_);
-  if (options_.max_background_operations > 1 &&
-      options_.backup_rate_limit != 0) {
-    return Status::InvalidArgument(
-        "Multi-threaded backups cannot use a backup_rate_limit");
-  }
   assert(!read_only_);
   Status s;
   std::vector<std::string> live_files;
@@ -968,11 +968,6 @@ Status BackupEngineImpl::RestoreDBFromBackup(
     BackupID backup_id, const std::string& db_dir, const std::string& wal_dir,
     const RestoreOptions& restore_options) {
   assert(initialized_);
-  if (options_.max_background_operations > 1 &&
-      options_.restore_rate_limit != 0) {
-    return Status::InvalidArgument(
-        "Multi-threaded restores cannot use a restore_rate_limit");
-  }
   auto corrupt_itr = corrupt_backups_.find(backup_id);
   if (corrupt_itr != corrupt_backups_.end()) {
     return corrupt_itr->second.first;
@@ -1146,7 +1141,8 @@ Status BackupEngineImpl::PutLatestBackupFileContents(uint32_t latest_backup) {
   unique_ptr<WritableFileWriter> file_writer(
       new WritableFileWriter(std::move(file), env_options));
   char file_contents[10];
-  int len = sprintf(file_contents, "%u\n", latest_backup);
+  int len =
+      snprintf(file_contents, sizeof(file_contents), "%u\n", latest_backup);
   s = file_writer->Append(Slice(file_contents, len));
   if (s.ok() && options_.sync) {
     file_writer->Sync(false);
