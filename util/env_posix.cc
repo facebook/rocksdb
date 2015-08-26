@@ -313,12 +313,13 @@ class PosixMmapReadableFile: public RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const override {
     Status s;
-    if (offset + n > length_) {
+    if (offset > length_) {
       *result = Slice();
-      s = IOError(filename_, EINVAL);
-    } else {
-      *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
+      return IOError(filename_, EINVAL);
+    } else if (offset + n > length_) {
+      n = length_ - offset;
     }
+    *result = Slice(reinterpret_cast<char*>(mmapped_region_) + offset, n);
     return s;
   }
   virtual Status InvalidateCache(size_t offset, size_t length) override {
