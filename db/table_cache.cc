@@ -123,7 +123,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
                            const_cast<bool*>(&no_io));
 
   if (*handle == nullptr) {
-    if (no_io) { // Dont do IO and return a not-found status
+    if (no_io) {  // Don't do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
     unique_ptr<TableReader> table_reader;

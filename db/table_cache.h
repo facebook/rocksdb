@@ -91,7 +91,7 @@ class TableCache {
                             bool no_io = false);
 
   // Return total memory usage of the table reader of the file.
-  // 0 of table reader of the file is not loaded.
+  // 0 if table reader of the file is not loaded.
   size_t GetMemoryUsageByTableReader(
       const EnvOptions& toptions,
       const InternalKeyComparator& internal_comparator,

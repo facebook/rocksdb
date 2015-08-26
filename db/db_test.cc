@@ -2327,13 +2327,16 @@ TEST_F(DBTest, GetProperty) {
   sleeping_task_low.WakeUp();
   sleeping_task_low.WaitUntilDone();
 
-  dbfull()->TEST_WaitForFlushMemTable();
+  // Wait for compaction to be done. This is important because otherwise RocksDB
+  // might schedule a compaction when reopening the database, failing assertion
+  // (A) as a result.
+  dbfull()->TEST_WaitForCompact();
   options.max_open_files = 10;
   Reopen(options);
   // After reopening, no table reader is loaded, so no memory for table readers
   ASSERT_TRUE(
       dbfull()->GetIntProperty("rocksdb.estimate-table-readers-mem", &int_num));
-  ASSERT_EQ(int_num, 0U);
+  ASSERT_EQ(int_num, 0U);  // (A)
   ASSERT_TRUE(dbfull()->GetIntProperty("rocksdb.estimate-num-keys", &int_num));
   ASSERT_GT(int_num, 0U);
 
