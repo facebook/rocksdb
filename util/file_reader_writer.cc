@@ -146,7 +146,7 @@ Status WritableFileWriter::Flush() {
   //     the page.
   // Xfs does neighbor page flushing outside of the specified ranges. We
   // need to make sure sync range is far from the write offset.
-  if (bytes_per_sync_) {
+  if (!direct_io_ && bytes_per_sync_) {
     uint64_t kBytesNotSyncRange = 1024 * 1024;  // recent 1MB is not synced.
     uint64_t kBytesAlignWhenSync = 4 * 1024;    // Align 4KB.
     if (filesize_ > kBytesNotSyncRange) {
@@ -170,7 +170,7 @@ Status WritableFileWriter::Sync(bool use_fsync) {
     return s;
   }
   TEST_KILL_RANDOM(rocksdb_kill_odds);
-  if (pending_sync_) {
+  if (!direct_io_ && pending_sync_) {
     s = SyncInternal(use_fsync);
     if (!s.ok()) {
       return s;
