@@ -231,6 +231,7 @@ Options DBTestBase::CurrentOptions(
     case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
       options.new_table_reader_for_compaction_inputs = true;
+      options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
     case kUncompressed:
       options.compression = kNoCompression;

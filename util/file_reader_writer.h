@@ -14,6 +14,9 @@ namespace rocksdb {
 class Statistics;
 class HistogramImpl;
 
+std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
+    std::unique_ptr<RandomAccessFile> file, size_t readahead_size);
+
 class SequentialFileReader {
  private:
   std::unique_ptr<SequentialFile> file_;

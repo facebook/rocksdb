@@ -71,6 +71,7 @@ ImmutableCFOptions::ImmutableCFOptions(const Options& options)
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
           options.new_table_reader_for_compaction_inputs),
+      compaction_readahead_size(options.compaction_readahead_size),
       num_levels(options.num_levels),
       optimize_filters_for_hits(options.optimize_filters_for_hits),
       listeners(options.listeners),
@@ -241,6 +242,7 @@ DBOptions::DBOptions()
       db_write_buffer_size(0),
       access_hint_on_compaction_start(NORMAL),
       new_table_reader_for_compaction_inputs(false),
+      compaction_readahead_size(0),
       use_adaptive_mutex(false),
       bytes_per_sync(0),
       wal_bytes_per_sync(0),
@@ -294,6 +296,7 @@ DBOptions::DBOptions(const Options& options)
       access_hint_on_compaction_start(options.access_hint_on_compaction_start),
       new_table_reader_for_compaction_inputs(
           options.new_table_reader_for_compaction_inputs),
+      compaction_readahead_size(options.compaction_readahead_size),
       use_adaptive_mutex(options.use_adaptive_mutex),
       bytes_per_sync(options.bytes_per_sync),
       wal_bytes_per_sync(options.wal_bytes_per_sync),
@@ -371,6 +374,10 @@ void DBOptions::Dump(Logger* log) const {
         access_hints[access_hint_on_compaction_start]);
     Warn(log, "  Options.new_table_reader_for_compaction_inputs: %d",
          new_table_reader_for_compaction_inputs);
+    Warn(log,
+         "               Options.compaction_readahead_size: %" ROCKSDB_PRIszt
+         "d",
+         compaction_readahead_size);
     Warn(log, "                      Options.use_adaptive_mutex: %d",
         use_adaptive_mutex);
     Warn(log, "                            Options.rate_limiter: %p",

@@ -85,15 +85,19 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
 Status TableCache::GetTableReader(
     const EnvOptions& env_options,
     const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
-    bool advise_random_on_open, bool record_read_stats,
-    HistogramImpl* file_read_hist, unique_ptr<TableReader>* table_reader) {
+    bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
+    unique_ptr<TableReader>* table_reader) {
   std::string fname =
       TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
   unique_ptr<RandomAccessFile> file;
   Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
+  if (sequential_mode && ioptions_.compaction_readahead_size > 0) {
+    file = NewReadaheadRandomAccessFile(std::move(file),
+                                        ioptions_.compaction_readahead_size);
+  }
   RecordTick(ioptions_.statistics, NO_FILE_OPENS);
   if (s.ok()) {
-    if (advise_random_on_open) {
+    if (!sequential_mode && ioptions_.advise_random_on_open) {
       file->Hint(RandomAccessFile::RANDOM);
     }
     StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
@@ -128,7 +132,7 @@ Status TableCache::FindTable(const EnvOptions& env_options,
     }
     unique_ptr<TableReader> table_reader;
     s = GetTableReader(env_options, internal_comparator, fd,
-                       ioptions_.advise_random_on_open, record_read_stats,
+                       false /* sequential mode */, record_read_stats,
                        file_read_hist, &table_reader);
     if (!s.ok()) {
       assert(table_reader == nullptr);
@@ -162,8 +166,9 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
       (for_compaction && ioptions_.new_table_reader_for_compaction_inputs);
   if (create_new_table_reader) {
     unique_ptr<TableReader> table_reader_unique_ptr;
-    Status s = GetTableReader(env_options, icomparator, fd, false, false,
-                              nullptr, &table_reader_unique_ptr);
+    Status s = GetTableReader(
+        env_options, icomparator, fd, /* sequential mode */ true,
+        /* record stats */ false, nullptr, &table_reader_unique_ptr);
     if (!s.ok()) {
       return NewErrorIterator(s, arena);
     }

@@ -156,6 +156,10 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
     result.db_paths.emplace_back(dbname, std::numeric_limits<uint64_t>::max());
   }
 
+  if (result.compaction_readahead_size > 0) {
+    result.new_table_reader_for_compaction_inputs = true;
+  }
+
   return result;
 }
 

@@ -357,6 +357,11 @@ DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time"
              " (use default if == 0)");
 
+DEFINE_int32(new_table_reader_for_compaction_inputs, true,
+             "If true, uses a separate file handle for compaction inputs");
+
+DEFINE_int32(compaction_readahead_size, 0, "Compaction readahead size");
+
 DEFINE_int32(bloom_bits, -1, "Bloom filter bits per key. Negative means"
              " use default settings.");
 DEFINE_int32(memtable_bloom_bits, 0, "Bloom filter bits per key for memtable. "
@@ -2191,6 +2196,9 @@ class Benchmark {
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_open_files = FLAGS_open_files;
+    options.new_table_reader_for_compaction_inputs =
+        FLAGS_new_table_reader_for_compaction_inputs;
+    options.compaction_readahead_size = FLAGS_compaction_readahead_size;
     options.statistics = dbstats;
     if (FLAGS_enable_io_prio) {
       FLAGS_env->LowerThreadPoolIOPriority(Env::LOW);

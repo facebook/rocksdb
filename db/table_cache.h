@@ -61,13 +61,6 @@ class TableCache {
   // Evict any entry for the specified file number
   static void Evict(Cache* cache, uint64_t file_number);
 
-  // Build a table reader
-  Status GetTableReader(const EnvOptions& env_options,
-                        const InternalKeyComparator& internal_comparator,
-                        const FileDescriptor& fd, bool advise_random_on_open,
-                        bool record_read_stats, HistogramImpl* file_read_hist,
-                        unique_ptr<TableReader>* table_reader);
-
   // Find table reader
   Status FindTable(const EnvOptions& toptions,
                    const InternalKeyComparator& internal_comparator,
@@ -101,6 +94,13 @@ class TableCache {
   void ReleaseHandle(Cache::Handle* handle);
 
  private:
+  // Build a table reader
+  Status GetTableReader(const EnvOptions& env_options,
+                        const InternalKeyComparator& internal_comparator,
+                        const FileDescriptor& fd, bool sequential_mode,
+                        bool record_read_stats, HistogramImpl* file_read_hist,
+                        unique_ptr<TableReader>* table_reader);
+
   const ImmutableCFOptions& ioptions_;
   const EnvOptions& env_options_;
   Cache* const cache_;
