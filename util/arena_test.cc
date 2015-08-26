@@ -24,14 +24,14 @@ namespace {
 void MemoryAllocatedBytesTest(size_t huge_page_size) {
   const int N = 17;
   size_t req_sz;  // requested size
-  size_t bsz = 8192;  // block size
+  size_t bsz = 32 * 1024;  // block size
   size_t expected_memory_allocated;
 
   Arena arena(bsz, huge_page_size);
 
   // requested size > quarter of a block:
   //   allocate requested size separately
-  req_sz = 3001;
+  req_sz = 12 * 1024;
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }
@@ -60,7 +60,7 @@ void MemoryAllocatedBytesTest(size_t huge_page_size) {
 
   // requested size > quarter of a block:
   //   allocate requested size separately
-  req_sz = 99999999;
+  req_sz = 999 * 4096;
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }

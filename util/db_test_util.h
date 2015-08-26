@@ -612,6 +612,8 @@ class DBTestBase : public testing::Test {
   // this will generate non-overlapping files since it keeps increasing key_idx
   void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false);
 
+  void GenerateNewFile(int fd, Random* rnd, int* key_idx, bool nowait = false);
+
   void GenerateNewRandomFile(Random* rnd, bool nowait = false);
 
   std::string IterStatus(Iterator* iter);

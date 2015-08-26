@@ -182,6 +182,7 @@ bool DBTestBase::ChangeFilterOptions() {
 Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) {
   Options options;
+  options.write_buffer_size = 4090 * 4096;
   return CurrentOptions(options, options_override);
 }
 
@@ -777,9 +778,22 @@ int DBTestBase::GetSstFileCount(std::string path) {
 }
 
 // this will generate non-overlapping files since it keeps increasing key_idx
+void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
+                                 bool nowait) {
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(cf, Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
+    (*key_idx)++;
+  }
+  if (!nowait) {
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+}
+
+// this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 10) ? 1 : 10000)));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
   if (!nowait) {
@@ -789,10 +803,10 @@ void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
 }
 
 void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
-  for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 1000)));
+  for (int i = 0; i < 51; i++) {
+    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 2000)));
   }
-  ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 1)));
+  ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 200)));
   if (!nowait) {
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();

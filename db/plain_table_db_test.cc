@@ -1012,7 +1012,7 @@ static std::string RandomString(Random* rnd, int len) {
 
 TEST_F(PlainTableDBTest, CompactionTrigger) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 100 << 10; //100KB
+  options.write_buffer_size = 120 << 10;  // 100KB
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   Reopen(&options);
@@ -1022,11 +1022,12 @@ TEST_F(PlainTableDBTest, CompactionTrigger) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
       num++) {
     std::vector<std::string> values;
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
-      values.push_back(RandomString(&rnd, 10000));
+    // Write 120KB (10 values, each 12K)
+    for (int i = 0; i < 10; i++) {
+      values.push_back(RandomString(&rnd, 12000));
       ASSERT_OK(Put(Key(i), values[i]));
     }
+    ASSERT_OK(Put(Key(999), ""));
     dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(NumTableFilesAtLevel(0), num + 1);
   }
@@ -1037,6 +1038,7 @@ TEST_F(PlainTableDBTest, CompactionTrigger) {
     values.push_back(RandomString(&rnd, 10000));
     ASSERT_OK(Put(Key(i), values[i]));
   }
+  ASSERT_OK(Put(Key(999), ""));
   dbfull()->TEST_WaitForCompact();
 
   ASSERT_EQ(NumTableFilesAtLevel(0), 0);

@@ -505,7 +505,8 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
 
 TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   Options options;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 100KB
+  options.arena_block_size = 4 << 10;
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   options.max_subcompactions = max_subcompactions_;
@@ -517,9 +518,9 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
        num++) {
     std::vector<std::string> values;
-    // Write 120KB (12 values, each 10K)
-    for (int i = 0; i < 12; i++) {
-      values.push_back(RandomString(&rnd, 10000));
+    // Write 100KB (100 values, each 1K)
+    for (int i = 0; i < 100; i++) {
+      values.push_back(RandomString(&rnd, 990));
       ASSERT_OK(Put(1, Key(i), values[i]));
     }
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -528,8 +529,8 @@ TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
 
   // generate one more file in level-0, and should trigger level-0 compaction
   std::vector<std::string> values;
-  for (int i = 0; i < 12; i++) {
-    values.push_back(RandomString(&rnd, 10000));
+  for (int i = 0; i < 100; i++) {
+    values.push_back(RandomString(&rnd, 990));
     ASSERT_OK(Put(1, Key(i), values[i]));
   }
   dbfull()->TEST_WaitForCompact();
@@ -892,7 +893,8 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
   options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
@@ -986,7 +988,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Reopen(options);
@@ -994,7 +996,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionThirdPath) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Destroy(options);
@@ -1006,7 +1008,8 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
   options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 100KB
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
@@ -1101,7 +1104,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Reopen(options);
@@ -1109,7 +1112,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Destroy(options);
@@ -1122,7 +1125,8 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
 
   // Stage 1: generate a db with level compaction
   Options options;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.arena_block_size = 4 << 10;
   options.num_levels = 4;
   options.level0_file_num_compaction_trigger = 3;
   options.max_bytes_for_level_base = 500 << 10;  // 500KB
@@ -1180,7 +1184,8 @@ TEST_P(DBCompactionTestWithParam, ConvertCompactionStyle) {
   options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = 4;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 3;
   options = CurrentOptions(options);
   ReopenWithColumnFamilies({"default", "pikachu"}, options);
@@ -1634,7 +1639,8 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   }
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 100KB
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
@@ -1724,7 +1730,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Reopen(options);
@@ -1732,7 +1738,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Destroy(options);
@@ -1744,6 +1750,7 @@ TEST_P(DBCompactionTestWithParam, SuggestCompactRangeNoTwoLevel0Compactions) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
   options.write_buffer_size = 110 << 10;
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 4;
   options.compression = kNoCompression;

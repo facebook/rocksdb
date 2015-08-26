@@ -8,6 +8,9 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include "util/arena.h"
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+#include <malloc.h>
+#endif
 #ifndef OS_WIN
 #include <sys/mman.h>
 #endif
@@ -165,7 +168,12 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
   char* block = new char[block_bytes];
+
+#ifdef ROCKSDB_MALLOC_USABLE_SIZE
+  blocks_memory_ += malloc_usable_size(block);
+#else
   blocks_memory_ += block_bytes;
+#endif  // ROCKSDB_MALLOC_USABLE_SIZE
   blocks_.push_back(block);
   return block;
 }

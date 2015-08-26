@@ -2602,7 +2602,7 @@ TEST_F(DBTest, FlushSchedule) {
   options.min_write_buffer_number_to_merge = 1;
   options.max_write_buffer_number_to_maintain = 1;
   options.max_write_buffer_number = 2;
-  options.write_buffer_size = 100 * 1000;
+  options.write_buffer_size = 120 * 1024;
   CreateAndReopenWithCF({"pikachu"}, options);
   std::vector<std::thread> threads;
 
@@ -2614,7 +2614,7 @@ TEST_F(DBTest, FlushSchedule) {
     Random rnd(a);
     WriteOptions wo;
     // this should fill up 2 memtables
-    for (int k = 0; k < 5000; ++k) {
+    for (int k = 0; k < 6144; ++k) {
       ASSERT_OK(db_->Put(wo, handles_[a & 1], RandomString(&rnd, 13), ""));
     }
   };
@@ -2975,6 +2975,7 @@ bool MinLevelToCompress(CompressionType& type, Options& options, int wbits,
                         int lev, int strategy) {
   fprintf(stderr, "Test with compression options : window_bits = %d, level =  %d, strategy = %d}\n", wbits, lev, strategy);
   options.write_buffer_size = 100<<10; //100KB
+  options.arena_block_size = 4096;
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
   options.create_if_missing = true;
@@ -3691,7 +3692,8 @@ TEST_F(DBTest, CustomComparator) {
     new_options = CurrentOptions();
     new_options.create_if_missing = true;
     new_options.comparator = &cmp;
-    new_options.write_buffer_size = 1000;  // Compact more often
+    new_options.write_buffer_size = 4096;  // Compact more often
+    new_options.arena_block_size = 4096;
     new_options = CurrentOptions(new_options);
     DestroyAndReopen(new_options);
     CreateAndReopenWithCF({"pikachu"}, new_options);
@@ -3912,7 +3914,8 @@ TEST_F(DBTest, NoSpaceCompactRange) {
 TEST_F(DBTest, NonWritableFileSystem) {
   do {
     Options options = CurrentOptions();
-    options.write_buffer_size = 1000;
+    options.write_buffer_size = 4096;
+    options.arena_block_size = 4096;
     options.env = env_;
     Reopen(options);
     ASSERT_OK(Put("foo", "v1"));
@@ -4531,7 +4534,8 @@ TEST_F(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
   ASSERT_OK(Put(3, Key(10), DummyString(1)));
   ASSERT_OK(Put(3, Key(10), DummyString(1)));
 
-  options.write_buffer_size = 10;
+  options.write_buffer_size = 4096;
+  options.arena_block_size = 4096;
   ReopenWithColumnFamilies({"default", "pikachu", "dobrynia", "nikitich"},
                            options);
   {
@@ -4558,6 +4562,7 @@ TEST_F(DBTest, RecoverCheckFileAmountWithSmallWriteBuffer) {
 TEST_F(DBTest, RecoverCheckFileAmount) {
   Options options = CurrentOptions();
   options.write_buffer_size = 100000;
+  options.arena_block_size = 4 * 1024;
   CreateAndReopenWithCF({"pikachu", "dobrynia", "nikitich"}, options);
 
   ASSERT_OK(Put(0, Key(1), DummyString(1)));
@@ -5956,6 +5961,7 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
     Options options;
     options.compaction_style = kCompactionStyleFIFO;
     options.write_buffer_size = 100 << 10;                             // 100KB
+    options.arena_block_size = 4096;
     options.compaction_options_fifo.max_table_files_size = 500 << 10;  // 500KB
     options.compression = kNoCompression;
     options.create_if_missing = true;
@@ -5968,8 +5974,8 @@ TEST_P(DBTestWithParam, FIFOCompactionTest) {
 
     Random rnd(301);
     for (int i = 0; i < 6; ++i) {
-      for (int j = 0; j < 100; ++j) {
-        ASSERT_OK(Put(ToString(i * 100 + j), RandomString(&rnd, 1024)));
+      for (int j = 0; j < 110; ++j) {
+        ASSERT_OK(Put(ToString(i * 100 + j), RandomString(&rnd, 980)));
       }
       // flush should happen here
       ASSERT_OK(dbfull()->TEST_WaitForFlushMemTable());
@@ -6344,6 +6350,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   options.compression = kNoCompression;
   options.max_background_compactions = 1;
   options.write_buffer_size = k64KB;
+  options.arena_block_size = 16 * 1024;
   options.max_write_buffer_number = 2;
   // Don't trigger compact/slowdown/stop
   options.level0_file_num_compaction_trigger = 1024;
@@ -6372,7 +6379,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   gen_l0_kb(64);
   ASSERT_EQ(NumTableFilesAtLevel(0), 1);
   ASSERT_LT(SizeAtLevel(0), k64KB + k5KB);
-  ASSERT_GT(SizeAtLevel(0), k64KB - k5KB);
+  ASSERT_GT(SizeAtLevel(0), k64KB - k5KB * 2);
 
   // Clean up L0
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
@@ -6389,7 +6396,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   gen_l0_kb(256);
   ASSERT_EQ(NumTableFilesAtLevel(0), 2);  // (A)
   ASSERT_LT(SizeAtLevel(0), k128KB + k64KB + 2 * k5KB);
-  ASSERT_GT(SizeAtLevel(0), k128KB + k64KB - 2 * k5KB);
+  ASSERT_GT(SizeAtLevel(0), k128KB + k64KB - 4 * k5KB);
 
   // Test max_write_buffer_number
   // Block compaction thread, which will also block the flushes because
@@ -7150,6 +7157,7 @@ TEST_P(DBTestWithParam, DynamicCompactionOptions) {
   options.compression = kNoCompression;
   options.soft_rate_limit = 1.1;
   options.write_buffer_size = k64KB;
+  options.arena_block_size = 4 * k4KB;
   options.max_write_buffer_number = 2;
   // Compaction related options
   options.level0_file_num_compaction_trigger = 3;
@@ -7773,7 +7781,8 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
 TEST_F(DBTest, CloseSpeedup) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
   options.max_bytes_for_level_base = 400 * 1024;
@@ -8101,7 +8110,8 @@ TEST_F(DBTest, SuggestCompactRangeTest) {
   options.compaction_style = kCompactionStyleLevel;
   options.compaction_filter_factory.reset(
       new CompactionFilterFactoryGetContext());
-  options.write_buffer_size = 110 << 10;
+  options.write_buffer_size = 100 << 10;
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = 4;
   options.compression = kNoCompression;
