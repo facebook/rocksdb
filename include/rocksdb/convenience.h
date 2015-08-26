@@ -51,6 +51,9 @@ Status GetDBOptionsFromString(
 Status GetStringFromDBOptions(const DBOptions& db_options,
                               std::string* opts_str);
 
+Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& db_options,
+                                        std::string* opts_str);
+
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options,
     const std::string& opts_str,

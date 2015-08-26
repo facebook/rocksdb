@@ -7,8 +7,9 @@
 
 #include <string>
 #include <stdexcept>
-#include "util/mutable_cf_options.h"
+#include "rocksdb/options.h"
 #include "rocksdb/status.h"
+#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -25,6 +26,8 @@ enum class OptionType {
   kUInt64T,
   kSizeT,
   kString,
+  kDouble,
+  kCompactionStyle,
   kUnknown
 };
 
@@ -139,5 +142,144 @@ static std::unordered_map<std::string, OptionTypeInfo> db_options_type_info = {
      {offsetof(struct DBOptions, wal_bytes_per_sync), OptionType::kUInt64T}},
     {"stats_dump_period_sec",
      {offsetof(struct DBOptions, stats_dump_period_sec), OptionType::kUInt}}};
+
+static std::unordered_map<std::string, OptionTypeInfo> cf_options_type_info = {
+    /* not yet supported
+    CompactionOptionsFIFO compaction_options_fifo;
+    CompactionOptionsUniversal compaction_options_universal;
+    CompressionOptions compression_opts;
+    CompressionType compression;
+    TablePropertiesCollectorFactories table_properties_collector_factories;
+    typedef std::vector<std::shared_ptr<TablePropertiesCollectorFactory>>
+        TablePropertiesCollectorFactories;
+    UpdateStatus (*inplace_callback)(char* existing_value,
+                                     uint34_t* existing_value_size,
+                                     Slice delta_value,
+                                     std::string* merged_value);
+    const CompactionFilter* compaction_filter;
+    const Comparator* comparator;
+    std::shared_ptr<CompactionFilterFactory> compaction_filter_factory;
+    std::shared_ptr<MemTableRepFactory> memtable_factory;
+    std::shared_ptr<MergeOperator> merge_operator;
+    std::shared_ptr<TableFactory> table_factory;
+    std::shared_ptr<const SliceTransform> prefix_extractor;
+    std::vector<CompressionType> compression_per_level;
+    std::vector<int> max_bytes_for_level_multiplier_additional;
+     */
+    {"compaction_measure_io_stats",
+     {offsetof(struct ColumnFamilyOptions, compaction_measure_io_stats),
+      OptionType::kBoolean}},
+    {"disable_auto_compactions",
+     {offsetof(struct ColumnFamilyOptions, disable_auto_compactions),
+      OptionType::kBoolean}},
+    {"filter_deletes",
+     {offsetof(struct ColumnFamilyOptions, filter_deletes),
+      OptionType::kBoolean}},
+    {"inplace_update_support",
+     {offsetof(struct ColumnFamilyOptions, inplace_update_support),
+      OptionType::kBoolean}},
+    {"level_compaction_dynamic_level_bytes",
+     {offsetof(struct ColumnFamilyOptions,
+               level_compaction_dynamic_level_bytes),
+      OptionType::kBoolean}},
+    {"optimize_filters_for_hits",
+     {offsetof(struct ColumnFamilyOptions, optimize_filters_for_hits),
+      OptionType::kBoolean}},
+    {"paranoid_file_checks",
+     {offsetof(struct ColumnFamilyOptions, paranoid_file_checks),
+      OptionType::kBoolean}},
+    {"purge_redundant_kvs_while_flush",
+     {offsetof(struct ColumnFamilyOptions, purge_redundant_kvs_while_flush),
+      OptionType::kBoolean}},
+    {"verify_checksums_in_compaction",
+     {offsetof(struct ColumnFamilyOptions, verify_checksums_in_compaction),
+      OptionType::kBoolean}},
+    {"hard_rate_limit",
+     {offsetof(struct ColumnFamilyOptions, hard_rate_limit),
+      OptionType::kDouble}},
+    {"soft_rate_limit",
+     {offsetof(struct ColumnFamilyOptions, soft_rate_limit),
+      OptionType::kDouble}},
+    {"expanded_compaction_factor",
+     {offsetof(struct ColumnFamilyOptions, expanded_compaction_factor),
+      OptionType::kInt}},
+    {"level0_file_num_compaction_trigger",
+     {offsetof(struct ColumnFamilyOptions, level0_file_num_compaction_trigger),
+      OptionType::kInt}},
+    {"level0_slowdown_writes_trigger",
+     {offsetof(struct ColumnFamilyOptions, level0_slowdown_writes_trigger),
+      OptionType::kInt}},
+    {"level0_stop_writes_trigger",
+     {offsetof(struct ColumnFamilyOptions, level0_stop_writes_trigger),
+      OptionType::kInt}},
+    {"max_bytes_for_level_multiplier",
+     {offsetof(struct ColumnFamilyOptions, max_bytes_for_level_multiplier),
+      OptionType::kInt}},
+    {"max_grandparent_overlap_factor",
+     {offsetof(struct ColumnFamilyOptions, max_grandparent_overlap_factor),
+      OptionType::kInt}},
+    {"max_mem_compaction_level",
+     {offsetof(struct ColumnFamilyOptions, max_mem_compaction_level),
+      OptionType::kInt}},
+    {"max_write_buffer_number",
+     {offsetof(struct ColumnFamilyOptions, max_write_buffer_number),
+      OptionType::kInt}},
+    {"max_write_buffer_number_to_maintain",
+     {offsetof(struct ColumnFamilyOptions, max_write_buffer_number_to_maintain),
+      OptionType::kInt}},
+    {"min_write_buffer_number_to_merge",
+     {offsetof(struct ColumnFamilyOptions, min_write_buffer_number_to_merge),
+      OptionType::kInt}},
+    {"num_levels",
+     {offsetof(struct ColumnFamilyOptions, num_levels), OptionType::kInt}},
+    {"source_compaction_factor",
+     {offsetof(struct ColumnFamilyOptions, source_compaction_factor),
+      OptionType::kInt}},
+    {"target_file_size_multiplier",
+     {offsetof(struct ColumnFamilyOptions, target_file_size_multiplier),
+      OptionType::kInt}},
+    {"arena_block_size",
+     {offsetof(struct ColumnFamilyOptions, arena_block_size),
+      OptionType::kSizeT}},
+    {"inplace_update_num_locks",
+     {offsetof(struct ColumnFamilyOptions, inplace_update_num_locks),
+      OptionType::kSizeT}},
+    {"max_successive_merges",
+     {offsetof(struct ColumnFamilyOptions, max_successive_merges),
+      OptionType::kSizeT}},
+    {"memtable_prefix_bloom_huge_page_tlb_size",
+     {offsetof(struct ColumnFamilyOptions,
+               memtable_prefix_bloom_huge_page_tlb_size),
+      OptionType::kSizeT}},
+    {"write_buffer_size",
+     {offsetof(struct ColumnFamilyOptions, write_buffer_size),
+      OptionType::kSizeT}},
+    {"bloom_locality",
+     {offsetof(struct ColumnFamilyOptions, bloom_locality),
+      OptionType::kUInt32T}},
+    {"memtable_prefix_bloom_bits",
+     {offsetof(struct ColumnFamilyOptions, memtable_prefix_bloom_bits),
+      OptionType::kUInt32T}},
+    {"memtable_prefix_bloom_probes",
+     {offsetof(struct ColumnFamilyOptions, memtable_prefix_bloom_probes),
+      OptionType::kUInt32T}},
+    {"min_partial_merge_operands",
+     {offsetof(struct ColumnFamilyOptions, min_partial_merge_operands),
+      OptionType::kUInt32T}},
+    {"max_bytes_for_level_base",
+     {offsetof(struct ColumnFamilyOptions, max_bytes_for_level_base),
+      OptionType::kUInt64T}},
+    {"max_sequential_skip_in_iterations",
+     {offsetof(struct ColumnFamilyOptions, max_sequential_skip_in_iterations),
+      OptionType::kUInt64T}},
+    {"target_file_size_base",
+     {offsetof(struct ColumnFamilyOptions, target_file_size_base),
+      OptionType::kUInt64T}},
+    {"rate_limit_delay_max_milliseconds",
+     {offsetof(struct ColumnFamilyOptions, rate_limit_delay_max_milliseconds),
+      OptionType::kUInt}},
+    {"compaction_style",
+     {offsetof(struct ColumnFamilyOptions, compaction_style),
+      OptionType::kCompactionStyle}}};
 
 }  // namespace rocksdb

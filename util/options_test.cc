@@ -638,6 +638,163 @@ TEST_F(OptionsTest, DBOptionsSerialization) {
   ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_opt_string, &new_options));
   VerifyDBOptions(base_options, new_options);
 }
+
+namespace {
+void VerifyDouble(double a, double b) { ASSERT_LT(fabs(a - b), 0.00001); }
+
+void VerifyColumnFamilyOptions(const ColumnFamilyOptions& base_opt,
+                               const ColumnFamilyOptions& new_opt) {
+  // custom type options
+  ASSERT_EQ(base_opt.compaction_style, new_opt.compaction_style);
+
+  // boolean options
+  ASSERT_EQ(base_opt.compaction_measure_io_stats,
+            new_opt.compaction_measure_io_stats);
+  ASSERT_EQ(base_opt.disable_auto_compactions,
+            new_opt.disable_auto_compactions);
+  ASSERT_EQ(base_opt.filter_deletes, new_opt.filter_deletes);
+  ASSERT_EQ(base_opt.inplace_update_support, new_opt.inplace_update_support);
+  ASSERT_EQ(base_opt.level_compaction_dynamic_level_bytes,
+            new_opt.level_compaction_dynamic_level_bytes);
+  ASSERT_EQ(base_opt.optimize_filters_for_hits,
+            new_opt.optimize_filters_for_hits);
+  ASSERT_EQ(base_opt.paranoid_file_checks, new_opt.paranoid_file_checks);
+  ASSERT_EQ(base_opt.purge_redundant_kvs_while_flush,
+            new_opt.purge_redundant_kvs_while_flush);
+  ASSERT_EQ(base_opt.verify_checksums_in_compaction,
+            new_opt.verify_checksums_in_compaction);
+
+  // double options
+  VerifyDouble(base_opt.hard_rate_limit, new_opt.hard_rate_limit);
+  VerifyDouble(base_opt.soft_rate_limit, new_opt.soft_rate_limit);
+
+  // int options
+  ASSERT_EQ(base_opt.expanded_compaction_factor,
+            new_opt.expanded_compaction_factor);
+  ASSERT_EQ(base_opt.level0_file_num_compaction_trigger,
+            new_opt.level0_file_num_compaction_trigger);
+  ASSERT_EQ(base_opt.level0_slowdown_writes_trigger,
+            new_opt.level0_slowdown_writes_trigger);
+  ASSERT_EQ(base_opt.level0_stop_writes_trigger,
+            new_opt.level0_stop_writes_trigger);
+  ASSERT_EQ(base_opt.max_bytes_for_level_multiplier,
+            new_opt.max_bytes_for_level_multiplier);
+  ASSERT_EQ(base_opt.max_grandparent_overlap_factor,
+            new_opt.max_grandparent_overlap_factor);
+  ASSERT_EQ(base_opt.max_mem_compaction_level,
+            new_opt.max_mem_compaction_level);
+  ASSERT_EQ(base_opt.max_write_buffer_number, new_opt.max_write_buffer_number);
+  ASSERT_EQ(base_opt.max_write_buffer_number_to_maintain,
+            new_opt.max_write_buffer_number_to_maintain);
+  ASSERT_EQ(base_opt.min_write_buffer_number_to_merge,
+            new_opt.min_write_buffer_number_to_merge);
+  ASSERT_EQ(base_opt.num_levels, new_opt.num_levels);
+  ASSERT_EQ(base_opt.source_compaction_factor,
+            new_opt.source_compaction_factor);
+  ASSERT_EQ(base_opt.target_file_size_multiplier,
+            new_opt.target_file_size_multiplier);
+
+  // size_t options
+  ASSERT_EQ(base_opt.arena_block_size, new_opt.arena_block_size);
+  ASSERT_EQ(base_opt.inplace_update_num_locks,
+            new_opt.inplace_update_num_locks);
+  ASSERT_EQ(base_opt.max_successive_merges, new_opt.max_successive_merges);
+  ASSERT_EQ(base_opt.memtable_prefix_bloom_huge_page_tlb_size,
+            new_opt.memtable_prefix_bloom_huge_page_tlb_size);
+  ASSERT_EQ(base_opt.write_buffer_size, new_opt.write_buffer_size);
+
+  // uint32_t options
+  ASSERT_EQ(base_opt.bloom_locality, new_opt.bloom_locality);
+  ASSERT_EQ(base_opt.memtable_prefix_bloom_bits,
+            new_opt.memtable_prefix_bloom_bits);
+  ASSERT_EQ(base_opt.memtable_prefix_bloom_probes,
+            new_opt.memtable_prefix_bloom_probes);
+  ASSERT_EQ(base_opt.min_partial_merge_operands,
+            new_opt.min_partial_merge_operands);
+  ASSERT_EQ(base_opt.max_bytes_for_level_base,
+            new_opt.max_bytes_for_level_base);
+
+  // uint64_t options
+  ASSERT_EQ(base_opt.max_sequential_skip_in_iterations,
+            new_opt.max_sequential_skip_in_iterations);
+  ASSERT_EQ(base_opt.target_file_size_base, new_opt.target_file_size_base);
+
+  // unsigned int options
+  ASSERT_EQ(base_opt.rate_limit_delay_max_milliseconds,
+            new_opt.rate_limit_delay_max_milliseconds);
+}
+}  // namespace
+
+TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
+  ColumnFamilyOptions base_opt, new_opt;
+  Random rnd(302);
+  // Phase 1: randomly assign base_opt
+  // custom type options
+  base_opt.compaction_style = (CompactionStyle)(rnd.Uniform(4));
+
+  // boolean options
+  base_opt.compaction_measure_io_stats = rnd.Uniform(2);
+  base_opt.disable_auto_compactions = rnd.Uniform(2);
+  base_opt.filter_deletes = rnd.Uniform(2);
+  base_opt.inplace_update_support = rnd.Uniform(2);
+  base_opt.level_compaction_dynamic_level_bytes = rnd.Uniform(2);
+  base_opt.optimize_filters_for_hits = rnd.Uniform(2);
+  base_opt.paranoid_file_checks = rnd.Uniform(2);
+  base_opt.purge_redundant_kvs_while_flush = rnd.Uniform(2);
+  base_opt.verify_checksums_in_compaction = rnd.Uniform(2);
+
+  // double options
+  base_opt.hard_rate_limit = static_cast<double>(rnd.Uniform(10000)) / 13;
+  base_opt.soft_rate_limit = static_cast<double>(rnd.Uniform(10000)) / 13;
+
+  // int options
+  base_opt.expanded_compaction_factor = rnd.Uniform(100);
+  base_opt.level0_file_num_compaction_trigger = rnd.Uniform(100);
+  base_opt.level0_slowdown_writes_trigger = rnd.Uniform(100);
+  base_opt.level0_stop_writes_trigger = rnd.Uniform(100);
+  base_opt.max_bytes_for_level_multiplier = rnd.Uniform(100);
+  base_opt.max_grandparent_overlap_factor = rnd.Uniform(100);
+  base_opt.max_mem_compaction_level = rnd.Uniform(100);
+  base_opt.max_write_buffer_number = rnd.Uniform(100);
+  base_opt.max_write_buffer_number_to_maintain = rnd.Uniform(100);
+  base_opt.min_write_buffer_number_to_merge = rnd.Uniform(100);
+  base_opt.num_levels = rnd.Uniform(100);
+  base_opt.source_compaction_factor = rnd.Uniform(100);
+  base_opt.target_file_size_multiplier = rnd.Uniform(100);
+
+  // size_t options
+  base_opt.arena_block_size = rnd.Uniform(10000);
+  base_opt.inplace_update_num_locks = rnd.Uniform(10000);
+  base_opt.max_successive_merges = rnd.Uniform(10000);
+  base_opt.memtable_prefix_bloom_huge_page_tlb_size = rnd.Uniform(10000);
+  base_opt.write_buffer_size = rnd.Uniform(10000);
+
+  // uint32_t options
+  base_opt.bloom_locality = rnd.Uniform(10000);
+  base_opt.memtable_prefix_bloom_bits = rnd.Uniform(10000);
+  base_opt.memtable_prefix_bloom_probes = rnd.Uniform(10000);
+  base_opt.min_partial_merge_operands = rnd.Uniform(10000);
+  base_opt.max_bytes_for_level_base = rnd.Uniform(10000);
+
+  // uint64_t options
+  static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
+  base_opt.max_sequential_skip_in_iterations = uint_max + rnd.Uniform(10000);
+  base_opt.target_file_size_base = uint_max + rnd.Uniform(10000);
+
+  // unsigned int options
+  base_opt.rate_limit_delay_max_milliseconds = rnd.Uniform(10000);
+
+  // Phase 2: obtain a string from base_opt
+  std::string base_opt_string;
+  ASSERT_OK(GetStringFromColumnFamilyOptions(base_opt, &base_opt_string));
+
+  // Phase 3: Set new_opt from the derived string and expect
+  //          new_opt == base_opt
+  ASSERT_OK(GetColumnFamilyOptionsFromString(ColumnFamilyOptions(),
+                                             base_opt_string, &new_opt));
+  VerifyColumnFamilyOptions(base_opt, new_opt);
+}
+
 #endif  // !ROCKSDB_LITE
 
 

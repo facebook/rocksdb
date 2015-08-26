@@ -143,18 +143,105 @@ double ParseDouble(const std::string& value) {
 #endif
 }
 
+static const std::unordered_map<char, std::string>
+    compaction_style_to_string_map = {
+        {kCompactionStyleLevel, "kCompactionStyleLevel"},
+        {kCompactionStyleUniversal, "kCompactionStyleUniversal"},
+        {kCompactionStyleFIFO, "kCompactionStyleFIFO"},
+        {kCompactionStyleNone, "kCompactionStyleNone"}};
+
 CompactionStyle ParseCompactionStyle(const std::string& type) {
-  if (type == "kCompactionStyleLevel") {
-    return kCompactionStyleLevel;
-  } else if (type == "kCompactionStyleUniversal") {
-    return kCompactionStyleUniversal;
-  } else if (type == "kCompactionStyleFIFO") {
-    return kCompactionStyleFIFO;
-  } else {
-    throw std::invalid_argument("unknown compaction style: " + type);
+  for (auto const& entry : compaction_style_to_string_map) {
+    if (entry.second == type) {
+      return static_cast<CompactionStyle>(entry.first);
+    }
   }
+  throw std::invalid_argument("unknown compaction style: " + type);
   return kCompactionStyleLevel;
 }
+
+std::string CompactionStyleToString(const CompactionStyle style) {
+  auto iter = compaction_style_to_string_map.find(style);
+  assert(iter != compaction_style_to_string_map.end());
+  return iter->second;
+}
+
+bool ParseOptionHelper(char* opt_address, const OptionType& opt_type,
+                       const std::string& value) {
+  switch (opt_type) {
+    case OptionType::kBoolean:
+      *reinterpret_cast<bool*>(opt_address) = ParseBoolean("", value);
+      break;
+    case OptionType::kInt:
+      *reinterpret_cast<int*>(opt_address) = ParseInt(value);
+      break;
+    case OptionType::kUInt:
+      *reinterpret_cast<unsigned int*>(opt_address) = ParseUint32(value);
+      break;
+    case OptionType::kUInt32T:
+      *reinterpret_cast<uint32_t*>(opt_address) = ParseUint32(value);
+      break;
+    case OptionType::kUInt64T:
+      *reinterpret_cast<uint64_t*>(opt_address) = ParseUint64(value);
+      break;
+    case OptionType::kSizeT:
+      *reinterpret_cast<size_t*>(opt_address) = ParseSizeT(value);
+      break;
+    case OptionType::kString:
+      *reinterpret_cast<std::string*>(opt_address) = value;
+      break;
+    case OptionType::kDouble:
+      *reinterpret_cast<double*>(opt_address) = ParseDouble(value);
+      break;
+    case OptionType::kCompactionStyle:
+      *reinterpret_cast<CompactionStyle*>(opt_address) =
+          ParseCompactionStyle(value);
+      break;
+    default:
+      return false;
+  }
+  return true;
+}
+
+bool SerializeSingleOptionHelper(const char* opt_address,
+                                 const OptionType opt_type,
+                                 std::string* value) {
+  assert(value);
+  switch (opt_type) {
+    case OptionType::kBoolean:
+      *value = *(reinterpret_cast<const bool*>(opt_address)) ? "true" : "false";
+      break;
+    case OptionType::kInt:
+      *value = ToString(*(reinterpret_cast<const int*>(opt_address)));
+      break;
+    case OptionType::kUInt:
+      *value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
+      break;
+    case OptionType::kUInt32T:
+      *value = ToString(*(reinterpret_cast<const uint32_t*>(opt_address)));
+      break;
+    case OptionType::kUInt64T:
+      *value = ToString(*(reinterpret_cast<const uint64_t*>(opt_address)));
+      break;
+    case OptionType::kSizeT:
+      *value = ToString(*(reinterpret_cast<const size_t*>(opt_address)));
+      break;
+    case OptionType::kDouble:
+      *value = ToString(*(reinterpret_cast<const double*>(opt_address)));
+      break;
+    case OptionType::kString:
+      *value = *(reinterpret_cast<const std::string*>(opt_address));
+      break;
+    case OptionType::kCompactionStyle:
+      *value = CompactionStyleToString(
+          *(reinterpret_cast<const CompactionStyle*>(opt_address)));
+      break;
+    default:
+      return false;
+  }
+  return true;
+}
+
 }  // anonymouse namespace
 
 template<typename OptionsType>
@@ -372,9 +459,21 @@ Status StringToMap(const std::string& opts_str,
 bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
                              ColumnFamilyOptions* new_options) {
   try {
-    if (ParseMemtableOptions(name, value, new_options)) {
-    } else if (ParseCompactionOptions(name, value, new_options)) {
-    } else if (ParseMiscOptions(name, value, new_options)) {
+    if (name == "max_bytes_for_level_multiplier_additional") {
+      new_options->max_bytes_for_level_multiplier_additional.clear();
+      size_t start = 0;
+      while (true) {
+        size_t end = value.find(':', start);
+        if (end == std::string::npos) {
+          new_options->max_bytes_for_level_multiplier_additional.push_back(
+              ParseInt(value.substr(start)));
+          break;
+        } else {
+          new_options->max_bytes_for_level_multiplier_additional.push_back(
+              ParseInt(value.substr(start, end - start)));
+          start = end + 1;
+        }
+      }
     } else if (name == "block_based_table_factory") {
       // Nested options
       BlockBasedTableOptions table_opt, base_table_options;
@@ -389,10 +488,6 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
         return false;
       }
       new_options->table_factory.reset(NewBlockBasedTableFactory(table_opt));
-    } else if (name == "min_write_buffer_number_to_merge") {
-      new_options->min_write_buffer_number_to_merge = ParseInt(value);
-    } else if (name == "max_write_buffer_number_to_maintain") {
-      new_options->max_write_buffer_number_to_maintain = ParseInt(value);
     } else if (name == "compression") {
       new_options->compression = ParseCompressionType(value);
     } else if (name == "compression_per_level") {
@@ -431,27 +526,12 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       }
       new_options->compression_opts.strategy =
           ParseInt(value.substr(start, value.size() - start));
-    } else if (name == "num_levels") {
-      new_options->num_levels = ParseInt(value);
-    } else if (name == "level_compaction_dynamic_level_bytes") {
-      new_options->level_compaction_dynamic_level_bytes =
-          ParseBoolean(name, value);
-    } else if (name == "compaction_style") {
-      new_options->compaction_style = ParseCompactionStyle(value);
     } else if (name == "compaction_options_universal") {
       // TODO(ljin): add support
       return false;
     } else if (name == "compaction_options_fifo") {
       new_options->compaction_options_fifo.max_table_files_size =
           ParseUint64(value);
-    } else if (name == "bloom_locality") {
-      new_options->bloom_locality = ParseUint32(value);
-    } else if (name == "min_partial_merge_operands") {
-      new_options->min_partial_merge_operands = ParseUint32(value);
-    } else if (name == "inplace_update_support") {
-      new_options->inplace_update_support = ParseBoolean(name, value);
-    } else if (name == "compaction_measure_io_stats") {
-      new_options->compaction_measure_io_stats = ParseBoolean(name, value);
     } else if (name == "prefix_extractor") {
       const std::string kFixedPrefixName = "fixed:";
       const std::string kCappedPrefixName = "capped:";
@@ -472,13 +552,17 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
       } else {
         return false;
       }
-    } else if (name == "optimize_filters_for_hits") {
-      new_options->optimize_filters_for_hits = ParseBoolean(name, value);
     } else {
-      return false;
+      auto iter = cf_options_type_info.find(name);
+      if (iter == cf_options_type_info.end()) {
+        return false;
+      }
+      const auto& opt_info = iter->second;
+      return ParseOptionHelper(
+          reinterpret_cast<char*>(new_options) + opt_info.offset, opt_info.type,
+          value);
     }
-  }
-  catch (std::exception& e) {
+  } catch (std::exception& e) {
     return false;
   }
   return true;
@@ -494,35 +578,11 @@ bool SerializeSingleDBOption(const DBOptions& db_options,
   const char* opt_address =
       reinterpret_cast<const char*>(&db_options) + opt_info.offset;
   std::string value;
-
-  switch (opt_info.type) {
-    case OptionType::kBoolean:
-      value = *(reinterpret_cast<const bool*>(opt_address)) ? "true" : "false";
-      break;
-    case OptionType::kInt:
-      value = ToString(*(reinterpret_cast<const int*>(opt_address)));
-      break;
-    case OptionType::kUInt:
-      value = ToString(*(reinterpret_cast<const unsigned int*>(opt_address)));
-      break;
-    case OptionType::kUInt32T:
-      value = ToString(*(reinterpret_cast<const uint32_t*>(opt_address)));
-      break;
-    case OptionType::kUInt64T:
-      value = ToString(*(reinterpret_cast<const uint64_t*>(opt_address)));
-      break;
-    case OptionType::kSizeT:
-      value = ToString(*(reinterpret_cast<const size_t*>(opt_address)));
-      break;
-    case OptionType::kString:
-      value = *(reinterpret_cast<const std::string*>(opt_address));
-      break;
-    default:
-      return false;
+  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
+  if (result) {
+    *opt_string = name + " = " + value + ";  ";
   }
-
-  *opt_string = name + " = " + value + ";  ";
-  return true;
+  return result;
 }
 
 Status GetStringFromDBOptions(const DBOptions& db_options,
@@ -542,6 +602,43 @@ Status GetStringFromDBOptions(const DBOptions& db_options,
   return Status::OK();
 }
 
+bool SerializeSingleColumnFamilyOption(const ColumnFamilyOptions& cf_options,
+                                       const std::string& name,
+                                       std::string* opt_string) {
+  auto iter = cf_options_type_info.find(name);
+  if (iter == cf_options_type_info.end()) {
+    return false;
+  }
+  auto& opt_info = iter->second;
+  const char* opt_address =
+      reinterpret_cast<const char*>(&cf_options) + opt_info.offset;
+  std::string value;
+  bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
+  if (result) {
+    *opt_string = name + " = " + value + ";  ";
+  }
+  return result;
+}
+
+Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& cf_options,
+                                        std::string* opt_string) {
+  assert(opt_string);
+  opt_string->clear();
+  for (auto iter = cf_options_type_info.begin();
+       iter != cf_options_type_info.end(); ++iter) {
+    std::string single_output;
+    bool result = SerializeSingleColumnFamilyOption(cf_options, iter->first,
+                                                    &single_output);
+    if (result) {
+      opt_string->append(single_output);
+    } else {
+      printf("failed to serialize %s\n", iter->first.c_str());
+    }
+    assert(result);
+  }
+  return Status::OK();
+}
+
 bool ParseDBOption(const std::string& name, const std::string& value,
                    DBOptions* new_options) {
   try {
@@ -553,34 +650,10 @@ bool ParseDBOption(const std::string& name, const std::string& value,
       if (iter == db_options_type_info.end()) {
         return false;
       }
-      auto& opt_info = iter->second;
-      char* opt_address =
-          reinterpret_cast<char*>(new_options) + opt_info.offset;
-      switch (opt_info.type) {
-        case OptionType::kBoolean:
-          *reinterpret_cast<bool*>(opt_address) = ParseBoolean("", value);
-          break;
-        case OptionType::kInt:
-          *reinterpret_cast<int*>(opt_address) = ParseInt(value);
-          break;
-        case OptionType::kUInt:
-          *reinterpret_cast<unsigned int*>(opt_address) = ParseUint32(value);
-          break;
-        case OptionType::kUInt32T:
-          *reinterpret_cast<uint32_t*>(opt_address) = ParseUint32(value);
-          break;
-        case OptionType::kUInt64T:
-          *reinterpret_cast<uint64_t*>(opt_address) = ParseUint64(value);
-          break;
-        case OptionType::kSizeT:
-          *reinterpret_cast<size_t*>(opt_address) = ParseUint32(value);
-          break;
-        case OptionType::kString:
-          *reinterpret_cast<std::string*>(opt_address) = value;
-          break;
-        default:
-          return false;
-      }
+      const auto& opt_info = iter->second;
+      return ParseOptionHelper(
+          reinterpret_cast<char*>(new_options) + opt_info.offset, opt_info.type,
+          value);
     }
   } catch (const std::exception& e) {
     return false;
