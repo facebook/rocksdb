@@ -2386,6 +2386,8 @@ TEST_F(DBTest, GetProperty) {
 
 TEST_F(DBTest, ApproximateMemoryUsage) {
   const int kNumRounds = 10;
+  // TODO(noetzli) kFlushesPerRound does not really correlate with how many
+  // flushes happen.
   const int kFlushesPerRound = 10;
   const int kWritesPerFlush = 10;
   const int kKeySize = 100;
@@ -2407,22 +2409,24 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   uint64_t all_mem;
   uint64_t prev_all_mem;
 
-  // Phase 0.  The verify the initial value of all these properties are
-  // the same as we have no mem-tables.
+  // Phase 0. The verify the initial value of all these properties are the same
+  // as we have no mem-tables.
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
   dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
   ASSERT_EQ(all_mem, active_mem);
   ASSERT_EQ(all_mem, unflushed_mem);
 
-  // Phase 1. Simply issue Put() and expect "cur-size-all-mem-tables"
-  // equals to "size-all-mem-tables"
+  // Phase 1. Simply issue Put() and expect "cur-size-all-mem-tables" equals to
+  // "size-all-mem-tables"
   for (int r = 0; r < kNumRounds; ++r) {
     for (int f = 0; f < kFlushesPerRound; ++f) {
       for (int w = 0; w < kWritesPerFlush; ++w) {
         Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
       }
     }
+    // Make sure that there is no flush between getting the two properties.
+    dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
     dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
     // in no iterator case, these two number should be the same.
@@ -2430,8 +2434,8 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
   }
   prev_all_mem = all_mem;
 
-  // Phase 2. Keep issuing Put() but also create new iterator.  This time
-  // we expect "size-all-mem-tables" > "cur-size-all-mem-tables".
+  // Phase 2. Keep issuing Put() but also create new iterators. This time we
+  // expect "size-all-mem-tables" > "cur-size-all-mem-tables".
   for (int r = 0; r < kNumRounds; ++r) {
     iters.push_back(db_->NewIterator(ReadOptions()));
     for (int f = 0; f < kFlushesPerRound; ++f) {
@@ -2439,6 +2443,10 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
         Put(RandomString(&rnd, kKeySize), RandomString(&rnd, kValueSize));
       }
     }
+    // Force flush to prevent flush from happening between getting the
+    // properties or after getting the properties and before the new round.
+    Flush();
+
     // In the second round, add iterators.
     dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
     dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
@@ -2449,35 +2457,32 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
     prev_all_mem = all_mem;
   }
 
-  // Phase 3.  Delete iterators and expect "size-all-mem-tables"
-  // shrinks whenever we release an iterator.
+  // Phase 3. Delete iterators and expect "size-all-mem-tables" shrinks
+  // whenever we release an iterator.
   for (auto* iter : iters) {
     delete iter;
-    if (iters.size() != 0) {
-      dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
-      // Expect the size shrinking
-      ASSERT_LT(all_mem, prev_all_mem);
-    }
+    dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
+    // Expect the size shrinking
+    ASSERT_LT(all_mem, prev_all_mem);
     prev_all_mem = all_mem;
   }
+
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
   dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
-  // now we expect "cur-size-all-mem-tables" and
-  // "size-all-mem-tables" are the same again after we
-  // released all iterators.
+  // now we expect "cur-size-all-mem-tables" and "size-all-mem-tables" are the
+  // same again after we released all iterators.
   ASSERT_EQ(all_mem, unflushed_mem);
   ASSERT_GE(all_mem, active_mem);
 
-  // Phase 4. Perform flush, and expect all these three counters are the same.
-  Flush();
+  // Phase 4. Perform flush, and expect all these three counters to be the same.
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
   dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
   ASSERT_EQ(active_mem, unflushed_mem);
   ASSERT_EQ(unflushed_mem, all_mem);
 
-  // Phase 5. Reopen, and expect all these three counters are the same again.
+  // Phase 5. Reopen, and expect all these three counters to be the same again.
   Reopen(options);
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
   dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
