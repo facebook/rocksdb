@@ -371,6 +371,11 @@ DEFINE_bool(use_existing_db, false, "If true, do not destroy the existing"
             " database.  If you set this flag and also specify a benchmark that"
             " wants a fresh database, that benchmark will fail.");
 
+DEFINE_bool(show_table_properties, false,
+            "If true, then per-level table"
+            " properties will be printed on every stats-interval when"
+            " stats_interval is set and stats_per_interval is on.");
+
 DEFINE_string(db, "", "Use the db with the following name.");
 
 static bool ValidateCacheNumshardbits(const char* flagname, int32_t value) {
@@ -1259,10 +1264,37 @@ class Stats {
                 if (db->GetProperty(db_with_cfh->cfh[i], "rocksdb.cfstats",
                                     &stats))
                   fprintf(stderr, "%s\n", stats.c_str());
+                if (FLAGS_show_table_properties) {
+                  for (int level = 0; level < FLAGS_num_levels; ++level) {
+                    if (db->GetProperty(
+                            db_with_cfh->cfh[i],
+                            "rocksdb.aggregated-table-properties-at-level" +
+                                ToString(level),
+                            &stats)) {
+                      if (stats.find("# entries=0") == std::string::npos) {
+                        fprintf(stderr, "Level[%d]: %s\n", level,
+                                stats.c_str());
+                      }
+                    }
+                  }
+                }
               }
-
-            } else if (db && db->GetProperty("rocksdb.stats", &stats)) {
-              fprintf(stderr, "%s\n", stats.c_str());
+            } else if (db) {
+              if (db->GetProperty("rocksdb.stats", &stats)) {
+                fprintf(stderr, "%s\n", stats.c_str());
+              }
+              if (FLAGS_show_table_properties) {
+                for (int level = 0; level < FLAGS_num_levels; ++level) {
+                  if (db->GetProperty(
+                          "rocksdb.aggregated-table-properties-at-level" +
+                              ToString(level),
+                          &stats)) {
+                    if (stats.find("# entries=0") == std::string::npos) {
+                      fprintf(stderr, "Level[%d]: %s\n", level, stats.c_str());
+                    }
+                  }
+                }
+              }
             }
           }
 
