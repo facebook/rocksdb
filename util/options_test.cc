@@ -104,7 +104,8 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
        "kZlibCompression:"
        "kBZip2Compression:"
        "kLZ4Compression:"
-       "kLZ4HCCompression"},
+       "kLZ4HCCompression:"
+       "kZSTDNotFinalCompression"},
       {"compression_opts", "4:5:6"},
       {"num_levels", "7"},
       {"level0_file_num_compaction_trigger", "8"},
@@ -185,13 +186,14 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.min_write_buffer_number_to_merge, 3);
   ASSERT_EQ(new_cf_opt.max_write_buffer_number_to_maintain, 99);
   ASSERT_EQ(new_cf_opt.compression, kSnappyCompression);
-  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 6U);
+  ASSERT_EQ(new_cf_opt.compression_per_level.size(), 7U);
   ASSERT_EQ(new_cf_opt.compression_per_level[0], kNoCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[1], kSnappyCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[2], kZlibCompression);
   ASSERT_EQ(new_cf_opt.compression_per_level[3], kBZip2Compression);
   ASSERT_EQ(new_cf_opt.compression_per_level[4], kLZ4Compression);
   ASSERT_EQ(new_cf_opt.compression_per_level[5], kLZ4HCCompression);
+  ASSERT_EQ(new_cf_opt.compression_per_level[6], kZSTDNotFinalCompression);
   ASSERT_EQ(new_cf_opt.compression_opts.window_bits, 4);
   ASSERT_EQ(new_cf_opt.compression_opts.level, 5);
   ASSERT_EQ(new_cf_opt.compression_opts.strategy, 6);

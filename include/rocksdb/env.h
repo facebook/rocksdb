@@ -459,9 +459,7 @@ class WritableFile {
 
   // Indicates the upper layers if the current WritableFile implementation
   // uses direct IO.
-  virtual bool UseDirectIO() const {
-    return false;
-  }
+  virtual bool UseDirectIO() const { return false; }
 
   /*
    * Change the priority in rate limiter if rate limiting is enabled.

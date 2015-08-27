@@ -426,6 +426,17 @@ Status UncompressBlockContents(const char* data, size_t n,
       *contents =
           BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
       break;
+    case kZSTDNotFinalCompression:
+      ubuf =
+          std::unique_ptr<char[]>(ZSTD_Uncompress(data, n, &decompress_size));
+      if (!ubuf) {
+        static char zstd_corrupt_msg[] =
+            "ZSTD not supported or corrupted ZSTD compressed block contents";
+        return Status::Corruption(zstd_corrupt_msg);
+      }
+      *contents =
+          BlockContents(std::move(ubuf), decompress_size, true, kNoCompression);
+      break;
     default:
       return Status::Corruption("bad block type");
   }

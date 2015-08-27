@@ -4,6 +4,7 @@
 
 ### New Features
 * DB::GetProperty() now accept "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
+* Add compression option kZSTDNotFinalCompression for people to experiment ZSTD although its format is not finalized.
 
 ### Public API Changes
 * Removed class Env::RandomRWFile and Env::NewRandomRWFile().

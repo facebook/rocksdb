@@ -163,11 +163,15 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
       std::make_pair(CompressionType::kLZ4Compression, "kLZ4Compression"));
   compress_type.insert(
       std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
+  compress_type.insert(std::make_pair(CompressionType::kZSTDNotFinalCompression,
+                                      "kZSTDNotFinalCompression"));
 
   fprintf(stdout, "Block Size: %lu\n", block_size);
 
   for (CompressionType i = CompressionType::kNoCompression;
-       i != CompressionType::kLZ4HCCompression; i = CompressionType(i + 1)) {
+       i <= CompressionType::kZSTDNotFinalCompression;
+       i = (i == kLZ4HCCompression) ? kZSTDNotFinalCompression
+                                    : CompressionType(i + 1)) {
     CompressionOptions compress_opt;
     TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
                                 compress_opt, false);

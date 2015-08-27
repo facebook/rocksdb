@@ -55,8 +55,14 @@ class InternalKeyComparator;
 enum CompressionType : char {
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
-  kNoCompression = 0x0, kSnappyCompression = 0x1, kZlibCompression = 0x2,
-  kBZip2Compression = 0x3, kLZ4Compression = 0x4, kLZ4HCCompression = 0x5
+  kNoCompression = 0x0,
+  kSnappyCompression = 0x1,
+  kZlibCompression = 0x2,
+  kBZip2Compression = 0x3,
+  kLZ4Compression = 0x4,
+  kLZ4HCCompression = 0x5,
+  // zstd format is not finalized yet so it's subject to changes.
+  kZSTDNotFinalCompression = 0x40,
 };
 
 enum CompactionStyle : char {

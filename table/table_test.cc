@@ -531,6 +531,10 @@ static std::vector<TestArgs> GenerateArgList() {
     compression_types.emplace_back(kLZ4HCCompression, false);
     compression_types.emplace_back(kLZ4HCCompression, true);
   }
+  if (ZSTD_Supported()) {
+    compression_types.emplace_back(kZSTDNotFinalCompression, false);
+    compression_types.emplace_back(kZSTDNotFinalCompression, true);
+  }
 
   for (auto test_type : test_types) {
     for (auto reverse_compare : reverse_compare_types) {

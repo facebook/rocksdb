@@ -37,6 +37,8 @@ CompressionType ParseCompressionType(const std::string& type) {
     return kLZ4Compression;
   } else if (type == "kLZ4HCCompression") {
     return kLZ4HCCompression;
+  } else if (type == "kZSTDNotFinalCompression") {
+    return kZSTDNotFinalCompression;
   } else {
     throw std::invalid_argument("Unknown compression type: " + type);
   }
