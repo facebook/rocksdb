@@ -92,6 +92,7 @@ typedef SSIZE_T ssize_t;
 namespace rocksdb {
 
 #define PREFETCH(addr, rw, locality)
+std::string GetWindowsErrSz(DWORD err);
 
 namespace port {
 
