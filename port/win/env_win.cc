@@ -703,55 +703,69 @@ class AlignedBuffer {
 class WinSequentialFile : public SequentialFile {
  private:
   const std::string filename_;
-  FILE* file_;
-  int fd_;
+  HANDLE file_;
+
+  // There is no equivalent of advising away buffered pages as in posix.
+  // To implement this flag we would need to do unbuffered reads which 
+  // will need to be aligned (not sure there is a guarantee that the buffer
+  // passed in is aligned).
+  // Hence we currently ignore this flag. It is used only in a few cases
+  // which should not be perf critical.
+  // If perf evaluation finds this to be a problem, we can look into
+  // implementing this.
   bool use_os_buffer_;
 
  public:
-  WinSequentialFile(const std::string& fname, FILE* f,
+  WinSequentialFile(const std::string& fname, HANDLE f,
                     const EnvOptions& options)
       : filename_(fname),
         file_(f),
-        fd_(fileno(f)),
         use_os_buffer_(options.use_os_buffer) {}
 
   virtual ~WinSequentialFile() {
-    assert(file_ != nullptr);
-    fclose(file_);
+    assert(file_ != INVALID_HANDLE_VALUE);
+    CloseHandle(file_);
   }
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override {
     Status s;
     size_t r = 0;
 
-    // read() and fread() as well as write/fwrite do not guarantee
-    // to fullfil the entire request in one call thus the loop.
-    do {
-      r = fread(scratch, 1, n, file_);
-    } while (r == 0 && ferror(file_));
+    // Windows ReadFile API accepts a DWORD.
+    // While it is possible to read in a loop if n is > UINT_MAX
+    // it is a highly unlikely case.
+    if (n > UINT_MAX) {      
+      return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
+    }
+
+    DWORD bytesToRead = static_cast<DWORD>(n); //cast is safe due to the check above
+    DWORD bytesRead = 0;
+    BOOL ret = ReadFile(file_, scratch, bytesToRead, &bytesRead, NULL);
+    if (ret == TRUE) {
+      r = bytesRead;
+    } else {
+      return IOErrorFromWindowsError(filename_, GetLastError());
+    }
 
     IOSTATS_ADD(bytes_read, r);
 
     *result = Slice(scratch, r);
 
-    if (r < n) {
-      if (feof(file_)) {
-        // We leave status as ok if we hit the end of the file
-        // We also clear the error so that the reads can continue
-        // if a new data is written to the file
-        clearerr(file_);
-      } else {
-        // A partial read with an error: return a non-ok status
-        s = Status::IOError(filename_, strerror(errno));
-      }
-    }
-
     return s;
   }
 
   virtual Status Skip(uint64_t n) override {
-    if (fseek(file_, n, SEEK_CUR)) {
-      return IOError(filename_, errno);
+    // Can't handle more than signed max as SetFilePointerEx accepts a signed 64-bit
+    // integer. As such it is a highly unlikley case to have n so large.
+    if (n > _I64_MAX) {
+      return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
+    }
+
+    LARGE_INTEGER li;
+    li.QuadPart = static_cast<int64_t>(n); //cast is safe due to the check above
+    BOOL ret = SetFilePointerEx(file_, li, NULL, FILE_CURRENT);
+    if (ret == FALSE) {
+      return IOErrorFromWindowsError(filename_, GetLastError());
     }
     return Status::OK();
   }
@@ -1314,7 +1328,7 @@ class WinEnv : public Env {
     // Corruption test needs to rename and delete files of these kind
     // while they are still open with another handle. For that reason we
     // allow share_write and delete(allows rename).
-    HANDLE hFile = 0;
+    HANDLE hFile = INVALID_HANDLE_VALUE;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
       hFile = CreateFileA(
@@ -1329,22 +1343,7 @@ class WinEnv : public Env {
       s = IOErrorFromWindowsError("Failed to open NewSequentialFile" + fname,
                                   lastError);
     } else {
-      int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), 0);
-      if (fd == -1) {
-        auto code = errno;
-        CloseHandle(hFile);
-        s = IOError("Failed to _open_osfhandle for NewSequentialFile: " + fname,
-                    code);
-      } else {
-        FILE* file = _fdopen(fd, "rb");
-        if (file == nullptr) {
-          auto code = errno;
-          _close(fd);
-          s = IOError("Failed to fdopen NewSequentialFile: " + fname, code);
-        } else {
-          result->reset(new WinSequentialFile(fname, file, options));
-        }
-      }
+      result->reset(new WinSequentialFile(fname, hFile, options));
     }
     return s;
   }
@@ -1811,22 +1810,7 @@ class WinEnv : public Env {
         // Set creation, last access and last write time to the same value
         SetFileTime(hFile, &ft, &ft, &ft);
       }
-
-      int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), 0);
-      if (fd == -1) {
-        auto code = errno;
-        CloseHandle(hFile);
-        s = IOError("Failed to _open_osfhandle: " + fname, code);
-      } else {
-        FILE* file = _fdopen(fd, "w");
-        if (file == nullptr) {
-          auto code = errno;
-          _close(fd);
-          s = IOError("Failed to fdopen: " + fname, code);
-        } else {
-          result->reset(new WinLogger(&WinEnv::gettid, this, file));
-        }
-      }
+      result->reset(new WinLogger(&WinEnv::gettid, this, hFile));
     }
     return s;
   }
