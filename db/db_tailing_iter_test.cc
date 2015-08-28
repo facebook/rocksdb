@@ -121,7 +121,12 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
 }
 
 TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
-  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+  const uint64_t k20KB = 20 * 1024;
+  Options options;
+  options.write_buffer_size = k20KB;
+  options.max_write_buffer_number = 6;
+  options.min_write_buffer_number_to_merge = 5;
+  CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
 

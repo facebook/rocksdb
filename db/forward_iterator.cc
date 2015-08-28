@@ -238,20 +238,11 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     }
     for (size_t i = 0; i < imm_iters_.size(); i++) {
       auto* m = imm_iters_[i];
-      if (!m) {
-        continue;
-      }
       seek_to_first ? m->SeekToFirst() : m->Seek(internal_key);
       if (!m->status().ok()) {
         immutable_status_ = m->status();
       } else if (m->Valid()) {
-        if (!IsOverUpperBound(m->key())) {
-          immutable_min_heap_.push(m);
-        } else {
-          has_iter_trimmed_for_upper_bound_ = true;
-          delete m;
-          imm_iters_[i] = nullptr;
-        }
+        immutable_min_heap_.push(m);
       }
     }
 
@@ -624,19 +615,6 @@ bool ForwardIterator::NeedToRebuildTrimmed(const Slice& target) {
 }
 
 void ForwardIterator::DeleteCurrentIter() {
-  for (size_t i = 0; i < imm_iters_.size(); i++) {
-    auto& m = imm_iters_[i];
-    if (!m) {
-      continue;
-    }
-    if (m == current_) {
-      has_iter_trimmed_for_upper_bound_ = true;
-      delete m;
-      m = nullptr;
-      return;
-    }
-  }
-
   const VersionStorageInfo* vstorage = sv_->current->storage_info();
   const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
   for (uint32_t i = 0; i < l0.size(); ++i) {
@@ -666,12 +644,6 @@ void ForwardIterator::DeleteCurrentIter() {
 bool ForwardIterator::TEST_CheckDeletedIters() {
   if (!has_iter_trimmed_for_upper_bound_) {
     return false;
-  }
-  for (size_t i = 0; i < imm_iters_.size(); i++) {
-    auto& m = imm_iters_[i];
-    if (!m) {
-      return true;
-    }
   }
 
   const VersionStorageInfo* vstorage = sv_->current->storage_info();
