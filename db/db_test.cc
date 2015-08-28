@@ -2467,15 +2467,7 @@ TEST_F(DBTest, ApproximateMemoryUsage) {
     prev_all_mem = all_mem;
   }
 
-  dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
-  dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
-  dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
-  // now we expect "cur-size-all-mem-tables" and "size-all-mem-tables" are the
-  // same again after we released all iterators.
-  ASSERT_EQ(all_mem, unflushed_mem);
-  ASSERT_GE(all_mem, active_mem);
-
-  // Phase 4. Perform flush, and expect all these three counters to be the same.
+  // Expect all these three counters to be the same.
   dbfull()->GetIntProperty("rocksdb.cur-size-active-mem-table", &active_mem);
   dbfull()->GetIntProperty("rocksdb.cur-size-all-mem-tables", &unflushed_mem);
   dbfull()->GetIntProperty("rocksdb.size-all-mem-tables", &all_mem);
