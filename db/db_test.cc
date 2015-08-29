@@ -4745,6 +4745,30 @@ TEST_F(DBTest, PurgeInfoLogs) {
   }
 }
 
+TEST_F(DBTest, SyncMultipleLogs) {
+  const uint64_t kNumBatches = 2;
+  const int kBatchSize = 1000;
+
+  Options options = CurrentOptions();
+  options.create_if_missing = true;
+  options.write_buffer_size = 4096;
+  Reopen(options);
+
+  WriteBatch batch;
+  WriteOptions wo;
+  wo.sync = true;
+
+  for (uint64_t b = 0; b < kNumBatches; b++) {
+    batch.Clear();
+    for (int i = 0; i < kBatchSize; i++) {
+      batch.Put(Key(i), DummyString(128));
+    }
+
+    dbfull()->Write(wo, &batch);
+  }
+
+  ASSERT_OK(dbfull()->SyncWAL());
+}
 
 //
 // Test WAL recovery for the various modes available
