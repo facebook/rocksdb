@@ -2019,12 +2019,13 @@ void DBImpl::MarkLogsSynced(
     assert(log.getting_synced);
     if (status.ok() && logs_.size() > 1) {
       logs_to_free_.push_back(log.ReleaseWriter());
-      logs_.erase(it++);
+      it = logs_.erase(it);
     } else {
       log.getting_synced = false;
       ++it;
     }
   }
+  assert(logs_.empty() || (logs_.size() == 1 && !logs_[0].getting_synced));
   log_sync_cv_.SignalAll();
 }
 
