@@ -3832,7 +3832,8 @@ TEST_F(DBTest, DropWrites) {
     env_->sleep_counter_.Reset();
     env_->no_sleep_ = true;
     for (int i = 0; i < 5; i++) {
-      if (option_config_ != kUniversalCompactionMultiLevel) {
+      if (option_config_ != kUniversalCompactionMultiLevel &&
+          option_config_ != kUniversalSubcompactions) {
         for (int level = 0; level < dbfull()->NumberLevels(); level++) {
           if (level > 0 && level == dbfull()->NumberLevels() - 1) {
             break;

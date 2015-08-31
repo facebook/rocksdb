@@ -437,6 +437,7 @@ class DBTestBase : public testing::Test {
     kOptimizeFiltersForHits = 26,
     kRowCache = 27,
     kLevelSubcompactions = 28,
+    kUniversalSubcompactions = 29,
     kEnd = 28
   };
   int option_config_;

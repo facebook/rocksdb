@@ -374,7 +374,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
 
     // push all files to  lower levels
     ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel) {
+    if (option_config_ != kUniversalCompactionMultiLevel &&
+        option_config_ != kUniversalSubcompactions) {
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
       dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     } else {
@@ -392,7 +393,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
     // push all files to  lower levels. This should
     // invoke the compaction filter for all 100000 keys.
     ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel) {
+    if (option_config_ != kUniversalCompactionMultiLevel &&
+        option_config_ != kUniversalSubcompactions) {
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
       dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     } else {

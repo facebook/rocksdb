@@ -132,7 +132,7 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
   }
 }
 
-// Switch between different compaction styles (we have only 2 now).
+// Switch between different compaction styles.
 bool DBTestBase::ChangeCompactOptions() {
   if (option_config_ == kDefault) {
     option_config_ = kUniversalCompaction;
@@ -152,7 +152,14 @@ bool DBTestBase::ChangeCompactOptions() {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
-    options.max_subcompactions = 4;
+    assert(options.max_subcompactions > 1);
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kLevelSubcompactions) {
+    option_config_ = kUniversalSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    assert(options.max_subcompactions > 1);
     TryReopen(options);
     return true;
   } else {
@@ -314,7 +321,13 @@ Options DBTestBase::CurrentOptions(
       break;
     }
     case kLevelSubcompactions: {
-      options.max_subcompactions = 2;
+      options.max_subcompactions = 4;
+      break;
+    }
+    case kUniversalSubcompactions: {
+      options.compaction_style = kCompactionStyleUniversal;
+      options.num_levels = 8;
+      options.max_subcompactions = 4;
       break;
     }
 
