@@ -58,21 +58,15 @@ void MemoryAllocatedBytesTest(size_t huge_page_size) {
     ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
   }
 
-  // requested size > quarter of a block:
+  // requested size > size of a block:
   //   allocate requested size separately
-  req_sz = 999 * 4096;
+  expected_memory_allocated = arena.MemoryAllocatedBytes();
+  req_sz = 8 * 1024 * 1024;
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }
   expected_memory_allocated += req_sz * N;
-  if (huge_page_size) {
-    ASSERT_TRUE(arena.MemoryAllocatedBytes() ==
-                    expected_memory_allocated + bsz ||
-                arena.MemoryAllocatedBytes() ==
-                    expected_memory_allocated + huge_page_size);
-  } else {
-    ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
-  }
+  ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
 }
 
 // Make sure we didn't count the allocate but not used memory space in
