@@ -358,6 +358,49 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToSame) {
   ASSERT_EQ(found, iter->key().ToString());
 }
 
+// Sets iterate_upper_bound and verifies that ForwardIterator doesn't call
+// Seek() on immutable iterators when target key is >= prev_key and all
+// iterators, including the memtable iterator, are over the upper bound.
+TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  const Slice upper_bound("20", 3);
+  ReadOptions read_options;
+  read_options.tailing = true;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  ASSERT_OK(Put(1, "11", "11"));
+  ASSERT_OK(Put(1, "12", "12"));
+  ASSERT_OK(Put(1, "22", "22"));
+  ASSERT_OK(Flush(1));  // flush all those keys to an immutable SST file
+
+  // Add another key to the memtable.
+  ASSERT_OK(Put(1, "21", "21"));
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
+  it->Seek("12");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("12", it->key().ToString());
+
+  it->Next();
+  // Not valid since "21" is over the upper bound.
+  ASSERT_FALSE(it->Valid());
+
+  // This keeps track of the number of times NeedToSeekImmutable() was true.
+  int immutable_seeks = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::SeekInternal:Immutable",
+      [&](void* arg) { ++immutable_seeks; });
+
+  // Seek to 13. This should not require any immutable seeks.
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  it->Seek("13");
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_FALSE(it->Valid());
+  ASSERT_EQ(0, immutable_seeks);
+}
+
 TEST_F(DBTestTailingIterator, ManagedTailingIteratorSingle) {
   ReadOptions read_options;
   read_options.tailing = true;

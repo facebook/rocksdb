@@ -128,10 +128,11 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
       sv_(current_sv),
       mutable_iter_(nullptr),
       current_(nullptr),
+      valid_(false),
       status_(Status::OK()),
       immutable_status_(Status::OK()),
-      valid_(false),
       has_iter_trimmed_for_upper_bound_(false),
+      current_over_upper_bound_(false),
       is_prev_set_(false),
       is_prev_inclusive_(false) {
   if (sv_) {
@@ -179,7 +180,8 @@ void ForwardIterator::Cleanup(bool release_sv) {
 }
 
 bool ForwardIterator::Valid() const {
-  return valid_;
+  // See UpdateCurrent().
+  return valid_ ? !current_over_upper_bound_ : false;
 }
 
 void ForwardIterator::SeekToFirst() {
@@ -225,7 +227,7 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
   // an option to turn it off.
   if (seek_to_first || NeedToSeekImmutable(internal_key)) {
     immutable_status_ = Status::OK();
-    if (NeedToRebuildTrimmed(internal_key)) {
+    if (has_iter_trimmed_for_upper_bound_) {
       // Some iterators are trimmed. Need to rebuild.
       RebuildIterators(true);
       // Already seeked mutable iter, so seek again
@@ -375,6 +377,8 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       is_prev_set_ = true;
       is_prev_inclusive_ = true;
     }
+
+    TEST_SYNC_POINT_CALLBACK("ForwardIterator::SeekInternal:Immutable", this);
   } else if (current_ && current_ != mutable_iter_) {
     // current_ is one of immutable iterators, push it back to the heap
     immutable_min_heap_.push(current_);
@@ -555,10 +559,13 @@ void ForwardIterator::UpdateCurrent() {
   if (!status_.ok()) {
     status_ = Status::OK();
   }
-  if (valid_ && IsOverUpperBound(current_->key())) {
-    valid_ = false;
-    current_ = nullptr;
-  }
+
+  // Upper bound doesn't apply to the memtable iterator. We want Valid() to
+  // return false when all iterators are over iterate_upper_bound, but can't
+  // just set valid_ to false, as that would effectively disable the tailing
+  // optimization (Seek() would be called on all immutable iterators regardless
+  // of whether the target key is greater than prev_key_).
+  current_over_upper_bound_ = valid_ && IsOverUpperBound(current_->key());
 }
 
 bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
@@ -589,26 +596,6 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
   if (cfd_->internal_comparator().InternalKeyComparator::Compare(
         target, current_ == mutable_iter_ ? immutable_min_heap_.top()->key()
                                           : current_->key()) > 0) {
-    return true;
-  }
-  return false;
-}
-
-bool ForwardIterator::NeedToRebuildTrimmed(const Slice& target) {
-  if (!has_iter_trimmed_for_upper_bound_) {
-    return false;
-  }
-  if (!valid_ || !current_ || !is_prev_set_ || !immutable_status_.ok()) {
-    return true;
-  }
-  Slice prev_key = prev_key_.GetKey();
-  if (prefix_extractor_ &&
-      prefix_extractor_->Transform(target)
-              .compare(prefix_extractor_->Transform(prev_key)) != 0) {
-    return true;
-  }
-  if (cfd_->internal_comparator().InternalKeyComparator::Compare(
-          prev_key, target) >= (is_prev_inclusive_ ? 1 : 0)) {
     return true;
   }
   return false;
