@@ -1,0 +1,30 @@
+#!/bin/bash
+# This script is executed by Sandcastle
+# to determine next steps to run
+
+UNIT_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test',
+        'steps': [
+            {
+                'name':'Build RocksDB',
+                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make clean all',
+                'user':'root'
+            },
+            {
+                'name':'Test RocksDB',
+                'shell':'make J=1 check',
+                'user':'root'
+            }
+        ],
+    }
+]"
+
+case $1 in
+  unit)
+    echo $UNIT_TEST_COMMANDS
+    ;;
+  *)
+    echo $UNIT_TEST_COMMANDS
+    ;;
+esac
