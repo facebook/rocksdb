@@ -17,7 +17,7 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
     mtx_findShortestSeparator(new port::Mutex(copt->use_adaptive_mutex)) {
   // Note: Comparator methods may be accessed by multiple threads,
   // so we ref the jvm not the env
-  const jint rs = env->GetJavaVM(&m_jvm);
+  const jint rs __attribute__((unused)) = env->GetJavaVM(&m_jvm);
   assert(rs == JNI_OK);
 
   // Note: we want to access the Java Comparator instance
@@ -42,7 +42,8 @@ BaseComparatorJniCallback::BaseComparatorJniCallback(
  */
 JNIEnv* BaseComparatorJniCallback::getJniEnv() const {
   JNIEnv *env;
-  jint rs = m_jvm->AttachCurrentThread(reinterpret_cast<void **>(&env), NULL);
+  jint rs __attribute__((unused)) =
+      m_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
   assert(rs == JNI_OK);
   return env;
 }
