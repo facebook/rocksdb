@@ -258,6 +258,11 @@ class Transaction {
   // write to this transaction.
   virtual WriteBatchWithIndex* GetWriteBatch() = 0;
 
+  // Change the value of TransactionOptions.lock_timeout (in milliseconds) for
+  // this transaction.
+  // Has no effect on OptimisticTransactions.
+  virtual void SetLockTimeout(int64_t timeout) = 0;
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
   Transaction() {}

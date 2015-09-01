@@ -60,7 +60,7 @@ class TransactionImpl : public TransactionBaseImpl {
   // Returns the number of milliseconds a transaction can wait on acquiring a
   // lock or -1 if there is no timeout.
   int64_t GetLockTimeout() const { return lock_timeout_; }
-  void SetLockTimeout(int64_t timeout) { lock_timeout_ = timeout; }
+  void SetLockTimeout(int64_t timeout) override { lock_timeout_ = timeout; }
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,

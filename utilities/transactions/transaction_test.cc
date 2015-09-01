@@ -1530,7 +1530,9 @@ TEST_F(TransactionTest, TimeoutTest) {
 
   delete txn1;
   txn_options.expiration = 6000000;  // 100 minutes
+  txn_options.lock_timeout = 1;      // 1ms
   txn1 = db->BeginTransaction(write_options, txn_options);
+  txn1->SetLockTimeout(100);
 
   TransactionOptions txn_options2;
   txn_options2.expiration = 10;  // 10ms
