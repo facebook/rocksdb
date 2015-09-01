@@ -2,8 +2,9 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-#include "db/dbformat.h"
+
 #include "db/db_impl.h"
+#include "db/dbformat.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
@@ -12,25 +13,25 @@
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/filter_policy.h"
+#include "rocksdb/options.h"
 #include "rocksdb/perf_context.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/table.h"
-#include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
 #include "table/block_based_table_factory.h"
 #include "table/plain_table_factory.h"
 #include "util/hash.h"
 #include "util/hash_linklist_rep.h"
-#include "utilities/merge_operators.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/rate_limiter.h"
 #include "util/statistics.h"
 #include "util/string_util.h"
-#include "util/testharness.h"
 #include "util/sync_point.h"
+#include "util/testharness.h"
 #include "util/testutil.h"
+#include "utilities/merge_operators.h"
 
 #ifndef ROCKSDB_LITE
 
@@ -134,7 +135,7 @@ class EventListenerTest : public testing::Test {
     return db_->Put(wo, handles_[cf], k, v);
   }
 
-  Status Flush(int cf = 0) {
+  Status Flush(size_t cf = 0) {
     FlushOptions opt = FlushOptions();
     opt.wait = true;
     if (cf == 0) {
@@ -143,6 +144,8 @@ class EventListenerTest : public testing::Test {
       return db_->Flush(opt, handles_[cf]);
     }
   }
+
+  const size_t k110KB = 110 << 10;
 
   DB* db_;
   std::string dbname_;
@@ -198,7 +201,7 @@ TEST_F(EventListenerTest, OnSingleDBCompactionTest) {
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (size_t i = 1; i < 8; ++i) {
-    ASSERT_OK(Flush(static_cast<int>(i)));
+    ASSERT_OK(Flush(i));
     const Slice kStart = "a";
     const Slice kEnd = "z";
     ASSERT_OK(dbfull()->CompactRange(CompactRangeOptions(), handles_[i],
@@ -287,7 +290,7 @@ class TestFlushListener : public EventListener {
 
 TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   Options options;
-  options.write_buffer_size = 100000;
+  options.write_buffer_size = k110KB;
 #if ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
@@ -306,7 +309,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (size_t i = 1; i < 8; ++i) {
-    ASSERT_OK(Flush(static_cast<int>(i)));
+    ASSERT_OK(Flush(i));
     dbfull()->TEST_WaitForFlushMemTable();
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
@@ -321,7 +324,7 @@ TEST_F(EventListenerTest, OnSingleDBFlushTest) {
 
 TEST_F(EventListenerTest, MultiCF) {
   Options options;
-  options.write_buffer_size = 100000;
+  options.write_buffer_size = k110KB;
 #if ROCKSDB_USING_THREAD_STATUS
   options.enable_thread_tracking = true;
 #endif  // ROCKSDB_USING_THREAD_STATUS
@@ -340,7 +343,7 @@ TEST_F(EventListenerTest, MultiCF) {
   ASSERT_OK(Put(6, "alyosha", std::string(90000, 'a')));
   ASSERT_OK(Put(7, "popovich", std::string(90000, 'p')));
   for (size_t i = 1; i < 8; ++i) {
-    ASSERT_OK(Flush(static_cast<int>(i)));
+    ASSERT_OK(Flush(i));
     ASSERT_EQ(listener->flushed_dbs_.size(), i);
     ASSERT_EQ(listener->flushed_column_family_names_.size(), i);
   }

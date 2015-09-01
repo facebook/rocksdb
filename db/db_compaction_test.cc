@@ -505,7 +505,7 @@ TEST_F(DBCompactionTest, DisableStatsUpdateReopen) {
 
 TEST_P(DBCompactionTestWithParam, CompactionTrigger) {
   Options options;
-  options.write_buffer_size = 110 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.num_levels = 3;
   options.level0_file_num_compaction_trigger = 3;
@@ -1008,7 +1008,7 @@ TEST_P(DBCompactionTestWithParam, LevelCompactionPathUse) {
   options.db_paths.emplace_back(dbname_ + "_2", 4 * 1024 * 1024);
   options.db_paths.emplace_back(dbname_ + "_3", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 110 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;
@@ -1639,7 +1639,7 @@ TEST_P(DBCompactionTestWithParam, CompressLevelCompaction) {
   }
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleLevel;
-  options.write_buffer_size = 110 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 110KB
   options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 4;

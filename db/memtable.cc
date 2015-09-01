@@ -112,7 +112,7 @@ bool MemTable::ShouldFlushNow() const {
   // In a lot of times, we cannot allocate arena blocks that exactly matches the
   // buffer size. Thus we have to decide if we should over-allocate or
   // under-allocate.
-  // This constant avariable can be interpreted as: if we still have more than
+  // This constant variable can be interpreted as: if we still have more than
   // "kAllowOverAllocationRatio * kArenaBlockSize" space left, we'd try to over
   // allocate one more block.
   const double kAllowOverAllocationRatio = 0.6;
