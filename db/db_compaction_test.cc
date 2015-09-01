@@ -234,7 +234,7 @@ TEST_P(DBCompactionTestWithParam, CompactionDeletionTrigger) {
     DestroyAndReopen(options);
     Random rnd(301);
 
-    const int kTestSize = kCDTKeysPerBuffer * 512;
+    const int kTestSize = kCDTKeysPerBuffer * 1024;
     std::vector<std::string> values;
     for (int k = 0; k < kTestSize; ++k) {
       values.push_back(RandomString(&rnd, kCDTValueSize));

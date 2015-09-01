@@ -2692,7 +2692,7 @@ TEST_F(DBTest, FlushSchedule) {
     Random rnd(a);
     WriteOptions wo;
     // this should fill up 2 memtables
-    for (int k = 0; k < 6144; ++k) {
+    for (int k = 0; k < 5000; ++k) {
       ASSERT_OK(db_->Put(wo, handles_[a & 1], RandomString(&rnd, 13), ""));
     }
   };

@@ -1102,6 +1102,9 @@ TEST_F(ColumnFamilyTest, SanitizeOptions) {
             original.level0_stop_writes_trigger = i;
             original.level0_slowdown_writes_trigger = j;
             original.level0_file_num_compaction_trigger = k;
+            original.write_buffer_size =
+                l * 4 * 1024 * 1024 + i * 1024 * 1024 + j * 1024 + k;
+
             ColumnFamilyOptions result =
                 SanitizeOptions(db_options, nullptr, original);
             ASSERT_TRUE(result.level0_stop_writes_trigger >=
@@ -1118,6 +1121,16 @@ TEST_F(ColumnFamilyTest, SanitizeOptions) {
                 ASSERT_EQ(result.num_levels, original.num_levels);
               }
             }
+
+            // Make sure Sanitize options sets arena_block_size to 1/8 of
+            // the write_buffer_size, rounded up to a multiple of 4k.
+            size_t expected_arena_block_size =
+                l * 4 * 1024 * 1024 / 8 + i * 1024 * 1024 / 8;
+            if (j + k != 0) {
+              // not a multiple of 4k, round up 4k
+              expected_arena_block_size += 4 * 1024;
+            }
+            ASSERT_EQ(expected_arena_block_size, result.arena_block_size);
           }
         }
       }

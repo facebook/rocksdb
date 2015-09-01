@@ -515,8 +515,8 @@ struct ColumnFamilyOptions {
   unsigned int rate_limit_delay_max_milliseconds;
 
   // size of one block in arena memory allocation.
-  // If <= 0, a proper value is automatically calculated (usually 1/10 of
-  // writer_buffer_size).
+  // If <= 0, a proper value is automatically calculated (usually 1/8 of
+  // writer_buffer_size, rounded up to a multiple of 4KB).
   //
   // There are two additonal restriction of the The specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
