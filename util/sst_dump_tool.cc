@@ -12,6 +12,7 @@
 #endif
 
 #include <inttypes.h>
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -164,7 +165,7 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
   compress_type.insert(
       std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
 
-  fprintf(stdout, "Block Size: %lu\n", block_size);
+  fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
 
   for (CompressionType i = CompressionType::kNoCompression;
        i != CompressionType::kLZ4HCCompression; i = CompressionType(i + 1)) {
