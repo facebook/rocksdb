@@ -2,7 +2,6 @@
 //  This source code is licensed under the BSD-style license found in the
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
-//
 
 #include "db/merge_helper.h"
 
@@ -92,15 +91,12 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
         assert(!"corrupted internal key is not expected");
       }
       break;
-    }
-
-    if (user_comparator_->Compare(ikey.user_key, orig_ikey.user_key) != 0) {
+    } else if (user_comparator_->Compare(ikey.user_key, orig_ikey.user_key) !=
+               0) {
       // hit a different user key, stop right here
       hit_the_next_user_key = true;
       break;
-    }
-
-    if (stop_before && ikey.sequence <= stop_before) {
+    } else if (stop_before && ikey.sequence <= stop_before) {
       // hit an entry that's visible by the previous snapshot, can't touch that
       break;
     }

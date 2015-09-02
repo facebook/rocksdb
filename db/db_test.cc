@@ -82,6 +82,7 @@ static long TestGetTickerCount(const Options& options, Tickers ticker_type) {
 // `GetPropertiesOfAllTablesTest` is correct.
 // This test assumes entries size is different for each of the tables.
 namespace {
+
 void VerifyTableProperties(DB* db, uint64_t expected_entries_size) {
   TablePropertiesCollection props;
   ASSERT_OK(db->GetPropertiesOfAllTables(&props));
@@ -110,6 +111,7 @@ uint64_t GetNumberOfSstFilesForColumnFamily(DB* db,
   }
   return result;
 }
+
 }  // namespace
 
 class DBTest : public DBTestBase {

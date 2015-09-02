@@ -137,7 +137,7 @@ Status BuildTable(
 
       // In-memory key corruption is not ok;
       // TODO: find a clean way to treat in memory key corruption
-      // Ugly walkaround to avoid compiler error for release build
+      // Ugly workaround to avoid compiler error for release build
       bool ok __attribute__((unused)) = true;
       ok = ParseInternalKey(key, &ikey);
       assert(ok);
@@ -159,7 +159,7 @@ Status BuildTable(
 
       // If there are no snapshots, then this kv affect visibility at tip.
       // Otherwise, search though all existing snapshots to find
-      // the earlist snapshot that is affected by this kv.
+      // the earliest snapshot that is affected by this kv.
       SequenceNumber prev_snapshot = 0;  // 0 means no previous snapshot
       SequenceNumber key_needs_to_exist_in_snapshot =
           EarliestVisibleSnapshot(ikey.sequence, snapshots, &prev_snapshot);

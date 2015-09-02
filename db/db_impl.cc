@@ -14,25 +14,27 @@
 #endif
 
 #include <inttypes.h>
+#include <stdint.h>
+
 #include <algorithm>
 #include <climits>
 #include <cstdio>
 #include <set>
 #include <stdexcept>
-#include <stdint.h>
 #include <string>
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "db/builder.h"
-#include "db/flush_job.h"
 #include "db/compaction_job.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
 #include "db/event_helpers.h"
 #include "db/filename.h"
+#include "db/flush_job.h"
+#include "db/forward_iterator.h"
 #include "db/job_context.h"
 #include "db/log_reader.h"
 #include "db/log_writer.h"
@@ -43,24 +45,23 @@
 #include "db/merge_helper.h"
 #include "db/table_cache.h"
 #include "db/table_properties_collector.h"
-#include "db/forward_iterator.h"
 #include "db/transaction_log_impl.h"
 #include "db/version_set.h"
-#include "db/writebuffer.h"
 #include "db/write_batch_internal.h"
 #include "db/write_callback.h"
+#include "db/writebuffer.h"
+#include "port/likely.h"
 #include "port/port.h"
 #include "rocksdb/cache.h"
-#include "port/likely.h"
 #include "rocksdb/compaction_filter.h"
 #include "rocksdb/db.h"
 #include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
-#include "rocksdb/version.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
+#include "rocksdb/version.h"
 #include "table/block.h"
 #include "table/block_based_table_factory.h"
 #include "table/merger.h"
@@ -75,16 +76,16 @@
 #include "util/db_info_dumper.h"
 #include "util/file_reader_writer.h"
 #include "util/file_util.h"
-#include "util/hash_skiplist_rep.h"
 #include "util/hash_linklist_rep.h"
-#include "util/logging.h"
+#include "util/hash_skiplist_rep.h"
+#include "util/iostats_context_imp.h"
 #include "util/log_buffer.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
-#include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
-#include "util/sync_point.h"
 #include "util/string_util.h"
+#include "util/sync_point.h"
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
 #include "util/xfunc.h"
@@ -3274,8 +3275,8 @@ Iterator* DBImpl::NewIterator(const ReadOptions& read_options,
     // |       |                       |
     // +-------+-----------------------+
     //
-    // ArenaWrappedDBIter inlines an arena area where all the iterartor in the
-    // the iterator tree is allocated in the order of being accessed when
+    // ArenaWrappedDBIter inlines an arena area where all the iterators in
+    // the iterator tree are allocated in the order of being accessed when
     // querying.
     // Laying out the iterators in the order of being accessed makes it more
     // likely that any iterator pointer is close to the iterator it points to so

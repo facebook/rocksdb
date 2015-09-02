@@ -104,7 +104,7 @@ TEST_F(FlushJobTest, NonEmpty) {
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                            kMaxSequenceNumber);
   new_mem->Ref();
-  mock::MockFileContents inserted_keys;
+  auto inserted_keys = mock::MakeMockFile();
   // Test data:
   //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
   //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
@@ -165,7 +165,7 @@ TEST_F(FlushJobTest, Snapshots) {
 
   new_mem->Ref();
   SequenceNumber current_seqno = 0;
-  mock::MockFileContents inserted_keys;
+  auto inserted_keys = mock::MakeMockFile();
   for (int i = 1; i < keys; ++i) {
     std::string key(ToString(i));
     int insertions = rnd.Uniform(max_inserts_per_keys);

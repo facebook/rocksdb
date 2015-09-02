@@ -27,6 +27,7 @@ namespace rocksdb {
 namespace {
 const double kMB = 1048576.0;
 const double kGB = kMB * 1024;
+const double kMicrosInSec = 1000000.0;
 
 void PrintLevelStatsHeader(char* buf, size_t len, const std::string& cf_name) {
   snprintf(
@@ -50,7 +51,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       stats.bytes_read_non_output_levels + stats.bytes_read_output_level;
   int64_t bytes_new =
       stats.bytes_written - stats.bytes_read_output_level;
-  double elapsed = (stats.micros + 1) / 1000000.0;
+  double elapsed = (stats.micros + 1) / kMicrosInSec;
   std::string num_input_records = NumberToHumanString(stats.num_input_records);
   std::string num_dropped_records =
       NumberToHumanString(stats.num_dropped_records);
@@ -73,16 +74,15 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
            " "      /* Stall(cnt) */
            "%7s "   /* KeyIn */
            "%6s\n", /* KeyDrop */
-           name.c_str(), num_files, being_compacted, total_file_size / kMB,
-           score, bytes_read / kGB, stats.bytes_read_non_output_levels / kGB,
+           name.c_str(),
+           num_files, being_compacted, total_file_size / kMB, score,
+           bytes_read / kGB, stats.bytes_read_non_output_levels / kGB,
            stats.bytes_read_output_level / kGB, stats.bytes_written / kGB,
-           bytes_new / kGB, stats.bytes_moved / kGB,
-           w_amp, bytes_read / kMB / elapsed,
-           stats.bytes_written / kMB / elapsed, stats.micros / 1000000.0,
-           stats.count,
-           stats.count == 0 ? 0 : stats.micros / 1000000.0 / stats.count,
-           stalls,
-           num_input_records.c_str(), num_dropped_records.c_str());
+           bytes_new / kGB, stats.bytes_moved / kGB, w_amp,
+           bytes_read / kMB / elapsed, stats.bytes_written / kMB / elapsed,
+           stats.micros / kMicrosInSec, stats.count,
+           stats.count == 0 ? 0 : stats.micros / kMicrosInSec / stats.count,
+           stalls, num_input_records.c_str(), num_dropped_records.c_str());
 }
 }
 
@@ -465,7 +465,7 @@ bool InternalStats::GetIntProperty(DBPropertyType property_type,
 void InternalStats::DumpDBStats(std::string* value) {
   char buf[1000];
   // DB-level stats, only available from default column family
-  double seconds_up = (env_->NowMicros() - started_at_ + 1) / 1000000.0;
+  double seconds_up = (env_->NowMicros() - started_at_ + 1) / kMicrosInSec;
   double interval_seconds_up = seconds_up - db_stats_snapshot_.seconds_up;
   snprintf(buf, sizeof(buf),
            "\n** DB Stats **\nUptime(secs): %.1f total, %.1f interval\n",
@@ -524,11 +524,9 @@ void InternalStats::DumpDBStats(std::string* value) {
   snprintf(buf, sizeof(buf),
            "Cumulative compaction: %.2f GB write, %.2f MB/s write, "
            "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
-           compact_bytes_write / kGB,
-           compact_bytes_write / kMB / seconds_up,
-           compact_bytes_read / kGB,
-           compact_bytes_read / kMB / seconds_up,
-           compact_micros / 1000000.0);
+           compact_bytes_write / kGB, compact_bytes_write / kMB / seconds_up,
+           compact_bytes_read / kGB, compact_bytes_read / kMB / seconds_up,
+           compact_micros / kMicrosInSec);
   value->append(buf);
   // Stall
   AppendHumanMicros(write_stall_micros, human_micros, kHumanMicrosLen, true);
@@ -582,16 +580,15 @@ void InternalStats::DumpDBStats(std::string* value) {
   uint64_t interval_compact_micros =
       compact_micros - db_stats_snapshot_.compact_micros;
 
-  snprintf(buf, sizeof(buf),
-           "Interval compaction: %.2f GB write, %.2f MB/s write, "
-           "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
-           interval_compact_bytes_write / kGB,
-           interval_compact_bytes_write / kMB /
-               std::max(interval_seconds_up, 0.001),
-           interval_compact_bytes_read / kGB,
-           interval_compact_bytes_read / kMB /
-               std::max(interval_seconds_up, 0.001),
-           interval_compact_micros / 1000000.0);
+  snprintf(
+      buf, sizeof(buf),
+      "Interval compaction: %.2f GB write, %.2f MB/s write, "
+      "%.2f GB read, %.2f MB/s read, %.1f seconds\n",
+      interval_compact_bytes_write / kGB,
+      interval_compact_bytes_write / kMB / std::max(interval_seconds_up, 0.001),
+      interval_compact_bytes_read / kGB,
+      interval_compact_bytes_read / kMB / std::max(interval_seconds_up, 0.001),
+      interval_compact_micros / kMicrosInSec);
   value->append(buf);
 
   // Stall

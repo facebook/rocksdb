@@ -92,7 +92,7 @@ class CompactionJobTest : public testing::Test {
     return InternalKey(user_key, seq_num, t).Encode().ToString();
   }
 
-  void AddMockFile(const mock::MockFileContents& contents, int level = 0) {
+  void AddMockFile(const stl_wrappers::KVMap& contents, int level = 0) {
     assert(contents.size() > 0);
 
     bool first_key = true;
@@ -143,8 +143,8 @@ class CompactionJobTest : public testing::Test {
   }
 
   // returns expected result after compaction
-  mock::MockFileContents CreateTwoFiles(bool gen_corrupted_keys) {
-    mock::MockFileContents expected_results;
+  stl_wrappers::KVMap CreateTwoFiles(bool gen_corrupted_keys) {
+    auto expected_results = mock::MakeMockFile();
     const int kKeysPerFile = 10000;
     const int kCorruptKeysPerFile = 200;
     const int kMatchingKeys = kKeysPerFile / 2;
@@ -155,7 +155,7 @@ class CompactionJobTest : public testing::Test {
     };
 
     for (int i = 0; i < 2; ++i) {
-      mock::MockFileContents contents;
+      auto contents = mock::MakeMockFile();
       for (int k = 0; k < kKeysPerFile; ++k) {
         auto key = ToString(i * kMatchingKeys + k);
         auto value = ToString(i * kKeysPerFile + k);
@@ -215,7 +215,7 @@ class CompactionJobTest : public testing::Test {
   }
 
   void RunCompaction(const std::vector<std::vector<FileMetaData*>>& input_files,
-      const mock::MockFileContents& expected_results) {
+                     const stl_wrappers::KVMap& expected_results) {
     auto cfd = versions_->GetColumnFamilySet()->GetDefault();
 
     size_t num_input_files = 0;
@@ -303,21 +303,16 @@ TEST_F(CompactionJobTest, SimpleCorrupted) {
 TEST_F(CompactionJobTest, SimpleDeletion) {
   NewDB();
 
-  mock::MockFileContents file1 = {
-    { KeyStr("c", 4U, kTypeDeletion), "" },
-    { KeyStr("c", 3U, kTypeValue), "val" }
-  };
+  auto file1 = mock::MakeMockFile({{KeyStr("c", 4U, kTypeDeletion), ""},
+                                   {KeyStr("c", 3U, kTypeValue), "val"}});
   AddMockFile(file1);
 
-  mock::MockFileContents file2 = {
-    { KeyStr("b", 2U, kTypeValue), "val" },
-    { KeyStr("b", 1U, kTypeValue), "val" }
-  };
+  auto file2 = mock::MakeMockFile({{KeyStr("b", 2U, kTypeValue), "val"},
+                                   {KeyStr("b", 1U, kTypeValue), "val"}});
   AddMockFile(file2);
 
-  mock::MockFileContents expected_results = {
-    { KeyStr("b", 0U, kTypeValue), "val" }
-  };
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("b", 0U, kTypeValue), "val"}});
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -327,22 +322,19 @@ TEST_F(CompactionJobTest, SimpleDeletion) {
 TEST_F(CompactionJobTest, SimpleOverwrite) {
   NewDB();
 
-  mock::MockFileContents file1 = {
-    { KeyStr("a", 3U, kTypeValue), "val2" },
-    { KeyStr("b", 4U, kTypeValue), "val3" },
-  };
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("a", 3U, kTypeValue), "val2"},
+      {KeyStr("b", 4U, kTypeValue), "val3"},
+  });
   AddMockFile(file1);
 
-  mock::MockFileContents file2 = {
-    { KeyStr("a", 1U, kTypeValue), "val" },
-    { KeyStr("b", 2U, kTypeValue), "val" }
-  };
+  auto file2 = mock::MakeMockFile({{KeyStr("a", 1U, kTypeValue), "val"},
+                                   {KeyStr("b", 2U, kTypeValue), "val"}});
   AddMockFile(file2);
 
-  mock::MockFileContents expected_results = {
-    { KeyStr("a", 0U, kTypeValue), "val2" },
-    { KeyStr("b", 0U, kTypeValue), "val3" }
-  };
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "val2"},
+                          {KeyStr("b", 0U, kTypeValue), "val3"}});
 
   SetLastSequence(4U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -352,30 +344,25 @@ TEST_F(CompactionJobTest, SimpleOverwrite) {
 TEST_F(CompactionJobTest, SimpleNonLastLevel) {
   NewDB();
 
-  mock::MockFileContents file1 = {
-    { KeyStr("a", 5U, kTypeValue), "val2" },
-    { KeyStr("b", 6U, kTypeValue), "val3" },
-  };
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("a", 5U, kTypeValue), "val2"},
+      {KeyStr("b", 6U, kTypeValue), "val3"},
+  });
   AddMockFile(file1);
 
-  mock::MockFileContents file2 = {
-    { KeyStr("a", 3U, kTypeValue), "val" },
-    { KeyStr("b", 4U, kTypeValue), "val" }
-  };
+  auto file2 = mock::MakeMockFile({{KeyStr("a", 3U, kTypeValue), "val"},
+                                   {KeyStr("b", 4U, kTypeValue), "val"}});
   AddMockFile(file2, 1);
 
-  mock::MockFileContents file3 = {
-    { KeyStr("a", 1U, kTypeValue), "val" },
-    { KeyStr("b", 2U, kTypeValue), "val" }
-  };
+  auto file3 = mock::MakeMockFile({{KeyStr("a", 1U, kTypeValue), "val"},
+                                   {KeyStr("b", 2U, kTypeValue), "val"}});
   AddMockFile(file3, 2);
 
   // Because level 1 is not the last level, the sequence numbers of a and b
   // cannot be set to 0
-  mock::MockFileContents expected_results = {
-    { KeyStr("a", 5U, kTypeValue), "val2" },
-    { KeyStr("b", 6U, kTypeValue), "val3" }
-  };
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 5U, kTypeValue), "val2"},
+                          {KeyStr("b", 6U, kTypeValue), "val3"}});
 
   SetLastSequence(6U);
   auto lvl0_files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -387,23 +374,20 @@ TEST_F(CompactionJobTest, SimpleMerge) {
   auto merge_op = MergeOperators::CreateStringAppendOperator();
   NewDB(merge_op);
 
-  mock::MockFileContents file1 = {
-    { KeyStr("a", 5U, kTypeMerge), "5" },
-    { KeyStr("a", 4U, kTypeMerge), "4" },
-    { KeyStr("a", 3U, kTypeValue), "3" },
-  };
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("a", 5U, kTypeMerge), "5"},
+      {KeyStr("a", 4U, kTypeMerge), "4"},
+      {KeyStr("a", 3U, kTypeValue), "3"},
+  });
   AddMockFile(file1);
 
-  mock::MockFileContents file2 = {
-    { KeyStr("b", 2U, kTypeMerge), "2" },
-    { KeyStr("b", 1U, kTypeValue), "1" }
-  };
+  auto file2 = mock::MakeMockFile(
+      {{KeyStr("b", 2U, kTypeMerge), "2"}, {KeyStr("b", 1U, kTypeValue), "1"}});
   AddMockFile(file2);
 
-  mock::MockFileContents expected_results = {
-    { KeyStr("a", 0U, kTypeValue), "3,4,5" },
-    { KeyStr("b", 0U, kTypeValue), "1,2" }
-  };
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
+                          {KeyStr("b", 0U, kTypeValue), "1,2"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);
@@ -414,24 +398,21 @@ TEST_F(CompactionJobTest, NonAssocMerge) {
   auto merge_op = MergeOperators::CreateStringAppendTESTOperator();
   NewDB(merge_op);
 
-  mock::MockFileContents file1 = {
-    { KeyStr("a", 5U, kTypeMerge), "5" },
-    { KeyStr("a", 4U, kTypeMerge), "4" },
-    { KeyStr("a", 3U, kTypeMerge), "3" },
-  };
+  auto file1 = mock::MakeMockFile({
+      {KeyStr("a", 5U, kTypeMerge), "5"},
+      {KeyStr("a", 4U, kTypeMerge), "4"},
+      {KeyStr("a", 3U, kTypeMerge), "3"},
+  });
   AddMockFile(file1);
 
-  mock::MockFileContents file2 = {
-    { KeyStr("b", 2U, kTypeMerge), "2" },
-    { KeyStr("b", 1U, kTypeMerge), "1" }
-  };
+  auto file2 = mock::MakeMockFile(
+      {{KeyStr("b", 2U, kTypeMerge), "2"}, {KeyStr("b", 1U, kTypeMerge), "1"}});
   AddMockFile(file2);
 
-  mock::MockFileContents expected_results = {
-    { KeyStr("a", 0U, kTypeValue), "3,4,5" },
-    { KeyStr("b", 2U, kTypeMerge), "2" },
-    { KeyStr("b", 1U, kTypeMerge), "1" }
-  };
+  auto expected_results =
+      mock::MakeMockFile({{KeyStr("a", 0U, kTypeValue), "3,4,5"},
+                          {KeyStr("b", 2U, kTypeMerge), "2"},
+                          {KeyStr("b", 1U, kTypeMerge), "1"}});
 
   SetLastSequence(5U);
   auto files = cfd_->current()->storage_info()->LevelFiles(0);

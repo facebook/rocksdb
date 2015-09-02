@@ -5,51 +5,39 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 #pragma once
+
 #include <algorithm>
-#include <set>
-#include <memory>
 #include <atomic>
 #include <map>
+#include <memory>
+#include <set>
 #include <string>
+#include <utility>
 
+#include "port/port.h"
 #include "rocksdb/comparator.h"
 #include "rocksdb/table.h"
-#include "table/table_reader.h"
 #include "table/table_builder.h"
-#include "port/port.h"
+#include "table/table_reader.h"
 #include "util/mutexlock.h"
+#include "util/stl_wrappers.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
 
 namespace rocksdb {
 namespace mock {
 
-struct MockFileContentsCmp {
-  MockFileContentsCmp() : icmp_(BytewiseComparator()) {}
-
-  bool operator() (const std::string& x, const std::string& y) const {
-    InternalKey ikey_x;
-    InternalKey ikey_y;
-    ikey_x.DecodeFrom(x);
-    ikey_y.DecodeFrom(y);
-    return icmp_.Compare(ikey_x, ikey_y) < 0;
-  }
-
-  InternalKeyComparator icmp_;
-};
-
-// NOTE: this currently only supports the bytewise comparator
-typedef std::map<std::string, std::string, MockFileContentsCmp>
-    MockFileContents;
+stl_wrappers::KVMap MakeMockFile(
+    std::initializer_list<std::pair<const std::string, std::string>> l = {});
 
 struct MockTableFileSystem {
   port::Mutex mutex;
-  std::map<uint32_t, MockFileContents> files;
+  std::map<uint32_t, stl_wrappers::KVMap> files;
 };
 
 class MockTableReader : public TableReader {
  public:
-  explicit MockTableReader(const MockFileContents& table) : table_(table) {}
+  explicit MockTableReader(const stl_wrappers::KVMap& table) : table_(table) {}
 
   Iterator* NewIterator(const ReadOptions&, Arena* arena) override;
 
@@ -67,12 +55,12 @@ class MockTableReader : public TableReader {
   ~MockTableReader() {}
 
  private:
-  const MockFileContents& table_;
+  const stl_wrappers::KVMap& table_;
 };
 
 class MockTableIterator : public Iterator {
  public:
-  explicit MockTableIterator(const MockFileContents& table) : table_(table) {
+  explicit MockTableIterator(const stl_wrappers::KVMap& table) : table_(table) {
     itr_ = table_.end();
   }
 
@@ -107,14 +95,16 @@ class MockTableIterator : public Iterator {
   Status status() const override { return Status::OK(); }
 
  private:
-  const MockFileContents& table_;
-  MockFileContents::const_iterator itr_;
+  const stl_wrappers::KVMap& table_;
+  stl_wrappers::KVMap::const_iterator itr_;
 };
 
 class MockTableBuilder : public TableBuilder {
  public:
   MockTableBuilder(uint32_t id, MockTableFileSystem* file_system)
-      : id_(id), file_system_(file_system) {}
+      : id_(id), file_system_(file_system) {
+    table_ = MakeMockFile({});
+  }
 
   // REQUIRES: Either Finish() or Abandon() has been called.
   ~MockTableBuilder() {}
@@ -148,7 +138,7 @@ class MockTableBuilder : public TableBuilder {
  private:
   uint32_t id_;
   MockTableFileSystem* file_system_;
-  MockFileContents table_;
+  stl_wrappers::KVMap table_;
 };
 
 class MockTableFactory : public TableFactory {
@@ -166,10 +156,10 @@ class MockTableFactory : public TableFactory {
       WritableFileWriter* file) const override;
 
   // This function will directly create mock table instead of going through
-  // MockTableBuilder. MockFileContents has to have a format of <internal_key,
-  // value>. Those key-value pairs will then be inserted into the mock table
+  // MockTableBuilder. file_contents has to have a format of <internal_key,
+  // value>. Those key-value pairs will then be inserted into the mock table.
   Status CreateMockTable(Env* env, const std::string& fname,
-                         MockFileContents file_contents);
+                         stl_wrappers::KVMap file_contents);
 
   virtual Status SanitizeOptions(
       const DBOptions& db_opts,
@@ -183,8 +173,8 @@ class MockTableFactory : public TableFactory {
 
   // This function will assert that only a single file exists and that the
   // contents are equal to file_contents
-  void AssertSingleFile(const MockFileContents& file_contents);
-  void AssertLatestFile(const MockFileContents& file_contents);
+  void AssertSingleFile(const stl_wrappers::KVMap& file_contents);
+  void AssertLatestFile(const stl_wrappers::KVMap& file_contents);
 
  private:
   uint32_t GetAndWriteNextID(WritableFile* file) const;

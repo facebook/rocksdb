@@ -14,6 +14,7 @@
 #endif
 
 #include <inttypes.h>
+
 #include <algorithm>
 #include <vector>
 
@@ -28,8 +29,8 @@
 #include "db/memtable_list.h"
 #include "db/merge_context.h"
 #include "db/version_set.h"
-#include "port/port.h"
 #include "port/likely.h"
+#include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/statistics.h"
@@ -43,11 +44,11 @@
 #include "util/coding.h"
 #include "util/event_logger.h"
 #include "util/file_util.h"
-#include "util/logging.h"
+#include "util/iostats_context_imp.h"
 #include "util/log_buffer.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/perf_context_imp.h"
-#include "util/iostats_context_imp.h"
 #include "util/stop_watch.h"
 #include "util/sync_point.h"
 #include "util/thread_status_util.h"

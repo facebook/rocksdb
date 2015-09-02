@@ -11,21 +11,25 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <list>
+#include <list>
 #include <set>
-#include <list>
-#include <utility>
-#include <list>
-#include <vector>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "db/dbformat.h"
 #include "db/column_family.h"
 #include "db/compaction_job.h"
+#include "db/dbformat.h"
 #include "db/flush_job.h"
+#include "db/flush_scheduler.h"
+#include "db/internal_stats.h"
 #include "db/log_writer.h"
 #include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
+#include "db/write_controller.h"
+#include "db/write_thread.h"
 #include "db/writebuffer.h"
 #include "memtable_list.h"
 #include "port/port.h"
@@ -36,15 +40,11 @@
 #include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
-#include "util/stop_watch.h"
-#include "util/thread_local.h"
-#include "util/scoped_arena_iterator.h"
 #include "util/hash.h"
 #include "util/instrumented_mutex.h"
-#include "db/internal_stats.h"
-#include "db/write_controller.h"
-#include "db/flush_scheduler.h"
-#include "db/write_thread.h"
+#include "util/scoped_arena_iterator.h"
+#include "util/stop_watch.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 

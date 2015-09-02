@@ -13,15 +13,14 @@
 #include <algorithm>
 #include <iostream>
 #include <map>
-#include <string>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "db/dbformat.h"
 #include "db/memtable.h"
 #include "db/write_batch_internal.h"
 #include "db/writebuffer.h"
-
 #include "rocksdb/cache.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -29,27 +28,23 @@
 #include "rocksdb/memtablerep.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
-
 #include "table/block.h"
 #include "table/block_based_table_builder.h"
 #include "table/block_based_table_factory.h"
 #include "table/block_based_table_reader.h"
 #include "table/block_builder.h"
 #include "table/format.h"
+#include "table/get_context.h"
 #include "table/meta_blocks.h"
 #include "table/plain_table_factory.h"
-#include "table/get_context.h"
-
 #include "util/compression.h"
 #include "util/random.h"
+#include "util/scoped_arena_iterator.h"
 #include "util/statistics.h"
+#include "util/stl_wrappers.h"
 #include "util/string_util.h"
 #include "util/testharness.h"
 #include "util/testutil.h"
-#include "util/scoped_arena_iterator.h"
-
-using std::vector;
-using std::string;
 
 namespace rocksdb {
 
@@ -106,26 +101,14 @@ void Increment(const Comparator* cmp, std::string* key) {
   }
 }
 
-// An STL comparator that uses a Comparator
-struct STLLessThan {
-  const Comparator* cmp;
-
-  STLLessThan() : cmp(BytewiseComparator()) { }
-  explicit STLLessThan(const Comparator* c) : cmp(c) { }
-  bool operator()(const std::string& a, const std::string& b) const {
-    return cmp->Compare(Slice(a), Slice(b)) < 0;
-  }
-};
-
 }  // namespace
-
-typedef std::map<std::string, std::string, STLLessThan> KVMap;
 
 // Helper class for tests to unify the interface between
 // BlockBuilder/TableBuilder and Block/Table.
 class Constructor {
  public:
-  explicit Constructor(const Comparator* cmp) : data_(STLLessThan(cmp)) {}
+  explicit Constructor(const Comparator* cmp)
+      : data_(stl_wrappers::LessOfComparator(cmp)) {}
   virtual ~Constructor() { }
 
   void Add(const std::string& key, const Slice& value) {
@@ -135,18 +118,15 @@ class Constructor {
   // Finish constructing the data structure with all the keys that have
   // been added so far.  Returns the keys in sorted order in "*keys"
   // and stores the key/value pairs in "*kvmap"
-  void Finish(const Options& options,
-              const ImmutableCFOptions& ioptions,
+  void Finish(const Options& options, const ImmutableCFOptions& ioptions,
               const BlockBasedTableOptions& table_options,
               const InternalKeyComparator& internal_comparator,
-              std::vector<std::string>* keys, KVMap* kvmap) {
+              std::vector<std::string>* keys, stl_wrappers::KVMap* kvmap) {
     last_internal_key_ = &internal_comparator;
     *kvmap = data_;
     keys->clear();
-    for (KVMap::const_iterator it = data_.begin();
-         it != data_.end();
-         ++it) {
-      keys->push_back(it->first);
+    for (const auto& kv : data_) {
+      keys->push_back(kv.first);
     }
     data_.clear();
     Status s = FinishImpl(options, ioptions, table_options,
@@ -159,11 +139,11 @@ class Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& data) = 0;
+                            const stl_wrappers::KVMap& data) = 0;
 
   virtual Iterator* NewIterator() const = 0;
 
-  virtual const KVMap& data() { return data_; }
+  virtual const stl_wrappers::KVMap& data() { return data_; }
 
   virtual bool IsArenaMode() const { return false; }
 
@@ -175,7 +155,7 @@ class Constructor {
   const InternalKeyComparator* last_internal_key_;
 
  private:
-  KVMap data_;
+  stl_wrappers::KVMap data_;
 };
 
 class BlockConstructor: public Constructor {
@@ -191,7 +171,7 @@ class BlockConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) override {
+                            const stl_wrappers::KVMap& kv_map) override {
     delete block_;
     block_ = nullptr;
     BlockBuilder builder(table_options.block_restart_interval);
@@ -280,7 +260,7 @@ class TableConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) override {
+                            const stl_wrappers::KVMap& kv_map) override {
     Reset();
     file_writer_.reset(test::GetWritableFileWriter(new test::StringSink()));
     unique_ptr<TableBuilder> builder;
@@ -393,7 +373,7 @@ class MemTableConstructor: public Constructor {
   virtual Status FinishImpl(const Options&, const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) override {
+                            const stl_wrappers::KVMap& kv_map) override {
     delete memtable_->Unref();
     ImmutableCFOptions mem_ioptions(ioptions);
     memtable_ = new MemTable(internal_comparator_, mem_ioptions,
@@ -440,7 +420,7 @@ class DBConstructor: public Constructor {
                             const ImmutableCFOptions& ioptions,
                             const BlockBasedTableOptions& table_options,
                             const InternalKeyComparator& internal_comparator,
-                            const KVMap& kv_map) override {
+                            const stl_wrappers::KVMap& kv_map) override {
     delete db_;
     db_ = nullptr;
     NewDB();
@@ -705,7 +685,7 @@ class HarnessTest : public testing::Test {
 
   void Test(Random* rnd) {
     std::vector<std::string> keys;
-    KVMap data;
+    stl_wrappers::KVMap data;
     constructor_->Finish(options_, ioptions_, table_options_,
                          *internal_comparator_, &keys, &data);
 
@@ -717,13 +697,12 @@ class HarnessTest : public testing::Test {
   }
 
   void TestForwardScan(const std::vector<std::string>& keys,
-                       const KVMap& data) {
+                       const stl_wrappers::KVMap& data) {
     Iterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     iter->SeekToFirst();
-    for (KVMap::const_iterator model_iter = data.begin();
-         model_iter != data.end();
-         ++model_iter) {
+    for (stl_wrappers::KVMap::const_iterator model_iter = data.begin();
+         model_iter != data.end(); ++model_iter) {
       ASSERT_EQ(ToString(data, model_iter), ToString(iter));
       iter->Next();
     }
@@ -736,13 +715,12 @@ class HarnessTest : public testing::Test {
   }
 
   void TestBackwardScan(const std::vector<std::string>& keys,
-                        const KVMap& data) {
+                        const stl_wrappers::KVMap& data) {
     Iterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
     iter->SeekToLast();
-    for (KVMap::const_reverse_iterator model_iter = data.rbegin();
-         model_iter != data.rend();
-         ++model_iter) {
+    for (stl_wrappers::KVMap::const_reverse_iterator model_iter = data.rbegin();
+         model_iter != data.rend(); ++model_iter) {
       ASSERT_EQ(ToString(data, model_iter), ToString(iter));
       iter->Prev();
     }
@@ -754,13 +732,12 @@ class HarnessTest : public testing::Test {
     }
   }
 
-  void TestRandomAccess(Random* rnd,
-                        const std::vector<std::string>& keys,
-                        const KVMap& data) {
+  void TestRandomAccess(Random* rnd, const std::vector<std::string>& keys,
+                        const stl_wrappers::KVMap& data) {
     static const bool kVerbose = false;
     Iterator* iter = constructor_->NewIterator();
     ASSERT_TRUE(!iter->Valid());
-    KVMap::const_iterator model_iter = data.begin();
+    stl_wrappers::KVMap::const_iterator model_iter = data.begin();
     if (kVerbose) fprintf(stderr, "---\n");
     for (int i = 0; i < 200; i++) {
       const int toss = rnd->Uniform(support_prev_ ? 5 : 3);
@@ -828,7 +805,8 @@ class HarnessTest : public testing::Test {
     }
   }
 
-  std::string ToString(const KVMap& data, const KVMap::const_iterator& it) {
+  std::string ToString(const stl_wrappers::KVMap& data,
+                       const stl_wrappers::KVMap::const_iterator& it) {
     if (it == data.end()) {
       return "END";
     } else {
@@ -836,8 +814,8 @@ class HarnessTest : public testing::Test {
     }
   }
 
-  std::string ToString(const KVMap& data,
-                       const KVMap::const_reverse_iterator& it) {
+  std::string ToString(const stl_wrappers::KVMap& data,
+                       const stl_wrappers::KVMap::const_reverse_iterator& it) {
     if (it == data.rend()) {
       return "END";
     } else {
@@ -982,7 +960,7 @@ TEST_F(BlockBasedTableTest, BasicBlockBasedTableProperties) {
   c.Add("j9", "val9");
 
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   Options options;
   options.compression = kNoCompression;
   BlockBasedTableOptions table_options;
@@ -1017,7 +995,7 @@ TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
   TableConstructor c(BytewiseComparator(), true);
   c.Add("a1", "val1");
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   BlockBasedTableOptions table_options;
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   Options options;
@@ -1034,8 +1012,8 @@ TEST_F(BlockBasedTableTest, FilterPolicyNameProperties) {
 // BlockBasedTableTest::PrefetchTest
 //
 void AssertKeysInCache(BlockBasedTable* table_reader,
-                 const vector<string>& keys_in_cache,
-                 const vector<string>& keys_not_in_cache) {
+                       const std::vector<std::string>& keys_in_cache,
+                       const std::vector<std::string>& keys_not_in_cache) {
   for (auto key : keys_in_cache) {
     ASSERT_TRUE(table_reader->TEST_KeyInCache(ReadOptions(), key));
   }
@@ -1047,10 +1025,10 @@ void AssertKeysInCache(BlockBasedTable* table_reader,
 
 void PrefetchRange(TableConstructor* c, Options* opt,
                    BlockBasedTableOptions* table_options,
-                   const vector<std::string>& keys,
-                   const char* key_begin, const char* key_end,
-                   const vector<string>& keys_in_cache,
-                   const vector<string>& keys_not_in_cache,
+                   const std::vector<std::string>& keys, const char* key_begin,
+                   const char* key_end,
+                   const std::vector<std::string>& keys_in_cache,
+                   const std::vector<std::string>& keys_not_in_cache,
                    const Status expected_status = Status::OK()) {
   // reset the cache and reopen the table
   table_options->block_cache = NewLRUCache(16 * 1024 * 1024);
@@ -1093,7 +1071,7 @@ TEST_F(BlockBasedTableTest, PrefetchTest) {
   c.Add("k06", "hello3");
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   const ImmutableCFOptions ioptions(opt);
   c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
 
@@ -1197,7 +1175,7 @@ TEST_F(BlockBasedTableTest, TotalOrderSeekOnHashIndex) {
     c.Add("abbb1", std::string('a', 56));
     c.Add("cccc2", std::string('a', 56));
     std::vector<std::string> keys;
-    KVMap kvmap;
+    stl_wrappers::KVMap kvmap;
     const ImmutableCFOptions ioptions(options);
     c.Finish(options, ioptions, table_options,
              GetPlainInternalComparator(options.comparator), &keys, &kvmap);
@@ -1271,7 +1249,7 @@ TEST_F(TableTest, HashIndexTest) {
   AddInternalKey(&c, "0095");
 
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   Options options;
   options.prefix_extractor.reset(NewFixedPrefixTransform(3));
   BlockBasedTableOptions table_options;
@@ -1385,7 +1363,7 @@ TEST_F(BlockBasedTableTest, IndexSizeStat) {
     }
 
     std::vector<std::string> ks;
-    KVMap kvmap;
+    stl_wrappers::KVMap kvmap;
     Options options;
     options.compression = kNoCompression;
     BlockBasedTableOptions table_options;
@@ -1418,7 +1396,7 @@ TEST_F(BlockBasedTableTest, NumBlockStat) {
   }
 
   std::vector<std::string> ks;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   const ImmutableCFOptions ioptions(options);
   c.Finish(options, ioptions, table_options,
            GetPlainInternalComparator(options.comparator), &ks, &kvmap);
@@ -1491,7 +1469,7 @@ TEST_F(BlockBasedTableTest, BlockCacheDisabledTest) {
   table_options.filter_policy.reset(NewBloomFilterPolicy(10));
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
 
   TableConstructor c(BytewiseComparator(), true);
   c.Add("key", "value");
@@ -1537,7 +1515,7 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   table_options.cache_index_and_filter_blocks = true;
   options.table_factory.reset(new BlockBasedTableFactory(table_options));
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
 
   TableConstructor c(BytewiseComparator());
   c.Add("key", "value");
@@ -1681,7 +1659,7 @@ TEST_F(BlockBasedTableTest, BlockCacheLeak) {
   c.Add("k06", "hello3");
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   const ImmutableCFOptions ioptions(opt);
   c.Finish(opt, ioptions, table_options, *ikc, &keys, &kvmap);
 
@@ -1775,7 +1753,7 @@ TEST_F(GeneralTableTest, ApproximateOffsetOfPlain) {
   c.Add("k06", "hello3");
   c.Add("k07", std::string(100000, 'x'));
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   Options options;
   test::PlainInternalKeyComparator internal_comparator(options.comparator);
   options.compression = kNoCompression;
@@ -1807,7 +1785,7 @@ static void DoCompressionTest(CompressionType comp) {
   c.Add("k03", "hello3");
   c.Add("k04", test::CompressibleString(&rnd, 0.25, 10000, &tmp));
   std::vector<std::string> keys;
-  KVMap kvmap;
+  stl_wrappers::KVMap kvmap;
   Options options;
   test::PlainInternalKeyComparator ikc(options.comparator);
   options.compression = comp;

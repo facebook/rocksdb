@@ -5,20 +5,21 @@
 //
 
 #ifndef ROCKSDB_LITE
+
 #include "util/hash_cuckoo_rep.h"
 
 #include <algorithm>
 #include <atomic>
 #include <limits>
+#include <memory>
 #include <queue>
 #include <string>
-#include <memory>
 #include <vector>
 
-#include "rocksdb/memtablerep.h"
-#include "util/murmurhash.h"
 #include "db/memtable.h"
 #include "db/skiplist.h"
+#include "rocksdb/memtablerep.h"
+#include "util/murmurhash.h"
 #include "util/stl_wrappers.h"
 
 namespace rocksdb {
@@ -40,7 +41,7 @@ struct CuckooStep {
   CuckooStep() : bucket_id_(-1), prev_step_id_(kNullStep), depth_(1) {}
 
   // MSVC does not support = default yet
-  CuckooStep(CuckooStep&& o) { *this = std::move(o); }
+  CuckooStep(CuckooStep&& o) ROCKSDB_NOEXCEPT { *this = std::move(o); }
 
   CuckooStep& operator=(CuckooStep&& rhs) {
     bucket_id_ = std::move(rhs.bucket_id_);
