@@ -339,6 +339,7 @@ struct BlockBasedTable::Rep {
         table_options(_table_opt),
         filter_policy(_table_opt.filter_policy.get()),
         internal_comparator(_internal_comparator),
+        filter_type(FilterType::kNoFilter),
         whole_key_filtering(_table_opt.whole_key_filtering),
         prefix_filtering(true) {}
 
@@ -361,6 +362,14 @@ struct BlockBasedTable::Rep {
   // the block cache.
   unique_ptr<IndexReader> index_reader;
   unique_ptr<FilterBlockReader> filter;
+
+  enum class FilterType {
+    kNoFilter,
+    kFullFilter,
+    kBlockFilter,
+  };
+  FilterType filter_type;
+  BlockHandle filter_handle;
 
   std::shared_ptr<const TableProperties> table_properties;
   BlockBasedTableOptions::IndexType index_type;
@@ -506,6 +515,21 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
     return s;
   }
 
+  // Find filter handle and filter type
+  if (rep->filter_policy) {
+    for (auto prefix : {kFullFilterBlockPrefix, kFilterBlockPrefix}) {
+      std::string filter_block_key = prefix;
+      filter_block_key.append(rep->filter_policy->Name());
+      if (FindMetaBlock(meta_iter.get(), filter_block_key, &rep->filter_handle)
+              .ok()) {
+        rep->filter_type = (prefix == kFullFilterBlockPrefix)
+                               ? Rep::FilterType::kFullFilter
+                               : Rep::FilterType::kBlockFilter;
+        break;
+      }
+    }
+  }
+
   // Read the properties
   bool found_properties_block = true;
   s = SeekToPropertiesBlock(meta_iter.get(), &found_properties_block);
@@ -573,7 +597,7 @@ Status BlockBasedTable::Open(const ImmutableCFOptions& ioptions,
 
         // Set filter block
         if (rep->filter_policy) {
-          rep->filter.reset(ReadFilter(rep, meta_iter.get(), nullptr));
+          rep->filter.reset(ReadFilter(rep, nullptr));
         }
       } else {
         delete index_reader;
@@ -778,45 +802,43 @@ Status BlockBasedTable::PutDataBlockToCache(
   return s;
 }
 
-FilterBlockReader* BlockBasedTable::ReadFilter(
-    Rep* rep, Iterator* meta_index_iter, size_t* filter_size) {
+FilterBlockReader* BlockBasedTable::ReadFilter(Rep* rep, size_t* filter_size) {
   // TODO: We might want to unify with ReadBlockFromFile() if we start
   // requiring checksum verification in Table::Open.
-  for (auto prefix : {kFullFilterBlockPrefix, kFilterBlockPrefix}) {
-    std::string filter_block_key = prefix;
-    filter_block_key.append(rep->filter_policy->Name());
-    BlockHandle handle;
-    if (FindMetaBlock(meta_index_iter, filter_block_key, &handle).ok()) {
-      BlockContents block;
-      if (!ReadBlockContents(rep->file.get(), rep->footer, ReadOptions(),
-                             handle, &block, rep->ioptions.env, false).ok()) {
-        // Error reading the block
-        return nullptr;
-      }
+  if (rep->filter_type == Rep::FilterType::kNoFilter) {
+    return nullptr;
+  }
+  BlockContents block;
+  if (!ReadBlockContents(rep->file.get(), rep->footer, ReadOptions(),
+                         rep->filter_handle, &block, rep->ioptions.env,
+                         false).ok()) {
+    // Error reading the block
+    return nullptr;
+  }
 
-      if (filter_size) {
-        *filter_size = block.data.size();
-      }
+  if (filter_size) {
+    *filter_size = block.data.size();
+  }
 
-      assert(rep->filter_policy);
-      if (kFilterBlockPrefix == prefix) {
-        return new BlockBasedFilterBlockReader(
-            rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
-            rep->table_options, rep->whole_key_filtering, std::move(block));
-      } else if (kFullFilterBlockPrefix == prefix) {
-        auto filter_bits_reader = rep->filter_policy->
-            GetFilterBitsReader(block.data);
-        if (filter_bits_reader != nullptr) {
-          return new FullFilterBlockReader(
-              rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
-              rep->whole_key_filtering, std::move(block), filter_bits_reader);
-        }
-      } else {
-        assert(false);
-        return nullptr;
-      }
+  assert(rep->filter_policy);
+
+  if (rep->filter_type == Rep::FilterType::kBlockFilter) {
+    return new BlockBasedFilterBlockReader(
+        rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+        rep->table_options, rep->whole_key_filtering, std::move(block));
+  } else if (rep->filter_type == Rep::FilterType::kFullFilter) {
+    auto filter_bits_reader =
+        rep->filter_policy->GetFilterBitsReader(block.data);
+    if (filter_bits_reader != nullptr) {
+      return new FullFilterBlockReader(
+          rep->prefix_filtering ? rep->ioptions.prefix_extractor : nullptr,
+          rep->whole_key_filtering, std::move(block), filter_bits_reader);
     }
   }
+
+  // filter_type is either kNoFilter (exited the function at the first if),
+  // kBlockFilter or kFullFilter. there is no way for the execution to come here
+  assert(false);
   return nullptr;
 }
 
@@ -858,18 +880,12 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     return CachableEntry<FilterBlockReader>();
   } else {
     size_t filter_size = 0;
-    std::unique_ptr<Block> meta;
-    std::unique_ptr<Iterator> iter;
-    auto s = ReadMetaBlock(rep_, &meta, &iter);
-
-    if (s.ok()) {
-      filter = ReadFilter(rep_, iter.get(), &filter_size);
-      if (filter != nullptr) {
-        assert(filter_size > 0);
-        cache_handle = block_cache->Insert(
-            key, filter, filter_size, &DeleteCachedEntry<FilterBlockReader>);
-        RecordTick(statistics, BLOCK_CACHE_ADD);
-      }
+    filter = ReadFilter(rep_, &filter_size);
+    if (filter != nullptr) {
+      assert(filter_size > 0);
+      cache_handle = block_cache->Insert(key, filter, filter_size,
+                                         &DeleteCachedEntry<FilterBlockReader>);
+      RecordTick(statistics, BLOCK_CACHE_ADD);
     }
   }
 

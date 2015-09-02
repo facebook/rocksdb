@@ -26,6 +26,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/memtablerep.h"
+#include "rocksdb/perf_context.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/statistics.h"
 #include "table/block.h"
@@ -1633,6 +1634,79 @@ TEST_F(BlockBasedTableTest, FilterBlockInBlockCache) {
   ASSERT_EQ(value, "hello");
   BlockCachePropertiesSnapshot props(options.statistics.get());
   props.AssertFilterBlockStat(0, 0);
+}
+
+TEST_F(BlockBasedTableTest, BlockReadCountTest) {
+  // bloom_filter_type = 0 -- block-based filter
+  // bloom_filter_type = 0 -- full filter
+  for (int bloom_filter_type = 0; bloom_filter_type < 2; ++bloom_filter_type) {
+    for (int index_and_filter_in_cache = 0; index_and_filter_in_cache < 2;
+         ++index_and_filter_in_cache) {
+      Options options;
+      options.create_if_missing = true;
+
+      BlockBasedTableOptions table_options;
+      table_options.block_cache = NewLRUCache(1, 0);
+      table_options.cache_index_and_filter_blocks = index_and_filter_in_cache;
+      table_options.filter_policy.reset(
+          NewBloomFilterPolicy(10, bloom_filter_type == 0));
+      options.table_factory.reset(new BlockBasedTableFactory(table_options));
+      std::vector<std::string> keys;
+      KVMap kvmap;
+
+      TableConstructor c(BytewiseComparator());
+      std::string user_key = "k04";
+      InternalKey internal_key(user_key, 0, kTypeValue);
+      std::string encoded_key = internal_key.Encode().ToString();
+      c.Add(encoded_key, "hello");
+      ImmutableCFOptions ioptions(options);
+      // Generate table with filter policy
+      c.Finish(options, ioptions, table_options,
+               GetPlainInternalComparator(options.comparator), &keys, &kvmap);
+      auto reader = c.GetTableReader();
+      std::string value;
+      GetContext get_context(options.comparator, nullptr, nullptr, nullptr,
+                             GetContext::kNotFound, user_key, &value, nullptr,
+                             nullptr, nullptr);
+      perf_context.Reset();
+      ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context));
+      if (index_and_filter_in_cache) {
+        // data, index and filter block
+        ASSERT_EQ(perf_context.block_read_count, 3);
+      } else {
+        // just the data block
+        ASSERT_EQ(perf_context.block_read_count, 1);
+      }
+      ASSERT_EQ(get_context.State(), GetContext::kFound);
+      ASSERT_EQ(value, "hello");
+
+      // Get non-existing key
+      user_key = "does-not-exist";
+      internal_key = InternalKey(user_key, 0, kTypeValue);
+      encoded_key = internal_key.Encode().ToString();
+
+      get_context = GetContext(options.comparator, nullptr, nullptr, nullptr,
+                               GetContext::kNotFound, user_key, &value, nullptr,
+                               nullptr, nullptr);
+      perf_context.Reset();
+      ASSERT_OK(reader->Get(ReadOptions(), encoded_key, &get_context));
+      ASSERT_EQ(get_context.State(), GetContext::kNotFound);
+
+      if (index_and_filter_in_cache) {
+        if (bloom_filter_type == 0) {
+          // with block-based, we read index and then the filter
+          ASSERT_EQ(perf_context.block_read_count, 2);
+        } else {
+          // with full-filter, we read filter first and then we stop
+          ASSERT_EQ(perf_context.block_read_count, 1);
+        }
+      } else {
+        // filter is already in memory and it figures out that the key doesn't
+        // exist
+        ASSERT_EQ(perf_context.block_read_count, 0);
+      }
+    }
+  }
 }
 
 TEST_F(BlockBasedTableTest, BlockCacheLeak) {
