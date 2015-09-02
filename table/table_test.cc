@@ -1652,7 +1652,7 @@ TEST_F(BlockBasedTableTest, BlockReadCountTest) {
           NewBloomFilterPolicy(10, bloom_filter_type == 0));
       options.table_factory.reset(new BlockBasedTableFactory(table_options));
       std::vector<std::string> keys;
-      KVMap kvmap;
+      stl_wrappers::KVMap kvmap;
 
       TableConstructor c(BytewiseComparator());
       std::string user_key = "k04";
