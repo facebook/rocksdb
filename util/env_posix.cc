@@ -1134,6 +1134,9 @@ class PosixEnv : public Env {
       return IOError(fname, errno);
     } else {
       int fd = fileno(f);
+#ifdef ROCKSDB_FALLOCATE_PRESENT
+      fallocate(fd, FALLOC_FL_KEEP_SIZE, 0, 4 * 1024 * 1024);
+#endif
       SetFD_CLOEXEC(fd, nullptr);
       result->reset(new PosixLogger(f, &PosixEnv::gettid, this));
       return Status::OK();
