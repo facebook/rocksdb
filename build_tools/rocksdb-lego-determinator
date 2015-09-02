@@ -2,6 +2,9 @@
 # This script is executed by Sandcastle
 # to determine next steps to run
 
+#
+# RocksDB unit test
+#
 UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
@@ -20,9 +23,102 @@ UNIT_TEST_COMMANDS="[
     }
 ]"
 
+#
+# RocksDB stress/crash test
+#
+STRESS_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Stress/Crash Test',
+        'steps': [
+            {
+                'name':'Build and run RocksDB stress tests',
+                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 TEST_TMPDIR=/dev/shm make clean db_stress',
+                'user':'root'
+            },
+            {
+                'name':'Build and run RocksDB crash tests',
+                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 TEST_TMPDIR=/dev/shm make crash_test',
+                'user':'root'
+            }
+        ],
+    }
+]"
+
+
+#
+# RocksDB test under address sanitizer
+#
+ASAN_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test',
+        'steps': [
+            {
+                'name':'Build RocksDB for ASAN',
+                'shell':'set -o pipefail && ROCKSDB_FBCODE_BUILD_WITH_481=1 COMPILE_WITH_ASAN=1 make -j$(nproc) clean all',
+                'user':'root'
+            },
+            {
+                'name':'Test RocksDB under ASAN',
+                'shell':'make J=1 asan_check |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
+                'user':'root'
+            }
+        ],
+    }
+]"
+
+#
+# RocksDB crash testing under address sanitizer
+#
+ASAN_CRASH_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test',
+        'steps': [
+            {
+                'name':'Build and run RocksDB asan_crash_test',
+                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make -j$(nproc) clean asan_crash_test',
+                'user':'root'
+            },
+        ],
+    }
+]"
+
+#
+# RocksDB unit test with CLANG
+#
+CLANG_UNIT_TEST_COMMANDS="[
+    {
+        'name':'Rocksdb Unit Test',
+        'steps': [
+            {
+                'name':'Build RocksDB with CLANG',
+                'shell':'USE_CLANG=1 make clean all',
+                'user':'root'
+            },
+            {
+                'name':'Test RocksDB built using CLANG',
+                'shell':'make J=1 check',
+                'user':'root'
+            }
+        ],
+    }
+]"
+
+
 case $1 in
   unit)
     echo $UNIT_TEST_COMMANDS
+    ;;
+  stress_crash)
+    echo $STRESS_CRASH_TEST_COMMANDS
+    ;;
+  asan)
+    echo $ASAN_TEST_COMMANDS
+    ;;
+  asan_crash)
+    echo $ASAN_CRASH_TEST_COMMANDS
+    ;;
+  clang_unit)
+    echo $CLANG_UNIT_TEST_COMMANDS
     ;;
   *)
     echo $UNIT_TEST_COMMANDS
