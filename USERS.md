@@ -34,3 +34,6 @@ Tango is using RocksDB as a graph storage to store all users' connection data an
 ## Turn
 Turn is using RocksDB as a storage layer for their key/value store, serving at peak 2.4MM QPS out of different datacenters.
 Check out our RocksDB Protobuf merge operator at: https://github.com/vladb38/rocksdb_protobuf
+
+## Santanader UK/Cloudera Profession Services
+Check out their blog post: http://blog.cloudera.com/blog/2015/08/inside-santanders-near-real-time-data-ingest-architecture/
