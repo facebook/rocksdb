@@ -257,6 +257,8 @@ class Env {
 
   // Returns the number of micro-seconds since some fixed point in time. Only
   // useful for computing deltas of time.
+  // However, it is often used as system time such as in GenericRateLimiter
+  // and other places so a port needs to return system time in order to work.
   virtual uint64_t NowMicros() = 0;
 
   // Returns the number of nano-seconds since some fixed point in time. Only

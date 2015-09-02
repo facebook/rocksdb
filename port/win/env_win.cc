@@ -1816,15 +1816,24 @@ class WinEnv : public Env {
   }
 
   virtual uint64_t NowMicros() override {
-    // all std::chrono clocks on windows have the same resolution that is only
-    // On Windows 8 and Windows 2012 Server
-    // GetSystemTimePreciseAsFileTime(&current_time) can be used
+    // all std::chrono clocks on windows proved to return
+    // values that may repeat that is not good enough for some uses.
+    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+    const int64_t c_FtToMicroSec = 10;
+
+    // This interface needs to return system time and not
+    // just any microseconds because it is often used as an argument
+    // to TimedWait() on condition variable
+    FILETIME ftSystemTime;
+    GetSystemTimePreciseAsFileTime(&ftSystemTime);
+
     LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-    // Convert to nanoseconds first to avoid loss of precision
-    // and divide by frequency
-    li.QuadPart *= std::micro::den;
-    li.QuadPart /= perf_counter_frequency_;
+    li.LowPart = ftSystemTime.dwLowDateTime;
+    li.HighPart = ftSystemTime.dwHighDateTime;
+    // Subtract unix epoch start
+    li.QuadPart -= c_UnixEpochStartTicks;
+    // Convert to microsecs
+    li.QuadPart /= c_FtToMicroSec;
     return li.QuadPart;
   }
 
