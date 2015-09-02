@@ -2045,7 +2045,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
         db_options_->max_open_files == -1) {
       // unlimited table cache. Pre-load table handle now.
       // Need to do it out of the mutex.
-      builder_guard->version_builder()->LoadTableHandlers();
+      builder_guard->version_builder()->LoadTableHandlers(
+          column_family_data->internal_stats());
     }
 
     // This is fine because everything inside of this block is serialized --
@@ -2496,7 +2497,8 @@ Status VersionSet::Recover(
       if (db_options_->max_open_files == -1) {
         // unlimited table cache. Pre-load table handle now.
         // Need to do it out of the mutex.
-        builder->LoadTableHandlers(db_options_->max_file_opening_threads);
+        builder->LoadTableHandlers(cfd->internal_stats(),
+                                   db_options_->max_file_opening_threads);
       }
 
       Version* v = new Version(cfd, this, current_version_number_++);

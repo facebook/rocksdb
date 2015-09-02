@@ -20,9 +20,11 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "db/dbformat.h"
+#include "db/internal_stats.h"
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "table/table_reader.h"
@@ -280,14 +282,15 @@ class VersionBuilder::Rep {
     CheckConsistency(vstorage);
   }
 
-  void LoadTableHandlers(int max_threads) {
+  void LoadTableHandlers(InternalStats* internal_stats, int max_threads) {
     assert(table_cache_ != nullptr);
-    std::vector<FileMetaData*> files_meta;
+    // <file metadata, level>
+    std::vector<std::pair<FileMetaData*, int>> files_meta;
     for (int level = 0; level < base_vstorage_->num_levels(); level++) {
       for (auto& file_meta_pair : levels_[level].added_files) {
         auto* file_meta = file_meta_pair.second;
         assert(!file_meta->table_reader_handle);
-        files_meta.push_back(file_meta);
+        files_meta.emplace_back(file_meta, level);
       }
     }
 
@@ -299,10 +302,13 @@ class VersionBuilder::Rep {
           break;
         }
 
-        auto* file_meta = files_meta[file_idx];
-        table_cache_->FindTable(
-            env_options_, *(base_vstorage_->InternalComparator()),
-            file_meta->fd, &file_meta->table_reader_handle, false);
+        auto* file_meta = files_meta[file_idx].first;
+        int level = files_meta[file_idx].second;
+        table_cache_->FindTable(env_options_,
+                                *(base_vstorage_->InternalComparator()),
+                                file_meta->fd, &file_meta->table_reader_handle,
+                                false /*no_io */, true /* record_read_stats */,
+                                internal_stats->GetFileReadHist(level));
         if (file_meta->table_reader_handle != nullptr) {
           // Load table_reader
           file_meta->fd.table_reader = table_cache_->GetTableReaderFromHandle(
@@ -350,8 +356,9 @@ void VersionBuilder::Apply(VersionEdit* edit) { rep_->Apply(edit); }
 void VersionBuilder::SaveTo(VersionStorageInfo* vstorage) {
   rep_->SaveTo(vstorage);
 }
-void VersionBuilder::LoadTableHandlers(int max_threads) {
-  rep_->LoadTableHandlers(max_threads);
+void VersionBuilder::LoadTableHandlers(InternalStats* internal_stats,
+                                       int max_threads) {
+  rep_->LoadTableHandlers(internal_stats, max_threads);
 }
 void VersionBuilder::MaybeAddFile(VersionStorageInfo* vstorage, int level,
                                   FileMetaData* f) {

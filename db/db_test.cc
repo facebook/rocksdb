@@ -596,6 +596,82 @@ TEST_F(DBTest, AggregatedTableProperties) {
   }
 }
 
+TEST_F(DBTest, ReadLatencyHistogramByLevel) {
+  Options options = CurrentOptions();
+  options.write_buffer_size = 110 << 10;
+  options.level0_file_num_compaction_trigger = 3;
+  options.num_levels = 4;
+  options.compression = kNoCompression;
+  options.max_bytes_for_level_base = 450 << 10;
+  options.target_file_size_base = 98 << 10;
+  options.max_write_buffer_number = 2;
+  options.statistics = rocksdb::CreateDBStatistics();
+  options.max_open_files = 100;
+
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+
+  DestroyAndReopen(options);
+  Random rnd(301);
+  for (int num = 0; num < 5; num++) {
+    Put("foo", "bar");
+    GenerateNewRandomFile(&rnd);
+  }
+
+  std::string prop;
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+
+  // Get() after flushes, See latency histogram tracked.
+  for (int key = 0; key < 50; key++) {
+    Get(Key(key));
+  }
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
+
+  // Reopen and issue Get(). See thee latency tracked
+  Reopen(options);
+  for (int key = 0; key < 50; key++) {
+    Get(Key(key));
+  }
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
+
+  // Reopen and issue iterating. See thee latency tracked
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
+  {
+    unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+    for (iter->Seek(Key(0)); iter->Valid(); iter->Next()) {
+    }
+  }
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
+
+  // options.max_open_files preloads table readers.
+  options.max_open_files = -1;
+  Reopen(options);
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
+  for (int key = 0; key < 50; key++) {
+    Get(Key(key));
+  }
+  ASSERT_TRUE(dbfull()->GetProperty("rocksdb.dbstats", &prop));
+  ASSERT_NE(std::string::npos, prop.find("** Level 0 read latency histogram"));
+  ASSERT_NE(std::string::npos, prop.find("** Level 1 read latency histogram"));
+  ASSERT_EQ(std::string::npos, prop.find("** Level 2 read latency histogram"));
+}
+
 TEST_F(DBTest, AggregatedTablePropertiesAtLevel) {
   const int kTableCount = 100;
   const int kKeysPerTable = 10;

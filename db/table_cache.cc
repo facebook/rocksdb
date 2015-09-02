@@ -176,9 +176,10 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   } else {
     table_reader = fd.table_reader;
     if (table_reader == nullptr) {
-      Status s = FindTable(env_options, icomparator, fd, &handle,
-                           options.read_tier == kBlockCacheTier,
-                           !for_compaction, file_read_hist);
+      Status s =
+          FindTable(env_options, icomparator, fd, &handle,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    !for_compaction /* record read_stats */, file_read_hist);
       if (!s.ok()) {
         return NewErrorIterator(s, arena);
       }
@@ -254,7 +255,8 @@ Status TableCache::Get(const ReadOptions& options,
 
   if (!t) {
     s = FindTable(env_options_, internal_comparator, fd, &handle,
-                  options.read_tier == kBlockCacheTier, file_read_hist);
+                  options.read_tier == kBlockCacheTier /* no_io */,
+                  true /* record_read_stats */, file_read_hist);
     if (s.ok()) {
       t = GetTableReaderFromHandle(handle);
     }
