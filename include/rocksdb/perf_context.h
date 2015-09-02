@@ -36,6 +36,16 @@ struct PerfContext {
   // total number of deletes skipped over during iteration
   uint64_t internal_delete_skipped_count;
 
+  uint64_t filter_read_count;
+  uint64_t filter_read_byte;
+  uint64_t filter_read_time;
+  uint64_t filter_cache_hit_count;
+
+  uint64_t index_read_count;
+  uint64_t index_read_byte;
+  uint64_t index_read_time;
+  uint64_t index_cache_hit_count;
+
   uint64_t get_snapshot_time;          // total time spent on getting snapshot
   uint64_t get_from_memtable_time;     // total time spent on querying memtables
   uint64_t get_from_memtable_count;    // number of mem tables queried

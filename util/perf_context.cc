@@ -30,6 +30,15 @@ void PerfContext::Reset() {
   internal_delete_skipped_count = 0;
   write_wal_time = 0;
 
+  filter_read_count = 0;
+  filter_read_byte = 0;
+  filter_read_time = 0;
+  filter_cache_hit_count = 0;
+  index_read_count = 0;
+  index_read_byte = 0;
+  index_read_time = 0;
+  index_cache_hit_count = 0;
+
   get_snapshot_time = 0;
   get_from_memtable_time = 0;
   get_from_memtable_count = 0;

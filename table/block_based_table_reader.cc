@@ -851,6 +851,7 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
 
   FilterBlockReader* filter = nullptr;
   if (cache_handle != nullptr) {
+    PERF_COUNTER_ADD(filter_cache_hit_count, 1);
     filter = reinterpret_cast<FilterBlockReader*>(
         block_cache->Value(cache_handle));
   } else if (no_io) {
@@ -862,8 +863,13 @@ BlockBasedTable::CachableEntry<FilterBlockReader> BlockBasedTable::GetFilter(
     std::unique_ptr<Iterator> iter;
     auto s = ReadMetaBlock(rep_, &meta, &iter);
 
+    PERF_COUNTER_ADD(filter_read_count, 1);
     if (s.ok()) {
-      filter = ReadFilter(rep_, iter.get(), &filter_size);
+      {
+        PERF_TIMER_GUARD(filter_read_time);
+        filter = ReadFilter(rep_, iter.get(), &filter_size);
+      }
+      PERF_COUNTER_ADD(filter_read_byte, filter_size);
       if (filter != nullptr) {
         assert(filter_size > 0);
         cache_handle = block_cache->Insert(
@@ -906,12 +912,18 @@ Iterator* BlockBasedTable::NewIndexIterator(const ReadOptions& read_options,
 
   IndexReader* index_reader = nullptr;
   if (cache_handle != nullptr) {
+    PERF_COUNTER_ADD(index_cache_hit_count, 1);
     index_reader =
         reinterpret_cast<IndexReader*>(block_cache->Value(cache_handle));
   } else {
+    PERF_COUNTER_ADD(index_read_count, 1);
     // Create index reader and put it in the cache.
     Status s;
-    s = CreateIndexReader(&index_reader);
+    {
+      PERF_TIMER_GUARD(index_read_time);
+      s = CreateIndexReader(&index_reader);
+    }
+    PERF_COUNTER_ADD(index_read_byte, index_reader->size());
 
     if (!s.ok()) {
       // make sure if something goes wrong, index_reader shall remain intact.
