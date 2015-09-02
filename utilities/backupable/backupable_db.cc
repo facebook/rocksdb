@@ -307,7 +307,6 @@ class BackupEngineImpl : public BackupEngine {
     return GetBackupMetaDir() + "/" + rocksdb::ToString(backup_id);
   }
 
-  Status GetLatestBackupFileContents(uint32_t* latest_backup);
   Status PutLatestBackupFileContents(uint32_t latest_backup);
   // if size_limit == 0, there is no size limit, copy everything
   Status CopyFile(const std::string& src,
@@ -572,6 +571,7 @@ Status BackupEngineImpl::Initialize() {
                                       &backuped_file_infos_, backup_env_)))));
   }
 
+  latest_backup_id_ = 0;
   if (options_.destroy_old_data) {  // Destroy old data
     assert(!read_only_);
     Log(options_.info_log,
@@ -584,8 +584,6 @@ Status BackupEngineImpl::Initialize() {
     if (!s.ok()) {
       return s;
     }
-    // start from beginning
-    latest_backup_id_ = 0;
   } else {  // Load data from storage
     // load the backups if any
     for (auto& backup : backups_) {
@@ -598,51 +596,16 @@ Status BackupEngineImpl::Initialize() {
       } else {
         Log(options_.info_log, "Loading backup %" PRIu32 " OK:\n%s",
             backup.first, backup.second->GetInfoString().c_str());
+        latest_backup_id_ = std::max(latest_backup_id_, backup.first);
       }
     }
 
     for (const auto& corrupt : corrupt_backups_) {
       backups_.erase(backups_.find(corrupt.first));
     }
-
-    Status s = GetLatestBackupFileContents(&latest_backup_id_);
-
-    // If latest backup file is corrupted or non-existent
-    // set latest backup as the biggest backup we have
-    // or 0 if we have no backups
-    if (!s.ok() ||
-        backups_.find(latest_backup_id_) == backups_.end()) {
-      auto itr = backups_.end();
-      latest_backup_id_ = (itr == backups_.begin()) ? 0 : (--itr)->first;
-    }
   }
 
   Log(options_.info_log, "Latest backup is %u", latest_backup_id_);
-
-  // delete any backups that claim to be later than latest
-  std::vector<BackupID> later_ids;
-  for (auto itr = backups_.lower_bound(latest_backup_id_ + 1);
-       itr != backups_.end(); itr++) {
-    Log(options_.info_log,
-        "Found backup claiming to be later than latest: %" PRIu32, itr->first);
-    later_ids.push_back(itr->first);
-  }
-  for (auto id : later_ids) {
-    Status s;
-    if (!read_only_) {
-      s = DeleteBackup(id);
-    } else {
-      auto backup = backups_.find(id);
-      // We just found it couple of lines earlier!
-      assert(backup != backups_.end());
-      s = backup->second->Delete(false);
-      backups_.erase(backup);
-    }
-    if (!s.ok()) {
-      Log(options_.info_log, "Failed deleting backup %" PRIu32 " -- %s", id,
-          s.ToString().c_str());
-    }
-  }
 
   if (!read_only_) {
     auto s = PutLatestBackupFileContents(latest_backup_id_);
@@ -1086,38 +1049,6 @@ Status BackupEngineImpl::RestoreDBFromBackup(
   }
 
   Log(options_.info_log, "Restoring done -- %s\n", s.ToString().c_str());
-  return s;
-}
-
-// latest backup id is an ASCII representation of latest backup id
-Status BackupEngineImpl::GetLatestBackupFileContents(uint32_t* latest_backup) {
-  Status s;
-  unique_ptr<SequentialFile> file;
-  s = backup_env_->NewSequentialFile(GetLatestBackupFile(),
-                                     &file,
-                                     EnvOptions());
-  if (!s.ok()) {
-    return s;
-  }
-
-  char buf[11];
-  Slice data;
-  unique_ptr<SequentialFileReader> file_reader(
-      new SequentialFileReader(std::move(file)));
-
-  s = file_reader->Read(10, &data, buf);
-  if (!s.ok() || data.size() == 0) {
-    return s.ok() ? Status::Corruption("Latest backup file corrupted") : s;
-  }
-  buf[data.size()] = 0;
-
-  *latest_backup = 0;
-  sscanf(data.data(), "%u", latest_backup);
-
-  s = backup_env_->FileExists(GetBackupMetaFile(*latest_backup));
-  if (s.IsNotFound()) {
-    s = Status::Corruption("Latest backup file corrupted");
-  }
   return s;
 }
 

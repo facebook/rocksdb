@@ -669,20 +669,28 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(file_manager_->DeleteFile(backupdir_ + "/LATEST_BACKUP"));
   AssertBackupConsistency(0, 0, keys_iteration * 5);
   // create backup 6, point LATEST_BACKUP to 5
+  // behavior change: this used to delete backup 6. however, now we ignore
+  // LATEST_BACKUP contents so BackupEngine sets latest backup to 6.
   OpenDBAndBackupEngine();
   FillDB(db_.get(), keys_iteration * 5, keys_iteration * 6);
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), false));
   CloseDBAndBackupEngine();
   ASSERT_OK(file_manager_->WriteToFile(backupdir_ + "/LATEST_BACKUP", "5"));
-  AssertBackupConsistency(0, 0, keys_iteration * 5, keys_iteration * 6);
-  // assert that all 6 data is gone!
-  ASSERT_EQ(Status::NotFound(),
-            file_manager_->FileExists(backupdir_ + "/meta/6"));
-  ASSERT_EQ(Status::NotFound(),
-            file_manager_->FileExists(backupdir_ + "/private/6"));
+  AssertBackupConsistency(0, 0, keys_iteration * 6);
+  // assert that all 6 data is still here
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/6"));
+  ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/6"));
+  // assert that we wrote 6 to LATEST_BACKUP
+  {
+    std::string latest_backup_contents;
+    ReadFileToString(env_, backupdir_ + "/LATEST_BACKUP",
+                     &latest_backup_contents);
+    ASSERT_EQ(std::atol(latest_backup_contents.c_str()), 6);
+  }
 
   // --------- case 3. corrupted backup meta or missing backuped file ----
   ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/5", 3));
+  ASSERT_OK(file_manager_->CorruptFile(backupdir_ + "/meta/6", 3));
   // since 5 meta is now corrupted, latest backup should be 4
   AssertBackupConsistency(0, 0, keys_iteration * 4, keys_iteration * 5);
   OpenBackupEngine();
@@ -783,10 +791,11 @@ TEST_F(BackupableDBTest, NoDeleteWithReadOnly) {
   ASSERT_OK(file_manager_->FileExists(backupdir_ + "/meta/5"));
   ASSERT_OK(file_manager_->FileExists(backupdir_ + "/private/5"));
 
-  // even though 5 is here, we should only see 4 backups
+  // Behavior change: We now ignore LATEST_BACKUP contents. This means that
+  // we should have 5 backups, even if LATEST_BACKUP says 4.
   std::vector<BackupInfo> backup_info;
   read_only_backup_engine->GetBackupInfo(&backup_info);
-  ASSERT_EQ(4UL, backup_info.size());
+  ASSERT_EQ(5UL, backup_info.size());
   delete read_only_backup_engine;
 }
 
