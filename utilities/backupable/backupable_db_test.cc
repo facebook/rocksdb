@@ -282,6 +282,24 @@ class FileManager : public EnvWrapper {
     return Status::NotFound("");
   }
 
+  Status AppendToRandomFileInDir(const std::string& dir,
+                                 const std::string& data) {
+    std::vector<std::string> children;
+    GetChildren(dir, &children);
+    if (children.size() <= 2) {
+      return Status::NotFound("");
+    }
+    while (true) {
+      int i = rnd_.Next() % children.size();
+      if (children[i] != "." && children[i] != "..") {
+        return WriteToFile(dir + "/" + children[i], data);
+      }
+    }
+    // should never get here
+    assert(false);
+    return Status::NotFound("");
+  }
+
   Status CorruptFile(const std::string& fname, uint64_t bytes_to_corrupt) {
     std::string file_contents;
     Status s = ReadFileToString(this, fname, &file_contents);
@@ -763,6 +781,39 @@ TEST_F(BackupableDBTest, CorruptionsTest) {
   ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), !!(rnd.Next() % 2)));
   CloseDBAndBackupEngine();
   AssertBackupConsistency(2, 0, keys_iteration * 2, keys_iteration * 5);
+}
+
+// This test verifies that the verifyBackup method correctly identifies
+// invalid backups
+TEST_F(BackupableDBTest, VerifyBackup) {
+  const int keys_iteration = 5000;
+  Random rnd(6);
+  Status s;
+  OpenDBAndBackupEngine(true);
+  // create five backups
+  for (int i = 0; i < 5; ++i) {
+    FillDB(db_.get(), keys_iteration * i, keys_iteration * (i + 1));
+    ASSERT_OK(backup_engine_->CreateNewBackup(db_.get(), true));
+  }
+  CloseDBAndBackupEngine();
+
+  OpenDBAndBackupEngine();
+  // ---------- case 1. - valid backup -----------
+  ASSERT_TRUE(backup_engine_->VerifyBackup(1).ok());
+
+  // ---------- case 2. - delete a file -----------i
+  file_manager_->DeleteRandomFileInDir(backupdir_ + "/private/1");
+  ASSERT_TRUE(backup_engine_->VerifyBackup(1).IsNotFound());
+
+  // ---------- case 3. - corrupt a file -----------
+  std::string append_data = "Corrupting a random file";
+  file_manager_->AppendToRandomFileInDir(backupdir_ + "/private/2",
+                                         append_data);
+  ASSERT_TRUE(backup_engine_->VerifyBackup(2).IsCorruption());
+
+  // ---------- case 4. - invalid backup -----------
+  ASSERT_TRUE(backup_engine_->VerifyBackup(6).IsNotFound());
+  CloseDBAndBackupEngine();
 }
 
 // This test verifies we don't delete the latest backup when read-only option is

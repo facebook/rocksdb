@@ -109,6 +109,8 @@ class BackupEngineImpl : public BackupEngine {
                                restore_options);
   }
 
+  virtual Status VerifyBackup(BackupID backup_id) override;
+
   Status Initialize();
 
  private:
@@ -1006,6 +1008,45 @@ Status BackupEngineImpl::RestoreDBFromBackup(
   return s;
 }
 
+Status BackupEngineImpl::VerifyBackup(BackupID backup_id) {
+  assert(initialized_);
+  auto corrupt_itr = corrupt_backups_.find(backup_id);
+  if (corrupt_itr != corrupt_backups_.end()) {
+    return corrupt_itr->second.first;
+  }
+
+  auto backup_itr = backups_.find(backup_id);
+  if (backup_itr == backups_.end()) {
+    return Status::NotFound();
+  }
+
+  auto& backup = backup_itr->second;
+  if (backup->Empty()) {
+    return Status::NotFound();
+  }
+
+  Log(options_.info_log, "Verifying backup id %u\n", backup_id);
+
+  uint64_t size;
+  Status result;
+  std::string file_path;
+  for (const auto& file_info : backup->GetFiles()) {
+    const std::string& file = file_info->filename;
+    file_path = GetAbsolutePath(file);
+    result = backup_env_->FileExists(file_path);
+    if (!result.ok()) {
+      return result;
+    }
+    result = backup_env_->GetFileSize(file_path, &size);
+    if (!result.ok()) {
+      return result;
+    } else if (size != file_info->size) {
+      return Status::Corruption("File corrupted: " + file);
+    }
+  }
+  return Status::OK();
+}
+
 // this operation HAS to be atomic
 // writing 4 bytes to the file is atomic alright, but we should *never*
 // do something like 1. delete file, 2. write new file
@@ -1583,6 +1624,10 @@ class BackupEngineReadOnlyImpl : public BackupEngineReadOnly {
       const RestoreOptions& restore_options = RestoreOptions()) override {
     return backup_engine_->RestoreDBFromLatestBackup(db_dir, wal_dir,
                                                      restore_options);
+  }
+
+  virtual Status VerifyBackup(BackupID backup_id) override {
+    return backup_engine_->VerifyBackup(backup_id);
   }
 
   Status Initialize() { return backup_engine_->Initialize(); }
