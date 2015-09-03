@@ -11,7 +11,7 @@ UNIT_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build RocksDB',
-                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make clean all',
+                'shell':'make -j$(nproc) clean all',
                 'user':'root'
             },
             {
@@ -24,6 +24,28 @@ UNIT_TEST_COMMANDS="[
 ]"
 
 #
+# RocksDB unit test on gcc-4.8.1
+#
+UNIT_TEST_COMMANDS_481="[
+    {
+        'name':'Rocksdb Unit Test',
+        'steps': [
+            {
+                'name':'Build RocksDB',
+                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make -j$(nproc) clean all',
+                'user':'root'
+            },
+            {
+                'name':'Test RocksDB',
+                'shell':'make J=1 check',
+                'user':'root'
+            }
+        ],
+    }
+]"
+
+
+#
 # RocksDB stress/crash test
 #
 STRESS_CRASH_TEST_COMMANDS="[
@@ -32,12 +54,12 @@ STRESS_CRASH_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build and run RocksDB stress tests',
-                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 TEST_TMPDIR=/dev/shm make clean db_stress',
+                'shell':'TEST_TMPDIR=/dev/shm make -j$(nproc) clean db_stress',
                 'user':'root'
             },
             {
                 'name':'Build and run RocksDB crash tests',
-                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 TEST_TMPDIR=/dev/shm make crash_test',
+                'shell':'TEST_TMPDIR=/dev/shm make crash_test',
                 'user':'root'
             }
         ],
@@ -54,12 +76,12 @@ ASAN_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build RocksDB for ASAN',
-                'shell':'set -o pipefail && ROCKSDB_FBCODE_BUILD_WITH_481=1 COMPILE_WITH_ASAN=1 make -j$(nproc) clean all',
+                'shell':'COMPILE_WITH_ASAN=1 make -j$(nproc) clean all',
                 'user':'root'
             },
             {
                 'name':'Test RocksDB under ASAN',
-                'shell':'make J=1 asan_check |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
+                'shell':'set -o pipefail && make J=1 asan_check |& /usr/facebook/ops/scripts/asan_symbolize.py -d',
                 'user':'root'
             }
         ],
@@ -75,7 +97,7 @@ ASAN_CRASH_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build and run RocksDB asan_crash_test',
-                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make -j$(nproc) clean asan_crash_test',
+                'shell':'make -j$(nproc) J=1 clean asan_crash_test',
                 'user':'root'
             },
         ],
@@ -107,6 +129,9 @@ CLANG_UNIT_TEST_COMMANDS="[
 case $1 in
   unit)
     echo $UNIT_TEST_COMMANDS
+    ;;
+  unit_481)
+    echo $UNIT_TEST_COMMANDS_481
     ;;
   stress_crash)
     echo $STRESS_CRASH_TEST_COMMANDS
