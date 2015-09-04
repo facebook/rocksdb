@@ -23,7 +23,7 @@ class RateLimiter {
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
-  // bytes < GetSingleBurstBytes()
+  // bytes <= GetSingleBurstBytes()
   virtual void Request(const int64_t bytes, const Env::IOPriority pri) = 0;
 
   // Max bytes can be granted in a single burst

@@ -31,7 +31,7 @@ class GenericRateLimiter : public RateLimiter {
 
   // Request for token to write bytes. If this request can not be satisfied,
   // the call is blocked. Caller is responsible to make sure
-  // bytes < GetSingleBurstBytes()
+  // bytes <= GetSingleBurstBytes()
   virtual void Request(const int64_t bytes, const Env::IOPriority pri) override;
 
   virtual int64_t GetSingleBurstBytes() const override {
