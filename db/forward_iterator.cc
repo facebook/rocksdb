@@ -434,7 +434,7 @@ void ForwardIterator::Next() {
         DeleteCurrentIter();
         current_ = nullptr;
       }
-      if ((!mutable_iter_->Valid()) && update_prev_key) {
+      if (update_prev_key) {
         mutable_iter_->Seek(prev_key_.GetKey());
       }
     }
@@ -628,27 +628,44 @@ void ForwardIterator::DeleteCurrentIter() {
   }
 }
 
-bool ForwardIterator::TEST_CheckDeletedIters() {
-  if (!has_iter_trimmed_for_upper_bound_) {
-    return false;
-  }
+bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
+                                             int* pnum_iters) {
+  bool retval = false;
+  int deleted_iters = 0;
+  int num_iters = 0;
 
   const VersionStorageInfo* vstorage = sv_->current->storage_info();
   const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
   for (uint32_t i = 0; i < l0.size(); ++i) {
     if (!l0_iters_[i]) {
-      return true;
+      retval = true;
+      deleted_iters++;
+    } else {
+      num_iters++;
     }
   }
 
   for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
     if ((level_iters_[level - 1] == nullptr) &&
         (!vstorage->LevelFiles(level).empty())) {
-      return true;
+      retval = true;
+      deleted_iters++;
+    } else if (!vstorage->LevelFiles(level).empty()) {
+      num_iters++;
     }
   }
-  return false;
+  if ((!retval) && num_iters <= 1) {
+    retval = true;
+  }
+  if (pdeleted_iters) {
+    *pdeleted_iters = deleted_iters;
+  }
+  if (pnum_iters) {
+    *pnum_iters = num_iters;
+  }
+  return retval;
 }
+
 uint32_t ForwardIterator::FindFileInRange(
     const std::vector<FileMetaData*>& files, const Slice& internal_key,
     uint32_t left, uint32_t right) {

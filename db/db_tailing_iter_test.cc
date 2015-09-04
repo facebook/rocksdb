@@ -121,14 +121,15 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
 }
 
 TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
-  const uint64_t k20KB = 20 * 1024;
+  const uint64_t k150KB = 150 * 1024;
   Options options;
-  options.write_buffer_size = k20KB;
-  options.max_write_buffer_number = 6;
-  options.min_write_buffer_number_to_merge = 5;
+  options.write_buffer_size = k150KB;
+  options.max_write_buffer_number = 3;
+  options.min_write_buffer_number_to_merge = 2;
   CreateAndReopenWithCF({"pikachu"}, options);
   ReadOptions read_options;
   read_options.tailing = true;
+  int num_iters, deleted_iters;
 
   char bufe[32];
   snprintf(bufe, sizeof(bufe), "00b0%016d", 0);
@@ -142,12 +143,14 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::SeekInternal:Return", [&](void* arg) {
         ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
-        ASSERT_TRUE(!file_iters_deleted || fiter->TEST_CheckDeletedIters());
+        ASSERT_TRUE(!file_iters_deleted ||
+                    fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
       "ForwardIterator::Next:Return", [&](void* arg) {
         ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
-        ASSERT_TRUE(!file_iters_deleted || fiter->TEST_CheckDeletedIters());
+        ASSERT_TRUE(!file_iters_deleted ||
+                    fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
       });
   rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   const int num_records = 1000;
@@ -183,12 +186,13 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
       }
     }
 
-    file_iters_deleted = ((i > 99) && (i % 400 != 399));
+    file_iters_deleted = true;
     snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
     Slice target(buf2, 20);
     iter->Seek(target);
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().compare(key), 0);
+    ASSERT_LE(num_iters, 1);
     if (i == 1) {
       itern->SeekToFirst();
     } else {
@@ -196,17 +200,30 @@ TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
     }
     ASSERT_TRUE(itern->Valid());
     ASSERT_EQ(itern->key().compare(key), 0);
+    ASSERT_LE(num_iters, 1);
     file_iters_deleted = false;
   }
-
+  iter = 0;
+  itern = 0;
+  iterh = 0;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.block_cache_compressed = nullptr;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
   read_options.read_tier = kBlockCacheTier;
   std::unique_ptr<Iterator> iteri(db_->NewIterator(read_options, handles_[1]));
   char buf5[32];
   snprintf(buf5, sizeof(buf5), "00a0%016d", (num_records / 2) * 5 - 2);
   Slice target1(buf5, 20);
   iteri->Seek(target1);
-  ASSERT_TRUE(iteri->Valid() || iteri->status().IsIncomplete());
+  ASSERT_TRUE(iteri->status().IsIncomplete());
+  iteri = 0;
 
+  read_options.read_tier = kReadAllTier;
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  iter.reset(db_->NewIterator(read_options, handles_[1]));
   for (int i = 2 * num_records; i > 0; --i) {
     char buf1[32];
     char buf2[32];
