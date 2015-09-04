@@ -2,6 +2,14 @@
 # This script is executed by Sandcastle
 # to determine next steps to run
 
+REPORT_EMAIL="'report': [
+    {
+        'type':'email',
+        'triggers':['fail'],
+        'emails':['leveldb@fb.com']
+    }
+]"
+
 #
 # RocksDB unit test
 #
@@ -20,6 +28,7 @@ UNIT_TEST_COMMANDS="[
                 'user':'root'
             }
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -41,6 +50,7 @@ UNIT_TEST_COMMANDS_481="[
                 'user':'root'
             }
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -63,6 +73,7 @@ STRESS_CRASH_TEST_COMMANDS="[
                 'user':'root'
             }
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -85,6 +96,7 @@ ASAN_TEST_COMMANDS="[
                 'user':'root'
             }
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -101,6 +113,7 @@ ASAN_CRASH_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -122,6 +135,7 @@ CLANG_UNIT_TEST_COMMANDS="[
                 'user':'root'
             }
         ],
+        $REPORT_EMAIL
     }
 ]"
 
