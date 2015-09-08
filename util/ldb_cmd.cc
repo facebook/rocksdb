@@ -6,6 +6,12 @@
 #ifndef ROCKSDB_LITE
 #include "util/ldb_cmd.h"
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
+
 #include "db/dbformat.h"
 #include "db/db_impl.h"
 #include "db/log_reader.h"
@@ -609,7 +615,7 @@ void ManifestDumpCommand::DoCommand() {
     while ((entry = readdir(d.get())) != nullptr) {
       unsigned int match;
       uint64_t num;
-      if (sscanf(entry->d_name, "MANIFEST-%lu%n", &num, &match) &&
+      if (sscanf(entry->d_name, "MANIFEST-%" PRIu64 "%n", &num, &match) &&
           match == strlen(entry->d_name)) {
         if (!found) {
           manifestfile = db_path_ + "/" + std::string(entry->d_name);
