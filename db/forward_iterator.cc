@@ -334,14 +334,10 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         if (f_idx < level_files.size()) {
           int cmp_smallest = user_comparator_->Compare(
               user_key, level_files[f_idx]->smallest.user_key());
-          int cmp_largest = -1;
-          if (cmp_smallest >= 0) {
-            cmp_smallest = user_comparator_->Compare(
-                user_key, level_files[f_idx]->smallest.user_key());
-          }
-          indexer.GetNextLevelIndex(level, f_idx,
-              cmp_smallest, cmp_largest,
-              &search_left_bound, &search_right_bound);
+          assert(user_comparator_->Compare(
+                     user_key, level_files[f_idx]->largest.user_key()) < 0);
+          indexer.GetNextLevelIndex(level, f_idx, cmp_smallest, -1,
+                                    &search_left_bound, &search_right_bound);
         } else {
           indexer.GetNextLevelIndex(
               level, level_files.size() - 1,
