@@ -91,8 +91,7 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
         assert(!"corrupted internal key is not expected");
       }
       break;
-    } else if (user_comparator_->Compare(ikey.user_key, orig_ikey.user_key) !=
-               0) {
+    } else if (!user_comparator_->Equal(ikey.user_key, orig_ikey.user_key)) {
       // hit a different user key, stop right here
       hit_the_next_user_key = true;
       break;

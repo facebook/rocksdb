@@ -634,8 +634,8 @@ void CompactionJob::ProcessKeyValueCompaction(SubCompactionState* sub_compact) {
     }
 
     if (!has_current_user_key ||
-        cfd->user_comparator()->Compare(ikey.user_key,
-                                        current_user_key.GetKey()) != 0) {
+        !cfd->user_comparator()->Equal(ikey.user_key,
+                                       current_user_key.GetKey())) {
       // First occurrence of this user key
       current_user_key.SetKey(ikey.user_key);
       has_current_user_key = true;

@@ -149,8 +149,8 @@ Status BuildTable(
       // first key), then we skip it, since it is an older version.
       // Otherwise we output the key and mark it as the "new" previous key.
       if (!has_current_user_key ||
-          internal_comparator.user_comparator()->Compare(
-              ikey.user_key, current_user_key.GetKey()) != 0) {
+          !internal_comparator.user_comparator()->Equal(
+              ikey.user_key, current_user_key.GetKey())) {
         // First occurrence of this user key
         current_user_key.SetKey(ikey.user_key);
         has_current_user_key = true;

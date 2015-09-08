@@ -10,6 +10,7 @@
 ### Public API Changes
 * Removed class Env::RandomRWFile and Env::NewRandomRWFile().
 * Renamed DBOptions.num_subcompactions to DBOptions.max_subcompactions to make the name better match the actual functionality of the option.
+* Added Equal() method to the Comparator interface that can optionally be overwritten in cases where equality comparisons can be done more efficiently than three-way comparisons.
 
 ## 3.13.0 (8/6/2015)
 ### New Features

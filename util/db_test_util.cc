@@ -553,7 +553,7 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
       if (!ParseInternalKey(iter->key(), &ikey)) {
         result += "CORRUPTED";
       } else {
-        if (last_options_.comparator->Compare(ikey.user_key, user_key) != 0) {
+        if (!last_options_.comparator->Equal(ikey.user_key, user_key)) {
           break;
         }
         if (!first) {

@@ -131,8 +131,7 @@ class MergingIterator : public Iterator {
       for (auto& child : children_) {
         if (&child != current_) {
           child.Seek(key());
-          if (child.Valid() &&
-              comparator_->Compare(key(), child.key()) == 0) {
+          if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Next();
           }
         }

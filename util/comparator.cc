@@ -32,6 +32,10 @@ class BytewiseComparatorImpl : public Comparator {
     return a.compare(b);
   }
 
+  virtual bool Equal(const Slice& a, const Slice& b) const override {
+    return a == b;
+  }
+
   virtual void FindShortestSeparator(std::string* start,
                                      const Slice& limit) const override {
     // Find length of common prefix

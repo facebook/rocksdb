@@ -1581,7 +1581,7 @@ bool VersionStorageInfo::HasOverlappingUserKey(
         files[last_file].largest_key);
     const Slice first_key_after = ExtractUserKey(
         files[last_file+1].smallest_key);
-    if (user_cmp->Compare(last_key_in_input, first_key_after) == 0) {
+    if (user_cmp->Equal(last_key_in_input, first_key_after)) {
       // The last user key in input overlaps with the next file's first key
       return true;
     }
@@ -1596,7 +1596,7 @@ bool VersionStorageInfo::HasOverlappingUserKey(
         files[first_file].smallest_key);
     const Slice& last_key_before = ExtractUserKey(
         files[first_file-1].largest_key);
-    if (user_cmp->Compare(first_key_in_input, last_key_before) == 0) {
+    if (user_cmp->Equal(first_key_in_input, last_key_before)) {
       // The first user key in input overlaps with the previous file's last key
       return true;
     }

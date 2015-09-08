@@ -92,8 +92,8 @@ class BaseDeltaIterator : public Iterator {
         AdvanceBase();
       }
       if (DeltaValid() && BaseValid()) {
-        if (comparator_->Compare(delta_iterator_->Entry().key,
-                                 base_iterator_->key()) == 0) {
+        if (comparator_->Equal(delta_iterator_->Entry().key,
+                               base_iterator_->key())) {
           equal_keys_ = true;
         }
       }
@@ -127,8 +127,8 @@ class BaseDeltaIterator : public Iterator {
         AdvanceBase();
       }
       if (DeltaValid() && BaseValid()) {
-        if (comparator_->Compare(delta_iterator_->Entry().key,
-                                 base_iterator_->key()) == 0) {
+        if (comparator_->Equal(delta_iterator_->Entry().key,
+                               base_iterator_->key())) {
           equal_keys_ = true;
         }
       }

@@ -137,13 +137,13 @@ Status CuckooTableReader::Get(const ReadOptions& readOptions, const Slice& key,
     const char* bucket = &file_data_.data()[offset];
     for (uint32_t block_idx = 0; block_idx < cuckoo_block_size_;
          ++block_idx, bucket += bucket_length_) {
-      if (ucomp_->Compare(Slice(unused_key_.data(), user_key.size()),
-                          Slice(bucket, user_key.size())) == 0) {
+      if (ucomp_->Equal(Slice(unused_key_.data(), user_key.size()),
+                        Slice(bucket, user_key.size()))) {
         return Status::OK();
       }
       // Here, we compare only the user key part as we support only one entry
       // per user key and we don't support sanpshot.
-      if (ucomp_->Compare(user_key, Slice(bucket, user_key.size())) == 0) {
+      if (ucomp_->Equal(user_key, Slice(bucket, user_key.size()))) {
         Slice value(bucket + key_length_, value_length_);
         if (is_last_level_) {
           get_context->SaveValue(value);

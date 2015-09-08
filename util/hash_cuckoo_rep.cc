@@ -299,8 +299,8 @@ void HashCuckooRep::Get(const LookupKey& key, void* callback_args,
     const char* bucket =
         cuckoo_array_[GetHash(user_key, hid)].load(std::memory_order_acquire);
     if (bucket != nullptr) {
-      auto bucket_user_key = UserKey(bucket);
-      if (user_key.compare(bucket_user_key) == 0) {
+      Slice bucket_user_key = UserKey(bucket);
+      if (user_key == bucket_user_key) {
         callback_func(callback_args, bucket);
         break;
       }
@@ -466,10 +466,10 @@ bool HashCuckooRep::FindCuckooPath(const char* internal_key,
     }
     // again, we can perform no barrier load safely here as the current
     // thread is the only writer.
-    auto bucket_user_key =
+    Slice bucket_user_key =
         UserKey(cuckoo_array_[step.bucket_id_].load(std::memory_order_relaxed));
     if (step.prev_step_id_ != CuckooStep::kNullStep) {
-      if (bucket_user_key.compare(user_key) == 0) {
+      if (bucket_user_key == user_key) {
         // then there is a loop in the current path, stop discovering this path.
         continue;
       }
