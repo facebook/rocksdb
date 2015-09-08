@@ -1322,7 +1322,13 @@ Compaction* UniversalCompactionPicker::PickCompaction(
                               &largest_seqno);
       if (is_first) {
         is_first = false;
-      } else {
+      } else if (prev_smallest_seqno > 0) {
+        // A level is considered as the bottommost level if there are
+        // no files in higher levels or if files in higher levels do
+        // not overlap with the files being compacted. Sequence numbers
+        // of files in bottommost level can be set to 0 to help
+        // compression. As a result, the following assert may not hold
+        // if the prev_smallest_seqno is 0.
         assert(prev_smallest_seqno > largest_seqno);
       }
       prev_smallest_seqno = smallest_seqno;

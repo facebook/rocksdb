@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include "db/compaction.h"
 #include "db/compaction_picker.h"
 #include <limits>
 #include <string>
@@ -35,6 +36,9 @@ class CompactionPickerTest : public testing::Test {
   CompactionOptionsFIFO fifo_options_;
   std::unique_ptr<VersionStorageInfo> vstorage_;
   std::vector<std::unique_ptr<FileMetaData>> files_;
+  // input files to compaction process.
+  std::vector<CompactionInputFiles> input_files_;
+  int compaction_level_start_;
 
   CompactionPickerTest()
       : ucmp_(BytewiseComparator()),
@@ -66,6 +70,7 @@ class CompactionPickerTest : public testing::Test {
   void DeleteVersionStorage() {
     vstorage_.reset();
     files_.clear();
+    input_files_.clear();
   }
 
   void Add(int level, uint32_t file_number, const char* smallest,
@@ -83,6 +88,31 @@ class CompactionPickerTest : public testing::Test {
     f->refs = 0;
     vstorage_->AddFile(level, f);
     files_.emplace_back(f);
+  }
+
+  void setCompactionInputFilesLevels(int level_count, int start_level) {
+    input_files_.resize(level_count);
+    for (int i = 0; i < level_count; ++i) {
+      input_files_[i].level = start_level + i;
+    }
+    compaction_level_start_ = start_level;
+  }
+
+  void AddToCompactionFiles(int level, uint32_t file_number,
+                            const char* smallest, const char* largest,
+                            uint64_t file_size = 0, uint32_t path_id = 0,
+                            SequenceNumber smallest_seq = 100,
+                            SequenceNumber largest_seq = 100) {
+    assert(level < vstorage_->num_levels());
+    FileMetaData* f = new FileMetaData;
+    f->fd = FileDescriptor(file_number, path_id, file_size);
+    f->smallest = InternalKey(smallest, smallest_seq, kTypeValue);
+    f->largest = InternalKey(largest, largest_seq, kTypeValue);
+    f->smallest_seqno = smallest_seq;
+    f->largest_seqno = largest_seq;
+    f->compensated_file_size = file_size;
+    f->refs = 0;
+    input_files_[level - compaction_level_start_].files.emplace_back(f);
   }
 
   void UpdateVersionStorageInfo() {
@@ -635,6 +665,111 @@ TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
 
   ASSERT_EQ(1600u + 12100u + 13200u,
             vstorage_->estimated_compaction_needed_bytes());
+}
+
+TEST_F(CompactionPickerTest, IsBottommostLevelTest) {
+  // case 1: Higher levels are empty
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(0, 1U, "a", "c");
+  Add(0, 2U, "y", "z");
+  Add(1, 3U, "d", "e");
+  Add(1, 4U, "l", "p");
+  Add(2, 5U, "g", "i");
+  Add(2, 6U, "x", "z");
+  UpdateVersionStorageInfo();
+  setCompactionInputFilesLevels(2, 1);
+  AddToCompactionFiles(1, 3U, "d", "e");
+  AddToCompactionFiles(2, 5U, "g", "i");
+  bool result =
+      Compaction::TEST_IsBottommostLevel(2, vstorage_.get(), input_files_);
+  ASSERT_TRUE(result);
+
+  // case 2: Higher levels have no overlap
+  DeleteVersionStorage();
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(0, 1U, "a", "c");
+  Add(0, 2U, "y", "z");
+  Add(1, 3U, "d", "e");
+  Add(1, 4U, "l", "p");
+  Add(2, 5U, "g", "i");
+  Add(2, 6U, "x", "z");
+  Add(3, 7U, "k", "p");
+  Add(3, 8U, "t", "w");
+  Add(4, 9U, "a", "b");
+  Add(5, 10U, "c", "cc");
+  UpdateVersionStorageInfo();
+  setCompactionInputFilesLevels(2, 1);
+  AddToCompactionFiles(1, 3U, "d", "e");
+  AddToCompactionFiles(2, 5U, "g", "i");
+  result = Compaction::TEST_IsBottommostLevel(2, vstorage_.get(), input_files_);
+  ASSERT_TRUE(result);
+
+  // case 3.1: Higher levels (level 3) have overlap
+  DeleteVersionStorage();
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(0, 1U, "a", "c");
+  Add(0, 2U, "y", "z");
+  Add(1, 3U, "d", "e");
+  Add(1, 4U, "l", "p");
+  Add(2, 5U, "g", "i");
+  Add(2, 6U, "x", "z");
+  Add(3, 7U, "e", "g");
+  Add(3, 8U, "h", "k");
+  Add(4, 9U, "a", "b");
+  Add(5, 10U, "c", "cc");
+  UpdateVersionStorageInfo();
+  setCompactionInputFilesLevels(2, 1);
+  AddToCompactionFiles(1, 3U, "d", "e");
+  AddToCompactionFiles(2, 5U, "g", "i");
+  result = Compaction::TEST_IsBottommostLevel(2, vstorage_.get(), input_files_);
+  ASSERT_FALSE(result);
+
+  // case 3.1: Higher levels (level 5) have overlap
+  DeleteVersionStorage();
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(0, 1U, "a", "c");
+  Add(0, 2U, "y", "z");
+  Add(1, 3U, "d", "e");
+  Add(1, 4U, "l", "p");
+  Add(2, 5U, "g", "i");
+  Add(2, 6U, "x", "z");
+  Add(3, 7U, "j", "k");
+  Add(3, 8U, "l", "m");
+  Add(4, 9U, "a", "b");
+  Add(5, 10U, "c", "cc");
+  Add(5, 11U, "h", "k");
+  Add(5, 12U, "y", "yy");
+  Add(5, 13U, "z", "zz");
+  UpdateVersionStorageInfo();
+  setCompactionInputFilesLevels(2, 1);
+  AddToCompactionFiles(1, 3U, "d", "i");
+  AddToCompactionFiles(2, 5U, "g", "i");
+  result = Compaction::TEST_IsBottommostLevel(2, vstorage_.get(), input_files_);
+  ASSERT_FALSE(result);
+
+  // case 3.1: Higher levels (level 5) have overlap
+  DeleteVersionStorage();
+  NewVersionStorage(6, kCompactionStyleLevel);
+  Add(0, 1U, "a", "c");
+  Add(0, 2U, "y", "z");
+  Add(1, 3U, "d", "e");
+  Add(1, 4U, "l", "p");
+  Add(2, 5U, "g", "i");
+  Add(2, 6U, "x", "z");
+  Add(3, 7U, "j", "k");
+  Add(3, 8U, "l", "m");
+  Add(4, 9U, "a", "b");
+  Add(5, 10U, "c", "cc");
+  Add(5, 11U, "ccc", "d");
+  Add(5, 12U, "y", "yy");
+  Add(5, 13U, "z", "zz");
+  UpdateVersionStorageInfo();
+  setCompactionInputFilesLevels(2, 1);
+  AddToCompactionFiles(1, 3U, "d", "i");
+  AddToCompactionFiles(2, 5U, "g", "i");
+  result = Compaction::TEST_IsBottommostLevel(2, vstorage_.get(), input_files_);
+  ASSERT_FALSE(result);
+  DeleteVersionStorage();
 }
 
 }  // namespace rocksdb

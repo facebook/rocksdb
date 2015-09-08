@@ -40,6 +40,28 @@ void Compaction::SetInputVersion(Version* _input_version) {
   edit_.SetColumnFamily(cfd_->GetID());
 }
 
+void Compaction::GetBoundaryKeys(
+    VersionStorageInfo* vstorage,
+    const std::vector<CompactionInputFiles>& inputs, Slice* smallest_user_key,
+    Slice* largest_user_key) {
+  bool initialized = false;
+  const Comparator* ucmp = vstorage->InternalComparator()->user_comparator();
+  for (uint32_t i = 0; i < inputs.size(); ++i) {
+    if (inputs[i].files.empty()) {
+      continue;
+    }
+    const Slice& start_user_key = inputs[i].files[0]->smallest.user_key();
+    if (!initialized || ucmp->Compare(start_user_key, *smallest_user_key) < 0) {
+      *smallest_user_key = start_user_key;
+    }
+    const Slice& end_user_key = inputs[i].files.back()->largest.user_key();
+    if (!initialized || ucmp->Compare(end_user_key, *largest_user_key) > 0) {
+      *largest_user_key = end_user_key;
+    }
+    initialized = true;
+  }
+}
+
 // helper function to determine if compaction is creating files at the
 // bottommost level
 bool Compaction::IsBottommostLevel(
@@ -50,13 +72,38 @@ bool Compaction::IsBottommostLevel(
     return false;
   }
 
-  // checks whether there are files living beyond the output_level.
+  Slice smallest_key, largest_key;
+  GetBoundaryKeys(vstorage, inputs, &smallest_key, &largest_key);
+
+  // Checks whether there are files living beyond the output_level.
+  // If lower levels have files, it checks for overlap between files
+  // if the compaction process and those files.
+  // Bottomlevel optimizations can be made if there are no files in
+  // lower levels or if there is no overlap with the files in
+  // the lower levels.
   for (int i = output_level + 1; i < vstorage->num_levels(); i++) {
-    if (vstorage->NumLevelFiles(i) > 0) {
+    // It is not the bottommost level if there are files in higher
+    // levels when the output level is 0 or if there are files in
+    // higher levels which overlap with files to be compacted.
+    // output_level == 0 means that we want it to be considered
+    // s the bottommost level only if the last file on the level
+    // is a part of the files to be compacted - this is verified by
+    // the first if condition in this function
+    if (vstorage->NumLevelFiles(i) > 0 &&
+        (output_level == 0 ||
+         vstorage->OverlapInLevel(i, &smallest_key, &largest_key))) {
       return false;
     }
   }
   return true;
+}
+
+// test function to validate the functionality of IsBottommostLevel()
+// function -- determines if compaction with inputs and storage is bottommost
+bool Compaction::TEST_IsBottommostLevel(
+    int output_level, VersionStorageInfo* vstorage,
+    const std::vector<CompactionInputFiles>& inputs) {
+  return IsBottommostLevel(output_level, vstorage, inputs);
 }
 
 bool Compaction::IsFullCompaction(
