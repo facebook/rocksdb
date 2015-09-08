@@ -20,6 +20,8 @@
 
 namespace rocksdb {
 
+class TransactionDBMutexFactory;
+
 struct TransactionDBOptions {
   // Specifies the maximum number of keys that can be locked at the same time
   // per column family.
@@ -58,6 +60,11 @@ struct TransactionDBOptions {
   // A negative timeout should only be used if all transactions have an small
   // expiration set.
   int64_t default_lock_timeout = 1000;  // 1 second
+
+  // If set, the TransactionDB will use this implemenation of a mutex and
+  // condition variable for all transaction locking instead of the default
+  // mutex/condvar implementation.
+  std::shared_ptr<TransactionDBMutexFactory> custom_mutex_factory;
 };
 
 struct TransactionOptions {

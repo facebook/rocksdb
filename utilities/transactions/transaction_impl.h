@@ -49,7 +49,7 @@ class TransactionImpl : public TransactionBaseImpl {
 
   TransactionID GetTxnID() const { return txn_id_; }
 
-  // Returns the time (in milliseconds according to Env->GetMicros()*1000)
+  // Returns the time (in microseconds according to Env->GetMicros())
   // that this transaction will be expired.  Returns 0 if this transaction does
   // not expire.
   uint64_t GetExpirationTime() const { return expiration_time_; }
@@ -57,10 +57,12 @@ class TransactionImpl : public TransactionBaseImpl {
   // returns true if this transaction has an expiration_time and has expired.
   bool IsExpired() const;
 
-  // Returns the number of milliseconds a transaction can wait on acquiring a
+  // Returns the number of microseconds a transaction can wait on acquiring a
   // lock or -1 if there is no timeout.
   int64_t GetLockTimeout() const { return lock_timeout_; }
-  void SetLockTimeout(int64_t timeout) override { lock_timeout_ = timeout; }
+  void SetLockTimeout(int64_t timeout) override {
+    lock_timeout_ = timeout * 1000;
+  }
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
@@ -76,7 +78,7 @@ class TransactionImpl : public TransactionBaseImpl {
   const TransactionID txn_id_;
 
   // If non-zero, this transaction should not be committed after this time (in
-  // milliseconds)
+  // microseconds according to Env->NowMicros())
   const uint64_t expiration_time_;
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.

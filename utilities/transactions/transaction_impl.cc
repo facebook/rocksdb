@@ -40,15 +40,16 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
       txn_db_impl_(nullptr),
       txn_id_(GenTxnID()),
       expiration_time_(txn_options.expiration >= 0
-                           ? start_time_ / 1000 + txn_options.expiration
+                           ? start_time_ + txn_options.expiration * 1000
                            : 0),
-      lock_timeout_(txn_options.lock_timeout) {
+      lock_timeout_(txn_options.lock_timeout * 1000) {
   txn_db_impl_ = dynamic_cast<TransactionDBImpl*>(txn_db);
   assert(txn_db_impl_);
 
   if (lock_timeout_ < 0) {
     // Lock timeout not set, use default
-    lock_timeout_ = txn_db_impl_->GetTxnDBOptions().transaction_lock_timeout;
+    lock_timeout_ =
+        txn_db_impl_->GetTxnDBOptions().transaction_lock_timeout * 1000;
   }
 
   if (txn_options.set_snapshot) {
@@ -69,7 +70,7 @@ void TransactionImpl::Cleanup() {
 
 bool TransactionImpl::IsExpired() const {
   if (expiration_time_ > 0) {
-    if (db_->GetEnv()->NowMicros() >= expiration_time_ * 1000) {
+    if (db_->GetEnv()->NowMicros() >= expiration_time_) {
       // Transaction is expired.
       return true;
     }

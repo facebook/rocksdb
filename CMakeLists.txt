@@ -225,6 +225,7 @@ set(SOURCES
         utilities/transactions/transaction_base.cc
         utilities/transactions/transaction_impl.cc
         utilities/transactions/transaction_db_impl.cc
+        utilities/transactions/transaction_db_mutex_impl.cc
         utilities/transactions/transaction_lock_mgr.cc
         utilities/transactions/transaction_util.cc
         utilities/ttl/db_ttl_impl.cc

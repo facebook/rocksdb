@@ -27,7 +27,8 @@ class Slice;
 
 class TransactionLockMgr {
  public:
-  TransactionLockMgr(size_t default_num_stripes, int64_t max_num_locks);
+  TransactionLockMgr(size_t default_num_stripes, int64_t max_num_locks,
+                     std::shared_ptr<TransactionDBMutexFactory> factory);
 
   ~TransactionLockMgr();
 
@@ -57,6 +58,9 @@ class TransactionLockMgr {
 
   // Limit on number of keys locked per column family
   const int64_t max_num_locks_;
+
+  // Used to allocate mutexes/condvars to use when locking keys
+  std::shared_ptr<TransactionDBMutexFactory> mutex_factory_;
 
   // Must be held when accessing/modifying lock_maps_
   InstrumentedMutex lock_map_mutex_;
