@@ -608,12 +608,9 @@ void ManifestDumpCommand::DoCommand() {
     struct dirent* entry;
     while ((entry = readdir(d.get())) != nullptr) {
       unsigned int match;
-      unsigned long long num;
-      if (sscanf(entry->d_name,
-                 "MANIFEST-%ln%ln",
-                 (unsigned long*)&num,
-                 (unsigned long*)&match)
-          && match == strlen(entry->d_name)) {
+      uint64_t num;
+      if (sscanf(entry->d_name, "MANIFEST-%lu%n", &num, &match) &&
+          match == strlen(entry->d_name)) {
         if (!found) {
           manifestfile = db_path_ + "/" + std::string(entry->d_name);
           found = true;
@@ -686,7 +683,9 @@ namespace {
 string ReadableTime(int unixtime) {
   char time_buffer [80];
   time_t rawtime = unixtime;
-  struct tm * timeinfo = localtime(&rawtime);
+  struct tm tInfo;
+  struct tm* timeinfo = localtime_r(&rawtime, &tInfo);
+  assert(timeinfo == &tInfo);
   strftime(time_buffer, 80, "%c", timeinfo);
   return string(time_buffer);
 }
