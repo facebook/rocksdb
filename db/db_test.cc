@@ -7613,8 +7613,9 @@ TEST_F(DBTest, DontDeleteMovedFile) {
 
 TEST_F(DBTest, OptimizeFiltersForHits) {
   Options options = CurrentOptions();
-  options.write_buffer_size = 256 * 1024;
-  options.target_file_size_base = 256 * 1024;
+  options.write_buffer_size = 64 * 1024;
+  options.arena_block_size = 4 * 1024;
+  options.target_file_size_base = 64 * 1024;
   options.level0_file_num_compaction_trigger = 2;
   options.level0_slowdown_writes_trigger = 2;
   options.level0_stop_writes_trigger = 4;
@@ -7622,7 +7623,9 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   options.max_write_buffer_number = 2;
   options.max_background_compactions = 8;
   options.max_background_flushes = 8;
+  options.compression = kNoCompression;
   options.compaction_style = kCompactionStyleLevel;
+  options.level_compaction_dynamic_level_bytes = true;
   BlockBasedTableOptions bbto;
   bbto.filter_policy.reset(NewBloomFilterPolicy(10, true));
   bbto.whole_key_filtering = true;
@@ -7632,15 +7635,36 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   CreateAndReopenWithCF({"mypikachu"}, options);
 
   int numkeys = 200000;
-  for (int i = 0; i < 20; i += 2) {
-    for (int j = i; j < numkeys; j += 20) {
-      ASSERT_OK(Put(1, Key(j), "val"));
+
+  // Generate randomly shuffled keys, so the updates are almost
+  // random.
+  std::vector<int> keys;
+  keys.reserve(numkeys);
+  for (int i = 0; i < numkeys; i += 2) {
+    keys.push_back(i);
+  }
+  std::random_shuffle(std::begin(keys), std::end(keys));
+
+  int num_inserted = 0;
+  for (int key : keys) {
+    ASSERT_OK(Put(1, Key(key), "val"));
+    if (++num_inserted % 1000 == 0) {
+      dbfull()->TEST_WaitForFlushMemTable();
+      dbfull()->TEST_WaitForCompact();
     }
   }
-
-
+  ASSERT_OK(Put(1, Key(0), "val"));
+  ASSERT_OK(Put(1, Key(numkeys), "val"));
   ASSERT_OK(Flush(1));
   dbfull()->TEST_WaitForCompact();
+
+  if (NumTableFilesAtLevel(0, 1) == 0) {
+    // No Level 0 file. Create one.
+    ASSERT_OK(Put(1, Key(0), "val"));
+    ASSERT_OK(Put(1, Key(numkeys), "val"));
+    ASSERT_OK(Flush(1));
+    dbfull()->TEST_WaitForCompact();
+  }
 
   for (int i = 1; i < numkeys; i += 2) {
     ASSERT_EQ(Get(1, Key(i)), "NOT_FOUND");
@@ -7650,13 +7674,10 @@ TEST_F(DBTest, OptimizeFiltersForHits) {
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L1));
   ASSERT_EQ(0, TestGetTickerCount(options, GET_HIT_L2_AND_UP));
 
-  // When the skip_filters_on_last_level is ON, the last level which has
-  // most of the keys does not use bloom filters. We end up using
-  // bloom filters in a very small number of cases. Without the flag.
-  // this number would be close to 150000 (all the key at the last level) +
-  // some use in the upper levels
-  //
-  ASSERT_GT(90000, TestGetTickerCount(options, BLOOM_FILTER_USEFUL));
+  // Now we have three sorted run, L0, L5 and L6 with most files in L6 have
+  // no blooom filter. Most keys be checked bloom filters twice.
+  ASSERT_GT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 65000 * 2);
+  ASSERT_LT(TestGetTickerCount(options, BLOOM_FILTER_USEFUL), 120000 * 2);
 
   for (int i = 0; i < numkeys; i += 2) {
     ASSERT_EQ(Get(1, Key(i)), "val");
