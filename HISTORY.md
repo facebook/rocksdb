@@ -1,7 +1,6 @@
 # Rocksdb Change Log
 
-## Unreleased
-
+## 4.0.0 (9/9/2015)
 ### New Features
 * Added support for transactions.  See include/rocksdb/utilities/transaction.h for more info.
 * DB::GetProperty() now accept "rocksdb.aggregated-table-properties" and "rocksdb.aggregated-table-properties-at-levelN", in which case it returns aggregated table properties of the target column family, or the aggregated table properties of the specified level N if the "at-level" version is used.
