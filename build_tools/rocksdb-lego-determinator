@@ -19,7 +19,7 @@ UNIT_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build RocksDB',
-                'shell':'make -j$(nproc) clean all',
+                'shell':'make clean all',
                 'user':'root'
             },
             {
@@ -41,7 +41,7 @@ UNIT_TEST_COMMANDS_481="[
         'steps': [
             {
                 'name':'Build RocksDB',
-                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make -j$(nproc) clean all',
+                'shell':'ROCKSDB_FBCODE_BUILD_WITH_481=1 make clean all',
                 'user':'root'
             },
             {
@@ -64,7 +64,7 @@ STRESS_CRASH_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build and run RocksDB stress tests',
-                'shell':'TEST_TMPDIR=/dev/shm make -j$(nproc) clean db_stress',
+                'shell':'TEST_TMPDIR=/dev/shm make clean db_stress',
                 'user':'root'
             },
             {
@@ -87,7 +87,7 @@ ASAN_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build RocksDB for ASAN',
-                'shell':'COMPILE_WITH_ASAN=1 make -j$(nproc) clean all',
+                'shell':'COMPILE_WITH_ASAN=1 make clean all',
                 'user':'root'
             },
             {
@@ -109,7 +109,7 @@ ASAN_CRASH_TEST_COMMANDS="[
         'steps': [
             {
                 'name':'Build and run RocksDB asan_crash_test',
-                'shell':'make -j$(nproc) J=1 clean asan_crash_test',
+                'shell':'make J=1 clean asan_crash_test',
                 'user':'root'
             },
         ],
