@@ -65,6 +65,18 @@ enum CompressionType : char {
   kZSTDNotFinalCompression = 0x40,
 };
 
+// default compression types: prefer fast compression, or none if the faster
+// options (snappy, lz4) are unavailable
+inline CompressionType DefaultCompressionType() {
+#if   defined(SNAPPY)
+  return kSnappyCompression;
+#elif defined(LZ4)
+  return kLZ4Compression;
+#else
+  return kNoCompression;
+#endif
+}
+
 enum CompactionStyle : char {
   // level based compaction style
   kCompactionStyleLevel = 0x0,
