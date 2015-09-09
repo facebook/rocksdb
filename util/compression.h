@@ -89,7 +89,7 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
     case kLZ4HCCompression:
       return LZ4_Supported();
     case kZSTDNotFinalCompression:
-      return LZ4_Supported();
+      return ZSTD_Supported();
     default:
       assert(false);
       return false;
