@@ -377,4 +377,21 @@ std::unique_ptr<CompactionFilter> Compaction::CreateCompactionFilter() const {
       context);
 }
 
+bool Compaction::IsOutputLevelEmpty() const {
+  return inputs_.back().level != output_level_ || inputs_.back().empty();
+}
+
+bool Compaction::ShouldFormSubcompactions() const {
+  if (mutable_cf_options_.max_subcompactions <= 1 || cfd_ == nullptr) {
+    return false;
+  }
+  if (cfd_->ioptions()->compaction_style == kCompactionStyleLevel) {
+    return start_level_ == 0 && !IsOutputLevelEmpty();
+  } else if (cfd_->ioptions()->compaction_style == kCompactionStyleUniversal) {
+    return number_levels_ > 1 && output_level_ > 0;
+  } else {
+    return false;
+  }
+}
+
 }  // namespace rocksdb

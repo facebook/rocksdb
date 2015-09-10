@@ -79,32 +79,31 @@ class CompactionJob {
                  InstrumentedMutex* db_mutex);
 
  private:
-  struct SubCompactionState;
+  struct SubcompactionState;
 
   void AggregateStatistics();
-  // Set up the individual states used by each subcompaction
-  void InitializeSubCompactions();
+  void GenSubcompactionBoundaries();
 
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
   // Call compaction filter. Then iterate through input and compact the
   // kv-pairs
-  void ProcessKeyValueCompaction(SubCompactionState* sub_compact);
+  void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
   Status WriteKeyValue(const Slice& key, const Slice& value,
                        const ParsedInternalKey& ikey,
                        const Status& input_status,
-                       SubCompactionState* sub_compact);
+                       SubcompactionState* sub_compact);
 
   Status FinishCompactionOutputFile(const Status& input_status,
-                                    SubCompactionState* sub_compact);
+                                    SubcompactionState* sub_compact);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
                                   InstrumentedMutex* db_mutex);
   SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
                                              SequenceNumber* prev_snapshot);
   void RecordCompactionIOStats();
-  Status OpenCompactionOutputFile(SubCompactionState* sub_compact);
+  Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
   void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
@@ -156,7 +155,10 @@ class CompactionJob {
 
   bool paranoid_file_checks_;
   bool measure_io_stats_;
-  std::vector<Slice> sub_compaction_boundaries_;
+  // Stores the Slices that designate the boundaries for each subcompaction
+  std::vector<Slice> boundaries_;
+  // Stores the approx size of keys covered in the range of each subcompaction
+  std::vector<uint64_t> sizes_;
 };
 
 }  // namespace rocksdb

@@ -7224,7 +7224,7 @@ TEST_F(DBTest, DynamicLevelCompressionPerLevel2) {
   ASSERT_GT(num_zlib.load(), 0);
 }
 
-TEST_P(DBTestWithParam, DynamicCompactionOptions) {
+TEST_F(DBTest, DynamicCompactionOptions) {
   // minimum write buffer size is enforced at 64KB
   const uint64_t k32KB = 1 << 15;
   const uint64_t k64KB = 1 << 16;
@@ -7250,7 +7250,6 @@ TEST_P(DBTestWithParam, DynamicCompactionOptions) {
   options.target_file_size_multiplier = 1;
   options.max_bytes_for_level_base = k128KB;
   options.max_bytes_for_level_multiplier = 4;
-  options.max_subcompactions = max_subcompactions_;
 
   // Block flush thread and disable compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);

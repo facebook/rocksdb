@@ -758,8 +758,6 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
               num_keys_per_L0_file));
       ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
       Compact(1, smallest_key, largest_key);
-      // TODO(aekmekji): account for whether parallel L0-L1 compaction is
-      // enabled or not. If so then num_L1_files will increase by 1
       if (options.max_subcompactions == 1) {
         --num_L1_files;
       }

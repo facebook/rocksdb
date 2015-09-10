@@ -3002,15 +3002,27 @@ bool VersionSet::ManifestContains(uint64_t manifest_file_num,
   return result;
 }
 
+// TODO(aekmekji): in CompactionJob::GenSubcompactionBoundaries(), this
+// function is called repeatedly with consecutive pairs of slices. For example
+// if the slice list is [a, b, c, d] this function is called with arguments
+// (a,b) then (b,c) then (c,d). Knowing this, an optimization is possible where
+// we avoid doing binary search for the keys b and c twice and instead somehow
+// maintain state of where they first appear in the files.
 uint64_t VersionSet::ApproximateSize(Version* v, const Slice& start,
-                                     const Slice& end) {
+                                     const Slice& end, int start_level,
+                                     int end_level) {
   // pre-condition
   assert(v->cfd_->internal_comparator().Compare(start, end) <= 0);
 
   uint64_t size = 0;
   const auto* vstorage = v->storage_info();
+  end_level = end_level == -1
+                  ? vstorage->num_non_empty_levels()
+                  : std::min(end_level, vstorage->num_non_empty_levels());
 
-  for (int level = 0; level < vstorage->num_non_empty_levels(); level++) {
+  assert(start_level <= end_level);
+
+  for (int level = start_level; level < end_level; level++) {
     const LevelFilesBrief& files_brief = vstorage->LevelFilesBrief(level);
     if (!files_brief.num_files) {
       // empty level, skip exploration
@@ -3142,7 +3154,7 @@ Iterator* VersionSet::MakeInputIterator(Compaction* c) {
   read_options.verify_checksums =
     c->mutable_cf_options()->verify_checksums_in_compaction;
   read_options.fill_cache = false;
-  if (c->IsSubCompaction()) {
+  if (c->ShouldFormSubcompactions()) {
     read_options.total_order_seek = true;
   }
 

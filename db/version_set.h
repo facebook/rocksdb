@@ -646,7 +646,10 @@ class VersionSet {
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
   // Return the approximate size of data to be scanned for range [start, end)
-  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end);
+  // in levels [start_level, end_level). If end_level == 0 it will search
+  // through all non-empty levels
+  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
+                           int start_level = 0, int end_level = -1);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }

@@ -198,16 +198,11 @@ class Compaction {
   // Create a CompactionFilter from compaction_filter_factory
   std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
 
-  // Should this compaction be broken up into smaller ones run in parallel?
-  bool IsSubCompaction() const {
-    return start_level_ == 0 && output_level_ == 1 &&
-           mutable_cf_options_.max_subcompactions > 1;
-  }
+  // Is the input level corresponding to output_level_ empty?
+  bool IsOutputLevelEmpty() const;
 
-  // If is_sub_compaction == true, how many smaller compactions should execute
-  int NumSubCompactions() const {
-    return mutable_cf_options_.max_subcompactions;
-  }
+  // Should this compaction be broken up into smaller ones run in parallel?
+  bool ShouldFormSubcompactions() const;
 
  private:
   // mark (or clear) all files that are being compacted
