@@ -15,13 +15,14 @@ matrix:
 
 before_script:
     - if [ -n "${COMPILER}" ]; then CXX=${COMPILER}; fi
-    - if [[ $(uname -s) == 'Darwin' ]]; then brew install snappy; fi
+    - if [[ $(uname -s) == 'Darwin' ]]; then brew install gflags snappy; fi
 
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
-script: OPT=-DTRAVIS V=1 make db_test && ./db_test && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
+script: OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
 
 notifications:
-    email: false
+    email:
+      - leveldb@fb.com
     webhooks:
       - https://buildtimetrend.herokuapp.com/travis
