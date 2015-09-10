@@ -1148,8 +1148,12 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
 
       MaybeIgnoreError(&status);
       if (!status.ok()) {
-        return status;
+        // We are treating this as a failure while reading since we read valid
+        // blocks that do not form coherent data
+        reporter.Corruption(record.size(), status);
+        continue;
       }
+
       const SequenceNumber last_seq = WriteBatchInternal::Sequence(&batch) +
                                       WriteBatchInternal::Count(&batch) - 1;
       if ((*max_sequence == kMaxSequenceNumber) || (last_seq > *max_sequence)) {
@@ -1183,12 +1187,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
     }
 
     if (!status.ok()) {
-      // The hook function is designed to ignore all IO errors from reader
-      // during recovery for kSkipAnyCorruptedRecords. Status variable is
-      // unmodified by the reader.
-      assert(db_options_.wal_recovery_mode !=
-             WALRecoveryMode::kSkipAnyCorruptedRecords);
       if (db_options_.wal_recovery_mode ==
+             WALRecoveryMode::kSkipAnyCorruptedRecords) {
+        // We should ignore all errors unconditionally
+        status = Status::OK();
+      } else if (db_options_.wal_recovery_mode ==
                  WALRecoveryMode::kPointInTimeRecovery) {
         // We should ignore the error but not continue replaying
         status = Status::OK();
@@ -1197,8 +1200,11 @@ Status DBImpl::RecoverLogFiles(const std::vector<uint64_t>& log_numbers,
         Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
             "Point in time recovered to log #%" PRIu64 " seq #%" PRIu64,
             log_number, *max_sequence);
-      } else if (db_options_.wal_recovery_mode !=
-                 WALRecoveryMode::kSkipAnyCorruptedRecords) {
+      } else {
+        assert(db_options_.wal_recovery_mode ==
+                  WALRecoveryMode::kTolerateCorruptedTailRecords
+               || db_options_.wal_recovery_mode ==
+                  WALRecoveryMode::kAbsoluteConsistency);
         return status;
       }
     }
