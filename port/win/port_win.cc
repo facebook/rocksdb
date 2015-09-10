@@ -236,6 +236,7 @@ void Crash(const std::string& srcfile, int srcline) {
   abort();
 }
 
+int GetMaxOpenFiles() { return -1; }
 
 }  // namespace port
 }  // namespace rocksdb

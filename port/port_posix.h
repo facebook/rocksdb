@@ -153,6 +153,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
 extern void Crash(const std::string& srcfile, int srcline);
+
+extern int GetMaxOpenFiles();
+
 } // namespace port
 } // namespace rocksdb
 

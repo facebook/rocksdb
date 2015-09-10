@@ -815,7 +815,7 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
-  // Default: 5000
+  // Default: 5000 or ulimit value of max open files (whichever is smaller)
   int max_open_files;
 
   // If max_open_files is -1, DB will open all files on DB::Open(). You can

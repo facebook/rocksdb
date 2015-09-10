@@ -123,7 +123,11 @@ DBOptions SanitizeOptions(const std::string& dbname, const DBOptions& src) {
 
   // result.max_open_files means an "infinite" open files.
   if (result.max_open_files != -1) {
-    ClipToRange(&result.max_open_files, 20, 1000000);
+    int max_max_open_files = port::GetMaxOpenFiles();
+    if (max_max_open_files == -1) {
+      max_max_open_files = 1000000;
+    }
+    ClipToRange(&result.max_open_files, 20, max_max_open_files);
   }
 
   if (result.info_log == nullptr) {
