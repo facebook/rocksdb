@@ -1187,6 +1187,7 @@ TEST_F(ColumnFamilyTest, ReadDroppedColumnFamily) {
         ASSERT_OK(iterator->status());
         ++count;
       }
+      ASSERT_OK(iterator->status());
       ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
     }
 
