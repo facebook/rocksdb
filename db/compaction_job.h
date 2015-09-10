@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "db/column_family.h"
+#include "db/compaction_iterator.h"
 #include "db/dbformat.h"
 #include "db/flush_scheduler.h"
 #include "db/internal_stats.h"
@@ -91,25 +92,16 @@ class CompactionJob {
   // kv-pairs
   void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
-  Status WriteKeyValue(const Slice& key, const Slice& value,
-                       const ParsedInternalKey& ikey,
-                       const Status& input_status,
-                       SubcompactionState* sub_compact);
-
   Status FinishCompactionOutputFile(const Status& input_status,
                                     SubcompactionState* sub_compact);
   Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
                                   InstrumentedMutex* db_mutex);
-  SequenceNumber findEarliestVisibleSnapshot(SequenceNumber in,
-                                             SequenceNumber* prev_snapshot);
   void RecordCompactionIOStats();
   Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
   void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
-  void RecordDroppedKeys(int64_t* key_drop_user,
-                         int64_t* key_drop_newer_entry,
-                         int64_t* key_drop_obsolete,
+  void RecordDroppedKeys(const CompactionIteratorStats& c_iter_stats,
                          CompactionJobStats* compaction_job_stats = nullptr);
 
   void UpdateCompactionStats();
@@ -124,14 +116,7 @@ class CompactionJob {
   struct CompactionState;
   CompactionState* compact_;
   CompactionJobStats* compaction_job_stats_;
-
-  bool bottommost_level_;
-
   InternalStats::CompactionStats compaction_stats_;
-
-  SequenceNumber earliest_snapshot_;
-  SequenceNumber latest_snapshot_;
-  SequenceNumber visible_at_tip_;
 
   // DBImpl state
   const std::string& dbname_;
@@ -153,6 +138,7 @@ class CompactionJob {
 
   EventLogger* event_logger_;
 
+  bool bottommost_level_;
   bool paranoid_file_checks_;
   bool measure_io_stats_;
   // Stores the Slices that designate the boundaries for each subcompaction

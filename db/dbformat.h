@@ -166,6 +166,7 @@ class InternalKey {
   }
 
   Slice user_key() const { return ExtractUserKey(rep_); }
+  size_t size() { return rep_.size(); }
 
   void SetFrom(const ParsedInternalKey& p) {
     rep_.clear();

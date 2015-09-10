@@ -222,4 +222,24 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
   return s;
 }
 
+MergeOutputIterator::MergeOutputIterator(const MergeHelper* merge_helper)
+    : merge_helper_(merge_helper) {
+  it_keys_ = merge_helper_->keys().rend();
+  it_values_ = merge_helper_->values().rend();
+}
+
+void MergeOutputIterator::SeekToFirst() {
+  const auto& keys = merge_helper_->keys();
+  const auto& values = merge_helper_->values();
+  assert(keys.size() > 0);
+  assert(keys.size() == values.size());
+  it_keys_ = keys.rbegin();
+  it_values_ = values.rbegin();
+}
+
+void MergeOutputIterator::Next() {
+  ++it_keys_;
+  ++it_values_;
+}
+
 } // namespace rocksdb

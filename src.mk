@@ -5,6 +5,7 @@ LIB_SOURCES =                                                   \
   db/column_family.cc                                           \
   db/compacted_db_impl.cc                                       \
   db/compaction.cc                                              \
+  db/compaction_iterator.cc                                     \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
   db/convenience.cc                                             \

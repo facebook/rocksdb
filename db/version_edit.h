@@ -93,6 +93,8 @@ struct FileMetaData {
   FileMetaData()
       : refs(0),
         being_compacted(false),
+        smallest_seqno(kMaxSequenceNumber),
+        largest_seqno(0),
         table_reader_handle(nullptr),
         compensated_file_size(0),
         num_entries(0),
@@ -101,6 +103,17 @@ struct FileMetaData {
         raw_value_size(0),
         init_stats_from_file(false),
         marked_for_compaction(false) {}
+
+  // REQUIRED: Keys must be given to the function in sorted order (it expects
+  // the last key to be the largest).
+  void UpdateBoundaries(const Slice& key, SequenceNumber seqno) {
+    if (smallest.size() == 0) {
+      smallest.DecodeFrom(key);
+    }
+    largest.DecodeFrom(key);
+    smallest_seqno = std::min(smallest_seqno, seqno);
+    largest_seqno = std::max(largest_seqno, seqno);
+  }
 };
 
 // A compressed copy of file meta data that just contain
@@ -179,7 +192,12 @@ class VersionEdit {
     f.smallest_seqno = smallest_seqno;
     f.largest_seqno = largest_seqno;
     f.marked_for_compaction = marked_for_compaction;
-    new_files_.push_back(std::make_pair(level, f));
+    new_files_.emplace_back(level, f);
+  }
+
+  void AddFile(int level, const FileMetaData& f) {
+    assert(f.smallest_seqno <= f.largest_seqno);
+    new_files_.emplace_back(level, f);
   }
 
   // Delete the specified "file" from the specified "level".

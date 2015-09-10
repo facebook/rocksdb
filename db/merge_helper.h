@@ -114,6 +114,27 @@ class MergeHelper {
   std::deque<std::string> operands_;  // Parallel with keys_; stores the values
 };
 
+// MergeOutputIterator can be used to iterate over the result of a merge.
+class MergeOutputIterator {
+ public:
+  // The MergeOutputIterator is bound to a MergeHelper instance.
+  explicit MergeOutputIterator(const MergeHelper* merge_helper);
+
+  // Seeks to the first record in the output.
+  void SeekToFirst();
+  // Advances to the next record in the output.
+  void Next();
+
+  Slice key() { return Slice(*it_keys_); }
+  Slice value() { return Slice(*it_values_); }
+  bool Valid() { return it_keys_ != merge_helper_->keys().rend(); }
+
+ private:
+  const MergeHelper* merge_helper_;
+  std::deque<std::string>::const_reverse_iterator it_keys_;
+  std::deque<std::string>::const_reverse_iterator it_values_;
+};
+
 } // namespace rocksdb
 
 #endif
