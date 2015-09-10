@@ -98,8 +98,11 @@ void CompactionIterator::NextFromInput() {
     if (!ParseInternalKey(key_, &ikey_)) {
       // If `expect_valid_internal_key_` is false, return the corrupted key
       // and let the caller decide what to do with it.
-      // TODO(noetzli): Maybe we should have a more elegant solution for this.
-      assert(!expect_valid_internal_key_);
+      // TODO(noetzli): We should have a more elegant solution for this.
+      if (expect_valid_internal_key_) {
+        assert(!"corrupted internal key is not expected");
+        break;
+      }
       current_user_key_.Clear();
       has_current_user_key_ = false;
       current_user_key_sequence_ = kMaxSequenceNumber;

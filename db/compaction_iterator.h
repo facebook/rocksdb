@@ -90,7 +90,7 @@ class CompactionIterator {
   MergeHelper* merge_helper_;
   const std::vector<SequenceNumber>* snapshots_;
   Env* env_;
-  bool expect_valid_internal_key_ __attribute__((__unused__));
+  bool expect_valid_internal_key_;
   Statistics* stats_;
   Compaction* compaction_;
   const CompactionFilter* compaction_filter_;
