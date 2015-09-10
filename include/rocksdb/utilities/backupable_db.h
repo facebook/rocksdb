@@ -92,17 +92,20 @@ struct BackupableDBOptions {
   // Default: 1
   int max_background_operations;
 
+  // During backup user can get callback every time next
+  // callback_trigger_interval_size bytes being copied.
+  // Default: 4194304
+  uint64_t callback_trigger_interval_size;
+
   void Dump(Logger* logger) const;
 
-  explicit BackupableDBOptions(const std::string& _backup_dir,
-                               Env* _backup_env = nullptr,
-                               bool _share_table_files = true,
-                               Logger* _info_log = nullptr, bool _sync = true,
-                               bool _destroy_old_data = false,
-                               bool _backup_log_files = true,
-                               uint64_t _backup_rate_limit = 0,
-                               uint64_t _restore_rate_limit = 0,
-                               int _max_background_operations = 1)
+  explicit BackupableDBOptions(
+      const std::string& _backup_dir, Env* _backup_env = nullptr,
+      bool _share_table_files = true, Logger* _info_log = nullptr,
+      bool _sync = true, bool _destroy_old_data = false,
+      bool _backup_log_files = true, uint64_t _backup_rate_limit = 0,
+      uint64_t _restore_rate_limit = 0, int _max_background_operations = 1,
+      uint64_t _callback_trigger_interval_size = 4 * 1024 * 1024)
       : backup_dir(_backup_dir),
         backup_env(_backup_env),
         share_table_files(_share_table_files),
@@ -113,7 +116,8 @@ struct BackupableDBOptions {
         backup_rate_limit(_backup_rate_limit),
         restore_rate_limit(_restore_rate_limit),
         share_files_with_checksum(false),
-        max_background_operations(_max_background_operations) {
+        max_background_operations(_max_background_operations),
+        callback_trigger_interval_size(_callback_trigger_interval_size) {
     assert(share_table_files || !share_files_with_checksum);
   }
 };
@@ -213,7 +217,9 @@ class BackupEngine {
                      const BackupableDBOptions& options,
                      BackupEngine** backup_engine_ptr);
 
-  virtual Status CreateNewBackup(DB* db, bool flush_before_backup = false) = 0;
+  virtual Status CreateNewBackup(
+      DB* db, bool flush_before_backup = false,
+      std::function<void()> progress_callback = []() {}) = 0;
   virtual Status PurgeOldBackups(uint32_t num_backups_to_keep) = 0;
   virtual Status DeleteBackup(BackupID backup_id) = 0;
   virtual void StopBackup() = 0;
