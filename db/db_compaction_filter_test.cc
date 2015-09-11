@@ -537,6 +537,41 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
   }
 }
 
+// Compaction filters should only be applied to records that are newer than the
+// latest snapshot. This test inserts records and applies a delete filter.
+TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
+  Options options;
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  // Put some data.
+  const Snapshot* snapshot;
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+
+    if (table == 0) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+
+  cfilter_count = 0;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // The filter should delete 10 records.
+  ASSERT_EQ(30U, cfilter_count);
+
+  // Release the snapshot and compact again -> now all records should be
+  // removed.
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(0U, CountLiveFiles());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {
