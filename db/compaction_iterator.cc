@@ -128,7 +128,7 @@ void CompactionIterator::NextFromInput() {
       current_user_key_snapshot_ = 0;
       // apply the compaction filter to the first occurrence of the user key
       if (compaction_filter_ != nullptr && ikey_.type == kTypeValue &&
-          (visible_at_tip_ || latest_snapshot_)) {
+          (visible_at_tip_ || ikey_.sequence > latest_snapshot_)) {
         // If the user has specified a compaction filter and the sequence
         // number is greater than any external snapshot, then invoke the
         // filter. If the return value of the compaction filter is true,
