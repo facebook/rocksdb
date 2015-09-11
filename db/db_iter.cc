@@ -189,6 +189,13 @@ void DBIter::Next() {
     return;
   }
   FindNextUserEntry(true /* skipping the current user key */);
+  if (statistics_ != nullptr) {
+    RecordTick(statistics_, NUMBER_DB_NEXT);
+    if (valid_) {
+      RecordTick(statistics_, NUMBER_DB_NEXT_FOUND);
+      RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+    }
+  }
 }
 
 // PRE: saved_key_ has the current user key if skipping
@@ -355,6 +362,13 @@ void DBIter::Prev() {
     ReverseToBackward();
   }
   PrevInternal();
+  if (statistics_ != nullptr) {
+    RecordTick(statistics_, NUMBER_DB_PREV);
+    if (valid_) {
+      RecordTick(statistics_, NUMBER_DB_PREV_FOUND);
+      RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+    }
+  }
 }
 
 void DBIter::ReverseToBackward() {
@@ -637,10 +651,17 @@ void DBIter::Seek(const Slice& target) {
     iter_->Seek(saved_key_.GetKey());
   }
 
+  RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
     direction_ = kForward;
     ClearSavedValue();
     FindNextUserEntry(false /* not skipping */);
+    if (statistics_ != nullptr) {
+      if (valid_) {
+        RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
+        RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+      }
+    }
   } else {
     valid_ = false;
   }
@@ -660,8 +681,15 @@ void DBIter::SeekToFirst() {
     iter_->SeekToFirst();
   }
 
+  RecordTick(statistics_, NUMBER_DB_SEEK);
   if (iter_->Valid()) {
     FindNextUserEntry(false /* not skipping */);
+    if (statistics_ != nullptr) {
+      if (valid_) {
+        RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
+        RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+      }
+    }
   } else {
     valid_ = false;
   }
@@ -703,6 +731,13 @@ void DBIter::SeekToLast() {
     }
   }
   PrevInternal();
+  if (statistics_ != nullptr) {
+    RecordTick(statistics_, NUMBER_DB_SEEK);
+    if (valid_) {
+      RecordTick(statistics_, NUMBER_DB_SEEK_FOUND);
+      RecordTick(statistics_, ITER_BYTES_READ, key().size() + value().size());
+    }
+  }
 }
 
 Iterator* NewDBIterator(Env* env, const ImmutableCFOptions& ioptions,

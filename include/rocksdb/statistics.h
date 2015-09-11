@@ -82,6 +82,17 @@ enum Tickers : uint32_t {
   // For the number of logical bytes read from DB::MultiGet(),
   // please use NUMBER_MULTIGET_BYTES_READ.
   BYTES_READ,
+  // The number of calls to seek/next/prev
+  NUMBER_DB_SEEK,
+  NUMBER_DB_NEXT,
+  NUMBER_DB_PREV,
+  // The number of calls to seek/next/prev that returned data
+  NUMBER_DB_SEEK_FOUND,
+  NUMBER_DB_NEXT_FOUND,
+  NUMBER_DB_PREV_FOUND,
+  // The number of uncompressed bytes read from an iterator.
+  // Includes size of key and value.
+  ITER_BYTES_READ,
   NO_FILE_CLOSES,
   NO_FILE_OPENS,
   NO_FILE_ERRORS,
@@ -180,6 +191,13 @@ const std::vector<std::pair<Tickers, std::string>> TickersNameMap = {
     {NUMBER_KEYS_UPDATED, "rocksdb.number.keys.updated"},
     {BYTES_WRITTEN, "rocksdb.bytes.written"},
     {BYTES_READ, "rocksdb.bytes.read"},
+    {NUMBER_DB_SEEK, "rocksdb.number.db.seek"},
+    {NUMBER_DB_NEXT, "rocksdb.number.db.next"},
+    {NUMBER_DB_PREV, "rocksdb.number.db.prev"},
+    {NUMBER_DB_SEEK_FOUND, "rocksdb.number.db.seek.found"},
+    {NUMBER_DB_NEXT_FOUND, "rocksdb.number.db.next.found"},
+    {NUMBER_DB_PREV_FOUND, "rocksdb.number.db.prev.found"},
+    {ITER_BYTES_READ, "rocksdb.db.iter.bytes.read"},
     {NO_FILE_CLOSES, "rocksdb.no.file.closes"},
     {NO_FILE_OPENS, "rocksdb.no.file.opens"},
     {NO_FILE_ERRORS, "rocksdb.no.file.errors"},
