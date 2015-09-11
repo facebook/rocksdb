@@ -499,8 +499,6 @@ struct ColumnFamilyOptions {
 
   // Puts are delayed to options.delayed_write_rate when any level has a
   // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
-  // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
-  // hold, RocksDB will set soft_rate_limit = hard_rate_limit
   //
   // Default: 0 (disabled)
   //
@@ -509,6 +507,12 @@ struct ColumnFamilyOptions {
 
   // DEPRECATED -- this options is no longer usde
   double hard_rate_limit;
+
+  // All writes are stopped if estimated bytes needed to be compaction exceed
+  // this threshold.
+  //
+  // Default: 0 (disabled)
+  uint64_t hard_pending_compaction_bytes_limit;
 
   // DEPRECATED -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds;

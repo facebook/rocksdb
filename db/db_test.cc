@@ -8513,6 +8513,53 @@ TEST_F(DBTest, DelayedWriteRate) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+TEST_F(DBTest, HardLimit) {
+  Options options;
+  options.env = env_;
+  env_->SetBackgroundThreads(1, Env::LOW);
+  options = CurrentOptions(options);
+  options.max_write_buffer_number = 256;
+  options.write_buffer_size = 110 << 10;  // 110KB
+  options.arena_block_size = 4 * 1024;
+  options.level0_file_num_compaction_trigger = 4;
+  options.level0_slowdown_writes_trigger = 999999;
+  options.level0_stop_writes_trigger = 999999;
+  options.hard_pending_compaction_bytes_limit = 800 << 10;
+  options.max_bytes_for_level_base = 10000000000u;
+  options.max_background_compactions = 1;
+
+  env_->SetBackgroundThreads(1, Env::LOW);
+  SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+                 Env::Priority::LOW);
+
+  CreateAndReopenWithCF({"pikachu"}, options);
+
+  std::atomic<int> callback_count(0);
+  rocksdb::SyncPoint::GetInstance()->SetCallBack("DBImpl::DelayWrite:Wait",
+                                                 [&](void* arg) {
+                                                   callback_count.fetch_add(1);
+                                                   sleeping_task_low.WakeUp();
+                                                 });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+  Random rnd(301);
+  int key_idx = 0;
+  for (int num = 0; num < 5; num++) {
+    GenerateNewFile(&rnd, &key_idx, true);
+  }
+
+  ASSERT_EQ(0, callback_count.load());
+
+  for (int num = 0; num < 5; num++) {
+    GenerateNewFile(&rnd, &key_idx, true);
+    dbfull()->TEST_WaitForFlushMemTable();
+  }
+  ASSERT_GE(callback_count.load(), 1);
+
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+}
+
 TEST_F(DBTest, SoftLimit) {
   Options options;
   options.env = env_;

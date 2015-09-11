@@ -454,6 +454,16 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());
+    } else if (mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
+               vstorage->estimated_compaction_needed_bytes() >=
+                   mutable_cf_options.hard_pending_compaction_bytes_limit) {
+      write_controller_token_ = write_controller->GetStopToken();
+      internal_stats_->AddCFStats(
+          InternalStats::HARD_PENDING_COMPACTION_BYTES_LIMIT, 1);
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "[%s] Stopping writes because estimated pending compaction "
+          "bytes exceed %" PRIu64,
+          name_.c_str(), vstorage->estimated_compaction_needed_bytes());
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {

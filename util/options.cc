@@ -102,7 +102,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
       soft_rate_limit(0.0),
-      hard_rate_limit(0.0),
+      hard_pending_compaction_bytes_limit(0),
       rate_limit_delay_max_milliseconds(1000),
       arena_block_size(0),
       disable_auto_compactions(false),
@@ -161,7 +161,8 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       source_compaction_factor(options.source_compaction_factor),
       max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
       soft_rate_limit(options.soft_rate_limit),
-      hard_rate_limit(options.hard_rate_limit),
+      hard_pending_compaction_bytes_limit(
+          options.hard_pending_compaction_bytes_limit),
       rate_limit_delay_max_milliseconds(
           options.rate_limit_delay_max_milliseconds),
       arena_block_size(options.arena_block_size),
@@ -473,8 +474,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
          arena_block_size);
     Warn(log, "                      Options.soft_rate_limit: %.2f",
         soft_rate_limit);
-    Warn(log, "                      Options.hard_rate_limit: %.2f",
-        hard_rate_limit);
+    Warn(log, "  Options.hard_pending_compaction_bytes_limit: %" PRIu64,
+         hard_pending_compaction_bytes_limit);
     Warn(log, "      Options.rate_limit_delay_max_milliseconds: %u",
         rate_limit_delay_max_milliseconds);
     Warn(log, "               Options.disable_auto_compactions: %d",

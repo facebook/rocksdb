@@ -281,8 +281,11 @@ bool ParseCompactionOptions(const std::string& name, const std::string& value,
     new_options->disable_auto_compactions = ParseBoolean(name, value);
   } else if (name == "soft_rate_limit") {
     new_options->soft_rate_limit = ParseDouble(value);
+  } else if (name == "hard_pending_compaction_bytes_limit") {
+    new_options->hard_pending_compaction_bytes_limit = ParseUint64(value);
   } else if (name == "hard_rate_limit") {
-    new_options->hard_rate_limit = ParseDouble(value);
+    // Deprecated options but still leave it here to avoid older options
+    // strings can be consumed.
   } else if (name == "level0_file_num_compaction_trigger") {
     new_options->level0_file_num_compaction_trigger = ParseInt(value);
   } else if (name == "level0_slowdown_writes_trigger") {

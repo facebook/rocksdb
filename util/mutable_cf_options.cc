@@ -3,6 +3,8 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include "util/mutable_cf_options.h"
+
 #ifndef __STDC_FORMAT_MACROS
 #define __STDC_FORMAT_MACROS
 #endif
@@ -15,7 +17,6 @@
 #include "rocksdb/env.h"
 #include "rocksdb/options.h"
 #include "rocksdb/immutable_options.h"
-#include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
@@ -83,8 +84,8 @@ void MutableCFOptions::Dump(Logger* log) const {
       disable_auto_compactions);
   Log(log, "                          soft_rate_limit: %lf",
       soft_rate_limit);
-  Log(log, "                          hard_rate_limit: %lf",
-      hard_rate_limit);
+  Log(log, "      hard_pending_compaction_bytes_limit: %" PRIu64,
+      hard_pending_compaction_bytes_limit);
   Log(log, "       level0_file_num_compaction_trigger: %d",
       level0_file_num_compaction_trigger);
   Log(log, "           level0_slowdown_writes_trigger: %d",

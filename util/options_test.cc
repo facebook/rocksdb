@@ -122,6 +122,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
       {"max_grandparent_overlap_factor", "21"},
       {"soft_rate_limit", "1.1"},
       {"hard_rate_limit", "2.1"},
+      {"hard_pending_compaction_bytes_limit", "211"},
       {"arena_block_size", "22"},
       {"disable_auto_compactions", "true"},
       {"compaction_style", "kCompactionStyleLevel"},
@@ -214,7 +215,7 @@ TEST_F(OptionsTest, GetOptionsFromMapTest) {
   ASSERT_EQ(new_cf_opt.source_compaction_factor, 20);
   ASSERT_EQ(new_cf_opt.max_grandparent_overlap_factor, 21);
   ASSERT_EQ(new_cf_opt.soft_rate_limit, 1.1);
-  ASSERT_EQ(new_cf_opt.hard_rate_limit, 2.1);
+  ASSERT_EQ(new_cf_opt.hard_pending_compaction_bytes_limit, 211);
   ASSERT_EQ(new_cf_opt.arena_block_size, 22U);
   ASSERT_EQ(new_cf_opt.disable_auto_compactions, true);
   ASSERT_EQ(new_cf_opt.compaction_style, kCompactionStyleLevel);
@@ -667,7 +668,8 @@ void VerifyColumnFamilyOptions(const ColumnFamilyOptions& base_opt,
             new_opt.verify_checksums_in_compaction);
 
   // double options
-  VerifyDouble(base_opt.hard_rate_limit, new_opt.hard_rate_limit);
+  ASSERT_EQ(base_opt.hard_pending_compaction_bytes_limit,
+            new_opt.hard_pending_compaction_bytes_limit);
   VerifyDouble(base_opt.soft_rate_limit, new_opt.soft_rate_limit);
 
   // int options
@@ -746,7 +748,6 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   base_opt.verify_checksums_in_compaction = rnd.Uniform(2);
 
   // double options
-  base_opt.hard_rate_limit = static_cast<double>(rnd.Uniform(10000)) / 13;
   base_opt.soft_rate_limit = static_cast<double>(rnd.Uniform(10000)) / 13;
 
   // int options
@@ -782,6 +783,7 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
   base_opt.max_sequential_skip_in_iterations = uint_max + rnd.Uniform(10000);
   base_opt.target_file_size_base = uint_max + rnd.Uniform(10000);
+  base_opt.hard_pending_compaction_bytes_limit = uint_max + rnd.Uniform(10000);
 
   // unsigned int options
   base_opt.rate_limit_delay_max_milliseconds = rnd.Uniform(10000);
