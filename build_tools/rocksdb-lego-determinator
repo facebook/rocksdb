@@ -20,6 +20,7 @@ CLEANUP_ENV="
   'user':'root'
 }"
 
+ONCALL="'oncall':'leveldb@fb.com'"
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
@@ -27,6 +28,7 @@ ASAN="COMPILE_WITH_ASAN=1"
 CLANG="USE_CLANG=1"
 LITE="OPT=-DROCKSDB_LITE"
 TSAN="COMPILE_WITH_TSAN=1"
+DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 
 #
 # RocksDB unit test in parallel
@@ -36,11 +38,12 @@ TSAN="COMPILE_WITH_TSAN=1"
 PARALLEL_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Parallel Unit Test',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug version',
-                'shell':'$DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1',
+                'shell':'$DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || cat t/log-*',
                 'user':'root'
             },
             {
@@ -51,7 +54,7 @@ PARALLEL_UNIT_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug version under gcc-4.8.1',
-                'shell':'$GCC_481 $DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1',
+                'shell':'$GCC_481 $DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || cat t/log-*',
                 'user':'root'
             },
             {
@@ -70,6 +73,7 @@ PARALLEL_UNIT_TEST_COMMANDS="[
 UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -88,6 +92,7 @@ UNIT_TEST_COMMANDS="[
 UNIT_TEST_COMMANDS_481="[
     {
         'name':'Rocksdb Unit Test on GCC 4.8.1',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -106,6 +111,7 @@ UNIT_TEST_COMMANDS_481="[
 CLANG_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -142,6 +148,8 @@ LITE_BUILD_COMMANDS="[
 STRESS_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb Stress/Crash Test',
+        $ONCALL,
+        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -166,6 +174,7 @@ STRESS_CRASH_TEST_COMMANDS="[
 ASAN_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under ASAN',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -184,6 +193,8 @@ ASAN_TEST_COMMANDS="[
 ASAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb crash test under ASAN',
+        $ONCALL,
+        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -202,11 +213,12 @@ ASAN_CRASH_TEST_COMMANDS="[
 VALGRIND_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under valgrind',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
                 'name':'Run RocksDB debug unit tests',
-                'shell':'$SHM $DEBUG ./build_tools/valgrind_test.sh',
+                'shell':'$DISABLE_JEMALLOC $SHM $DEBUG ./build_tools/valgrind_test.sh',
                 'user':'root'
             },
         ],
@@ -220,6 +232,7 @@ VALGRIND_TEST_COMMANDS="[
 TSAN_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under TSAN',
+        $ONCALL,
         'steps': [
             $CLEANUP_ENV,
             {
