@@ -24,6 +24,9 @@ TEST_F(WritableFileWriterTest, RangeSync) {
       size_ += data.size();
       return Status::OK();
     }
+    virtual Status Truncate(uint64_t size) override {
+      return Status::OK();
+    }
     Status Close() override {
       EXPECT_GE(size_, last_synced_ + kMb);
       EXPECT_LT(size_, last_synced_ + 2 * kMb);

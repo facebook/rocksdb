@@ -494,6 +494,12 @@ class PosixMmapFile : public WritableFile {
     return Status::OK();
   }
 
+  // Means Close() will properly take care of truncate
+  // and it does not need any additional information
+  virtual Status Truncate(uint64_t size) override {
+    return Status::OK();
+  }
+
   virtual Status Close() override {
     Status s;
     size_t unused = limit_ - dst_;
@@ -621,6 +627,12 @@ class PosixWritableFile : public WritableFile {
         src += done;
       }
       filesize_ += data.size();
+    return Status::OK();
+  }
+
+  // Means Close() will properly take care of truncate
+  // and it does not need any additional information
+  virtual Status Truncate(uint64_t size) override {
     return Status::OK();
   }
 

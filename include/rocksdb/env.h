@@ -393,6 +393,12 @@ class RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
 
+  // Used by the file_reader_writer to decide if the ReadAhead wrapper
+  // should simply forward the call and do not enact buffering or locking.
+  virtual bool ReaderWriterForward() const {
+    return false;
+  }
+
   // Tries to get an unique ID for this file that will be the same each time
   // the file is opened (and will stay the same while the file is open).
   // Furthermore, it tries to make this ID at most "max_size" bytes. If such an
@@ -412,7 +418,6 @@ class RandomAccessFile {
     return 0; // Default implementation to prevent issues with backwards
               // compatibility.
   };
-
 
   enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
 
@@ -438,7 +443,31 @@ class WritableFile {
   }
   virtual ~WritableFile();
 
+  // Indicates if the class makes use of unbuffered I/O
+  virtual bool UseOSBuffer() const {
+    return true;
+  }
+
+  // This is needed when you want to allocate
+  // AlignedBuffer for use with file I/O classes
+  // Used for unbuffered file I/O when UseOSBuffer() returns false
+  virtual size_t GetRequiredBufferAlignment() const {
+    return 4 * 1024;
+  }
+
   virtual Status Append(const Slice& data) = 0;
+
+  // Positional write for unbuffered access default forward
+  // to simple append as most of the tests are buffered by default
+  virtual Status Append(const Slice& /* data */, uint64_t /* offset */) {
+    return Status::NotSupported();
+  }
+
+  // Truncate is necessary to trim the file to the correct size
+  // before closing. It is not always possible to keep track of the file
+  // size due to whole pages writes. The behavior is undefined if called
+  // with other writes to follow.
+  virtual Status Truncate(uint64_t size) = 0;
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0; // sync data
@@ -839,6 +868,7 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) { }
 
   Status Append(const Slice& data) override { return target_->Append(data); }
+  Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }
   Status Flush() override { return target_->Flush(); }
   Status Sync() override { return target_->Sync(); }

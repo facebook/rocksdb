@@ -184,6 +184,10 @@ class StringSink: public WritableFile {
 
   const std::string& contents() const { return contents_; }
 
+  virtual Status Truncate(uint64_t size) override {
+    contents_.resize(size);
+    return Status::OK();
+  }
   virtual Status Close() override { return Status::OK(); }
   virtual Status Flush() override {
     if (reader_contents_ != nullptr) {

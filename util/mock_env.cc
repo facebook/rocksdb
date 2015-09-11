@@ -250,7 +250,9 @@ class MockWritableFile : public WritableFile {
     }
     return Status::OK();
   }
-
+  virtual Status Truncate(uint64_t size) override {
+    return Status::OK();
+  }
   virtual Status Close() override { return file_->Fsync(); }
 
   virtual Status Flush() override { return Status::OK(); }

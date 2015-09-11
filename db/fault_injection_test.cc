@@ -141,6 +141,7 @@ class TestWritableFile : public WritableFile {
                             FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
   virtual Status Append(const Slice& data) override;
+  virtual Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   virtual Status Close() override;
   virtual Status Flush() override;
   virtual Status Sync() override;
