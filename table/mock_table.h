@@ -145,9 +145,7 @@ class MockTableFactory : public TableFactory {
  public:
   MockTableFactory();
   const char* Name() const override { return "MockTable"; }
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
-                        const EnvOptions& env_options,
-                        const InternalKeyComparator& internal_key,
+  Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table_reader) const override;

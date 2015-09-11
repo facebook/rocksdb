@@ -15,6 +15,7 @@
 
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
+#include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "table/get_context.h"
 #include "util/coding.h"
@@ -106,8 +107,8 @@ Status TableCache::GetTableReader(
                                    ioptions_.statistics, record_read_stats,
                                    file_read_hist));
     s = ioptions_.table_factory->NewTableReader(
-        ioptions_, env_options, internal_comparator, std::move(file_reader),
-        fd.GetFileSize(), table_reader);
+        TableReaderOptions(ioptions_, env_options, internal_comparator),
+        std::move(file_reader), fd.GetFileSize(), table_reader);
     TEST_SYNC_POINT("TableCache::GetTableReader:0");
   }
   return s;

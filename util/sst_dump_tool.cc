@@ -91,16 +91,16 @@ Status SstFileReader::NewTableReader(
 
   if (block_table_factory) {
     return block_table_factory->NewTableReader(
-        ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
-        &table_reader_, /*enable_prefetch=*/false);
+        TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+        std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
   assert(!block_table_factory);
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
-      ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
-      &table_reader_);
+      TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+      std::move(file_), file_size, &table_reader_);
 }
 
 Status SstFileReader::DumpTable(const std::string& out_filename) {

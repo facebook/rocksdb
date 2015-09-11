@@ -15,14 +15,14 @@
 namespace rocksdb {
 
 Status PlainTableFactory::NewTableReader(
-    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-    const InternalKeyComparator& icomp,
+    const TableReaderOptions& table_reader_options,
     unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table) const {
-  return PlainTableReader::Open(ioptions, env_options, icomp, std::move(file),
-                                file_size, table, bloom_bits_per_key_,
-                                hash_table_ratio_, index_sparseness_,
-                                huge_page_tlb_size_, full_scan_mode_);
+  return PlainTableReader::Open(
+      table_reader_options.ioptions, table_reader_options.env_options,
+      table_reader_options.internal_comparator, std::move(file), file_size,
+      table, bloom_bits_per_key_, hash_table_ratio_, index_sparseness_,
+      huge_page_tlb_size_, full_scan_mode_);
 }
 
 TableBuilder* PlainTableFactory::NewTableBuilder(

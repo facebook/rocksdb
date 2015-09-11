@@ -16,12 +16,26 @@
 #include "db/table_properties_collector.h"
 #include "rocksdb/options.h"
 #include "rocksdb/table_properties.h"
+#include "util/file_reader_writer.h"
 #include "util/mutable_cf_options.h"
 
 namespace rocksdb {
 
 class Slice;
 class Status;
+
+struct TableReaderOptions {
+  TableReaderOptions(const ImmutableCFOptions& _ioptions,
+                     const EnvOptions& _env_options,
+                     const InternalKeyComparator& _internal_comparator)
+      : ioptions(_ioptions),
+        env_options(_env_options),
+        internal_comparator(_internal_comparator) {}
+
+  const ImmutableCFOptions& ioptions;
+  const EnvOptions& env_options;
+  const InternalKeyComparator& internal_comparator;
+};
 
 struct TableBuilderOptions {
   TableBuilderOptions(

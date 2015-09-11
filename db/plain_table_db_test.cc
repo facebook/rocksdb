@@ -27,6 +27,7 @@
 #include "rocksdb/table.h"
 #include "table/meta_blocks.h"
 #include "table/bloom_block.h"
+#include "table/table_builder.h"
 #include "table/plain_table_factory.h"
 #include "table/plain_table_reader.h"
 #include "util/hash.h"
@@ -256,28 +257,29 @@ class TestPlainTableFactory : public PlainTableFactory {
         store_index_in_file_(options.store_index_in_file),
         expect_bloom_not_match_(expect_bloom_not_match) {}
 
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
-                        const EnvOptions& env_options,
-                        const InternalKeyComparator& internal_comparator,
+  Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table) const override {
     TableProperties* props = nullptr;
-    auto s = ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
-                                 ioptions.env, ioptions.info_log, &props);
+    auto s =
+        ReadTableProperties(file.get(), file_size, kPlainTableMagicNumber,
+                            table_reader_options.ioptions.env,
+                            table_reader_options.ioptions.info_log, &props);
     EXPECT_TRUE(s.ok());
 
     if (store_index_in_file_) {
       BlockHandle bloom_block_handle;
       s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
-                        ioptions.env, BloomBlockBuilder::kBloomBlock,
-                        &bloom_block_handle);
+                        table_reader_options.ioptions.env,
+                        BloomBlockBuilder::kBloomBlock, &bloom_block_handle);
       EXPECT_TRUE(s.ok());
 
       BlockHandle index_block_handle;
-      s = FindMetaBlock(
-          file.get(), file_size, kPlainTableMagicNumber, ioptions.env,
-          PlainTableIndexBuilder::kPlainTableIndexBlock, &index_block_handle);
+      s = FindMetaBlock(file.get(), file_size, kPlainTableMagicNumber,
+                        table_reader_options.ioptions.env,
+                        PlainTableIndexBuilder::kPlainTableIndexBlock,
+                        &index_block_handle);
       EXPECT_TRUE(s.ok());
     }
 
@@ -289,9 +291,10 @@ class TestPlainTableFactory : public PlainTableFactory {
         DecodeFixed32(encoding_type_prop->second.c_str()));
 
     std::unique_ptr<PlainTableReader> new_reader(new TestPlainTableReader(
-        env_options, internal_comparator, encoding_type, file_size,
+        table_reader_options.env_options,
+        table_reader_options.internal_comparator, encoding_type, file_size,
         bloom_bits_per_key_, hash_table_ratio_, index_sparseness_, props,
-        std::move(file), ioptions, expect_bloom_not_match_,
+        std::move(file), table_reader_options.ioptions, expect_bloom_not_match_,
         store_index_in_file_));
 
     *table = std::move(new_reader);

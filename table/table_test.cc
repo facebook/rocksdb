@@ -295,8 +295,8 @@ class TableConstructor: public Constructor {
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        ioptions, soptions, internal_comparator, std::move(file_reader_),
-        GetSink()->contents().size(), &table_reader_);
+        TableReaderOptions(ioptions, soptions, internal_comparator),
+        std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
   virtual Iterator* NewIterator() const override {
@@ -317,8 +317,8 @@ class TableConstructor: public Constructor {
     file_reader_.reset(test::GetRandomAccessFileReader(new test::StringSource(
         GetSink()->contents(), uniq_id_, ioptions.allow_mmap_reads)));
     return ioptions.table_factory->NewTableReader(
-        ioptions, soptions, *last_internal_key_, std::move(file_reader_),
-        GetSink()->contents().size(), &table_reader_);
+        TableReaderOptions(ioptions, soptions, *last_internal_key_),
+        std::move(file_reader_), GetSink()->contents().size(), &table_reader_);
   }
 
   virtual TableReader* GetTableReader() {
