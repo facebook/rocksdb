@@ -548,7 +548,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
   DestroyAndReopen(options);
 
   // Put some data.
-  const Snapshot* snapshot;
+  const Snapshot* snapshot = nullptr;
   for (int table = 0; table < 4; ++table) {
     for (int i = 0; i < 10; ++i) {
       Put(ToString(table * 100 + i), "val");
@@ -559,6 +559,7 @@ TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
       snapshot = db_->GetSnapshot();
     }
   }
+  assert(snapshot != nullptr);
 
   cfilter_count = 0;
   ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
