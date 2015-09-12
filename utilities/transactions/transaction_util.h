@@ -46,7 +46,8 @@ class TransactionUtil {
   //
   // REQUIRED: this function should only be called on the write thread or if the
   // mutex is held.
-  static Status CheckKeysForConflicts(DBImpl* db_impl, TransactionKeyMap* keys);
+  static Status CheckKeysForConflicts(DBImpl* db_impl,
+                                      const TransactionKeyMap& keys);
 
  private:
   static Status CheckKey(DBImpl* db_impl, SuperVersion* sv,

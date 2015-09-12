@@ -141,7 +141,8 @@ Status TransactionDBImpl::TryLock(TransactionImpl* txn, uint32_t cfh_id,
   return lock_mgr_.TryLock(txn, cfh_id, key, GetEnv());
 }
 
-void TransactionDBImpl::UnLock(TransactionImpl* txn, TransactionKeyMap* keys) {
+void TransactionDBImpl::UnLock(TransactionImpl* txn,
+                               const TransactionKeyMap* keys) {
   lock_mgr_.UnLock(txn, keys, GetEnv());
 }
 

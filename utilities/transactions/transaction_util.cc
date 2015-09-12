@@ -100,11 +100,11 @@ Status TransactionUtil::CheckKey(DBImpl* db_impl, SuperVersion* sv,
   return result;
 }
 
-Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
-                                              TransactionKeyMap* key_map) {
+Status TransactionUtil::CheckKeysForConflicts(
+    DBImpl* db_impl, const TransactionKeyMap& key_map) {
   Status result;
 
-  for (auto& key_map_iter : *key_map) {
+  for (auto& key_map_iter : key_map) {
     uint32_t cf_id = key_map_iter.first;
     const auto& keys = key_map_iter.second;
 

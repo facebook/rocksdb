@@ -38,22 +38,12 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
   void Rollback() override;
 
-  uint64_t GetNumKeys() const override;
-
-  const TransactionKeyMap* GetTrackedKeys() const { return &tracked_keys_; }
-
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
                  bool untracked = false) override;
 
  private:
   OptimisticTransactionDB* const txn_db_;
-
-  // Map of Column Family IDs to keys and corresponding sequence numbers.
-  // The sequence number stored for a key will be used during commit to make
-  // sure this key has
-  // not changed since this sequence number.
-  TransactionKeyMap tracked_keys_;
 
   friend class OptimisticTransactionCallback;
 

@@ -44,7 +44,7 @@ class TransactionImpl : public TransactionBaseImpl {
 
   void Rollback() override;
 
-  uint64_t GetNumKeys() const override;
+  Status RollbackToSavePoint() override;
 
   // Generate a new unique transaction identifier
   static TransactionID GenTxnID();
@@ -85,12 +85,6 @@ class TransactionImpl : public TransactionBaseImpl {
 
   // Timeout in microseconds when locking a key or -1 if there is no timeout.
   int64_t lock_timeout_;
-
-  // Map from column_family_id to map of keys to Sequence Numbers.  Stores keys
-  // that have been locked.
-  // The key is known to not have been modified after the Sequence Number
-  // stored.
-  TransactionKeyMap tracked_keys_;
 
   void Clear() override;
 

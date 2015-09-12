@@ -19,6 +19,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/transaction_db.h"
 #include "rocksdb/utilities/write_batch_with_index.h"
+#include "utilities/transactions/transaction_util.h"
 
 namespace rocksdb {
 
@@ -166,7 +167,19 @@ class TransactionBaseImpl : public Transaction {
 
   uint64_t GetNumMerges() const override;
 
+  uint64_t GetNumKeys() const override;
+
+  // Get list of keys in this transaction that must not have any conflicts
+  // with writes in other transactions.
+  const TransactionKeyMap& GetTrackedKeys() const { return tracked_keys_; }
+
  protected:
+  // Add a key to the list of tracked keys.
+  // seqno is the earliest seqno this key was involved with this transaction.
+  void TrackKey(uint32_t cfh_id, const std::string& key, SequenceNumber seqno);
+
+  const TransactionKeyMap* GetTrackedKeysSinceSavePoint();
+
   DB* const db_;
 
   const WriteOptions write_options_;
@@ -194,6 +207,9 @@ class TransactionBaseImpl : public Transaction {
     uint64_t num_deletes_;
     uint64_t num_merges_;
 
+    // Record all keys tracked since the last savepoint
+    TransactionKeyMap new_keys_;
+
     SavePoint(std::shared_ptr<ManagedSnapshot> snapshot, uint64_t num_puts,
               uint64_t num_deletes, uint64_t num_merges)
         : snapshot_(snapshot),
@@ -202,11 +218,18 @@ class TransactionBaseImpl : public Transaction {
           num_merges_(num_merges) {}
   };
 
+ private:
   // Stack of the Snapshot saved at each save point.  Saved snapshots may be
   // nullptr if there was no snapshot at the time SetSavePoint() was called.
   std::unique_ptr<std::stack<TransactionBaseImpl::SavePoint>> save_points_;
 
- private:
+  // Map from column_family_id to map of keys that are involved in this
+  // transaction.
+  // Pessimistic Transactions will do conflict checking before adding a key
+  // by calling TrackKey().
+  // Optimistic Transactions will wait till commit time to do conflict checking.
+  TransactionKeyMap tracked_keys_;
+
   Status TryLock(ColumnFamilyHandle* column_family, const SliceParts& key,
                  bool untracked = false);
 };
