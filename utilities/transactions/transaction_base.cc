@@ -28,6 +28,7 @@ TransactionBaseImpl::~TransactionBaseImpl() {}
 void TransactionBaseImpl::Clear() {
   save_points_.reset(nullptr);
   write_batch_->Clear();
+  tracked_keys_.clear();
   num_puts_ = 0;
   num_deletes_ = 0;
   num_merges_ = 0;
@@ -71,11 +72,24 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     num_deletes_ = save_point.num_deletes_;
     num_merges_ = save_point.num_merges_;
 
-    save_points_->pop();
-
     // Rollback batch
     Status s = write_batch_->RollbackToSavePoint();
     assert(s.ok());
+
+    // Rollback any keys that were tracked since the last savepoint
+    auto key_map = GetTrackedKeysSinceSavePoint();
+    assert(key_map);
+    for (auto& key_map_iter : *key_map) {
+      uint32_t column_family_id = key_map_iter.first;
+      auto& keys = key_map_iter.second;
+
+      for (auto& key_iter : keys) {
+        const std::string& key = key_iter.first;
+        tracked_keys_[column_family_id].erase(key);
+      }
+    }
+
+    save_points_->pop();
 
     return s;
   } else {
@@ -305,6 +319,42 @@ uint64_t TransactionBaseImpl::GetNumPuts() const { return num_puts_; }
 uint64_t TransactionBaseImpl::GetNumDeletes() const { return num_deletes_; }
 
 uint64_t TransactionBaseImpl::GetNumMerges() const { return num_merges_; }
+
+uint64_t TransactionBaseImpl::GetNumKeys() const {
+  uint64_t count = 0;
+
+  // sum up locked keys in all column families
+  for (const auto& key_map_iter : tracked_keys_) {
+    const auto& keys = key_map_iter.second;
+    count += keys.size();
+  }
+
+  return count;
+}
+
+void TransactionBaseImpl::TrackKey(uint32_t cfh_id, const std::string& key,
+                                   SequenceNumber seq) {
+  auto iter = tracked_keys_[cfh_id].find(key);
+  if (iter == tracked_keys_[cfh_id].end()) {
+    tracked_keys_[cfh_id].insert({key, seq});
+
+    if (save_points_ != nullptr && !save_points_->empty()) {
+      // Aren't tracking this key, add it.
+      save_points_->top().new_keys_[cfh_id][key] = seq;
+    }
+  } else if (seq < iter->second) {
+    // Now tracking this key with an earlier sequence number
+    iter->second = seq;
+  }
+}
+
+const TransactionKeyMap* TransactionBaseImpl::GetTrackedKeysSinceSavePoint() {
+  if (save_points_ != nullptr && !save_points_->empty()) {
+    return &save_points_->top().new_keys_;
+  }
+
+  return nullptr;
+}
 
 }  // namespace rocksdb
 

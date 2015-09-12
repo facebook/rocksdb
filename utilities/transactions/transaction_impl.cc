@@ -58,14 +58,12 @@ TransactionImpl::TransactionImpl(TransactionDB* txn_db,
 }
 
 TransactionImpl::~TransactionImpl() {
-  txn_db_impl_->UnLock(this, &tracked_keys_);
+  txn_db_impl_->UnLock(this, &GetTrackedKeys());
 }
 
 void TransactionImpl::Clear() {
+  txn_db_impl_->UnLock(this, &GetTrackedKeys());
   TransactionBaseImpl::Clear();
-
-  txn_db_impl_->UnLock(this, &tracked_keys_);
-  tracked_keys_.clear();
 }
 
 bool TransactionImpl::IsExpired() const {
@@ -125,6 +123,16 @@ Status TransactionImpl::DoCommit(WriteBatch* batch) {
 }
 
 void TransactionImpl::Rollback() { Clear(); }
+
+Status TransactionImpl::RollbackToSavePoint() {
+  // Unlock any keys locked since last transaction
+  auto keys = GetTrackedKeysSinceSavePoint();
+  if (keys) {
+    txn_db_impl_->UnLock(this, keys);
+  }
+
+  return TransactionBaseImpl::RollbackToSavePoint();
+}
 
 // Lock all keys in this batch.
 // On success, caller should unlock keys_to_unlock
@@ -221,19 +229,16 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
   bool check_snapshot = !untracked;
 
   // lock this key if this transactions hasn't already locked it
-  auto iter = tracked_keys_[cfh_id].find(key_str);
-  if (iter == tracked_keys_[cfh_id].end()) {
+  SequenceNumber tracked_seqno = kMaxSequenceNumber;
+  auto tracked_keys = GetTrackedKeys();
+  auto iter = tracked_keys[cfh_id].find(key_str);
+  if (iter == tracked_keys[cfh_id].end()) {
     previously_locked = false;
 
     s = txn_db_impl_->TryLock(this, cfh_id, key_str);
-
-    if (s.ok()) {
-      // Record that we've locked this key
-      auto result = tracked_keys_[cfh_id].insert({key_str, kMaxSequenceNumber});
-      iter = result.first;
-    }
   } else {
     previously_locked = true;
+    tracked_seqno = iter->second;
   }
 
   if (s.ok()) {
@@ -244,17 +249,17 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
       // key has not been modified after.  This is useful if this same
       // transaction
       // later tries to lock this key again.
-      if (iter->second == kMaxSequenceNumber) {
+      if (tracked_seqno == kMaxSequenceNumber) {
         // Since we haven't checked a snapshot, we only know this key has not
         // been modified since after we locked it.
-        iter->second = db_->GetLatestSequenceNumber();
+        tracked_seqno = db_->GetLatestSequenceNumber();
       }
     } else {
       // If the key has been previous validated at a sequence number earlier
       // than the curent snapshot's sequence number, we already know it has not
       // been modified.
       SequenceNumber seq = snapshot_->snapshot()->GetSequenceNumber();
-      bool already_validated = iter->second <= seq;
+      bool already_validated = tracked_seqno <= seq;
 
       if (!already_validated) {
         s = CheckKeySequence(column_family, key);
@@ -262,17 +267,21 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
         if (s.ok()) {
           // Record that there have been no writes to this key after this
           // sequence.
-          iter->second = seq;
+          tracked_seqno = seq;
         } else {
           // Failed to validate key
           if (!previously_locked) {
             // Unlock key we just locked
             txn_db_impl_->UnLock(this, cfh_id, key.ToString());
-            tracked_keys_[cfh_id].erase(iter);
           }
         }
       }
     }
+  }
+
+  if (s.ok()) {
+    // Let base class know we've conflict checked this key.
+    TrackKey(cfh_id, key_str, tracked_seqno);
   }
 
   return s;
@@ -296,18 +305,6 @@ Status TransactionImpl::CheckKeySequence(ColumnFamilyHandle* column_family,
   }
 
   return result;
-}
-
-uint64_t TransactionImpl::GetNumKeys() const {
-  uint64_t count = 0;
-
-  // sum up locked keys in all column families
-  for (const auto& key_map_iter : tracked_keys_) {
-    const auto& keys = key_map_iter.second;
-    count += keys.size();
-  }
-
-  return count;
 }
 
 }  // namespace rocksdb

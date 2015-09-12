@@ -54,7 +54,7 @@ class TransactionDBImpl : public TransactionDB {
 
   Status TryLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key);
 
-  void UnLock(TransactionImpl* txn, TransactionKeyMap* keys);
+  void UnLock(TransactionImpl* txn, const TransactionKeyMap* keys);
   void UnLock(TransactionImpl* txn, uint32_t cfh_id, const std::string& key);
 
   void AddColumnFamily(const ColumnFamilyHandle* handle);

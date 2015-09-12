@@ -38,7 +38,6 @@ OptimisticTransactionImpl::~OptimisticTransactionImpl() {
 
 void OptimisticTransactionImpl::Clear() {
   TransactionBaseImpl::Clear();
-  tracked_keys_.clear();
 }
 
 Status OptimisticTransactionImpl::Commit() {
@@ -83,18 +82,7 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   std::string key_str = key.ToString();
 
-  auto iter = tracked_keys_[cfh_id].find(key_str);
-  if (iter == tracked_keys_[cfh_id].end()) {
-    // key not yet seen, store it.
-    tracked_keys_[cfh_id].insert({std::move(key_str), seq});
-  } else {
-    SequenceNumber old_seq = iter->second;
-    if (seq < old_seq) {
-      // Snapshot has changed since we last saw this key, need to
-      // store the earliest seen sequence number.
-      tracked_keys_[cfh_id][key_str] = seq;
-    }
-  }
+  TrackKey(cfh_id, key_str, seq);
 
   // Always return OK. Confilct checking will happen at commit time.
   return Status::OK();
@@ -113,19 +101,7 @@ Status OptimisticTransactionImpl::CheckTransactionForConflicts(DB* db) {
   assert(dynamic_cast<DBImpl*>(db) != nullptr);
   auto db_impl = reinterpret_cast<DBImpl*>(db);
 
-  return TransactionUtil::CheckKeysForConflicts(db_impl, &tracked_keys_);
-}
-
-uint64_t OptimisticTransactionImpl::GetNumKeys() const {
-  uint64_t count = 0;
-
-  // sum up locked keys in all column families
-  for (const auto& key_map_iter : tracked_keys_) {
-    const auto& keys = key_map_iter.second;
-    count += keys.size();
-  }
-
-  return count;
+  return TransactionUtil::CheckKeysForConflicts(db_impl, GetTrackedKeys());
 }
 
 }  // namespace rocksdb

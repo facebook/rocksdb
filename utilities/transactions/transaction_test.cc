@@ -1488,6 +1488,105 @@ TEST_F(TransactionTest, SavepointTest) {
   delete txn;
 }
 
+TEST_F(TransactionTest, SavepointTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  s = txn1->Put("A", "");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 1
+
+  s = txn1->Put("A", "a");
+  ASSERT_OK(s);
+
+  s = txn1->Put("C", "c");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 2
+
+  s = txn1->Put("A", "a");
+  ASSERT_OK(s);
+  s = txn1->Put("B", "b");
+  ASSERT_OK(s);
+
+  ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 2
+
+  // Verify that "A" and "C" is still locked while "B" is not
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+
+  s = txn2->Put("A", "a2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b2");
+  ASSERT_OK(s);
+
+  s = txn1->Put("A", "aa");
+  ASSERT_OK(s);
+  s = txn1->Put("B", "bb");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn1->Put("A", "aaa");
+  ASSERT_OK(s);
+  s = txn1->Put("B", "bbb");
+  ASSERT_OK(s);
+  s = txn1->Put("C", "ccc");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();                    // 3
+  ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 3
+
+  // Verify that "A", "B", "C" are still locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+
+  s = txn2->Put("A", "a2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c2");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  ASSERT_OK(txn1->RollbackToSavePoint());  // Rollback to 1
+
+  // Verify that only "A" is locked
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn2->Put("C", "c3po");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  // Verify "A" "C" "B" are no longer locked
+  s = txn2->Put("A", "a4");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b4");
+  ASSERT_OK(s);
+  s = txn2->Put("C", "c4");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+}
+
 TEST_F(TransactionTest, TimeoutTest) {
   WriteOptions write_options;
   ReadOptions read_options;
