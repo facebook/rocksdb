@@ -122,7 +122,7 @@ class WritableFileWriter {
         bytes_per_sync_(options.bytes_per_sync),
         rate_limiter_(options.rate_limiter) {
 
-    buf_.SetAlignment(writable_file_->GetRequiredBufferAlignment());
+    buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
     buf_.AllocateNewBuffer(65536);
   }
 

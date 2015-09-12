@@ -704,7 +704,7 @@ class WinRandomAccessFile : public RandomAccessFile {
 
     // Unbuffered access, use internal buffer for reads
     if (!use_os_buffer_) {
-      buffer_.SetAlignment(alignment);
+      buffer_.Alignment(alignment);
       // Random read, no need in a big buffer
       // We read things in database blocks which are likely to be similar to
       // the alignment we use.
@@ -734,7 +734,7 @@ class WinRandomAccessFile : public RandomAccessFile {
       // Let's see if at least some of the requested data is already
       // in the buffer
       if (offset >= buffered_start_ &&
-          offset < (buffered_start_ + buffer_.GetCurrentSize())) {
+          offset < (buffered_start_ + buffer_.CurrentSize())) {
         size_t buffer_offset = offset - buffered_start_;
         r = buffer_.Read(dest, buffer_offset, left);
         assert(r >= 0);
@@ -747,7 +747,7 @@ class WinRandomAccessFile : public RandomAccessFile {
       // Still some left or none was buffered
       if (left > 0) {
         // Figure out the start/end offset for reading and amount to read
-        const size_t alignment = buffer_.GetAlignment();
+        const size_t alignment = buffer_.Alignment();
         const size_t start_page_start =
             TruncateToPageBoundary(alignment, offset);
         const size_t end_page_start =
@@ -755,18 +755,18 @@ class WinRandomAccessFile : public RandomAccessFile {
         const size_t actual_bytes_toread =
             (end_page_start - start_page_start) + alignment;
 
-        if (buffer_.GetCapacity() < actual_bytes_toread) {
+        if (buffer_.Capacity() < actual_bytes_toread) {
           buffer_.AllocateNewBuffer(actual_bytes_toread);
         } else {
           buffer_.Clear();
         }
 
         SSIZE_T read = 0;
-        read = pread(hFile_, buffer_.GetDestination(), actual_bytes_toread,
+        read = pread(hFile_, buffer_.Destination(), actual_bytes_toread,
                       start_page_start);
 
         if (read > 0) {
-          buffer_.SetSize(read);
+          buffer_.Size(read);
           buffered_start_ = start_page_start;
 
           // Let's figure out how much we read from the users standpoint
@@ -797,7 +797,7 @@ class WinRandomAccessFile : public RandomAccessFile {
     return s;
   }
 
-  virtual bool ReaderWriterForward() const override {
+  virtual bool ShouldForwardRawRequest() const override {
     return true;
   }
 
@@ -880,7 +880,7 @@ class WinWritableFile : public WritableFile {
     return s;
   }
 
-  virtual Status Append(const Slice& data, uint64_t offset) override {
+  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status s;
 
     SSIZE_T ret = pwrite(hFile_, data.data(), 

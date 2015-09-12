@@ -25,7 +25,7 @@ inline size_t Roundup(size_t x, size_t y) {
 
 // This class is to manage an aligned user
 // allocated buffer for unbuffered I/O purposes
-// though it does not make a difference if you need a buffer.
+// though can be used for any purpose.
 class AlignedBuffer {
   size_t alignment_;
   std::unique_ptr<char[]> buf_;
@@ -58,19 +58,19 @@ public:
 
   AlignedBuffer& operator=(const AlignedBuffer&) = delete;
 
-  size_t GetAlignment() const {
+  size_t Alignment() const {
     return alignment_;
   }
 
-  size_t GetCapacity() const {
+  size_t Capacity() const {
     return capacity_;
   }
 
-  size_t GetCurrentSize() const {
+  size_t CurrentSize() const {
     return cursize_;
   }
 
-  const char* GetBufferStart() const {
+  const char* BufferStart() const {
     return bufstart_;
   }
 
@@ -78,7 +78,7 @@ public:
     cursize_ = 0;
   }
 
-  void SetAlignment(size_t alignment) {
+  void Alignment(size_t alignment) {
     assert(alignment > 0);
     assert((alignment & (alignment - 1)) == 0);
     alignment_ = alignment;
@@ -143,11 +143,11 @@ public:
   }
 
   // Returns place to start writing
-  char* GetDestination() {
+  char* Destination() {
     return bufstart_ + cursize_;
   }
 
-  void SetSize(size_t cursize) {
+  void Size(size_t cursize) {
     cursize_ = cursize;
   }
 };

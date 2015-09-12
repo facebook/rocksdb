@@ -20,6 +20,11 @@
 #include "util/sync_point.h"
 
 namespace rocksdb {
+
+namespace {
+  const size_t c_OneMb = (1 << 20);
+}
+
 Status SequentialFileReader::Read(size_t n, Slice* result, char* scratch) {
   Status s = file_->Read(n, result, scratch);
   IOSTATS_ADD(bytes_read, result->size());
@@ -62,26 +67,26 @@ Status WritableFileWriter::Append(const Slice& data) {
 
   // Flush only when I/O is buffered
   if (use_os_buffer_ &&
-    (buf_.GetCapacity() - buf_.GetCurrentSize()) < left) {
-    if (buf_.GetCurrentSize() > 0) {
+    (buf_.Capacity() - buf_.CurrentSize()) < left) {
+    if (buf_.CurrentSize() > 0) {
       s = Flush();
       if (!s.ok()) {
         return s;
       }
     }
 
-    if (buf_.GetCapacity() < (1 << 20)) {
-      size_t desiredCapacity = buf_.GetCapacity() * 2;
-      desiredCapacity = std::min(desiredCapacity, size_t(1 << 20));
+    if (buf_.Capacity() < c_OneMb) {
+      size_t desiredCapacity = buf_.Capacity() * 2;
+      desiredCapacity = std::min(desiredCapacity, c_OneMb);
       buf_.AllocateNewBuffer(desiredCapacity);
     }
-    assert(buf_.GetCurrentSize() == 0);
+    assert(buf_.CurrentSize() == 0);
   }
 
   // We never write directly to disk with unbuffered I/O on.
   // or we simply use it for its original purpose to accumulate many small
   // chunks
-  if (!use_os_buffer_ || (buf_.GetCapacity() >= left)) {
+  if (!use_os_buffer_ || (buf_.Capacity() >= left)) {
     while (left > 0) {
       size_t appended = buf_.Append(src, left);
       left -= appended;
@@ -96,16 +101,16 @@ Status WritableFileWriter::Append(const Slice& data) {
         // We double the buffer here because
         // Flush calls do not keep up with the incoming bytes
         // This is the only place when buffer is changed with unbuffered I/O
-        if (buf_.GetCapacity() < (1 << 20)) {
-          size_t desiredCapacity = buf_.GetCapacity() * 2;
-          desiredCapacity = std::min(desiredCapacity, size_t(1 << 20));
+        if (buf_.Capacity() < (1 << 20)) {
+          size_t desiredCapacity = buf_.Capacity() * 2;
+          desiredCapacity = std::min(desiredCapacity, c_OneMb);
           buf_.AllocateNewBuffer(desiredCapacity);
         }
       }
     }
   } else {
     // Writing directly to file bypassing the buffer
-    assert(buf_.GetCurrentSize() == 0);
+    assert(buf_.CurrentSize() == 0);
     s = WriteBuffered(src, left);
   }
 
@@ -153,9 +158,9 @@ Status WritableFileWriter::Flush() {
   Status s;
   TEST_KILL_RANDOM(rocksdb_kill_odds * REDUCE_ODDS2);
 
-  if (buf_.GetCurrentSize() > 0) {
+  if (buf_.CurrentSize() > 0) {
     if (use_os_buffer_) {
-      s = WriteBuffered(buf_.GetBufferStart(), buf_.GetCurrentSize());
+      s = WriteBuffered(buf_.BufferStart(), buf_.CurrentSize());
     } else {
       s = WriteUnbuffered();
     }
@@ -260,7 +265,7 @@ size_t WritableFileWriter::RequestToken(size_t bytes, bool align) {
       // Here we may actually require more than burst and block
       // but we can not write less than one page at a time on unbuffered
       // thus we may want not to use ratelimiter s
-      size_t alignment = buf_.GetAlignment();
+      size_t alignment = buf_.Alignment();
       bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
     }
     rate_limiter_->Request(bytes, io_priority);
@@ -294,7 +299,7 @@ Status WritableFileWriter::WriteBuffered(const char* data, size_t size) {
     left -= allowed;
     src += allowed;
   }
-  buf_.SetSize(0);
+  buf_.Size(0);
   return s;
 }
 
@@ -311,25 +316,25 @@ Status WritableFileWriter::WriteUnbuffered() {
   Status s;
 
   assert(!use_os_buffer_);
-  const size_t alignment = buf_.GetAlignment();
+  const size_t alignment = buf_.Alignment();
   assert((next_write_offset_ % alignment) == 0);
 
   // Calculate whole page final file advance if all writes succeed
   size_t file_advance =
-    TruncateToPageBoundary(alignment, buf_.GetCurrentSize());
+    TruncateToPageBoundary(alignment, buf_.CurrentSize());
 
   // Calculate the leftover tail, we write it here padded with zeros BUT we
   // will write
   // it again in the future either on Close() OR when the current whole page
   // fills out
-  size_t leftover_tail = buf_.GetCurrentSize() - file_advance;
+  size_t leftover_tail = buf_.CurrentSize() - file_advance;
 
   // Round up and pad
   buf_.PadToAlignmentWith(0);
 
-  const char* src = buf_.GetBufferStart();
+  const char* src = buf_.BufferStart();
   uint64_t write_offset = next_write_offset_;
-  size_t left = buf_.GetCurrentSize();
+  size_t left = buf_.CurrentSize();
 
   while (left > 0) {
     // Check how much is allowed
@@ -339,9 +344,9 @@ Status WritableFileWriter::WriteUnbuffered() {
       IOSTATS_TIMER_GUARD(write_nanos);
       TEST_SYNC_POINT("WritableFileWriter::Flush:BeforeAppend");
       // Unbuffered writes must be positional
-      s = writable_file_->Append(Slice(src, size), write_offset);
+      s = writable_file_->PositionedAppend(Slice(src, size), write_offset);
       if (!s.ok()) {
-        buf_.SetSize(file_advance + leftover_tail);
+        buf_.Size(file_advance + leftover_tail);
         return s;
       }
     }
@@ -375,7 +380,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
      size_t readahead_size)
      : file_(std::move(file)),
        readahead_size_(readahead_size),
-       forward_calls_(file_->ReaderWriterForward()),
+       forward_calls_(file_->ShouldForwardRawRequest()),
        buffer_(new char[readahead_size_]),
        buffer_offset_(0),
        buffer_len_(0) {}
@@ -404,7 +409,7 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
     // if offset between [buffer_offset_, buffer_offset_ + buffer_len>
     if (offset >= buffer_offset_ && offset < buffer_len_ + buffer_offset_) {
       uint64_t offset_in_buffer = offset - buffer_offset_;
-      copied = std::min(static_cast<uint64_t>(buffer_len_)-offset_in_buffer,
+      copied = std::min(static_cast<uint64_t>(buffer_len_) - offset_in_buffer,
         static_cast<uint64_t>(n));
       memcpy(scratch, buffer_.get() + offset_in_buffer, copied);
       if (copied == n) {
@@ -458,8 +463,9 @@ class ReadaheadRandomAccessFile : public RandomAccessFile {
 
 std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
     std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size) {
-  return std::make_unique<ReadaheadRandomAccessFile> (
-     std::move(file), readahead_size);
+  std::unique_ptr<RandomAccessFile> result(
+    new ReadaheadRandomAccessFile(std::move(file), readahead_size));
+  return result;
 }
 
 }  // namespace rocksdb

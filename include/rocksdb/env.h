@@ -395,7 +395,7 @@ class RandomAccessFile {
 
   // Used by the file_reader_writer to decide if the ReadAhead wrapper
   // should simply forward the call and do not enact buffering or locking.
-  virtual bool ReaderWriterForward() const {
+  virtual bool ShouldForwardRawRequest() const {
     return false;
   }
 
@@ -448,18 +448,20 @@ class WritableFile {
     return true;
   }
 
+  const size_t c_DefaultPageSize = 4 * 1024;
+
   // This is needed when you want to allocate
   // AlignedBuffer for use with file I/O classes
   // Used for unbuffered file I/O when UseOSBuffer() returns false
   virtual size_t GetRequiredBufferAlignment() const {
-    return 4 * 1024;
+    return c_DefaultPageSize;
   }
 
   virtual Status Append(const Slice& data) = 0;
 
-  // Positional write for unbuffered access default forward
+  // Positioned write for unbuffered access default forward
   // to simple append as most of the tests are buffered by default
-  virtual Status Append(const Slice& /* data */, uint64_t /* offset */) {
+  virtual Status PositionedAppend(const Slice& /* data */, uint64_t /* offset */) {
     return Status::NotSupported();
   }
 
@@ -467,7 +469,9 @@ class WritableFile {
   // before closing. It is not always possible to keep track of the file
   // size due to whole pages writes. The behavior is undefined if called
   // with other writes to follow.
-  virtual Status Truncate(uint64_t size) = 0;
+  virtual Status Truncate(uint64_t size) {
+    return Status::OK();
+  }
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0; // sync data
@@ -868,6 +872,9 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) { }
 
   Status Append(const Slice& data) override { return target_->Append(data); }
+  Status PositionedAppend(const Slice& data, uint64_t offset) override {
+    return target_->PositionedAppend(data, offset);
+  }
   Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }
   Status Flush() override { return target_->Flush(); }
