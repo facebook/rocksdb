@@ -1029,6 +1029,14 @@ int main(int argc, char** argv) {
   return RUN_ALL_TESTS();
 }
 
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED, not supported in ROCKSDB_LITE\n");
+  return 0;
+}
+
 #endif  // !ROCKSDB_LITE
 
 #else
