@@ -213,7 +213,7 @@ EOF
     fi
 
     # Test whether gflags library is installed
-    # http://code.google.com/p/gflags/
+    # http://gflags.github.io/gflags/
     # check if the namespace is gflags
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
       #include <gflags/gflags.h>
