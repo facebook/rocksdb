@@ -898,6 +898,7 @@ class ReportFileOpEnv : public EnvWrapper {
         return rv;
       }
 
+      Status Truncate(uint64_t size) override { return target_->Truncate(size); }
       Status Close() override { return target_->Close(); }
       Status Flush() override { return target_->Flush(); }
       Status Sync() override { return target_->Sync(); }

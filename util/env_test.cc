@@ -989,6 +989,7 @@ TEST_F(EnvPosixTest, WritableFileWrapper) {
     }
 
     Status Append(const Slice& data) override { inc(1); return Status::OK(); }
+    Status Truncate(uint64_t size) override { return Status::OK(); }
     Status Close() override { inc(2); return Status::OK(); }
     Status Flush() override { inc(3); return Status::OK(); }
     Status Sync() override { inc(4); return Status::OK(); }

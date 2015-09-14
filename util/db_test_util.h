@@ -148,6 +148,9 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status Truncate(uint64_t size) override {
+        return base_->Truncate(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -185,6 +188,7 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
@@ -225,6 +229,7 @@ class SpecialEnv : public EnvWrapper {
 #endif
         return s;
       }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
