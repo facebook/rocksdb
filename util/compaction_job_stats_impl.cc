@@ -73,6 +73,8 @@ void CompactionJobStats::Add(const CompactionJobStats& stats) {
 
 void CompactionJobStats::Reset() {}
 
+void CompactionJobStats::Add(const CompactionJobStats& stats) {}
+
 #endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
