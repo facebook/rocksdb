@@ -110,6 +110,11 @@ class CompactionPicker {
   // overlapping.
   bool IsInputNonOverlapping(Compaction* c);
 
+  // Is there currently a compaction involving level 0 taking place
+  bool IsLevel0CompactionInProgress() const {
+    return !level0_compactions_in_progress_.empty();
+  }
+
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }
 

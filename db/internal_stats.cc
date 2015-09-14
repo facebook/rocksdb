@@ -669,12 +669,11 @@ void InternalStats::DumpCFStats(std::string* value) {
     total_files += files;
     total_files_being_compacted += files_being_compacted[level];
     if (comp_stats_[level].micros > 0 || files > 0) {
-      uint64_t stalls = level == 0 ?
-        (cf_stats_count_[LEVEL0_SLOWDOWN] +
-         cf_stats_count_[LEVEL0_NUM_FILES] +
-         cf_stats_count_[MEMTABLE_COMPACTION])
-        : (stall_leveln_slowdown_count_soft_[level] +
-           stall_leveln_slowdown_count_hard_[level]);
+      uint64_t stalls = level == 0 ? (cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL] +
+                                      cf_stats_count_[LEVEL0_NUM_FILES_TOTAL] +
+                                      cf_stats_count_[MEMTABLE_COMPACTION])
+                                   : (stall_leveln_slowdown_count_soft_[level] +
+                                      stall_leveln_slowdown_count_hard_[level]);
 
       stats_sum.Add(comp_stats_[level]);
       total_file_size += vstorage->NumLevelBytes(level);
@@ -718,11 +717,16 @@ void InternalStats::DumpCFStats(std::string* value) {
 
   snprintf(buf, sizeof(buf),
            "Stalls(count): %" PRIu64 " level0_slowdown, "
-           "%" PRIu64 " level0_numfiles, %" PRIu64 " memtable_compaction, "
+           "%" PRIu64 " level0_slowdown_with_compaction, "
+           "%" PRIu64 " level0_numfiles, "
+           "%" PRIu64 " level0_numfiles_with_compaction, "
+           "%" PRIu64 " memtable_compaction, "
            "%" PRIu64 " leveln_slowdown_soft, "
            "%" PRIu64 " leveln_slowdown_hard\n",
-           cf_stats_count_[LEVEL0_SLOWDOWN],
-           cf_stats_count_[LEVEL0_NUM_FILES],
+           cf_stats_count_[LEVEL0_SLOWDOWN_TOTAL],
+           cf_stats_count_[LEVEL0_SLOWDOWN_WITH_COMPACTION],
+           cf_stats_count_[LEVEL0_NUM_FILES_TOTAL],
+           cf_stats_count_[LEVEL0_NUM_FILES_WITH_COMPACTION],
            cf_stats_count_[MEMTABLE_COMPACTION],
            total_slowdown_count_soft, total_slowdown_count_hard);
   value->append(buf);

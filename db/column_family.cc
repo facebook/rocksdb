@@ -446,7 +446,11 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     } else if (vstorage->l0_delay_trigger_count() >=
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES_TOTAL, 1);
+      if (compaction_picker_->IsLevel0CompactionInProgress()) {
+        internal_stats_->AddCFStats(
+            InternalStats::LEVEL0_NUM_FILES_WITH_COMPACTION, 1);
+      }
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());
@@ -454,7 +458,11 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
       write_controller_token_ = write_controller->GetDelayToken();
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, 1);
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN_TOTAL, 1);
+      if (compaction_picker_->IsLevel0CompactionInProgress()) {
+        internal_stats_->AddCFStats(
+            InternalStats::LEVEL0_SLOWDOWN_WITH_COMPACTION, 1);
+      }
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());

@@ -271,6 +271,8 @@ enum Histograms : uint32_t {
   DB_SEEK,
   WRITE_STALL,
   SST_READ_MICROS,
+  // The number of subcompactions actually scheduled during a compaction
+  NUM_SUBCOMPACTIONS_SCHEDULED,
   HISTOGRAM_ENUM_MAX,  // TODO(ldemailly): enforce HistogramsNameMap match
 };
 
@@ -297,6 +299,7 @@ const std::vector<std::pair<Histograms, std::string>> HistogramsNameMap = {
     {DB_SEEK, "rocksdb.db.seek.micros"},
     {WRITE_STALL, "rocksdb.db.write.stall"},
     {SST_READ_MICROS, "rocksdb.sst.read.micros"},
+    {NUM_SUBCOMPACTIONS_SCHEDULED, "rocksdb.num.subcompactions.scheduled"},
 };
 
 struct HistogramData {

@@ -316,6 +316,8 @@ void CompactionJob::Prepare() {
       Slice* end = i == boundaries_.size() ? nullptr : &boundaries_[i];
       compact_->sub_compact_states.emplace_back(c, start, end, sizes_[i]);
     }
+    MeasureTime(stats_, NUM_SUBCOMPACTIONS_SCHEDULED,
+                compact_->sub_compact_states.size());
   } else {
     compact_->sub_compact_states.emplace_back(c, nullptr, nullptr);
   }
