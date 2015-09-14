@@ -2002,6 +2002,7 @@ Status DBImpl::SyncWAL() {
     need_log_dir_sync = !log_dir_synced_;
   }
 
+  RecordTick(stats_, WAL_FILE_SYNCED);
   Status status;
   for (log::Writer* log : logs_to_sync) {
     status = log->file()->SyncWithoutFlush(db_options_.use_fsync);
