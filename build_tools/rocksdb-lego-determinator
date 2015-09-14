@@ -149,7 +149,6 @@ STRESS_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb Stress/Crash Test',
         $ONCALL,
-        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
@@ -159,6 +158,7 @@ STRESS_CRASH_TEST_COMMANDS="[
             },
             {
                 'name':'Build and run RocksDB debug crash tests',
+                'timeout': 86400,
                 'shell':'$SHM $DEBUG make J=1 crash_test',
                 'user':'root'
             }
@@ -194,11 +194,11 @@ ASAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb crash test under ASAN',
         $ONCALL,
-        'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
             {
                 'name':'Build and run RocksDB debug asan_crash_test',
+                'timeout': 86400,
                 'shell':'$SHM $DEBUG make J=1 asan_crash_test',
                 'user':'root'
             },
