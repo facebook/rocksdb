@@ -102,6 +102,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       source_compaction_factor(1),
       max_grandparent_overlap_factor(10),
       soft_rate_limit(0.0),
+      hard_rate_limit(0.0),
       hard_pending_compaction_bytes_limit(0),
       rate_limit_delay_max_milliseconds(1000),
       arena_block_size(0),
