@@ -19,6 +19,7 @@
 #include "util/arena.h"
 #include "util/heap.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 #include "util/perf_context_imp.h"
 #include "util/autovector.h"
 
@@ -130,8 +131,7 @@ class MergingIterator : public Iterator {
       for (auto& child : children_) {
         if (&child != current_) {
           child.Seek(key());
-          if (child.Valid() &&
-              comparator_->Compare(key(), child.key()) == 0) {
+          if (child.Valid() && comparator_->Equal(key(), child.key())) {
             child.Next();
           }
         }
@@ -179,9 +179,11 @@ class MergingIterator : public Iterator {
           child.Seek(key());
           if (child.Valid()) {
             // Child is at first entry >= key().  Step back one to be < key()
+            TEST_SYNC_POINT_CALLBACK("MergeIterator::Prev:BeforePrev", &child);
             child.Prev();
           } else {
             // Child has no entries >= key().  Position at last entry.
+            TEST_SYNC_POINT("MergeIterator::Prev:BeforeSeekToLast");
             child.SeekToLast();
           }
         }

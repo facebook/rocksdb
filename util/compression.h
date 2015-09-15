@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <string>
 
 #include "rocksdb/options.h"
 #include "util/coding.h"
@@ -30,6 +31,10 @@
 #if defined(LZ4)
 #include <lz4.h>
 #include <lz4hc.h>
+#endif
+
+#if defined(ZSTD)
+#include <zstd.h>
 #endif
 
 namespace rocksdb {
@@ -62,6 +67,13 @@ inline bool LZ4_Supported() {
   return false;
 }
 
+inline bool ZSTD_Supported() {
+#ifdef ZSTD
+  return true;
+#endif
+  return false;
+}
+
 inline bool CompressionTypeSupported(CompressionType compression_type) {
   switch (compression_type) {
     case kNoCompression:
@@ -76,6 +88,8 @@ inline bool CompressionTypeSupported(CompressionType compression_type) {
       return LZ4_Supported();
     case kLZ4HCCompression:
       return LZ4_Supported();
+    case kZSTDNotFinalCompression:
+      return ZSTD_Supported();
     default:
       assert(false);
       return false;
@@ -96,6 +110,8 @@ inline std::string CompressionTypeToString(CompressionType compression_type) {
       return "LZ4";
     case kLZ4HCCompression:
       return "LZ4HC";
+    case kZSTDNotFinalCompression:
+      return "ZSTD";
     default:
       assert(false);
       return "";
@@ -588,6 +604,49 @@ inline bool LZ4HC_Compress(const CompressionOptions& opts,
   return true;
 #endif
   return false;
+}
+
+inline bool ZSTD_Compress(const CompressionOptions& opts, const char* input,
+                          size_t length, ::std::string* output) {
+#ifdef ZSTD
+  if (length > std::numeric_limits<uint32_t>::max()) {
+    // Can't compress more than 4GB
+    return false;
+  }
+
+  size_t output_header_len = compression::PutDecompressedSizeInfo(
+      output, static_cast<uint32_t>(length));
+
+  size_t compressBound = ZSTD_compressBound(length);
+  output->resize(static_cast<size_t>(output_header_len + compressBound));
+  size_t outlen = ZSTD_compress(&(*output)[output_header_len], compressBound,
+                                input, length);
+  if (outlen == 0) {
+    return false;
+  }
+  output->resize(output_header_len + outlen);
+  return true;
+#endif
+  return false;
+}
+
+inline char* ZSTD_Uncompress(const char* input_data, size_t input_length,
+                             int* decompress_size) {
+#ifdef ZSTD
+  uint32_t output_len = 0;
+  if (!compression::GetDecompressedSizeInfo(&input_data, &input_length,
+                                            &output_len)) {
+    return nullptr;
+  }
+
+  char* output = new char[output_len];
+  size_t actual_output_length =
+      ZSTD_decompress(output, output_len, input_data, input_length);
+  assert(actual_output_length == output_len);
+  *decompress_size = static_cast<int>(actual_output_length);
+  return output;
+#endif
+  return nullptr;
 }
 
 }  // namespace rocksdb

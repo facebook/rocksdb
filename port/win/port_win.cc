@@ -88,13 +88,16 @@ bool CondVar::TimedWait(uint64_t abs_time_us) {
 
   using namespace std::chrono;
 
+  // MSVC++ library implements wait_until in terms of wait_for so
+  // there is not an absolute wait anyway.
   microseconds usAbsTime(abs_time_us);
+
   microseconds usNow(
       duration_cast<microseconds>(system_clock::now().time_since_epoch()));
   microseconds relTimeUs =
       (usAbsTime > usNow) ? (usAbsTime - usNow) : microseconds::zero();
 
-  std::_Cv_status cvStatus = cv_.wait_for(mu_->getLock(), relTimeUs);
+  std::cv_status cvStatus = cv_.wait_for(mu_->getLock(), relTimeUs);
 
 #ifndef NDEBUG
   mu_->locked_ = true;
@@ -233,6 +236,7 @@ void Crash(const std::string& srcfile, int srcline) {
   abort();
 }
 
+int GetMaxOpenFiles() { return -1; }
 
 }  // namespace port
 }  // namespace rocksdb

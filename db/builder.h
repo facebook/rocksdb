@@ -30,6 +30,7 @@ class TableCache;
 class VersionEdit;
 class TableBuilder;
 class WritableFileWriter;
+class InternalStats;
 
 TableBuilder* NewTableBuilder(
     const ImmutableCFOptions& options,
@@ -51,10 +52,9 @@ extern Status BuildTable(
     FileMetaData* meta, const InternalKeyComparator& internal_comparator,
     const std::vector<std::unique_ptr<IntTblPropCollectorFactory>>*
         int_tbl_prop_collector_factories,
-    const SequenceNumber newest_snapshot,
-    const SequenceNumber earliest_seqno_in_memtable,
-    const CompressionType compression,
+    std::vector<SequenceNumber> snapshots, const CompressionType compression,
     const CompressionOptions& compression_opts, bool paranoid_file_checks,
+    InternalStats* internal_stats,
     const Env::IOPriority io_priority = Env::IO_HIGH,
     TableProperties* table_properties = nullptr);
 

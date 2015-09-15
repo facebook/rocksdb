@@ -12,6 +12,7 @@
 // which is a pity, it is a good test
 #if !(defined NDEBUG) || !defined(OS_WIN)
 
+#include "db/forward_iterator.h"
 #include "port/stack_trace.h"
 #include "util/db_test_util.h"
 
@@ -68,6 +69,7 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
   read_options.tailing = true;
 
   std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
   std::string value(1024, 'a');
 
   const int num_records = 1000;
@@ -88,7 +90,140 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToNext) {
     iter->Seek(target);
     ASSERT_TRUE(iter->Valid());
     ASSERT_EQ(iter->key().compare(key), 0);
+    if (i == 1) {
+      itern->SeekToFirst();
+    } else {
+      itern->Next();
+    }
+    ASSERT_TRUE(itern->Valid());
+    ASSERT_EQ(itern->key().compare(key), 0);
   }
+  rocksdb::SyncPoint::GetInstance()->ClearAllCallBacks();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+  for (int i = 2 * num_records; i > 0; --i) {
+    char buf1[32];
+    char buf2[32];
+    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+
+    Slice key(buf1, 20);
+    ASSERT_OK(Put(1, key, value));
+
+    if (i % 100 == 99) {
+      ASSERT_OK(Flush(1));
+    }
+
+    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+    Slice target(buf2, 20);
+    iter->Seek(target);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+  }
+}
+
+TEST_F(DBTestTailingIterator, TailingIteratorTrimSeekToNext) {
+  const uint64_t k150KB = 150 * 1024;
+  Options options;
+  options.write_buffer_size = k150KB;
+  options.max_write_buffer_number = 3;
+  options.min_write_buffer_number_to_merge = 2;
+  CreateAndReopenWithCF({"pikachu"}, options);
+  ReadOptions read_options;
+  read_options.tailing = true;
+  int num_iters, deleted_iters;
+
+  char bufe[32];
+  snprintf(bufe, sizeof(bufe), "00b0%016d", 0);
+  Slice keyu(bufe, 20);
+  read_options.iterate_upper_bound = &keyu;
+  std::unique_ptr<Iterator> iter(db_->NewIterator(read_options, handles_[1]));
+  std::unique_ptr<Iterator> itern(db_->NewIterator(read_options, handles_[1]));
+  std::unique_ptr<Iterator> iterh(db_->NewIterator(read_options, handles_[1]));
+  std::string value(1024, 'a');
+  bool file_iters_deleted = false;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::SeekInternal:Return", [&](void* arg) {
+        ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+        ASSERT_TRUE(!file_iters_deleted ||
+                    fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
+      });
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::Next:Return", [&](void* arg) {
+        ForwardIterator* fiter = reinterpret_cast<ForwardIterator*>(arg);
+        ASSERT_TRUE(!file_iters_deleted ||
+                    fiter->TEST_CheckDeletedIters(&deleted_iters, &num_iters));
+      });
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  const int num_records = 1000;
+  for (int i = 1; i < num_records; ++i) {
+    char buf1[32];
+    char buf2[32];
+    char buf3[32];
+    char buf4[32];
+    snprintf(buf1, sizeof(buf1), "00a0%016d", i * 5);
+    snprintf(buf3, sizeof(buf1), "00b0%016d", i * 5);
+
+    Slice key(buf1, 20);
+    ASSERT_OK(Put(1, key, value));
+    Slice keyn(buf3, 20);
+    ASSERT_OK(Put(1, keyn, value));
+
+    if (i % 100 == 99) {
+      ASSERT_OK(Flush(1));
+      dbfull()->TEST_WaitForCompact();
+      if (i == 299) {
+        file_iters_deleted = true;
+      }
+      snprintf(buf4, sizeof(buf1), "00a0%016d", i * 5 / 2);
+      Slice target(buf4, 20);
+      iterh->Seek(target);
+      ASSERT_TRUE(iter->Valid());
+      for (int j = (i + 1) * 5 / 2; j < i * 5; j += 5) {
+        iterh->Next();
+        ASSERT_TRUE(iterh->Valid());
+      }
+      if (i == 299) {
+        file_iters_deleted = false;
+      }
+    }
+
+    file_iters_deleted = true;
+    snprintf(buf2, sizeof(buf2), "00a0%016d", i * 5 - 2);
+    Slice target(buf2, 20);
+    iter->Seek(target);
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(iter->key().compare(key), 0);
+    ASSERT_LE(num_iters, 1);
+    if (i == 1) {
+      itern->SeekToFirst();
+    } else {
+      itern->Next();
+    }
+    ASSERT_TRUE(itern->Valid());
+    ASSERT_EQ(itern->key().compare(key), 0);
+    ASSERT_LE(num_iters, 1);
+    file_iters_deleted = false;
+  }
+  iter = 0;
+  itern = 0;
+  iterh = 0;
+  BlockBasedTableOptions table_options;
+  table_options.no_block_cache = true;
+  table_options.block_cache_compressed = nullptr;
+  options.table_factory.reset(NewBlockBasedTableFactory(table_options));
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  read_options.read_tier = kBlockCacheTier;
+  std::unique_ptr<Iterator> iteri(db_->NewIterator(read_options, handles_[1]));
+  char buf5[32];
+  snprintf(buf5, sizeof(buf5), "00a0%016d", (num_records / 2) * 5 - 2);
+  Slice target1(buf5, 20);
+  iteri->Seek(target1);
+  ASSERT_TRUE(iteri->status().IsIncomplete());
+  iteri = 0;
+
+  read_options.read_tier = kReadAllTier;
+  options.table_factory.reset(NewBlockBasedTableFactory());
+  ReopenWithColumnFamilies({"default", "pikachu"}, options);
+  iter.reset(db_->NewIterator(read_options, handles_[1]));
   for (int i = 2 * num_records; i > 0; --i) {
     char buf1[32];
     char buf2[32];
@@ -238,6 +373,49 @@ TEST_F(DBTestTailingIterator, TailingIteratorSeekToSame) {
   iter->Seek(found);
   ASSERT_TRUE(iter->Valid());
   ASSERT_EQ(found, iter->key().ToString());
+}
+
+// Sets iterate_upper_bound and verifies that ForwardIterator doesn't call
+// Seek() on immutable iterators when target key is >= prev_key and all
+// iterators, including the memtable iterator, are over the upper bound.
+TEST_F(DBTestTailingIterator, TailingIteratorUpperBound) {
+  CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+
+  const Slice upper_bound("20", 3);
+  ReadOptions read_options;
+  read_options.tailing = true;
+  read_options.iterate_upper_bound = &upper_bound;
+
+  ASSERT_OK(Put(1, "11", "11"));
+  ASSERT_OK(Put(1, "12", "12"));
+  ASSERT_OK(Put(1, "22", "22"));
+  ASSERT_OK(Flush(1));  // flush all those keys to an immutable SST file
+
+  // Add another key to the memtable.
+  ASSERT_OK(Put(1, "21", "21"));
+
+  std::unique_ptr<Iterator> it(db_->NewIterator(read_options, handles_[1]));
+  it->Seek("12");
+  ASSERT_TRUE(it->Valid());
+  ASSERT_EQ("12", it->key().ToString());
+
+  it->Next();
+  // Not valid since "21" is over the upper bound.
+  ASSERT_FALSE(it->Valid());
+
+  // This keeps track of the number of times NeedToSeekImmutable() was true.
+  int immutable_seeks = 0;
+  rocksdb::SyncPoint::GetInstance()->SetCallBack(
+      "ForwardIterator::SeekInternal:Immutable",
+      [&](void* arg) { ++immutable_seeks; });
+
+  // Seek to 13. This should not require any immutable seeks.
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  it->Seek("13");
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
+
+  ASSERT_FALSE(it->Valid());
+  ASSERT_EQ(0, immutable_seeks);
 }
 
 TEST_F(DBTestTailingIterator, ManagedTailingIteratorSingle) {

@@ -304,7 +304,8 @@ TESTS = \
 	write_callback_test \
 	heap_test \
 	compact_on_deletion_collector_test \
-	compaction_job_stats_test
+	compaction_job_stats_test \
+	transaction_test
 
 SUBSET :=  $(shell echo $(TESTS) |sed s/^.*$(ROCKSDBTESTS_START)/$(ROCKSDBTESTS_START)/)
 
@@ -376,20 +377,23 @@ endif  # PLATFORM_SHARED_EXT
 .PHONY: blackbox_crash_test check clean coverage crash_test ldb_tests package \
 	release tags valgrind_check whitebox_crash_test format static_lib shared_lib all \
 	dbg rocksdbjavastatic rocksdbjava install install-static install-shared uninstall \
-	analyze
+	analyze tools
 
-all: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
+
+all: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 static_lib: $(LIBRARY)
 
 shared_lib: $(SHARED)
 
-dbg: $(LIBRARY) $(BENCHMARKS) $(TOOLS) $(TESTS)
+tools: $(TOOLS)
+
+dbg: $(LIBRARY) $(BENCHMARKS) tools $(TESTS)
 
 # creates static library and programs
 release:
 	$(MAKE) clean
-	OPT="-DNDEBUG -O2" $(MAKE) static_lib $(TOOLS) db_bench
+	OPT="-DNDEBUG -O2" $(MAKE) static_lib tools db_bench
 
 coverage:
 	$(MAKE) clean
@@ -919,6 +923,9 @@ write_callback_test: db/write_callback_test.o $(LIBOBJECTS) $(TESTHARNESS)
 heap_test: util/heap_test.o $(GTEST)
 	$(AM_LINK)
 
+transaction_test: utilities/transactions/transaction_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
 sst_dump: tools/sst_dump.o $(LIBOBJECTS)
 	$(AM_LINK)
 
@@ -995,7 +1002,7 @@ libbz2.a:
 	-rm -rf bzip2-1.0.6
 	curl -O  http://www.bzip.org/1.0.6/bzip2-1.0.6.tar.gz
 	tar xvzf bzip2-1.0.6.tar.gz
-	cd bzip2-1.0.6 && make CFLAGS='-fPIC -Wall -Winline -O2 -g -D_FILE_OFFSET_BITS=64'
+	cd bzip2-1.0.6 && make CFLAGS='-fPIC -O2 -g -D_FILE_OFFSET_BITS=64'
 	cp bzip2-1.0.6/libbz2.a .
 
 libsnappy.a:
@@ -1039,7 +1046,7 @@ rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
 rocksdbjavastaticrelease: rocksdbjavastatic
 	cd java/crossbuild && vagrant destroy -f && vagrant up linux32 && vagrant halt linux32 && vagrant up linux64 && vagrant halt linux64
 	cd java;jar -cf target/$(ROCKSDB_JAR_ALL) HISTORY*.md
-	cd java/target;jar -uf $(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
+	cd java;jar -uf target/$(ROCKSDB_JAR_ALL) librocksdbjni-*.so librocksdbjni-*.jnilib
 	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR_ALL) org/rocksdb/*.class org/rocksdb/util/*.class
 
 rocksdbjavastaticpublish: rocksdbjavastaticrelease

@@ -62,7 +62,7 @@ duration=${NSECONDS:-$((60 * 60))}
 nps=${RANGE_LIMIT:-10}
 vs=${VAL_SIZE:-400}
 cs=${CACHE_BYTES:-$(( 1 * G ))}
-bs=${BLOCK_LENGTH:-4096}
+bs=${BLOCK_LENGTH:-8192}
 
 # If no command line arguments then run for 24 threads.
 if [[ $# -eq 0 ]]; then
@@ -193,15 +193,15 @@ for num_thr in "${nthreads[@]}" ; do
 
   # Test 11: random read while writing
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
-    ./tools/benchmark.sh readwhilewriting
+    DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh readwhilewriting
 
   # Test 12: range scan while writing
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
-    NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh fwdrangewhilewriting
+    DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh fwdrangewhilewriting
 
   # Test 13: reverse range scan while writing
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
-    NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilewriting
+    DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilewriting
 done
 
 ###### Merge tests
@@ -216,15 +216,15 @@ for num_thr in "${nthreads[@]}" ; do
 
   # Test 16: random read while merging 
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
-    ./tools/benchmark.sh readwhilemerging
+    DB_BENCH_NO_SYNC=1 ./tools/benchmark.sh readwhilemerging
 
   # Test 17: range scan while merging 
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
-    NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh fwdrangewhilemerging
+    DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh fwdrangewhilemerging
 
   # Test 18: reverse range scan while merging 
   env $ARGS DURATION=$duration NUM_THREADS=$num_thr WRITES_PER_SECOND=$wps \
-    NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilemerging
+    DB_BENCH_NO_SYNC=1 NUM_NEXTS_PER_SEEK=$nps ./tools/benchmark.sh revrangewhilemerging
 done
 
 echo bulkload > $output_dir/report2.txt

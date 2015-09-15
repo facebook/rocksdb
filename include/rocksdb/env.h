@@ -40,7 +40,6 @@ class RandomAccessFile;
 class SequentialFile;
 class Slice;
 class WritableFile;
-class RandomRWFile;
 class Directory;
 struct DBOptions;
 class RateLimiter;
@@ -135,15 +134,6 @@ class Env {
   // The returned file will only be accessed by one thread at a time.
   virtual Status NewWritableFile(const std::string& fname,
                                  unique_ptr<WritableFile>* result,
-                                 const EnvOptions& options) = 0;
-
-  // Create an object that both reads and writes to a file on
-  // specified offsets (random access). If file already exists,
-  // does not overwrite it. On success, stores a pointer to the
-  // new file in *result and returns OK. On failure stores nullptr
-  // in *result and returns non-OK.
-  virtual Status NewRandomRWFile(const std::string& fname,
-                                 unique_ptr<RandomRWFile>* result,
                                  const EnvOptions& options) = 0;
 
   // Create an object that represents a directory. Will fail if directory
@@ -267,6 +257,8 @@ class Env {
 
   // Returns the number of micro-seconds since some fixed point in time. Only
   // useful for computing deltas of time.
+  // However, it is often used as system time such as in GenericRateLimiter
+  // and other places so a port needs to return system time in order to work.
   virtual uint64_t NowMicros() = 0;
 
   // Returns the number of nano-seconds since some fixed point in time. Only
@@ -401,6 +393,12 @@ class RandomAccessFile {
   virtual Status Read(uint64_t offset, size_t n, Slice* result,
                       char* scratch) const = 0;
 
+  // Used by the file_reader_writer to decide if the ReadAhead wrapper
+  // should simply forward the call and do not enact buffering or locking.
+  virtual bool ShouldForwardRawRequest() const {
+    return false;
+  }
+
   // Tries to get an unique ID for this file that will be the same each time
   // the file is opened (and will stay the same while the file is open).
   // Furthermore, it tries to make this ID at most "max_size" bytes. If such an
@@ -420,7 +418,6 @@ class RandomAccessFile {
     return 0; // Default implementation to prevent issues with backwards
               // compatibility.
   };
-
 
   enum AccessPattern { NORMAL, RANDOM, SEQUENTIAL, WILLNEED, DONTNEED };
 
@@ -446,7 +443,35 @@ class WritableFile {
   }
   virtual ~WritableFile();
 
+  // Indicates if the class makes use of unbuffered I/O
+  virtual bool UseOSBuffer() const {
+    return true;
+  }
+
+  const size_t c_DefaultPageSize = 4 * 1024;
+
+  // This is needed when you want to allocate
+  // AlignedBuffer for use with file I/O classes
+  // Used for unbuffered file I/O when UseOSBuffer() returns false
+  virtual size_t GetRequiredBufferAlignment() const {
+    return c_DefaultPageSize;
+  }
+
   virtual Status Append(const Slice& data) = 0;
+
+  // Positioned write for unbuffered access default forward
+  // to simple append as most of the tests are buffered by default
+  virtual Status PositionedAppend(const Slice& /* data */, uint64_t /* offset */) {
+    return Status::NotSupported();
+  }
+
+  // Truncate is necessary to trim the file to the correct size
+  // before closing. It is not always possible to keep track of the file
+  // size due to whole pages writes. The behavior is undefined if called
+  // with other writes to follow.
+  virtual Status Truncate(uint64_t size) {
+    return Status::OK();
+  }
   virtual Status Close() = 0;
   virtual Status Flush() = 0;
   virtual Status Sync() = 0; // sync data
@@ -466,6 +491,10 @@ class WritableFile {
   virtual bool IsSyncThreadSafe() const {
     return false;
   }
+
+  // Indicates the upper layers if the current WritableFile implementation
+  // uses direct IO.
+  virtual bool UseDirectIO() const { return false; }
 
   /*
    * Change the priority in rate limiter if rate limiting is enabled.
@@ -566,55 +595,6 @@ class WritableFile {
   friend class WritableFileWrapper;
 
   Env::IOPriority io_priority_;
-};
-
-// A file abstraction for random reading and writing.
-class RandomRWFile {
- public:
-  RandomRWFile() {}
-  virtual ~RandomRWFile() {}
-
-  // Write data from Slice data to file starting from offset
-  // Returns IOError on failure, but does not guarantee
-  // atomicity of a write.  Returns OK status on success.
-  //
-  // Safe for concurrent use.
-  virtual Status Write(uint64_t offset, const Slice& data) = 0;
-  // Read up to "n" bytes from the file starting at "offset".
-  // "scratch[0..n-1]" may be written by this routine.  Sets "*result"
-  // to the data that was read (including if fewer than "n" bytes were
-  // successfully read).  May set "*result" to point at data in
-  // "scratch[0..n-1]", so "scratch[0..n-1]" must be live when
-  // "*result" is used.  If an error was encountered, returns a non-OK
-  // status.
-  //
-  // Safe for concurrent use by multiple threads.
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const = 0;
-  virtual Status Close() = 0; // closes the file
-  virtual Status Sync() = 0; // sync data
-
-  /*
-   * Sync data and/or metadata as well.
-   * By default, sync only data.
-   * Override this method for environments where we need to sync
-   * metadata as well.
-   */
-  virtual Status Fsync() {
-    return Sync();
-  }
-
-  /*
-   * Pre-allocate space for a file.
-   */
-  virtual Status Allocate(off_t offset, off_t len) {
-    return Status::OK();
-  }
-
- private:
-  // No copying allowed
-  RandomRWFile(const RandomRWFile&);
-  void operator=(const RandomRWFile&);
 };
 
 // Directory object represents collection of files and implements
@@ -766,10 +746,6 @@ class EnvWrapper : public Env {
                          const EnvOptions& options) override {
     return target_->NewWritableFile(f, r, options);
   }
-  Status NewRandomRWFile(const std::string& f, unique_ptr<RandomRWFile>* r,
-                         const EnvOptions& options) override {
-    return target_->NewRandomRWFile(f, r, options);
-  }
   virtual Status NewDirectory(const std::string& name,
                               unique_ptr<Directory>* result) override {
     return target_->NewDirectory(name, result);
@@ -896,6 +872,10 @@ class WritableFileWrapper : public WritableFile {
   explicit WritableFileWrapper(WritableFile* t) : target_(t) { }
 
   Status Append(const Slice& data) override { return target_->Append(data); }
+  Status PositionedAppend(const Slice& data, uint64_t offset) override {
+    return target_->PositionedAppend(data, offset);
+  }
+  Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   Status Close() override { return target_->Close(); }
   Status Flush() override { return target_->Flush(); }
   Status Sync() override { return target_->Sync(); }

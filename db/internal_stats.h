@@ -41,8 +41,10 @@ enum DBPropertyType : uint32_t {
   kCompactionPending,      // Return 1 if a compaction is pending. Otherwise 0.
   kBackgroundErrors,       // Return accumulated background errors encountered.
   kCurSizeActiveMemTable,  // Return current size of the active memtable
-  kCurSizeAllMemTables,    // Return current size of all (active + immutable)
-                           // memtables
+  kCurSizeAllMemTables,    // Return current size of unflushed
+                           // (active + immutable) memtables
+  kSizeAllMemTables,       // Return current size of all (active + immutable
+                           // + pinned) memtables
   kNumEntriesInMutableMemtable,    // Return number of deletes in the mutable
                                    // memtable.
   kNumEntriesInImmutableMemtable,  // Return sum of number of entries in all
@@ -58,8 +60,15 @@ enum DBPropertyType : uint32_t {
   kNumSnapshots,                  // Number of snapshots in the system
   kOldestSnapshotTime,            // Unix timestamp of the first snapshot
   kNumLiveVersions,
-  kEstimateLiveDataSize,          // Estimated amount of live data in bytes
-  kBaseLevel,  // The level that L0 data is compacted to
+  kEstimateLiveDataSize,            // Estimated amount of live data in bytes
+  kTotalSstFilesSize,               // Total size of all sst files.
+  kBaseLevel,                       // The level that L0 data is compacted to
+  kEstimatePendingCompactionBytes,  // Estimated bytes to compaction
+  kAggregatedTableProperties,  // Return a string that contains the aggregated
+                               // table properties.
+  kAggregatedTablePropertiesAtLevel,  // Return a string that contains the
+                                      // aggregated
+  // table properties at the specified level.
 };
 
 extern DBPropertyType GetPropertyType(const Slice& property,
@@ -71,9 +80,12 @@ extern DBPropertyType GetPropertyType(const Slice& property,
 class InternalStats {
  public:
   enum InternalCFStatsType {
-    LEVEL0_SLOWDOWN,
+    LEVEL0_SLOWDOWN_TOTAL,
+    LEVEL0_SLOWDOWN_WITH_COMPACTION,
     MEMTABLE_COMPACTION,
-    LEVEL0_NUM_FILES,
+    LEVEL0_NUM_FILES_TOTAL,
+    LEVEL0_NUM_FILES_WITH_COMPACTION,
+    HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     INTERNAL_CF_STATS_ENUM_MAX,
@@ -98,6 +110,7 @@ class InternalStats {
         comp_stats_(num_levels),
         stall_leveln_slowdown_count_hard_(num_levels),
         stall_leveln_slowdown_count_soft_(num_levels),
+        file_read_latency_(num_levels),
         bg_error_count_(0),
         number_levels_(num_levels),
         env_(env),
@@ -238,6 +251,10 @@ class InternalStats {
     db_stats_[type] += value;
   }
 
+  HistogramImpl* GetFileReadHist(int level) {
+    return &file_read_latency_[level];
+  }
+
   uint64_t GetBackgroundErrorCount() const { return bg_error_count_; }
 
   uint64_t BumpAndGetBackgroundErrorCount() { return ++bg_error_count_; }
@@ -265,6 +282,7 @@ class InternalStats {
   // These count the number of microseconds for which MakeRoomForWrite stalls.
   std::vector<uint64_t> stall_leveln_slowdown_count_hard_;
   std::vector<uint64_t> stall_leveln_slowdown_count_soft_;
+  std::vector<HistogramImpl> file_read_latency_;
 
   // Used to compute per-interval statistics
   struct CFStatsSnapshot {
@@ -335,9 +353,12 @@ class InternalStats {
 class InternalStats {
  public:
   enum InternalCFStatsType {
-    LEVEL0_SLOWDOWN,
+    LEVEL0_SLOWDOWN_TOTAL,
+    LEVEL0_SLOWDOWN_WITH_COMPACTION,
     MEMTABLE_COMPACTION,
-    LEVEL0_NUM_FILES,
+    LEVEL0_NUM_FILES_TOTAL,
+    LEVEL0_NUM_FILES_WITH_COMPACTION,
+    HARD_PENDING_COMPACTION_BYTES_LIMIT,
     WRITE_STALLS_ENUM_MAX,
     BYTES_FLUSHED,
     INTERNAL_CF_STATS_ENUM_MAX,
@@ -388,6 +409,8 @@ class InternalStats {
   void AddCFStats(InternalCFStatsType type, uint64_t value) {}
 
   void AddDBStats(InternalDBStatsType type, uint64_t value) {}
+
+  HistogramImpl* GetFileReadHist(int level) { return nullptr; }
 
   uint64_t GetBackgroundErrorCount() const { return 0; }
 

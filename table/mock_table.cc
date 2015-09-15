@@ -5,16 +5,28 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
-#include "rocksdb/table_properties.h"
 #include "table/mock_table.h"
-#include "table/get_context.h"
+
 #include "db/dbformat.h"
 #include "port/port.h"
+#include "rocksdb/table_properties.h"
+#include "table/get_context.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
 namespace mock {
+
+namespace {
+
+const InternalKeyComparator icmp_(BytewiseComparator());
+
+}  // namespace
+
+stl_wrappers::KVMap MakeMockFile(
+    std::initializer_list<std::pair<const std::string, std::string>> l) {
+  return stl_wrappers::KVMap(l, stl_wrappers::LessOfComparator(&icmp_));
+}
 
 Iterator* MockTableReader::NewIterator(const ReadOptions&, Arena* arena) {
   return new MockTableIterator(table_);
@@ -44,8 +56,7 @@ std::shared_ptr<const TableProperties> MockTableReader::GetTableProperties()
 MockTableFactory::MockTableFactory() : next_id_(1) {}
 
 Status MockTableFactory::NewTableReader(
-    const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-    const InternalKeyComparator& internal_key,
+    const TableReaderOptions& table_reader_options,
     unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
     unique_ptr<TableReader>* table_reader) const {
   uint32_t id = GetIDFromFile(file.get());
@@ -71,7 +82,7 @@ TableBuilder* MockTableFactory::NewTableBuilder(
 }
 
 Status MockTableFactory::CreateMockTable(Env* env, const std::string& fname,
-                                         MockFileContents file_contents) {
+                                         stl_wrappers::KVMap file_contents) {
   std::unique_ptr<WritableFile> file;
   auto s = env->NewWritableFile(fname, &file, EnvOptions());
   if (!s.ok()) {
@@ -99,16 +110,29 @@ uint32_t MockTableFactory::GetIDFromFile(RandomAccessFileReader* file) const {
   return DecodeFixed32(buf);
 }
 
-void MockTableFactory::AssertSingleFile(const MockFileContents& file_contents) {
+void MockTableFactory::AssertSingleFile(
+    const stl_wrappers::KVMap& file_contents) {
   ASSERT_EQ(file_system_.files.size(), 1U);
   ASSERT_TRUE(file_contents == file_system_.files.begin()->second);
 }
 
-void MockTableFactory::AssertLatestFile(const MockFileContents& file_contents) {
+void MockTableFactory::AssertLatestFile(
+    const stl_wrappers::KVMap& file_contents) {
   ASSERT_GE(file_system_.files.size(), 1U);
   auto latest = file_system_.files.end();
   --latest;
-  ASSERT_TRUE(file_contents == latest->second);
+
+  if (file_contents != latest->second) {
+    std::cout << "Wrong content! Content of latest file:" << std::endl;
+    for (const auto& kv : latest->second) {
+      ParsedInternalKey ikey;
+      std::string key, value;
+      std::tie(key, value) = kv;
+      ParseInternalKey(Slice(key), &ikey);
+      std::cout << ikey.DebugString(false) << " -> " << value << std::endl;
+    }
+    ASSERT_TRUE(false);
+  }
 }
 
 }  // namespace mock

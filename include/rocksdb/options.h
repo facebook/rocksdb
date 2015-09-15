@@ -15,7 +15,6 @@
 #include <memory>
 #include <vector>
 #include <limits>
-#include <stdint.h>
 #include <unordered_map>
 
 #include "rocksdb/version.h"
@@ -56,8 +55,14 @@ class InternalKeyComparator;
 enum CompressionType : char {
   // NOTE: do not change the values of existing entries, as these are
   // part of the persistent format on disk.
-  kNoCompression = 0x0, kSnappyCompression = 0x1, kZlibCompression = 0x2,
-  kBZip2Compression = 0x3, kLZ4Compression = 0x4, kLZ4HCCompression = 0x5
+  kNoCompression = 0x0,
+  kSnappyCompression = 0x1,
+  kZlibCompression = 0x2,
+  kBZip2Compression = 0x3,
+  kLZ4Compression = 0x4,
+  kLZ4HCCompression = 0x5,
+  // zstd format is not finalized yet so it's subject to changes.
+  kZSTDNotFinalCompression = 0x40,
 };
 
 enum CompactionStyle : char {
@@ -271,10 +276,9 @@ struct ColumnFamilyOptions {
   // If this value is set to -1, 'max_write_buffer_number' will be used.
   //
   // Default:
-  // If using an OptimisticTransactionDB, the default value will be set to the
-  // value
-  // of 'max_write_buffer_number' if it is not explicitly set by the user.
-  // Otherwise, the default is 0.
+  // If using a TransactionDB/OptimisticTransactionDB, the default value will
+  // be set to the value of 'max_write_buffer_number' if it is not explicitly
+  // set by the user.  Otherwise, the default is 0.
   int max_write_buffer_number_to_maintain;
 
   // Compress blocks using the specified compression algorithm.  This
@@ -495,8 +499,6 @@ struct ColumnFamilyOptions {
 
   // Puts are delayed to options.delayed_write_rate when any level has a
   // compaction score that exceeds soft_rate_limit. This is ignored when == 0.0.
-  // CONSTRAINT: soft_rate_limit <= hard_rate_limit. If this constraint does not
-  // hold, RocksDB will set soft_rate_limit = hard_rate_limit
   //
   // Default: 0 (disabled)
   //
@@ -506,12 +508,18 @@ struct ColumnFamilyOptions {
   // DEPRECATED -- this options is no longer usde
   double hard_rate_limit;
 
+  // All writes are stopped if estimated bytes needed to be compaction exceed
+  // this threshold.
+  //
+  // Default: 0 (disabled)
+  uint64_t hard_pending_compaction_bytes_limit;
+
   // DEPRECATED -- this options is no longer used
   unsigned int rate_limit_delay_max_milliseconds;
 
   // size of one block in arena memory allocation.
-  // If <= 0, a proper value is automatically calculated (usually 1/10 of
-  // writer_buffer_size).
+  // If <= 0, a proper value is automatically calculated (usually 1/8 of
+  // writer_buffer_size, rounded up to a multiple of 4KB).
   //
   // There are two additonal restriction of the The specified size:
   // (1) size should be in the range of [4096, 2 << 30] and
@@ -736,6 +744,10 @@ struct ColumnFamilyOptions {
   // Default: false
   bool paranoid_file_checks;
 
+  // Measure IO stats in compactions, if true.
+  // Default: false
+  bool compaction_measure_io_stats;
+
   // Create ColumnFamilyOptions with default values for all fields
   ColumnFamilyOptions();
   // Create ColumnFamilyOptions from Options
@@ -807,8 +819,13 @@ struct DBOptions {
   // files opened are always kept open. You can estimate number of files based
   // on target_file_size_base and target_file_size_multiplier for level-based
   // compaction. For universal-style compaction, you can usually set it to -1.
-  // Default: 5000
+  // Default: 5000 or ulimit value of max open files (whichever is smaller)
   int max_open_files;
+
+  // If max_open_files is -1, DB will open all files on DB::Open(). You can
+  // use this option to increase the number of threads used to open the files.
+  // Default: 1
+  int max_file_opening_threads;
 
   // Once write-ahead logs exceed this size, we will start forcing the flush of
   // column families whose memtables are backed by the oldest live WAL file
@@ -893,14 +910,11 @@ struct DBOptions {
   // Default: 1
   int max_background_compactions;
 
-  // This integer represents the maximum number of threads that will
-  // concurrently perform a level-based compaction from L0 to L1. A value
-  // of 1 means there is no parallelism, and a greater number enables a
-  // multi-threaded version of the L0-L1 compaction that divides the compaction
-  // into multiple, smaller ones that are run simultaneously. This is still
-  // under development and is only available for level-based compaction.
-  // Default: 1
-  uint32_t num_subcompactions;
+  // This value represents the maximum number of threads that will
+  // concurrently perform a compaction job by breaking it into multiple,
+  // smaller ones that are run simultaneously.
+  // Default: 1 (i.e. no subcompactions)
+  uint32_t max_subcompactions;
 
   // Maximum number of concurrent background memtable flush jobs, submitted to
   // the HIGH priority thread pool.
@@ -1017,6 +1031,28 @@ struct DBOptions {
       WILLNEED
   };
   AccessHint access_hint_on_compaction_start;
+
+  // If true, always create a new file descriptor and new table reader
+  // for compaction inputs. Turn this parameter on may introduce extra
+  // memory usage in the table reader, if it allocates extra memory
+  // for indexes. This will allow file descriptor prefetch options
+  // to be set for compaction input files and not to impact file
+  // descriptors for the same file used by user queries.
+  // Suggest to enable BlockBasedTableOptions.cache_index_and_filter_blocks
+  // for this mode if using block-based table.
+  //
+  // Default: false
+  bool new_table_reader_for_compaction_inputs;
+
+  // If non-zero, we perform bigger reads when doing compaction. If you're
+  // running RocksDB on spinning disks, you should set this to at least 2MB.
+  // That way RocksDB's compaction is doing sequential instead of random reads.
+  //
+  // When non-zero, we also force new_table_reader_for_compaction_inputs to
+  // true.
+  //
+  // Default: 0
+  size_t compaction_readahead_size;
 
   // Use adaptive mutex, which spins in the user space before resorting
   // to kernel. This could reduce context switch when the mutex is not

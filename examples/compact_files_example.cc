@@ -67,9 +67,9 @@ class FullCompactor : public Compactor {
         options_.target_file_size_base;
   }
 
-  // When flush happens, it determins whether to trigger compaction.
-  // If triggered_writes_stop is true, it will also set the retry
-  // flag of compaction-task to true.
+  // When flush happens, it determines whether to trigger compaction. If
+  // triggered_writes_stop is true, it will also set the retry flag of
+  // compaction-task to true.
   void OnFlushCompleted(
       DB* db, const FlushJobInfo& info) override {
     CompactionTask* task = PickCompaction(db, info.cf_name);
@@ -108,7 +108,8 @@ class FullCompactor : public Compactor {
   }
 
   static void CompactFiles(void* arg) {
-    CompactionTask* task = reinterpret_cast<CompactionTask*>(arg);
+    std::unique_ptr<CompactionTask> task(
+        reinterpret_cast<CompactionTask*>(arg));
     assert(task);
     assert(task->db);
     Status s = task->db->CompactFiles(
@@ -124,8 +125,6 @@ class FullCompactor : public Compactor {
           task->db, task->column_family_name);
       task->compactor->ScheduleCompaction(new_task);
     }
-    // release the task
-    delete task;
   }
 
  private:

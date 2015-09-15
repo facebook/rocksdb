@@ -11,7 +11,6 @@
 #include "util/db_test_util.h"
 #if !(defined NDEBUG) || !defined(OS_WIN)
 #include "util/sync_point.h"
-#endif
 
 namespace rocksdb {
 
@@ -113,9 +112,6 @@ class DelayFilterFactory : public CompactionFilterFactory {
 };
 }  // namespace
 
-// SyncPoint is not supported in released Windows mode.
-#if !(defined NDEBUG) || !defined(OS_WIN)
-
 // TODO(kailiu) The tests on UniversalCompaction has some issues:
 //  1. A lot of magic numbers ("11" or "12").
 //  2. Made assumption on the memtable flush conditions, which may change from
@@ -124,7 +120,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
   options.num_levels = num_levels_;
-  options.write_buffer_size = 100 << 10;     // 100KB
+  options.write_buffer_size = 105 << 10;  // 105KB
+  options.arena_block_size = 4 << 10;
   options.target_file_size_base = 32 << 10;  // 32KB
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
@@ -155,22 +152,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   //   compaction.
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
        num++) {
-    // Write 110KB (11 values, each 10K)
-    for (int i = 0; i < 12; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-      key_idx++;
-    }
-    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
-    ASSERT_EQ(NumSortedRuns(1), num + 1);
+    // Write 100KB
+    GenerateNewFile(1, &rnd, &key_idx);
   }
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-    key_idx++;
-  }
-  dbfull()->TEST_WaitForCompact();
+  GenerateNewFile(1, &rnd, &key_idx);
   // Suppose each file flushed from mem table has size 1. Now we compact
   // (level0_file_num_compaction_trigger+1)=4 files and should have a big
   // file of size 4.
@@ -187,22 +175,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   ASSERT_OK(Flush(1));
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 3;
        num++) {
-    // Write 110KB (11 values, each 10K)
-    for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-      key_idx++;
-    }
-    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    GenerateNewFile(1, &rnd, &key_idx);
     ASSERT_EQ(NumSortedRuns(1), num + 3);
   }
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-    key_idx++;
-  }
-  dbfull()->TEST_WaitForCompact();
+  GenerateNewFile(1, &rnd, &key_idx);
   // Before compaction, we have 4 files at level 0, with size 4, 0.4, 1, 1.
   // After compaction, we should have 2 files, with size 4, 2.4.
   ASSERT_EQ(NumSortedRuns(1), 2);
@@ -212,22 +191,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   //   generating new files at level 0.
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 3;
        num++) {
-    // Write 110KB (11 values, each 10K)
-    for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-      key_idx++;
-    }
-    dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
+    GenerateNewFile(1, &rnd, &key_idx);
     ASSERT_EQ(NumSortedRuns(1), num + 3);
   }
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 12; i++) {
-    ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-    key_idx++;
-  }
-  dbfull()->TEST_WaitForCompact();
+  GenerateNewFile(1, &rnd, &key_idx);
   // Before compaction, we have 4 files at level 0, with size 4, 2.4, 1, 1.
   // After compaction, we should have 3 files, with size 4, 2.4, 2.
   ASSERT_EQ(NumSortedRuns(1), 3);
@@ -235,10 +205,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   // Stage 4:
   //   Now we have 3 files at level 0, with size 4, 2.4, 2. Let's generate a
   //   new file of size 1.
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-    key_idx++;
-  }
+  GenerateNewFile(1, &rnd, &key_idx);
   dbfull()->TEST_WaitForCompact();
   // Level-0 compaction is triggered, but no file will be picked up.
   ASSERT_EQ(NumSortedRuns(1), 4);
@@ -247,17 +214,13 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionTrigger) {
   //   Now we have 4 files at level 0, with size 4, 2.4, 2, 1. Let's generate
   //   a new file of size 1.
   filter->expect_full_compaction_.store(true);
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
-    key_idx++;
-  }
+  GenerateNewFile(1, &rnd, &key_idx);
   dbfull()->TEST_WaitForCompact();
   // All files at level 0 will be compacted into a single one.
   ASSERT_EQ(NumSortedRuns(1), 1);
 
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
-#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 TEST_P(DBTestUniversalCompaction, UniversalCompactionSizeAmplification) {
   Options options;
@@ -340,9 +303,10 @@ TEST_P(DBTestUniversalCompaction, CompactFilesOnUniversalCompaction) {
   }
 
   // expect fail since universal compaction only allow L0 output
-  ASSERT_TRUE(!dbfull()->CompactFiles(
-      CompactionOptions(), handles_[1],
-      compaction_input_file_names, 1).ok());
+  ASSERT_FALSE(dbfull()
+                   ->CompactFiles(CompactionOptions(), handles_[1],
+                                  compaction_input_file_names, 1)
+                   .ok());
 
   // expect ok and verify the compacted files no longer exist.
   ASSERT_OK(dbfull()->CompactFiles(
@@ -573,7 +537,8 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalCompactionParallel,
 TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   Options options;
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 100 << 10;     // 100KB
+  options.write_buffer_size = 105 << 10;    // 105KB
+  options.arena_block_size = 4 << 10;       // 4KB
   options.target_file_size_base = 32 << 10;  // 32KB
   options.level0_file_num_compaction_trigger = 4;
   options.num_levels = num_levels_;
@@ -586,9 +551,9 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
   int key_idx = 0;
 
   for (int num = 0; num < options.level0_file_num_compaction_trigger; num++) {
-    // Write 110KB (11 values, each 10K)
-    for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 10000)));
+    // Write 100KB (100 values, each 1K)
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(Put(1, Key(key_idx), RandomString(&rnd, 990)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable(handles_[1]);
@@ -605,7 +570,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionOptions) {
 TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   Options options = CurrentOptions();
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 100 << 10;     // 100KB
+  options.write_buffer_size = 105 << 10;    // 105KB
+  options.arena_block_size = 4 << 10;       // 4KB
   options.target_file_size_base = 32 << 10;  // 32KB
   // trigger compaction if there are >= 4 files
   options.level0_file_num_compaction_trigger = 4;
@@ -623,9 +589,9 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   //   compaction.
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 1;
        num++) {
-    // Write 110KB (11 values, each 10K)
-    for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+    // Write 100KB (100 values, each 1K)
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -634,8 +600,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
     key_idx++;
   }
   dbfull()->TEST_WaitForCompact();
@@ -655,8 +621,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   for (int num = 0; num < options.level0_file_num_compaction_trigger - 3;
        num++) {
     // Write 110KB (11 values, each 10K)
-    for (int i = 0; i < 11; i++) {
-      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+    for (int i = 0; i < 100; i++) {
+      ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
       key_idx++;
     }
     dbfull()->TEST_WaitForFlushMemTable();
@@ -665,8 +631,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
 
   // Generate one more file at level-0, which should trigger level-0
   // compaction.
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
     key_idx++;
   }
   dbfull()->TEST_WaitForCompact();
@@ -676,8 +642,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionStopStyleSimilarSize) {
   // Stage 3:
   //   Now we have 3 files at level 0, with size 4, 0.4, 2. Generate one
   //   more file at level-0, which should trigger level-0 compaction.
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 10000)));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(key_idx), RandomString(&rnd, 990)));
     key_idx++;
   }
   dbfull()->TEST_WaitForCompact();
@@ -886,7 +852,8 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   options.db_paths.emplace_back(dbname_ + "_3", 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_4", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 105KB
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
   options = CurrentOptions(options);
@@ -964,7 +931,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Reopen(options);
@@ -972,7 +939,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionFourPaths) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Destroy(options);
@@ -1080,7 +1047,9 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   options.db_paths.emplace_back(dbname_, 500 * 1024);
   options.db_paths.emplace_back(dbname_ + "_2", 1024 * 1024 * 1024);
   options.compaction_style = kCompactionStyleUniversal;
-  options.write_buffer_size = 100 << 10;  // 100KB
+  options.write_buffer_size = 110 << 10;  // 105KB
+  options.arena_block_size = 4 * 1024;
+  options.arena_block_size = 4 << 10;
   options.level0_file_num_compaction_trigger = 2;
   options.num_levels = 1;
   options = CurrentOptions(options);
@@ -1155,7 +1124,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Reopen(options);
@@ -1163,7 +1132,7 @@ TEST_P(DBTestUniversalCompaction, UniversalCompactionSecondPathRatio) {
   for (int i = 0; i < key_idx; i++) {
     auto v = Get(Key(i));
     ASSERT_NE(v, "NOT_FOUND");
-    ASSERT_TRUE(v.size() == 1 || v.size() == 10000);
+    ASSERT_TRUE(v.size() == 1 || v.size() == 990);
   }
 
   Destroy(options);
@@ -1240,6 +1209,8 @@ INSTANTIATE_TEST_CASE_P(DBTestUniversalManualCompactionOutputPathId,
                         ::testing::Values(1, 8));
 
 }  // namespace rocksdb
+
+#endif  // !(defined NDEBUG) || !defined(OS_WIN)
 
 int main(int argc, char** argv) {
 #if !(defined NDEBUG) || !defined(OS_WIN)

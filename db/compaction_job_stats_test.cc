@@ -92,7 +92,7 @@ class CompactionJobStatsTest : public testing::Test,
   Env* env_;
   DB* db_;
   std::vector<ColumnFamilyHandle*> handles_;
-  uint32_t num_subcompactions_;
+  uint32_t max_subcompactions_;
 
   Options last_options_;
 
@@ -103,8 +103,8 @@ class CompactionJobStatsTest : public testing::Test,
     alternative_wal_dir_ = dbname_ + "/wal";
     Options options;
     options.create_if_missing = true;
-    num_subcompactions_ = GetParam();
-    options.num_subcompactions = num_subcompactions_;
+    max_subcompactions_ = GetParam();
+    options.max_subcompactions = max_subcompactions_;
     auto delete_options = options;
     delete_options.wal_dir = alternative_wal_dir_;
     EXPECT_OK(DestroyDB(dbname_, delete_options));
@@ -417,14 +417,25 @@ class CompactionJobStatsTest : public testing::Test,
 // test CompactionJobStatsTest.
 class CompactionJobStatsChecker : public EventListener {
  public:
-  CompactionJobStatsChecker() : compression_enabled_(false) {}
+  CompactionJobStatsChecker()
+      : compression_enabled_(false), verify_next_comp_io_stats_(false) {}
 
   size_t NumberOfUnverifiedStats() { return expected_stats_.size(); }
+
+  void set_verify_next_comp_io_stats(bool v) { verify_next_comp_io_stats_ = v; }
 
   // Once a compaction completed, this function will verify the returned
   // CompactionJobInfo with the oldest CompactionJobInfo added earlier
   // in "expected_stats_" which has not yet being used for verification.
   virtual void OnCompactionCompleted(DB *db, const CompactionJobInfo& ci) {
+    if (verify_next_comp_io_stats_) {
+      ASSERT_GT(ci.stats.file_write_nanos, 0);
+      ASSERT_GT(ci.stats.file_range_sync_nanos, 0);
+      ASSERT_GT(ci.stats.file_fsync_nanos, 0);
+      ASSERT_GT(ci.stats.file_prepare_write_nanos, 0);
+      verify_next_comp_io_stats_ = false;
+    }
+
     std::lock_guard<std::mutex> lock(mutex_);
     if (expected_stats_.size()) {
       Verify(ci.stats, expected_stats_.front());
@@ -498,10 +509,13 @@ class CompactionJobStatsChecker : public EventListener {
     compression_enabled_ = flag;
   }
 
+  bool verify_next_comp_io_stats() const { return verify_next_comp_io_stats_; }
+
  private:
   std::mutex mutex_;
   std::queue<CompactionJobStats> expected_stats_;
   bool compression_enabled_;
+  bool verify_next_comp_io_stats_;
 };
 
 // An EventListener which helps verify the compaction statistics in
@@ -642,8 +656,10 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
   options.level0_file_num_compaction_trigger = kTestScale + 1;
   options.num_levels = 3;
   options.compression = kNoCompression;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
+  options.bytes_per_sync = 512 * 1024;
 
+  options.compaction_measure_io_stats = true;
   for (int test = 0; test < 2; ++test) {
     DestroyAndReopen(options);
     CreateAndReopenWithCF({"pikachu"}, options);
@@ -724,7 +740,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     // by 1 because multiple threads are consuming the input and generating
     // output files without coordinating to see if the output could fit into
     // a smaller number of files like it does when it runs sequentially
-    int num_output_files = options.num_subcompactions > 1 ? 2 : 1;
+    int num_output_files = options.max_subcompactions > 1 ? 2 : 1;
     for (uint64_t start_key = key_base;
          num_L0_files > 1;
          start_key += key_base * sparseness) {
@@ -742,9 +758,7 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
               num_keys_per_L0_file));
       ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
       Compact(1, smallest_key, largest_key);
-      // TODO(aekmekji): account for whether parallel L0-L1 compaction is
-      // enabled or not. If so then num_L1_files will increase by 1
-      if (options.num_subcompactions == 1) {
+      if (options.max_subcompactions == 1) {
         --num_L1_files;
       }
       snprintf(buf, kBufSize, "%d,%d", --num_L0_files, num_L1_files);
@@ -766,7 +780,8 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
             num_keys_per_L0_file));
     ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 1U);
     Compact(1, smallest_key, largest_key);
-    num_L1_files = options.num_subcompactions > 1 ? 7 : 4;
+
+    num_L1_files = options.max_subcompactions > 1 ? 7 : 4;
     char L1_buf[4];
     snprintf(L1_buf, sizeof(L1_buf), "0,%d", num_L1_files);
     std::string L1_files(L1_buf);
@@ -777,6 +792,61 @@ TEST_P(CompactionJobStatsTest, CompactionJobStatsTest) {
     }
     stats_checker->EnableCompression(true);
     compression_ratio = kCompressionRatio;
+
+    for (int i = 0; i < 5; i++) {
+      ASSERT_OK(Put(1, Slice(Key(key_base + i, 10)),
+                    Slice(RandomString(&rnd, 512 * 1024, 1))));
+    }
+
+    ASSERT_OK(Flush(1));
+    reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
+
+    stats_checker->set_verify_next_comp_io_stats(true);
+    std::atomic<bool> first_prepare_write(true);
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "WritableFileWriter::Append:BeforePrepareWrite", [&](void* arg) {
+          if (first_prepare_write.load()) {
+            options.env->SleepForMicroseconds(3);
+            first_prepare_write.store(false);
+          }
+        });
+
+    std::atomic<bool> first_flush(true);
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "WritableFileWriter::Flush:BeforeAppend", [&](void* arg) {
+          if (first_flush.load()) {
+            options.env->SleepForMicroseconds(3);
+            first_flush.store(false);
+          }
+        });
+
+    std::atomic<bool> first_sync(true);
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "WritableFileWriter::SyncInternal:0", [&](void* arg) {
+          if (first_sync.load()) {
+            options.env->SleepForMicroseconds(3);
+            first_sync.store(false);
+          }
+        });
+
+    std::atomic<bool> first_range_sync(true);
+    rocksdb::SyncPoint::GetInstance()->SetCallBack(
+        "WritableFileWriter::RangeSync:0", [&](void* arg) {
+          if (first_range_sync.load()) {
+            options.env->SleepForMicroseconds(3);
+            first_range_sync.store(false);
+          }
+        });
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
+    Compact(1, smallest_key, largest_key);
+
+    ASSERT_TRUE(!stats_checker->verify_next_comp_io_stats());
+    ASSERT_TRUE(!first_prepare_write.load());
+    ASSERT_TRUE(!first_flush.load());
+    ASSERT_TRUE(!first_sync.load());
+    ASSERT_TRUE(!first_range_sync.load());
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }
@@ -808,7 +878,7 @@ TEST_P(CompactionJobStatsTest, DeletionStatsTest) {
   options.num_levels = 3;
   options.compression = kNoCompression;
   options.max_bytes_for_level_multiplier = 2;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -900,7 +970,7 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
   options.compaction_style = kCompactionStyleUniversal;
   options.compaction_options_universal.size_ratio = 1;
   options.compaction_options_universal.max_size_amplification_percent = 1000;
-  options.num_subcompactions = num_subcompactions_;
+  options.max_subcompactions = max_subcompactions_;
 
   DestroyAndReopen(options);
   CreateAndReopenWithCF({"pikachu"}, options);
@@ -957,6 +1027,14 @@ int main(int argc, char** argv) {
   rocksdb::port::InstallStackTraceHandler();
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+}
+
+#else
+#include <stdio.h>
+
+int main(int argc, char** argv) {
+  fprintf(stderr, "SKIPPED, not supported in ROCKSDB_LITE\n");
+  return 0;
 }
 
 #endif  // !ROCKSDB_LITE

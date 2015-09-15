@@ -8,22 +8,20 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #pragma once
-#include <vector>
-#include <memory>
-#include <set>
-#include <unordered_set>
 
-#include "db/version_set.h"
-#include "db/compaction.h"
-#include "rocksdb/status.h"
-#include "rocksdb/options.h"
-#include "rocksdb/env.h"
-#include "util/mutable_cf_options.h"
-
-#include <vector>
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_set>
+#include <vector>
+
+#include "db/compaction.h"
+#include "db/version_set.h"
+#include "rocksdb/env.h"
+#include "rocksdb/options.h"
+#include "rocksdb/status.h"
+#include "util/mutable_cf_options.h"
+
 
 namespace rocksdb {
 
@@ -90,7 +88,8 @@ class CompactionPicker {
   // Returns true if any one of the specified files are being compacted
   bool FilesInCompaction(const std::vector<FileMetaData*>& files);
 
-  // Takes a list of CompactionInputFiles and returns a Compaction object.
+  // Takes a list of CompactionInputFiles and returns a (manual) Compaction
+  // object.
   Compaction* FormCompaction(
       const CompactionOptions& compact_options,
       const std::vector<CompactionInputFiles>& input_files, int output_level,
@@ -110,6 +109,11 @@ class CompactionPicker {
   // in the input. Returns true if the input files are non
   // overlapping.
   bool IsInputNonOverlapping(Compaction* c);
+
+  // Is there currently a compaction involving level 0 taking place
+  bool IsLevel0CompactionInProgress() const {
+    return !level0_compactions_in_progress_.empty();
+  }
 
  protected:
   int NumberLevels() const { return ioptions_.num_levels; }

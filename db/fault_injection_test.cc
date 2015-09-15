@@ -11,6 +11,8 @@
 // the last "sync". It then checks for data loss errors by purposely dropping
 // file data (or entire files) not protected by a "sync".
 
+#if !(defined NDEBUG) || !defined(OS_WIN)
+
 #include <map>
 #include <set>
 #include "db/db_impl.h"
@@ -139,6 +141,7 @@ class TestWritableFile : public WritableFile {
                             FaultInjectionTestEnv* env);
   virtual ~TestWritableFile();
   virtual Status Append(const Slice& data) override;
+  virtual Status Truncate(uint64_t size) override { return target_->Truncate(size); }
   virtual Status Close() override;
   virtual Status Flush() override;
   virtual Status Sync() override;
@@ -931,7 +934,13 @@ INSTANTIATE_TEST_CASE_P(FaultTest, FaultInjectionTest, ::testing::Bool());
 
 }  // namespace rocksdb
 
+#endif // #if !(defined NDEBUG) || !defined(OS_WIN)
+
 int main(int argc, char** argv) {
+#if !(defined NDEBUG) || !defined(OS_WIN)
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+#else
+  return 0;
+#endif
 }

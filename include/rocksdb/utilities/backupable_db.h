@@ -197,6 +197,11 @@ class BackupEngineReadOnly {
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) = 0;
+
+  // checks that each file exists and that the size of the file matches our
+  // expectations. it does not check file checksum.
+  // Returns Status::OK() if all checks are good
+  virtual Status VerifyBackup(BackupID backup_id) = 0;
 };
 
 // Please see the documentation in BackupableDB and RestoreBackupableDB
@@ -222,6 +227,11 @@ class BackupEngine {
   virtual Status RestoreDBFromLatestBackup(
       const std::string& db_dir, const std::string& wal_dir,
       const RestoreOptions& restore_options = RestoreOptions()) = 0;
+
+  // checks that each file exists and that the size of the file matches our
+  // expectations. it does not check file checksum.
+  // Returns Status::OK() if all checks are good
+  virtual Status VerifyBackup(BackupID backup_id) = 0;
 
   virtual Status GarbageCollect() = 0;
 };

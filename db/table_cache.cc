@@ -15,12 +15,14 @@
 
 #include "rocksdb/statistics.h"
 #include "table/iterator_wrapper.h"
+#include "table/table_builder.h"
 #include "table/table_reader.h"
 #include "table/get_context.h"
 #include "util/coding.h"
 #include "util/file_reader_writer.h"
 #include "util/perf_context_imp.h"
 #include "util/stop_watch.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -36,6 +38,11 @@ static void UnrefEntry(void* arg1, void* arg2) {
   Cache* cache = reinterpret_cast<Cache*>(arg1);
   Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
   cache->Release(h);
+}
+
+static void DeleteTableReader(void* arg1, void* arg2) {
+  TableReader* table_reader = reinterpret_cast<TableReader*>(arg1);
+  delete table_reader;
 }
 
 static Slice GetSliceForFileNumber(const uint64_t* file_number) {
@@ -76,40 +83,58 @@ void TableCache::ReleaseHandle(Cache::Handle* handle) {
   cache_->Release(handle);
 }
 
+Status TableCache::GetTableReader(
+    const EnvOptions& env_options,
+    const InternalKeyComparator& internal_comparator, const FileDescriptor& fd,
+    bool sequential_mode, bool record_read_stats, HistogramImpl* file_read_hist,
+    unique_ptr<TableReader>* table_reader) {
+  std::string fname =
+      TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
+  unique_ptr<RandomAccessFile> file;
+  Status s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
+  if (sequential_mode && ioptions_.compaction_readahead_size > 0) {
+    file = NewReadaheadRandomAccessFile(std::move(file),
+                                        ioptions_.compaction_readahead_size);
+  }
+  RecordTick(ioptions_.statistics, NO_FILE_OPENS);
+  if (s.ok()) {
+    if (!sequential_mode && ioptions_.advise_random_on_open) {
+      file->Hint(RandomAccessFile::RANDOM);
+    }
+    StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
+    std::unique_ptr<RandomAccessFileReader> file_reader(
+        new RandomAccessFileReader(std::move(file), ioptions_.env,
+                                   ioptions_.statistics, record_read_stats,
+                                   file_read_hist));
+    s = ioptions_.table_factory->NewTableReader(
+        TableReaderOptions(ioptions_, env_options, internal_comparator),
+        std::move(file_reader), fd.GetFileSize(), table_reader);
+    TEST_SYNC_POINT("TableCache::GetTableReader:0");
+  }
+  return s;
+}
+
 Status TableCache::FindTable(const EnvOptions& env_options,
                              const InternalKeyComparator& internal_comparator,
                              const FileDescriptor& fd, Cache::Handle** handle,
-                             const bool no_io, bool record_read_stats) {
+                             const bool no_io, bool record_read_stats,
+                             HistogramImpl* file_read_hist) {
   PERF_TIMER_GUARD(find_table_nanos);
   Status s;
   uint64_t number = fd.GetNumber();
   Slice key = GetSliceForFileNumber(&number);
   *handle = cache_->Lookup(key);
+  TEST_SYNC_POINT_CALLBACK("TableCache::FindTable:0",
+                           const_cast<bool*>(&no_io));
+
   if (*handle == nullptr) {
-    if (no_io) { // Dont do IO and return a not-found status
+    if (no_io) {  // Don't do IO and return a not-found status
       return Status::Incomplete("Table not found in table_cache, no_io is set");
     }
-    std::string fname =
-        TableFileName(ioptions_.db_paths, fd.GetNumber(), fd.GetPathId());
-    unique_ptr<RandomAccessFile> file;
     unique_ptr<TableReader> table_reader;
-    s = ioptions_.env->NewRandomAccessFile(fname, &file, env_options);
-    RecordTick(ioptions_.statistics, NO_FILE_OPENS);
-    if (s.ok()) {
-      if (ioptions_.advise_random_on_open) {
-        file->Hint(RandomAccessFile::RANDOM);
-      }
-      StopWatch sw(ioptions_.env, ioptions_.statistics, TABLE_OPEN_IO_MICROS);
-      std::unique_ptr<RandomAccessFileReader> file_reader(
-          new RandomAccessFileReader(
-              std::move(file), ioptions_.env,
-              record_read_stats ? ioptions_.statistics : nullptr,
-              SST_READ_MICROS));
-      s = ioptions_.table_factory->NewTableReader(
-          ioptions_, env_options, internal_comparator, std::move(file_reader),
-          fd.GetFileSize(), &table_reader);
-    }
-
+    s = GetTableReader(env_options, internal_comparator, fd,
+                       false /* sequential mode */, record_read_stats,
+                       file_read_hist, &table_reader);
     if (!s.ok()) {
       assert(table_reader == nullptr);
       RecordTick(ioptions_.statistics, NO_FILE_ERRORS);
@@ -128,34 +153,55 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
                                   const InternalKeyComparator& icomparator,
                                   const FileDescriptor& fd,
                                   TableReader** table_reader_ptr,
+                                  HistogramImpl* file_read_hist,
                                   bool for_compaction, Arena* arena) {
   PERF_TIMER_GUARD(new_table_iterator_nanos);
 
   if (table_reader_ptr != nullptr) {
     *table_reader_ptr = nullptr;
   }
-  TableReader* table_reader = fd.table_reader;
+
+  TableReader* table_reader = nullptr;
   Cache::Handle* handle = nullptr;
-  Status s;
-  if (table_reader == nullptr) {
-    s = FindTable(env_options, icomparator, fd, &handle,
-                  options.read_tier == kBlockCacheTier, !for_compaction);
+  bool create_new_table_reader =
+      (for_compaction && ioptions_.new_table_reader_for_compaction_inputs);
+  if (create_new_table_reader) {
+    unique_ptr<TableReader> table_reader_unique_ptr;
+    Status s = GetTableReader(
+        env_options, icomparator, fd, /* sequential mode */ true,
+        /* record stats */ false, nullptr, &table_reader_unique_ptr);
     if (!s.ok()) {
       return NewErrorIterator(s, arena);
     }
-    table_reader = GetTableReaderFromHandle(handle);
+    table_reader = table_reader_unique_ptr.release();
+  } else {
+    table_reader = fd.table_reader;
+    if (table_reader == nullptr) {
+      Status s =
+          FindTable(env_options, icomparator, fd, &handle,
+                    options.read_tier == kBlockCacheTier /* no_io */,
+                    !for_compaction /* record read_stats */, file_read_hist);
+      if (!s.ok()) {
+        return NewErrorIterator(s, arena);
+      }
+      table_reader = GetTableReaderFromHandle(handle);
+    }
   }
 
   Iterator* result = table_reader->NewIterator(options, arena);
-  if (handle != nullptr) {
+
+  if (create_new_table_reader) {
+    assert(handle == nullptr);
+    result->RegisterCleanup(&DeleteTableReader, table_reader, nullptr);
+  } else if (handle != nullptr) {
     result->RegisterCleanup(&UnrefEntry, cache_, handle);
-  }
-  if (table_reader_ptr != nullptr) {
-    *table_reader_ptr = table_reader;
   }
 
   if (for_compaction) {
     table_reader->SetupForCompaction();
+  }
+  if (table_reader_ptr != nullptr) {
+    *table_reader_ptr = table_reader;
   }
 
   return result;
@@ -164,7 +210,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
 Status TableCache::Get(const ReadOptions& options,
                        const InternalKeyComparator& internal_comparator,
                        const FileDescriptor& fd, const Slice& k,
-                       GetContext* get_context) {
+                       GetContext* get_context, HistogramImpl* file_read_hist) {
   TableReader* t = fd.table_reader;
   Status s;
   Cache::Handle* handle = nullptr;
@@ -210,7 +256,8 @@ Status TableCache::Get(const ReadOptions& options,
 
   if (!t) {
     s = FindTable(env_options_, internal_comparator, fd, &handle,
-                  options.read_tier == kBlockCacheTier);
+                  options.read_tier == kBlockCacheTier /* no_io */,
+                  true /* record_read_stats */, file_read_hist);
     if (s.ok()) {
       t = GetTableReaderFromHandle(handle);
     }

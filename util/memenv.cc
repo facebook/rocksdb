@@ -232,7 +232,9 @@ class WritableFileImpl : public WritableFile {
   virtual Status Append(const Slice& data) override {
     return file_->Append(data);
   }
-
+  virtual Status Truncate(uint64_t size) override {
+    return Status::OK();
+  }
   virtual Status Close() override { return Status::OK(); }
   virtual Status Flush() override { return Status::OK(); }
   virtual Status Sync() override { return Status::OK(); }

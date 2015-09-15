@@ -11,15 +11,24 @@
 
 #include "rocksdb/comparator.h"
 #include "rocksdb/db.h"
-#include "rocksdb/utilities/optimistic_transaction.h"
 
 namespace rocksdb {
 
-class OptimisticTransaction;
+class Transaction;
 
 // Database with Transaction support.
 //
 // See optimistic_transaction.h and examples/transaction_example.cc
+
+// Options to use when starting an Optimistic Transaction
+struct OptimisticTransactionOptions {
+  // Setting set_snapshot=true is the same as calling SetSnapshot().
+  bool set_snapshot = false;
+
+  // Should be set if the DB has a non-default comparator.
+  // See comment in WriteBatchWithIndex constructor.
+  const Comparator* cmp = BytewiseComparator();
+};
 
 class OptimisticTransactionDB {
  public:
@@ -34,13 +43,12 @@ class OptimisticTransactionDB {
 
   virtual ~OptimisticTransactionDB() {}
 
-  // Starts a new OptimisticTransaction.  Passing set_snapshot=true has the same
-  // effect
+  // Starts a new Transaction.  Passing set_snapshot=true has the same effect
   // as calling SetSnapshot().
   //
   // Caller should delete the returned transaction after calling
   // Commit() or Rollback().
-  virtual OptimisticTransaction* BeginTransaction(
+  virtual Transaction* BeginTransaction(
       const WriteOptions& write_options,
       const OptimisticTransactionOptions&
           txn_options = OptimisticTransactionOptions()) = 0;

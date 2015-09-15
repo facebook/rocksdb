@@ -26,6 +26,8 @@ void IOStatsContext::Reset() {
   write_nanos = 0;
   read_nanos = 0;
   range_sync_nanos = 0;
+  prepare_write_nanos = 0;
+  fsync_nanos = 0;
   logger_nanos = 0;
 }
 
@@ -33,15 +35,10 @@ void IOStatsContext::Reset() {
 
 std::string IOStatsContext::ToString() const {
   std::ostringstream ss;
-  ss << OUTPUT(thread_pool_id)
-     << OUTPUT(bytes_read)
-     << OUTPUT(bytes_written)
-     << OUTPUT(open_nanos)
-     << OUTPUT(allocate_nanos)
-     << OUTPUT(write_nanos)
-     << OUTPUT(read_nanos)
-     << OUTPUT(range_sync_nanos)
-     << OUTPUT(logger_nanos);
+  ss << OUTPUT(thread_pool_id) << OUTPUT(bytes_read) << OUTPUT(bytes_written)
+     << OUTPUT(open_nanos) << OUTPUT(allocate_nanos) << OUTPUT(write_nanos)
+     << OUTPUT(read_nanos) << OUTPUT(range_sync_nanos) << OUTPUT(fsync_nanos)
+     << OUTPUT(prepare_write_nanos) << OUTPUT(logger_nanos);
 
   return ss.str();
 }

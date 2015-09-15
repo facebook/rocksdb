@@ -8,10 +8,16 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 #pragma once
 #include "rocksdb/env.h"
+#include "util/aligned_buffer.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
 class Statistics;
+class HistogramImpl;
+
+std::unique_ptr<RandomAccessFile> NewReadaheadRandomAccessFile(
+  std::unique_ptr<RandomAccessFile>&& file, size_t readahead_size);
 
 class SequentialFileReader {
  private:
@@ -20,6 +26,19 @@ class SequentialFileReader {
  public:
   explicit SequentialFileReader(std::unique_ptr<SequentialFile>&& _file)
       : file_(std::move(_file)) {}
+
+  SequentialFileReader(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
+    *this = std::move(o);
+  }
+
+  SequentialFileReader& operator=(SequentialFileReader&& o) ROCKSDB_NOEXCEPT {
+    file_ = std::move(o.file_);
+    return *this;
+  }
+
+  SequentialFileReader(SequentialFileReader&) = delete;
+  SequentialFileReader& operator=(SequentialFileReader&) = delete;
+
   Status Read(size_t n, Slice* result, char* scratch);
 
   Status Skip(uint64_t n);
@@ -30,19 +49,38 @@ class SequentialFileReader {
 class RandomAccessFileReader : public RandomAccessFile {
  private:
   std::unique_ptr<RandomAccessFile> file_;
-  Env* env_;
-  Statistics* stats_;
-  uint32_t hist_type_;
+  Env*            env_;
+  Statistics*     stats_;
+  uint32_t        hist_type_;
+  HistogramImpl*  file_read_hist_;
 
  public:
   explicit RandomAccessFileReader(std::unique_ptr<RandomAccessFile>&& raf,
                                   Env* env = nullptr,
                                   Statistics* stats = nullptr,
-                                  uint32_t hist_type = 0)
+                                  uint32_t hist_type = 0,
+                                  HistogramImpl* file_read_hist = nullptr)
       : file_(std::move(raf)),
         env_(env),
         stats_(stats),
-        hist_type_(hist_type) {}
+        hist_type_(hist_type),
+        file_read_hist_(file_read_hist) {}
+
+  RandomAccessFileReader(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT {
+    *this = std::move(o);
+  }
+
+  RandomAccessFileReader& operator=(RandomAccessFileReader&& o) ROCKSDB_NOEXCEPT{
+    file_ = std::move(o.file_);
+    env_ = std::move(o.env_);
+    stats_ = std::move(o.stats_);
+    hist_type_ = std::move(o.hist_type_);
+    file_read_hist_ = std::move(o.file_read_hist_);
+    return *this;
+  }
+
+  RandomAccessFileReader(const RandomAccessFileReader&) = delete;
+  RandomAccessFileReader& operator=(const RandomAccessFileReader&) = delete;
 
   Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
 
@@ -53,31 +91,47 @@ class RandomAccessFileReader : public RandomAccessFile {
 class WritableFileWriter {
  private:
   std::unique_ptr<WritableFile> writable_file_;
-  size_t cursize_;          // current size of cached data in buf_
-  size_t capacity_;         // max size of buf_
-  unique_ptr<char[]> buf_;  // a buffer to cache writes
-  uint64_t filesize_;
-  bool pending_sync_;
-  bool pending_fsync_;
-  uint64_t last_sync_size_;
-  uint64_t bytes_per_sync_;
-  RateLimiter* rate_limiter_;
+  AlignedBuffer           buf_;
+  // Actually written data size can be used for truncate
+  // not counting padding data
+  uint64_t                filesize_;
+  // This is necessary when we use unbuffered access
+  // and writes must happen on aligned offsets
+  // so we need to go back and write that page again
+  uint64_t                next_write_offset_;
+  bool                    pending_sync_;
+  bool                    pending_fsync_;
+  const bool              direct_io_;
+  const bool              use_os_buffer_;
+  uint64_t                last_sync_size_;
+  uint64_t                bytes_per_sync_;
+  RateLimiter*            rate_limiter_;
 
  public:
-  explicit WritableFileWriter(std::unique_ptr<WritableFile>&& file,
-                              const EnvOptions& options)
+  WritableFileWriter(std::unique_ptr<WritableFile>&& file,
+                     const EnvOptions& options)
       : writable_file_(std::move(file)),
-        cursize_(0),
-        capacity_(65536),
-        buf_(new char[capacity_]),
+        buf_(),
         filesize_(0),
+        next_write_offset_(0),
         pending_sync_(false),
         pending_fsync_(false),
+        direct_io_(writable_file_->UseDirectIO()),
+        use_os_buffer_(writable_file_->UseOSBuffer()),
         last_sync_size_(0),
         bytes_per_sync_(options.bytes_per_sync),
-        rate_limiter_(options.rate_limiter) {}
+        rate_limiter_(options.rate_limiter) {
 
-  ~WritableFileWriter() { Flush(); }
+    buf_.Alignment(writable_file_->GetRequiredBufferAlignment());
+    buf_.AllocateNewBuffer(65536);
+  }
+
+  WritableFileWriter(const WritableFileWriter&) = delete;
+
+  WritableFileWriter& operator=(const WritableFileWriter&) = delete;
+
+  ~WritableFileWriter() { Close(); }
+
   Status Append(const Slice& data);
 
   Status Flush();
@@ -100,28 +154,13 @@ class WritableFileWriter {
   WritableFile* writable_file() const { return writable_file_.get(); }
 
  private:
+  // Used when os buffering is OFF and we are writing
+  // DMA such as in Windows unbuffered mode
+  Status WriteUnbuffered();
+  // Normal write
+  Status WriteBuffered(const char* data, size_t size);
   Status RangeSync(off_t offset, off_t nbytes);
-  size_t RequestToken(size_t bytes);
+  size_t RequestToken(size_t bytes, bool align);
   Status SyncInternal(bool use_fsync);
-};
-
-class RandomRWFileAccessor {
- private:
-  std::unique_ptr<RandomRWFile> random_rw_file_;
-  bool pending_sync_;
-  bool pending_fsync_;
-
- public:
-  explicit RandomRWFileAccessor(std::unique_ptr<RandomRWFile>&& f)
-      : random_rw_file_(std::move(f)),
-        pending_sync_(false),
-        pending_fsync_(false) {}
-  Status Write(uint64_t offset, const Slice& data);
-
-  Status Read(uint64_t offset, size_t n, Slice* result, char* scratch) const;
-
-  Status Close();
-
-  Status Sync(bool use_fsync);
 };
 }  // namespace rocksdb

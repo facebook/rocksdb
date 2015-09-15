@@ -89,6 +89,10 @@ struct ImmutableCFOptions {
 
   Options::AccessHint access_hint_on_compaction_start;
 
+  bool new_table_reader_for_compaction_inputs;
+
+  size_t compaction_readahead_size;
+
   int num_levels;
 
   bool optimize_filters_for_hits;

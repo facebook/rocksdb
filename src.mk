@@ -5,6 +5,7 @@ LIB_SOURCES =                                                   \
   db/column_family.cc                                           \
   db/compacted_db_impl.cc                                       \
   db/compaction.cc                                              \
+  db/compaction_iterator.cc                                     \
   db/compaction_job.cc                                          \
   db/compaction_picker.cc                                       \
   db/convenience.cc                                             \
@@ -33,6 +34,7 @@ LIB_SOURCES =                                                   \
   db/merge_operator.cc                                          \
   db/repair.cc                                                  \
   db/slice.cc                                                   \
+  db/snapshot_impl.cc                                           \
   db/table_cache.cc                                             \
   db/table_properties_collector.cc                              \
   db/transaction_log_impl.cc                                    \
@@ -117,6 +119,12 @@ LIB_SOURCES =                                                   \
   utilities/table_properties_collectors/compact_on_deletion_collector.cc \
   utilities/transactions/optimistic_transaction_impl.cc         \
   utilities/transactions/optimistic_transaction_db_impl.cc      \
+  utilities/transactions/transaction_base.cc                    \
+  utilities/transactions/transaction_db_impl.cc                 \
+  utilities/transactions/transaction_db_mutex_impl.cc           \
+  utilities/transactions/transaction_lock_mgr.cc                \
+  utilities/transactions/transaction_impl.cc                    \
+  utilities/transactions/transaction_util.cc                    \
   utilities/ttl/db_ttl_impl.cc                                  \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
@@ -139,6 +147,7 @@ LIB_SOURCES =                                                   \
   util/sst_dump_tool.cc                                         \
   util/statistics.cc                                            \
   util/status.cc                                                \
+  util/status_message.cc                                        \
   util/string_util.cc                                           \
   util/sync_point.cc                                            \
   util/thread_local.cc                                          \
@@ -234,6 +243,7 @@ TEST_BENCH_SOURCES =                                                    \
   utilities/spatialdb/spatial_db_test.cc                                \
   utilities/table_properties_collectors/compact_on_deletion_collector_test.cc  \
   utilities/transactions/optimistic_transaction_test.cc                 \
+  utilities/transactions/transaction_test.cc                            \
   utilities/ttl/ttl_test.cc                                             \
   utilities/write_batch_with_index/write_batch_with_index_test.cc       \
   util/log_write_bench.cc                                               \

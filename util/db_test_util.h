@@ -148,6 +148,9 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status Truncate(uint64_t size) override {
+        return base_->Truncate(size);
+      }
       Status Close() override {
 // SyncPoint is not supported in Released Windows Mode.
 #if !(defined NDEBUG) || !defined(OS_WIN)
@@ -185,6 +188,7 @@ class SpecialEnv : public EnvWrapper {
           return base_->Append(data);
         }
       }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
@@ -225,6 +229,7 @@ class SpecialEnv : public EnvWrapper {
 #endif
         return s;
       }
+      Status Truncate(uint64_t size) override { return base_->Truncate(size); }
       Status Close() override { return base_->Close(); }
       Status Flush() override { return base_->Flush(); }
       Status Sync() override {
@@ -419,7 +424,7 @@ class DBTestBase : public testing::Test {
     kHashCuckoo = 8,
     kMergePut = 9,
     kFilter = 10,
-    kFullFilter = 11,
+    kFullFilterWithNewTableReaderForCompactions = 11,
     kUncompressed = 12,
     kNumLevel_3 = 13,
     kDBLogDir = 14,
@@ -437,6 +442,7 @@ class DBTestBase : public testing::Test {
     kOptimizeFiltersForHits = 26,
     kRowCache = 27,
     kLevelSubcompactions = 28,
+    kUniversalSubcompactions = 29,
     kEnd = 28
   };
   int option_config_;
@@ -611,6 +617,8 @@ class DBTestBase : public testing::Test {
 
   // this will generate non-overlapping files since it keeps increasing key_idx
   void GenerateNewFile(Random* rnd, int* key_idx, bool nowait = false);
+
+  void GenerateNewFile(int fd, Random* rnd, int* key_idx, bool nowait = false);
 
   void GenerateNewRandomFile(Random* rnd, bool nowait = false);
 

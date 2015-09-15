@@ -71,7 +71,7 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
                            const Slice& value) {
   assert((state_ != kMerge && parsed_key.type != kTypeMerge) ||
          merge_context_ != nullptr);
-  if (ucmp_->Compare(parsed_key.user_key, user_key_) == 0) {
+  if (ucmp_->Equal(parsed_key.user_key, user_key_)) {
     appendToReplayLog(replay_log_, parsed_key.type, value);
 
     // Key matches. Process it

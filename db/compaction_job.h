@@ -10,35 +10,36 @@
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <limits>
 #include <set>
+#include <string>
 #include <utility>
 #include <vector>
-#include <string>
-#include <functional>
 
-#include "db/dbformat.h"
-#include "db/log_writer.h"
 #include "db/column_family.h"
-#include "db/version_edit.h"
+#include "db/compaction_iterator.h"
+#include "db/dbformat.h"
+#include "db/flush_scheduler.h"
+#include "db/internal_stats.h"
+#include "db/job_context.h"
+#include "db/log_writer.h"
 #include "db/memtable_list.h"
+#include "db/version_edit.h"
+#include "db/write_controller.h"
+#include "db/write_thread.h"
 #include "port/port.h"
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
 #include "rocksdb/memtablerep.h"
-#include "rocksdb/compaction_filter.h"
-#include "rocksdb/compaction_job_stats.h"
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
+#include "util/scoped_arena_iterator.h"
 #include "util/stop_watch.h"
 #include "util/thread_local.h"
-#include "util/scoped_arena_iterator.h"
-#include "db/internal_stats.h"
-#include "db/write_controller.h"
-#include "db/flush_scheduler.h"
-#include "db/write_thread.h"
-#include "db/job_context.h"
 
 namespace rocksdb {
 
@@ -57,8 +58,8 @@ class CompactionJob {
                 Directory* db_directory, Directory* output_directory,
                 Statistics* stats,
                 std::vector<SequenceNumber> existing_snapshots,
-                std::shared_ptr<Cache> table_cache,
-                EventLogger* event_logger, bool paranoid_file_checks,
+                std::shared_ptr<Cache> table_cache, EventLogger* event_logger,
+                bool paranoid_file_checks, bool measure_io_stats,
                 const std::string& dbname,
                 CompactionJobStats* compaction_job_stats);
 
@@ -75,48 +76,39 @@ class CompactionJob {
   Status Run();
 
   // REQUIRED: mutex held
-  // status is the return of Run()
-  void Install(Status* status, const MutableCFOptions& mutable_cf_options,
-               InstrumentedMutex* db_mutex);
+  Status Install(const MutableCFOptions& mutable_cf_options,
+                 InstrumentedMutex* db_mutex);
 
  private:
-  // REQUIRED: mutex not held
-  Status SubCompactionRun(Slice* start, Slice* end);
+  struct SubcompactionState;
 
-  void GetSubCompactionBoundaries();
+  void AggregateStatistics();
+  void GenSubcompactionBoundaries();
+
   // update the thread status for starting a compaction.
   void ReportStartedCompaction(Compaction* compaction);
   void AllocateCompactionOutputFileNumbers();
   // Call compaction filter. Then iterate through input and compact the
   // kv-pairs
-  Status ProcessKeyValueCompaction(int64_t* imm_micros, Iterator* input,
-                                    Slice* start = nullptr,
-                                    Slice* end = nullptr);
+  void ProcessKeyValueCompaction(SubcompactionState* sub_compact);
 
-  Status WriteKeyValue(const Slice& key, const Slice& value,
-                       const ParsedInternalKey& ikey,
-                       const Status& input_status);
-
-  Status FinishCompactionOutputFile(const Status& input_status);
-  Status InstallCompactionResults(InstrumentedMutex* db_mutex,
-                                  const MutableCFOptions& mutable_cf_options);
-  SequenceNumber findEarliestVisibleSnapshot(
-      SequenceNumber in, const std::vector<SequenceNumber>& snapshots,
-      SequenceNumber* prev_snapshot);
+  Status FinishCompactionOutputFile(const Status& input_status,
+                                    SubcompactionState* sub_compact);
+  Status InstallCompactionResults(const MutableCFOptions& mutable_cf_options,
+                                  InstrumentedMutex* db_mutex);
   void RecordCompactionIOStats();
-  Status OpenCompactionOutputFile();
-  void CleanupCompaction(const Status& status);
+  Status OpenCompactionOutputFile(SubcompactionState* sub_compact);
+  void CleanupCompaction();
   void UpdateCompactionJobStats(
     const InternalStats::CompactionStats& stats) const;
-  void RecordDroppedKeys(int64_t* key_drop_user,
-                         int64_t* key_drop_newer_entry,
-                         int64_t* key_drop_obsolete);
+  void RecordDroppedKeys(const CompactionIteratorStats& c_iter_stats,
+                         CompactionJobStats* compaction_job_stats = nullptr);
 
   void UpdateCompactionStats();
   void UpdateCompactionInputStatsHelper(
       int* num_files, uint64_t* bytes_read, int input_level);
 
-  void LogCompaction(ColumnFamilyData* cfd, Compaction* compaction);
+  void LogCompaction();
 
   int job_id_;
 
@@ -124,12 +116,6 @@ class CompactionJob {
   struct CompactionState;
   CompactionState* compact_;
   CompactionJobStats* compaction_job_stats_;
-
-  bool bottommost_level_;
-  SequenceNumber earliest_snapshot_;
-  SequenceNumber visible_at_tip_;
-  SequenceNumber latest_snapshot_;
-
   InternalStats::CompactionStats compaction_stats_;
 
   // DBImpl state
@@ -152,8 +138,13 @@ class CompactionJob {
 
   EventLogger* event_logger_;
 
+  bool bottommost_level_;
   bool paranoid_file_checks_;
-  std::vector<Slice> sub_compaction_boundaries_;
+  bool measure_io_stats_;
+  // Stores the Slices that designate the boundaries for each subcompaction
+  std::vector<Slice> boundaries_;
+  // Stores the approx size of keys covered in the range of each subcompaction
+  std::vector<uint64_t> sizes_;
 };
 
 }  // namespace rocksdb

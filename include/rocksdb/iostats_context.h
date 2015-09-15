@@ -38,7 +38,10 @@ struct IOStatsContext {
   uint64_t read_nanos;
   // time spent in sync_file_range().
   uint64_t range_sync_nanos;
-
+  // time spent in fsync
+  uint64_t fsync_nanos;
+  // time spent in preparing write (fallocate etc).
+  uint64_t prepare_write_nanos;
   // time spent in Logger::Logv().
   uint64_t logger_nanos;
 };

@@ -8,9 +8,9 @@
 //
 // A WriteBatchWithIndex with a binary searchable index built for all the keys
 // inserted.
+#pragma once
 
 #ifndef ROCKSDB_LITE
-#pragma once
 
 #include <string>
 

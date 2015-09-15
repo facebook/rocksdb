@@ -121,6 +121,10 @@ class VersionStorageInfo {
       const MutableCFOptions& mutable_cf_options,
       const CompactionOptionsFIFO& compaction_options_fifo);
 
+  // Estimate est_comp_needed_bytes_
+  void EstimateCompactionBytesNeeded(
+      const MutableCFOptions& mutable_cf_options);
+
   // This computes files_marked_for_compaction_ and is called by
   // ComputeCompactionScore()
   void ComputeFilesMarkedForCompaction();
@@ -315,6 +319,10 @@ class VersionStorageInfo {
   // Returns an estimate of the amount of live data in bytes.
   uint64_t EstimateLiveDataSize() const;
 
+  uint64_t estimated_compaction_needed_bytes() const {
+    return estimated_compaction_needed_bytes_;
+  }
+
  private:
   const InternalKeyComparator* internal_comparator_;
   const Comparator* user_comparator_;
@@ -389,6 +397,9 @@ class VersionStorageInfo {
   uint64_t accumulated_num_deletions_;
   // the number of samples
   uint64_t num_samples_;
+  // Estimated bytes needed to be compacted until all levels' size is down to
+  // target sizes.
+  uint64_t estimated_compaction_needed_bytes_;
 
   bool finalized_;
 
@@ -450,6 +461,14 @@ class Version {
   // The keys of `props` are the sst file name, the values of `props` are the
   // tables' propertis, represented as shared_ptr.
   Status GetPropertiesOfAllTables(TablePropertiesCollection* props);
+
+  Status GetPropertiesOfAllTables(TablePropertiesCollection* props, int level);
+
+  // REQUIRES: lock is held
+  // On success, "tp" will contains the aggregated table property amoug
+  // the table properties of all sst files in this version.
+  Status GetAggregatedTableProperties(
+      std::shared_ptr<const TableProperties>* tp, int level = -1);
 
   uint64_t GetEstimatedActiveKeys() {
     return storage_info_.GetEstimatedActiveKeys();
@@ -627,7 +646,10 @@ class VersionSet {
   void AddLiveFiles(std::vector<FileDescriptor>* live_list);
 
   // Return the approximate size of data to be scanned for range [start, end)
-  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end);
+  // in levels [start_level, end_level). If end_level == 0 it will search
+  // through all non-empty levels
+  uint64_t ApproximateSize(Version* v, const Slice& start, const Slice& end,
+                           int start_level = 0, int end_level = -1);
 
   // Return the size of the current manifest file
   uint64_t manifest_file_size() const { return manifest_file_size_; }
@@ -650,6 +672,8 @@ class VersionSet {
   const EnvOptions& env_options() { return env_options_; }
 
   static uint64_t GetNumLiveVersions(Version* dummy_versions);
+
+  static uint64_t GetTotalSstFilesSize(Version* dummy_versions);
 
  private:
   struct ManifestWriter;

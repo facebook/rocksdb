@@ -21,13 +21,12 @@
 
 #include "db/compaction_picker.h"
 #include "db/db_impl.h"
-#include "db/job_context.h"
-#include "db/version_set.h"
-#include "db/writebuffer.h"
 #include "db/internal_stats.h"
+#include "db/job_context.h"
 #include "db/table_properties_collector.h"
 #include "db/version_set.h"
 #include "db/write_controller.h"
+#include "db/writebuffer.h"
 #include "util/autovector.h"
 #include "util/compression.h"
 #include "util/hash_skiplist_rep.h"
@@ -126,7 +125,12 @@ ColumnFamilyOptions SanitizeOptions(const DBOptions& db_options,
   // if user sets arena_block_size, we trust user to use this value. Otherwise,
   // calculate a proper value from writer_buffer_size;
   if (result.arena_block_size <= 0) {
-    result.arena_block_size = result.write_buffer_size / 10;
+    result.arena_block_size = result.write_buffer_size / 8;
+
+    // Align up to 4k
+    const size_t align = 4 * 1024;
+    result.arena_block_size =
+        ((result.arena_block_size + align - 1) / align) * align;
   }
   result.min_write_buffer_number_to_merge =
       std::min(result.min_write_buffer_number_to_merge,
@@ -242,6 +246,9 @@ void SuperVersion::Cleanup() {
   imm->Unref(&to_delete);
   MemTable* m = mem->Unref();
   if (m != nullptr) {
+    auto* memory_usage = current->cfd()->imm()->current_memory_usage();
+    assert(*memory_usage >= m->ApproximateMemoryUsage());
+    *memory_usage -= m->ApproximateMemoryUsage();
     to_delete.push_back(m);
   }
   current->Unref();
@@ -439,15 +446,33 @@ void ColumnFamilyData::RecalculateWriteStallConditions(
     } else if (vstorage->l0_delay_trigger_count() >=
                mutable_cf_options.level0_stop_writes_trigger) {
       write_controller_token_ = write_controller->GetStopToken();
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES, 1);
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_NUM_FILES_TOTAL, 1);
+      if (compaction_picker_->IsLevel0CompactionInProgress()) {
+        internal_stats_->AddCFStats(
+            InternalStats::LEVEL0_NUM_FILES_WITH_COMPACTION, 1);
+      }
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stopping writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());
+    } else if (mutable_cf_options.hard_pending_compaction_bytes_limit > 0 &&
+               vstorage->estimated_compaction_needed_bytes() >=
+                   mutable_cf_options.hard_pending_compaction_bytes_limit) {
+      write_controller_token_ = write_controller->GetStopToken();
+      internal_stats_->AddCFStats(
+          InternalStats::HARD_PENDING_COMPACTION_BYTES_LIMIT, 1);
+      Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
+          "[%s] Stopping writes because estimated pending compaction "
+          "bytes exceed %" PRIu64,
+          name_.c_str(), vstorage->estimated_compaction_needed_bytes());
     } else if (mutable_cf_options.level0_slowdown_writes_trigger >= 0 &&
                vstorage->l0_delay_trigger_count() >=
                    mutable_cf_options.level0_slowdown_writes_trigger) {
       write_controller_token_ = write_controller->GetDelayToken();
-      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN, 1);
+      internal_stats_->AddCFStats(InternalStats::LEVEL0_SLOWDOWN_TOTAL, 1);
+      if (compaction_picker_->IsLevel0CompactionInProgress()) {
+        internal_stats_->AddCFStats(
+            InternalStats::LEVEL0_SLOWDOWN_WITH_COMPACTION, 1);
+      }
       Log(InfoLogLevel::WARN_LEVEL, ioptions_.info_log,
           "[%s] Stalling writes because we have %d level-0 files",
           name_.c_str(), vstorage->l0_delay_trigger_count());
@@ -474,6 +499,10 @@ void ColumnFamilyData::SetCurrent(Version* current_version) {
 
 uint64_t ColumnFamilyData::GetNumLiveVersions() const {
   return VersionSet::GetNumLiveVersions(dummy_versions_);
+}
+
+uint64_t ColumnFamilyData::GetTotalSstFilesSize() const {
+  return VersionSet::GetTotalSstFilesSize(dummy_versions_);
 }
 
 MemTable* ColumnFamilyData::ConstructNewMemtable(

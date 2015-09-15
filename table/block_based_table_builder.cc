@@ -360,6 +360,13 @@ Slice CompressBlock(const Slice& raw,
         return *compressed_output;
       }
       break;     // fall back to no compression.
+    case kZSTDNotFinalCompression:
+      if (ZSTD_Compress(compression_options, raw.data(), raw.size(),
+                        compressed_output) &&
+          GoodCompressionRatio(compressed_output->size(), raw.size())) {
+        return *compressed_output;
+      }
+      break;     // fall back to no compression.
     default: {}  // Do not recognize this compression type
   }
 

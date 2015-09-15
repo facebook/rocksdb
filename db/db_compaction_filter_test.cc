@@ -374,7 +374,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
 
     // push all files to  lower levels
     ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel) {
+    if (option_config_ != kUniversalCompactionMultiLevel &&
+        option_config_ != kUniversalSubcompactions) {
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
       dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     } else {
@@ -392,7 +393,8 @@ TEST_F(DBTestCompactionFilter, CompactionFilterWithValueChange) {
     // push all files to  lower levels. This should
     // invoke the compaction filter for all 100000 keys.
     ASSERT_OK(Flush(1));
-    if (option_config_ != kUniversalCompactionMultiLevel) {
+    if (option_config_ != kUniversalCompactionMultiLevel &&
+        option_config_ != kUniversalSubcompactions) {
       dbfull()->TEST_CompactRange(0, nullptr, nullptr, handles_[1]);
       dbfull()->TEST_CompactRange(1, nullptr, nullptr, handles_[1]);
     } else {
@@ -533,6 +535,42 @@ TEST_F(DBTestCompactionFilter, CompactionFilterContextManual) {
     ASSERT_EQ(total, 700);
     ASSERT_EQ(count, 1);
   }
+}
+
+// Compaction filters should only be applied to records that are newer than the
+// latest snapshot. This test inserts records and applies a delete filter.
+TEST_F(DBTestCompactionFilter, CompactionFilterSnapshot) {
+  Options options;
+  options.compaction_filter_factory = std::make_shared<DeleteFilterFactory>();
+  options.disable_auto_compactions = true;
+  options.create_if_missing = true;
+  options = CurrentOptions(options);
+  DestroyAndReopen(options);
+
+  // Put some data.
+  const Snapshot* snapshot = nullptr;
+  for (int table = 0; table < 4; ++table) {
+    for (int i = 0; i < 10; ++i) {
+      Put(ToString(table * 100 + i), "val");
+    }
+    Flush();
+
+    if (table == 0) {
+      snapshot = db_->GetSnapshot();
+    }
+  }
+  assert(snapshot != nullptr);
+
+  cfilter_count = 0;
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  // The filter should delete 10 records.
+  ASSERT_EQ(30U, cfilter_count);
+
+  // Release the snapshot and compact again -> now all records should be
+  // removed.
+  db_->ReleaseSnapshot(snapshot);
+  ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+  ASSERT_EQ(0U, CountLiveFiles());
 }
 
 }  // namespace rocksdb

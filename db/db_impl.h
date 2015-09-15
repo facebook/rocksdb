@@ -11,21 +11,25 @@
 #include <atomic>
 #include <deque>
 #include <limits>
+#include <list>
+#include <list>
 #include <set>
-#include <list>
-#include <utility>
-#include <list>
-#include <vector>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "db/dbformat.h"
-#include "db/log_writer.h"
-#include "db/snapshot.h"
 #include "db/column_family.h"
 #include "db/compaction_job.h"
+#include "db/dbformat.h"
 #include "db/flush_job.h"
+#include "db/flush_scheduler.h"
+#include "db/internal_stats.h"
+#include "db/log_writer.h"
+#include "db/snapshot_impl.h"
 #include "db/version_edit.h"
 #include "db/wal_manager.h"
+#include "db/write_controller.h"
+#include "db/write_thread.h"
 #include "db/writebuffer.h"
 #include "memtable_list.h"
 #include "port/port.h"
@@ -36,15 +40,11 @@
 #include "util/autovector.h"
 #include "util/event_logger.h"
 #include "util/hash.h"
-#include "util/stop_watch.h"
-#include "util/thread_local.h"
-#include "util/scoped_arena_iterator.h"
 #include "util/hash.h"
 #include "util/instrumented_mutex.h"
-#include "db/internal_stats.h"
-#include "db/write_controller.h"
-#include "db/flush_scheduler.h"
-#include "db/write_thread.h"
+#include "util/scoped_arena_iterator.h"
+#include "util/stop_watch.h"
+#include "util/thread_local.h"
 
 namespace rocksdb {
 
@@ -326,6 +326,9 @@ class DBImpl : public DB {
   // mutex is held.
   SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
 
+  // Same as above, should called without mutex held and not on write thread.
+  SuperVersion* GetAndRefSuperVersionUnlocked(uint32_t column_family_id);
+
   // Un-reference the super version and return it to thread local cache if
   // needed. If it is the last reference of the super version. Clean it up
   // after un-referencing it.
@@ -336,10 +339,17 @@ class DBImpl : public DB {
   // REQUIRED: this function should only be called on the write thread.
   void ReturnAndCleanupSuperVersion(uint32_t colun_family_id, SuperVersion* sv);
 
+  // Same as above, should called without mutex held and not on write thread.
+  void ReturnAndCleanupSuperVersionUnlocked(uint32_t colun_family_id,
+                                            SuperVersion* sv);
+
   // REQUIRED: this function should only be called on the write thread or if the
   // mutex is held.  Return value only valid until next call to this function or
   // mutex is released.
   ColumnFamilyHandle* GetColumnFamilyHandle(uint32_t column_family_id);
+
+  // Same as above, should called without mutex held and not on write thread.
+  ColumnFamilyHandle* GetColumnFamilyHandleUnlocked(uint32_t column_family_id);
 
  protected:
   Env* const env_;
@@ -532,10 +542,24 @@ class DBImpl : public DB {
     bool getting_flushed = false;
   };
   struct LogWriterNumber {
-    LogWriterNumber(uint64_t _number, std::unique_ptr<log::Writer> _writer)
-        : number(_number), writer(std::move(_writer)) {}
+    // pass ownership of _writer
+    LogWriterNumber(uint64_t _number, log::Writer* _writer)
+        : number(_number), writer(_writer) {}
+
+    log::Writer* ReleaseWriter() {
+      auto* w = writer;
+      writer = nullptr;
+      return w;
+    }
+    void ClearWriter() {
+      delete writer;
+      writer = nullptr;
+    }
+
     uint64_t number;
-    std::unique_ptr<log::Writer> writer;
+    // Visual Studio doesn't support deque's member to be noncopyable because
+    // of a unique_ptr as a member.
+    log::Writer* writer;  // own
     // true for some prefix of logs_
     bool getting_synced = false;
   };

@@ -15,8 +15,7 @@ namespace rocksdb {
 
 LoggerJniCallback::LoggerJniCallback(
     JNIEnv* env, jobject jlogger) {
-
-  const jint rs = env->GetJavaVM(&m_jvm);
+  const jint rs __attribute__((unused)) = env->GetJavaVM(&m_jvm);
   assert(rs == JNI_OK);
 
   // Note: we want to access the Java Logger instance
@@ -30,7 +29,8 @@ LoggerJniCallback::LoggerJniCallback(
  */
 JNIEnv* LoggerJniCallback::getJniEnv() const {
   JNIEnv *env;
-  jint rs = m_jvm->AttachCurrentThread(reinterpret_cast<void **>(&env), NULL);
+  jint rs __attribute__((unused)) =
+      m_jvm->AttachCurrentThread(reinterpret_cast<void**>(&env), NULL);
   assert(rs == JNI_OK);
   return env;
 }

@@ -8,9 +8,9 @@
 #include <string>
 
 #include "db/table_properties_collector.h"
-#include "table/block.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
+#include "table/block.h"
 #include "table/format.h"
 #include "table/table_properties_internal.h"
 #include "util/coding.h"

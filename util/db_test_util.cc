@@ -132,7 +132,7 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
   }
 }
 
-// Switch between different compaction styles (we have only 2 now).
+// Switch between different compaction styles.
 bool DBTestBase::ChangeCompactOptions() {
   if (option_config_ == kDefault) {
     option_config_ = kUniversalCompaction;
@@ -152,7 +152,14 @@ bool DBTestBase::ChangeCompactOptions() {
     option_config_ = kLevelSubcompactions;
     Destroy(last_options_);
     auto options = CurrentOptions();
-    options.num_subcompactions = 4;
+    assert(options.max_subcompactions > 1);
+    TryReopen(options);
+    return true;
+  } else if (option_config_ == kLevelSubcompactions) {
+    option_config_ = kUniversalSubcompactions;
+    Destroy(last_options_);
+    auto options = CurrentOptions();
+    assert(options.max_subcompactions > 1);
     TryReopen(options);
     return true;
   } else {
@@ -166,7 +173,7 @@ bool DBTestBase::ChangeFilterOptions() {
   if (option_config_ == kDefault) {
     option_config_ = kFilter;
   } else if (option_config_ == kFilter) {
-    option_config_ = kFullFilter;
+    option_config_ = kFullFilterWithNewTableReaderForCompactions;
   } else {
     return false;
   }
@@ -182,13 +189,14 @@ bool DBTestBase::ChangeFilterOptions() {
 Options DBTestBase::CurrentOptions(
     const anon::OptionsOverride& options_override) {
   Options options;
+  options.write_buffer_size = 4090 * 4096;
   return CurrentOptions(options, options_override);
 }
 
 Options DBTestBase::CurrentOptions(
     const Options& defaultOptions,
     const anon::OptionsOverride& options_override) {
-  // this redudant copy is to minimize code change w/o having lint error.
+  // this redundant copy is to minimize code change w/o having lint error.
   Options options = defaultOptions;
   XFUNC_TEST("", "dbtest_options", inplace_options1, GetXFTestOptions,
              reinterpret_cast<Options*>(&options),
@@ -228,8 +236,10 @@ Options DBTestBase::CurrentOptions(
     case kFilter:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, true));
       break;
-    case kFullFilter:
+    case kFullFilterWithNewTableReaderForCompactions:
       table_options.filter_policy.reset(NewBloomFilterPolicy(10, false));
+      options.new_table_reader_for_compaction_inputs = true;
+      options.compaction_readahead_size = 10 * 1024 * 1024;
       break;
     case kUncompressed:
       options.compression = kNoCompression;
@@ -311,7 +321,13 @@ Options DBTestBase::CurrentOptions(
       break;
     }
     case kLevelSubcompactions: {
-      options.num_subcompactions = 2;
+      options.max_subcompactions = 4;
+      break;
+    }
+    case kUniversalSubcompactions: {
+      options.compaction_style = kCompactionStyleUniversal;
+      options.num_levels = 8;
+      options.max_subcompactions = 4;
       break;
     }
 
@@ -537,7 +553,7 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
       if (!ParseInternalKey(iter->key(), &ikey)) {
         result += "CORRUPTED";
       } else {
-        if (last_options_.comparator->Compare(ikey.user_key, user_key) != 0) {
+        if (!last_options_.comparator->Equal(ikey.user_key, user_key)) {
           break;
         }
         if (!first) {
@@ -775,9 +791,22 @@ int DBTestBase::GetSstFileCount(std::string path) {
 }
 
 // this will generate non-overlapping files since it keeps increasing key_idx
+void DBTestBase::GenerateNewFile(int cf, Random* rnd, int* key_idx,
+                                 bool nowait) {
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(cf, Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
+    (*key_idx)++;
+  }
+  if (!nowait) {
+    dbfull()->TEST_WaitForFlushMemTable();
+    dbfull()->TEST_WaitForCompact();
+  }
+}
+
+// this will generate non-overlapping files since it keeps increasing key_idx
 void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
-  for (int i = 0; i < 11; i++) {
-    ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 10) ? 1 : 10000)));
+  for (int i = 0; i < 100; i++) {
+    ASSERT_OK(Put(Key(*key_idx), RandomString(rnd, (i == 99) ? 1 : 990)));
     (*key_idx)++;
   }
   if (!nowait) {
@@ -787,10 +816,10 @@ void DBTestBase::GenerateNewFile(Random* rnd, int* key_idx, bool nowait) {
 }
 
 void DBTestBase::GenerateNewRandomFile(Random* rnd, bool nowait) {
-  for (int i = 0; i < 100; i++) {
-    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 1000)));
+  for (int i = 0; i < 51; i++) {
+    ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 2000)));
   }
-  ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 1)));
+  ASSERT_OK(Put("key" + RandomString(rnd, 7), RandomString(rnd, 200)));
   if (!nowait) {
     dbfull()->TEST_WaitForFlushMemTable();
     dbfull()->TEST_WaitForCompact();

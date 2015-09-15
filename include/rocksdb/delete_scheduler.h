@@ -35,6 +35,10 @@ class DeleteScheduler {
   // Return a map containing errors that happened in the background thread
   // file_path => error status
   virtual std::map<std::string, Status> GetBackgroundErrors() = 0;
+
+  // Wait for all files being deleteing in the background to finish or for
+  // destructor to be called.
+  virtual void WaitForEmptyTrash() = 0;
 };
 
 // Create a new DeleteScheduler that can be shared among multiple RocksDB

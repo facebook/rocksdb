@@ -61,6 +61,10 @@ struct TableProperties {
   //   @prop_delim: delimiter for each property.
   std::string ToString(const std::string& prop_delim = "; ",
                        const std::string& kv_delim = "=") const;
+
+  // Aggregate the numerical member variables of the specified
+  // TableProperties.
+  void Add(const TableProperties& tp);
 };
 
 // table properties' human-readable names in the property block.

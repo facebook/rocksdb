@@ -12,6 +12,8 @@ namespace rocksdb {
 struct CompactionJobStats {
   CompactionJobStats() { Reset(); }
   void Reset();
+  // Aggregate the CompactionJobStats from another instance with this one
+  void Add(const CompactionJobStats& stats);
 
   // the elapsed time in micro of this compaction.
   uint64_t elapsed_micros;
@@ -57,6 +59,21 @@ struct CompactionJobStats {
   // number of corrupt keys (ParseInternalKey returned false when applied to
   // the key) encountered and written out.
   uint64_t num_corrupt_keys;
+
+  // Following counters are only populated if
+  // options.compaction_measure_io_stats = true;
+
+  // Time spent on file's Append() call.
+  uint64_t file_write_nanos;
+
+  // Time spent on sync file range.
+  uint64_t file_range_sync_nanos;
+
+  // Time spent on file fsync.
+  uint64_t file_fsync_nanos;
+
+  // Time spent on preparing file write (falocate, etc)
+  uint64_t file_prepare_write_nanos;
 
   // 0-terminated strings storing the first 8 bytes of the smallest and
   // largest key in the output.

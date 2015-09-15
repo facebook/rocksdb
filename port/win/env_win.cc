@@ -30,6 +30,7 @@
 #include "util/iostats_context_imp.h"
 #include "util/rate_limiter.h"
 #include "util/sync_point.h"
+#include "util/aligned_buffer.h"
 
 #include "util/thread_status_updater.h"
 #include "util/thread_status_util.h"
@@ -161,15 +162,6 @@ inline int fsync(HANDLE hFile) {
   return 0;
 }
 
-inline size_t TruncateToPageBoundary(size_t page_size, size_t s) {
-  s -= (s & (page_size - 1));
-  assert((s % page_size) == 0);
-  return s;
-}
-
-// Roundup x to a multiple of y
-inline size_t Roundup(size_t x, size_t y) { return ((x + y - 1) / y) * y; }
-
 // SetFileInformationByHandle() is capable of fast pre-allocates.
 // However, this does not change the file end position unless the file is
 // truncated and the pre-allocated space is not considered filled with zeros.
@@ -206,118 +198,6 @@ inline Status ftruncate(const std::string& filename, HANDLE hFile,
 
   return status;
 }
-
-class WinRandomRWFile : public RandomRWFile {
-  const std::string filename_;
-  HANDLE hFile_;
-  bool pending_fsync_;
-
- public:
-  WinRandomRWFile(const std::string& fname, HANDLE hFile,
-                  const EnvOptions& options)
-      : filename_(fname), hFile_(hFile), pending_fsync_(false) {
-    assert(!options.use_mmap_writes && !options.use_mmap_reads);
-  }
-
-  ~WinRandomRWFile() {
-    if (hFile_ != INVALID_HANDLE_VALUE && hFile_ != NULL) {
-      ::CloseHandle(hFile_);
-    }
-  }
-
-  virtual Status Write(uint64_t offset, const Slice& data) override {
-    const char* src = data.data();
-    size_t left = data.size();
-
-    pending_fsync_ = true;
-
-    SSIZE_T done = 0;
-    {
-      IOSTATS_TIMER_GUARD(write_nanos);
-      done = pwrite(hFile_, src, left, offset);
-    }
-
-    if (done < 0) {
-      return IOErrorFromWindowsError("pwrite failed to: " + filename_,
-                                     GetLastError());
-    }
-
-    IOSTATS_ADD(bytes_written, done);
-
-    left -= done;
-    src += done;
-    offset += done;
-
-    return Status::OK();
-  }
-
-  virtual Status Read(uint64_t offset, size_t n, Slice* result,
-                      char* scratch) const override {
-    Status s;
-
-    SSIZE_T r = -1;
-    char* ptr = scratch;
-    size_t left = n;
-
-    while (left > 0) {
-      {
-        IOSTATS_TIMER_GUARD(read_nanos);
-        r = pread(hFile_, ptr, n, offset);
-      }
-
-      if (r <= 0) {
-        break;
-      }
-
-      ptr += r;
-      offset += r;
-      left -= r;
-    }
-
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
-
-    *result = Slice(scratch, (r < 0) ? 0 : r);
-
-    if (r < 0) {
-      s = IOErrorFromWindowsError("pread failed from: " + filename_,
-                                  GetLastError());
-    }
-    return s;
-  }
-
-  virtual Status Close() override {
-    Status s = Status::OK();
-    if (hFile_ != INVALID_HANDLE_VALUE && ::CloseHandle(hFile_) == FALSE) {
-      s = IOErrorFromWindowsError("Failed to close file: " + filename_,
-                                  GetLastError());
-    }
-    hFile_ = INVALID_HANDLE_VALUE;
-    return s;
-  }
-
-  virtual Status Sync() override {
-    if (pending_fsync_ && fsync(hFile_) < 0) {
-      return IOErrorFromWindowsError(
-          "Failed to Sync() buffers for: " + filename_, GetLastError());
-    }
-    pending_fsync_ = false;
-    return Status::OK();
-  }
-
-  virtual Status Fsync() override {
-    if (pending_fsync_ && fsync(hFile_) < 0) {
-      return IOErrorFromWindowsError("Failed to Fsync() for: " + filename_,
-                                     GetLastError());
-    }
-    pending_fsync_ = false;
-    return Status::OK();
-  }
-
-  virtual Status Allocate(off_t offset, off_t len) override {
-    IOSTATS_TIMER_GUARD(allocate_nanos);
-    return fallocate(filename_, hFile_, len);
-  }
-};
 
 // mmap() based random-access
 class WinMmapReadableFile : public RandomAccessFile {
@@ -604,13 +484,18 @@ class WinMmapFile : public WritableFile {
 
       size_t n = std::min(left, avail);
       memcpy(dst_, src, n);
-      IOSTATS_ADD(bytes_written, n);
       dst_ += n;
       src += n;
       left -= n;
       pending_sync_ = true;
     }
 
+    return Status::OK();
+  }
+
+  // Means Close() will properly take care of truncate
+  // and it does not need any additional information
+  virtual Status Truncate(uint64_t size) override {
     return Status::OK();
   }
 
@@ -724,146 +609,70 @@ class WinMmapFile : public WritableFile {
   }
 };
 
-// This class is to manage an aligned user
-// allocated buffer for unbuffered I/O purposes
-// though it does not make a difference if you need a buffer.
-class AlignedBuffer {
-  const size_t alignment_;
-  std::unique_ptr<char[]> buf_;
-  size_t capacity_;
-  size_t cursize_;
-  char* bufstart_;
-
- public:
-  explicit AlignedBuffer(size_t alignment)
-      : alignment_(alignment), capacity_(0), cursize_(0), bufstart_(nullptr) {
-    assert(alignment > 0);
-    assert((alignment & (alignment - 1)) == 0);
-  }
-
-  size_t GetAlignment() const { return alignment_; }
-
-  size_t GetCapacity() const { return capacity_; }
-
-  size_t GetCurrentSize() const { return cursize_; }
-
-  const char* GetBufferStart() const { return bufstart_; }
-
-  void Clear() { cursize_ = 0; }
-
-  // Allocates a new buffer and sets bufstart_ to the aligned first byte
-  void AllocateNewBuffer(size_t requestedCapacity) {
-    size_t size = Roundup(requestedCapacity, alignment_);
-    buf_.reset(new char[size + alignment_]);
-
-    char* p = buf_.get();
-    bufstart_ = reinterpret_cast<char*>(
-        (reinterpret_cast<uintptr_t>(p) + (alignment_ - 1)) &
-        ~static_cast<uintptr_t>(alignment_ - 1));
-    capacity_ = size;
-    cursize_ = 0;
-  }
-
-  // Used for write
-  // Returns the number of bytes appended
-  size_t Append(const char* src, size_t append_size) {
-    size_t buffer_remaining = capacity_ - cursize_;
-    size_t to_copy = std::min(append_size, buffer_remaining);
-
-    if (to_copy > 0) {
-      memcpy(bufstart_ + cursize_, src, to_copy);
-      cursize_ += to_copy;
-    }
-    return to_copy;
-  }
-
-  size_t Read(char* dest, size_t offset, size_t read_size) const {
-    assert(offset < cursize_);
-    size_t to_read = std::min(cursize_ - offset, read_size);
-    if (to_read > 0) {
-      memcpy(dest, bufstart_ + offset, to_read);
-    }
-    return to_read;
-  }
-
-  /// Pad to alignment
-  void PadToAlignmentWith(int padding) {
-    size_t total_size = Roundup(cursize_, alignment_);
-    size_t pad_size = total_size - cursize_;
-
-    if (pad_size > 0) {
-      assert((pad_size + cursize_) <= capacity_);
-      memset(bufstart_ + cursize_, padding, pad_size);
-      cursize_ += pad_size;
-    }
-  }
-
-  // After a partial flush move the tail to the beginning of the buffer
-  void RefitTail(size_t tail_offset, size_t tail_size) {
-    if (tail_size > 0) {
-      memmove(bufstart_, bufstart_ + tail_offset, tail_size);
-    }
-    cursize_ = tail_size;
-  }
-
-  // Returns place to start writing
-  char* GetDestination() { return bufstart_ + cursize_; }
-
-  void SetSize(size_t cursize) { cursize_ = cursize; }
-};
-
 class WinSequentialFile : public SequentialFile {
  private:
   const std::string filename_;
-  FILE* file_;
-  int fd_;
+  HANDLE file_;
+
+  // There is no equivalent of advising away buffered pages as in posix.
+  // To implement this flag we would need to do unbuffered reads which 
+  // will need to be aligned (not sure there is a guarantee that the buffer
+  // passed in is aligned).
+  // Hence we currently ignore this flag. It is used only in a few cases
+  // which should not be perf critical.
+  // If perf evaluation finds this to be a problem, we can look into
+  // implementing this.
   bool use_os_buffer_;
 
  public:
-  WinSequentialFile(const std::string& fname, FILE* f,
+  WinSequentialFile(const std::string& fname, HANDLE f,
                     const EnvOptions& options)
       : filename_(fname),
         file_(f),
-        fd_(fileno(f)),
         use_os_buffer_(options.use_os_buffer) {}
 
   virtual ~WinSequentialFile() {
-    assert(file_ != nullptr);
-    fclose(file_);
+    assert(file_ != INVALID_HANDLE_VALUE);
+    CloseHandle(file_);
   }
 
   virtual Status Read(size_t n, Slice* result, char* scratch) override {
     Status s;
     size_t r = 0;
 
-    // read() and fread() as well as write/fwrite do not guarantee
-    // to fullfil the entire request in one call thus the loop.
-    do {
-      r = fread(scratch, 1, n, file_);
-    } while (r == 0 && ferror(file_));
+    // Windows ReadFile API accepts a DWORD.
+    // While it is possible to read in a loop if n is > UINT_MAX
+    // it is a highly unlikely case.
+    if (n > UINT_MAX) {
+      return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
+    }
 
-    IOSTATS_ADD(bytes_read, r);
+    DWORD bytesToRead = static_cast<DWORD>(n); //cast is safe due to the check above
+    DWORD bytesRead = 0;
+    BOOL ret = ReadFile(file_, scratch, bytesToRead, &bytesRead, NULL);
+    if (ret == TRUE) {
+      r = bytesRead;
+    } else {
+      return IOErrorFromWindowsError(filename_, GetLastError());
+    }
 
     *result = Slice(scratch, r);
-
-    if (r < n) {
-      if (feof(file_)) {
-        // We leave status as ok if we hit the end of the file
-        // We also clear the error so that the reads can continue
-        // if a new data is written to the file
-        clearerr(file_);
-      } else {
-        // A partial read with an error: return a non-ok status
-        s = Status::IOError(filename_, strerror(errno));
-      }
-    }
 
     return s;
   }
 
   virtual Status Skip(uint64_t n) override {
-    if (fseek(file_, n, SEEK_CUR)) {
-      return IOError(filename_, errno);
+    // Can't handle more than signed max as SetFilePointerEx accepts a signed 64-bit
+    // integer. As such it is a highly unlikley case to have n so large.
+    if (n > _I64_MAX) {
+      return IOErrorFromWindowsError(filename_, ERROR_INVALID_PARAMETER);
+    }
+
+    LARGE_INTEGER li;
+    li.QuadPart = static_cast<int64_t>(n); //cast is safe due to the check above
+    BOOL ret = SetFilePointerEx(file_, li, NULL, FILE_CURRENT);
+    if (ret == FALSE) {
+      return IOErrorFromWindowsError(filename_, GetLastError());
     }
     return Status::OK();
   }
@@ -889,12 +698,13 @@ class WinRandomAccessFile : public RandomAccessFile {
       : filename_(fname),
         hFile_(hFile),
         use_os_buffer_(options.use_os_buffer),
-        buffer_(alignment),
+        buffer_(),
         buffered_start_(0) {
     assert(!options.use_mmap_reads);
 
     // Unbuffered access, use internal buffer for reads
     if (!use_os_buffer_) {
+      buffer_.Alignment(alignment);
       // Random read, no need in a big buffer
       // We read things in database blocks which are likely to be similar to
       // the alignment we use.
@@ -924,7 +734,7 @@ class WinRandomAccessFile : public RandomAccessFile {
       // Let's see if at least some of the requested data is already
       // in the buffer
       if (offset >= buffered_start_ &&
-          offset < (buffered_start_ + buffer_.GetCurrentSize())) {
+          offset < (buffered_start_ + buffer_.CurrentSize())) {
         size_t buffer_offset = offset - buffered_start_;
         r = buffer_.Read(dest, buffer_offset, left);
         assert(r >= 0);
@@ -937,7 +747,7 @@ class WinRandomAccessFile : public RandomAccessFile {
       // Still some left or none was buffered
       if (left > 0) {
         // Figure out the start/end offset for reading and amount to read
-        const size_t alignment = buffer_.GetAlignment();
+        const size_t alignment = buffer_.Alignment();
         const size_t start_page_start =
             TruncateToPageBoundary(alignment, offset);
         const size_t end_page_start =
@@ -945,21 +755,18 @@ class WinRandomAccessFile : public RandomAccessFile {
         const size_t actual_bytes_toread =
             (end_page_start - start_page_start) + alignment;
 
-        if (buffer_.GetCapacity() < actual_bytes_toread) {
+        if (buffer_.Capacity() < actual_bytes_toread) {
           buffer_.AllocateNewBuffer(actual_bytes_toread);
         } else {
           buffer_.Clear();
         }
 
         SSIZE_T read = 0;
-        {
-          IOSTATS_TIMER_GUARD(read_nanos);
-          read = pread(hFile_, buffer_.GetDestination(), actual_bytes_toread,
-                       start_page_start);
-        }
+        read = pread(hFile_, buffer_.Destination(), actual_bytes_toread,
+                      start_page_start);
 
         if (read > 0) {
-          buffer_.SetSize(read);
+          buffer_.Size(read);
           buffered_start_ = start_page_start;
 
           // Let's figure out how much we read from the users standpoint
@@ -982,13 +789,16 @@ class WinRandomAccessFile : public RandomAccessFile {
       }
     }
 
-    IOSTATS_ADD_IF_POSITIVE(bytes_read, n - left);
     *result = Slice(scratch, (r < 0) ? 0 : n - left);
 
     if (r < 0) {
       s = IOErrorFromLastWindowsError(filename_);
     }
     return s;
+  }
+
+  virtual bool ShouldForwardRawRequest() const override {
+    return true;
   }
 
   virtual void Hint(AccessPattern pattern) override {}
@@ -1013,33 +823,23 @@ class WinRandomAccessFile : public RandomAccessFile {
 class WinWritableFile : public WritableFile {
  private:
   const std::string filename_;
-  HANDLE hFile_;
-  AlignedBuffer buffer_;
-
-  uint64_t filesize_;      // How much data is actually written disk
-  uint64_t reservedsize_;  // how far we have reserved space
-
-  bool pending_sync_;
-
-  RateLimiter* rate_limiter_;
-
-  const bool use_os_buffer_;  // Used to indicate unbuffered access, the file
-                              // must be opened as unbuffered if false
+  HANDLE            hFile_;
+  const bool        use_os_buffer_;  // Used to indicate unbuffered access, the file
+  const uint64_t    alignment_;
+  // must be opened as unbuffered if false
+  uint64_t          filesize_;      // How much data is actually written disk
+  uint64_t          reservedsize_;  // how far we have reserved space
 
  public:
   WinWritableFile(const std::string& fname, HANDLE hFile, size_t alignment,
                   size_t capacity, const EnvOptions& options)
       : filename_(fname),
         hFile_(hFile),
-        buffer_(alignment),
+        use_os_buffer_(options.use_os_buffer),
+        alignment_(alignment),
         filesize_(0),
-        reservedsize_(0),
-        pending_sync_(false),
-        rate_limiter_(options.rate_limiter),
-        use_os_buffer_(options.use_os_buffer) {
+        reservedsize_(0) {
     assert(!options.use_mmap_writes);
-
-    buffer_.AllocateNewBuffer(capacity);
   }
 
   ~WinWritableFile() {
@@ -1048,106 +848,84 @@ class WinWritableFile : public WritableFile {
     }
   }
 
+  // Indicates if the class makes use of unbuffered I/O
+  virtual bool UseOSBuffer() const override {
+    return use_os_buffer_;
+  }
+
+  virtual size_t GetRequiredBufferAlignment() const override {
+    return alignment_;
+  }
+
   virtual Status Append(const Slice& data) override {
-    const char* src = data.data();
 
-    assert(data.size() < INT_MAX);
+    // Used for buffered access ONLY
+    assert(use_os_buffer_);
+    assert(data.size() < std::numeric_limits<int>::max());
 
-    size_t left = data.size();
     Status s;
-    pending_sync_ = true;
 
-    // This would call Alloc() if we are out of blocks
-    PrepareWrite(GetFileSize(), left);
-
-    // Flush only when I/O is buffered
-    if (use_os_buffer_ &&
-        (buffer_.GetCapacity() - buffer_.GetCurrentSize()) < left) {
-      if (buffer_.GetCurrentSize() > 0) {
-        s = Flush();
-        if (!s.ok()) {
-          return s;
-        }
-      }
-
-      if (buffer_.GetCapacity() < c_OneMB) {
-        size_t desiredCapacity = buffer_.GetCapacity() * 2;
-        desiredCapacity = std::min(desiredCapacity, c_OneMB);
-        buffer_.AllocateNewBuffer(desiredCapacity);
-      }
-    }
-
-    // We always use the internal buffer for the unbuffered I/O
-    // or we simply use it for its original purpose to accumulate many small
-    // chunks
-    if (!use_os_buffer_ || (buffer_.GetCapacity() >= left)) {
-      while (left > 0) {
-        size_t appended = buffer_.Append(src, left);
-        left -= appended;
-        src += appended;
-
-        if (left > 0) {
-          s = Flush();
-          if (!s.ok()) {
-            break;
-          }
-
-          size_t cursize = buffer_.GetCurrentSize();
-          size_t capacity = buffer_.GetCapacity();
-
-          // We double the buffer here because
-          // Flush calls do not keep up with the incoming bytes
-          // This is the only place when buffer is changed with unbuffered I/O
-          if (cursize == 0 && capacity < c_OneMB) {
-            size_t desiredCapacity = capacity * 2;
-            desiredCapacity = std::min(desiredCapacity, c_OneMB);
-            buffer_.AllocateNewBuffer(desiredCapacity);
-          }
-        }
-      }
+    DWORD bytesWritten = 0;
+    if (!WriteFile(hFile_, data.data(),
+        data.size(), &bytesWritten, NULL)) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError(
+        "Failed to WriteFile: " + filename_,
+        lastError);
     } else {
-      // Writing directly to file bypassing what is in the buffer
-      assert(buffer_.GetCurrentSize() == 0);
-      // Use rate limiter for normal I/O very large request if available
-      s = WriteBuffered(src, left);
+      assert(size_t(bytesWritten) == data.size());
+      filesize_ += data.size();
     }
 
     return s;
   }
 
-  virtual Status Close() override {
+  virtual Status PositionedAppend(const Slice& data, uint64_t offset) override {
     Status s;
 
-    // If there is any data in the cache not written we need to deal with it
-    const size_t cursize = buffer_.GetCurrentSize();
-    const uint64_t final_size = filesize_ + cursize;
+    SSIZE_T ret = pwrite(hFile_, data.data(), 
+      data.size(), offset);
 
-    if (cursize > 0) {
-      // If OS buffering is on, we just flush the remainder, otherwise need
-      if (!use_os_buffer_) {
-        s = WriteUnbuffered();
-      } else {
-        s = WriteBuffered(buffer_.GetBufferStart(), cursize);
-      }
+    // Error break
+    if (ret < 0) {
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError(
+        "Failed to pwrite for: " + filename_, lastError);
+    } else {
+      // With positional write it is not clear at all
+      // if this actually extends the filesize
+      assert(size_t(ret) == data.size());
+      filesize_ += data.size();
     }
+    return s;
+  }
 
+  // Need to implement this so the file is truncated correctly
+  // when buffered and unbuffered mode
+  virtual Status Truncate(uint64_t size) override {
+    Status s =  ftruncate(filename_, hFile_, size);
     if (s.ok()) {
-      s = ftruncate(filename_, hFile_, final_size);
+      filesize_ = size;
     }
+    return s;
+  }
 
-    // Sync data if buffer was flushed
-    if (s.ok() && (cursize > 0) && fsync(hFile_) < 0) {
+  virtual Status Close() override {
+
+    Status s;
+
+    assert(INVALID_HANDLE_VALUE != hFile_);
+
+    if (fsync(hFile_) < 0) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError("fsync failed at Close() for: " + filename_,
-                                  lastError);
+        lastError);
     }
 
     if (FALSE == ::CloseHandle(hFile_)) {
-      if (s.ok()) {
-        auto lastError = GetLastError();
-        s = IOErrorFromWindowsError("CloseHandle failed for: " + filename_,
-                                    lastError);
-      }
+      auto lastError = GetLastError();
+      s = IOErrorFromWindowsError("CloseHandle failed for: " + filename_,
+                                  lastError);
     }
 
     hFile_ = INVALID_HANDLE_VALUE;
@@ -1155,36 +933,18 @@ class WinWritableFile : public WritableFile {
   }
 
   // write out the cached data to the OS cache
+  // This is now taken care of the WritableFileWriter
   virtual Status Flush() override {
-    Status status;
-
-    if (buffer_.GetCurrentSize() > 0) {
-      if (!use_os_buffer_) {
-        status = WriteUnbuffered();
-      } else {
-        status =
-            WriteBuffered(buffer_.GetBufferStart(), buffer_.GetCurrentSize());
-        if (status.ok()) {
-          buffer_.SetSize(0);
-        }
-      }
-    }
-    return status;
+    return Status::OK();
   }
 
   virtual Status Sync() override {
-    Status s = Flush();
-    if (!s.ok()) {
-      return s;
-    }
-
+    Status s;
     // Calls flush buffers
-    if (pending_sync_ && fsync(hFile_) < 0) {
+    if (fsync(hFile_) < 0) {
       auto lastError = GetLastError();
       s = IOErrorFromWindowsError("fsync failed at Sync() for: " + filename_,
                                   lastError);
-    } else {
-      pending_sync_ = false;
     }
     return s;
   }
@@ -1192,7 +952,12 @@ class WinWritableFile : public WritableFile {
   virtual Status Fsync() override { return Sync(); }
 
   virtual uint64_t GetFileSize() override {
-    return filesize_ + buffer_.GetCurrentSize();
+    // Double accounting now here with WritableFileWriter
+    // and this size will be wrong when unbuffered access is used
+    // but tests implement their own writable files and do not use WritableFileWrapper
+    // so we need to squeeze a square peg through
+    // a round hole here.
+    return filesize_;
   }
 
   virtual Status Allocate(off_t offset, off_t len) override {
@@ -1202,7 +967,7 @@ class WinWritableFile : public WritableFile {
     // Make sure that we reserve an aligned amount of space
     // since the reservation block size is driven outside so we want
     // to check if we are ok with reservation here
-    size_t spaceToReserve = Roundup(offset + len, buffer_.GetAlignment());
+    size_t spaceToReserve = Roundup(offset + len, alignment_);
     // Nothing to do
     if (spaceToReserve <= reservedsize_) {
       return status;
@@ -1214,133 +979,6 @@ class WinWritableFile : public WritableFile {
       reservedsize_ = spaceToReserve;
     }
     return status;
-  }
-
- private:
-  // This method writes to disk the specified data and makes use of the rate
-  // limiter
-  // if available
-  Status WriteBuffered(const char* data, size_t size) {
-    Status s;
-    assert(use_os_buffer_);
-    const char* src = data;
-    size_t left = size;
-
-    size_t actually_written = 0;
-
-    while (left > 0) {
-      size_t bytes_allowed = RequestToken(left, false);
-
-      DWORD bytesWritten = 0;
-      if (!WriteFile(hFile_, src, bytes_allowed, &bytesWritten, NULL)) {
-        auto lastError = GetLastError();
-        s = IOErrorFromWindowsError(
-            "Failed to write buffered via rate_limiter: " + filename_,
-            lastError);
-        break;
-      } else {
-        actually_written += bytesWritten;
-        src += bytesWritten;
-        left -= bytesWritten;
-      }
-    }
-
-    IOSTATS_ADD(bytes_written, actually_written);
-    filesize_ += actually_written;
-
-    return s;
-  }
-
-  // This flushes the accumulated data in the buffer. We pad data with zeros if
-  // necessary to the whole page.
-  // However, during automatic flushes padding would not be necessary.
-  // We always use RateLimiter if available. We move (Refit) any buffer bytes
-  // that are left over the
-  // whole number of pages to be written again on the next flush because we can
-  // only write on aligned
-  // offsets.
-  Status WriteUnbuffered() {
-    Status s;
-
-    assert(!use_os_buffer_);
-    size_t alignment = buffer_.GetAlignment();
-    assert((filesize_ % alignment) == 0);
-
-    // Calculate whole page final file advance if all writes succeed
-    size_t file_advance =
-        TruncateToPageBoundary(alignment, buffer_.GetCurrentSize());
-
-    // Calculate the leftover tail, we write it here padded with zeros BUT we
-    // will write
-    // it again in the future either on Close() OR when the current whole page
-    // fills out
-    size_t leftover_tail = buffer_.GetCurrentSize() - file_advance;
-
-    // Round up and pad
-    buffer_.PadToAlignmentWith(0);
-
-    const char* src = buffer_.GetBufferStart();
-    size_t left = buffer_.GetCurrentSize();
-    uint64_t file_offset = filesize_;
-    size_t actually_written = 0;
-
-    while (left > 0) {
-      // Request how much is allowed. If this is less than one alignment we may
-      // be blocking a lot on every write
-      // because we can not write less than one alignment (page) unit thus check
-      // the configuration.
-      size_t bytes_allowed = RequestToken(left, true);
-      SSIZE_T ret = pwrite(hFile_, buffer_.GetBufferStart() + actually_written,
-                           bytes_allowed, file_offset);
-
-      // Error break
-      if (ret < 0) {
-        auto lastError = GetLastError();
-        s = IOErrorFromWindowsError(
-            "Failed to pwrite for unbuffered: " + filename_, lastError);
-        buffer_.SetSize(file_advance + leftover_tail);
-        break;
-      }
-      actually_written += ret;
-      file_offset += ret;
-      left -= ret;
-    }
-
-    IOSTATS_ADD(bytes_written, actually_written);
-
-    if (s.ok()) {
-      // Move the tail to the beginning of the buffer
-      // This never happens during normal Append but rather during
-      // explicit call to Flush()/Sync() or Close()
-      buffer_.RefitTail(file_advance, leftover_tail);
-      // This is where we start writing next time which may or not be
-      // the actual file size on disk. They match if the buffer size
-      // is a multiple of whole pages otherwise filesize_ is leftover_tail
-      // behind
-      filesize_ += file_advance;
-    }
-    return s;
-  }
-
-  // This truncates the request to a single burst bytes
-  // and then goes through the request to make sure we are
-  // satisfied in the order of the I/O priority
-  size_t RequestToken(size_t bytes, bool align) const {
-    if (rate_limiter_ && io_priority_ < Env::IO_TOTAL) {
-      bytes = std::min(
-          bytes, static_cast<size_t>(rate_limiter_->GetSingleBurstBytes()));
-
-      if (align) {
-        // Here we may actually require more than burst and block
-        // but we can not write less than one page at a time on unbuffered
-        // thus we may want not to use ratelimiter s
-        size_t alignment = buffer_.GetAlignment();
-        bytes = std::max(alignment, TruncateToPageBoundary(alignment, bytes));
-      }
-
-      rate_limiter_->Request(bytes, io_priority_);
-    }
-    return bytes;
   }
 };
 
@@ -1426,7 +1064,7 @@ class WinEnv : public Env {
     // Corruption test needs to rename and delete files of these kind
     // while they are still open with another handle. For that reason we
     // allow share_write and delete(allows rename).
-    HANDLE hFile = 0;
+    HANDLE hFile = INVALID_HANDLE_VALUE;
     {
       IOSTATS_TIMER_GUARD(open_nanos);
       hFile = CreateFileA(
@@ -1441,22 +1079,7 @@ class WinEnv : public Env {
       s = IOErrorFromWindowsError("Failed to open NewSequentialFile" + fname,
                                   lastError);
     } else {
-      int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), 0);
-      if (fd == -1) {
-        auto code = errno;
-        CloseHandle(hFile);
-        s = IOError("Failed to _open_osfhandle for NewSequentialFile: " + fname,
-                    code);
-      } else {
-        FILE* file = _fdopen(fd, "rb");
-        if (file == nullptr) {
-          auto code = errno;
-          _close(fd);
-          s = IOError("Failed to fdopen NewSequentialFile: " + fname, code);
-        } else {
-          result->reset(new WinSequentialFile(fname, file, options));
-        }
-      }
+      result->reset(new WinSequentialFile(fname, hFile, options));
     }
     return s;
   }
@@ -1612,38 +1235,6 @@ class WinEnv : public Env {
       // and to be a multiple of it
       result->reset(new WinWritableFile(fname, hFile, page_size_,
                                         c_BufferCapacity, local_options));
-    }
-    return s;
-  }
-
-  virtual Status NewRandomRWFile(const std::string& fname,
-                                 std::unique_ptr<RandomRWFile>* result,
-                                 const EnvOptions& options) override {
-    result->reset();
-
-    // no support for mmap yet (same as POSIX env)
-    if (options.use_mmap_writes || options.use_mmap_reads) {
-      return Status::NotSupported("No support for mmap read/write yet");
-    }
-
-    Status s;
-
-    HANDLE hFile = 0;
-    {
-      IOSTATS_TIMER_GUARD(open_nanos);
-      hFile = CreateFileA(fname.c_str(), GENERIC_READ | GENERIC_WRITE,
-                          FILE_SHARE_READ, NULL,
-                          OPEN_ALWAYS,  // Posix env specifies O_CREAT, it will
-                                        // open existing file or create new
-                          FILE_ATTRIBUTE_NORMAL, NULL);
-    }
-
-    if (INVALID_HANDLE_VALUE == hFile) {
-      auto lastError = GetLastError();
-      s = IOErrorFromWindowsError(
-          "Failed to Open/Create NewRandomRWFile" + fname, lastError);
-    } else {
-      result->reset(new WinRandomRWFile(fname, hFile, options));
     }
     return s;
   }
@@ -1955,36 +1546,30 @@ class WinEnv : public Env {
         // Set creation, last access and last write time to the same value
         SetFileTime(hFile, &ft, &ft, &ft);
       }
-
-      int fd = _open_osfhandle(reinterpret_cast<intptr_t>(hFile), 0);
-      if (fd == -1) {
-        auto code = errno;
-        CloseHandle(hFile);
-        s = IOError("Failed to _open_osfhandle: " + fname, code);
-      } else {
-        FILE* file = _fdopen(fd, "w");
-        if (file == nullptr) {
-          auto code = errno;
-          _close(fd);
-          s = IOError("Failed to fdopen: " + fname, code);
-        } else {
-          result->reset(new WinLogger(&WinEnv::gettid, this, file));
-        }
-      }
+      result->reset(new WinLogger(&WinEnv::gettid, this, hFile));
     }
     return s;
   }
 
   virtual uint64_t NowMicros() override {
-    // all std::chrono clocks on windows have the same resolution that is only
-    // On Windows 8 and Windows 2012 Server
-    // GetSystemTimePreciseAsFileTime(&current_time) can be used
+    // all std::chrono clocks on windows proved to return
+    // values that may repeat that is not good enough for some uses.
+    const int64_t c_UnixEpochStartTicks = 116444736000000000i64;
+    const int64_t c_FtToMicroSec = 10;
+
+    // This interface needs to return system time and not
+    // just any microseconds because it is often used as an argument
+    // to TimedWait() on condition variable
+    FILETIME ftSystemTime;
+    GetSystemTimePreciseAsFileTime(&ftSystemTime);
+
     LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-    // Convert to nanoseconds first to avoid loss of precision
-    // and divide by frequency
-    li.QuadPart *= std::micro::den;
-    li.QuadPart /= perf_counter_frequency_;
+    li.LowPart = ftSystemTime.dwLowDateTime;
+    li.HighPart = ftSystemTime.dwHighDateTime;
+    // Subtract unix epoch start
+    li.QuadPart -= c_UnixEpochStartTicks;
+    // Convert to microsecs
+    li.QuadPart /= c_FtToMicroSec;
     return li.QuadPart;
   }
 
@@ -2243,7 +1828,7 @@ class WinEnv : public Env {
       ThreadPool* thread_pool_;
       size_t thread_id_;  // Thread count in the thread.
 
-      explicit BGThreadMetadata(ThreadPool* thread_pool, size_t thread_id)
+      BGThreadMetadata(ThreadPool* thread_pool, size_t thread_id)
           : thread_pool_(thread_pool), thread_id_(thread_id) {}
     };
 

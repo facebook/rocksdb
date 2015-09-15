@@ -112,7 +112,7 @@ bool MemTable::ShouldFlushNow() const {
   // In a lot of times, we cannot allocate arena blocks that exactly matches the
   // buffer size. Thus we have to decide if we should over-allocate or
   // under-allocate.
-  // This constant avariable can be interpreted as: if we still have more than
+  // This constant variable can be interpreted as: if we still have more than
   // "kAllowOverAllocationRatio * kArenaBlockSize" space left, we'd try to over
   // allocate one more block.
   const double kAllowOverAllocationRatio = 0.6;
@@ -404,8 +404,8 @@ static bool SaveValue(void* arg, const char* entry) {
   // all entries with overly large sequence numbers.
   uint32_t key_length;
   const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-  if (s->mem->GetInternalKeyComparator().user_comparator()->Compare(
-          Slice(key_ptr, key_length - 8), s->key->user_key()) == 0) {
+  if (s->mem->GetInternalKeyComparator().user_comparator()->Equal(
+          Slice(key_ptr, key_length - 8), s->key->user_key())) {
     // Correct user key
     const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
     ValueType type;
@@ -534,7 +534,7 @@ bool MemTable::Get(const LookupKey& key, std::string* value, Status* s,
 
   // No change to value, since we have not yet found a Put/Delete
   if (!found_final_value && merge_in_progress) {
-    *s = Status::MergeInProgress("");
+    *s = Status::MergeInProgress();
   }
   PERF_COUNTER_ADD(get_from_memtable_count, 1);
   return found_final_value;
@@ -563,8 +563,8 @@ void MemTable::Update(SequenceNumber seq,
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (comparator_.comparator.user_comparator()->Compare(
-        Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
+    if (comparator_.comparator.user_comparator()->Equal(
+            Slice(key_ptr, key_length - 8), lkey.user_key())) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
@@ -624,8 +624,8 @@ bool MemTable::UpdateCallback(SequenceNumber seq,
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (comparator_.comparator.user_comparator()->Compare(
-        Slice(key_ptr, key_length - 8), lkey.user_key()) == 0) {
+    if (comparator_.comparator.user_comparator()->Equal(
+            Slice(key_ptr, key_length - 8), lkey.user_key())) {
       // Correct user key
       const uint64_t tag = DecodeFixed64(key_ptr + key_length - 8);
       ValueType type;
@@ -695,8 +695,8 @@ size_t MemTable::CountSuccessiveMergeEntries(const LookupKey& key) {
     const char* entry = iter->key();
     uint32_t key_length = 0;
     const char* iter_key_ptr = GetVarint32Ptr(entry, entry + 5, &key_length);
-    if (comparator_.comparator.user_comparator()->Compare(
-            Slice(iter_key_ptr, key_length - 8), key.user_key()) != 0) {
+    if (!comparator_.comparator.user_comparator()->Equal(
+            Slice(iter_key_ptr, key_length - 8), key.user_key())) {
       break;
     }
 

@@ -6,8 +6,8 @@
 
 #include <map>
 #include <memory>
-#include <vector>
 #include <string>
+#include <vector>
 
 #include "db/builder.h"
 #include "db/table_properties_collector.h"
@@ -16,6 +16,7 @@
 #include "rocksdb/slice.h"
 #include "table/block_builder.h"
 #include "table/format.h"
+#include "util/stl_wrappers.h"
 
 namespace rocksdb {
 
@@ -26,22 +27,6 @@ class Footer;
 class Logger;
 class RandomAccessFile;
 struct TableProperties;
-
-// An STL style comparator that does the bytewise comparator comparasion
-// internally.
-struct BytewiseLessThan {
-  bool operator()(const std::string& key1, const std::string& key2) const {
-    // smaller entries will be placed in front.
-    return comparator->Compare(key1, key2) <= 0;
-  }
-
-  const Comparator* comparator = BytewiseComparator();
-};
-
-// When writing to a block that requires entries to be sorted by
-// `BytewiseComparator`, we can buffer the content to `BytewiseSortedMap`
-// before writng to store.
-typedef std::map<std::string, std::string, BytewiseLessThan> BytewiseSortedMap;
 
 class MetaIndexBuilder {
  public:
@@ -57,7 +42,7 @@ class MetaIndexBuilder {
 
  private:
   // store the sorted key/handle of the metablocks.
-  BytewiseSortedMap meta_block_handles_;
+  stl_wrappers::KVMap meta_block_handles_;
   std::unique_ptr<BlockBuilder> meta_index_block_;
 };
 
@@ -78,7 +63,7 @@ class PropertyBlockBuilder {
 
  private:
   std::unique_ptr<BlockBuilder> properties_block_;
-  BytewiseSortedMap props_;
+  stl_wrappers::KVMap props_;
 };
 
 // Were we encounter any error occurs during user-defined statistics collection,

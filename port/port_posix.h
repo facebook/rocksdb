@@ -16,6 +16,8 @@
 // in fact, we could use that one
 #define ROCKSDB_PRIszt "zu"
 
+#define ROCKSDB_NOEXCEPT noexcept
+
 #undef PLATFORM_IS_LITTLE_ENDIAN
 #if defined(OS_MACOSX)
   #include <machine/endian.h>
@@ -151,6 +153,9 @@ extern void InitOnce(OnceType* once, void (*initializer)());
 #define PREFETCH(addr, rw, locality) __builtin_prefetch(addr, rw, locality)
 
 extern void Crash(const std::string& srcfile, int srcline);
+
+extern int GetMaxOpenFiles();
+
 } // namespace port
 } // namespace rocksdb
 

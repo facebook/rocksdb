@@ -62,7 +62,7 @@ void StatisticsImpl::setTickerCount(uint32_t tickerType, uint64_t count) {
       tickerType < INTERNAL_TICKER_ENUM_MAX :
       tickerType < TICKER_ENUM_MAX);
   if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
-    tickers_[tickerType].value = count;
+    tickers_[tickerType].value.store(count, std::memory_order_relaxed);
   }
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
     stats_->setTickerCount(tickerType, count);
@@ -75,7 +75,7 @@ void StatisticsImpl::recordTick(uint32_t tickerType, uint64_t count) {
       tickerType < INTERNAL_TICKER_ENUM_MAX :
       tickerType < TICKER_ENUM_MAX);
   if (tickerType < TICKER_ENUM_MAX || enable_internal_stats_) {
-    tickers_[tickerType].value += count;
+    tickers_[tickerType].value.fetch_add(count, std::memory_order_relaxed);
   }
   if (stats_ && tickerType < TICKER_ENUM_MAX) {
     stats_->recordTick(tickerType, count);

@@ -42,6 +42,11 @@ if test -z $PIC_BUILD; then
   LZ4_INCLUDE=" -I /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/include/"
   LZ4_LIBS=" /mnt/gvfs/third-party2/lz4/79d2943e2dd7208a3e0b06cf95e9f85f05fe9e1b/r124/gcc-4.9-glibc-2.20/4230243/lib/liblz4.a"
   CFLAGS+=" -DLZ4"
+
+  ZSTD_REV=8df2d01673ae6afcc8c8d16fec862b2d67ecc1e9
+  ZSTD_INCLUDE=" -I /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.1.1/gcc-4.8.1-glibc-2.17/c3f970a/include"
+  ZSTD_LIBS=" /mnt/gvfs/third-party2/zstd/$ZSTD_REV/0.1.1/gcc-4.8.1-glibc-2.17/c3f970a/lib/libzstd.a"
+  CFLAGS+=" -DZSTD"
 fi
 
 # location of gflags headers and libraries
@@ -73,7 +78,7 @@ export USE_SSE=1
 BINUTILS="/mnt/gvfs/third-party2/binutils/0b6ad0c88ddd903333a48ae8bff134efac468e4a/2.25/centos6-native/da39a3e/bin"
 AR="$BINUTILS/ar"
 
-DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE"
+DEPS_INCLUDE="$SNAPPY_INCLUDE $ZLIB_INCLUDE $BZIP_INCLUDE $LZ4_INCLUDE $ZSTD_INCLUDE $GFLAGS_INCLUDE $NUMA_INCLUDE"
 
 GCC_BASE="/mnt/gvfs/third-party2/gcc/1c67a0b88f64d4d9ced0382d141c76aaa7d62fba/4.9.x/centos6-native/1317bc4"
 STDLIBS="-L $GCC_BASE/lib64"
@@ -114,14 +119,14 @@ CFLAGS+=" $DEPS_INCLUDE"
 CFLAGS+=" -DROCKSDB_PLATFORM_POSIX -DROCKSDB_FALLOCATE_PRESENT -DROCKSDB_MALLOC_USABLE_SIZE"
 CXXFLAGS+=" $CFLAGS"
 
-EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS $NUMA_LIB"
+EXEC_LDFLAGS=" $SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS $NUMA_LIB"
 EXEC_LDFLAGS+=" -Wl,--dynamic-linker,/usr/local/fbcode/gcc-4.9-glibc-2.20/lib/ld.so"
 EXEC_LDFLAGS+=" $LIBUNWIND"
 EXEC_LDFLAGS+=" -Wl,-rpath=/usr/local/fbcode/gcc-4.9-glibc-2.20/lib"
 
 PLATFORM_LDFLAGS="$LIBGCC_LIBS $GLIBC_LIBS $STDLIBS -lgcc -lstdc++"
 
-EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $GFLAGS_LIBS"
+EXEC_LDFLAGS_SHARED="$SNAPPY_LIBS $ZLIB_LIBS $BZIP_LIBS $LZ4_LIBS $ZSTD_LIBS $GFLAGS_LIBS"
 
 VALGRIND_VER="/mnt/gvfs/third-party2/valgrind/6c45ef049cbf11c2df593addb712cd891049e737/3.10.0/gcc-4.9-glibc-2.20/4230243/bin/"
 

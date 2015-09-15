@@ -33,9 +33,7 @@ class AdaptiveTableFactory : public TableFactory {
 
   const char* Name() const override { return "AdaptiveTableFactory"; }
 
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
-                        const EnvOptions& env_options,
-                        const InternalKeyComparator& internal_comparator,
+  Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table) const override;

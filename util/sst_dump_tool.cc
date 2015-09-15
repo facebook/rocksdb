@@ -12,6 +12,7 @@
 #endif
 
 #include <inttypes.h>
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -90,16 +91,16 @@ Status SstFileReader::NewTableReader(
 
   if (block_table_factory) {
     return block_table_factory->NewTableReader(
-        ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
-        &table_reader_, /*enable_prefetch=*/false);
+        TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+        std::move(file_), file_size, &table_reader_, /*enable_prefetch=*/false);
   }
 
   assert(!block_table_factory);
 
   // For all other factory implementation
   return options_.table_factory->NewTableReader(
-      ioptions_, soptions_, internal_comparator_, std::move(file_), file_size,
-      &table_reader_);
+      TableReaderOptions(ioptions_, soptions_, internal_comparator_),
+      std::move(file_), file_size, &table_reader_);
 }
 
 Status SstFileReader::DumpTable(const std::string& out_filename) {
@@ -163,11 +164,15 @@ int SstFileReader::ShowAllCompressionSizes(size_t block_size) {
       std::make_pair(CompressionType::kLZ4Compression, "kLZ4Compression"));
   compress_type.insert(
       std::make_pair(CompressionType::kLZ4HCCompression, "kLZ4HCCompression"));
+  compress_type.insert(std::make_pair(CompressionType::kZSTDNotFinalCompression,
+                                      "kZSTDNotFinalCompression"));
 
-  fprintf(stdout, "Block Size: %lu\n", block_size);
+  fprintf(stdout, "Block Size: %" ROCKSDB_PRIszt "\n", block_size);
 
   for (CompressionType i = CompressionType::kNoCompression;
-       i != CompressionType::kLZ4HCCompression; i = CompressionType(i + 1)) {
+       i <= CompressionType::kZSTDNotFinalCompression;
+       i = (i == kLZ4HCCompression) ? kZSTDNotFinalCompression
+                                    : CompressionType(i + 1)) {
     CompressionOptions compress_opt;
     TableBuilderOptions tb_opts(imoptions, ikc, &block_based_table_factories, i,
                                 compress_opt, false);

@@ -3,6 +3,7 @@
 //  LICENSE file in the root directory of this source tree. An additional grant
 //  of patent rights can be found in the PATENTS file in the same directory.
 
+#include <algorithm>
 #include <map>
 #include <string>
 
@@ -91,7 +92,7 @@ TEST_F(FlushJobTest, Empty) {
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     SequenceNumber(), &job_context, nullptr, nullptr, nullptr,
+                     {}, &job_context, nullptr, nullptr, nullptr,
                      kNoCompression, nullptr, &event_logger);
   ASSERT_OK(flush_job.Run());
   job_context.Clean();
@@ -103,10 +104,18 @@ TEST_F(FlushJobTest, NonEmpty) {
   auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
                                            kMaxSequenceNumber);
   new_mem->Ref();
-  std::map<std::string, std::string> inserted_keys;
+  auto inserted_keys = mock::MakeMockFile();
+  // Test data:
+  //   seqno [    1,    2 ... 8998, 8999, 9000, 9001, 9002 ... 9999 ]
+  //   key   [ 1001, 1002 ... 9998, 9999,    0,    1,    2 ...  999 ]
+  // Expected:
+  //   smallest_key   = "0"
+  //   largest_key    = "9999"
+  //   smallest_seqno = 1
+  //   smallest_seqno = 9999
   for (int i = 1; i < 10000; ++i) {
-    std::string key(ToString(i));
-    std::string value("value" + ToString(i));
+    std::string key(ToString((i + 1000) % 10000));
+    std::string value("value" + key);
     new_mem->Add(SequenceNumber(i), kTypeValue, key, value);
     InternalKey internal_key(key, SequenceNumber(i), kTypeValue);
     inserted_keys.insert({internal_key.Encode().ToString(), value});
@@ -122,7 +131,71 @@ TEST_F(FlushJobTest, NonEmpty) {
   FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
                      db_options_, *cfd->GetLatestMutableCFOptions(),
                      env_options_, versions_.get(), &mutex_, &shutting_down_,
-                     SequenceNumber(), &job_context, nullptr, nullptr, nullptr,
+                     {}, &job_context, nullptr, nullptr, nullptr,
+                     kNoCompression, nullptr, &event_logger);
+  FileMetaData fd;
+  mutex_.Lock();
+  ASSERT_OK(flush_job.Run(&fd));
+  mutex_.Unlock();
+  ASSERT_EQ(ToString(0), fd.smallest.user_key().ToString());
+  ASSERT_EQ(ToString(9999), fd.largest.user_key().ToString());
+  ASSERT_EQ(1, fd.smallest_seqno);
+  ASSERT_EQ(9999, fd.largest_seqno);
+  mock_table_factory_->AssertSingleFile(inserted_keys);
+  job_context.Clean();
+}
+
+TEST_F(FlushJobTest, Snapshots) {
+  JobContext job_context(0);
+  auto cfd = versions_->GetColumnFamilySet()->GetDefault();
+  auto new_mem = cfd->ConstructNewMemtable(*cfd->GetLatestMutableCFOptions(),
+                                           kMaxSequenceNumber);
+
+  std::vector<SequenceNumber> snapshots;
+  std::set<SequenceNumber> snapshots_set;
+  int keys = 10000;
+  int max_inserts_per_keys = 8;
+
+  Random rnd(301);
+  for (int i = 0; i < keys / 2; ++i) {
+    snapshots.push_back(rnd.Uniform(keys * (max_inserts_per_keys / 2)) + 1);
+    snapshots_set.insert(snapshots.back());
+  }
+  std::sort(snapshots.begin(), snapshots.end());
+
+  new_mem->Ref();
+  SequenceNumber current_seqno = 0;
+  auto inserted_keys = mock::MakeMockFile();
+  for (int i = 1; i < keys; ++i) {
+    std::string key(ToString(i));
+    int insertions = rnd.Uniform(max_inserts_per_keys);
+    for (int j = 0; j < insertions; ++j) {
+      std::string value(test::RandomHumanReadableString(&rnd, 10));
+      auto seqno = ++current_seqno;
+      new_mem->Add(SequenceNumber(seqno), kTypeValue, key, value);
+      // a key is visible only if:
+      // 1. it's the last one written (j == insertions - 1)
+      // 2. there's a snapshot pointing at it
+      bool visible = (j == insertions - 1) ||
+                     (snapshots_set.find(seqno) != snapshots_set.end());
+      if (visible) {
+        InternalKey internal_key(key, seqno, kTypeValue);
+        inserted_keys.insert({internal_key.Encode().ToString(), value});
+      }
+    }
+  }
+
+  autovector<MemTable*> to_delete;
+  cfd->imm()->Add(new_mem, &to_delete);
+  for (auto& m : to_delete) {
+    delete m;
+  }
+
+  EventLogger event_logger(db_options_.info_log.get());
+  FlushJob flush_job(dbname_, versions_->GetColumnFamilySet()->GetDefault(),
+                     db_options_, *cfd->GetLatestMutableCFOptions(),
+                     env_options_, versions_.get(), &mutex_, &shutting_down_,
+                     snapshots, &job_context, nullptr, nullptr, nullptr,
                      kNoCompression, nullptr, &event_logger);
   mutex_.Lock();
   ASSERT_OK(flush_job.Run());

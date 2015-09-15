@@ -31,6 +31,7 @@ namespace rocksdb {
 // -- Block-based Table
 class FlushBlockPolicyFactory;
 class RandomAccessFile;
+struct TableReaderOptions;
 struct TableBuilderOptions;
 class TableBuilder;
 class TableReader;
@@ -340,16 +341,14 @@ class TableFactory {
   //     and cache the table object returned.
   // (1) SstFileReader (for SST Dump) opens the table and dump the table
   //     contents using the interator of the table.
-  // ImmutableCFOptions is a subset of Options that can not be altered.
-  // EnvOptions is a subset of Options that will be used by Env.
-  // Multiple configured can be accessed from there, including and not
-  // limited to block cache and key comparators.
-  // file is a file handler to handle the file for the table
-  // file_size is the physical file size of the file
-  // table_reader is the output table reader
+  //
+  // table_reader_options is a TableReaderOptions which contain all the
+  //    needed parameters and configuration to open the table.
+  // file is a file handler to handle the file for the table.
+  // file_size is the physical file size of the file.
+  // table_reader is the output table reader.
   virtual Status NewTableReader(
-      const ImmutableCFOptions& ioptions, const EnvOptions& env_options,
-      const InternalKeyComparator& internal_comparator,
+      const TableReaderOptions& table_reader_options,
       unique_ptr<RandomAccessFileReader>&& file, uint64_t file_size,
       unique_ptr<TableReader>* table_reader) const = 0;
 

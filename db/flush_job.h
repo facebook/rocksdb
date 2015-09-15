@@ -17,11 +17,11 @@
 #include <string>
 
 #include "db/dbformat.h"
-#include "db/log_writer.h"
-#include "db/snapshot.h"
 #include "db/column_family.h"
-#include "db/version_edit.h"
+#include "db/log_writer.h"
 #include "db/memtable_list.h"
+#include "db/snapshot_impl.h"
+#include "db/version_edit.h"
 #include "port/port.h"
 #include "rocksdb/db.h"
 #include "rocksdb/env.h"
@@ -57,10 +57,11 @@ class FlushJob {
            const MutableCFOptions& mutable_cf_options,
            const EnvOptions& env_options, VersionSet* versions,
            InstrumentedMutex* db_mutex, std::atomic<bool>* shutting_down,
-           SequenceNumber newest_snapshot, JobContext* job_context,
-           LogBuffer* log_buffer, Directory* db_directory,
-           Directory* output_file_directory, CompressionType output_compression,
-           Statistics* stats, EventLogger* event_logger);
+           std::vector<SequenceNumber> existing_snapshots,
+           JobContext* job_context, LogBuffer* log_buffer,
+           Directory* db_directory, Directory* output_file_directory,
+           CompressionType output_compression, Statistics* stats,
+           EventLogger* event_logger);
 
   ~FlushJob();
 
@@ -80,7 +81,7 @@ class FlushJob {
   VersionSet* versions_;
   InstrumentedMutex* db_mutex_;
   std::atomic<bool>* shutting_down_;
-  SequenceNumber newest_snapshot_;
+  std::vector<SequenceNumber> existing_snapshots_;
   JobContext* job_context_;
   LogBuffer* log_buffer_;
   Directory* db_directory_;

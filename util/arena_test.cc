@@ -21,22 +21,31 @@ class ArenaTest : public testing::Test {};
 TEST_F(ArenaTest, Empty) { Arena arena0; }
 
 namespace {
+bool CheckMemoryAllocated(size_t allocated, size_t expected) {
+  // The value returned by Arena::MemoryAllocatedBytes() may be greater than
+  // the requested memory. We choose a somewhat arbitrary upper bound of
+  // max_expected = expected * 1.1 to detect critical overallocation.
+  size_t max_expected = expected * 1.1;
+  return allocated >= expected && allocated <= max_expected;
+}
+
 void MemoryAllocatedBytesTest(size_t huge_page_size) {
   const int N = 17;
   size_t req_sz;  // requested size
-  size_t bsz = 8192;  // block size
+  size_t bsz = 32 * 1024;  // block size
   size_t expected_memory_allocated;
 
   Arena arena(bsz, huge_page_size);
 
   // requested size > quarter of a block:
   //   allocate requested size separately
-  req_sz = 3001;
+  req_sz = 12 * 1024;
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }
   expected_memory_allocated = req_sz * N + Arena::kInlineSize;
-  ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+  ASSERT_PRED2(CheckMemoryAllocated, arena.MemoryAllocatedBytes(),
+               expected_memory_allocated);
 
   arena.Allocate(Arena::kInlineSize - 1);
 
@@ -49,30 +58,27 @@ void MemoryAllocatedBytesTest(size_t huge_page_size) {
     arena.Allocate(req_sz);
   }
   if (huge_page_size) {
-    ASSERT_TRUE(arena.MemoryAllocatedBytes() ==
-                    expected_memory_allocated + bsz ||
-                arena.MemoryAllocatedBytes() ==
-                    expected_memory_allocated + huge_page_size);
+    ASSERT_TRUE(
+        CheckMemoryAllocated(arena.MemoryAllocatedBytes(),
+                             expected_memory_allocated + bsz) ||
+        CheckMemoryAllocated(arena.MemoryAllocatedBytes(),
+                             expected_memory_allocated + huge_page_size));
   } else {
     expected_memory_allocated += bsz;
-    ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
+    ASSERT_PRED2(CheckMemoryAllocated, arena.MemoryAllocatedBytes(),
+                 expected_memory_allocated);
   }
 
-  // requested size > quarter of a block:
+  // requested size > size of a block:
   //   allocate requested size separately
-  req_sz = 99999999;
+  expected_memory_allocated = arena.MemoryAllocatedBytes();
+  req_sz = 8 * 1024 * 1024;
   for (int i = 0; i < N; i++) {
     arena.Allocate(req_sz);
   }
   expected_memory_allocated += req_sz * N;
-  if (huge_page_size) {
-    ASSERT_TRUE(arena.MemoryAllocatedBytes() ==
-                    expected_memory_allocated + bsz ||
-                arena.MemoryAllocatedBytes() ==
-                    expected_memory_allocated + huge_page_size);
-  } else {
-    ASSERT_EQ(arena.MemoryAllocatedBytes(), expected_memory_allocated);
-  }
+  ASSERT_PRED2(CheckMemoryAllocated, arena.MemoryAllocatedBytes(),
+               expected_memory_allocated);
 }
 
 // Make sure we didn't count the allocate but not used memory space in
@@ -89,7 +95,8 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
   arena.AllocateAligned(Arena::kInlineSize / 2 - 16);
   arena.AllocateAligned(Arena::kInlineSize / 2);
   ASSERT_EQ(arena.ApproximateMemoryUsage(), Arena::kInlineSize - 8);
-  ASSERT_EQ(arena.MemoryAllocatedBytes(), Arena::kInlineSize);
+  ASSERT_PRED2(CheckMemoryAllocated, arena.MemoryAllocatedBytes(),
+               Arena::kInlineSize);
 
   auto num_blocks = kBlockSize / kEntrySize;
 
@@ -97,10 +104,12 @@ static void ApproximateMemoryUsageTest(size_t huge_page_size) {
   arena.AllocateAligned(kEntrySize);
   auto mem_usage = arena.MemoryAllocatedBytes();
   if (huge_page_size) {
-    ASSERT_TRUE(mem_usage == kBlockSize + Arena::kInlineSize ||
-                mem_usage == huge_page_size + Arena::kInlineSize);
+    ASSERT_TRUE(
+        CheckMemoryAllocated(mem_usage, kBlockSize + Arena::kInlineSize) ||
+        CheckMemoryAllocated(mem_usage, huge_page_size + Arena::kInlineSize));
   } else {
-    ASSERT_EQ(mem_usage, kBlockSize + Arena::kInlineSize);
+    ASSERT_PRED2(CheckMemoryAllocated, mem_usage,
+                 kBlockSize + Arena::kInlineSize);
   }
   auto usage = arena.ApproximateMemoryUsage();
   ASSERT_LT(usage, mem_usage);

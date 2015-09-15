@@ -1,19 +1,29 @@
+sudo: false
 language: cpp
-compiler: gcc
-before_install:
-# As of this writing (10 May 2014) the Travis build environment is Ubuntu 12.04,
-# which needs the following ugly dependency incantations to build RocksDB:
- - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
- - sudo apt-get update -qq
- - sudo apt-get install -y -qq gcc-4.9 g++-4.9 zlib1g-dev libbz2-dev libsnappy-dev
- - sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.9 50
- - sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.9 50
- - wget https://gflags.googlecode.com/files/libgflags0_2.0-1_amd64.deb
- - sudo dpkg -i libgflags0_2.0-1_amd64.deb
- - wget https://gflags.googlecode.com/files/libgflags-dev_2.0-1_amd64.deb
- - sudo dpkg -i libgflags-dev_2.0-1_amd64.deb
+
+matrix:
+  include:
+    - os: linux
+      compiler: clang
+      env: COMPILER=clang++-3.6
+      addons:
+         apt:
+            sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
+            packages: ['clang-3.6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'libgflags-dev']
+    - os: osx
+      compiler: clang
+
+before_script:
+    - if [ -n "${COMPILER}" ]; then CXX=${COMPILER}; fi
+    - if [[ $(uname -s) == 'Darwin' ]]; then brew install gflags snappy; fi
+    - ulimit -n 2000 || true
+
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
-script: OPT=-DTRAVIS V=1 make unity && make clean && OPT=-DTRAVIS V=1 make db_test && ./db_test && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
+script: OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
+
 notifications:
-    email: false
+    email:
+      - leveldb@fb.com
+    webhooks:
+      - https://buildtimetrend.herokuapp.com/travis

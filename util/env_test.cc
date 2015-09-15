@@ -824,28 +824,6 @@ TEST_F(EnvPosixTest, InvalidateCache) {
 #endif  // not TRAVIS
 #endif  // OS_LINUX
 
-TEST_F(EnvPosixTest, PosixRandomRWFileTest) {
-  EnvOptions soptions;
-  soptions.use_mmap_writes = soptions.use_mmap_reads = false;
-  std::string fname = test::TmpDir() + "/" + "testfile";
-
-  unique_ptr<RandomRWFile> file;
-  ASSERT_OK(env_->NewRandomRWFile(fname, &file, soptions));
-  // If you run the unit test on tmpfs, then tmpfs might not
-  // support fallocate. It is still better to trigger that
-  // code-path instead of eliminating it completely.
-  file.get()->Allocate(0, 10*1024*1024);
-  ASSERT_OK(file.get()->Write(100, Slice("Hello world")));
-  ASSERT_OK(file.get()->Write(105, Slice("Hello world")));
-  ASSERT_OK(file.get()->Sync());
-  ASSERT_OK(file.get()->Fsync());
-  char scratch[100];
-  Slice result;
-  ASSERT_OK(file.get()->Read(100, 16, &result, scratch));
-  ASSERT_EQ(result.compare("HelloHello world"), 0);
-  ASSERT_OK(file.get()->Close());
-}
-
 class TestLogger : public Logger {
  public:
   using Logger::Logv;
@@ -1011,6 +989,7 @@ TEST_F(EnvPosixTest, WritableFileWrapper) {
     }
 
     Status Append(const Slice& data) override { inc(1); return Status::OK(); }
+    Status Truncate(uint64_t size) override { return Status::OK(); }
     Status Close() override { inc(2); return Status::OK(); }
     Status Flush() override { inc(3); return Status::OK(); }
     Status Sync() override { inc(4); return Status::OK(); }

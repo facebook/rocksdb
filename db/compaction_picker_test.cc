@@ -552,6 +552,91 @@ TEST_F(CompactionPickerTest, OverlappingUserKeys3) {
   ASSERT_EQ(7U, compaction->input(1, 1)->fd.GetNumber());
 }
 
+TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded1) {
+  int num_levels = ioptions_.num_levels;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+  Add(0, 1U, "150", "200", 200);
+  Add(0, 2U, "150", "200", 200);
+  Add(0, 3U, "150", "200", 200);
+  // Level 1 is over target by 200
+  Add(1, 4U, "400", "500", 600);
+  Add(1, 5U, "600", "700", 600);
+  // Level 2 is less than target 10000 even added size of level 1
+  Add(2, 6U, "150", "200", 2500);
+  Add(2, 7U, "201", "210", 2000);
+  Add(2, 8U, "300", "310", 2500);
+  Add(2, 9U, "400", "500", 2500);
+  // Level 3 exceeds target 100,000 of 1000
+  Add(3, 10U, "400", "500", 101000);
+  // Level 4 exceeds target 1,000,000 of 500 after adding size from level 3
+  Add(4, 11U, "400", "500", 999500);
+  Add(5, 11U, "400", "500", 8000000);
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(2200u + 11000u + 5500u,
+            vstorage_->estimated_compaction_needed_bytes());
+}
+
+TEST_F(CompactionPickerTest, EstimateCompactionBytesNeeded2) {
+  int num_levels = ioptions_.num_levels;
+  ioptions_.level_compaction_dynamic_level_bytes = false;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+  Add(0, 1U, "150", "200", 200);
+  Add(0, 2U, "150", "200", 200);
+  Add(0, 4U, "150", "200", 200);
+  Add(0, 5U, "150", "200", 200);
+  Add(0, 6U, "150", "200", 200);
+  // Level 1 is over target by
+  Add(1, 7U, "400", "500", 200);
+  Add(1, 8U, "600", "700", 200);
+  // Level 2 is less than target 10000 even added size of level 1
+  Add(2, 9U, "150", "200", 9500);
+  Add(3, 10U, "400", "500", 101000);
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(1400u + 4400u + 11000u,
+            vstorage_->estimated_compaction_needed_bytes());
+}
+
+TEST_F(CompactionPickerTest, EstimateCompactionBytesNeededDynamicLevel) {
+  int num_levels = ioptions_.num_levels;
+  ioptions_.level_compaction_dynamic_level_bytes = true;
+  mutable_cf_options_.level0_file_num_compaction_trigger = 3;
+  mutable_cf_options_.max_bytes_for_level_base = 1000;
+  mutable_cf_options_.max_bytes_for_level_multiplier = 10;
+  NewVersionStorage(num_levels, kCompactionStyleLevel);
+
+  // Set Last level size 50000
+  // num_levels - 1 target 5000
+  // num_levels - 2 is base level with taret 500
+  Add(num_levels - 1, 10U, "400", "500", 50000);
+
+  Add(0, 1U, "150", "200", 200);
+  Add(0, 2U, "150", "200", 200);
+  Add(0, 4U, "150", "200", 200);
+  Add(0, 5U, "150", "200", 200);
+  Add(0, 6U, "150", "200", 200);
+  // num_levels - 3 is over target by 100 + 1000
+  Add(num_levels - 3, 7U, "400", "500", 300);
+  Add(num_levels - 3, 8U, "600", "700", 300);
+  // Level 2 is over target by 1100 + 100
+  Add(num_levels - 2, 9U, "150", "200", 5100);
+
+  UpdateVersionStorageInfo();
+
+  ASSERT_EQ(1600u + 12100u + 13200u,
+            vstorage_->estimated_compaction_needed_bytes());
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

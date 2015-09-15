@@ -250,7 +250,9 @@ class MockWritableFile : public WritableFile {
     }
     return Status::OK();
   }
-
+  virtual Status Truncate(uint64_t size) override {
+    return Status::OK();
+  }
   virtual Status Close() override { return file_->Fsync(); }
 
   virtual Status Flush() override { return Status::OK(); }
@@ -453,12 +455,6 @@ Status MockEnv::NewWritableFile(const std::string& fname,
   file_map_[fn] = file;
 
   result->reset(new MockWritableFile(file, env_options.rate_limiter));
-  return Status::OK();
-}
-
-Status MockEnv::NewRandomRWFile(const std::string& fname,
-                                   unique_ptr<RandomRWFile>* result,
-                                   const EnvOptions& options) {
   return Status::OK();
 }
 

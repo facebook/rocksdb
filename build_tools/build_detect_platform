@@ -22,6 +22,7 @@
 #       -DLEVELDB_PLATFORM_NOATOMIC if it is not
 #       -DSNAPPY                    if the Snappy library is present
 #       -DLZ4                       if the LZ4 library is present
+#       -DZSTD                      if the ZSTD library is present
 #       -DNUMA                      if the NUMA library is present
 #
 # Using gflags in rocksdb:
@@ -212,7 +213,7 @@ EOF
     fi
 
     # Test whether gflags library is installed
-    # http://code.google.com/p/gflags/
+    # http://gflags.github.io/gflags/
     # check if the namespace is gflags
     $CXX $CFLAGS -x c++ - -o /dev/null 2>/dev/null << EOF
       #include <gflags/gflags.h>
@@ -267,6 +268,17 @@ EOF
         COMMON_FLAGS="$COMMON_FLAGS -DLZ4"
         PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -llz4"
         JAVA_LDFLAGS="$JAVA_LDFLAGS -llz4"
+    fi
+
+    # Test whether zstd library is installed
+    $CXX $CFLAGS $COMMON_FLAGS -x c++ - -o /dev/null 2>/dev/null  <<EOF
+      #include <zstd.h>
+      int main() {}
+EOF
+    if [ "$?" = 0 ]; then
+        COMMON_FLAGS="$COMMON_FLAGS -DZSTD"
+        PLATFORM_LDFLAGS="$PLATFORM_LDFLAGS -lzstd"
+        JAVA_LDFLAGS="$JAVA_LDFLAGS -lzstd"
     fi
 
     # Test whether numa is available

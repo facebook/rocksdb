@@ -130,9 +130,9 @@ void TableReaderBenchmark(Options& opts, EnvOptions& env_options,
     env->GetFileSize(file_name, &file_size);
     unique_ptr<RandomAccessFileReader> file_reader(
         new RandomAccessFileReader(std::move(raf)));
-    s = opts.table_factory->NewTableReader(ioptions, env_options, ikc,
-                                           std::move(file_reader), file_size,
-                                           &table_reader);
+    s = opts.table_factory->NewTableReader(
+        TableReaderOptions(ioptions, env_options, ikc), std::move(file_reader),
+        file_size, &table_reader);
   }
 
   Random rnd(301);

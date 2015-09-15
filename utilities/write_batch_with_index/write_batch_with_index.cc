@@ -7,15 +7,15 @@
 
 #include "rocksdb/utilities/write_batch_with_index.h"
 
-#include <memory>
 #include <limits>
+#include <memory>
 
-#include "rocksdb/comparator.h"
-#include "rocksdb/iterator.h"
 #include "db/column_family.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
 #include "db/skiplist.h"
+#include "rocksdb/comparator.h"
+#include "rocksdb/iterator.h"
 #include "util/arena.h"
 #include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
@@ -92,8 +92,8 @@ class BaseDeltaIterator : public Iterator {
         AdvanceBase();
       }
       if (DeltaValid() && BaseValid()) {
-        if (comparator_->Compare(delta_iterator_->Entry().key,
-                                 base_iterator_->key()) == 0) {
+        if (comparator_->Equal(delta_iterator_->Entry().key,
+                               base_iterator_->key())) {
           equal_keys_ = true;
         }
       }
@@ -127,8 +127,8 @@ class BaseDeltaIterator : public Iterator {
         AdvanceBase();
       }
       if (DeltaValid() && BaseValid()) {
-        if (comparator_->Compare(delta_iterator_->Entry().key,
-                                 base_iterator_->key()) == 0) {
+        if (comparator_->Equal(delta_iterator_->Entry().key,
+                               base_iterator_->key())) {
           equal_keys_ = true;
         }
       }
@@ -626,12 +626,15 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
     case WriteBatchWithIndexInternal::Result::kError:
-      return s;
+      // use returned status
+      break;
     case WriteBatchWithIndexInternal::Result::kDeleted:
     case WriteBatchWithIndexInternal::Result::kNotFound:
-      return Status::NotFound();
+      s = Status::NotFound();
+      break;
     case WriteBatchWithIndexInternal::Result::kMergeInProgress:
-      return Status::MergeInProgress("");
+      s = Status::MergeInProgress();
+      break;
     default:
       assert(false);
   }
@@ -659,8 +662,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
   std::string batch_value;
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context, &rep->comparator,
-          &batch_value, &s);
+          options, this, column_family, key, &merge_context,
+          &rep->comparator, &batch_value, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     value->assign(batch_value.data(), batch_value.size());

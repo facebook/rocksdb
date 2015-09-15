@@ -27,16 +27,16 @@
 #include <stack>
 #include <stdexcept>
 
-#include "rocksdb/merge_operator.h"
-#include "db/dbformat.h"
-#include "db/db_impl.h"
 #include "db/column_family.h"
+#include "db/db_impl.h"
+#include "db/dbformat.h"
 #include "db/memtable.h"
-#include "db/snapshot.h"
+#include "db/snapshot_impl.h"
 #include "db/write_batch_internal.h"
+#include "rocksdb/merge_operator.h"
 #include "util/coding.h"
-#include "util/statistics.h"
 #include "util/perf_context_imp.h"
+#include "util/statistics.h"
 
 namespace rocksdb {
 

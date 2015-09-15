@@ -33,22 +33,14 @@ class BlockBasedTableFactory : public TableFactory {
 
   const char* Name() const override { return "BlockBasedTable"; }
 
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
-                        const EnvOptions& soptions,
-                        const InternalKeyComparator& internal_comparator,
+  Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
-                        unique_ptr<TableReader>* table_reader) const override {
-    return NewTableReader(ioptions, soptions, internal_comparator,
-                          std::move(file), file_size, table_reader,
-                          /*prefetch_index_and_filter=*/true);
-  }
+                        unique_ptr<TableReader>* table_reader) const override;
 
   // This is a variant of virtual member function NewTableReader function with
   // added capability to disable pre-fetching of blocks on BlockBasedTable::Open
-  Status NewTableReader(const ImmutableCFOptions& ioptions,
-                        const EnvOptions& soptions,
-                        const InternalKeyComparator& internal_comparator,
+  Status NewTableReader(const TableReaderOptions& table_reader_options,
                         unique_ptr<RandomAccessFileReader>&& file,
                         uint64_t file_size,
                         unique_ptr<TableReader>* table_reader,

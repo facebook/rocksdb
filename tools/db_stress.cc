@@ -40,24 +40,25 @@ int main() {
 #include <gflags/gflags.h>
 #include "db/db_impl.h"
 #include "db/version_set.h"
-#include "rocksdb/statistics.h"
+#include "hdfs/env_hdfs.h"
+#include "port/port.h"
 #include "rocksdb/cache.h"
-#include "rocksdb/utilities/db_ttl.h"
 #include "rocksdb/env.h"
-#include "rocksdb/write_batch.h"
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
-#include "port/port.h"
+#include "rocksdb/statistics.h"
+#include "rocksdb/utilities/db_ttl.h"
+#include "rocksdb/write_batch.h"
 #include "util/coding.h"
+#include "util/compression.h"
 #include "util/crc32c.h"
 #include "util/histogram.h"
+#include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/random.h"
-#include "util/testutil.h"
-#include "util/logging.h"
-#include "hdfs/env_hdfs.h"
-#include "utilities/merge_operators.h"
 #include "util/string_util.h"
+#include "util/testutil.h"
+#include "utilities/merge_operators.h"
 
 using GFLAGS::ParseCommandLineFlags;
 using GFLAGS::RegisterFlagValidator;
@@ -222,8 +223,14 @@ DEFINE_int32(set_options_one_in, 0,
 DEFINE_int32(set_in_place_one_in, 0,
              "With a chance of 1/N, toggle in place support option");
 
-DEFINE_int64(cache_size, 2 * KB * KB * KB,
+DEFINE_int64(cache_size, 2LL * KB * KB * KB,
              "Number of bytes to use as a cache of uncompressed data.");
+
+DEFINE_uint64(subcompactions, 1,
+             "Maximum number of subcompactions to divide L0-L1 compactions "
+             "into.");
+static const bool FLAGS_subcompactions_dummy __attribute__((unused)) =
+    RegisterFlagValidator(&FLAGS_subcompactions, &ValidateUint32Range);
 
 static bool ValidateInt32Positive(const char* flagname, int32_t value) {
   if (value < 0) {
@@ -336,6 +343,8 @@ enum rocksdb::CompressionType StringToCompressionType(const char* ctype) {
     return rocksdb::kLZ4Compression;
   else if (!strcasecmp(ctype, "lz4hc"))
     return rocksdb::kLZ4HCCompression;
+  else if (!strcasecmp(ctype, "zstd"))
+    return rocksdb::kZSTDNotFinalCompression;
 
   fprintf(stdout, "Cannot parse compression type '%s'\n", ctype);
   return rocksdb::kSnappyCompression; //default value
@@ -1811,29 +1820,8 @@ class StressTest {
     fprintf(stdout, "Num keys per lock   : %d\n",
             1 << FLAGS_log2_keys_per_lock);
 
-    const char* compression = "";
-    switch (FLAGS_compression_type_e) {
-      case rocksdb::kNoCompression:
-        compression = "none";
-        break;
-      case rocksdb::kSnappyCompression:
-        compression = "snappy";
-        break;
-      case rocksdb::kZlibCompression:
-        compression = "zlib";
-        break;
-      case rocksdb::kBZip2Compression:
-        compression = "bzip2";
-        break;
-      case rocksdb::kLZ4Compression:
-        compression = "lz4";
-        break;
-      case rocksdb::kLZ4HCCompression:
-        compression = "lz4hc";
-        break;
-      }
-
-    fprintf(stdout, "Compression         : %s\n", compression);
+    std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
+    fprintf(stdout, "Compression         : %s\n", compression.c_str());
 
     const char* memtablerep = "";
     switch (FLAGS_rep_factory) {
@@ -1897,6 +1885,7 @@ class StressTest {
     options_.max_manifest_file_size = 10 * 1024;
     options_.filter_deletes = FLAGS_filter_deletes;
     options_.inplace_update_support = FLAGS_in_place_update;
+    options_.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     if ((FLAGS_prefix_size == 0) == (FLAGS_rep_factory == kHashSkipList)) {
       fprintf(stderr,
             "prefix_size should be non-zero iff memtablerep == prefix_hash\n");

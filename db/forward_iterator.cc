@@ -19,6 +19,7 @@
 #include "rocksdb/slice_transform.h"
 #include "table/merger.h"
 #include "db/dbformat.h"
+#include "util/sync_point.h"
 
 namespace rocksdb {
 
@@ -47,7 +48,8 @@ class LevelIterator : public Iterator {
     assert(file_index_ < files_.size());
     file_iter_.reset(cfd_->table_cache()->NewIterator(
         read_options_, *(cfd_->soptions()), cfd_->internal_comparator(),
-        files_[file_index_]->fd, nullptr /* table_reader_ptr */, false));
+        files_[file_index_]->fd, nullptr /* table_reader_ptr */, nullptr,
+        false));
   }
   void SeekToLast() override {
     status_ = Status::NotSupported("LevelIterator::SeekToLast()");
@@ -115,7 +117,8 @@ class LevelIterator : public Iterator {
 };
 
 ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
-    ColumnFamilyData* cfd, SuperVersion* current_sv)
+                                 ColumnFamilyData* cfd,
+                                 SuperVersion* current_sv)
     : db_(db),
       read_options_(read_options),
       cfd_(cfd),
@@ -125,9 +128,11 @@ ForwardIterator::ForwardIterator(DBImpl* db, const ReadOptions& read_options,
       sv_(current_sv),
       mutable_iter_(nullptr),
       current_(nullptr),
+      valid_(false),
       status_(Status::OK()),
       immutable_status_(Status::OK()),
-      valid_(false),
+      has_iter_trimmed_for_upper_bound_(false),
+      current_over_upper_bound_(false),
       is_prev_set_(false),
       is_prev_inclusive_(false) {
   if (sv_) {
@@ -175,7 +180,8 @@ void ForwardIterator::Cleanup(bool release_sv) {
 }
 
 bool ForwardIterator::Valid() const {
-  return valid_;
+  // See UpdateCurrent().
+  return valid_ ? !current_over_upper_bound_ : false;
 }
 
 void ForwardIterator::SeekToFirst() {
@@ -188,7 +194,17 @@ void ForwardIterator::SeekToFirst() {
   SeekInternal(Slice(), true);
 }
 
+bool ForwardIterator::IsOverUpperBound(const Slice& internal_key) const {
+  return !(read_options_.iterate_upper_bound == nullptr ||
+           cfd_->internal_comparator().user_comparator()->Compare(
+               ExtractUserKey(internal_key),
+               *read_options_.iterate_upper_bound) < 0);
+}
+
 void ForwardIterator::Seek(const Slice& internal_key) {
+  if (IsOverUpperBound(internal_key)) {
+    valid_ = false;
+  }
   if (sv_ == nullptr ||
       sv_ ->version_number != cfd_->GetSuperVersionNumber()) {
     RebuildIterators(true);
@@ -211,11 +227,19 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
   // an option to turn it off.
   if (seek_to_first || NeedToSeekImmutable(internal_key)) {
     immutable_status_ = Status::OK();
+    if (has_iter_trimmed_for_upper_bound_) {
+      // Some iterators are trimmed. Need to rebuild.
+      RebuildIterators(true);
+      // Already seeked mutable iter, so seek again
+      seek_to_first ? mutable_iter_->SeekToFirst()
+                    : mutable_iter_->Seek(internal_key);
+    }
     {
       auto tmp = MinIterHeap(MinIterComparator(&cfd_->internal_comparator()));
       immutable_min_heap_.swap(tmp);
     }
-    for (auto* m : imm_iters_) {
+    for (size_t i = 0; i < imm_iters_.size(); i++) {
+      auto* m = imm_iters_[i];
       seek_to_first ? m->SeekToFirst() : m->Seek(internal_key);
       if (!m->status().ok()) {
         immutable_status_ = m->status();
@@ -231,6 +255,9 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
     const VersionStorageInfo* vstorage = sv_->current->storage_info();
     const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
     for (uint32_t i = 0; i < l0.size(); ++i) {
+      if (!l0_iters_[i]) {
+        continue;
+      }
       if (seek_to_first) {
         l0_iters_[i]->SeekToFirst();
       } else {
@@ -238,6 +265,11 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         // won't go over this file.
         if (user_comparator_->Compare(user_key,
               l0[i]->largest.user_key()) > 0) {
+          if (read_options_.iterate_upper_bound != nullptr) {
+            has_iter_trimmed_for_upper_bound_ = true;
+            delete l0_iters_[i];
+            l0_iters_[i] = nullptr;
+          }
           continue;
         }
         l0_iters_[i]->Seek(internal_key);
@@ -246,7 +278,13 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       if (!l0_iters_[i]->status().ok()) {
         immutable_status_ = l0_iters_[i]->status();
       } else if (l0_iters_[i]->Valid()) {
-        immutable_min_heap_.push(l0_iters_[i]);
+        if (!IsOverUpperBound(l0_iters_[i]->key())) {
+          immutable_min_heap_.push(l0_iters_[i]);
+        } else {
+          has_iter_trimmed_for_upper_bound_ = true;
+          delete l0_iters_[i];
+          l0_iters_[i] = nullptr;
+        }
       }
     }
 
@@ -260,7 +298,9 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         search_right_bound = FileIndexer::kLevelMaxIndex;
         continue;
       }
-      assert(level_iters_[level - 1] != nullptr);
+      if (level_iters_[level - 1] == nullptr) {
+        continue;
+      }
       uint32_t f_idx = 0;
       const auto& indexer = vstorage->file_indexer();
       if (!seek_to_first) {
@@ -294,14 +334,10 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         if (f_idx < level_files.size()) {
           int cmp_smallest = user_comparator_->Compare(
               user_key, level_files[f_idx]->smallest.user_key());
-          int cmp_largest = -1;
-          if (cmp_smallest >= 0) {
-            cmp_smallest = user_comparator_->Compare(
-                user_key, level_files[f_idx]->smallest.user_key());
-          }
-          indexer.GetNextLevelIndex(level, f_idx,
-              cmp_smallest, cmp_largest,
-              &search_left_bound, &search_right_bound);
+          assert(user_comparator_->Compare(
+                     user_key, level_files[f_idx]->largest.user_key()) <= 0);
+          indexer.GetNextLevelIndex(level, f_idx, cmp_smallest, -1,
+                                    &search_left_bound, &search_right_bound);
         } else {
           indexer.GetNextLevelIndex(
               level, level_files.size() - 1,
@@ -318,7 +354,14 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
         if (!level_iters_[level - 1]->status().ok()) {
           immutable_status_ = level_iters_[level - 1]->status();
         } else if (level_iters_[level - 1]->Valid()) {
-          immutable_min_heap_.push(level_iters_[level - 1]);
+          if (!IsOverUpperBound(level_iters_[level - 1]->key())) {
+            immutable_min_heap_.push(level_iters_[level - 1]);
+          } else {
+            // Nothing in this level is interesting. Remove.
+            has_iter_trimmed_for_upper_bound_ = true;
+            delete level_iters_[level - 1];
+            level_iters_[level - 1] = nullptr;
+          }
         }
       }
     }
@@ -330,16 +373,20 @@ void ForwardIterator::SeekInternal(const Slice& internal_key,
       is_prev_set_ = true;
       is_prev_inclusive_ = true;
     }
+
+    TEST_SYNC_POINT_CALLBACK("ForwardIterator::SeekInternal:Immutable", this);
   } else if (current_ && current_ != mutable_iter_) {
     // current_ is one of immutable iterators, push it back to the heap
     immutable_min_heap_.push(current_);
   }
 
   UpdateCurrent();
+  TEST_SYNC_POINT_CALLBACK("ForwardIterator::SeekInternal:Return", this);
 }
 
 void ForwardIterator::Next() {
   assert(valid_);
+  bool update_prev_key = false;
 
   if (sv_ == nullptr ||
       sv_->version_number != cfd_->GetSuperVersionNumber()) {
@@ -354,13 +401,15 @@ void ForwardIterator::Next() {
   } else if (current_ != mutable_iter_) {
     // It is going to advance immutable iterator
 
-    bool update_prev_key = true;
     if (is_prev_set_ && prefix_extractor_) {
       // advance prev_key_ to current_ only if they share the same prefix
       update_prev_key =
         prefix_extractor_->Transform(prev_key_.GetKey()).compare(
           prefix_extractor_->Transform(current_->key())) == 0;
+    } else {
+      update_prev_key = true;
     }
+
 
     if (update_prev_key) {
       prev_key_.SetKey(current_->key());
@@ -373,12 +422,21 @@ void ForwardIterator::Next() {
   if (current_ != mutable_iter_) {
     if (!current_->status().ok()) {
       immutable_status_ = current_->status();
-    } else if (current_->Valid()) {
+    } else if ((current_->Valid()) && (!IsOverUpperBound(current_->key()))) {
       immutable_min_heap_.push(current_);
+    } else {
+      if ((current_->Valid()) && (IsOverUpperBound(current_->key()))) {
+        // remove the current iterator
+        DeleteCurrentIter();
+        current_ = nullptr;
+      }
+      if (update_prev_key) {
+        mutable_iter_->Seek(prev_key_.GetKey());
+      }
     }
   }
-
   UpdateCurrent();
+  TEST_SYNC_POINT_CALLBACK("ForwardIterator::Next:Return", this);
 }
 
 Slice ForwardIterator::key() const {
@@ -410,11 +468,19 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   }
   mutable_iter_ = sv_->mem->NewIterator(read_options_, &arena_);
   sv_->imm->AddIterators(read_options_, &imm_iters_, &arena_);
+  has_iter_trimmed_for_upper_bound_ = false;
 
   const auto* vstorage = sv_->current->storage_info();
   const auto& l0_files = vstorage->LevelFiles(0);
   l0_iters_.reserve(l0_files.size());
   for (const auto* l0 : l0_files) {
+    if ((read_options_.iterate_upper_bound != nullptr) &&
+        cfd_->internal_comparator().user_comparator()->Compare(
+            l0->smallest.user_key(), *read_options_.iterate_upper_bound) > 0) {
+      has_iter_trimmed_for_upper_bound_ = true;
+      l0_iters_.push_back(nullptr);
+      continue;
+    }
     l0_iters_.push_back(cfd_->table_cache()->NewIterator(
         read_options_, *cfd_->soptions(), cfd_->internal_comparator(), l0->fd));
   }
@@ -422,8 +488,15 @@ void ForwardIterator::RebuildIterators(bool refresh_sv) {
   for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
     const auto& level_files = vstorage->LevelFiles(level);
 
-    if (level_files.empty()) {
+    if ((level_files.empty()) ||
+        ((read_options_.iterate_upper_bound != nullptr) &&
+         (user_comparator_->Compare(*read_options_.iterate_upper_bound,
+                                    level_files[0]->smallest.user_key()) <
+          0))) {
       level_iters_.push_back(nullptr);
+      if (!level_files.empty()) {
+        has_iter_trimmed_for_upper_bound_ = true;
+      }
     } else {
       level_iters_.push_back(
           new LevelIterator(cfd_, read_options_, level_files));
@@ -438,7 +511,7 @@ void ForwardIterator::ResetIncompleteIterators() {
   const auto& l0_files = sv_->current->storage_info()->LevelFiles(0);
   for (uint32_t i = 0; i < l0_iters_.size(); ++i) {
     assert(i < l0_files.size());
-    if (!l0_iters_[i]->status().IsIncomplete()) {
+    if (!l0_iters_[i] || !l0_iters_[i]->status().IsIncomplete()) {
       continue;
     }
     delete l0_iters_[i];
@@ -482,6 +555,13 @@ void ForwardIterator::UpdateCurrent() {
   if (!status_.ok()) {
     status_ = Status::OK();
   }
+
+  // Upper bound doesn't apply to the memtable iterator. We want Valid() to
+  // return false when all iterators are over iterate_upper_bound, but can't
+  // just set valid_ to false, as that would effectively disable the tailing
+  // optimization (Seek() would be called on all immutable iterators regardless
+  // of whether the target key is greater than prev_key_).
+  current_over_upper_bound_ = valid_ && IsOverUpperBound(current_->key());
 }
 
 bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
@@ -515,6 +595,71 @@ bool ForwardIterator::NeedToSeekImmutable(const Slice& target) {
     return true;
   }
   return false;
+}
+
+void ForwardIterator::DeleteCurrentIter() {
+  const VersionStorageInfo* vstorage = sv_->current->storage_info();
+  const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
+  for (uint32_t i = 0; i < l0.size(); ++i) {
+    if (!l0_iters_[i]) {
+      continue;
+    }
+    if (l0_iters_[i] == current_) {
+      has_iter_trimmed_for_upper_bound_ = true;
+      delete l0_iters_[i];
+      l0_iters_[i] = nullptr;
+      return;
+    }
+  }
+
+  for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
+    if (level_iters_[level - 1] == nullptr) {
+      continue;
+    }
+    if (level_iters_[level - 1] == current_) {
+      has_iter_trimmed_for_upper_bound_ = true;
+      delete level_iters_[level - 1];
+      level_iters_[level - 1] = nullptr;
+    }
+  }
+}
+
+bool ForwardIterator::TEST_CheckDeletedIters(int* pdeleted_iters,
+                                             int* pnum_iters) {
+  bool retval = false;
+  int deleted_iters = 0;
+  int num_iters = 0;
+
+  const VersionStorageInfo* vstorage = sv_->current->storage_info();
+  const std::vector<FileMetaData*>& l0 = vstorage->LevelFiles(0);
+  for (uint32_t i = 0; i < l0.size(); ++i) {
+    if (!l0_iters_[i]) {
+      retval = true;
+      deleted_iters++;
+    } else {
+      num_iters++;
+    }
+  }
+
+  for (int32_t level = 1; level < vstorage->num_levels(); ++level) {
+    if ((level_iters_[level - 1] == nullptr) &&
+        (!vstorage->LevelFiles(level).empty())) {
+      retval = true;
+      deleted_iters++;
+    } else if (!vstorage->LevelFiles(level).empty()) {
+      num_iters++;
+    }
+  }
+  if ((!retval) && num_iters <= 1) {
+    retval = true;
+  }
+  if (pdeleted_iters) {
+    *pdeleted_iters = deleted_iters;
+  }
+  if (pnum_iters) {
+    *pnum_iters = num_iters;
+  }
+  return retval;
 }
 
 uint32_t ForwardIterator::FindFileInRange(

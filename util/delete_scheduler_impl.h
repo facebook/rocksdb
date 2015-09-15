@@ -36,7 +36,7 @@ class DeleteSchedulerImpl : public DeleteScheduler {
 
   // Wait for all files being deleteing in the background to finish or for
   // destructor to be called.
-  void TEST_WaitForEmptyTrash();
+  void WaitForEmptyTrash();
 
   // Return a map containing errors that happened in BackgroundEmptyTrash
   // file_path => error status

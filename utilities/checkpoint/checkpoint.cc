@@ -24,6 +24,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/transaction_log.h"
 #include "util/file_util.h"
+#include "port/port.h"
 
 namespace rocksdb {
 
@@ -131,7 +132,7 @@ Status CheckpointImpl::CreateCheckpoint(const std::string& checkpoint_dir) {
                    (type == kDescriptorFile) ? manifest_file_size : 0);
     }
   }
-  Log(db_->GetOptions().info_log, "Number of log files %ld",
+  Log(db_->GetOptions().info_log, "Number of log files %" ROCKSDB_PRIszt,
       live_wal_files.size());
 
   // Link WAL files. Copy exact size of last one because it is the only one

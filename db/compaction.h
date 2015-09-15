@@ -128,7 +128,8 @@ class Compaction {
 
   // Returns true if the available information we have guarantees that
   // the input "user_key" does not exist in any level beyond "output_level()".
-  bool KeyNotExistsBeyondOutputLevel(const Slice& user_key);
+  bool KeyNotExistsBeyondOutputLevel(const Slice& user_key,
+                                     std::vector<size_t>* level_ptrs) const;
 
   // Returns true iff we should stop building the current output
   // before processing "internal_key".
@@ -168,6 +169,9 @@ class Compaction {
   // are non-overlapping and can be trivially moved.
   bool is_trivial_move() { return is_trivial_move_; }
 
+  // How many total levels are there?
+  int number_levels() const { return number_levels_; }
+
   // Return the MutableCFOptions that should be used throughout the compaction
   // procedure
   const MutableCFOptions* mutable_cf_options() { return &mutable_cf_options_; }
@@ -194,16 +198,11 @@ class Compaction {
   // Create a CompactionFilter from compaction_filter_factory
   std::unique_ptr<CompactionFilter> CreateCompactionFilter() const;
 
-  // Should this compaction be broken up into smaller ones run in parallel?
-  bool IsSubCompaction() const {
-    return start_level_ == 0 && output_level_ == 1
-        && mutable_cf_options_.num_subcompactions > 1;
-  }
+  // Is the input level corresponding to output_level_ empty?
+  bool IsOutputLevelEmpty() const;
 
-  // If is_sub_compaction == true, how many smaller compactions should execute
-  int NumSubCompactions() const {
-    return mutable_cf_options_.num_subcompactions;
-  }
+  // Should this compaction be broken up into smaller ones run in parallel?
+  bool ShouldFormSubcompactions() const;
 
  private:
   // mark (or clear) all files that are being compacted
@@ -258,15 +257,7 @@ class Compaction {
 
   // True if we can do trivial move in Universal multi level
   // compaction
-
   bool is_trivial_move_;
-
-  // "level_ptrs_" holds indices into "input_version_->levels_", where each
-  // index remembers which file of an associated level we are currently used
-  // to check KeyNotExistsBeyondOutputLevel() for deletion operation.
-  // As it is for checking KeyNotExistsBeyondOutputLevel(), it only
-  // records indices for all levels beyond "output_level_".
-  std::vector<size_t> level_ptrs_;
 
   // Does input compression match the output compression?
   bool InputCompressionMatchesOutput() const;

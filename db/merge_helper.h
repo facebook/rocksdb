@@ -33,12 +33,17 @@ class MergeHelper {
         min_partial_merge_operands_(min_partial_merge_operands),
         assert_valid_internal_key_(assert_valid_internal_key),
         keys_(),
-        operands_(),
-        success_(false) {}
+        operands_() {
+    assert(user_comparator_ != nullptr);
+  }
 
   // Wrapper around MergeOperator::FullMerge() that records perf statistics.
   // Result of merge will be written to result if status returned is OK.
   // If operands is empty, the value will simply be copied to result.
+  // Returns one of the following statuses:
+  // - OK: Entries were successfully merged.
+  // - Corruption: Merge operator reported unsuccessful merge.
+  // - NotSupported: Merge operator is missing.
   static Status TimedFullMerge(const Slice& key, const Slice* value,
                                const std::deque<std::string>& operands,
                                const MergeOperator* merge_operator,
@@ -57,18 +62,23 @@ class MergeHelper {
   //                   0 means no restriction
   // at_bottom:   (IN) true if the iterator covers the bottem level, which means
   //                   we could reach the start of the history of this user key.
-  void MergeUntil(Iterator* iter, const SequenceNumber stop_before = 0,
-                  const bool at_bottom = false, Statistics* stats = nullptr,
-                  Env* env_ = nullptr);
+  // Returns one of the following statuses:
+  // - OK: Entries were successfully merged.
+  // - MergeInProgress: Put/Delete not encountered and unable to merge operands.
+  // - Corruption: Merge operator reported unsuccessful merge.
+  //
+  // REQUIRED: The first key in the input is not corrupted.
+  Status MergeUntil(Iterator* iter, const SequenceNumber stop_before = 0,
+                    const bool at_bottom = false, Statistics* stats = nullptr,
+                    Env* env_ = nullptr);
 
   // Query the merge result
   // These are valid until the next MergeUntil call
   // If the merging was successful:
-  //   - IsSuccess() will be true
-  //   - key() will have the latest sequence number of the merges.
-  //           The type will be Put or Merge. See IMPORTANT 1 note, below.
-  //   - value() will be the result of merging all the operands together
-  //   - The user should ignore keys() and values().
+  //   - keys() contains a single element with the latest sequence number of
+  //     the merges. The type will be Put or Merge. See IMPORTANT 1 note, below.
+  //   - values() contains a single element with the result of merging all the
+  //     operands together
   //
   //   IMPORTANT 1: the key type could change after the MergeUntil call.
   //        Put/Delete + Merge + ... + Merge => Put
@@ -76,7 +86,6 @@ class MergeHelper {
   //
   // If the merge operator is not associative, and if a Put/Delete is not found
   // then the merging will be unsuccessful. In this case:
-  //   - IsSuccess() will be false
   //   - keys() contains the list of internal keys seen in order of iteration.
   //   - values() contains the list of values (merges) seen in the same order.
   //              values() is parallel to keys() so that the first entry in
@@ -84,20 +93,12 @@ class MergeHelper {
   //              and so on. These lists will be the same length.
   //              All of these pairs will be merges over the same user key.
   //              See IMPORTANT 2 note below.
-  //   - The user should ignore key() and value().
   //
   //   IMPORTANT 2: The entries were traversed in order from BACK to FRONT.
   //                So keys().back() was the first key seen by iterator.
   // TODO: Re-style this comment to be like the first one
-  bool IsSuccess() const { return success_; }
-  Slice key() const { assert(success_); return Slice(keys_.back()); }
-  Slice value() const { assert(success_); return Slice(operands_.back()); }
-  const std::deque<std::string>& keys() const {
-    assert(!success_); return keys_;
-  }
-  const std::deque<std::string>& values() const {
-    assert(!success_); return operands_;
-  }
+  const std::deque<std::string>& keys() const { return keys_; }
+  const std::deque<std::string>& values() const { return operands_; }
   bool HasOperator() const { return user_merge_operator_ != nullptr; }
 
  private:
@@ -111,7 +112,27 @@ class MergeHelper {
   // valid up to the next MergeUntil call
   std::deque<std::string> keys_;    // Keeps track of the sequence of keys seen
   std::deque<std::string> operands_;  // Parallel with keys_; stores the values
-  bool success_;
+};
+
+// MergeOutputIterator can be used to iterate over the result of a merge.
+class MergeOutputIterator {
+ public:
+  // The MergeOutputIterator is bound to a MergeHelper instance.
+  explicit MergeOutputIterator(const MergeHelper* merge_helper);
+
+  // Seeks to the first record in the output.
+  void SeekToFirst();
+  // Advances to the next record in the output.
+  void Next();
+
+  Slice key() { return Slice(*it_keys_); }
+  Slice value() { return Slice(*it_values_); }
+  bool Valid() { return it_keys_ != merge_helper_->keys().rend(); }
+
+ private:
+  const MergeHelper* merge_helper_;
+  std::deque<std::string>::const_reverse_iterator it_keys_;
+  std::deque<std::string>::const_reverse_iterator it_values_;
 };
 
 } // namespace rocksdb

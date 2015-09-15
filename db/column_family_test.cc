@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <vector>
 #include <string>
+#include <thread>
 
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
@@ -19,6 +20,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/coding.h"
+#include "util/sync_point.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -625,6 +627,7 @@ TEST_F(ColumnFamilyTest, FlushTest) {
 // Makes sure that obsolete log files get deleted
 TEST_F(ColumnFamilyTest, LogDeletionTest) {
   db_options_.max_total_wal_size = std::numeric_limits<uint64_t>::max();
+  column_family_options_.arena_block_size = 4 * 1024;
   column_family_options_.write_buffer_size = 100000;  // 100KB
   Open();
   CreateColumnFamilies({"one", "two", "three", "four"});
@@ -702,18 +705,22 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   // "two" -> 1MB memtable, start flushing with three immutable memtables
   // "three" -> 90KB memtable, start flushing with four immutable memtables
   default_cf.write_buffer_size = 100000;
+  default_cf.arena_block_size = 4 * 4096;
   default_cf.max_write_buffer_number = 10;
   default_cf.min_write_buffer_number_to_merge = 1;
   default_cf.max_write_buffer_number_to_maintain = 0;
   one.write_buffer_size = 200000;
+  one.arena_block_size = 4 * 4096;
   one.max_write_buffer_number = 10;
   one.min_write_buffer_number_to_merge = 2;
   one.max_write_buffer_number_to_maintain = 1;
   two.write_buffer_size = 1000000;
+  two.arena_block_size = 4 * 4096;
   two.max_write_buffer_number = 10;
   two.min_write_buffer_number_to_merge = 3;
   two.max_write_buffer_number_to_maintain = 2;
-  three.write_buffer_size = 90000;
+  three.write_buffer_size = 4096 * 22 + 2048;
+  three.arena_block_size = 4096;
   three.max_write_buffer_number = 10;
   three.min_write_buffer_number_to_merge = 4;
   three.max_write_buffer_number_to_maintain = -1;
@@ -737,15 +744,15 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 0});
   AssertCountLiveLogFiles(4);
-  PutRandomData(3, 90, 1000);
+  PutRandomData(3, 91, 990);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 1});
   AssertCountLiveLogFiles(5);
-  PutRandomData(3, 90, 1000);
+  PutRandomData(3, 90, 990);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 2});
   AssertCountLiveLogFiles(6);
-  PutRandomData(3, 90, 1000);
+  PutRandomData(3, 90, 990);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 2, 3});
   AssertCountLiveLogFiles(7);
@@ -757,11 +764,11 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 1, 0, 3});
   AssertCountLiveLogFiles(9);
-  PutRandomData(3, 90, 1000);
+  PutRandomData(3, 90, 990);
   WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 1, 0, 0});
   AssertCountLiveLogFiles(10);
-  PutRandomData(3, 90, 1000);
+  PutRandomData(3, 90, 990);
   env_->SleepForMicroseconds(micros_wait_for_flush);
   AssertNumberOfImmutableMemtables({0, 1, 0, 1});
   AssertCountLiveLogFiles(11);
@@ -769,9 +776,9 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   WaitForFlush(1);
   AssertNumberOfImmutableMemtables({0, 0, 0, 1});
   AssertCountLiveLogFiles(5);
-  PutRandomData(3, 240, 1000);
+  PutRandomData(3, 90 * 3, 990);
   WaitForFlush(3);
-  PutRandomData(3, 300, 1000);
+  PutRandomData(3, 90 * 4, 990);
   WaitForFlush(3);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   AssertCountLiveLogFiles(12);
@@ -779,7 +786,7 @@ TEST_F(ColumnFamilyTest, DifferentWriteBufferSizes) {
   WaitForFlush(0);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   AssertCountLiveLogFiles(12);
-  PutRandomData(2, 3*100, 10000);
+  PutRandomData(2, 3 * 1000, 1000);
   WaitForFlush(2);
   AssertNumberOfImmutableMemtables({0, 0, 0, 0});
   AssertCountLiveLogFiles(12);
@@ -864,7 +871,7 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
   one.num_levels = 1;
   // trigger compaction if there are >= 4 files
   one.level0_file_num_compaction_trigger = 4;
-  one.write_buffer_size = 100000;
+  one.write_buffer_size = 120000;
 
   two.compaction_style = kCompactionStyleLevel;
   two.num_levels = 4;
@@ -875,23 +882,27 @@ TEST_F(ColumnFamilyTest, DifferentCompactionStyles) {
 
   // SETUP column family "one" -- universal style
   for (int i = 0; i < one.level0_file_num_compaction_trigger - 1; ++i) {
-    PutRandomData(1, 11, 10000);
+    PutRandomData(1, 10, 12000);
+    PutRandomData(1, 1, 10);
     WaitForFlush(1);
     AssertFilesPerLevel(ToString(i + 1), 1);
   }
 
   // SETUP column family "two" -- level style with 4 levels
   for (int i = 0; i < two.level0_file_num_compaction_trigger - 1; ++i) {
-    PutRandomData(2, 15, 10000);
+    PutRandomData(2, 10, 12000);
+    PutRandomData(2, 1, 10);
     WaitForFlush(2);
     AssertFilesPerLevel(ToString(i + 1), 2);
   }
 
   // TRIGGER compaction "one"
-  PutRandomData(1, 12, 10000);
+  PutRandomData(1, 10, 12000);
+  PutRandomData(1, 1, 10);
 
   // TRIGGER compaction "two"
-  PutRandomData(2, 10, 10000);
+  PutRandomData(2, 10, 12000);
+  PutRandomData(2, 1, 10);
 
   // WAIT for compactions
   WaitForCompaction();
@@ -1045,6 +1056,7 @@ TEST_F(ColumnFamilyTest, FlushStaleColumnFamilies) {
   CreateColumnFamilies({"one", "two"});
   ColumnFamilyOptions default_cf, one, two;
   default_cf.write_buffer_size = 100000;  // small write buffer size
+  default_cf.arena_block_size = 4096;
   default_cf.disable_auto_compactions = true;
   one.disable_auto_compactions = true;
   two.disable_auto_compactions = true;
@@ -1092,6 +1104,9 @@ TEST_F(ColumnFamilyTest, SanitizeOptions) {
             original.level0_stop_writes_trigger = i;
             original.level0_slowdown_writes_trigger = j;
             original.level0_file_num_compaction_trigger = k;
+            original.write_buffer_size =
+                l * 4 * 1024 * 1024 + i * 1024 * 1024 + j * 1024 + k;
+
             ColumnFamilyOptions result =
                 SanitizeOptions(db_options, nullptr, original);
             ASSERT_TRUE(result.level0_stop_writes_trigger >=
@@ -1108,6 +1123,16 @@ TEST_F(ColumnFamilyTest, SanitizeOptions) {
                 ASSERT_EQ(result.num_levels, original.num_levels);
               }
             }
+
+            // Make sure Sanitize options sets arena_block_size to 1/8 of
+            // the write_buffer_size, rounded up to a multiple of 4k.
+            size_t expected_arena_block_size =
+                l * 4 * 1024 * 1024 / 8 + i * 1024 * 1024 / 8;
+            if (j + k != 0) {
+              // not a multiple of 4k, round up 4k
+              expected_arena_block_size += 4 * 1024;
+            }
+            ASSERT_EQ(expected_arena_block_size, result.arena_block_size);
           }
         }
       }
@@ -1164,12 +1189,74 @@ TEST_F(ColumnFamilyTest, ReadDroppedColumnFamily) {
         ASSERT_OK(iterator->status());
         ++count;
       }
+      ASSERT_OK(iterator->status());
       ASSERT_EQ(count, kKeysNum * ((i == 2) ? 1 : 2));
     }
 
     Close();
     Destroy();
   }
+}
+
+TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
+  db_options_.create_missing_column_families = true;
+  Open({"default", "one"});
+  ColumnFamilyOptions options;
+  options.level0_file_num_compaction_trigger = 100;
+  options.level0_slowdown_writes_trigger = 200;
+  options.level0_stop_writes_trigger = 200;
+  options.max_write_buffer_number = 20;
+  options.write_buffer_size = 100000;  // small write buffer size
+  Reopen({options, options});
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"VersionSet::LogAndApply::ColumnFamilyDrop:1"
+        "FlushJob::InstallResults"},
+       {"FlushJob::InstallResults",
+        "VersionSet::LogAndApply::ColumnFamilyDrop:2", }});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  test::SleepingBackgroundTask sleeping_task;
+
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+
+  // 1MB should create ~10 files for each CF
+  int kKeysNum = 10000;
+  PutRandomData(1, kKeysNum, 100);
+
+  std::vector<std::thread> threads;
+  threads.emplace_back([&] { ASSERT_OK(db_->DropColumnFamily(handles_[1])); });
+
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+  sleeping_task.Reset();
+  // now we sleep again. this is just so we're certain that flush job finished
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+
+  {
+    // Since we didn't delete CF handle, RocksDB's contract guarantees that
+    // we're still able to read dropped CF
+    std::unique_ptr<Iterator> iterator(
+        db_->NewIterator(ReadOptions(), handles_[1]));
+    int count = 0;
+    for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+      ASSERT_OK(iterator->status());
+      ++count;
+    }
+    ASSERT_OK(iterator->status());
+    ASSERT_EQ(count, kKeysNum);
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  Close();
+  Destroy();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb

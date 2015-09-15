@@ -1,10 +1,12 @@
 import os
+import glob
 import os.path
 import shutil
 import subprocess
 import time
 import unittest
 import tempfile
+import re
 
 def my_check_output(*popenargs, **kwargs):
     """
@@ -43,7 +45,8 @@ class LDBTestCase(unittest.TestCase):
     def dbParam(self, dbName):
         return "--db=%s" % os.path.join(self.TMP_DIR, dbName)
 
-    def assertRunOKFull(self, params, expectedOutput, unexpected=False):
+    def assertRunOKFull(self, params, expectedOutput, unexpected=False,
+                        isPattern=False):
         """
         All command-line params must be specified.
         Allows full flexibility in testing; for example: missing db param.
@@ -53,9 +56,16 @@ class LDBTestCase(unittest.TestCase):
         output = my_check_output("./ldb %s |grep -v \"Created bg thread\"" %
                             params, shell=True)
         if not unexpected:
-            self.assertEqual(output.strip(), expectedOutput.strip())
+            if isPattern:
+                self.assertNotEqual(expectedOutput.search(output.strip()),
+                                    None)
+            else:
+                self.assertEqual(output.strip(), expectedOutput.strip())
         else:
-            self.assertNotEqual(output.strip(), expectedOutput.strip())
+            if isPattern:
+                self.assertEqual(expectedOutput.search(output.strip()), None)
+            else:
+                self.assertNotEqual(output.strip(), expectedOutput.strip())
 
     def assertRunFAILFull(self, params):
         """
@@ -394,6 +404,53 @@ class LDBTestCase(unittest.TestCase):
         self.assertRunOK("put x3 y3", "OK")
         dumpFilePath = os.path.join(self.TMP_DIR, "dump2")
         self.assertTrue(self.dumpLiveFiles("--db=%s" % dbPath, dumpFilePath))
+
+    def getManifests(self, directory):
+        return glob.glob(directory + "/MANIFEST-*")
+
+    def copyManifests(self, src, dest):
+        return 0 == run_err_null("cp " + src + " " + dest)
+
+    def testManifestDump(self):
+        print "Running testManifestDump..."
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put 1 1 --create_if_missing", "OK")
+        self.assertRunOK("put 2 2", "OK")
+        self.assertRunOK("put 3 3", "OK")
+        # Pattern to expect from manifest_dump.
+        num = "[0-9]+"
+        st = ".*"
+        subpat = st + " @ " + num + ": " + num
+        regex = num + ":" + num + "\[" + subpat + ".." + subpat + "\]"
+        expected_pattern = re.compile(regex)
+        cmd = "manifest_dump --db=%s"
+        manifest_files = self.getManifests(dbPath)
+        self.assertTrue(len(manifest_files) == 1)
+        # Test with the default manifest file in dbPath.
+        self.assertRunOKFull(cmd % dbPath, expected_pattern,
+                             unexpected=False, isPattern=True)
+        self.copyManifests(manifest_files[0], manifest_files[0] + "1")
+        manifest_files = self.getManifests(dbPath)
+        self.assertTrue(len(manifest_files) == 2)
+        # Test with multiple manifest files in dbPath.
+        self.assertRunFAILFull(cmd % dbPath)
+        # Running it with the copy we just created should pass.
+        self.assertRunOKFull((cmd + " --path=%s")
+                             % (dbPath, manifest_files[1]),
+                             expected_pattern, unexpected=False,
+                             isPattern=True)
+
+    def testListColumnFamilies(self):
+        print "Running testListColumnFamilies..."
+        dbPath = os.path.join(self.TMP_DIR, self.DB_NAME)
+        self.assertRunOK("put x1 y1 --create_if_missing", "OK")
+        cmd = "list_column_families %s | grep -v \"Column families\""
+        # Test on valid dbPath.
+        self.assertRunOKFull(cmd % dbPath, "{default}")
+        # Test on empty path.
+        self.assertRunFAILFull(cmd % "")
+
+
 
 if __name__ == "__main__":
     unittest.main()

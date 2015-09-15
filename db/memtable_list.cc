@@ -27,9 +27,26 @@ class InternalKeyComparator;
 class Mutex;
 class VersionSet;
 
-MemTableListVersion::MemTableListVersion(MemTableListVersion* old)
+void MemTableListVersion::AddMemTable(MemTable* m) {
+  memlist_.push_front(m);
+  *parent_memtable_list_memory_usage_ += m->ApproximateMemoryUsage();
+}
+
+void MemTableListVersion::UnrefMemTable(autovector<MemTable*>* to_delete,
+                                        MemTable* m) {
+  if (m->Unref()) {
+    to_delete->push_back(m);
+    assert(*parent_memtable_list_memory_usage_ >= m->ApproximateMemoryUsage());
+    *parent_memtable_list_memory_usage_ -= m->ApproximateMemoryUsage();
+  } else {
+  }
+}
+
+MemTableListVersion::MemTableListVersion(
+    size_t* parent_memtable_list_memory_usage, MemTableListVersion* old)
     : max_write_buffer_number_to_maintain_(
-          old->max_write_buffer_number_to_maintain_) {
+          old->max_write_buffer_number_to_maintain_),
+      parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {
   if (old != nullptr) {
     memlist_ = old->memlist_;
     for (auto& m : memlist_) {
@@ -44,12 +61,14 @@ MemTableListVersion::MemTableListVersion(MemTableListVersion* old)
 }
 
 MemTableListVersion::MemTableListVersion(
+    size_t* parent_memtable_list_memory_usage,
     int max_write_buffer_number_to_maintain)
-    : max_write_buffer_number_to_maintain_(
-          max_write_buffer_number_to_maintain) {}
+    : max_write_buffer_number_to_maintain_(max_write_buffer_number_to_maintain),
+      parent_memtable_list_memory_usage_(parent_memtable_list_memory_usage) {}
 
 void MemTableListVersion::Ref() { ++refs_; }
 
+// called by superversion::clean()
 void MemTableListVersion::Unref(autovector<MemTable*>* to_delete) {
   assert(refs_ >= 1);
   --refs_;
@@ -58,16 +77,10 @@ void MemTableListVersion::Unref(autovector<MemTable*>* to_delete) {
     // that refs_ will not be zero
     assert(to_delete != nullptr);
     for (const auto& m : memlist_) {
-      MemTable* x = m->Unref();
-      if (x != nullptr) {
-        to_delete->push_back(x);
-      }
+      UnrefMemTable(to_delete, m);
     }
     for (const auto& m : memlist_history_) {
-      MemTable* x = m->Unref();
-      if (x != nullptr) {
-        to_delete->push_back(x);
-      }
+      UnrefMemTable(to_delete, m);
     }
     delete this;
   }
@@ -180,7 +193,7 @@ SequenceNumber MemTableListVersion::GetEarliestSequenceNumber(
 // caller is responsible for referencing m
 void MemTableListVersion::Add(MemTable* m, autovector<MemTable*>* to_delete) {
   assert(refs_ == 1);  // only when refs_ == 1 is MemTableListVersion mutable
-  memlist_.push_front(m);
+  AddMemTable(m);
 
   TrimHistory(to_delete);
 }
@@ -195,9 +208,7 @@ void MemTableListVersion::Remove(MemTable* m,
     memlist_history_.push_front(m);
     TrimHistory(to_delete);
   } else {
-    if (m->Unref()) {
-      to_delete->push_back(m);
-    }
+    UnrefMemTable(to_delete, m);
   }
 }
 
@@ -209,9 +220,7 @@ void MemTableListVersion::TrimHistory(autovector<MemTable*>* to_delete) {
     MemTable* x = memlist_history_.back();
     memlist_history_.pop_back();
 
-    if (x->Unref()) {
-      to_delete->push_back(x);
-    }
+    UnrefMemTable(to_delete, x);
   }
 }
 
@@ -315,7 +324,7 @@ Status MemTableList::InstallMemtableFlushResults(
 
     // All the later memtables that have the same filenum
     // are part of the same batch. They can be committed now.
-    uint64_t mem_id = 1;  // how many memtables has been flushed.
+    uint64_t mem_id = 1;  // how many memtables have been flushed.
     do {
       if (s.ok()) { // commit new state
         LogToBuffer(log_buffer, "[%s] Level-0 commit table #%" PRIu64
@@ -324,7 +333,7 @@ Status MemTableList::InstallMemtableFlushResults(
         assert(m->file_number_ > 0);
         current_->Remove(m, to_delete);
       } else {
-        //commit failed. setup state so that we can flush again.
+        // commit failed. setup state so that we can flush again.
         LogToBuffer(log_buffer, "Level-0 commit table #%" PRIu64
                                 ": memtable #%" PRIu64 " failed",
                     m->file_number_, mem_id);
@@ -361,7 +370,7 @@ void MemTableList::Add(MemTable* m, autovector<MemTable*>* to_delete) {
 }
 
 // Returns an estimate of the number of bytes of data in use.
-size_t MemTableList::ApproximateMemoryUsage() {
+size_t MemTableList::ApproximateUnflushedMemTablesMemoryUsage() {
   size_t total_size = 0;
   for (auto& memtable : current_->memlist_) {
     total_size += memtable->ApproximateMemoryUsage();
@@ -369,13 +378,15 @@ size_t MemTableList::ApproximateMemoryUsage() {
   return total_size;
 }
 
+size_t MemTableList::ApproximateMemoryUsage() { return current_memory_usage_; }
+
 void MemTableList::InstallNewVersion() {
   if (current_->refs_ == 1) {
     // we're the only one using the version, just keep using it
   } else {
     // somebody else holds the current version, we need to create new one
     MemTableListVersion* version = current_;
-    current_ = new MemTableListVersion(current_);
+    current_ = new MemTableListVersion(&current_memory_usage_, current_);
     current_->Ref();
     version->Unref();
   }
