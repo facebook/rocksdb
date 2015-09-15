@@ -17,9 +17,20 @@
 
 namespace rocksdb {
 
+struct TransactionKeyMapInfo {
+  // Earliest sequence number that is relevant to this transaction for this key
+  SequenceNumber seq;
+
+  uint32_t num_writes;
+  uint32_t num_reads;
+
+  explicit TransactionKeyMapInfo(SequenceNumber seq_no)
+      : seq(seq_no), num_writes(0), num_reads(0) {}
+};
+
 using TransactionKeyMap =
     std::unordered_map<uint32_t,
-                       std::unordered_map<std::string, SequenceNumber>>;
+                       std::unordered_map<std::string, TransactionKeyMapInfo>>;
 
 class DBImpl;
 struct SuperVersion;

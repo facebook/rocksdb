@@ -67,7 +67,8 @@ void OptimisticTransactionImpl::Rollback() { Clear(); }
 
 // Record this key so that we can check it for conflicts at commit time.
 Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                          const Slice& key, bool untracked) {
+                                          const Slice& key, bool read_only,
+                                          bool untracked) {
   if (untracked) {
     return Status::OK();
   }
@@ -84,7 +85,7 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   std::string key_str = key.ToString();
 
-  TrackKey(cfh_id, key_str, seq);
+  TrackKey(cfh_id, key_str, seq, read_only);
 
   // Always return OK. Confilct checking will happen at commit time.
   return Status::OK();

@@ -356,6 +356,28 @@ class Transaction {
   // Reset the WriteOptions that will be used during Commit().
   virtual void SetWriteOptions(const WriteOptions& write_options) = 0;
 
+  // If this key was previously fetched in this transaction using
+  // GetForUpdate/MultigetForUpdate(), calling UndoGetForUpdate will tell
+  // the transaction that it no longer needs to do any conflict checking
+  // for this key.
+  //
+  // If a key has been fetched N times via GetForUpdate/MultigetForUpdate(),
+  // then UndoGetForUpdate will only have an effect if it is also called N
+  // times.  If this key has been written to in this transaction,
+  // UndoGetForUpdate() will have no effect.
+  //
+  // If SetSavePoint() has been called after the GetForUpdate(),
+  // UndoGetForUpdate() will not have any effect.
+  //
+  // If this Transaction was created by an OptimisticTransactionDB,
+  // calling UndoGetForUpdate can affect whether this key is conflict checked
+  // at commit time.
+  // If this Transaction was created by a TransactionDB,
+  // calling UndoGetForUpdate may release any held locks for this key.
+  virtual void UndoGetForUpdate(ColumnFamilyHandle* column_family,
+                                const Slice& key) = 0;
+  virtual void UndoGetForUpdate(const Slice& key) = 0;
+
  protected:
   explicit Transaction(const TransactionDB* db) {}
   Transaction() {}

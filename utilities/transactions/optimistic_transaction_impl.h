@@ -40,7 +40,7 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool untracked = false) override;
+                 bool read_only, bool untracked = false) override;
 
  private:
   OptimisticTransactionDB* const txn_db_;
@@ -55,6 +55,11 @@ class OptimisticTransactionImpl : public TransactionBaseImpl {
   Status CheckTransactionForConflicts(DB* db);
 
   void Clear() override;
+
+  void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                          const Slice& key) override {
+    // Nothing to unlock.
+  }
 
   // No copying allowed
   OptimisticTransactionImpl(const OptimisticTransactionImpl&);

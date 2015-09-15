@@ -71,7 +71,7 @@ class TransactionImpl : public TransactionBaseImpl {
 
  protected:
   Status TryLock(ColumnFamilyHandle* column_family, const Slice& key,
-                 bool untracked = false) override;
+                 bool read_only, bool untracked = false) override;
 
  private:
   enum ExecutionStatus { STARTED, COMMITTING, LOCKS_STOLEN };
@@ -104,6 +104,9 @@ class TransactionImpl : public TransactionBaseImpl {
   Status DoCommit(WriteBatch* batch);
 
   void RollbackLastN(size_t num);
+
+  void UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                          const Slice& key) override;
 
   // No copying allowed
   TransactionImpl(const TransactionImpl&);

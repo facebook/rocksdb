@@ -137,7 +137,7 @@ Status TransactionUtil::CheckKeysForConflicts(DBImpl* db_impl,
     // written to this key since the start of the transaction.
     for (const auto& key_iter : keys) {
       const auto& key = key_iter.first;
-      const SequenceNumber key_seq = key_iter.second;
+      const SequenceNumber key_seq = key_iter.second.seq;
 
       result = CheckKey(db_impl, sv, earliest_seq, key_seq, key, cache_only);
 

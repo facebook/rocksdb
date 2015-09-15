@@ -1114,6 +1114,159 @@ TEST_F(OptimisticTransactionTest, SavepointTest) {
   delete txn;
 }
 
+TEST_F(OptimisticTransactionTest, UndoGetForUpdateTest) {
+  WriteOptions write_options;
+  ReadOptions read_options, snapshot_read_options;
+  OptimisticTransactionOptions txn_options;
+  string value;
+  Status s;
+
+  db->Put(write_options, "A", "");
+
+  Transaction* txn1 = txn_db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn1);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+
+  Transaction* txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 can commit since A isn't conflict checked
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  txn1 = txn_db->BeginTransaction(write_options);
+  txn1->Put("A", "a");
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+
+  txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 cannot commit since A will still be conflict checked
+  s = txn1->Commit();
+  ASSERT_TRUE(s.IsBusy());
+  delete txn1;
+
+  txn1 = txn_db->BeginTransaction(write_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+
+  txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 cannot commit since A will still be conflict checked
+  s = txn1->Commit();
+  ASSERT_TRUE(s.IsBusy());
+  delete txn1;
+
+  txn1 = txn_db->BeginTransaction(write_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("A");
+
+  txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 can commit since A isn't conflict checked
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  txn1 = txn_db->BeginTransaction(write_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();
+  txn1->UndoGetForUpdate("A");
+
+  txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 cannot commit since A will still be conflict checked
+  s = txn1->Commit();
+  ASSERT_TRUE(s.IsBusy());
+  delete txn1;
+
+  txn1 = txn_db->BeginTransaction(write_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  txn1->UndoGetForUpdate("A");
+
+  txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 cannot commit since A will still be conflict checked
+  s = txn1->Commit();
+  ASSERT_TRUE(s.IsBusy());
+  delete txn1;
+
+  txn1 = txn_db->BeginTransaction(write_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  txn1->UndoGetForUpdate("A");
+
+  txn1->RollbackToSavePoint();
+  txn1->UndoGetForUpdate("A");
+
+  txn2 = txn_db->BeginTransaction(write_options);
+  txn2->Put("A", "x");
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  // Verify that txn1 can commit since A isn't conflict checked
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+}
+
 }  // namespace rocksdb
 
 int main(int argc, char** argv) {

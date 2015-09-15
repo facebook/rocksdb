@@ -1717,9 +1717,8 @@ TEST_F(TransactionTest, SavepointTest) {
 
 TEST_F(TransactionTest, SavepointTest2) {
   WriteOptions write_options;
-  ReadOptions read_options, snapshot_read_options;
+  ReadOptions read_options;
   TransactionOptions txn_options;
-  string value;
   Status s;
 
   txn_options.lock_timeout = 1;  // 1 ms
@@ -1811,6 +1810,356 @@ TEST_F(TransactionTest, SavepointTest2) {
 
   s = txn2->Commit();
   ASSERT_OK(s);
+  delete txn2;
+}
+
+TEST_F(TransactionTest, UndoGetForUpdateTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  txn1->UndoGetForUpdate("A");
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  txn1->UndoGetForUpdate("A");
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  // Verify that A is locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->UndoGetForUpdate("A");
+
+  // Verify that A is now unlocked
+  s = txn2->Put("A", "a2");
+  ASSERT_OK(s);
+  txn2->Commit();
+  delete txn2;
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a2", value);
+
+  s = txn1->Delete("A");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+
+  // Verify that A and B are still locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a4");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b4");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->Rollback();
+  delete txn1;
+
+  // Verify that A and B are no longer locked
+  s = txn2->Put("A", "a5");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b5");
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  delete txn2;
+  ASSERT_OK(s);
+
+  txn1 = db->BeginTransaction(write_options, txn_options);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+  s = txn1->Put("B", "b5");
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify A,B,C are locked
+  txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("X", "x6");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify A,B are locked and C is not
+  s = txn2->Put("A", "a6");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c6");
+  ASSERT_OK(s);
+  s = txn2->Put("X", "x6");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("X");
+
+  // Verify B is locked and A and C are not
+  s = txn2->Put("A", "a7");
+  ASSERT_OK(s);
+  s = txn2->Delete("B");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c7");
+  ASSERT_OK(s);
+  s = txn2->Put("X", "x7");
+  ASSERT_OK(s);
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  delete txn1;
+}
+
+TEST_F(TransactionTest, UndoGetForUpdateTest2) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  TransactionOptions txn_options;
+  string value;
+  Status s;
+
+  s = db->Put(write_options, "A", "");
+  ASSERT_OK(s);
+
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn1 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn1);
+
+  s = txn1->GetForUpdate(read_options, "A", &value);
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("F", "f");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 1
+
+  txn1->UndoGetForUpdate("A");
+
+  s = txn1->GetForUpdate(read_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = txn1->GetForUpdate(read_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn1->Put("E", "e");
+  ASSERT_OK(s);
+  s = txn1->GetForUpdate(read_options, "E", &value);
+  ASSERT_OK(s);
+
+  s = txn1->GetForUpdate(read_options, "F", &value);
+  ASSERT_OK(s);
+
+  // Verify A,B,C,D,E,F are still locked
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  s = txn2->Put("A", "a1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e1");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f1");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("E");
+
+  // Verify A,B,D,E,F are still locked and C is not.
+  s = txn2->Put("A", "a2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f2");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c2");
+  ASSERT_OK(s);
+
+  txn1->SetSavePoint();  // 2
+
+  s = txn1->Put("H", "h");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify A,B,D,E,F,H are still locked and C,G are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("H", "h3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+
+  txn1->RollbackToSavePoint();  // rollback to 2
+
+  // Verify A,B,D,E,F are still locked and C,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("D", "d3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify A,B,E,F are still locked and C,D,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("E", "e3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->RollbackToSavePoint();  // rollback to 1
+
+  // Verify A,B,F are still locked and C,D,E,G,H are not.
+  s = txn2->Put("A", "a3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("B", "b3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("E", "e3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  txn1->UndoGetForUpdate("A");
+  txn1->UndoGetForUpdate("B");
+  txn1->UndoGetForUpdate("C");
+  txn1->UndoGetForUpdate("D");
+  txn1->UndoGetForUpdate("E");
+  txn1->UndoGetForUpdate("F");
+  txn1->UndoGetForUpdate("G");
+  txn1->UndoGetForUpdate("H");
+
+  // Verify F is still locked and A,B,C,D,E,G,H are not.
+  s = txn2->Put("F", "f3");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Put("A", "a3");
+  ASSERT_OK(s);
+  s = txn2->Put("B", "b3");
+  ASSERT_OK(s);
+  s = txn2->Put("C", "c3");
+  ASSERT_OK(s);
+  s = txn2->Put("D", "d3");
+  ASSERT_OK(s);
+  s = txn2->Put("E", "e3");
+  ASSERT_OK(s);
+  s = txn2->Put("G", "g3");
+  ASSERT_OK(s);
+  s = txn2->Put("H", "h3");
+  ASSERT_OK(s);
+
+  s = txn1->Commit();
+  ASSERT_OK(s);
+  s = txn2->Commit();
+  ASSERT_OK(s);
+
+  delete txn1;
   delete txn2;
 }
 

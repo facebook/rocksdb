@@ -143,9 +143,11 @@ void TransactionImpl::Rollback() { Clear(); }
 
 Status TransactionImpl::RollbackToSavePoint() {
   // Unlock any keys locked since last transaction
-  const TransactionKeyMap* keys = GetTrackedKeysSinceSavePoint();
+  const std::unique_ptr<TransactionKeyMap>& keys =
+      GetTrackedKeysSinceSavePoint();
+
   if (keys) {
-    txn_db_impl_->UnLock(this, keys);
+    txn_db_impl_->UnLock(this, keys.get());
   }
 
   return TransactionBaseImpl::RollbackToSavePoint();
@@ -210,7 +212,8 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
       if (!s.ok()) {
         break;
       }
-      (*keys_to_unlock)[cfh_id].insert({std::move(key), kMaxSequenceNumber});
+      TrackKey(keys_to_unlock, cfh_id, std::move(key), kMaxSequenceNumber,
+               false);
     }
 
     if (!s.ok()) {
@@ -231,7 +234,8 @@ Status TransactionImpl::LockBatch(WriteBatch* batch,
 // this key will only be locked if there have been no writes to this key since
 // the snapshot time.
 Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
-                                const Slice& key, bool untracked) {
+                                const Slice& key, bool read_only,
+                                bool untracked) {
   uint32_t cfh_id = GetColumnFamilyID(column_family);
   std::string key_str = key.ToString();
   bool previously_locked;
@@ -251,7 +255,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
       previously_locked = false;
     } else {
       previously_locked = true;
-      current_seqno = iter->second;
+      current_seqno = iter->second.seq;
     }
   }
 
@@ -298,7 +302,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     // Let base class know we've conflict checked this key.
-    TrackKey(cfh_id, key_str, new_seqno);
+    TrackKey(cfh_id, key_str, new_seqno, read_only);
   }
 
   return s;
@@ -338,6 +342,11 @@ bool TransactionImpl::TryStealingLocks() {
   ExecutionStatus expected = STARTED;
   return std::atomic_compare_exchange_strong(&exec_status_, &expected,
                                              LOCKS_STOLEN);
+}
+
+void TransactionImpl::UnlockGetForUpdate(ColumnFamilyHandle* column_family,
+                                         const Slice& key) {
+  txn_db_impl_->UnLock(this, GetColumnFamilyID(column_family), key.ToString());
 }
 
 }  // namespace rocksdb
