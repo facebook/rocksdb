@@ -910,7 +910,7 @@ struct DBOptions {
   // Default: 1
   int max_background_compactions;
 
-  // This integer represents the maximum number of threads that will
+  // This value represents the maximum number of threads that will
   // concurrently perform a compaction job by breaking it into multiple,
   // smaller ones that are run simultaneously.
   // Default: 1 (i.e. no subcompactions)

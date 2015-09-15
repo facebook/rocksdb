@@ -347,6 +347,8 @@ void DBOptions::Dump(Logger* log) const {
         delete_obsolete_files_period_micros);
     Warn(log, "             Options.max_background_compactions: %d",
         max_background_compactions);
+    Warn(log, "                     Options.max_subcompactions: %" PRIu32,
+        max_subcompactions);
     Warn(log, "                 Options.max_background_flushes: %d",
         max_background_flushes);
     Warn(log, "                        Options.WAL_ttl_seconds: %" PRIu64,
