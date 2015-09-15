@@ -5937,6 +5937,8 @@ TEST_F(DBTest, PrefixScan) {
     snprintf(buf, sizeof(buf), "03______:");
     prefix = Slice(buf, 8);
     key = Slice(buf, 9);
+    ASSERT_EQ(key.difference_offset(prefix), 8);
+    ASSERT_EQ(prefix.difference_offset(key), 8);
     // db configs
     env_->count_random_reads_ = true;
     Options options = CurrentOptions();
