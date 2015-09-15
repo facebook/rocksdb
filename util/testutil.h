@@ -16,6 +16,7 @@
 #include "rocksdb/env.h"
 #include "rocksdb/iterator.h"
 #include "rocksdb/slice.h"
+#include "util/mutexlock.h"
 #include "util/random.h"
 
 namespace rocksdb {
@@ -271,6 +272,51 @@ class NullLogger : public Logger {
 
 // Corrupts key by changing the type
 extern void CorruptKeyType(InternalKey* ikey);
+
+class SleepingBackgroundTask {
+ public:
+  SleepingBackgroundTask()
+      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
+  void DoSleep() {
+    MutexLock l(&mutex_);
+    while (should_sleep_) {
+      bg_cv_.Wait();
+    }
+    done_with_sleep_ = true;
+    bg_cv_.SignalAll();
+  }
+  void WakeUp() {
+    MutexLock l(&mutex_);
+    should_sleep_ = false;
+    bg_cv_.SignalAll();
+  }
+  void WaitUntilDone() {
+    MutexLock l(&mutex_);
+    while (!done_with_sleep_) {
+      bg_cv_.Wait();
+    }
+  }
+  bool WokenUp() {
+    MutexLock l(&mutex_);
+    return should_sleep_ == false;
+  }
+
+  void Reset() {
+    MutexLock l(&mutex_);
+    should_sleep_ = true;
+    done_with_sleep_ = false;
+  }
+
+  static void DoSleepTask(void* arg) {
+    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
+  }
+
+ private:
+  port::Mutex mutex_;
+  port::CondVar bg_cv_;  // Signalled when background work finishes
+  bool should_sleep_;
+  bool done_with_sleep_;
+};
 
 }  // namespace test
 }  // namespace rocksdb

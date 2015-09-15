@@ -2219,61 +2219,16 @@ TEST_F(DBTest, NumImmutableMemTable) {
   } while (ChangeCompactOptions());
 }
 
-class SleepingBackgroundTask {
- public:
-  SleepingBackgroundTask()
-      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
-  void DoSleep() {
-    MutexLock l(&mutex_);
-    while (should_sleep_) {
-      bg_cv_.Wait();
-    }
-    done_with_sleep_ = true;
-    bg_cv_.SignalAll();
-  }
-  void WakeUp() {
-    MutexLock l(&mutex_);
-    should_sleep_ = false;
-    bg_cv_.SignalAll();
-  }
-  void WaitUntilDone() {
-    MutexLock l(&mutex_);
-    while (!done_with_sleep_) {
-      bg_cv_.Wait();
-    }
-  }
-  bool WokenUp() {
-    MutexLock l(&mutex_);
-    return should_sleep_ == false;
-  }
-
-  void Reset() {
-    MutexLock l(&mutex_);
-    should_sleep_ = true;
-    done_with_sleep_ = false;
-  }
-
-  static void DoSleepTask(void* arg) {
-    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
-  }
-
- private:
-  port::Mutex mutex_;
-  port::CondVar bg_cv_;  // Signalled when background work finishes
-  bool should_sleep_;
-  bool done_with_sleep_;
-};
-
 TEST_F(DBTest, FlushEmptyColumnFamily) {
   // Block flush thread and disable compaction thread
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-  SleepingBackgroundTask sleeping_task_high;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
-                 Env::Priority::HIGH);
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
 
   Options options = CurrentOptions();
   // disable compaction
@@ -2312,12 +2267,12 @@ TEST_F(DBTest, GetProperty) {
   // Set sizes to both background thread pool to be 1 and block them.
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-  SleepingBackgroundTask sleeping_task_high;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
-                 Env::Priority::HIGH);
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
 
   Options options = CurrentOptions();
   WriteOptions writeOpt = WriteOptions();
@@ -2566,8 +2521,8 @@ TEST_F(DBTest, EstimatePendingCompBytes) {
   // Set sizes to both background thread pool to be 1 and block them.
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
   Options options = CurrentOptions();
@@ -6179,7 +6134,7 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
 TEST_F(DBTest, SanitizeNumThreads) {
   for (int attempt = 0; attempt < 2; attempt++) {
     const size_t kTotalTasks = 8;
-    SleepingBackgroundTask sleeping_tasks[kTotalTasks];
+    test::SleepingBackgroundTask sleeping_tasks[kTotalTasks];
 
     Options options = CurrentOptions();
     if (attempt == 0) {
@@ -6191,7 +6146,8 @@ TEST_F(DBTest, SanitizeNumThreads) {
 
     for (size_t i = 0; i < kTotalTasks; i++) {
       // Insert 5 tasks to low priority queue and 5 tasks to high priority queue
-      env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_tasks[i],
+      env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                     &sleeping_tasks[i],
                      (i < 4) ? Env::Priority::LOW : Env::Priority::HIGH);
     }
 
@@ -6483,8 +6439,8 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   // max_background_flushes == 0, so flushes are getting executed by the
   // compaction thread
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   // Start from scratch and disable compaction/flush. Flush can only happen
   // during compaction but trigger is pretty high
@@ -6519,7 +6475,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   sleeping_task_low.Reset();
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   count = 0;
   while (!sleeping_task_low.WokenUp() && count < 1024) {
@@ -6542,7 +6498,7 @@ TEST_F(DBTest, DynamicMemtableOptions) {
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
 
   sleeping_task_low.Reset();
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
   count = 0;
@@ -7349,8 +7305,8 @@ TEST_F(DBTest, DynamicCompactionOptions) {
   // since level0_stop_writes_trigger = 8
   dbfull()->CompactRange(CompactRangeOptions(), nullptr, nullptr);
   // Block compaction
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
   rocksdb::SyncPoint::GetInstance()->SetCallBack(
@@ -7386,7 +7342,7 @@ TEST_F(DBTest, DynamicCompactionOptions) {
 
   // Block compaction again
   sleeping_task_low.Reset();
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
   count = 0;
   while (count < 64) {
@@ -7824,7 +7780,7 @@ TEST_F(DBTest, DeleteObsoleteFilesPendingOutputs) {
   dbfull()->TEST_WaitForCompact();
   ASSERT_EQ("0,0,1", FilesPerLevel(0));
 
-  SleepingBackgroundTask blocking_thread;
+  test::SleepingBackgroundTask blocking_thread;
   port::Mutex mutex_;
   bool already_blocked(false);
 
@@ -7891,12 +7847,12 @@ TEST_F(DBTest, CloseSpeedup) {
   // Block background threads
   env_->SetBackgroundThreads(1, Env::LOW);
   env_->SetBackgroundThreads(1, Env::HIGH);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
-  SleepingBackgroundTask sleeping_task_high;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_high,
-                 Env::Priority::HIGH);
+  test::SleepingBackgroundTask sleeping_task_high;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask,
+                 &sleeping_task_high, Env::Priority::HIGH);
 
   std::vector<std::string> filenames;
   env_->GetChildren(dbname_, &filenames);

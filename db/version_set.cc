@@ -1979,7 +1979,8 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (!manifest_writers_.empty()) {
       manifest_writers_.front()->cv.Signal();
     }
-    return Status::OK();
+    // we steal this code to also inform about cf-drop
+    return Status::ShutdownInProgress();
   }
 
   std::vector<VersionEdit*> batch_edits;
@@ -2139,6 +2140,11 @@ Status VersionSet::LogAndApply(ColumnFamilyData* column_family_data,
     if (s.ok()) {
       // find offset in manifest file where this version is stored.
       new_manifest_file_size = descriptor_log_->file()->GetFileSize();
+    }
+
+    if (edit->is_column_family_drop_) {
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:1");
+      TEST_SYNC_POINT("VersionSet::LogAndApply::ColumnFamilyDrop:2");
     }
 
     LogFlush(db_options_->info_log);

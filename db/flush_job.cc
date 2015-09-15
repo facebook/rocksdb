@@ -154,6 +154,7 @@ Status FlushJob::Run(FileMetaData* file_meta) {
   if (!s.ok()) {
     cfd_->imm()->RollbackMemtableFlush(mems, meta.fd.GetNumber());
   } else {
+    TEST_SYNC_POINT("FlushJob::InstallResults");
     // Replace immutable memtable with the generated Table
     s = cfd_->imm()->InstallMemtableFlushResults(
         cfd_, mutable_cf_options_, mems, versions_, db_mutex_,
