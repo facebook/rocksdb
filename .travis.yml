@@ -16,6 +16,7 @@ matrix:
 before_script:
     - if [ -n "${COMPILER}" ]; then CXX=${COMPILER}; fi
     - if [[ $(uname -s) == 'Darwin' ]]; then brew install gflags snappy; fi
+    - ulimit -n 2000 || true
 
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
