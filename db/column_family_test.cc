@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <vector>
 #include <string>
+#include <thread>
 
 #include "db/db_impl.h"
 #include "rocksdb/db.h"
@@ -19,6 +20,7 @@
 #include "util/testharness.h"
 #include "util/testutil.h"
 #include "util/coding.h"
+#include "util/sync_point.h"
 #include "utilities/merge_operators.h"
 
 namespace rocksdb {
@@ -1194,6 +1196,67 @@ TEST_F(ColumnFamilyTest, ReadDroppedColumnFamily) {
     Close();
     Destroy();
   }
+}
+
+TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
+  db_options_.create_missing_column_families = true;
+  Open({"default", "one"});
+  ColumnFamilyOptions options;
+  options.level0_file_num_compaction_trigger = 100;
+  options.level0_slowdown_writes_trigger = 200;
+  options.level0_stop_writes_trigger = 200;
+  options.max_write_buffer_number = 20;
+  options.write_buffer_size = 100000;  // small write buffer size
+  Reopen({options, options});
+
+  rocksdb::SyncPoint::GetInstance()->LoadDependency(
+      {{"VersionSet::LogAndApply::ColumnFamilyDrop:1"
+        "FlushJob::InstallResults"},
+       {"FlushJob::InstallResults",
+        "VersionSet::LogAndApply::ColumnFamilyDrop:2", }});
+
+  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+  test::SleepingBackgroundTask sleeping_task;
+
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+
+  // 1MB should create ~10 files for each CF
+  int kKeysNum = 10000;
+  PutRandomData(1, kKeysNum, 100);
+
+  std::vector<std::thread> threads;
+  threads.emplace_back([&] { ASSERT_OK(db_->DropColumnFamily(handles_[1])); });
+
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+  sleeping_task.Reset();
+  // now we sleep again. this is just so we're certain that flush job finished
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+                 Env::Priority::HIGH);
+  sleeping_task.WakeUp();
+  sleeping_task.WaitUntilDone();
+
+  {
+    // Since we didn't delete CF handle, RocksDB's contract guarantees that
+    // we're still able to read dropped CF
+    std::unique_ptr<Iterator> iterator(
+        db_->NewIterator(ReadOptions(), handles_[1]));
+    int count = 0;
+    for (iterator->SeekToFirst(); iterator->Valid(); iterator->Next()) {
+      ASSERT_OK(iterator->status());
+      ++count;
+    }
+    ASSERT_OK(iterator->status());
+    ASSERT_EQ(count, kKeysNum);
+  }
+  for (auto& t : threads) {
+    t.join();
+  }
+
+  Close();
+  Destroy();
+  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 }  // namespace rocksdb
