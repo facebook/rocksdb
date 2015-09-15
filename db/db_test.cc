@@ -8487,8 +8487,8 @@ TEST_F(DBTest, HardLimit) {
   options.max_background_compactions = 1;
 
   env_->SetBackgroundThreads(1, Env::LOW);
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
   CreateAndReopenWithCF({"pikachu"}, options);
