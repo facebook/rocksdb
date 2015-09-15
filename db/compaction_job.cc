@@ -77,6 +77,7 @@ struct CompactionJob::SubcompactionState {
   struct Output {
     FileMetaData meta;
     bool finished;
+    std::shared_ptr<const TableProperties> table_properties;
   };
 
   // State kept for output being generated
@@ -487,6 +488,16 @@ Status CompactionJob::Run() {
     }
   }
 
+  TablePropertiesCollection tp;
+  for (const auto& state : compact_->sub_compact_states) {
+    for (const auto& output : state.outputs) {
+      auto fn = TableFileName(db_options_.db_paths, output.meta.fd.GetNumber(),
+                              output.meta.fd.GetPathId());
+      tp[fn] = output.table_properties;
+    }
+  }
+  compact_->compaction->SetOutputTableProperties(std::move(tp));
+
   // Finish up all book-keeping to unify the subcompaction results
   AggregateStatistics();
   UpdateCompactionStats();
@@ -814,7 +825,10 @@ Status CompactionJob::FinishCompactionOutputFile(
 
     delete iter;
     if (s.ok()) {
-      TableFileCreationInfo info(sub_compact->builder->GetTableProperties());
+      auto tp = sub_compact->builder->GetTableProperties();
+      sub_compact->current_output()->table_properties =
+          std::make_shared<TableProperties>(tp);
+      TableFileCreationInfo info(std::move(tp));
       info.db_name = dbname_;
       info.cf_name = cfd->GetName();
       info.file_path =

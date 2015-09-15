@@ -66,6 +66,7 @@ class FlushJob {
   ~FlushJob();
 
   Status Run(FileMetaData* file_meta = nullptr);
+  TableProperties GetTableProperties() const { return table_properties_; }
 
  private:
   void ReportStartedFlush();
@@ -89,6 +90,7 @@ class FlushJob {
   CompressionType output_compression_;
   Statistics* stats_;
   EventLogger* event_logger_;
+  TableProperties table_properties_;
 };
 
 }  // namespace rocksdb

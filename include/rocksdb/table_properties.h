@@ -56,6 +56,7 @@ struct TableProperties {
 
   // user collected properties
   UserCollectedProperties user_collected_properties;
+  UserCollectedProperties readable_properties;
 
   // convert this object to a human readable form
   //   @prop_delim: delimiter for each property.

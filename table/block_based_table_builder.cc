@@ -873,8 +873,9 @@ TableProperties BlockBasedTableBuilder::GetTableProperties() const {
   TableProperties ret = rep_->props;
   for (const auto& collector : rep_->table_properties_collectors) {
     for (const auto& prop : collector->GetReadableProperties()) {
-      ret.user_collected_properties.insert(prop);
+      ret.readable_properties.insert(prop);
     }
+    collector->Finish(&ret.user_collected_properties);
   }
   return ret;
 }

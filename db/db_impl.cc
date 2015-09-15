@@ -1412,15 +1412,16 @@ Status DBImpl::FlushMemTableToOutputFile(
   if (s.ok()) {
     // may temporarily unlock and lock the mutex.
     NotifyOnFlushCompleted(cfd, &file_meta, mutable_cf_options,
-                           job_context->job_id);
+                           job_context->job_id, flush_job.GetTableProperties());
   }
 #endif  // ROCKSDB_LITE
   return s;
 }
 
-void DBImpl::NotifyOnFlushCompleted(
-    ColumnFamilyData* cfd, FileMetaData* file_meta,
-    const MutableCFOptions& mutable_cf_options, int job_id) {
+void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
+                                    FileMetaData* file_meta,
+                                    const MutableCFOptions& mutable_cf_options,
+                                    int job_id, TableProperties prop) {
 #ifndef ROCKSDB_LITE
   if (db_options_.listeners.size() == 0U) {
     return;
@@ -1450,6 +1451,7 @@ void DBImpl::NotifyOnFlushCompleted(
     info.triggered_writes_stop = triggered_writes_stop;
     info.smallest_seqno = file_meta->smallest_seqno;
     info.largest_seqno = file_meta->largest_seqno;
+    info.table_properties = prop;
     for (auto listener : db_options_.listeners) {
       listener->OnFlushCompleted(this, info);
     }
@@ -1795,12 +1797,20 @@ void DBImpl::NotifyOnCompactionCompleted(
     info.base_input_level = c->start_level();
     info.output_level = c->output_level();
     info.stats = compaction_job_stats;
+    info.table_properties = c->GetOutputTableProperties();
     for (size_t i = 0; i < c->num_input_levels(); ++i) {
       for (const auto fmd : *c->inputs(i)) {
-        info.input_files.push_back(
-            TableFileName(db_options_.db_paths,
-                          fmd->fd.GetNumber(),
-                          fmd->fd.GetPathId()));
+        auto fn = TableFileName(db_options_.db_paths, fmd->fd.GetNumber(),
+                                fmd->fd.GetPathId());
+        info.input_files.push_back(fn);
+        if (info.table_properties.count(fn) == 0) {
+          std::shared_ptr<const TableProperties> tp;
+          std::string fname;
+          auto s = cfd->current()->GetTableProperties(&tp, fmd, &fname);
+          if (s.ok()) {
+            info.table_properties[fn] = tp;
+          }
+        }
       }
     }
     for (const auto newf : c->edit()->GetNewFiles()) {
