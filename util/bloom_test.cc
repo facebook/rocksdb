@@ -10,8 +10,8 @@
 #ifndef GFLAGS
 #include <cstdio>
 int main() {
-  fprintf(stderr, "Please install gflags to run rocksdb tools\n");
-  return 1;
+  fprintf(stderr, "Please install gflags to run this test... Skipping...\n");
+  return 0;
 }
 #else
 
