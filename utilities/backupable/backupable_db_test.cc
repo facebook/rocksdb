@@ -1172,6 +1172,20 @@ TEST_F(BackupableDBTest, ReadOnlyBackupEngine) {
   delete db;
 }
 
+TEST_F(BackupableDBTest, ProgressCallbackDuringBackup) {
+  DestroyDB(dbname_, Options());
+  OpenDBAndBackupEngine(true);
+  FillDB(db_.get(), 0, 100);
+  bool is_callback_invoked = false;
+  ASSERT_OK(backup_engine_->CreateNewBackup(
+      db_.get(), true,
+      [&is_callback_invoked]() { is_callback_invoked = true; }));
+
+  ASSERT_TRUE(is_callback_invoked);
+  CloseDBAndBackupEngine();
+  DestroyDB(dbname_, Options());
+}
+
 TEST_F(BackupableDBTest, GarbageCollectionBeforeBackup) {
   DestroyDB(dbname_, Options());
   OpenDBAndBackupEngine(true);
