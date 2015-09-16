@@ -1026,8 +1026,7 @@ java_libobjects = $(patsubst %,jl/%,$(LIBOBJECTS))
 CLEAN_FILES += jl
 
 $(java_libobjects): jl/%.o: %.cc
-	$(AM_V_CC)mkdir -p $(@D)
-	@$(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
+	$(AM_V_CC)mkdir -p $(@D) && $(CXX) $(CXXFLAGS) -fPIC -c $< -o $@ $(COVERAGEFLAGS)
 
 rocksdbjavastatic: $(java_libobjects) libz.a libbz2.a libsnappy.a liblz4.a
 	cd java;$(MAKE) javalib;
@@ -1058,12 +1057,12 @@ rocksdbjavastaticpublish: rocksdbjavastaticrelease
 	mvn gpg:sign-and-deploy-file -Durl=https://oss.sonatype.org/service/local/staging/deploy/maven2/ -DrepositoryId=sonatype-nexus-staging -DpomFile=java/rocksjni.pom -Dfile=java/target/rocksdbjni-$(ROCKSDB_MAJOR).$(ROCKSDB_MINOR).$(ROCKSDB_PATCH).jar
 
 rocksdbjava: $(java_libobjects)
-	cd java;$(MAKE) javalib;
-	rm -f ./java/target/$(ROCKSDBJNILIB)
-	$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
-	cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
-	cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
-	cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
+	$(AM_V_GEN)cd java;$(MAKE) javalib;
+	$(AM_V_at)rm -f ./java/target/$(ROCKSDBJNILIB)
+	$(AM_V_at)$(CXX) $(CXXFLAGS) -I./java/. $(JAVA_INCLUDE) -shared -fPIC -o ./java/target/$(ROCKSDBJNILIB) $(JNI_NATIVE_SOURCES) $(java_libobjects) $(JAVA_LDFLAGS) $(COVERAGEFLAGS)
+	$(AM_V_at)cd java;jar -cf target/$(ROCKSDB_JAR) HISTORY*.md
+	$(AM_V_at)cd java/target;jar -uf $(ROCKSDB_JAR) $(ROCKSDBJNILIB)
+	$(AM_V_at)cd java/target/classes;jar -uf ../$(ROCKSDB_JAR) org/rocksdb/*.class org/rocksdb/util/*.class
 
 jclean:
 	cd java;$(MAKE) clean;

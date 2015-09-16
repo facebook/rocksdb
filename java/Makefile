@@ -128,43 +128,43 @@ JAVA_TESTCLASSPATH = $(JAVA_JUNIT_JAR):$(JAVA_HAMCR_JAR):$(JAVA_MOCKITO_JAR):$(J
 MVN_LOCAL = ~/.m2/repository
 
 clean:
-	rm -rf include/*
-	rm -rf test-libs/
-	rm -rf $(OUTPUT)
-	rm -rf $(BENCHMARK_OUTPUT)
-	rm -rf $(SAMPLES_OUTPUT)
+	$(AM_V_at)rm -rf include/*
+	$(AM_V_at)rm -rf test-libs/
+	$(AM_V_at)rm -rf $(OUTPUT)
+	$(AM_V_at)rm -rf $(BENCHMARK_OUTPUT)
+	$(AM_V_at)rm -rf $(SAMPLES_OUTPUT)
 
 
 javadocs:
-	mkdir -p $(JAVADOC)
-	javadoc -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
+	$(AM_V_GEN)mkdir -p $(JAVADOC)
+	$(AM_V_at)javadoc -d $(JAVADOC) -sourcepath $(MAIN_SRC) -subpackages org
 
 javalib: java java_test javadocs
 
 java:
-	mkdir -p $(MAIN_CLASSES)
-	javac -d $(MAIN_CLASSES)\
+	$(AM_V_GEN)mkdir -p $(MAIN_CLASSES)
+	$(AM_V_at)javac -d $(MAIN_CLASSES)\
 		$(MAIN_SRC)/org/rocksdb/util/*.java\
 		$(MAIN_SRC)/org/rocksdb/*.java
-	@cp ../HISTORY.md ./HISTORY-CPP.md
-	@rm -f ./HISTORY-CPP.md
-	javah -cp $(MAIN_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
+	$(AM_V_at)@cp ../HISTORY.md ./HISTORY-CPP.md
+	$(AM_V_at)@rm -f ./HISTORY-CPP.md
+	$(AM_V_at)javah -cp $(MAIN_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_CLASSES)
 
 sample: java
-	mkdir -p $(SAMPLES_MAIN_CLASSES)
-	javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBSample.java
-	@rm -rf /tmp/rocksdbjni
-	@rm -rf /tmp/rocksdbjni_not_found
+	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
+	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBSample.java
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
 	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBSample /tmp/rocksdbjni
-	@rm -rf /tmp/rocksdbjni
-	@rm -rf /tmp/rocksdbjni_not_found
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni_not_found
 
 column_family_sample: java
-	mkdir -p $(SAMPLES_MAIN_CLASSES)
-	javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBColumnFamilySample.java
-	@rm -rf /tmp/rocksdbjni
+	$(AM_V_GEN)mkdir -p $(SAMPLES_MAIN_CLASSES)
+	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(SAMPLES_MAIN_CLASSES) $(SAMPLES_MAIN_SRC)/RocksDBColumnFamilySample.java
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 	java -ea -Xcheck:jni -Djava.library.path=target -cp $(MAIN_CLASSES):$(SAMPLES_MAIN_CLASSES) RocksDBColumnFamilySample /tmp/rocksdbjni
-	@rm -rf /tmp/rocksdbjni
+	$(AM_V_at)@rm -rf /tmp/rocksdbjni
 
 resolve_test_deps:
 	test -s "$(JAVA_TEST_LIBDIR)" || mkdir -p "$(JAVA_TEST_LIBDIR)"
@@ -175,16 +175,16 @@ resolve_test_deps:
 	test -s "$(JAVA_ASSERTJ_JAR)" || cp $(MVN_LOCAL)/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar $(JAVA_TEST_LIBDIR) || curl -k -L -o "$(JAVA_ASSERTJ_JAR)" http://central.maven.org/maven2/org/assertj/assertj-core/1.7.1/assertj-core-1.7.1.jar
 
 java_test: resolve_test_deps
-	mkdir -p $(TEST_CLASSES)
-	javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
+	$(AM_V_GEN)mkdir -p $(TEST_CLASSES)
+	$(AM_V_at)javac -cp $(MAIN_CLASSES):$(JAVA_TESTCLASSPATH) -d $(TEST_CLASSES)\
 		$(TEST_SRC)/org/rocksdb/test/*.java\
 		$(TEST_SRC)/org/rocksdb/util/*.java\
 		$(TEST_SRC)/org/rocksdb/*.java
-	javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
+	$(AM_V_at)javah -cp $(MAIN_CLASSES):$(TEST_CLASSES) -d $(NATIVE_INCLUDE) -jni $(NATIVE_JAVA_TEST_CLASSES)
 
 test: java resolve_test_deps java_test
 	java -ea -Xcheck:jni -Djava.library.path=target -cp "$(MAIN_CLASSES):$(TEST_CLASSES):$(JAVA_TESTCLASSPATH):target/*" org.rocksdb.test.RocksJunitRunner $(JAVA_TESTS)
 
 db_bench: java
-	mkdir -p $(BENCHMARK_MAIN_CLASSES)
-	javac -cp $(MAIN_CLASSES) -d $(BENCHMARK_MAIN_CLASSES) $(BENCHMARK_MAIN_SRC)/org/rocksdb/benchmark/*.java
+	$(AM_V_GEN)mkdir -p $(BENCHMARK_MAIN_CLASSES)
+	$(AM_V_at)javac -cp $(MAIN_CLASSES) -d $(BENCHMARK_MAIN_CLASSES) $(BENCHMARK_MAIN_SRC)/org/rocksdb/benchmark/*.java
