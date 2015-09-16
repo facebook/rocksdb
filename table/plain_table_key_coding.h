@@ -13,6 +13,8 @@ namespace rocksdb {
 
 class WritableFile;
 struct ParsedInternalKey;
+struct PlainTableReaderFileInfo;
+enum PlainTableEntryType : unsigned char;
 
 // Helper class to write out a key to an output file
 // Actual data format of the key is documented in plain_table_factory.h
@@ -53,10 +55,12 @@ class PlainTableKeyEncoder {
 // Actual data format of the key is documented in plain_table_factory.h
 class PlainTableKeyDecoder {
  public:
-  explicit PlainTableKeyDecoder(EncodingType encoding_type,
+  explicit PlainTableKeyDecoder(const PlainTableReaderFileInfo* file_info,
+                                EncodingType encoding_type,
                                 uint32_t user_key_len,
                                 const SliceTransform* prefix_extractor)
-      : encoding_type_(encoding_type),
+      : file_reader_(file_info),
+        encoding_type_(encoding_type),
         prefix_len_(0),
         fixed_user_key_len_(user_key_len),
         prefix_extractor_(prefix_extractor),
@@ -70,9 +74,51 @@ class PlainTableKeyDecoder {
   // bytes_read: how many bytes read from start. Output
   // seekable: whether key can be read from this place. Used when building
   //           indexes. Output.
-  Status NextKey(const char* start, const char* limit,
-                 ParsedInternalKey* parsed_key, Slice* internal_key,
-                 size_t* bytes_read, bool* seekable = nullptr);
+  Status NextKey(uint32_t start_offset, ParsedInternalKey* parsed_key,
+                 Slice* internal_key, Slice* value, uint32_t* bytes_read,
+                 bool* seekable = nullptr);
+
+  Status NextKeyNoValue(uint32_t start_offset, ParsedInternalKey* parsed_key,
+                        Slice* internal_key, uint32_t* bytes_read,
+                        bool* seekable = nullptr);
+
+  class FileReader {
+   public:
+    explicit FileReader(const PlainTableReaderFileInfo* file_info)
+        : file_info_(file_info),
+          buf_start_offset_(0),
+          buf_len_(0),
+          buf_capacity_(0) {}
+    // In mmaped mode, the results point to mmaped area of the file, which
+    // means it is always valid before closing the file.
+    // In non-mmap mode, the results point to an internal buffer. If the caller
+    // makes another read call, the results will not be valid. So callers should
+    // make a copy when needed.
+    // If return false, status code is stored in status_.
+    inline bool Read(uint32_t file_offset, uint32_t len, Slice* output);
+
+    // If return false, status code is stored in status_.
+    bool ReadNonMmap(uint32_t file_offset, uint32_t len, Slice* output);
+
+    // *bytes_read = 0 means eof. false means failure and status is saved
+    // in status_. Not directly returning Status to save copying status
+    // object to map previous performance of mmap mode.
+    inline bool ReadVarint32(uint32_t offset, uint32_t* output,
+                             uint32_t* bytes_read);
+
+    bool ReadVarint32NonMmap(uint32_t offset, uint32_t* output,
+                             uint32_t* bytes_read);
+
+    Status status() const { return status_; }
+
+    const PlainTableReaderFileInfo* file_info_;
+    std::unique_ptr<char[]> buf_;
+    uint32_t buf_start_offset_;
+    uint32_t buf_len_;
+    uint32_t buf_capacity_;
+    Status status_;
+  };
+  FileReader file_reader_;
   EncodingType encoding_type_;
   uint32_t prefix_len_;
   uint32_t fixed_user_key_len_;
@@ -82,14 +128,20 @@ class PlainTableKeyDecoder {
   bool in_prefix_;
 
  private:
-  Status NextPlainEncodingKey(const char* start, const char* limit,
+  Status NextPlainEncodingKey(uint32_t start_offset,
                               ParsedInternalKey* parsed_key,
-                              Slice* internal_key, size_t* bytes_read,
+                              Slice* internal_key, uint32_t* bytes_read,
                               bool* seekable = nullptr);
-  Status NextPrefixEncodingKey(const char* start, const char* limit,
+  Status NextPrefixEncodingKey(uint32_t start_offset,
                                ParsedInternalKey* parsed_key,
-                               Slice* internal_key, size_t* bytes_read,
+                               Slice* internal_key, uint32_t* bytes_read,
                                bool* seekable = nullptr);
+  Status ReadInternalKey(uint32_t file_offset, uint32_t user_key_size,
+                         ParsedInternalKey* parsed_key, uint32_t* bytes_read,
+                         bool* internal_key_valid, Slice* internal_key);
+  inline Status DecodeSize(uint32_t start_offset,
+                           PlainTableEntryType* entry_type, uint32_t* key_size,
+                           uint32_t* bytes_read);
 };
 
 }  // namespace rocksdb

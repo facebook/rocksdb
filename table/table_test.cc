@@ -203,7 +203,7 @@ class BlockConstructor: public Constructor {
 // A helper class that converts internal format keys into user keys
 class KeyConvertingIterator: public Iterator {
  public:
-  KeyConvertingIterator(Iterator* iter, bool arena_mode = false)
+  explicit KeyConvertingIterator(Iterator* iter, bool arena_mode = false)
       : iter_(iter), arena_mode_(arena_mode) {}
   virtual ~KeyConvertingIterator() {
     if (arena_mode_) {
@@ -263,6 +263,7 @@ class TableConstructor: public Constructor {
                             const InternalKeyComparator& internal_comparator,
                             const stl_wrappers::KVMap& kv_map) override {
     Reset();
+    soptions.use_mmap_reads = ioptions.allow_mmap_reads;
     file_writer_.reset(test::GetWritableFileWriter(new test::StringSink()));
     unique_ptr<TableBuilder> builder;
     std::vector<std::unique_ptr<IntTblPropCollectorFactory>>
@@ -350,7 +351,7 @@ class TableConstructor: public Constructor {
   TableConstructor();
 
   static uint64_t cur_uniq_id_;
-  const EnvOptions soptions;
+  EnvOptions soptions;
 };
 uint64_t TableConstructor::cur_uniq_id_ = 1;
 
@@ -476,6 +477,7 @@ struct TestArgs {
   int restart_interval;
   CompressionType compression;
   uint32_t format_version;
+  bool use_mmap;
 };
 
 static std::vector<TestArgs> GenerateArgList() {
@@ -521,13 +523,17 @@ static std::vector<TestArgs> GenerateArgList() {
     for (auto reverse_compare : reverse_compare_types) {
 #ifndef ROCKSDB_LITE
       if (test_type == PLAIN_TABLE_SEMI_FIXED_PREFIX ||
-          test_type == PLAIN_TABLE_FULL_STR_PREFIX) {
+          test_type == PLAIN_TABLE_FULL_STR_PREFIX ||
+          test_type == PLAIN_TABLE_TOTAL_ORDER) {
         // Plain table doesn't use restart index or compression.
         TestArgs one_arg;
         one_arg.type = test_type;
         one_arg.reverse_compare = reverse_compare;
         one_arg.restart_interval = restart_intervals[0];
         one_arg.compression = compression_types[0].first;
+        one_arg.use_mmap = true;
+        test_args.push_back(one_arg);
+        one_arg.use_mmap = false;
         test_args.push_back(one_arg);
         continue;
       }
@@ -541,6 +547,7 @@ static std::vector<TestArgs> GenerateArgList() {
           one_arg.restart_interval = restart_interval;
           one_arg.compression = compression_type.first;
           one_arg.format_version = compression_type.second ? 2 : 1;
+          one_arg.use_mmap = false;
           test_args.push_back(one_arg);
         }
       }
@@ -602,6 +609,7 @@ class HarnessTest : public testing::Test {
 
     support_prev_ = true;
     only_support_prefix_seek_ = false;
+    options_.allow_mmap_reads = args.use_mmap;
     switch (args.type) {
       case BLOCK_BASED_TABLE_TEST:
         table_options_.flush_block_policy_factory.reset(
@@ -619,7 +627,6 @@ class HarnessTest : public testing::Test {
         support_prev_ = false;
         only_support_prefix_seek_ = true;
         options_.prefix_extractor.reset(new FixedOrLessPrefixTransform(2));
-        options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewPlainTableFactory());
         constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
@@ -629,7 +636,6 @@ class HarnessTest : public testing::Test {
         support_prev_ = false;
         only_support_prefix_seek_ = true;
         options_.prefix_extractor.reset(NewNoopTransform());
-        options_.allow_mmap_reads = true;
         options_.table_factory.reset(NewPlainTableFactory());
         constructor_ = new TableConstructor(options_.comparator, true);
         internal_comparator_.reset(
@@ -639,7 +645,6 @@ class HarnessTest : public testing::Test {
         support_prev_ = false;
         only_support_prefix_seek_ = false;
         options_.prefix_extractor = nullptr;
-        options_.allow_mmap_reads = true;
 
         {
           PlainTableOptions plain_table_options;

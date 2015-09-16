@@ -99,7 +99,8 @@ bool DBTestBase::ChangeOptions(int skip_mask) {
     if ((skip_mask & kSkipPlainTable) &&
         (option_config_ == kPlainTableAllBytesPrefix ||
          option_config_ == kPlainTableFirstBytePrefix ||
-         option_config_ == kPlainTableCappedPrefix)) {
+         option_config_ == kPlainTableCappedPrefix ||
+         option_config_ == kPlainTableCappedPrefixNonMmap)) {
       continue;
     }
     if ((skip_mask & kSkipHashIndex) &&
@@ -220,6 +221,13 @@ Options DBTestBase::CurrentOptions(
       options.table_factory.reset(new PlainTableFactory());
       options.prefix_extractor.reset(NewCappedPrefixTransform(8));
       options.allow_mmap_reads = true;
+      options.max_sequential_skip_in_iterations = 999999;
+      set_block_based_table_factory = false;
+      break;
+    case kPlainTableCappedPrefixNonMmap:
+      options.table_factory.reset(new PlainTableFactory());
+      options.prefix_extractor.reset(NewCappedPrefixTransform(8));
+      options.allow_mmap_reads = false;
       options.max_sequential_skip_in_iterations = 999999;
       set_block_based_table_factory = false;
       break;

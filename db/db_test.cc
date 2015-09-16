@@ -6275,7 +6275,7 @@ TEST_F(DBTest, TableOptionsSanitizeTest) {
   options.table_factory.reset(new PlainTableFactory());
   options.prefix_extractor.reset(NewNoopTransform());
   Destroy(options);
-  ASSERT_TRUE(TryReopen(options).IsNotSupported());
+  ASSERT_TRUE(!TryReopen(options).IsNotSupported());
 
   // Test for check of prefix_extractor when hash index is used for
   // block-based table

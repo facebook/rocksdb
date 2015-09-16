@@ -6,19 +6,22 @@
 #ifndef ROCKSDB_LITE
 #include "table/plain_table_key_coding.h"
 
+#include <algorithm>
+#include <string>
 #include "db/dbformat.h"
+#include "table/plain_table_reader.h"
 #include "table/plain_table_factory.h"
 #include "util/file_reader_writer.h"
 
 namespace rocksdb {
-
-namespace {
 
 enum PlainTableEntryType : unsigned char {
   kFullKey = 0,
   kPrefixFromPreviousKey = 1,
   kKeySuffix = 2,
 };
+
+namespace {
 
 // Control byte:
 // First two bits indicate type of entry
@@ -42,28 +45,40 @@ size_t EncodeSize(PlainTableEntryType type, uint32_t key_size,
     return ptr - out_buffer;
   }
 }
+}  // namespace
 
-// Return position after the size byte(s). nullptr means error
-const char* DecodeSize(const char* offset, const char* limit,
-                       PlainTableEntryType* entry_type, uint32_t* key_size) {
-  assert(offset < limit);
+// Fill bytes_read with number of bytes read.
+inline Status PlainTableKeyDecoder::DecodeSize(uint32_t start_offset,
+                                               PlainTableEntryType* entry_type,
+                                               uint32_t* key_size,
+                                               uint32_t* bytes_read) {
+  Slice next_byte_slice;
+  bool success = file_reader_.Read(start_offset, 1, &next_byte_slice);
+  if (!success) {
+    return file_reader_.status();
+  }
   *entry_type = static_cast<PlainTableEntryType>(
-      (static_cast<unsigned char>(offset[0]) & ~kSizeInlineLimit) >> 6);
-  char inline_key_size = offset[0] & kSizeInlineLimit;
+      (static_cast<unsigned char>(next_byte_slice[0]) & ~kSizeInlineLimit) >>
+      6);
+  char inline_key_size = next_byte_slice[0] & kSizeInlineLimit;
   if (inline_key_size < kSizeInlineLimit) {
     *key_size = inline_key_size;
-    return offset + 1;
+    *bytes_read = 1;
+    return Status::OK();
   } else {
     uint32_t extra_size;
-    const char* ptr = GetVarint32Ptr(offset + 1, limit, &extra_size);
-    if (ptr == nullptr) {
-      return nullptr;
+    uint32_t tmp_bytes_read;
+    success = file_reader_.ReadVarint32(start_offset + 1, &extra_size,
+                                        &tmp_bytes_read);
+    if (!success) {
+      return file_reader_.status();
     }
+    assert(tmp_bytes_read > 0);
     *key_size = kSizeInlineLimit + extra_size;
-    return ptr;
+    *bytes_read = tmp_bytes_read + 1;
+    return Status::OK();
   }
 }
-}  // namespace
 
 Status PlainTableKeyEncoder::AppendKey(const Slice& key,
                                        WritableFileWriter* file,
@@ -149,28 +164,101 @@ Status PlainTableKeyEncoder::AppendKey(const Slice& key,
   return Status::OK();
 }
 
-namespace {
-Status ReadInternalKey(const char* key_ptr, const char* limit,
-                       uint32_t user_key_size, ParsedInternalKey* parsed_key,
-                       size_t* bytes_read, bool* internal_key_valid,
-                       Slice* internal_key) {
-  if (key_ptr + user_key_size + 1 >= limit) {
-    return Status::Corruption("Unexpected EOF when reading the next key");
+inline bool PlainTableKeyDecoder::FileReader::Read(uint32_t file_offset,
+                                                   uint32_t len, Slice* out) {
+  if (file_info_->is_mmap_mode) {
+    assert(file_offset + len <= file_info_->data_end_offset);
+    *out = Slice(file_info_->file_data.data() + file_offset, len);
+    return true;
+  } else {
+    return ReadNonMmap(file_offset, len, out);
   }
-  if (*(key_ptr + user_key_size) == PlainTableFactory::kValueTypeSeqId0) {
+}
+
+bool PlainTableKeyDecoder::FileReader::ReadNonMmap(uint32_t file_offset,
+                                                   uint32_t len, Slice* out) {
+  const uint32_t kPrefetchSize = 256u;
+  if (file_offset < buf_start_offset_ ||
+      file_offset + len > buf_start_offset_ + buf_len_) {
+    // Load buffer
+    assert(file_offset + len <= file_info_->data_end_offset);
+    uint32_t size_to_read = std::min(file_info_->data_end_offset - file_offset,
+                                     std::max(kPrefetchSize, len));
+    if (size_to_read > buf_capacity_) {
+      buf_.reset(new char[size_to_read]);
+      buf_capacity_ = size_to_read;
+      buf_len_ = 0;
+    }
+    Slice read_result;
+    Status s = file_info_->file->Read(file_offset, size_to_read, &read_result,
+                                      buf_.get());
+    if (!s.ok()) {
+      status_ = s;
+      return false;
+    }
+    buf_start_offset_ = file_offset;
+    buf_len_ = size_to_read;
+  }
+  *out = Slice(buf_.get() + (file_offset - buf_start_offset_), len);
+  return true;
+}
+
+inline bool PlainTableKeyDecoder::FileReader::ReadVarint32(
+    uint32_t offset, uint32_t* out, uint32_t* bytes_read) {
+  if (file_info_->is_mmap_mode) {
+    const char* start = file_info_->file_data.data() + offset;
+    const char* limit =
+        file_info_->file_data.data() + file_info_->data_end_offset;
+    const char* key_ptr = GetVarint32Ptr(start, limit, out);
+    assert(key_ptr != nullptr);
+    *bytes_read = static_cast<uint32_t>(key_ptr - start);
+    return true;
+  } else {
+    return ReadVarint32NonMmap(offset, out, bytes_read);
+  }
+}
+
+bool PlainTableKeyDecoder::FileReader::ReadVarint32NonMmap(
+    uint32_t offset, uint32_t* out, uint32_t* bytes_read) {
+  const char* start;
+  const char* limit;
+  const uint32_t kMaxVarInt32Size = 6u;
+  uint32_t bytes_to_read =
+      std::min(file_info_->data_end_offset - offset, kMaxVarInt32Size);
+  Slice bytes;
+  if (!Read(offset, bytes_to_read, &bytes)) {
+    return false;
+  }
+  start = bytes.data();
+  limit = bytes.data() + bytes.size();
+
+  const char* key_ptr = GetVarint32Ptr(start, limit, out);
+  *bytes_read =
+      (key_ptr != nullptr) ? static_cast<uint32_t>(key_ptr - start) : 0;
+  return true;
+}
+
+Status PlainTableKeyDecoder::ReadInternalKey(
+    uint32_t file_offset, uint32_t user_key_size, ParsedInternalKey* parsed_key,
+    uint32_t* bytes_read, bool* internal_key_valid, Slice* internal_key) {
+  Slice tmp_slice;
+  bool success = file_reader_.Read(file_offset, user_key_size + 1, &tmp_slice);
+  if (!success) {
+    return file_reader_.status();
+  }
+  if (tmp_slice[user_key_size] == PlainTableFactory::kValueTypeSeqId0) {
     // Special encoding for the row with seqID=0
-    parsed_key->user_key = Slice(key_ptr, user_key_size);
+    parsed_key->user_key = Slice(tmp_slice.data(), user_key_size);
     parsed_key->sequence = 0;
     parsed_key->type = kTypeValue;
     *bytes_read += user_key_size + 1;
     *internal_key_valid = false;
   } else {
-    if (key_ptr + user_key_size + 8 >= limit) {
-      return Status::Corruption(
-          "Unexpected EOF when reading internal bytes of the next key");
+    success = file_reader_.Read(file_offset, user_key_size + 8, internal_key);
+    if (!success) {
+      return file_reader_.status();
     }
     *internal_key_valid = true;
-    *internal_key = Slice(key_ptr, user_key_size + 8);
     if (!ParseInternalKey(*internal_key, parsed_key)) {
       return Status::Corruption(
           Slice("Incorrect value type found when reading the next key"));
@@ -179,36 +267,44 @@ Status ReadInternalKey(const char* key_ptr, const char* limit,
   }
   return Status::OK();
 }
-}  // namespace
 
-Status PlainTableKeyDecoder::NextPlainEncodingKey(
-    const char* start, const char* limit, ParsedInternalKey* parsed_key,
-    Slice* internal_key, size_t* bytes_read, bool* seekable) {
-  const char* key_ptr = start;
+Status PlainTableKeyDecoder::NextPlainEncodingKey(uint32_t start_offset,
+                                                  ParsedInternalKey* parsed_key,
+                                                  Slice* internal_key,
+                                                  uint32_t* bytes_read,
+                                                  bool* seekable) {
   uint32_t user_key_size = 0;
+  Status s;
   if (fixed_user_key_len_ != kPlainTableVariableLength) {
     user_key_size = fixed_user_key_len_;
-    key_ptr = start;
   } else {
     uint32_t tmp_size = 0;
-    key_ptr = GetVarint32Ptr(start, limit, &tmp_size);
-    if (key_ptr == nullptr) {
-      return Status::Corruption(
-          "Unexpected EOF when reading the next key's size");
+    uint32_t tmp_read;
+    bool success =
+        file_reader_.ReadVarint32(start_offset, &tmp_size, &tmp_read);
+    if (!success) {
+      return file_reader_.status();
     }
+    assert(tmp_read > 0);
     user_key_size = tmp_size;
-    *bytes_read = key_ptr - start;
+    *bytes_read = tmp_read;
   }
   // dummy initial value to avoid compiler complain
   bool decoded_internal_key_valid = true;
   Slice decoded_internal_key;
-  Status s =
-      ReadInternalKey(key_ptr, limit, user_key_size, parsed_key, bytes_read,
-                      &decoded_internal_key_valid, &decoded_internal_key);
+  s = ReadInternalKey(start_offset + *bytes_read, user_key_size, parsed_key,
+                      bytes_read, &decoded_internal_key_valid,
+                      &decoded_internal_key);
   if (!s.ok()) {
     return s;
   }
-  if (internal_key != nullptr) {
+  if (!file_reader_.file_info_->is_mmap_mode) {
+    cur_key_.SetInternalKey(*parsed_key);
+    parsed_key->user_key = Slice(cur_key_.GetKey().data(), user_key_size);
+    if (internal_key != nullptr) {
+      *internal_key = cur_key_.GetKey();
+    }
+  } else if (internal_key != nullptr) {
     if (decoded_internal_key_valid) {
       *internal_key = decoded_internal_key;
     } else {
@@ -221,41 +317,55 @@ Status PlainTableKeyDecoder::NextPlainEncodingKey(
 }
 
 Status PlainTableKeyDecoder::NextPrefixEncodingKey(
-    const char* start, const char* limit, ParsedInternalKey* parsed_key,
-    Slice* internal_key, size_t* bytes_read, bool* seekable) {
-  const char* key_ptr = start;
+    uint32_t start_offset, ParsedInternalKey* parsed_key, Slice* internal_key,
+    uint32_t* bytes_read, bool* seekable) {
   PlainTableEntryType entry_type;
 
   bool expect_suffix = false;
+  Status s;
   do {
     uint32_t size = 0;
     // dummy initial value to avoid compiler complain
     bool decoded_internal_key_valid = true;
-    const char* pos = DecodeSize(key_ptr, limit, &entry_type, &size);
-    if (pos == nullptr) {
+    uint32_t my_bytes_read = 0;
+    s = DecodeSize(start_offset + *bytes_read, &entry_type, &size,
+                   &my_bytes_read);
+    if (!s.ok()) {
+      return s;
+    }
+    if (my_bytes_read == 0) {
       return Status::Corruption("Unexpected EOF when reading size of the key");
     }
-    *bytes_read += pos - key_ptr;
-    key_ptr = pos;
+    *bytes_read += my_bytes_read;
 
     switch (entry_type) {
       case kFullKey: {
         expect_suffix = false;
         Slice decoded_internal_key;
-        Status s =
-            ReadInternalKey(key_ptr, limit, size, parsed_key, bytes_read,
-                            &decoded_internal_key_valid, &decoded_internal_key);
+        s = ReadInternalKey(start_offset + *bytes_read, size, parsed_key,
+                            bytes_read, &decoded_internal_key_valid,
+                            &decoded_internal_key);
         if (!s.ok()) {
           return s;
         }
-        saved_user_key_ = parsed_key->user_key;
-        if (internal_key != nullptr) {
-          if (decoded_internal_key_valid) {
-            *internal_key = decoded_internal_key;
-          } else {
-            cur_key_.SetInternalKey(*parsed_key);
+        if (!file_reader_.file_info_->is_mmap_mode ||
+            (internal_key != nullptr && !decoded_internal_key_valid)) {
+          // In non-mmap mode, always need to make a copy of keys returned to
+          // users, because after reading value for the key, the key might
+          // be invalid.
+          cur_key_.SetInternalKey(*parsed_key);
+          saved_user_key_ = cur_key_.GetKey();
+          if (!file_reader_.file_info_->is_mmap_mode) {
+            parsed_key->user_key = Slice(cur_key_.GetKey().data(), size);
+          }
+          if (internal_key != nullptr) {
             *internal_key = cur_key_.GetKey();
           }
+        } else {
+          if (internal_key != nullptr) {
+            *internal_key = decoded_internal_key;
+          }
+          saved_user_key_ = parsed_key->user_key;
         }
         break;
       }
@@ -276,20 +386,32 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
         if (seekable != nullptr) {
           *seekable = false;
         }
-        cur_key_.Reserve(prefix_len_ + size);
 
         Slice tmp_slice;
-        Status s = ReadInternalKey(key_ptr, limit, size, parsed_key, bytes_read,
-                                   &decoded_internal_key_valid, &tmp_slice);
+        s = ReadInternalKey(start_offset + *bytes_read, size, parsed_key,
+                            bytes_read, &decoded_internal_key_valid,
+                            &tmp_slice);
         if (!s.ok()) {
           return s;
         }
-        cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
-                                *parsed_key);
-        assert(
-            prefix_extractor_ == nullptr ||
-            prefix_extractor_->Transform(ExtractUserKey(cur_key_.GetKey())) ==
-                Slice(saved_user_key_.data(), prefix_len_));
+        if (!file_reader_.file_info_->is_mmap_mode) {
+          // In non-mmap mode, we need to make a copy of keys returned to
+          // users, because after reading value for the key, the key might
+          // be invalid.
+          // saved_user_key_ points to cur_key_. We are making a copy of
+          // the prefix part to another string, and construct the current
+          // key from the prefix part and the suffix part back to cur_key_.
+          std::string tmp =
+              Slice(saved_user_key_.data(), prefix_len_).ToString();
+          cur_key_.Reserve(prefix_len_ + size);
+          cur_key_.SetInternalKey(tmp, *parsed_key);
+          parsed_key->user_key =
+              Slice(cur_key_.GetKey().data(), prefix_len_ + size);
+        } else {
+          cur_key_.Reserve(prefix_len_ + size);
+          cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
+                                  *parsed_key);
+        }
         parsed_key->user_key = ExtractUserKey(cur_key_.GetKey());
         if (internal_key != nullptr) {
           *internal_key = cur_key_.GetKey();
@@ -297,29 +419,61 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
         break;
       }
       default:
-        return Status::Corruption("Identified size flag.");
+        return Status::Corruption("Un-identified size flag.");
     }
   } while (expect_suffix);  // Another round if suffix is expected.
   return Status::OK();
 }
 
-Status PlainTableKeyDecoder::NextKey(const char* start, const char* limit,
+Status PlainTableKeyDecoder::NextKey(uint32_t start_offset,
                                      ParsedInternalKey* parsed_key,
-                                     Slice* internal_key, size_t* bytes_read,
-                                     bool* seekable) {
+                                     Slice* internal_key, Slice* value,
+                                     uint32_t* bytes_read, bool* seekable) {
+  assert(value != nullptr);
+  Status s = NextKeyNoValue(start_offset, parsed_key, internal_key, bytes_read,
+                            seekable);
+  if (s.ok()) {
+    assert(bytes_read != nullptr);
+    uint32_t value_size;
+    uint32_t value_size_bytes;
+    bool success = file_reader_.ReadVarint32(start_offset + *bytes_read,
+                                             &value_size, &value_size_bytes);
+    if (!success) {
+      return file_reader_.status();
+    }
+    if (value_size_bytes == 0) {
+      return Status::Corruption(
+          "Unexpected EOF when reading the next value's size.");
+    }
+    *bytes_read += value_size_bytes;
+    success = file_reader_.Read(start_offset + *bytes_read, value_size, value);
+    if (!success) {
+      return file_reader_.status();
+    }
+    *bytes_read += value_size;
+  }
+  return s;
+}
+
+Status PlainTableKeyDecoder::NextKeyNoValue(uint32_t start_offset,
+                                            ParsedInternalKey* parsed_key,
+                                            Slice* internal_key,
+                                            uint32_t* bytes_read,
+                                            bool* seekable) {
   *bytes_read = 0;
   if (seekable != nullptr) {
     *seekable = true;
   }
+  Status s;
   if (encoding_type_ == kPlain) {
-    return NextPlainEncodingKey(start, limit, parsed_key, internal_key,
+    return NextPlainEncodingKey(start_offset, parsed_key, internal_key,
                                 bytes_read, seekable);
   } else {
     assert(encoding_type_ == kPrefix);
-    return NextPrefixEncodingKey(start, limit, parsed_key, internal_key,
+    return NextPrefixEncodingKey(start_offset, parsed_key, internal_key,
                                  bytes_read, seekable);
   }
 }
 
 }  // namespace rocksdb
-#endif  // ROCKSDB_LITE
+#endif  // ROCKSDB_LIT
