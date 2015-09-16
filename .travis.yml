@@ -16,12 +16,13 @@ matrix:
 install:
   # Build gflags
   # TODO(noetzli): Remove when gflags available through Travis
-  - pushd /tmp/ && curl -L https://github.com/gflags/gflags/archive/v2.1.2.tar.gz -o gflags.tar.gz && tar xfz gflags.tar.gz && cd gflags-2.1.2 && cmake && make && popd
+  - pushd /tmp/ && curl -L https://github.com/gflags/gflags/archive/v2.1.2.tar.gz -o gflags.tar.gz && tar xfz gflags.tar.gz && cd gflags-2.1.2 && cmake . && make && popd
 
 before_script:
   # Add gflags to include/library paths
   # TODO(noetzli): Remove when gflags available through Travis
   - export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/tmp/gflags-2.1.2/lib"
+  - export LIBRARY_PATH="$LIBRARY_PATH:/tmp/gflags-2.1.2/lib"
   - export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/tmp/gflags-2.1.2/include"
   - if [ -n "${COMPILER}" ]; then CXX=${COMPILER}; fi
   - if [[ $(uname -s) == 'Darwin' ]]; then brew install gflags snappy; fi
