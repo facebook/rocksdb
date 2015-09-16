@@ -83,8 +83,8 @@ class AtomicCounter {
     uint64_t start = env_->NowMicros();
     while (count_ < count) {
       uint64_t now = env_->NowMicros();
-      cond_count_.TimedWait(now + /*1s*/ 1 * 000 * 000);
-      if (env_->NowMicros() - start > /*10s*/ 10 * 000 * 000) {
+      cond_count_.TimedWait(now + /*1s*/ 1 * 1000 * 1000);
+      if (env_->NowMicros() - start > /*10s*/ 10 * 1000 * 1000) {
         return false;
       }
       if (count_ < count) {
