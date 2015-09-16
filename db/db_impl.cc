@@ -281,8 +281,6 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
   DumpDBFileSummary(db_options_, dbname_);
   db_options_.Dump(db_options_.info_log.get());
   DumpSupportInfo(db_options_.info_log.get());
-
-  LogFlush(db_options_.info_log);
 }
 
 // Will lock the mutex_,  will wait for completion if wait is true
@@ -4495,6 +4493,8 @@ Status DB::Open(const DBOptions& db_options, const std::string& dbname,
   if (s.ok()) {
     Log(InfoLogLevel::INFO_LEVEL, impl->db_options_.info_log, "DB pointer %p",
         impl);
+    LogFlush(impl->db_options_.info_log);
+
     *dbptr = impl;
   } else {
     for (auto* h : *handles) {
