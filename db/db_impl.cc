@@ -770,6 +770,12 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
           "[JOB %d] Delete %s type=%d #%" PRIu64 " -- %s\n", state.job_id,
           fname.c_str(), type, number,
           file_deletion_status.ToString().c_str());
+    } else if (env_->FileExists(fname).IsNotFound()) {
+      Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+          "[JOB %d] Tried to delete a non-existing file %s type=%d #%" PRIu64
+          " -- %s\n",
+          state.job_id, fname.c_str(), type, number,
+          file_deletion_status.ToString().c_str());
     } else {
       Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
           "[JOB %d] Failed to delete %s type=%d #%" PRIu64 " -- %s\n",
@@ -798,9 +804,16 @@ void DBImpl::PurgeObsoleteFiles(const JobContext& state) {
           full_path_to_delete.c_str());
       Status s = env_->DeleteFile(full_path_to_delete);
       if (!s.ok()) {
-        Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
-            "[JOB %d] Delete info log file %s FAILED -- %s\n", state.job_id,
-            to_delete.c_str(), s.ToString().c_str());
+        if (env_->FileExists(full_path_to_delete).IsNotFound()) {
+          Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+              "[JOB %d] Tried to delete non-existing info log file %s FAILED "
+              "-- %s\n",
+              state.job_id, to_delete.c_str(), s.ToString().c_str());
+        } else {
+          Log(InfoLogLevel::ERROR_LEVEL, db_options_.info_log,
+              "[JOB %d] Delete info log file %s FAILED -- %s\n", state.job_id,
+              to_delete.c_str(), s.ToString().c_str());
+        }
       }
     }
   }
