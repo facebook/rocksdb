@@ -88,7 +88,7 @@ enum class WALRecoveryMode : char {
   // Recover from clean shutdown
   // We don't expect to find any corruption in the WAL
   // Use case : This is ideal for unit tests and rare applications that
-  // can require high consistency gaurantee
+  // can require high consistency guarantee
   kAbsoluteConsistency = 0x01,
   // Recover to point-in-time consistency
   // We stop the WAL playback on discovering WAL inconsistency
@@ -96,7 +96,7 @@ enum class WALRecoveryMode : char {
   // hard disk, SSD without super capacitor that store related data
   kPointInTimeRecovery = 0x02,
   // Recovery after a disaster
-  // We ignore any corruption in the  WAL and try to salvage as much data as
+  // We ignore any corruption in the WAL and try to salvage as much data as
   // possible
   // Use case : Ideal for last ditch effort to recover data or systems that
   // operate with low grade unrelated data
@@ -1097,7 +1097,7 @@ struct DBOptions {
   bool enable_thread_tracking;
 
   // The limited write rate to DB if soft_rate_limit or
-  // level0_slowdown_writes_trigger is triggered. It is calcualted using
+  // level0_slowdown_writes_trigger is triggered. It is calculated using
   // size of user write requests before compression.
   // Unit: byte per second.
   //
@@ -1106,7 +1106,7 @@ struct DBOptions {
 
   // If true, then DB::Open() will not update the statistics used to optimize
   // compaction decision by loading table properties from many files.
-  // Turning off this feature will improve DBOpen time espcially in
+  // Turning off this feature will improve DBOpen time especially in
   // disk environment.
   //
   // Default: false
