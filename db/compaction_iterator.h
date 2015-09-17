@@ -64,7 +64,7 @@ class CompactionIterator {
   const Status& status() const { return status_; }
   const ParsedInternalKey& ikey() const { return ikey_; }
   bool Valid() const { return valid_; }
-  Slice user_key() const { return current_user_key_.GetKey(); }
+  const Slice& user_key() const { return current_user_key_; }
   const CompactionIteratorStats& iter_stats() const { return iter_stats_; }
 
  private:
@@ -102,18 +102,32 @@ class CompactionIterator {
   SequenceNumber latest_snapshot_;
 
   // State
+  //
+  // Points to a copy of the current compaction iterator output (current_key_)
+  // if valid_.
   Slice key_;
+  // Points to the value in the underlying iterator that corresponds to the
+  // current output.
   Slice value_;
+  // The status is OK unless compaction iterator encounters a merge operand
+  // while not having a merge operator defined.
   Status status_;
+  // Stores the user key, sequence number and type of the current compaction
+  // iterator output (or current key in the underlying iterator during
+  // NextFromInput()).
   ParsedInternalKey ikey_;
+  // Stores whether ikey_.user_key is valid. If set to false, the user key is
+  // not compared against the current key in the underlying iterator.
   bool has_current_user_key_ = false;
-  IterKey current_user_key_;
+  bool at_next_ = false;  // If false, the iterator
+  // Holds a copy of the current compaction iterator output (or current key in
+  // the underlying iterator during NextFromInput()).
+  IterKey current_key_;
+  Slice current_user_key_;
   SequenceNumber current_user_key_sequence_;
   SequenceNumber current_user_key_snapshot_;
   MergeOutputIterator merge_out_iter_;
-  std::string updated_key_;
   std::string compaction_filter_value_;
-  IterKey delete_key_;
   // "level_ptrs" holds indices that remember which file of an associated
   // level we were last checking during the last call to compaction->
   // KeyNotExistsBeyondOutputLevel(). This allows future calls to the function

@@ -235,6 +235,7 @@ void DBIter::FindNextUserEntryInternal(bool skipping) {
         } else {
           switch (ikey.type) {
             case kTypeDeletion:
+            case kTypeSingleDeletion:
               // Arrange to skip all upcoming entries for this key since
               // they are hidden by this deletion.
               saved_key_.SetKey(ikey.user_key);
@@ -308,16 +309,12 @@ void DBIter::MergeValuesNewToOld() {
     if (!user_comparator_->Equal(ikey.user_key, saved_key_.GetKey())) {
       // hit the next user key, stop right here
       break;
-    }
-
-    if (kTypeDeletion == ikey.type) {
+    } else if (kTypeDeletion == ikey.type || kTypeSingleDeletion == ikey.type) {
       // hit a delete with the same user key, stop right here
       // iter_ is positioned after delete
       iter_->Next();
       break;
-    }
-
-    if (kTypeValue == ikey.type) {
+    } else if (kTypeValue == ikey.type) {
       // hit a put, merge the put value with operands and store the
       // final result in saved_value_. We are done!
       // ignore corruption if there is any.
@@ -333,13 +330,13 @@ void DBIter::MergeValuesNewToOld() {
       // iter_ is positioned after put
       iter_->Next();
       return;
-    }
-
-    if (kTypeMerge == ikey.type) {
+    } else if (kTypeMerge == ikey.type) {
       // hit a merge, add the value as an operand and run associative merge.
       // when complete, add result to operands and continue.
       const Slice& val = iter_->value();
       operands.push_front(val.ToString());
+    } else {
+      assert(false);
     }
   }
 
@@ -433,12 +430,14 @@ void DBIter::PrevInternal() {
 }
 
 // This function checks, if the entry with biggest sequence_number <= sequence_
-// is non kTypeDeletion. If it's not, we save value in saved_value_
+// is non kTypeDeletion or kTypeSingleDeletion. If it's not, we save value in
+// saved_value_
 bool DBIter::FindValueForCurrentKey() {
   assert(iter_->Valid());
   // Contains operands for merge operator.
   std::deque<std::string> operands;
-  // last entry before merge (could be kTypeDeletion or kTypeValue)
+  // last entry before merge (could be kTypeDeletion, kTypeSingleDeletion or
+  // kTypeValue)
   ValueType last_not_merge_type = kTypeDeletion;
   ValueType last_key_entry_type = kTypeDeletion;
 
@@ -461,8 +460,9 @@ bool DBIter::FindValueForCurrentKey() {
         last_not_merge_type = kTypeValue;
         break;
       case kTypeDeletion:
+      case kTypeSingleDeletion:
         operands.clear();
-        last_not_merge_type = kTypeDeletion;
+        last_not_merge_type = last_key_entry_type;
         PERF_COUNTER_ADD(internal_delete_skipped_count, 1);
         break;
       case kTypeMerge:
@@ -482,6 +482,7 @@ bool DBIter::FindValueForCurrentKey() {
 
   switch (last_key_entry_type) {
     case kTypeDeletion:
+    case kTypeSingleDeletion:
       valid_ = false;
       return false;
     case kTypeMerge:
@@ -530,7 +531,8 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
   ParsedInternalKey ikey;
   FindParseableKey(&ikey, kForward);
 
-  if (ikey.type == kTypeValue || ikey.type == kTypeDeletion) {
+  if (ikey.type == kTypeValue || ikey.type == kTypeDeletion ||
+      ikey.type == kTypeSingleDeletion) {
     if (ikey.type == kTypeValue) {
       saved_value_ = iter_->value().ToString();
       valid_ = true;
@@ -553,7 +555,7 @@ bool DBIter::FindValueForCurrentKeyUsingSeek() {
 
   if (!iter_->Valid() ||
       !user_comparator_->Equal(ikey.user_key, saved_key_.GetKey()) ||
-      ikey.type == kTypeDeletion) {
+      ikey.type == kTypeDeletion || ikey.type == kTypeSingleDeletion) {
     {
       StopWatchNano timer(env_, statistics_ != nullptr);
       PERF_TIMER_GUARD(merge_operator_time_nanos);

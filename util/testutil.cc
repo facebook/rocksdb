@@ -129,5 +129,14 @@ void CorruptKeyType(InternalKey* ikey) {
   ikey->DecodeFrom(Slice(keystr.data(), keystr.size()));
 }
 
+std::string KeyStr(const std::string& user_key, const SequenceNumber& seq,
+                   const ValueType& t, bool corrupt) {
+  InternalKey k(user_key, seq, t);
+  if (corrupt) {
+    CorruptKeyType(&k);
+  }
+  return k.Encode().ToString();
+}
+
 }  // namespace test
 }  // namespace rocksdb

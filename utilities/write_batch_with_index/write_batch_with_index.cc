@@ -344,7 +344,7 @@ class WBWIIteratorImpl : public WBWIIterator {
                                                   &ret.key, &ret.value, &blob);
     assert(s.ok());
     assert(ret.type == kPutRecord || ret.type == kDeleteRecord ||
-           ret.type == kMergeRecord);
+           ret.type == kSingleDeleteRecord || ret.type == kMergeRecord);
     return ret;
   }
 
@@ -580,6 +580,32 @@ void WriteBatchWithIndex::Put(const Slice& key, const Slice& value) {
   rep->AddOrUpdateIndex(key);
 }
 
+void WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
+                                 const Slice& key) {
+  rep->SetLastEntryOffset();
+  rep->write_batch.Delete(column_family, key);
+  rep->AddOrUpdateIndex(column_family, key);
+}
+
+void WriteBatchWithIndex::Delete(const Slice& key) {
+  rep->SetLastEntryOffset();
+  rep->write_batch.Delete(key);
+  rep->AddOrUpdateIndex(key);
+}
+
+void WriteBatchWithIndex::SingleDelete(ColumnFamilyHandle* column_family,
+                                       const Slice& key) {
+  rep->SetLastEntryOffset();
+  rep->write_batch.SingleDelete(column_family, key);
+  rep->AddOrUpdateIndex(column_family, key);
+}
+
+void WriteBatchWithIndex::SingleDelete(const Slice& key) {
+  rep->SetLastEntryOffset();
+  rep->write_batch.SingleDelete(key);
+  rep->AddOrUpdateIndex(key);
+}
+
 void WriteBatchWithIndex::Merge(ColumnFamilyHandle* column_family,
                                 const Slice& key, const Slice& value) {
   rep->SetLastEntryOffset();
@@ -595,19 +621,6 @@ void WriteBatchWithIndex::Merge(const Slice& key, const Slice& value) {
 
 void WriteBatchWithIndex::PutLogData(const Slice& blob) {
   rep->write_batch.PutLogData(blob);
-}
-
-void WriteBatchWithIndex::Delete(ColumnFamilyHandle* column_family,
-                                 const Slice& key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.Delete(column_family, key);
-  rep->AddOrUpdateIndex(column_family, key);
-}
-
-void WriteBatchWithIndex::Delete(const Slice& key) {
-  rep->SetLastEntryOffset();
-  rep->write_batch.Delete(key);
-  rep->AddOrUpdateIndex(key);
 }
 
 void WriteBatchWithIndex::Clear() { rep->Clear(); }

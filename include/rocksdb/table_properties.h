@@ -86,6 +86,7 @@ extern const std::string kPropertiesBlock;
 enum EntryType {
   kEntryPut,
   kEntryDelete,
+  kEntrySingleDelete,
   kEntryMerge,
   kEntryOther,
 };

@@ -110,7 +110,8 @@ DEFINE_string(benchmarks,
               "uncompress,"
               "acquireload,"
               "fillseekseq,"
-              "randomtransaction",
+              "randomtransaction,"
+              "randomreplacekeys",
 
               "Comma-separated list of operations to run in the specified"
               " order. Available benchmarks:\n"
@@ -161,6 +162,8 @@ DEFINE_string(benchmarks,
               "them by seeking to each key\n"
               "\trandomtransaction     -- execute N random transactions and "
               "verify correctness\n"
+              "\trandomreplacekeys     -- randomly replaces N keys by deleting "
+              "the old version and putting the new version\n\n"
               "Meta operations:\n"
               "\tcompact     -- Compact the entire DB\n"
               "\tstats       -- Print DB stats\n"
@@ -687,6 +690,13 @@ DEFINE_uint64(wal_bytes_per_sync,  rocksdb::Options().wal_bytes_per_sync,
 
 DEFINE_bool(filter_deletes, false, " On true, deletes use bloom-filter and drop"
             " the delete if key not present");
+
+DEFINE_bool(use_single_deletes, true,
+            "Use single deletes (used in RandomReplaceKeys only).");
+
+DEFINE_double(stddev, 2000.0,
+              "Standard deviation of normal distribution used for picking keys"
+              " (used in RandomReplaceKeys only).");
 
 DEFINE_int32(max_successive_merges, 0, "Maximum number of successive merge"
              " operations on a key in the memtable");
@@ -1925,6 +1935,9 @@ class Benchmark {
       } else if (name == "randomtransaction") {
         method = &Benchmark::RandomTransaction;
         post_process_method = &Benchmark::RandomTransactionVerify;
+      } else if (name == "randomreplacekeys") {
+        fresh_db = true;
+        method = &Benchmark::RandomReplaceKeys;
       } else if (name == "stats") {
         PrintStats("rocksdb.stats");
       } else if (name == "levelstats") {
@@ -3844,6 +3857,66 @@ class Benchmark {
     }
 
     fprintf(stdout, "RandomTransactionVerify Success!\n");
+  }
+
+  // Writes and deletes random keys without overwriting keys.
+  //
+  // This benchmark is intended to partially replicate the behavior of MyRocks
+  // secondary indices: All data is stored in keys and updates happen by
+  // deleting the old version of the key and inserting the new version.
+  void RandomReplaceKeys(ThreadState* thread) {
+    std::unique_ptr<const char[]> key_guard;
+    Slice key = AllocateKey(&key_guard);
+    std::vector<uint32_t> counters(FLAGS_numdistinct, 0);
+    size_t max_counter = 50;
+    RandomGenerator gen;
+
+    Status s;
+    DB* db = SelectDB(thread);
+    for (int64_t i = 0; i < FLAGS_numdistinct; i++) {
+      GenerateKeyFromInt(i * max_counter, FLAGS_num, &key);
+      s = db->Put(write_options_, key, gen.Generate(value_size_));
+      if (!s.ok()) {
+        fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+    }
+
+    db->GetSnapshot();
+
+    std::default_random_engine generator;
+    std::normal_distribution<double> distribution(FLAGS_numdistinct / 2.0,
+                                                  FLAGS_stddev);
+    Duration duration(FLAGS_duration, FLAGS_num);
+    while (!duration.Done(1)) {
+      int64_t rnd_id = static_cast<int64_t>(distribution(generator));
+      int64_t key_id = std::max(std::min(FLAGS_numdistinct - 1, rnd_id),
+                                static_cast<int64_t>(0));
+      GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
+                         &key);
+      s = FLAGS_use_single_deletes ? db->SingleDelete(write_options_, key)
+                                   : db->Delete(write_options_, key);
+      if (s.ok()) {
+        counters[key_id] = (counters[key_id] + 1) % max_counter;
+        GenerateKeyFromInt(key_id * max_counter + counters[key_id], FLAGS_num,
+                           &key);
+        s = db->Put(write_options_, key, Slice());
+      }
+
+      if (!s.ok()) {
+        fprintf(stderr, "Operation failed: %s\n", s.ToString().c_str());
+        exit(1);
+      }
+
+      thread->stats.FinishedOps(nullptr, db, 1);
+    }
+
+    char msg[200];
+    snprintf(msg, sizeof(msg),
+             "use single deletes: %d, "
+             "standard deviation: %lf\n",
+             FLAGS_use_single_deletes, FLAGS_stddev);
+    thread->stats.AddMessage(msg);
   }
 
   void Compact(ThreadState* thread) {

@@ -3432,6 +3432,12 @@ Status DBImpl::Delete(const WriteOptions& write_options,
   return DB::Delete(write_options, column_family, key);
 }
 
+Status DBImpl::SingleDelete(const WriteOptions& write_options,
+                            ColumnFamilyHandle* column_family,
+                            const Slice& key) {
+  return DB::SingleDelete(write_options, column_family, key);
+}
+
 Status DBImpl::Write(const WriteOptions& write_options, WriteBatch* my_batch) {
   return WriteImpl(write_options, my_batch, nullptr);
 }
@@ -4312,6 +4318,13 @@ Status DB::Delete(const WriteOptions& opt, ColumnFamilyHandle* column_family,
                   const Slice& key) {
   WriteBatch batch;
   batch.Delete(column_family, key);
+  return Write(opt, &batch);
+}
+
+Status DB::SingleDelete(const WriteOptions& opt,
+                        ColumnFamilyHandle* column_family, const Slice& key) {
+  WriteBatch batch;
+  batch.SingleDelete(column_family, key);
   return Write(opt, &batch);
 }
 

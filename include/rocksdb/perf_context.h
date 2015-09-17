@@ -33,7 +33,7 @@ struct PerfContext {
   // total number of internal keys skipped over during iteration (overwritten or
   // deleted, to be more specific, hidden by a put or delete of the same key)
   uint64_t internal_key_skipped_count;
-  // total number of deletes skipped over during iteration
+  // total number of deletes and single deletes skipped over during iteration
   uint64_t internal_delete_skipped_count;
 
   uint64_t get_snapshot_time;          // total time spent on getting snapshot

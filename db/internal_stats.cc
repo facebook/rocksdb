@@ -57,7 +57,7 @@ void PrintLevelStats(char* buf, size_t len, const std::string& name,
       NumberToHumanString(stats.num_dropped_records);
 
   snprintf(buf, len,
-           "%4s %6d/%-3d %8.0f %5.1f " /* Level, Files, Size(MB), Score */
+           "%4s %6d/%-3d %8.2f %5.1f " /* Level, Files, Size(MB), Score */
            "%8.1f "                    /* Read(GB) */
            "%7.1f "                    /* Rn(GB) */
            "%8.1f "                    /* Rnp1(GB) */

@@ -33,13 +33,13 @@ enum ValueType : unsigned char {
   kTypeDeletion = 0x0,
   kTypeValue = 0x1,
   kTypeMerge = 0x2,
-  // Following types are used only in write ahead logs. They are not used in
-  // memtables or sst files:
-  kTypeLogData = 0x3,
-  kTypeColumnFamilyDeletion = 0x4,
-  kTypeColumnFamilyValue = 0x5,
-  kTypeColumnFamilyMerge = 0x6,
-  kMaxValue = 0x7F
+  kTypeLogData = 0x3,               // WAL only.
+  kTypeColumnFamilyDeletion = 0x4,  // WAL only.
+  kTypeColumnFamilyValue = 0x5,     // WAL only.
+  kTypeColumnFamilyMerge = 0x6,     // WAL only.
+  kTypeSingleDeletion = 0x7,
+  kTypeColumnFamilySingleDeletion = 0x8,  // WAL only.
+  kMaxValue = 0x7F                        // Not used for storing records.
 };
 
 // kValueTypeForSeek defines the ValueType that should be passed when
@@ -48,7 +48,13 @@ enum ValueType : unsigned char {
 // and the value type is embedded as the low 8 bits in the sequence
 // number in internal keys, we need to use the highest-numbered
 // ValueType, not the lowest).
-static const ValueType kValueTypeForSeek = kTypeMerge;
+static const ValueType kValueTypeForSeek = kTypeSingleDeletion;
+
+// Checks whether a type is a value type (i.e. a type used in memtables and sst
+// files).
+inline bool IsValueType(ValueType t) {
+  return t <= kTypeMerge || t == kTypeSingleDeletion;
+}
 
 // We leave eight bits empty at the bottom so a type and sequence#
 // can be packed together into 64-bits.
@@ -193,13 +199,12 @@ inline bool ParseInternalKey(const Slice& internal_key,
   result->type = static_cast<ValueType>(c);
   assert(result->type <= ValueType::kMaxValue);
   result->user_key = Slice(internal_key.data(), n - 8);
-  return (c <= static_cast<unsigned char>(kValueTypeForSeek));
+  return IsValueType(result->type);
 }
 
 // Update the sequence number in the internal key.
 // Guarantees not to invalidate ikey.data().
-inline void UpdateInternalKey(std::string* ikey,
-                              uint64_t seq, ValueType t) {
+inline void UpdateInternalKey(std::string* ikey, uint64_t seq, ValueType t) {
   size_t ikey_sz = ikey->size();
   assert(ikey_sz >= 8);
   uint64_t newval = (seq << 8) | t;
@@ -272,6 +277,11 @@ class IterKey {
 
   Slice GetKey() const { return Slice(key_, key_size_); }
 
+  Slice GetUserKey() const {
+    assert(key_size_ >= 8);
+    return Slice(key_, key_size_ - 8);
+  }
+
   size_t Size() { return key_size_; }
 
   void Clear() { key_size_ = 0; }
@@ -304,11 +314,30 @@ class IterKey {
     memcpy(key_ + shared_len, non_shared_data, non_shared_len);
   }
 
-  void SetKey(const Slice& key) {
+  Slice SetKey(const Slice& key) {
     size_t size = key.size();
     EnlargeBufferIfNeeded(size);
     memcpy(key_, key.data(), size);
     key_size_ = size;
+    return Slice(key_, key_size_);
+  }
+
+  // Copies the content of key, updates the reference to the user key in ikey
+  // and returns a Slice referencing the new copy.
+  Slice SetKey(const Slice& key, ParsedInternalKey* ikey) {
+    size_t key_n = key.size();
+    assert(key_n >= 8);
+    SetKey(key);
+    ikey->user_key = Slice(key_, key_n - 8);
+    return Slice(key_, key_n);
+  }
+
+  // Update the sequence number in the internal key.  Guarantees not to
+  // invalidate slices to the key (and the user key).
+  void UpdateInternalKey(uint64_t seq, ValueType t) {
+    assert(key_size_ >= 8);
+    uint64_t newval = (seq << 8) | t;
+    EncodeFixed64(&key_[key_size_ - 8], newval);
   }
 
   void SetInternalKey(const Slice& key_prefix, const Slice& user_key,

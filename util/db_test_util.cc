@@ -462,6 +462,14 @@ Status DBTestBase::Delete(int cf, const std::string& k) {
   return db_->Delete(WriteOptions(), handles_[cf], k);
 }
 
+Status DBTestBase::SingleDelete(const std::string& k) {
+  return db_->SingleDelete(WriteOptions(), k);
+}
+
+Status DBTestBase::SingleDelete(int cf, const std::string& k) {
+  return db_->SingleDelete(WriteOptions(), handles_[cf], k);
+}
+
 std::string DBTestBase::Get(const std::string& k, const Snapshot* snapshot) {
   ReadOptions options;
   options.verify_checksums = true;
@@ -570,6 +578,9 @@ std::string DBTestBase::AllEntriesFor(const Slice& user_key, int cf) {
             break;
           case kTypeDeletion:
             result += "DEL";
+            break;
+          case kTypeSingleDeletion:
+            result += "SDEL";
             break;
           default:
             assert(false);

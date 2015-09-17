@@ -184,6 +184,17 @@ class DB {
     return Delete(options, DefaultColumnFamily(), key);
   }
 
+  // Remove the database entry for "key". Requires that the key exists
+  // and was not overwritten. Returns OK on success, and a non-OK status
+  // on error.  It is not an error if "key" did not exist in the database.
+  // Note: consider setting options.sync = true.
+  virtual Status SingleDelete(const WriteOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key) = 0;
+  virtual Status SingleDelete(const WriteOptions& options, const Slice& key) {
+    return SingleDelete(options, DefaultColumnFamily(), key);
+  }
+
   // Merge the database entry for "key" with "value".  Returns OK on success,
   // and a non-OK status on error. The semantics of this operation is
   // determined by the user provided merge_operator when opening DB.

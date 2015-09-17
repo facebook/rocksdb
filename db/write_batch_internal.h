@@ -73,6 +73,12 @@ class WriteBatchInternal {
   static void Delete(WriteBatch* batch, uint32_t column_family_id,
                      const Slice& key);
 
+  static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
+                           const SliceParts& key);
+
+  static void SingleDelete(WriteBatch* batch, uint32_t column_family_id,
+                           const Slice& key);
+
   static void Merge(WriteBatch* batch, uint32_t column_family_id,
                     const Slice& key, const Slice& value);
 

@@ -277,6 +277,10 @@ class NullLogger : public Logger {
 // Corrupts key by changing the type
 extern void CorruptKeyType(InternalKey* ikey);
 
+extern std::string KeyStr(const std::string& user_key,
+                          const SequenceNumber& seq, const ValueType& t,
+                          bool corrupt = false);
+
 class SleepingBackgroundTask {
  public:
   SleepingBackgroundTask()

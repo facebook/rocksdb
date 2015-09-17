@@ -102,6 +102,9 @@ bool GetContext::SaveValue(const ParsedInternalKey& parsed_key,
         return false;
 
       case kTypeDeletion:
+      case kTypeSingleDeletion:
+        // TODO(noetzli): Verify correctness once merge of single-deletes
+        // is supported
         assert(state_ == kNotFound || state_ == kMerge);
         if (kNotFound == state_) {
           state_ = kDeleted;

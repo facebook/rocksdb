@@ -86,6 +86,7 @@ DEFINE_int64(max_key, 1 * KB* KB,
 
 DEFINE_int32(column_families, 10, "Number of column families");
 
+// TODO(noetzli) Add support for single deletes
 DEFINE_bool(test_batches_snapshots, false,
             "If set, the test uses MultiGet(), MultiPut() and MultiDelete()"
             " which read/write/delete multiple keys in a batch. In this mode,"
@@ -318,6 +319,12 @@ DEFINE_int32(delpercent, 15,
 static const bool FLAGS_delpercent_dummy __attribute__((unused)) =
     RegisterFlagValidator(&FLAGS_delpercent, &ValidateInt32Percent);
 
+DEFINE_int32(nooverwritepercent, 60,
+             "Ratio of keys without overwrite to total workload (expressed as "
+             " a percentage)");
+static const bool FLAGS_nooverwritepercent_dummy __attribute__((__unused__)) =
+    RegisterFlagValidator(&FLAGS_nooverwritepercent, &ValidateInt32Percent);
+
 DEFINE_int32(iterpercent, 10, "Ratio of iterations to total workload"
              " (expressed as a percentage)");
 static const bool FLAGS_iterpercent_dummy __attribute__((unused)) =
@@ -453,6 +460,7 @@ class Stats {
   long prefixes_;
   long writes_;
   long deletes_;
+  size_t single_deletes_;
   long iterator_size_sums_;
   long founds_;
   long iterations_;
@@ -473,6 +481,7 @@ class Stats {
     prefixes_ = 0;
     writes_ = 0;
     deletes_ = 0;
+    single_deletes_ = 0;
     iterator_size_sums_ = 0;
     founds_ = 0;
     iterations_ = 0;
@@ -491,6 +500,7 @@ class Stats {
     prefixes_ += other.prefixes_;
     writes_ += other.writes_;
     deletes_ += other.deletes_;
+    single_deletes_ += other.single_deletes_;
     iterator_size_sums_ += other.iterator_size_sums_;
     founds_ += other.founds_;
     iterations_ += other.iterations_;
@@ -555,6 +565,8 @@ class Stats {
     deletes_ += n;
   }
 
+  void AddSingleDeletes(size_t n) { single_deletes_ += n; }
+
   void AddErrors(int n) {
     errors_ += n;
   }
@@ -578,6 +590,7 @@ class Stats {
             "", bytes_mb, rate, (100*writes_)/done_, done_);
     fprintf(stdout, "%-12s: Wrote %ld times\n", "", writes_);
     fprintf(stdout, "%-12s: Deleted %ld times\n", "", deletes_);
+    fprintf(stdout, "%-12s: Single deleted %ld times\n", "", single_deletes_);
     fprintf(stdout, "%-12s: %ld read and %ld found the key\n", "",
             gets_, founds_);
     fprintf(stdout, "%-12s: Prefix scanned %ld times\n", "", prefixes_);
@@ -613,7 +626,25 @@ class SharedState {
         should_stop_bg_thread_(false),
         bg_thread_finished_(false),
         stress_test_(stress_test),
-        verification_failure_(false) {
+        verification_failure_(false),
+        no_overwrite_ids_(FLAGS_column_families) {
+    // Pick random keys in each column family that will not experience
+    // overwrite
+
+    printf("Choosing random keys with no overwrite\n");
+    Random rnd(seed_);
+    size_t num_no_overwrite_keys = (max_key_ * FLAGS_nooverwritepercent) / 100;
+    for (auto& cf_ids : no_overwrite_ids_) {
+      for (size_t i = 0; i < num_no_overwrite_keys; i++) {
+        size_t rand_key;
+        do {
+          rand_key = rnd.Next() % max_key_;
+        } while (cf_ids.find(rand_key) != cf_ids.end());
+        cf_ids.insert(rand_key);
+      }
+      assert(cf_ids.size() == num_no_overwrite_keys);
+    }
+
     if (FLAGS_test_batches_snapshots) {
       fprintf(stdout, "No lock creation because test_batches_snapshots set\n");
       return;
@@ -741,6 +772,14 @@ class SharedState {
 
   void Delete(int cf, long key) { values_[cf][key] = SENTINEL; }
 
+  void SingleDelete(int cf, size_t key) { values_[cf][key] = SENTINEL; }
+
+  bool AllowsOverwrite(int cf, size_t key) {
+    return no_overwrite_ids_[cf].find(key) == no_overwrite_ids_[cf].end();
+  }
+
+  bool Exists(int cf, size_t key) { return values_[cf][key] != SENTINEL; }
+
   uint32_t GetSeed() const { return seed_; }
 
   void SetShouldStopBgThread() { should_stop_bg_thread_ = true; }
@@ -768,6 +807,9 @@ class SharedState {
   bool bg_thread_finished_;
   StressTest* stress_test_;
   std::atomic<bool> verification_failure_;
+
+  // Keys that should not be overwritten
+  std::vector<std::set<size_t> > no_overwrite_ids_;
 
   std::vector<std::vector<uint32_t>> values_;
   // Has to make it owned by a smart ptr as port::Mutex is not copyable
@@ -1445,6 +1487,7 @@ class StressTest {
   void OperateDb(ThreadState* thread) {
     ReadOptions read_opts(FLAGS_verify_checksum, true);
     WriteOptions write_opts;
+    auto shared = thread->shared;
     char value[100];
     long max_key = thread->shared->GetMaxKey();
     std::string from_db;
@@ -1529,14 +1572,14 @@ class StressTest {
       int rand_column_family = thread->rand.Next() % FLAGS_column_families;
       std::string keystr = Key(rand_key);
       Slice key = keystr;
-      int prob_op = thread->rand.Uniform(100);
       std::unique_ptr<MutexLock> l;
       if (!FLAGS_test_batches_snapshots) {
         l.reset(new MutexLock(
-            thread->shared->GetMutexForKey(rand_column_family, rand_key)));
+            shared->GetMutexForKey(rand_column_family, rand_key)));
       }
       auto column_family = column_families_[rand_column_family];
 
+      int prob_op = thread->rand.Uniform(100);
       if (prob_op >= 0 && prob_op < (int)FLAGS_readpercent) {
         // OPERATION read
         if (!FLAGS_test_batches_snapshots) {
@@ -1585,16 +1628,31 @@ class StressTest {
         size_t sz = GenerateValue(value_base, value, sizeof(value));
         Slice v(value, sz);
         if (!FLAGS_test_batches_snapshots) {
+          // If the chosen key does not allow overwrite and it already
+          // exists, choose another key.
+          while (!shared->AllowsOverwrite(rand_column_family, rand_key) &&
+                 shared->Exists(rand_column_family, rand_key)) {
+            l.reset();
+            rand_key = thread->rand.Next() % max_key;
+            rand_column_family = thread->rand.Next() % FLAGS_column_families;
+            l.reset(new MutexLock(
+                shared->GetMutexForKey(rand_column_family, rand_key)));
+          }
+
+          keystr = Key(rand_key);
+          key = keystr;
+          column_family = column_families_[rand_column_family];
+
           if (FLAGS_verify_before_write) {
             std::string keystr2 = Key(rand_key);
             Slice k = keystr2;
             Status s = db_->Get(read_opts, column_family, k, &from_db);
-            if (VerifyValue(rand_column_family, rand_key, read_opts,
-                            thread->shared, from_db, s, true) == false) {
+            if (!VerifyValue(rand_column_family, rand_key, read_opts,
+                             thread->shared, from_db, s, true)) {
               break;
             }
           }
-          thread->shared->Put(rand_column_family, rand_key, value_base);
+          shared->Put(rand_column_family, rand_key, value_base);
           Status s;
           if (FLAGS_use_merge) {
             s = db_->Merge(write_opts, column_family, key, v);
@@ -1614,12 +1672,40 @@ class StressTest {
       } else if (writeBound <= prob_op && prob_op < delBound) {
         // OPERATION delete
         if (!FLAGS_test_batches_snapshots) {
-          thread->shared->Delete(rand_column_family, rand_key);
-          Status s = db_->Delete(write_opts, column_family, key);
-          thread->stats.AddDeletes(1);
-          if (!s.ok()) {
-            fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
-            std::terminate();
+          // If the chosen key does not allow overwrite and it does not exist,
+          // choose another key.
+          while (!shared->AllowsOverwrite(rand_column_family, rand_key) &&
+                 !shared->Exists(rand_column_family, rand_key)) {
+            l.reset();
+            rand_key = thread->rand.Next() % max_key;
+            rand_column_family = thread->rand.Next() % FLAGS_column_families;
+            l.reset(new MutexLock(
+                shared->GetMutexForKey(rand_column_family, rand_key)));
+          }
+
+          keystr = Key(rand_key);
+          key = keystr;
+          column_family = column_families_[rand_column_family];
+
+          // Use delete if the key may be overwritten and a single deletion
+          // otherwise.
+          if (shared->AllowsOverwrite(rand_column_family, rand_key)) {
+            shared->Delete(rand_column_family, rand_key);
+            Status s = db_->Delete(write_opts, column_family, key);
+            thread->stats.AddDeletes(1);
+            if (!s.ok()) {
+              fprintf(stderr, "delete error: %s\n", s.ToString().c_str());
+              std::terminate();
+            }
+          } else {
+            shared->SingleDelete(rand_column_family, rand_key);
+            Status s = db_->SingleDelete(write_opts, column_family, key);
+            thread->stats.AddSingleDeletes(1);
+            if (!s.ok()) {
+              fprintf(stderr, "single delete error: %s\n",
+                      s.ToString().c_str());
+              std::terminate();
+            }
           }
         } else {
           MultiDelete(thread, write_opts, column_family, key);
@@ -1778,50 +1864,47 @@ class StressTest {
   }
 
   void PrintEnv() const {
-    fprintf(stdout, "RocksDB version     : %d.%d\n", kMajorVersion,
+    fprintf(stdout, "RocksDB version           : %d.%d\n", kMajorVersion,
             kMinorVersion);
-    fprintf(stdout, "Column families     : %d\n", FLAGS_column_families);
+    fprintf(stdout, "Column families           : %d\n", FLAGS_column_families);
     if (!FLAGS_test_batches_snapshots) {
-      fprintf(stdout, "Clear CFs one in    : %d\n",
+      fprintf(stdout, "Clear CFs one in          : %d\n",
               FLAGS_clear_column_family_one_in);
     }
-    fprintf(stdout, "Number of threads   : %d\n", FLAGS_threads);
-    fprintf(stdout,
-            "Ops per thread      : %lu\n",
+    fprintf(stdout, "Number of threads         : %d\n", FLAGS_threads);
+    fprintf(stdout, "Ops per thread            : %lu\n",
             (unsigned long)FLAGS_ops_per_thread);
     std::string ttl_state("unused");
     if (FLAGS_ttl > 0) {
       ttl_state = NumberToString(FLAGS_ttl);
     }
-    fprintf(stdout, "Time to live(sec)   : %s\n", ttl_state.c_str());
-    fprintf(stdout, "Read percentage     : %d%%\n", FLAGS_readpercent);
-    fprintf(stdout, "Prefix percentage   : %d%%\n", FLAGS_prefixpercent);
-    fprintf(stdout, "Write percentage    : %d%%\n", FLAGS_writepercent);
-    fprintf(stdout, "Delete percentage   : %d%%\n", FLAGS_delpercent);
-    fprintf(stdout, "Iterate percentage  : %d%%\n", FLAGS_iterpercent);
-    fprintf(stdout, "DB-write-buffer-size: %" PRIu64 "\n",
-        FLAGS_db_write_buffer_size);
-    fprintf(stdout, "Write-buffer-size   : %d\n", FLAGS_write_buffer_size);
-    fprintf(stdout,
-            "Iterations          : %lu\n",
+    fprintf(stdout, "Time to live(sec)         : %s\n", ttl_state.c_str());
+    fprintf(stdout, "Read percentage           : %d%%\n", FLAGS_readpercent);
+    fprintf(stdout, "Prefix percentage         : %d%%\n", FLAGS_prefixpercent);
+    fprintf(stdout, "Write percentage          : %d%%\n", FLAGS_writepercent);
+    fprintf(stdout, "Delete percentage         : %d%%\n", FLAGS_delpercent);
+    fprintf(stdout, "No overwrite percentage   : %d%%\n",
+            FLAGS_nooverwritepercent);
+    fprintf(stdout, "Iterate percentage        : %d%%\n", FLAGS_iterpercent);
+    fprintf(stdout, "DB-write-buffer-size      : %" PRIu64 "\n",
+            FLAGS_db_write_buffer_size);
+    fprintf(stdout, "Write-buffer-size         : %d\n",
+            FLAGS_write_buffer_size);
+    fprintf(stdout, "Iterations                : %lu\n",
             (unsigned long)FLAGS_num_iterations);
-    fprintf(stdout,
-            "Max key             : %lu\n",
+    fprintf(stdout, "Max key                   : %lu\n",
             (unsigned long)FLAGS_max_key);
-    fprintf(stdout, "Ratio #ops/#keys    : %f\n",
-            (1.0 * FLAGS_ops_per_thread * FLAGS_threads)/FLAGS_max_key);
-    fprintf(stdout, "Num times DB reopens: %d\n", FLAGS_reopen);
-    fprintf(stdout, "Batches/snapshots   : %d\n",
+    fprintf(stdout, "Ratio #ops/#keys          : %f\n",
+            (1.0 * FLAGS_ops_per_thread * FLAGS_threads) / FLAGS_max_key);
+    fprintf(stdout, "Num times DB reopens      : %d\n", FLAGS_reopen);
+    fprintf(stdout, "Batches/snapshots         : %d\n",
             FLAGS_test_batches_snapshots);
-    fprintf(stdout, "Deletes use filter  : %d\n",
-            FLAGS_filter_deletes);
-    fprintf(stdout, "Do update in place  : %d\n",
-            FLAGS_in_place_update);
-    fprintf(stdout, "Num keys per lock   : %d\n",
+    fprintf(stdout, "Deletes use filter        : %d\n", FLAGS_filter_deletes);
+    fprintf(stdout, "Do update in place        : %d\n", FLAGS_in_place_update);
+    fprintf(stdout, "Num keys per lock         : %d\n",
             1 << FLAGS_log2_keys_per_lock);
-
     std::string compression = CompressionTypeToString(FLAGS_compression_type_e);
-    fprintf(stdout, "Compression         : %s\n", compression.c_str());
+    fprintf(stdout, "Compression               : %s\n", compression.c_str());
 
     const char* memtablerep = "";
     switch (FLAGS_rep_factory) {
@@ -1836,7 +1919,7 @@ class StressTest {
         break;
     }
 
-    fprintf(stdout, "Memtablerep         : %s\n", memtablerep);
+    fprintf(stdout, "Memtablerep               : %s\n", memtablerep);
 
     fprintf(stdout, "------------------------------------------------\n");
   }

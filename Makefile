@@ -295,6 +295,7 @@ TESTS = \
 	flush_job_test \
 	wal_manager_test \
 	listener_test \
+	compaction_iterator_test \
 	compaction_job_test \
 	thread_list_test \
 	sst_dump_test \
@@ -771,6 +772,9 @@ write_batch_with_index_test: utilities/write_batch_with_index/write_batch_with_i
 	$(AM_LINK)
 
 flush_job_test: db/flush_job_test.o $(LIBOBJECTS) $(TESTHARNESS)
+	$(AM_LINK)
+
+compaction_iterator_test: db/compaction_iterator_test.o $(LIBOBJECTS) $(TESTHARNESS)
 	$(AM_LINK)
 
 compaction_job_test: db/compaction_job_test.o $(LIBOBJECTS) $(TESTHARNESS)

@@ -854,6 +854,107 @@ TEST_F(DBTest, PutDeleteGet) {
   } while (ChangeOptions());
 }
 
+TEST_F(DBTest, PutSingleDeleteGet) {
+  do {
+    CreateAndReopenWithCF({"pikachu"}, CurrentOptions());
+    ASSERT_OK(Put(1, "foo", "v1"));
+    ASSERT_EQ("v1", Get(1, "foo"));
+    ASSERT_OK(Put(1, "foo2", "v2"));
+    ASSERT_EQ("v2", Get(1, "foo2"));
+    ASSERT_OK(SingleDelete(1, "foo"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    // Skip HashCuckooRep as it does not support single delete. FIFO and
+    // universal compaction do not apply to the test case. Skip MergePut
+    // because single delete does not get removed when it encounters a merge.
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
+                         kSkipUniversalCompaction | kSkipMergePut));
+}
+
+TEST_F(DBTest, SingleDeleteFlush) {
+  // Test to check whether flushing preserves a single delete hidden
+  // behind a put.
+  do {
+    Random rnd(301);
+
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    // Put values on second level (so that they will not be in the same
+    // compaction as the other operations.
+    Put(1, "foo", "first");
+    Put(1, "bar", "one");
+    ASSERT_OK(Flush(1));
+    MoveFilesToLevel(2, 1);
+
+    // (Single) delete hidden by a put
+    SingleDelete(1, "foo");
+    Put(1, "foo", "second");
+    Delete(1, "bar");
+    Put(1, "bar", "two");
+    ASSERT_OK(Flush(1));
+
+    SingleDelete(1, "foo");
+    Delete(1, "bar");
+    ASSERT_OK(Flush(1));
+
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+
+    ASSERT_EQ("NOT_FOUND", Get(1, "bar"));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    // Skip HashCuckooRep as it does not support single delete. FIFO and
+    // universal compaction do not apply to the test case. Skip MergePut
+    // because merges cannot be combined with single deletions.
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
+                         kSkipUniversalCompaction | kSkipMergePut));
+}
+
+TEST_F(DBTest, SingleDeletePutFlush) {
+  // Single deletes that encounter the matching put in a flush should get
+  // removed.
+  do {
+    Random rnd(301);
+
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    Put(1, "foo", Slice());
+    Put(1, "a", Slice());
+    SingleDelete(1, "a");
+    ASSERT_OK(Flush(1));
+
+    ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
+    // Skip HashCuckooRep as it does not support single delete. FIFO and
+    // universal compaction do not apply to the test case. Skip MergePut
+    // because merges cannot be combined with single deletions.
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
+                         kSkipUniversalCompaction | kSkipMergePut));
+}
+
+TEST_F(DBTest, EmptyFlush) {
+  // It is possible to produce empty flushes when using single deletes. Tests
+  // whether empty flushes cause issues.
+  do {
+    Random rnd(301);
+
+    Options options = CurrentOptions();
+    options.disable_auto_compactions = true;
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    Put(1, "a", Slice());
+    SingleDelete(1, "a");
+    ASSERT_OK(Flush(1));
+
+    ASSERT_EQ("[ ]", AllEntriesFor("a", 1));
+    // Skip HashCuckooRep as it does not support single delete. FIFO and
+    // universal compaction do not apply to the test case. Skip MergePut
+    // because merges cannot be combined with single deletions.
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
+                         kSkipUniversalCompaction | kSkipMergePut));
+}
+
 TEST_F(DBTest, GetFromImmutableLayer) {
   do {
     Options options;
@@ -3548,6 +3649,54 @@ TEST_F(DBTest, CompactBetweenSnapshots) {
   } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction));
 }
 
+TEST_F(DBTest, UnremovableSingleDelete) {
+  // If we compact:
+  //
+  // Put(A, v1) Snapshot SingleDelete(A) Put(A, v2)
+  //
+  // We do not want to end up with:
+  //
+  // Put(A, v1) Snapshot Put(A, v2)
+  //
+  // Because a subsequent SingleDelete(A) would delete the Put(A, v2)
+  // but not Put(A, v1), so Get(A) would return v1.
+  anon::OptionsOverride options_override;
+  options_override.skip_policy = kSkipNoSnapshot;
+  do {
+    Options options = CurrentOptions(options_override);
+    options.disable_auto_compactions = true;
+    CreateAndReopenWithCF({"pikachu"}, options);
+
+    Put(1, "foo", "first");
+    const Snapshot* snapshot = db_->GetSnapshot();
+    SingleDelete(1, "foo");
+    Put(1, "foo", "second");
+    ASSERT_OK(Flush(1));
+
+    ASSERT_EQ("first", Get(1, "foo", snapshot));
+    ASSERT_EQ("second", Get(1, "foo"));
+
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+    ASSERT_EQ("[ second, SDEL, first ]", AllEntriesFor("foo", 1));
+
+    SingleDelete(1, "foo");
+
+    ASSERT_EQ("first", Get(1, "foo", snapshot));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+
+    dbfull()->CompactRange(CompactRangeOptions(), handles_[1], nullptr,
+                           nullptr);
+
+    ASSERT_EQ("first", Get(1, "foo", snapshot));
+    ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    // Skip HashCuckooRep as it does not support single delete.  FIFO and
+    // universal compaction do not apply to the test case.  Skip MergePut
+    // because single delete does not get removed when it encounters a merge.
+  } while (ChangeOptions(kSkipHashCuckoo | kSkipFIFOCompaction |
+                         kSkipUniversalCompaction | kSkipMergePut));
+}
+
 TEST_F(DBTest, DeletionMarkers1) {
   Options options = CurrentOptions();
   options.max_background_flushes = 0;
@@ -5361,18 +5510,25 @@ class ModelDB: public DB {
     batch.Put(cf, k, v);
     return Write(o, &batch);
   }
-  using DB::Merge;
-  virtual Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf,
-                       const Slice& k, const Slice& v) override {
-    WriteBatch batch;
-    batch.Merge(cf, k, v);
-    return Write(o, &batch);
-  }
   using DB::Delete;
   virtual Status Delete(const WriteOptions& o, ColumnFamilyHandle* cf,
                         const Slice& key) override {
     WriteBatch batch;
     batch.Delete(cf, key);
+    return Write(o, &batch);
+  }
+  using DB::SingleDelete;
+  virtual Status SingleDelete(const WriteOptions& o, ColumnFamilyHandle* cf,
+                              const Slice& key) override {
+    WriteBatch batch;
+    batch.SingleDelete(cf, key);
+    return Write(o, &batch);
+  }
+  using DB::Merge;
+  virtual Status Merge(const WriteOptions& o, ColumnFamilyHandle* cf,
+                       const Slice& k, const Slice& v) override {
+    WriteBatch batch;
+    batch.Merge(cf, k, v);
     return Write(o, &batch);
   }
   using DB::Get;

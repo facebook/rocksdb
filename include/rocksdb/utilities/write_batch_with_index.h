@@ -29,7 +29,13 @@ class DB;
 struct ReadOptions;
 struct DBOptions;
 
-enum WriteType { kPutRecord, kMergeRecord, kDeleteRecord, kLogDataRecord };
+enum WriteType {
+  kPutRecord,
+  kMergeRecord,
+  kDeleteRecord,
+  kSingleDeleteRecord,
+  kLogDataRecord
+};
 
 // an entry for Put, Merge or Delete entry for write batches. Used in
 // WBWIIterator.
@@ -100,6 +106,11 @@ class WriteBatchWithIndex : public WriteBatchBase {
   using WriteBatchBase::Delete;
   void Delete(ColumnFamilyHandle* column_family, const Slice& key) override;
   void Delete(const Slice& key) override;
+
+  using WriteBatchBase::SingleDelete;
+  void SingleDelete(ColumnFamilyHandle* column_family,
+                    const Slice& key) override;
+  void SingleDelete(const Slice& key) override;
 
   using WriteBatchBase::PutLogData;
   void PutLogData(const Slice& blob) override;

@@ -444,9 +444,10 @@ static bool SaveValue(void* arg, const char* entry) {
         *(s->found_final_value) = true;
         return false;
       }
-      case kTypeDeletion: {
+      case kTypeDeletion:
+      case kTypeSingleDeletion: {
         if (*(s->merge_in_progress)) {
-          assert(merge_operator);
+          assert(merge_operator != nullptr);
           *(s->status) = Status::OK();
           bool merge_success = false;
           {

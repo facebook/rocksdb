@@ -40,15 +40,10 @@ class MergeHelperTest : public testing::Test {
                                      nullptr, Env::Default());
   }
 
-  std::string Key(const std::string& user_key, const SequenceNumber& seq,
-      const ValueType& t) {
-    return InternalKey(user_key, seq, t).Encode().ToString();
-  }
-
   void AddKeyVal(const std::string& user_key, const SequenceNumber& seq,
                  const ValueType& t, const std::string& val,
                  bool corrupt = false) {
-    InternalKey ikey = InternalKey(user_key, seq, t);
+    InternalKey ikey(user_key, seq, t);
     if (corrupt) {
       test::CorruptKeyType(&ikey);
     }
@@ -83,7 +78,7 @@ TEST_F(MergeHelperTest, MergeAtBottomSuccess) {
 
   ASSERT_TRUE(RunUInt64MergeHelper(0, true).ok());
   ASSERT_EQ(ks_[2], iter_->key());
-  ASSERT_EQ(Key("a", 20, kTypeValue), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 20, kTypeValue), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(4U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());
@@ -98,7 +93,7 @@ TEST_F(MergeHelperTest, MergeValue) {
 
   ASSERT_TRUE(RunUInt64MergeHelper(0, false).ok());
   ASSERT_EQ(ks_[3], iter_->key());
-  ASSERT_EQ(Key("a", 40, kTypeValue), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 40, kTypeValue), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(8U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());
@@ -114,7 +109,7 @@ TEST_F(MergeHelperTest, SnapshotBeforeValue) {
 
   ASSERT_TRUE(RunUInt64MergeHelper(31, true).IsMergeInProgress());
   ASSERT_EQ(ks_[2], iter_->key());
-  ASSERT_EQ(Key("a", 50, kTypeMerge), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 50, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(4U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());
@@ -129,9 +124,9 @@ TEST_F(MergeHelperTest, NoPartialMerge) {
 
   ASSERT_TRUE(RunStringAppendMergeHelper(31, true).IsMergeInProgress());
   ASSERT_EQ(ks_[2], iter_->key());
-  ASSERT_EQ(Key("a", 40, kTypeMerge), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 40, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ("v", merge_helper_->values()[0]);
-  ASSERT_EQ(Key("a", 50, kTypeMerge), merge_helper_->keys()[1]);
+  ASSERT_EQ(test::KeyStr("a", 50, kTypeMerge), merge_helper_->keys()[1]);
   ASSERT_EQ("v2", merge_helper_->values()[1]);
   ASSERT_EQ(2U, merge_helper_->keys().size());
   ASSERT_EQ(2U, merge_helper_->values().size());
@@ -143,7 +138,7 @@ TEST_F(MergeHelperTest, SingleOperand) {
 
   ASSERT_TRUE(RunUInt64MergeHelper(31, true).IsMergeInProgress());
   ASSERT_FALSE(iter_->Valid());
-  ASSERT_EQ(Key("a", 50, kTypeMerge), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 50, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(1U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());
@@ -156,7 +151,7 @@ TEST_F(MergeHelperTest, MergeDeletion) {
 
   ASSERT_TRUE(RunUInt64MergeHelper(15, false).ok());
   ASSERT_FALSE(iter_->Valid());
-  ASSERT_EQ(Key("a", 30, kTypeValue), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 30, kTypeValue), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(3U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());
@@ -171,7 +166,7 @@ TEST_F(MergeHelperTest, CorruptKey) {
 
   ASSERT_TRUE(RunUInt64MergeHelper(15, false).IsMergeInProgress());
   ASSERT_EQ(ks_[2], iter_->key());
-  ASSERT_EQ(Key("a", 30, kTypeMerge), merge_helper_->keys()[0]);
+  ASSERT_EQ(test::KeyStr("a", 30, kTypeMerge), merge_helper_->keys()[0]);
   ASSERT_EQ(EncodeInt(4U), merge_helper_->values()[0]);
   ASSERT_EQ(1U, merge_helper_->keys().size());
   ASSERT_EQ(1U, merge_helper_->values().size());

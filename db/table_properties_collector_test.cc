@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "db/db_impl.h"
@@ -58,16 +59,19 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
      std::string encoded;
      std::string encoded_num_puts;
      std::string encoded_num_deletes;
+     std::string encoded_num_single_deletes;
      std::string encoded_num_size_changes;
      PutVarint32(&encoded, count_);
      PutVarint32(&encoded_num_puts, num_puts_);
      PutVarint32(&encoded_num_deletes, num_deletes_);
+     PutVarint32(&encoded_num_single_deletes, num_single_deletes_);
      PutVarint32(&encoded_num_size_changes, num_size_changes_);
      *properties = UserCollectedProperties{
          {"TablePropertiesTest", message_},
          {"Count", encoded},
          {"NumPuts", encoded_num_puts},
          {"NumDeletes", encoded_num_deletes},
+         {"NumSingleDeletes", encoded_num_single_deletes},
          {"NumSizeChanges", encoded_num_size_changes},
      };
      return Status::OK();
@@ -83,6 +87,8 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
       num_puts_++;
     } else if (type == kEntryDelete) {
       num_deletes_++;
+    } else if (type == kEntrySingleDelete) {
+      num_single_deletes_++;
     }
     if (file_size < file_size_) {
       message_ = "File size should not decrease.";
@@ -102,6 +108,7 @@ class RegularKeysStartWithA: public TablePropertiesCollector {
   uint32_t count_ = 0;
   uint32_t num_puts_ = 0;
   uint32_t num_deletes_ = 0;
+  uint32_t num_single_deletes_ = 0;
   uint32_t num_size_changes_ = 0;
   uint64_t file_size_ = 0;
 };
@@ -217,18 +224,18 @@ namespace {
 void TestCustomizedTablePropertiesCollector(
     bool backward_mode, uint64_t magic_number, bool test_int_tbl_prop_collector,
     const Options& options, const InternalKeyComparator& internal_comparator) {
-  const std::string kDeleteFlag = "D";
   // make sure the entries will be inserted with order.
-  std::map<std::string, std::string> kvs = {
-      {"About   ", "val5"},  // starts with 'A'
-      {"Abstract", "val2"},  // starts with 'A'
-      {"Around  ", "val7"},  // starts with 'A'
-      {"Beyond  ", "val3"},
-      {"Builder ", "val1"},
-      {"Love    ", kDeleteFlag},
-      {"Cancel  ", "val4"},
-      {"Find    ", "val6"},
-      {"Rocks   ", kDeleteFlag},
+  std::map<std::pair<std::string, ValueType>, std::string> kvs = {
+      {{"About   ", kTypeValue}, "val5"},  // starts with 'A'
+      {{"Abstract", kTypeValue}, "val2"},  // starts with 'A'
+      {{"Around  ", kTypeValue}, "val7"},  // starts with 'A'
+      {{"Beyond  ", kTypeValue}, "val3"},
+      {{"Builder ", kTypeValue}, "val1"},
+      {{"Love    ", kTypeDeletion}, ""},
+      {{"Cancel  ", kTypeValue}, "val4"},
+      {{"Find    ", kTypeValue}, "val6"},
+      {{"Rocks   ", kTypeDeletion}, ""},
+      {{"Foo     ", kTypeSingleDeletion}, ""},
   };
 
   // -- Step 1: build table
@@ -248,9 +255,7 @@ void TestCustomizedTablePropertiesCollector(
 
   SequenceNumber seqNum = 0U;
   for (const auto& kv : kvs) {
-    InternalKey ikey(kv.first, seqNum++, (kv.second != kDeleteFlag)
-                                             ? ValueType::kTypeValue
-                                             : ValueType::kTypeDeletion);
+    InternalKey ikey(kv.first.first, seqNum++, kv.first.second);
     builder->Add(ikey.Encode(), kv.second);
   }
   ASSERT_OK(builder->Finish());
@@ -270,31 +275,36 @@ void TestCustomizedTablePropertiesCollector(
 
   auto user_collected = props->user_collected_properties;
 
-  ASSERT_TRUE(user_collected.find("TablePropertiesTest") !=
-              user_collected.end());
+  ASSERT_NE(user_collected.find("TablePropertiesTest"), user_collected.end());
   ASSERT_EQ("Rocksdb", user_collected.at("TablePropertiesTest"));
 
   uint32_t starts_with_A = 0;
-  ASSERT_TRUE(user_collected.find("Count") != user_collected.end());
+  ASSERT_NE(user_collected.find("Count"), user_collected.end());
   Slice key(user_collected.at("Count"));
   ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
   ASSERT_EQ(3u, starts_with_A);
 
   if (!backward_mode && !test_int_tbl_prop_collector) {
-    uint32_t num_deletes;
-    ASSERT_TRUE(user_collected.find("NumDeletes") != user_collected.end());
-    Slice key_deletes(user_collected.at("NumDeletes"));
-    ASSERT_TRUE(GetVarint32(&key_deletes, &num_deletes));
-    ASSERT_EQ(2u, num_deletes);
-
     uint32_t num_puts;
-    ASSERT_TRUE(user_collected.find("NumPuts") != user_collected.end());
+    ASSERT_NE(user_collected.find("NumPuts"), user_collected.end());
     Slice key_puts(user_collected.at("NumPuts"));
     ASSERT_TRUE(GetVarint32(&key_puts, &num_puts));
     ASSERT_EQ(7u, num_puts);
 
+    uint32_t num_deletes;
+    ASSERT_NE(user_collected.find("NumDeletes"), user_collected.end());
+    Slice key_deletes(user_collected.at("NumDeletes"));
+    ASSERT_TRUE(GetVarint32(&key_deletes, &num_deletes));
+    ASSERT_EQ(2u, num_deletes);
+
+    uint32_t num_single_deletes;
+    ASSERT_NE(user_collected.find("NumSingleDeletes"), user_collected.end());
+    Slice key_single_deletes(user_collected.at("NumSingleDeletes"));
+    ASSERT_TRUE(GetVarint32(&key_single_deletes, &num_single_deletes));
+    ASSERT_EQ(1u, num_single_deletes);
+
     uint32_t num_size_changes;
-    ASSERT_TRUE(user_collected.find("NumSizeChanges") != user_collected.end());
+    ASSERT_NE(user_collected.find("NumSizeChanges"), user_collected.end());
     Slice key_size_changes(user_collected.at("NumSizeChanges"));
     ASSERT_TRUE(GetVarint32(&key_size_changes, &num_size_changes));
     ASSERT_GE(num_size_changes, 2u);
@@ -350,6 +360,7 @@ void TestInternalKeyPropertiesCollector(
       InternalKey("X       ", 4, ValueType::kTypeDeletion),
       InternalKey("Y       ", 5, ValueType::kTypeDeletion),
       InternalKey("Z       ", 6, ValueType::kTypeDeletion),
+      InternalKey("a       ", 7, ValueType::kTypeSingleDeletion),
   };
 
   std::unique_ptr<TableBuilder> builder;
@@ -403,27 +414,34 @@ void TestInternalKeyPropertiesCollector(
     std::unique_ptr<TableProperties> props_guard(props);
     auto user_collected = props->user_collected_properties;
     uint64_t deleted = GetDeletedKeys(user_collected);
-    ASSERT_EQ(4u, deleted);
+    ASSERT_EQ(5u, deleted);  // deletes + single-deletes
 
     if (sanitized) {
       uint32_t starts_with_A = 0;
-      ASSERT_TRUE(user_collected.find("Count") != user_collected.end());
+      ASSERT_NE(user_collected.find("Count"), user_collected.end());
       Slice key(user_collected.at("Count"));
       ASSERT_TRUE(GetVarint32(&key, &starts_with_A));
       ASSERT_EQ(1u, starts_with_A);
 
       if (!backward_mode) {
+        uint32_t num_puts;
+        ASSERT_NE(user_collected.find("NumPuts"), user_collected.end());
+        Slice key_puts(user_collected.at("NumPuts"));
+        ASSERT_TRUE(GetVarint32(&key_puts, &num_puts));
+        ASSERT_EQ(3u, num_puts);
+
         uint32_t num_deletes;
-        ASSERT_TRUE(user_collected.find("NumDeletes") != user_collected.end());
+        ASSERT_NE(user_collected.find("NumDeletes"), user_collected.end());
         Slice key_deletes(user_collected.at("NumDeletes"));
         ASSERT_TRUE(GetVarint32(&key_deletes, &num_deletes));
         ASSERT_EQ(4u, num_deletes);
 
-        uint32_t num_puts;
-        ASSERT_TRUE(user_collected.find("NumPuts") != user_collected.end());
-        Slice key_puts(user_collected.at("NumPuts"));
-        ASSERT_TRUE(GetVarint32(&key_puts, &num_puts));
-        ASSERT_EQ(3u, num_puts);
+        uint32_t num_single_deletes;
+        ASSERT_NE(user_collected.find("NumSingleDeletes"),
+                  user_collected.end());
+        Slice key_single_deletes(user_collected.at("NumSingleDeletes"));
+        ASSERT_TRUE(GetVarint32(&key_single_deletes, &num_single_deletes));
+        ASSERT_EQ(1u, num_single_deletes);
       }
     }
   }

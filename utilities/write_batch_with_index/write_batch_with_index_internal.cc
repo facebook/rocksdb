@@ -5,6 +5,8 @@
 
 #ifndef ROCKSDB_LITE
 
+#include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
+
 #include "db/column_family.h"
 #include "db/merge_context.h"
 #include "db/merge_helper.h"
@@ -13,7 +15,6 @@
 #include "rocksdb/utilities/write_batch_with_index.h"
 #include "util/coding.h"
 #include "util/string_util.h"
-#include "utilities/write_batch_with_index/write_batch_with_index_internal.h"
 
 namespace rocksdb {
 
@@ -52,6 +53,10 @@ Status ReadableWriteBatch::GetEntryFromDataOffset(size_t data_offset,
     case kTypeColumnFamilyDeletion:
     case kTypeDeletion:
       *type = kDeleteRecord;
+      break;
+    case kTypeColumnFamilySingleDeletion:
+    case kTypeSingleDeletion:
+      *type = kSingleDeleteRecord;
       break;
     case kTypeColumnFamilyMerge:
     case kTypeMerge:

@@ -65,7 +65,9 @@ class MergeHelper {
   // Returns one of the following statuses:
   // - OK: Entries were successfully merged.
   // - MergeInProgress: Put/Delete not encountered and unable to merge operands.
-  // - Corruption: Merge operator reported unsuccessful merge.
+  // - Corruption: Merge operator reported unsuccessful merge or a corrupted
+  //   key has been encountered and not expected (applies only when compiling
+  //   with asserts removed).
   //
   // REQUIRED: The first key in the input is not corrupted.
   Status MergeUntil(Iterator* iter, const SequenceNumber stop_before = 0,

@@ -110,13 +110,15 @@ Status BuildTable(
     }
 
     // Finish and check for builder errors
+    bool empty = builder->NumEntries() == 0;
     s = c_iter.status();
-    if (s.ok()) {
-      s = builder->Finish();
-    } else {
+    if (!s.ok() || empty) {
       builder->Abandon();
+    } else {
+      s = builder->Finish();
     }
-    if (s.ok()) {
+
+    if (s.ok() && !empty) {
       meta->fd.file_size = builder->FileSize();
       meta->marked_for_compaction = builder->NeedCompact();
       assert(meta->fd.GetFileSize() > 0);
@@ -127,28 +129,27 @@ Status BuildTable(
     delete builder;
 
     // Finish and check for file errors
-    if (s.ok() && !ioptions.disable_data_sync) {
+    if (s.ok() && !empty && !ioptions.disable_data_sync) {
       StopWatch sw(env, ioptions.statistics, TABLE_SYNC_MICROS);
       file_writer->Sync(ioptions.use_fsync);
     }
-    if (s.ok()) {
+    if (s.ok() && !empty) {
       s = file_writer->Close();
     }
 
-    if (s.ok()) {
+    if (s.ok() && !empty) {
       // Verify that the table is usable
-      Iterator* it = table_cache->NewIterator(
+      std::unique_ptr<Iterator> it(table_cache->NewIterator(
           ReadOptions(), env_options, internal_comparator, meta->fd, nullptr,
           (internal_stats == nullptr) ? nullptr
                                       : internal_stats->GetFileReadHist(0),
-          false);
+          false));
       s = it->status();
       if (s.ok() && paranoid_file_checks) {
-        for (it->SeekToFirst(); it->Valid(); it->Next()) {}
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+        }
         s = it->status();
       }
-
-      delete it;
     }
   }
 
@@ -157,9 +158,7 @@ Status BuildTable(
     s = iter->status();
   }
 
-  if (s.ok() && meta->fd.GetFileSize() > 0) {
-    // Keep it
-  } else {
+  if (!s.ok() || meta->fd.GetFileSize() == 0) {
     env->DeleteFile(fname);
   }
   return s;

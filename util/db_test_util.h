@@ -554,6 +554,10 @@ class DBTestBase : public testing::Test {
 
   Status Delete(int cf, const std::string& k);
 
+  Status SingleDelete(const std::string& k);
+
+  Status SingleDelete(int cf, const std::string& k);
+
   std::string Get(const std::string& k, const Snapshot* snapshot = nullptr);
 
   std::string Get(int cf, const std::string& k,

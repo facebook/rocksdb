@@ -54,6 +54,17 @@ class WriteBatchBase {
   virtual void Delete(ColumnFamilyHandle* column_family, const SliceParts& key);
   virtual void Delete(const SliceParts& key);
 
+  // If the database contains a mapping for "key", erase it. Expects that the
+  // key was not overwritten. Else do nothing.
+  virtual void SingleDelete(ColumnFamilyHandle* column_family,
+                            const Slice& key) = 0;
+  virtual void SingleDelete(const Slice& key) = 0;
+
+  // variant that takes SliceParts
+  virtual void SingleDelete(ColumnFamilyHandle* column_family,
+                            const SliceParts& key);
+  virtual void SingleDelete(const SliceParts& key);
+
   // Append a blob of arbitrary size to the records in this batch. The blob will
   // be stored in the transaction log but not in any other file. In particular,
   // it will not be persisted to the SST files. When iterating over this

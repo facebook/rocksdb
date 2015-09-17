@@ -88,7 +88,8 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
     if (!ParseInternalKey(iter->key(), &ikey)) {
       // stop at corrupted key
       if (assert_valid_internal_key_) {
-        assert(!"corrupted internal key is not expected");
+        assert(!"Corrupted internal key not expected.");
+        return Status::Corruption("Corrupted internal key not expected.");
       }
       break;
     } else if (!user_comparator_->Equal(ikey.user_key, orig_ikey.user_key)) {
@@ -102,8 +103,12 @@ Status MergeHelper::MergeUntil(Iterator* iter, const SequenceNumber stop_before,
 
     // At this point we are guaranteed that we need to process this key.
 
-    assert(ikey.type <= kValueTypeForSeek);
+    assert(IsValueType(ikey.type));
     if (ikey.type != kTypeMerge) {
+      // Merges operands can only be used with puts and deletions, single
+      // deletions are not supported.
+      assert(ikey.type == kTypeValue || ikey.type == kTypeDeletion);
+
       // hit a put/delete
       //   => merge the put value or a nullptr with operands_
       //   => store result in operands_.back() (and update keys_.back())

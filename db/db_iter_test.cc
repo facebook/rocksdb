@@ -38,16 +38,20 @@ class TestIterator : public Iterator {
         iter_(0),
         cmp(comparator) {}
 
-  void AddMerge(std::string argkey, std::string argvalue) {
-    Add(argkey, kTypeMerge, argvalue);
+  void AddPut(std::string argkey, std::string argvalue) {
+    Add(argkey, kTypeValue, argvalue);
   }
 
   void AddDeletion(std::string argkey) {
     Add(argkey, kTypeDeletion, std::string());
   }
 
-  void AddPut(std::string argkey, std::string argvalue) {
-    Add(argkey, kTypeValue, argvalue);
+  void AddSingleDeletion(std::string argkey) {
+    Add(argkey, kTypeSingleDeletion, std::string());
+  }
+
+  void AddMerge(std::string argkey, std::string argvalue) {
+    Add(argkey, kTypeMerge, argvalue);
   }
 
   void Add(std::string argkey, ValueType type, std::string argvalue) {
@@ -891,6 +895,8 @@ TEST_F(DBIteratorTest, DBIterator1) {
   db_iter->Next();
   ASSERT_TRUE(db_iter->Valid());
   ASSERT_EQ(db_iter->key().ToString(), "b");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
 }
 
 TEST_F(DBIteratorTest, DBIterator2) {
@@ -1784,6 +1790,58 @@ TEST_F(DBIteratorTest, SeekToLastOccurrenceSeq0) {
   ASSERT_EQ(db_iter->key().ToString(), "b");
   ASSERT_EQ(db_iter->value().ToString(), "2");
   db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+}
+
+TEST_F(DBIteratorTest, DBIterator11) {
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "0");
+  internal_iter->AddPut("b", "0");
+  internal_iter->AddSingleDeletion("b");
+  internal_iter->AddMerge("a", "1");
+  internal_iter->AddMerge("b", "2");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(NewDBIterator(
+      env_, ImmutableCFOptions(options), BytewiseComparator(), internal_iter, 1,
+      options.max_sequential_skip_in_iterations));
+  db_iter->SeekToFirst();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "0");
+  db_iter->Next();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "b");
+  db_iter->Next();
+  ASSERT_FALSE(db_iter->Valid());
+}
+
+TEST_F(DBIteratorTest, DBIterator12) {
+  Options options;
+  options.merge_operator = nullptr;
+
+  TestIterator* internal_iter = new TestIterator(BytewiseComparator());
+  internal_iter->AddPut("a", "1");
+  internal_iter->AddPut("b", "2");
+  internal_iter->AddPut("c", "3");
+  internal_iter->AddSingleDeletion("b");
+  internal_iter->Finish();
+
+  std::unique_ptr<Iterator> db_iter(
+      NewDBIterator(env_, ImmutableCFOptions(options), BytewiseComparator(),
+                    internal_iter, 10, 0));
+  db_iter->SeekToLast();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "c");
+  ASSERT_EQ(db_iter->value().ToString(), "3");
+  db_iter->Prev();
+  ASSERT_TRUE(db_iter->Valid());
+  ASSERT_EQ(db_iter->key().ToString(), "a");
+  ASSERT_EQ(db_iter->value().ToString(), "1");
+  db_iter->Prev();
   ASSERT_FALSE(db_iter->Valid());
 }
 

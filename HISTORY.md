@@ -1,5 +1,12 @@
 # Rocksdb Change Log
 
+## Unreleased
+### New Features
+* Added single delete operation as a more efficient way to delete keys that have not been overwritten.
+
+### Public API Changes
+* Added SingleDelete() to the DB interface.
+
 ## 4.0.0 (9/9/2015)
 ### New Features
 * Added support for transactions.  See include/rocksdb/utilities/transaction.h for more info.

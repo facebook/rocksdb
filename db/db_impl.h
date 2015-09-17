@@ -12,7 +12,6 @@
 #include <deque>
 #include <limits>
 #include <list>
-#include <list>
 #include <set>
 #include <string>
 #include <utility>
@@ -39,7 +38,6 @@
 #include "rocksdb/transaction_log.h"
 #include "util/autovector.h"
 #include "util/event_logger.h"
-#include "util/hash.h"
 #include "util/hash.h"
 #include "util/instrumented_mutex.h"
 #include "util/scoped_arena_iterator.h"
@@ -76,6 +74,10 @@ class DBImpl : public DB {
   virtual Status Delete(const WriteOptions& options,
                         ColumnFamilyHandle* column_family,
                         const Slice& key) override;
+  using DB::SingleDelete;
+  virtual Status SingleDelete(const WriteOptions& options,
+                              ColumnFamilyHandle* column_family,
+                              const Slice& key) override;
   using DB::Write;
   virtual Status Write(const WriteOptions& options,
                        WriteBatch* updates) override;
