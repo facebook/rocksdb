@@ -9,7 +9,7 @@ matrix:
       addons:
          apt:
             sources: ['ubuntu-toolchain-r-test', 'llvm-toolchain-precise-3.6']
-            packages: ['clang-3.6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl']
+            packages: ['clang-3.6', 'clang-format-3.6', 'zlib1g-dev', 'libbz2-dev', 'libsnappy-dev', 'curl']
     - os: osx
       compiler: clang
 
@@ -27,12 +27,14 @@ before_script:
   - export LIBRARY_PATH="$LIBRARY_PATH:/tmp/gflags-2.1.2/lib"
   - export CPLUS_INCLUDE_PATH="$CPLUS_INCLUDE_PATH:/tmp/gflags-2.1.2/include"
   - if [ -n "${COMPILER}" ]; then CXX=${COMPILER}; fi
-  - if [[ $(uname -s) == 'Darwin' ]]; then brew install gflags snappy; fi
+  - if [[ "${TRAVIS_OS_NAME}" == 'osx' ]]; then brew install gflags snappy; fi
   - ulimit -n 2000 || true
 
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
-script: OPT=-DTRAVIS CLANG_FORMAT_DIFF=/tmp/clang-format-diff.py make format && OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
+script:
+  - if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then OPT=-DTRAVIS CLANG_FORMAT_DIFF=/tmp/clang-format-diff.py make format; fi
+  - OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
 
 notifications:
     email:
