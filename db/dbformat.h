@@ -282,7 +282,7 @@ class IterKey {
     return Slice(key_, key_size_ - 8);
   }
 
-  size_t Size() { return key_size_; }
+  size_t Size() const { return key_size_; }
 
   void Clear() { key_size_ = 0; }
 
