@@ -79,6 +79,12 @@ echo -e "Detect lines that doesn't follow the format rules:\r"
 echo "$diffs" | 
   sed -e "s/\(^-.*$\)/`echo -e \"$COLOR_RED\1$COLOR_END\"`/" |
   sed -e "s/\(^+.*$\)/`echo -e \"$COLOR_GREEN\1$COLOR_END\"`/"
+
+if [[ "$OPT" == *"-DTRAVIS"* ]]
+then
+  exit 1
+fi
+
 echo -e "Would you like to fix the format automatically (y/n): \c"
 
 # Make sure under any mode, we can read user input.

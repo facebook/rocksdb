@@ -17,6 +17,8 @@ install:
   # Build gflags
   # TODO(noetzli): Remove when gflags available through Travis
   - pushd /tmp/ && curl -L https://github.com/gflags/gflags/archive/v2.1.2.tar.gz -o gflags.tar.gz && tar xfz gflags.tar.gz && cd gflags-2.1.2 && cmake . && make && popd
+  # Download clang-format-diff.py to check source code formatting
+  - pushd /tmp/ && curl -L http://llvm.org/svn/llvm-project/cfe/trunk/tools/clang-format/clang-format-diff.py -o clang-format-diff.py && chmod +x clang-format-diff.py && popd
 
 before_script:
   # Add gflags to include/library paths
@@ -30,7 +32,7 @@ before_script:
 
 # Lousy hack to disable use and testing of fallocate, which doesn't behave quite
 # as EnvPosixTest::AllocateTest expects within the Travis OpenVZ environment.
-script: OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
+script: OPT=-DTRAVIS CLANG_FORMAT_DIFF=/tmp/clang-format-diff.py make format && OPT=-DTRAVIS V=1 make -j4 check && OPT=-DTRAVIS V=1 make clean jclean rocksdbjava jtest
 
 notifications:
     email:
