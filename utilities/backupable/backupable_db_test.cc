@@ -961,6 +961,8 @@ TEST_F(BackupableDBTest, OnlineIntegrationTest) {
 
 TEST_F(BackupableDBTest, FailOverwritingBackups) {
   options_.write_buffer_size = 1024 * 1024 * 1024;  // 1GB
+  options_.disable_auto_compactions = true;
+
   // create backups 1, 2, 3, 4, 5
   OpenDBAndBackupEngine(true);
   for (int i = 0; i < 5; ++i) {
