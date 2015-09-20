@@ -325,46 +325,46 @@ TSAN_CRASH_TEST_COMMANDS="[
 # RocksDB format compatible
 #
 
-SCRIPT='
-export TEST_TMPDIR=/dev/shm/rocksdb
-rm -rf /dev/shm/rocksdb
-mkdir /dev/shm/rocksdb
+run_format_compatible()
+{
+  export TEST_TMPDIR=/dev/shm/rocksdb
+  rm -rf /dev/shm/rocksdb
+  mkdir /dev/shm/rocksdb
 
-echo "
+  echo '
+  if [ -e "build_tools/build_detect_platform" ]
+  then
+    sed "s/tcmalloc/nothingnothingnothing/g" build_tools/build_detect_platform > $TEST_TMPDIR/temp_build_file
+    rm -rf build_tools/build_detect_platform
+    cp $TEST_TMPDIR/temp_build_file build_tools/build_detect_platform
+    chmod +x build_tools/build_detect_platform
+  fi
 
-if [ -e "build_tools/build_detect_platform" ]
-then
-  sed "s/tcmalloc/nothingnothingnothing/g" build_tools/build_detect_platform > $TEST_TMPDIR/temp_build_file
-  rm -rf build_tools/build_detect_platform
-  cp $TEST_TMPDIR/temp_build_file build_tools/build_detect_platform
-  chmod +x build_tools/build_detect_platform
-fi
+  if [ -e "build_detect_platform" ]
+  then
+    sed "s/tcmalloc/nothingnothingnothing/g" build_detect_platform > $TEST_TMPDIR/temp_build_file
+    rm -rf build_detect_platform 
+    cp $TEST_TMPDIR/temp_build_file build_detect_platform
+    chmod +x build_detect_platform 
+  fi
 
-if [ -e "build_detect_platform" ]
-then
-  sed "s/tcmalloc/nothingnothingnothing/g" build_detect_platform > $TEST_TMPDIR/temp_build_file
-  rm -rf build_detect_platform 
-  cp $TEST_TMPDIR/temp_build_file build_detect_platform
-  chmod +x build_detect_platform 
-fi
+  make ldb -j32
 
-make ldb -j32
+  if [ -e "build_detect_platform" ]
+  then
+    git checkout -- build_detect_platform
+  fi
 
-if [ -e "build_detect_platform" ]
-then
-  git checkout -- build_detect_platform
-fi
+  if [ -e "build_tools/build_detect_platform" ]
+  then
+    git checkout -- build_tools/build_detect_platform
+  fi
+  ' > temp_build_ldb.sh
 
-if [ -e "build_tools/build_detect_platform" ]
-then
-  git checkout -- build_tools/build_detect_platform
-fi
-" > temp_build_ldb.sh
-
-sed "s/make ldb -j32/source temp_build_ldb.sh/g" tools/check_format_compatible.sh > tools/temp_check_format_compatible.sh
-chmod +x tools/temp_check_format_compatible.sh
-tools/temp_check_format_compatible.sh
-'
+  sed "s/make ldb -j32/source temp_build_ldb.sh/g" tools/check_format_compatible.sh > tools/temp_check_format_compatible.sh
+  chmod +x tools/temp_check_format_compatible.sh
+  tools/temp_check_format_compatible.sh
+}
 
 FORMAT_COMPATIBLE_COMMANDS="[
     {
@@ -374,7 +374,7 @@ FORMAT_COMPATIBLE_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Run RocksDB debug unit test',
-                'shell':'echo \'$SCRIPT\' > .legocmd && cat .legocmd && bash .legocmd',
+                'shell':'build_tools/rocksdb-lego-determinator run_format_compatible',
                 'user':'root'
             },
         ],
@@ -384,18 +384,19 @@ FORMAT_COMPATIBLE_COMMANDS="[
 #
 # RocksDB no compression
 #
-SCRIPT='
-export TEST_TMPDIR=/dev/shm/rocksdb
-rm -rf /dev/shm/rocksdb
-mkdir /dev/shm/rocksdb
-make clean
-cat build_tools/fbcode_config.sh | grep -iv dzlib | grep -iv dlz4 | grep -iv
-dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
-mv .tmp.fbcode_config.sh build_tools/fbcode_config.sh
-cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
-mv .tmp.Makefile Makefile
-make $DEBUG J=1 check
-'
+run_no_compression()
+{
+  export TEST_TMPDIR=/dev/shm/rocksdb
+  rm -rf /dev/shm/rocksdb
+  mkdir /dev/shm/rocksdb
+  make clean
+  cat build_tools/fbcode_config.sh | grep -iv dzlib | grep -iv dlz4 | grep -iv
+  dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
+  mv .tmp.fbcode_config.sh build_tools/fbcode_config.sh
+  cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
+  mv .tmp.Makefile Makefile
+  make $DEBUG J=1 check
+}
 
 NO_COMPRESSION_COMMANDS="[
     {
@@ -405,7 +406,7 @@ NO_COMPRESSION_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Run RocksDB debug unit test',
-                'shell':'echo \'$SCRIPT\' > .legocmd && cat .legocmd && bash .legocmd',
+                'shell':'build_tools/rocksdb-lego-determinator run_no_compression',
                 'user':'root'
             },
         ],
@@ -415,41 +416,42 @@ NO_COMPRESSION_COMMANDS="[
 #
 # RocksDB regression
 #
-SCRIPT='
-time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKSPACE/leveldb.XXXX) $(mktemp leveldb_test_stats.XXXX)
+run_regression()
+{
+  time -v bash -vx ./build_tools/regression_build_test.sh $(mktemp -d  $WORKSPACE/leveldb.XXXX) $(mktemp leveldb_test_stats.XXXX)
 
-# ======= report size to ODS ========
+  # ======= report size to ODS ========
 
-# parameters: $1 -- key, $2 -- value
-function send_size_to_ods {
-  curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=rocksdb.build_size.$1&value=$2" \
-    --connect-timeout 60
+  # parameters: $1 -- key, $2 -- value
+  function send_size_to_ods {
+    curl -s "https://www.intern.facebook.com/intern/agent/ods_set.php?entity=rocksdb_build&key=rocksdb.build_size.$1&value=$2" \
+      --connect-timeout 60
+  }
+
+  # === normal build ===
+  make clean
+  make -j$(nproc) static_lib
+  send_size_to_ods static_lib $(stat --printf="%s" librocksdb.a)
+  strip librocksdb.a
+  send_size_to_ods static_lib_stripped $(stat --printf="%s" librocksdb.a)
+
+  make -j$(nproc) shared_lib
+  send_size_to_ods shared_lib $(stat --printf="%s" `readlink -f librocksdb.so`)
+  strip `readlink -f librocksdb.so`
+  send_size_to_ods shared_lib_stripped $(stat --printf="%s" `readlink -f librocksdb.so`)
+
+  # === lite build ===
+  make clean
+  OPT=-DROCKSDB_LITE make -j$(nproc) static_lib
+  send_size_to_ods static_lib_lite $(stat --printf="%s" librocksdb.a)
+  strip librocksdb.a
+  send_size_to_ods static_lib_lite_stripped $(stat --printf="%s" librocksdb.a)
+
+  OPT=-DROCKSDB_LITE make -j$(nproc) shared_lib
+  send_size_to_ods shared_lib_lite $(stat --printf="%s" `readlink -f librocksdb.so`)
+  strip `readlink -f librocksdb.so`
+  send_size_to_ods shared_lib_lite_stripped $(stat --printf="%s" `readlink -f librocksdb.so`)
 }
-
-# === normal build ===
-make clean
-make -j$(nproc) static_lib
-send_size_to_ods static_lib $(stat --printf="%s" librocksdb.a)
-strip librocksdb.a
-send_size_to_ods static_lib_stripped $(stat --printf="%s" librocksdb.a)
-
-make -j$(nproc) shared_lib
-send_size_to_ods shared_lib $(stat --printf="%s" `readlink -f librocksdb.so`)
-strip `readlink -f librocksdb.so`
-send_size_to_ods shared_lib_stripped $(stat --printf="%s" `readlink -f librocksdb.so`)
-
-# === lite build ===
-make clean
-OPT=-DROCKSDB_LITE make -j$(nproc) static_lib
-send_size_to_ods static_lib_lite $(stat --printf="%s" librocksdb.a)
-strip librocksdb.a
-send_size_to_ods static_lib_lite_stripped $(stat --printf="%s" librocksdb.a)
-
-OPT=-DROCKSDB_LITE make -j$(nproc) shared_lib
-send_size_to_ods shared_lib_lite $(stat --printf="%s" `readlink -f librocksdb.so`)
-strip `readlink -f librocksdb.so`
-send_size_to_ods shared_lib_lite_stripped $(stat --printf="%s" `readlink -f librocksdb.so`)
-'
 
 REGRESSION_COMMANDS="[
     {
@@ -459,7 +461,7 @@ REGRESSION_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Make and run script',
-                'shell':'echo \'$SCRIPT\' > .legocmd && cat .legocmd && bash .legocmd',
+                'shell':'build_tools/rocksdb-lego-determinator run_regression',
                 'user':'root'
             },
         ],
@@ -512,11 +514,20 @@ case $1 in
   format_compatible)
     echo $FORMAT_COMPATIBLE_COMMANDS
     ;;
+  run_format_compatible)
+    run_format_compatible
+    ;;
   no_compression)
     echo $NO_COMPRESSION_COMMANDS
     ;;
+  run_no_compression)
+    run_no_compression
+    ;;
   regression)
     echo $REGRESSION_COMMANDS
+    ;;
+  run_regression)
+    run_regression
     ;;
   *)
     echo "Invalid determinator command"
