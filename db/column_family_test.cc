@@ -23,6 +23,8 @@
 #include "util/sync_point.h"
 #include "utilities/merge_operators.h"
 
+#if !(defined NDEBUG) || !defined(OS_WIN)
+
 namespace rocksdb {
 
 namespace {
@@ -1260,8 +1262,13 @@ TEST_F(ColumnFamilyTest, FlushAndDropRaceCondition) {
 }
 
 }  // namespace rocksdb
+#endif
 
 int main(int argc, char** argv) {
+#if !(defined NDEBUG) || !defined(OS_WIN)
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
+#else
+  return 0;
+#endif
 }
