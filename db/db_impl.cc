@@ -3708,8 +3708,10 @@ Status DBImpl::WriteImpl(const WriteOptions& write_options,
       default_cf_internal_stats_->AddDBStats(InternalStats::NUMBER_KEYS_WRITTEN,
                                              my_batch_count);
       if (!write_options.disableWAL) {
-        default_cf_internal_stats_->AddDBStats(
-            InternalStats::WAL_FILE_SYNCED, 1);
+        if (write_options.sync) {
+          default_cf_internal_stats_->AddDBStats(InternalStats::WAL_FILE_SYNCED,
+                                                 1);
+        }
         default_cf_internal_stats_->AddDBStats(
             InternalStats::WAL_FILE_BYTES, log_size);
       }
