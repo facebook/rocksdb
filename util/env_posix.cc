@@ -614,19 +614,18 @@ class PosixWritableFile : public WritableFile {
   virtual Status Append(const Slice& data) override {
     const char* src = data.data();
     size_t left = data.size();
-    Status s;
-      while (left != 0) {
-        ssize_t done = write(fd_, src, left);
-        if (done < 0) {
-          if (errno == EINTR) {
-            continue;
-          }
-          return IOError(filename_, errno);
+    while (left != 0) {
+      ssize_t done = write(fd_, src, left);
+      if (done < 0) {
+        if (errno == EINTR) {
+          continue;
         }
-        left -= done;
-        src += done;
+        return IOError(filename_, errno);
       }
-      filesize_ += data.size();
+      left -= done;
+      src += done;
+    }
+    filesize_ += data.size();
     return Status::OK();
   }
 

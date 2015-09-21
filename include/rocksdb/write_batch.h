@@ -206,7 +206,8 @@ class WriteBatch : public WriteBatchBase {
   WriteBatch* GetWriteBatch() override { return this; }
 
   // Constructor with a serialized string object
-  explicit WriteBatch(std::string rep) : save_points_(nullptr), rep_(rep) {}
+  explicit WriteBatch(const std::string& rep)
+      : save_points_(nullptr), rep_(rep) {}
 
  private:
   friend class WriteBatchInternal;

@@ -282,7 +282,7 @@ class IterKey {
     return Slice(key_, key_size_ - 8);
   }
 
-  size_t Size() { return key_size_; }
+  size_t Size() const { return key_size_; }
 
   void Clear() { key_size_ = 0; }
 
@@ -302,7 +302,7 @@ class IterKey {
       char* p = new char[total_size];
       memcpy(p, key_, shared_len);
 
-      if (key_ != nullptr && key_ != space_) {
+      if (key_ != space_) {
         delete[] key_;
       }
 
@@ -388,10 +388,10 @@ class IterKey {
   char space_[32];  // Avoid allocation for short keys
 
   void ResetBuffer() {
-    if (key_ != nullptr && key_ != space_) {
+    if (key_ != space_) {
       delete[] key_;
+      key_ = space_;
     }
-    key_ = space_;
     buf_size_ = sizeof(space_);
     key_size_ = 0;
   }
