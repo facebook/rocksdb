@@ -18,6 +18,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <functional>
 
 #include "rocksdb/utilities/stackable_db.h"
 
