@@ -31,6 +31,23 @@ TSAN="COMPILE_WITH_TSAN=1"
 DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 
 #
+# A mechanism to disable tests temporarily
+#
+DISABLE_COMMANDS="[
+    {
+        'name':'Disable test',
+        $ONCALL,
+        'steps': [
+            {
+              'name':'Raise disabled notification',
+              'shell':'exit 1',
+              'user':'root'
+            },
+        ],
+    }
+]"
+
+#
 # RocksDB unit test in parallel
 # Currently we always have noise in our parallel runs. This job is to help
 # manage the noise
@@ -222,6 +239,7 @@ STRESS_CRASH_TEST_COMMANDS="[
     }
 ]"
 
+STRESS_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 
 #
 # RocksDB test under address sanitizer
@@ -262,6 +280,8 @@ ASAN_CRASH_TEST_COMMANDS="[
         $REPORT_EMAIL
     }
 ]"
+
+ASAN_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 
 #
 # RocksDB unit test under valgrind
@@ -320,6 +340,8 @@ TSAN_CRASH_TEST_COMMANDS="[
         ],
     }
 ]"
+
+TSAN_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 
 #
 # RocksDB format compatible
