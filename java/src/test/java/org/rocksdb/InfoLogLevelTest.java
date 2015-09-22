@@ -27,7 +27,7 @@ public class InfoLogLevelTest {
     try {
       db = RocksDB.open(dbFolder.getRoot().getAbsolutePath());
       db.put("key".getBytes(), "value".getBytes());
-      assertThat(getLogContents()).isNotEmpty();
+      assertThat(getLogContentsWithoutHeader()).isNotEmpty();
     } finally {
       if (db != null) {
         db.close();
@@ -51,7 +51,7 @@ public class InfoLogLevelTest {
       db.put("key".getBytes(), "value".getBytes());
       // As InfoLogLevel is set to FATAL_LEVEL, here we expect the log
       // content to be empty.
-      assertThat(getLogContents()).isEmpty();
+      assertThat(getLogContentsWithoutHeader()).isEmpty();
     } finally {
       if (db != null) {
         db.close();
@@ -81,7 +81,7 @@ public class InfoLogLevelTest {
       db = RocksDB.open(options,
           dbFolder.getRoot().getAbsolutePath());
       db.put("key".getBytes(), "value".getBytes());
-      assertThat(getLogContents()).isEmpty();
+      assertThat(getLogContentsWithoutHeader()).isEmpty();
     } finally {
       if (db != null) {
         db.close();
@@ -112,8 +112,23 @@ public class InfoLogLevelTest {
    * @return LOG file contents as String.
    * @throws IOException if file is not found.
    */
-  private String getLogContents() throws IOException {
-    return new String(readAllBytes(get(
-        dbFolder.getRoot().getAbsolutePath()+ "/LOG")));
+  private String getLogContentsWithoutHeader() throws IOException {
+    final String separator = System.getProperty("line.separator");
+    final String[] lines = new String(readAllBytes(get(
+        dbFolder.getRoot().getAbsolutePath()+ "/LOG"))).split(separator);
+
+    int first_non_header = lines.length;
+    // Identify the last line of the header
+    for (int i = lines.length - 1; i >= 0; --i) {
+      if (lines[i].indexOf("Options.") >= 0 && lines[i].indexOf(':') >= 0) {
+        first_non_header = i + 1;
+        break;
+      }
+    }
+    StringBuilder builder = new StringBuilder();
+    for (int i = first_non_header; i < lines.length; ++i) {
+      builder.append(lines[i]).append(separator);
+    }
+    return builder.toString();
   }
 }
