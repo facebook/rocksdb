@@ -314,6 +314,10 @@ static rocksdb::CompactionStyle FLAGS_compaction_style_e;
 DEFINE_int32(compaction_style, (int32_t) rocksdb::Options().compaction_style,
              "style of compaction: level-based vs universal");
 
+static rocksdb::CompactionPri FLAGS_compaction_pri_e;
+DEFINE_int32(compaction_pri, (int32_t)rocksdb::Options().compaction_style,
+             "priority of files to compaction: by size or by data age");
+
 DEFINE_int32(universal_size_ratio, 0,
              "Percentage flexibility while comparing file size"
              " (for universal compaction only).");
@@ -2248,6 +2252,7 @@ class Benchmark {
     options.max_subcompactions = static_cast<uint32_t>(FLAGS_subcompactions);
     options.max_background_flushes = FLAGS_max_background_flushes;
     options.compaction_style = FLAGS_compaction_style_e;
+    options.compaction_pri = FLAGS_compaction_pri_e;
     if (FLAGS_prefix_size != 0) {
       options.prefix_extractor.reset(
           NewFixedPrefixTransform(FLAGS_prefix_size));
@@ -3957,6 +3962,7 @@ int main(int argc, char** argv) {
   if (FLAGS_statistics) {
     dbstats = rocksdb::CreateDBStatistics();
   }
+  FLAGS_compaction_pri_e = (rocksdb::CompactionPri)FLAGS_compaction_pri;
 
   std::vector<std::string> fanout = rocksdb::StringSplit(
       FLAGS_max_bytes_for_level_multiplier_additional, ',');

@@ -80,6 +80,13 @@ enum CompactionStyle : char {
   kCompactionStyleNone = 0x3,
 };
 
+enum CompactionPri : char {
+  // Slightly Priotize larger files by size compensated by #deletes
+  kCompactionPriByCompensatedSize = 0x0,
+  // First compact files whose data is oldest.
+  kCompactionPriByLargestSeq = 0x1,
+};
+
 enum class WALRecoveryMode : char {
   // Original levelDB recovery
   // We tolerate incomplete record in trailing data on all logs
@@ -546,6 +553,11 @@ struct ColumnFamilyOptions {
 
   // The compaction style. Default: kCompactionStyleLevel
   CompactionStyle compaction_style;
+
+  // If level compaction_style = kCompactionStyleLevel, for each level,
+  // which files are prioritized to be picked to compact.
+  // Default: kCompactionPriByCompensatedSize
+  CompactionPri compaction_pri;
 
   // If true, compaction will verify checksum on every read that happens
   // as part of compaction

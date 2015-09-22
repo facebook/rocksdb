@@ -109,6 +109,7 @@ ColumnFamilyOptions::ColumnFamilyOptions()
       disable_auto_compactions(false),
       purge_redundant_kvs_while_flush(true),
       compaction_style(kCompactionStyleLevel),
+      compaction_pri(kCompactionPriByCompensatedSize),
       verify_checksums_in_compaction(true),
       filter_deletes(false),
       max_sequential_skip_in_iterations(8),
@@ -170,6 +171,7 @@ ColumnFamilyOptions::ColumnFamilyOptions(const Options& options)
       disable_auto_compactions(options.disable_auto_compactions),
       purge_redundant_kvs_while_flush(options.purge_redundant_kvs_while_flush),
       compaction_style(options.compaction_style),
+      compaction_pri(options.compaction_pri),
       verify_checksums_in_compaction(options.verify_checksums_in_compaction),
       compaction_options_universal(options.compaction_options_universal),
       compaction_options_fifo(options.compaction_options_fifo),
@@ -492,6 +494,8 @@ void ColumnFamilyOptions::Dump(Logger* log) const {
         verify_checksums_in_compaction);
     Header(log, "                        Options.compaction_style: %d",
         compaction_style);
+    Header(log, "                          Options.compaction_pri: %d",
+           compaction_pri);
     Header(log, " Options.compaction_options_universal.size_ratio: %u",
         compaction_options_universal.size_ratio);
     Header(log, "Options.compaction_options_universal.min_merge_width: %u",

@@ -132,8 +132,9 @@ class VersionStorageInfo {
   // Generate level_files_brief_ from files_
   void GenerateLevelFilesBrief();
   // Sort all files for this version based on their file size and
-  // record results in files_by_size_. The largest files are listed first.
-  void UpdateFilesBySize();
+  // record results in files_by_compaction_pri_. The largest files are listed
+  // first.
+  void UpdateFilesByCompactionPri(const MutableCFOptions& mutable_cf_options);
 
   void GenerateLevel0NonOverlapping();
   bool level0_non_overlapping() const {
@@ -226,9 +227,9 @@ class VersionStorageInfo {
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
-  const std::vector<int>& FilesBySize(int level) const {
+  const std::vector<int>& FilesByCompactionPri(int level) const {
     assert(finalized_);
-    return files_by_size_[level];
+    return files_by_compaction_pri_[level];
   }
 
   // REQUIRES: This version has been saved (see VersionSet::SaveTo)
@@ -242,7 +243,7 @@ class VersionStorageInfo {
   int base_level() const { return base_level_; }
 
   // REQUIRES: lock is held
-  // Set the index that is used to offset into files_by_size_ to find
+  // Set the index that is used to offset into files_by_compaction_pri_ to find
   // the next compaction candidate file.
   void SetNextCompactionIndex(int level, int index) {
     next_file_to_compact_by_size_[level] = index;
@@ -259,7 +260,7 @@ class VersionStorageInfo {
     return file_indexer_;
   }
 
-  // Only the first few entries of files_by_size_ are sorted.
+  // Only the first few entries of files_by_compaction_pri_ are sorted.
   // There is no need to sort all the files because it is likely
   // that on a running system, we need to look at only the first
   // few largest files because a new version is created every few
@@ -299,7 +300,8 @@ class VersionStorageInfo {
 
   uint64_t GetEstimatedActiveKeys() const;
 
-  // re-initializes the index that is used to offset into files_by_size_
+  // re-initializes the index that is used to offset into
+  // files_by_compaction_pri_
   // to find the next compaction candidate file.
   void ResetNextCompactionIndex(int level) {
     next_file_to_compact_by_size_[level] = 0;
@@ -351,16 +353,16 @@ class VersionStorageInfo {
   // but files in each level are now sorted based on file
   // size. The file with the largest size is at the front.
   // This vector stores the index of the file from files_.
-  std::vector<std::vector<int>> files_by_size_;
+  std::vector<std::vector<int>> files_by_compaction_pri_;
 
   // If true, means that files in L0 have keys with non overlapping ranges
   bool level0_non_overlapping_;
 
-  // An index into files_by_size_ that specifies the first
+  // An index into files_by_compaction_pri_ that specifies the first
   // file that is not yet compacted
   std::vector<int> next_file_to_compact_by_size_;
 
-  // Only the first few entries of files_by_size_ are sorted.
+  // Only the first few entries of files_by_compaction_pri_ are sorted.
   // There is no need to sort all the files because it is likely
   // that on a running system, we need to look at only the first
   // few largest files because a new version is created every few
@@ -513,8 +515,9 @@ class Version {
   void UpdateAccumulatedStats(bool update_stats);
 
   // Sort all files for this version based on their file size and
-  // record results in files_by_size_. The largest files are listed first.
-  void UpdateFilesBySize();
+  // record results in files_by_compaction_pri_. The largest files are listed
+  // first.
+  void UpdateFilesByCompactionPri();
 
   ColumnFamilyData* cfd_;  // ColumnFamilyData to which this Version belongs
   Logger* info_log_;

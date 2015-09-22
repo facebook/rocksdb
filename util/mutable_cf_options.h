@@ -31,6 +31,7 @@ struct MutableCFOptions {
             options.level0_file_num_compaction_trigger),
         level0_slowdown_writes_trigger(options.level0_slowdown_writes_trigger),
         level0_stop_writes_trigger(options.level0_stop_writes_trigger),
+        compaction_pri(options.compaction_pri),
         max_grandparent_overlap_factor(options.max_grandparent_overlap_factor),
         expanded_compaction_factor(options.expanded_compaction_factor),
         source_compaction_factor(options.source_compaction_factor),
@@ -66,6 +67,7 @@ struct MutableCFOptions {
         level0_file_num_compaction_trigger(0),
         level0_slowdown_writes_trigger(0),
         level0_stop_writes_trigger(0),
+        compaction_pri(kCompactionPriByCompensatedSize),
         max_grandparent_overlap_factor(0),
         expanded_compaction_factor(0),
         source_compaction_factor(0),
@@ -117,6 +119,7 @@ struct MutableCFOptions {
   int level0_file_num_compaction_trigger;
   int level0_slowdown_writes_trigger;
   int level0_stop_writes_trigger;
+  CompactionPri compaction_pri;
   int max_grandparent_overlap_factor;
   int expanded_compaction_factor;
   int source_compaction_factor;

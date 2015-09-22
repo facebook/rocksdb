@@ -1028,7 +1028,7 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
 
   // Pick the largest file in this level that is not already
   // being compacted
-  const std::vector<int>& file_size = vstorage->FilesBySize(level);
+  const std::vector<int>& file_size = vstorage->FilesByCompactionPri(level);
   const std::vector<FileMetaData*>& level_files = vstorage->LevelFiles(level);
 
   // record the first file that is not yet compacted
@@ -1038,11 +1038,6 @@ bool LevelCompactionPicker::PickCompactionBySize(VersionStorageInfo* vstorage,
        i < file_size.size(); i++) {
     int index = file_size[i];
     auto* f = level_files[index];
-
-    assert((i == file_size.size() - 1) ||
-           (i >= VersionStorageInfo::kNumberFilesToSort - 1) ||
-           (f->compensated_file_size >=
-            level_files[file_size[i + 1]]->compensated_file_size));
 
     // do not pick a file to compact if it is being compacted
     // from n-1 level.

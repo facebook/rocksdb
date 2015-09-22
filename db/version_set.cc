@@ -782,7 +782,7 @@ VersionStorageInfo::VersionStorageInfo(
       compaction_style_(compaction_style),
       files_(new std::vector<FileMetaData*>[num_levels_]),
       base_level_(num_levels_ == 1 ? -1 : 1),
-      files_by_size_(num_levels_),
+      files_by_compaction_pri_(num_levels_),
       level0_non_overlapping_(false),
       next_file_to_compact_by_size_(num_levels_),
       compaction_score_(num_levels_),
@@ -923,7 +923,7 @@ void Version::PrepareApply(
   UpdateAccumulatedStats(update_stats);
   storage_info_.UpdateNumNonEmptyLevels();
   storage_info_.CalculateBaseBytes(*cfd_->ioptions(), mutable_cf_options);
-  storage_info_.UpdateFilesBySize();
+  storage_info_.UpdateFilesByCompactionPri(mutable_cf_options);
   storage_info_.GenerateFileIndexer();
   storage_info_.GenerateLevelFilesBrief();
   storage_info_.GenerateLevel0NonOverlapping();
@@ -1227,7 +1227,6 @@ bool CompareCompensatedSizeDescending(const Fsize& first, const Fsize& second) {
   return (first.file->compensated_file_size >
       second.file->compensated_file_size);
 }
-
 } // anonymous namespace
 
 void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
@@ -1245,7 +1244,7 @@ void VersionStorageInfo::AddFile(int level, FileMetaData* f) {
 // following functions called:
 // 1. UpdateNumNonEmptyLevels();
 // 2. CalculateBaseBytes();
-// 3. UpdateFilesBySize();
+// 3. UpdateFilesByCompactionPri();
 // 4. GenerateFileIndexer();
 // 5. GenerateLevelFilesBrief();
 // 6. GenerateLevel0NonOverlapping();
@@ -1297,7 +1296,8 @@ void VersionStorageInfo::UpdateNumNonEmptyLevels() {
   }
 }
 
-void VersionStorageInfo::UpdateFilesBySize() {
+void VersionStorageInfo::UpdateFilesByCompactionPri(
+    const MutableCFOptions& mutable_cf_options) {
   if (compaction_style_ == kCompactionStyleFIFO ||
       compaction_style_ == kCompactionStyleUniversal) {
     // don't need this
@@ -1306,8 +1306,8 @@ void VersionStorageInfo::UpdateFilesBySize() {
   // No need to sort the highest level because it is never compacted.
   for (int level = 0; level < num_levels() - 1; level++) {
     const std::vector<FileMetaData*>& files = files_[level];
-    auto& files_by_size = files_by_size_[level];
-    assert(files_by_size.size() == 0);
+    auto& files_by_compaction_pri = files_by_compaction_pri_[level];
+    assert(files_by_compaction_pri.size() == 0);
 
     // populate a temp vector for sorting based on size
     std::vector<Fsize> temp(files.size());
@@ -1321,16 +1321,28 @@ void VersionStorageInfo::UpdateFilesBySize() {
     if (num > temp.size()) {
       num = temp.size();
     }
-    std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
-                      CompareCompensatedSizeDescending);
+    switch (mutable_cf_options.compaction_pri) {
+      case kCompactionPriByCompensatedSize:
+        std::partial_sort(temp.begin(), temp.begin() + num, temp.end(),
+                          CompareCompensatedSizeDescending);
+        break;
+      case kCompactionPriByLargestSeq:
+        std::sort(temp.begin(), temp.end(),
+                  [this](const Fsize& f1, const Fsize& f2) -> bool {
+                    return f1.file->largest_seqno < f2.file->largest_seqno;
+                  });
+        break;
+      default:
+        assert(false);
+    }
     assert(temp.size() == files.size());
 
-    // initialize files_by_size_
+    // initialize files_by_compaction_pri_
     for (unsigned int i = 0; i < temp.size(); i++) {
-      files_by_size.push_back(temp[i].index);
+      files_by_compaction_pri.push_back(temp[i].index);
     }
     next_file_to_compact_by_size_[level] = 0;
-    assert(files_[level].size() == files_by_size_[level].size());
+    assert(files_[level].size() == files_by_compaction_pri_[level].size());
   }
 }
 

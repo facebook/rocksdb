@@ -77,7 +77,7 @@ class VersionBuilderTest : public testing::Test {
   }
 
   void UpdateVersionStorageInfo() {
-    vstorage_.UpdateFilesBySize();
+    vstorage_.UpdateFilesByCompactionPri(mutable_cf_options_);
     vstorage_.UpdateNumNonEmptyLevels();
     vstorage_.GenerateFileIndexer();
     vstorage_.GenerateLevelFilesBrief();
