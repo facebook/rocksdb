@@ -151,8 +151,9 @@ InfoLogPrefix::InfoLogPrefix(bool has_log_dir,
 
 std::string InfoLogFileName(const std::string& dbname,
     const std::string& db_path, const std::string& log_dir) {
-  if (log_dir.empty())
+  if (log_dir.empty()) {
     return dbname + "/LOG";
+  }
 
   InfoLogPrefix info_log_prefix(true, db_path);
   return log_dir + "/" + info_log_prefix.buf;
@@ -164,8 +165,9 @@ std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
   char buf[50];
   snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(ts));
 
-  if (log_dir.empty())
+  if (log_dir.empty()) {
     return dbname + "/LOG.old." + buf;
+  }
 
   InfoLogPrefix info_log_prefix(true, db_path);
   return log_dir + "/" + info_log_prefix.buf + ".old." + buf;
