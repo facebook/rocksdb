@@ -407,6 +407,7 @@ Status PlainTableKeyDecoder::NextPrefixEncodingKey(
           cur_key_.SetInternalKey(tmp, *parsed_key);
           parsed_key->user_key =
               Slice(cur_key_.GetKey().data(), prefix_len_ + size);
+          saved_user_key_ = cur_key_.GetKey();
         } else {
           cur_key_.Reserve(prefix_len_ + size);
           cur_key_.SetInternalKey(Slice(saved_user_key_.data(), prefix_len_),
