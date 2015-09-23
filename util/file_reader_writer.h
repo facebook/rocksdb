@@ -31,7 +31,7 @@ class SequentialFileReader {
   SequentialFile* file() { return file_.get(); }
 };
 
-class RandomAccessFileReader : public RandomAccessFile {
+class RandomAccessFileReader {
  private:
   std::unique_ptr<RandomAccessFile> file_;
   Env* env_;

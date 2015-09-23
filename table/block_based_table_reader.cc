@@ -617,13 +617,13 @@ void BlockBasedTable::SetupForCompaction() {
     case Options::NONE:
       break;
     case Options::NORMAL:
-      rep_->file->Hint(RandomAccessFile::NORMAL);
+      rep_->file->file()->Hint(RandomAccessFile::NORMAL);
       break;
     case Options::SEQUENTIAL:
-      rep_->file->Hint(RandomAccessFile::SEQUENTIAL);
+      rep_->file->file()->Hint(RandomAccessFile::SEQUENTIAL);
       break;
     case Options::WILLNEED:
-      rep_->file->Hint(RandomAccessFile::WILLNEED);
+      rep_->file->file()->Hint(RandomAccessFile::WILLNEED);
       break;
     default:
       assert(false);
