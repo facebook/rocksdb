@@ -130,18 +130,38 @@ public:
   }
 
   static string HexToString(const string& str) {
+    std::string::size_type len = str.length();
     string parsed;
-    if (str[0] != '0' || str[1] != 'x') {
+    static const char* const hexas = "0123456789ABCDEF";
+    parsed.reserve(len / 2);
+
+    if (len < 2 || str[0] != '0' || str[1] != 'x') {
       fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
               str.c_str());
       throw "Invalid hex input";
     }
 
-    for (unsigned int i = 2; i < str.length();) {
-      int c;
-      sscanf(str.c_str() + i, "%2X", &c);
-      parsed.push_back(c);
-      i += 2;
+    for (unsigned int i = 2; i < len; i += 2) {
+      char a = static_cast<char>(toupper(str[i]));
+      const char* p = std::lower_bound(hexas, hexas + 16, a);
+      if (*p != a) {
+        throw "Invalid hex value";
+      }
+
+      if (i + 1 >= len) {
+        // if odd number of chars than we just hit end of string
+        parsed.push_back(p - hexas);
+        break;
+      }
+
+      char b = static_cast<char>(toupper(str[i + 1]));
+      const char* q = std::lower_bound(hexas, hexas + 16, b);
+      if (*q == b) {
+        // pairwise compute decimal value from hex
+        parsed.push_back(((p - hexas) << 4) | (q - hexas));
+      } else {
+        throw "Invalid hex value";
+      }
     }
     return parsed;
   }

@@ -322,6 +322,7 @@ set(TESTS
         util/file_reader_writer_test.cc
         util/heap_test.cc
         util/histogram_test.cc
+        util/ldb_cmd_test.cc
         util/manual_compaction_test.cc
         util/memenv_test.cc
         util/mock_env_test.cc

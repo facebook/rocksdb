@@ -259,7 +259,8 @@ TEST_BENCH_SOURCES =                                                    \
   util/testharness.cc                                                   \
   util/testutil.cc                                                      \
   util/thread_list_test.cc                                              \
-  util/thread_local_test.cc
+  util/thread_local_test.cc                                             \
+  util/ldb_cmd_test.cc
 
 JNI_NATIVE_SOURCES =                                          \
   java/rocksjni/backupenginejni.cc                            \

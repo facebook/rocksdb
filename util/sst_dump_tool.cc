@@ -329,23 +329,6 @@ void print_help() {
           " [--show_compression_sizes [--set_block_size=<block_size>]]\n");
 }
 
-string HexToString(const string& str) {
-  string parsed;
-  if (str[0] != '0' || str[1] != 'x') {
-    fprintf(stderr, "Invalid hex input %s.  Must start with 0x\n",
-            str.c_str());
-    throw "Invalid hex input";
-  }
-
-  for (unsigned int i = 2; i < str.length();) {
-    int c;
-    sscanf(str.c_str() + i, "%2X", &c);
-    parsed.push_back(c);
-    i += 2;
-  }
-  return parsed;
-}
-
 }  // namespace
 
 int SSTDumpTool::Run(int argc, char** argv) {
@@ -409,10 +392,10 @@ int SSTDumpTool::Run(int argc, char** argv) {
 
   if (input_key_hex) {
     if (has_from) {
-      from_key = HexToString(from_key);
+      from_key = rocksdb::LDBCommand::HexToString(from_key);
     }
     if (has_to) {
-      to_key = HexToString(to_key);
+      to_key = rocksdb::LDBCommand::HexToString(to_key);
     }
   }
 
