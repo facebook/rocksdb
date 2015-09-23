@@ -63,28 +63,16 @@ PARALLEL_UNIT_TEST_COMMANDS="[
                 'shell':'$DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || cat t/log-*',
                 'user':'root'
             },
-            {
-                'name':'Print logs',
-                'shell':'cat t/log-*',
-                'user':'root'
-            },
             $CLEANUP_ENV,
             {
                 'name':'Build and test RocksDB debug version under gcc-4.8.1',
                 'shell':'$GCC_481 $DEBUG make -j$(nproc) all && $SHM make check > /dev/null 2>&1 || cat t/log-*',
                 'user':'root'
             },
-            {
-                'name':'Print logs',
-                'shell':'cat t/log-*',
-                'user':'root'
-            },
         ],
         $REPORT_EMAIL
     }
 ]"
-
-PARALLEL_UNIT_TEST_COMMANDS=$DISABLE_COMMANDS
 
 #
 # RocksDB unit test
