@@ -212,7 +212,6 @@ GTEST = $(GTEST_DIR)/gtest/gtest-all.o
 TESTUTIL = ./util/testutil.o
 TESTHARNESS = ./util/testharness.o $(TESTUTIL) $(MOCKOBJECTS) $(GTEST)
 VALGRIND_ERROR = 2
-VALGRIND_DIR = build_tools/VALGRIND_LOGS
 VALGRIND_VER := $(join $(VALGRIND_VER),valgrind)
 
 VALGRIND_OPTS = --error-exitcode=$(VALGRIND_ERROR) --leak-check=full
@@ -575,20 +574,12 @@ asan_crash_test:
 	$(MAKE) clean
 
 valgrind_check: $(TESTS)
-	mkdir -p $(VALGRIND_DIR)
-	echo TESTS THAT HAVE VALGRIND ERRORS > $(VALGRIND_DIR)/valgrind_failed_tests; \
-	echo TIMES in seconds TAKEN BY TESTS ON VALGRIND > $(VALGRIND_DIR)/valgrind_tests_times; \
 	for t in $(filter-out skiplist_test,$(TESTS)); do \
-		stime=`date '+%s'`; \
 		$(VALGRIND_VER) $(VALGRIND_OPTS) ./$$t; \
 		ret_code=$$?; \
-		if [ $$ret_code -eq $(VALGRIND_ERROR) ] ; then \
-			echo $$t >> $(VALGRIND_DIR)/valgrind_failed_tests; \
-		elif [ $$ret_code -ne 0 ]; then \
+		if [ $$ret_code -ne 0 ]; then \
 			exit $$ret_code; \
 		fi; \
-		etime=`date '+%s'`; \
-		echo $$t $$((etime - stime)) >> $(VALGRIND_DIR)/valgrind_tests_times; \
 	done
 
 analyze: clean

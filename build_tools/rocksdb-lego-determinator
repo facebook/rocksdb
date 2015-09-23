@@ -284,7 +284,7 @@ VALGRIND_TEST_COMMANDS="[
             $CLEANUP_ENV,
             {
                 'name':'Run RocksDB debug unit tests',
-                'shell':'$DISABLE_JEMALLOC $SHM $DEBUG ./build_tools/valgrind_test.sh',
+                'shell':'$DISABLE_JEMALLOC $SHM $DEBUG make valgrind_check',
                 'user':'root'
             },
         ],
