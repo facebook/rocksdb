@@ -102,11 +102,13 @@ struct InfoLogPrefix {
 
 // Return the name of the info log file for "dbname".
 extern std::string InfoLogFileName(const std::string& dbname,
-    const std::string& db_path="", const std::string& log_dir="");
+                                   const std::string& db_path = "",
+                                   const std::string& log_dir = "");
 
 // Return the name of the old info log file for "dbname".
 extern std::string OldInfoLogFileName(const std::string& dbname, uint64_t ts,
-    const std::string& db_path="", const std::string& log_dir="");
+                                      const std::string& db_path = "",
+                                      const std::string& log_dir = "");
 
 // Return the name to use for a metadatabase. The result will be prefixed with
 // "dbname".
