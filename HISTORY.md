@@ -3,9 +3,12 @@
 ## Unreleased
 ### New Features
 * Added single delete operation as a more efficient way to delete keys that have not been overwritten.
+* Added experimental AddFile() to DB interface that allow users to add files created by SstFileWriter into an empty Database, see include/rocksdb/sst_file_writer.h and DB::AddFile() for more info.
 
 ### Public API Changes
 * Added SingleDelete() to the DB interface.
+* Added AddFile() to DB interface.
+* Added SstFileWriter class.
 
 ## 4.0.0 (9/9/2015)
 ### New Features

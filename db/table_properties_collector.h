@@ -36,7 +36,7 @@ class IntTblPropCollector {
   virtual bool NeedCompact() const { return false; }
 };
 
-// Facrtory for internal table properties collector.
+// Factory for internal table properties collector.
 class IntTblPropCollectorFactory {
  public:
   virtual ~IntTblPropCollectorFactory() {}

@@ -58,6 +58,7 @@
 #include "rocksdb/delete_scheduler.h"
 #include "rocksdb/env.h"
 #include "rocksdb/merge_operator.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/status.h"
 #include "rocksdb/table.h"
@@ -3070,6 +3071,221 @@ std::vector<Status> DBImpl::MultiGet(
 
   return stat_list;
 }
+
+#ifndef ROCKSDB_LITE
+Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
+                       const std::string& file_path, bool move_file) {
+  Status status;
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  ExternalSstFileInfo file_info;
+  file_info.file_path = file_path;
+  status = env_->GetFileSize(file_path, &file_info.file_size);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Access the file using TableReader to extract
+  // version, number of entries, smallest user key, largest user key
+  std::unique_ptr<RandomAccessFile> sst_file;
+  status = env_->NewRandomAccessFile(file_path, &sst_file, env_options_);
+  if (!status.ok()) {
+    return status;
+  }
+  std::unique_ptr<RandomAccessFileReader> sst_file_reader;
+  sst_file_reader.reset(new RandomAccessFileReader(std::move(sst_file)));
+
+  std::unique_ptr<TableReader> table_reader;
+  status = cfd->ioptions()->table_factory->NewTableReader(
+      TableReaderOptions(*cfd->ioptions(), env_options_,
+                         cfd->internal_comparator()),
+      std::move(sst_file_reader), file_info.file_size, &table_reader);
+  if (!status.ok()) {
+    return status;
+  }
+
+  // Get the external sst file version from table properties
+  const UserCollectedProperties& user_collected_properties =
+      table_reader->GetTableProperties()->user_collected_properties;
+  UserCollectedProperties::const_iterator external_sst_file_version_iter =
+      user_collected_properties.find(ExternalSstFilePropertyNames::kVersion);
+  if (external_sst_file_version_iter == user_collected_properties.end()) {
+    return Status::InvalidArgument("Generated table version not found");
+  }
+
+  file_info.version =
+      DecodeFixed32(external_sst_file_version_iter->second.c_str());
+  if (file_info.version == 1) {
+    // version 1 imply that all sequence numbers in table equal 0
+    file_info.sequence_number = 0;
+  } else {
+    return Status::InvalidArgument("Generated table version is not supported");
+  }
+
+  // Get number of entries in table
+  file_info.num_entries = table_reader->GetTableProperties()->num_entries;
+
+  ParsedInternalKey key;
+  std::unique_ptr<Iterator> iter(table_reader->NewIterator(ReadOptions()));
+
+  // Get first (smallest) key from file
+  iter->SeekToFirst();
+  if (!ParseInternalKey(iter->key(), &key)) {
+    return Status::Corruption("Generated table have corrupted keys");
+  }
+  if (key.sequence != 0) {
+    return Status::Corruption("Generated table have non zero sequence number");
+  }
+  file_info.smallest_key = key.user_key.ToString();
+
+  // Get last (largest) key from file
+  iter->SeekToLast();
+  if (!ParseInternalKey(iter->key(), &key)) {
+    return Status::Corruption("Generated table have corrupted keys");
+  }
+  if (key.sequence != 0) {
+    return Status::Corruption("Generated table have non zero sequence number");
+  }
+  file_info.largest_key = key.user_key.ToString();
+
+  return AddFile(column_family, &file_info, move_file);
+}
+
+Status DBImpl::AddFile(ColumnFamilyHandle* column_family,
+                       const ExternalSstFileInfo* file_info, bool move_file) {
+  Status status;
+  auto cfh = reinterpret_cast<ColumnFamilyHandleImpl*>(column_family);
+  ColumnFamilyData* cfd = cfh->cfd();
+
+  if (cfd->NumberLevels() <= 1) {
+    return Status::NotSupported(
+        "AddFile requires a database with at least 2 levels");
+  }
+  if (file_info->version != 1) {
+    return Status::InvalidArgument("Generated table version is not supported");
+  }
+  // version 1 imply that file have only Put Operations with Sequence Number = 0
+
+  FileMetaData meta;
+  meta.smallest =
+      InternalKey(file_info->smallest_key, file_info->sequence_number,
+                  ValueType::kTypeValue);
+  meta.largest = InternalKey(file_info->largest_key, file_info->sequence_number,
+                             ValueType::kTypeValue);
+  if (!meta.smallest.Valid() || !meta.largest.Valid()) {
+    return Status::Corruption("Generated table have corrupted keys");
+  }
+  meta.smallest_seqno = file_info->sequence_number;
+  meta.largest_seqno = file_info->sequence_number;
+  if (meta.smallest_seqno != 0 || meta.largest_seqno != 0) {
+    return Status::InvalidArgument(
+        "Non zero sequence numbers are not supported");
+  }
+  // Generate a location for the new table
+  meta.fd = FileDescriptor(versions_->NewFileNumber(), 0, file_info->file_size);
+  std::string db_fname = TableFileName(
+      db_options_.db_paths, meta.fd.GetNumber(), meta.fd.GetPathId());
+
+  if (move_file) {
+    status = env_->LinkFile(file_info->file_path, db_fname);
+    if (status.IsNotSupported()) {
+      // Original file is on a different FS, use copy instead of hard linking
+      status = CopyFile(env_, file_info->file_path, db_fname, 0);
+    }
+  } else {
+    status = CopyFile(env_, file_info->file_path, db_fname, 0);
+  }
+  if (!status.ok()) {
+    return status;
+  }
+
+  {
+    InstrumentedMutexLock l(&mutex_);
+    const MutableCFOptions mutable_cf_options =
+        *cfd->GetLatestMutableCFOptions();
+
+    WriteThread::Writer w;
+    write_thread_.EnterUnbatched(&w, &mutex_);
+
+    // Make sure memtables are empty
+    if (!cfd->mem()->IsEmpty() || cfd->imm()->NumNotFlushed() > 0) {
+      // Cannot add the file since the keys in memtable
+      // will hide the keys in file
+      status = Status::NotSupported("Memtable is not empty");
+    }
+
+    // Make sure last sequence number is 0, if there are existing files then
+    // they should have sequence number = 0
+    if (status.ok() && versions_->LastSequence() > 0) {
+      status = Status::NotSupported("Last Sequence number is not zero");
+    }
+
+    auto* vstorage = cfd->current()->storage_info();
+    if (status.ok()) {
+      // Make sure that the key range in the file we will add does not overlap
+      // with previously added files
+      Slice smallest_user_key = meta.smallest.user_key();
+      Slice largest_user_key = meta.largest.user_key();
+      for (int level = 0; level < vstorage->num_non_empty_levels(); level++) {
+        if (vstorage->OverlapInLevel(level, &smallest_user_key,
+                                     &largest_user_key)) {
+          status = Status::NotSupported("Cannot add overlapping files");
+          break;
+        }
+      }
+    }
+
+    if (status.ok()) {
+      // We add the file to the last level
+      int target_level = cfd->NumberLevels() - 1;
+      if (cfd->ioptions()->level_compaction_dynamic_level_bytes == false) {
+        // If we are using dynamic level compaction we add the file to
+        // last level with files
+        target_level = vstorage->num_non_empty_levels() - 1;
+        if (target_level <= 0) {
+          target_level = 1;
+        }
+      }
+      VersionEdit edit;
+      edit.SetColumnFamily(cfd->GetID());
+      edit.AddFile(target_level, meta.fd.GetNumber(), meta.fd.GetPathId(),
+                   meta.fd.GetFileSize(), meta.smallest, meta.largest,
+                   meta.smallest_seqno, meta.largest_seqno,
+                   meta.marked_for_compaction);
+
+      status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
+                                      directories_.GetDbDir());
+    }
+    write_thread_.ExitUnbatched(&w);
+
+    if (status.ok()) {
+      delete InstallSuperVersionAndScheduleWork(cfd, nullptr,
+                                                mutable_cf_options);
+    }
+  }
+
+  if (!status.ok()) {
+    // We failed to add the file to the database
+    Status s = env_->DeleteFile(db_fname);
+    if (!s.ok()) {
+      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+          "AddFile() clean up for file %s failed : %s", db_fname.c_str(),
+          s.ToString().c_str());
+    }
+  } else if (status.ok() && move_file) {
+    // The file was moved and added successfully, remove original file link
+    Status s = env_->DeleteFile(file_info->file_path);
+    if (!s.ok()) {
+      Log(InfoLogLevel::WARN_LEVEL, db_options_.info_log,
+          "%s was added to DB successfully but failed to remove original file "
+          "link : %s",
+          file_info->file_path.c_str(), s.ToString().c_str());
+    }
+  }
+  return status;
+}
+#endif  // ROCKSDB_LITE
 
 Status DBImpl::CreateColumnFamily(const ColumnFamilyOptions& cf_options,
                                   const std::string& column_family_name,

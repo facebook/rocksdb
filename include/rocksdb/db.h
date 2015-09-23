@@ -42,6 +42,7 @@ struct FlushOptions;
 struct CompactionOptions;
 struct CompactRangeOptions;
 struct TableProperties;
+struct ExternalSstFileInfo;
 class WriteBatch;
 class Env;
 class EventListener;
@@ -655,6 +656,36 @@ class DB {
       ColumnFamilyMetaData* metadata) {
     GetColumnFamilyMetaData(DefaultColumnFamily(), metadata);
   }
+
+  // Load table file located at "file_path" into "column_family", a pointer to
+  // ExternalSstFileInfo can be used instead of "file_path" to do a blind add
+  // that wont need to read the file, move_file can be set to true to
+  // move the file instead of copying it.
+  //
+  // Current Requirements:
+  // (1) Memtable is empty.
+  // (2) All existing files (if any) have sequence number = 0.
+  // (3) Key range in loaded table file don't overlap with existing
+  //     files key ranges.
+  // (4) No other writes happen during AddFile call, otherwise
+  //     DB may get corrupted.
+  // (5) Database have at least 2 levels.
+  virtual Status AddFile(ColumnFamilyHandle* column_family,
+                         const std::string& file_path,
+                         bool move_file = false) = 0;
+  virtual Status AddFile(const std::string& file_path, bool move_file = false) {
+    return AddFile(DefaultColumnFamily(), file_path, move_file);
+  }
+
+  // Load table file with information "file_info" into "column_family"
+  virtual Status AddFile(ColumnFamilyHandle* column_family,
+                         const ExternalSstFileInfo* file_info,
+                         bool move_file = false) = 0;
+  virtual Status AddFile(const ExternalSstFileInfo* file_info,
+                         bool move_file = false) {
+    return AddFile(DefaultColumnFamily(), file_info, move_file);
+  }
+
 #endif  // ROCKSDB_LITE
 
   // Sets the globally unique ID created at database creation time by invoking

@@ -44,6 +44,7 @@
 #include "rocksdb/slice.h"
 #include "rocksdb/slice_transform.h"
 #include "rocksdb/snapshot.h"
+#include "rocksdb/sst_file_writer.h"
 #include "rocksdb/table.h"
 #include "rocksdb/table_properties.h"
 #include "rocksdb/thread_status.h"
@@ -5548,6 +5549,18 @@ class ModelDB: public DB {
     return s;
   }
 
+  using DB::AddFile;
+  virtual Status AddFile(ColumnFamilyHandle* column_family,
+                         const ExternalSstFileInfo* file_path,
+                         bool move_file) override {
+    return Status::NotSupported("Not implemented.");
+  }
+  virtual Status AddFile(ColumnFamilyHandle* column_family,
+                         const std::string& file_path,
+                         bool move_file) override {
+    return Status::NotSupported("Not implemented.");
+  }
+
   using DB::GetPropertiesOfAllTables;
   virtual Status GetPropertiesOfAllTables(
       ColumnFamilyHandle* column_family,
@@ -9299,6 +9312,318 @@ TEST_F(DBTest, GetTotalSstFilesSizeVersionsFilesShared) {
   // Live SST files = 0
   // Total SST files = 0
   ASSERT_EQ(total_sst_files_size, 0);
+}
+
+TEST_F(DBTest, AddExternalSstFile) {
+  do {
+    std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+    env_->CreateDir(sst_files_folder);
+    Options options = CurrentOptions();
+    options.env = env_;
+    const ImmutableCFOptions ioptions(options);
+
+    SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+
+    // file1.sst (0 => 99)
+    std::string file1 = sst_files_folder + "file1.sst";
+    ASSERT_OK(sst_file_writer.Open(file1));
+    for (int k = 0; k < 100; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    }
+    ExternalSstFileInfo file1_info;
+    Status s = sst_file_writer.Finish(&file1_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file1_info.file_path, file1);
+    ASSERT_EQ(file1_info.num_entries, 100);
+    ASSERT_EQ(file1_info.smallest_key, Key(0));
+    ASSERT_EQ(file1_info.largest_key, Key(99));
+    // sst_file_writer already finished, cannot add this value
+    s = sst_file_writer.Add(Key(100), "bad_val");
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // file2.sst (100 => 199)
+    std::string file2 = sst_files_folder + "file2.sst";
+    ASSERT_OK(sst_file_writer.Open(file2));
+    for (int k = 100; k < 200; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    }
+    // Cannot add this key because it's not after last added key
+    s = sst_file_writer.Add(Key(99), "bad_val");
+    ASSERT_FALSE(s.ok()) << s.ToString();
+    ExternalSstFileInfo file2_info;
+    s = sst_file_writer.Finish(&file2_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file2_info.file_path, file2);
+    ASSERT_EQ(file2_info.num_entries, 100);
+    ASSERT_EQ(file2_info.smallest_key, Key(100));
+    ASSERT_EQ(file2_info.largest_key, Key(199));
+
+    // file3.sst (195 => 299)
+    // This file values overlap with file2 values
+    std::string file3 = sst_files_folder + "file3.sst";
+    ASSERT_OK(sst_file_writer.Open(file3));
+    for (int k = 195; k < 300; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+    }
+    ExternalSstFileInfo file3_info;
+    s = sst_file_writer.Finish(&file3_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file3_info.file_path, file3);
+    ASSERT_EQ(file3_info.num_entries, 105);
+    ASSERT_EQ(file3_info.smallest_key, Key(195));
+    ASSERT_EQ(file3_info.largest_key, Key(299));
+
+    // file4.sst (30 => 39)
+    // This file values overlap with file1 values
+    std::string file4 = sst_files_folder + "file4.sst";
+    ASSERT_OK(sst_file_writer.Open(file4));
+    for (int k = 30; k < 40; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+    }
+    ExternalSstFileInfo file4_info;
+    s = sst_file_writer.Finish(&file4_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file4_info.file_path, file4);
+    ASSERT_EQ(file4_info.num_entries, 10);
+    ASSERT_EQ(file4_info.smallest_key, Key(30));
+    ASSERT_EQ(file4_info.largest_key, Key(39));
+
+    // file5.sst (400 => 499)
+    std::string file5 = sst_files_folder + "file5.sst";
+    ASSERT_OK(sst_file_writer.Open(file5));
+    for (int k = 400; k < 500; k++) {
+      ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+    }
+    ExternalSstFileInfo file5_info;
+    s = sst_file_writer.Finish(&file5_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(file5_info.file_path, file5);
+    ASSERT_EQ(file5_info.num_entries, 100);
+    ASSERT_EQ(file5_info.smallest_key, Key(400));
+    ASSERT_EQ(file5_info.largest_key, Key(499));
+
+    DestroyAndReopen(options);
+    // Add file using file path
+    s = db_->AddFile(file1);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 100; k++) {
+      ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+    }
+
+    // Add file using file info
+    s = db_->AddFile(&file2_info);
+    ASSERT_TRUE(s.ok()) << s.ToString();
+    ASSERT_EQ(db_->GetLatestSequenceNumber(), 0U);
+    for (int k = 0; k < 200; k++) {
+      ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+    }
+
+    // This file have overlapping values with the exisitng data
+    s = db_->AddFile(file3);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // This file have overlapping values with the exisitng data
+    s = db_->AddFile(&file4_info);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // Overwrite values of keys divisible by 5
+    for (int k = 0; k < 200; k += 5) {
+      ASSERT_OK(Put(Key(k), Key(k) + "_val_new"));
+    }
+    ASSERT_NE(db_->GetLatestSequenceNumber(), 0U);
+
+    // DB have values in memtable now, we cannot add files anymore
+    s = db_->AddFile(file5);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+
+    // Make sure values are correct before and after flush/compaction
+    for (int i = 0; i < 2; i++) {
+      for (int k = 0; k < 200; k++) {
+        std::string value = Key(k) + "_val";
+        if (k % 5 == 0) {
+          value += "_new";
+        }
+        ASSERT_EQ(Get(Key(k)), value);
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    }
+
+    // DB sequence number is not zero, cannot add files anymore
+    s = db_->AddFile(file5);
+    ASSERT_FALSE(s.ok()) << s.ToString();
+  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
+                         kSkipFIFOCompaction));
+}
+
+TEST_F(DBTest, AddExternalSstFileNoCopy) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  env_->CreateDir(sst_files_folder);
+  Options options = CurrentOptions();
+  options.env = env_;
+  const ImmutableCFOptions ioptions(options);
+
+  SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+
+  // file1.sst (0 => 99)
+  std::string file1 = sst_files_folder + "file1.sst";
+  ASSERT_OK(sst_file_writer.Open(file1));
+  for (int k = 0; k < 100; k++) {
+    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file1_info;
+  Status s = sst_file_writer.Finish(&file1_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file1_info.file_path, file1);
+  ASSERT_EQ(file1_info.num_entries, 100);
+  ASSERT_EQ(file1_info.smallest_key, Key(0));
+  ASSERT_EQ(file1_info.largest_key, Key(99));
+
+  // file2.sst (100 => 299)
+  std::string file2 = sst_files_folder + "file2.sst";
+  ASSERT_OK(sst_file_writer.Open(file2));
+  for (int k = 100; k < 300; k++) {
+    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val"));
+  }
+  ExternalSstFileInfo file2_info;
+  s = sst_file_writer.Finish(&file2_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file2_info.file_path, file2);
+  ASSERT_EQ(file2_info.num_entries, 200);
+  ASSERT_EQ(file2_info.smallest_key, Key(100));
+  ASSERT_EQ(file2_info.largest_key, Key(299));
+
+  // file3.sst (110 => 124) .. overlap with file2.sst
+  std::string file3 = sst_files_folder + "file3.sst";
+  ASSERT_OK(sst_file_writer.Open(file3));
+  for (int k = 110; k < 125; k++) {
+    ASSERT_OK(sst_file_writer.Add(Key(k), Key(k) + "_val_overlap"));
+  }
+  ExternalSstFileInfo file3_info;
+  s = sst_file_writer.Finish(&file3_info);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(file3_info.file_path, file3);
+  ASSERT_EQ(file3_info.num_entries, 15);
+  ASSERT_EQ(file3_info.smallest_key, Key(110));
+  ASSERT_EQ(file3_info.largest_key, Key(124));
+
+  s = db_->AddFile(&file1_info, true /* move file */);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_EQ(Status::NotFound(), env_->FileExists(file1));
+
+  s = db_->AddFile(&file2_info, false /* copy file */);
+  ASSERT_TRUE(s.ok()) << s.ToString();
+  ASSERT_OK(env_->FileExists(file2));
+
+  // This file have overlapping values with the exisitng data
+  s = db_->AddFile(&file3_info, true /* move file */);
+  ASSERT_FALSE(s.ok()) << s.ToString();
+  ASSERT_OK(env_->FileExists(file3));
+
+  for (int k = 0; k < 300; k++) {
+    ASSERT_EQ(Get(Key(k)), Key(k) + "_val");
+  }
+}
+
+TEST_F(DBTest, AddExternalSstFileMultiThreaded) {
+  std::string sst_files_folder = test::TmpDir(env_) + "/sst_files/";
+  // Bulk load 10 files every file contain 1000 keys
+  int num_files = 10;
+  int keys_per_file = 1000;
+
+  // Generate file names
+  std::vector<std::string> file_names;
+  for (int i = 0; i < num_files; i++) {
+    std::string file_name = "file_" + ToString(i) + ".sst";
+    file_names.push_back(sst_files_folder + file_name);
+  }
+
+  do {
+    env_->CreateDir(sst_files_folder);
+    Options options = CurrentOptions();
+    const ImmutableCFOptions ioptions(options);
+
+    std::atomic<int> thread_num(0);
+    std::function<void()> write_file_func = [&]() {
+      int file_idx = thread_num.fetch_add(1);
+      int range_start = file_idx * keys_per_file;
+      int range_end = range_start + keys_per_file;
+
+      SstFileWriter sst_file_writer(EnvOptions(), ioptions, options.comparator);
+
+      ASSERT_OK(sst_file_writer.Open(file_names[file_idx]));
+
+      for (int k = range_start; k < range_end; k++) {
+        ASSERT_OK(sst_file_writer.Add(Key(k), Key(k)));
+      }
+
+      Status s = sst_file_writer.Finish();
+      ASSERT_TRUE(s.ok()) << s.ToString();
+    };
+    // Write num_files files in parallel
+    std::vector<std::thread> sst_writer_threads;
+    for (int i = 0; i < num_files; ++i) {
+      sst_writer_threads.emplace_back(write_file_func);
+    }
+
+    for (auto& t : sst_writer_threads) {
+      t.join();
+    }
+
+    fprintf(stderr, "Wrote %d files (%d keys)\n", num_files,
+            num_files * keys_per_file);
+
+    thread_num.store(0);
+    std::atomic<int> files_added(0);
+    std::function<void()> load_file_func = [&]() {
+      // We intentionally add every file twice, and assert that it was added
+      // only once and the other add failed
+      int thread_id = thread_num.fetch_add(1);
+      int file_idx = thread_id / 2;
+      // sometimes we use copy, sometimes link .. the result should be the same
+      bool move_file = (thread_id % 3 == 0);
+
+      Status s = db_->AddFile(file_names[file_idx], move_file);
+      if (s.ok()) {
+        files_added++;
+      }
+    };
+    // Bulk load num_files files in parallel
+    std::vector<std::thread> add_file_threads;
+    DestroyAndReopen(options);
+    for (int i = 0; i < num_files * 2; ++i) {
+      add_file_threads.emplace_back(load_file_func);
+    }
+
+    for (auto& t : add_file_threads) {
+      t.join();
+    }
+    ASSERT_EQ(files_added.load(), num_files);
+    fprintf(stderr, "Loaded %d files (%d keys)\n", num_files,
+            num_files * keys_per_file);
+
+    // Overwrite values of keys divisible by 100
+    for (int k = 0; k < num_files * keys_per_file; k += 100) {
+      std::string key = Key(k);
+      Status s = Put(key, key + "_new");
+      ASSERT_TRUE(s.ok());
+    }
+
+    for (int i = 0; i < 2; i++) {
+      // Make sure the values are correct before and after flush/compaction
+      for (int k = 0; k < num_files * keys_per_file; ++k) {
+        std::string key = Key(k);
+        std::string value = (k % 100 == 0) ? (key + "_new") : key;
+        ASSERT_EQ(Get(key), value);
+      }
+      ASSERT_OK(Flush());
+      ASSERT_OK(db_->CompactRange(CompactRangeOptions(), nullptr, nullptr));
+    }
+
+    fprintf(stderr, "Verified %d values\n", num_files * keys_per_file);
+  } while (ChangeOptions(kSkipPlainTable | kSkipUniversalCompaction |
+                         kSkipFIFOCompaction));
 }
 
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,

@@ -68,6 +68,7 @@ LIB_SOURCES =                                                   \
   table/iterator.cc                                             \
   table/merger.cc                                               \
   table/meta_blocks.cc                                          \
+  table/sst_file_writer.cc                                      \
   table/plain_table_builder.cc                                  \
   table/plain_table_factory.cc                                  \
   table/plain_table_index.cc                                    \

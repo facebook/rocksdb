@@ -336,11 +336,13 @@ class TableFactory {
   // in parameter file. It's the caller's responsibility to make sure
   // file is in the correct format.
   //
-  // NewTableReader() is called in two places:
+  // NewTableReader() is called in three places:
   // (1) TableCache::FindTable() calls the function when table cache miss
   //     and cache the table object returned.
-  // (1) SstFileReader (for SST Dump) opens the table and dump the table
+  // (2) SstFileReader (for SST Dump) opens the table and dump the table
   //     contents using the interator of the table.
+  // (3) DBImpl::AddFile() calls this function to read the contents of
+  //     the sst file it's attempting to add
   //
   // table_reader_options is a TableReaderOptions which contain all the
   //    needed parameters and configuration to open the table.

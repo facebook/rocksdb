@@ -55,6 +55,7 @@ class CompactionFilterV2;
 class Arena;
 class WriteCallback;
 struct JobContext;
+struct ExternalSstFileInfo;
 
 class DBImpl : public DB {
  public:
@@ -224,6 +225,13 @@ class DBImpl : public DB {
   // Returns OK on success, other status on error reading memtables.
   Status GetLatestSequenceForKeyFromMemtable(SuperVersion* sv, const Slice& key,
                                              SequenceNumber* seq);
+
+  using DB::AddFile;
+  virtual Status AddFile(ColumnFamilyHandle* column_family,
+                         const ExternalSstFileInfo* file_info,
+                         bool move_file) override;
+  virtual Status AddFile(ColumnFamilyHandle* column_family,
+                         const std::string& file_path, bool move_file) override;
 
 #endif  // ROCKSDB_LITE
 
