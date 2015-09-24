@@ -206,6 +206,7 @@ util/build_version.cc: FORCE
 	else mv -f $@-t $@; fi
 
 LIBOBJECTS = $(LIB_SOURCES:.cc=.o)
+LIBOBJECTS += $(TOOL_SOURCES:.cc=.o)
 MOCKOBJECTS = $(MOCK_SOURCES:.cc=.o)
 
 GTEST = $(GTEST_DIR)/gtest/gtest-all.o
@@ -592,14 +593,17 @@ CLEAN_FILES += unity.cc
 unity.cc: Makefile
 	rm -f $@ $@-t
 	for source_file in $(LIB_SOURCES); do \
-		echo "#include <$$source_file>" >> $@-t; \
+		echo "#include \"$$source_file\"" >> $@-t; \
 	done
-	echo 'int main(int argc, char** argv){ return 0; }' >> $@-t
 	chmod a=r $@-t
 	mv $@-t $@
 
-unity: unity.o
-	$(AM_LINK)
+unity.a: unity.o
+	$(AM_V_AR)rm -f $@
+	$(AM_V_at)$(AR) $(ARFLAGS) $@ unity.o
+
+rocksdb.h rocksdb.cc: build_tools/amalgamate.py Makefile $(LIB_SOURCES) unity.cc
+	build_tools/amalgamate.py -I. -i./include unity.cc -x include/rocksdb/c.h -H rocksdb.h -o rocksdb.cc
 
 clean:
 	rm -f $(BENCHMARKS) $(TOOLS) $(TESTS) $(LIBRARY) $(SHARED)

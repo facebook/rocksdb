@@ -130,8 +130,6 @@ LIB_SOURCES =                                                   \
   utilities/write_batch_with_index/write_batch_with_index.cc    \
   utilities/write_batch_with_index/write_batch_with_index_internal.cc    \
   util/event_logger.cc                                          \
-  util/ldb_cmd.cc                                               \
-  util/ldb_tool.cc                                              \
   util/log_buffer.cc                                            \
   util/logging.cc                                               \
   util/memenv.cc                                                \
@@ -146,7 +144,6 @@ LIB_SOURCES =                                                   \
   util/rate_limiter.cc                                          \
   util/skiplistrep.cc                                           \
   util/slice.cc                                                 \
-  util/sst_dump_tool.cc                                         \
   util/statistics.cc                                            \
   util/status.cc                                                \
   util/status_message.cc                                        \
@@ -161,6 +158,11 @@ LIB_SOURCES =                                                   \
   util/vectorrep.cc                                             \
   util/xfunc.cc                                                 \
   util/xxhash.cc                                                \
+
+TOOL_SOURCES = \
+  util/ldb_cmd.cc                                               \
+  util/ldb_tool.cc                                              \
+  util/sst_dump_tool.cc                                         \
 
 MOCK_SOURCES = \
   table/mock_table.cc \

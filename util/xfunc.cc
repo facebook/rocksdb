@@ -10,7 +10,6 @@
 #include "db/write_callback.h"
 #include "rocksdb/db.h"
 #include "rocksdb/options.h"
-#include "rocksdb/utilities/optimistic_transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 #include "rocksdb/write_batch.h"
 #include "util/xfunc.h"
