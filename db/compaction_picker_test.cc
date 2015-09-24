@@ -70,6 +70,12 @@ class CompactionPickerTest : public testing::Test {
   void DeleteVersionStorage() {
     vstorage_.reset();
     files_.clear();
+    for (uint32_t i = 0; i < input_files_.size(); ++i) {
+      for (uint32_t j = 0; j < input_files_[i].files.size(); ++j) {
+        delete input_files_[i].files[j];
+      }
+      input_files_[i].files.clear();
+    }
     input_files_.clear();
   }
 
