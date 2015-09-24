@@ -2,6 +2,8 @@
 # This script is executed by Sandcastle
 # to determine next steps to run
 
+EMAIL_ID=$2
+
 #
 # Helper variables
 #
@@ -9,7 +11,7 @@ REPORT_EMAIL="'report': [
     {
         'type':'email',
         'triggers':['fail'],
-        'emails':['leveldb@fb.com']
+        'emails':['$EMAIL_ID']
     }
 ]"
 
@@ -20,7 +22,7 @@ CLEANUP_ENV="
   'user':'root'
 }"
 
-ONCALL="'oncall':'leveldb@fb.com'"
+ONCALL="'oncall':'$EMAIL_ID'"
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
