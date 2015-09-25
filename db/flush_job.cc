@@ -111,9 +111,8 @@ void FlushJob::ReportFlushInputSize(const autovector<MemTable*>& mems) {
 }
 
 void FlushJob::RecordFlushIOStats() {
-  ThreadStatusUtil::IncreaseThreadOperationProperty(
+  ThreadStatusUtil::SetThreadOperationProperty(
       ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
-  IOSTATS_RESET(bytes_written);
 }
 
 Status FlushJob::Run(FileMetaData* file_meta) {
