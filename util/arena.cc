@@ -84,10 +84,12 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   // We waste the remaining space in the current block.
   size_t size;
   char* block_head = nullptr;
+#ifdef MAP_HUGETLB
   if (hugetlb_size_) {
     size = hugetlb_size_;
     block_head = AllocateFromHugePage(size);
   }
+#endif
   if (!block_head) {
     size = kBlockSize;
     block_head = AllocateNewBlock(size);
@@ -110,6 +112,11 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   if (hugetlb_size_ == 0) {
     return nullptr;
   }
+  // already reserve space in huge_blocks_ before calling mmap().
+  // this way the insertion into the vector below will not throw and we
+  // won't leak the mapping in that case. if reserve() throws, we
+  // won't leak either
+  huge_blocks_.reserve(huge_blocks_.size() + 1);
 
   void* addr = mmap(nullptr, bytes, (PROT_READ | PROT_WRITE),
                     (MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB), 0, 0);
@@ -117,7 +124,8 @@ char* Arena::AllocateFromHugePage(size_t bytes) {
   if (addr == MAP_FAILED) {
     return nullptr;
   }
-  huge_blocks_.push_back(MmapInfo(addr, bytes));
+  // the following shouldn't throw because of the above reserve()
+  huge_blocks_.emplace_back(MmapInfo(addr, bytes));
   blocks_memory_ += bytes;
   return reinterpret_cast<char*>(addr);
 #else
@@ -167,6 +175,12 @@ char* Arena::AllocateAligned(size_t bytes, size_t huge_page_size,
 }
 
 char* Arena::AllocateNewBlock(size_t block_bytes) {
+  // already reserve space in blocks_ before allocating memory via new.
+  // this way the insertion into the vector below will not throw and we
+  // won't leak the allocated memory in that case. if reserve() throws,
+  // we won't leak either
+  blocks_.reserve(blocks_.size() + 1);
+
   char* block = new char[block_bytes];
 
 #ifdef ROCKSDB_MALLOC_USABLE_SIZE
@@ -174,6 +188,7 @@ char* Arena::AllocateNewBlock(size_t block_bytes) {
 #else
   blocks_memory_ += block_bytes;
 #endif  // ROCKSDB_MALLOC_USABLE_SIZE
+  // the following shouldn't throw because of the above reserve()
   blocks_.push_back(block);
   return block;
 }
