@@ -37,8 +37,8 @@ enum WriteType {
   kLogDataRecord
 };
 
-// an entry for Put, Merge or Delete entry for write batches. Used in
-// WBWIIterator.
+// an entry for Put, Merge, Delete, or SingleDelete entry for write batches.
+// Used in WBWIIterator.
 struct WriteEntry {
   WriteType type;
   Slice key;
@@ -71,8 +71,8 @@ class WBWIIterator {
 
 // A WriteBatchWithIndex with a binary searchable index built for all the keys
 // inserted.
-// In Put(), Merge() or Delete(), the same function of the wrapped will be
-// called. At the same time, indexes will be built.
+// In Put(), Merge() Delete(), or SingleDelete(), the same function of the
+// wrapped will be called. At the same time, indexes will be built.
 // By calling GetWriteBatch(), a user will get the WriteBatch for the data
 // they inserted, which can be used for DB::Write().
 // A user can call NewIterator() to create an iterator.
@@ -126,12 +126,18 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // order given by index_comparator. For multiple updates on the same key,
   // each update will be returned as a separate entry, in the order of update
   // time.
+  //
+  // The returned iterator should be deleted by the caller.
   WBWIIterator* NewIterator(ColumnFamilyHandle* column_family);
   // Create an iterator of the default column family.
   WBWIIterator* NewIterator();
 
   // Will create a new Iterator that will use WBWIIterator as a delta and
-  // base_iterator as base
+  // base_iterator as base.
+  //
+  // The returned iterator should be deleted by the caller.
+  // The base_iterator is now 'owned' by the returned iterator. Deleting the
+  // returned iterator will also delete the base_iterator.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator);
   // default column family
@@ -172,8 +178,9 @@ class WriteBatchWithIndex : public WriteBatchBase {
   // May be called multiple times to set multiple save points.
   void SetSavePoint() override;
 
-  // Remove all entries in this batch (Put, Merge, Delete, PutLogData) since the
-  // most recent call to SetSavePoint() and removes the most recent save point.
+  // Remove all entries in this batch (Put, Merge, Delete, SingleDelete,
+  // PutLogData) since the most recent call to SetSavePoint() and removes the
+  // most recent save point.
   // If there is no previous call to SetSavePoint(), behaves the same as
   // Clear().
   //

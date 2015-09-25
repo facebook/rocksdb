@@ -189,7 +189,8 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         merge_context->PushOperand(entry.value);
         break;
       }
-      case kDeleteRecord: {
+      case kDeleteRecord:
+      case kSingleDeleteRecord: {
         result = WriteBatchWithIndexInternal::Result::kDeleted;
         break;
       }

@@ -238,7 +238,8 @@ class BaseDeltaIterator : public Iterator {
           // Finished
           return;
         }
-        if (delta_entry.type == kDeleteRecord) {
+        if (delta_entry.type == kDeleteRecord ||
+            delta_entry.type == kSingleDeleteRecord) {
           AdvanceDelta();
         } else {
           current_at_base_ = false;
@@ -256,7 +257,8 @@ class BaseDeltaIterator : public Iterator {
           if (compare == 0) {
             equal_keys_ = true;
           }
-          if (delta_entry.type != kDeleteRecord) {
+          if (delta_entry.type != kDeleteRecord &&
+              delta_entry.type != kSingleDeleteRecord) {
             current_at_base_ = false;
             return;
           }
@@ -507,6 +509,8 @@ void WriteBatchWithIndex::Rep::AddNewEntry(uint32_t column_family_id) {
         case kTypeValue:
         case kTypeColumnFamilyDeletion:
         case kTypeDeletion:
+        case kTypeColumnFamilySingleDeletion:
+        case kTypeSingleDeletion:
         case kTypeColumnFamilyMerge:
         case kTypeMerge:
           found++;

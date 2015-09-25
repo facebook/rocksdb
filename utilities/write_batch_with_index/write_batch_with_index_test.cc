@@ -1390,6 +1390,10 @@ static std::string PrintContents(WriteBatchWithIndex* batch,
       result.append(e.key.ToString());
       result.append("):");
       result.append(e.value.ToString());
+    } else if (e.type == kSingleDeleteRecord) {
+      result.append("SINGLE-DEL(");
+      result.append(e.key.ToString());
+      result.append(")");
     } else {
       assert(e.type == kDeleteRecord);
       result.append("DEL(");
@@ -1398,6 +1402,36 @@ static std::string PrintContents(WriteBatchWithIndex* batch,
     }
 
     result.append(",");
+    iter->Next();
+  }
+
+  delete iter;
+  return result;
+}
+
+static std::string PrintContents(WriteBatchWithIndex* batch, KVMap* base_map,
+                                 ColumnFamilyHandle* column_family) {
+  std::string result;
+
+  Iterator* iter;
+  if (column_family == nullptr) {
+    iter = batch->NewIteratorWithBase(new KVIter(base_map));
+  } else {
+    iter = batch->NewIteratorWithBase(column_family, new KVIter(base_map));
+  }
+
+  iter->SeekToFirst();
+  while (iter->Valid()) {
+    assert(iter->status().ok());
+
+    Slice key = iter->key();
+    Slice value = iter->value();
+
+    result.append(key.ToString());
+    result.append(":");
+    result.append(value.ToString());
+    result.append(",");
+
     iter->Next();
   }
 
@@ -1416,96 +1450,227 @@ TEST_F(WriteBatchWithIndexTest, SavePointTest) {
   batch.Put(&cf1, "A", "a1");
   batch.Delete(&cf1, "B");
   batch.Put(&cf1, "C", "c1");
+  batch.Put(&cf1, "E", "e1");
 
-  batch.SetSavePoint();
+  batch.SetSavePoint();  // 1
 
   batch.Put("C", "cc");
   batch.Put("B", "bb");
   batch.Delete("A");
   batch.Put(&cf1, "B", "b1");
   batch.Delete(&cf1, "A");
-  batch.SetSavePoint();
+  batch.SingleDelete(&cf1, "E");
+  batch.SetSavePoint();  // 2
 
   batch.Put("A", "aaa");
   batch.Put("A", "xxx");
   batch.Delete("B");
   batch.Put(&cf1, "B", "b2");
   batch.Delete(&cf1, "C");
-  batch.SetSavePoint();
-  batch.SetSavePoint();
-  batch.Delete("D");
+  batch.SetSavePoint();  // 3
+  batch.SetSavePoint();  // 4
+  batch.SingleDelete("D");
   batch.Delete(&cf1, "D");
+  batch.Delete(&cf1, "E");
 
   ASSERT_EQ(
       "PUT(A):a,PUT(A):aa,DEL(A),PUT(A):aaa,PUT(A):xxx,PUT(B):b,PUT(B):bb,DEL("
       "B)"
-      ",PUT(C):cc,DEL(D),",
+      ",PUT(C):cc,SINGLE-DEL(D),",
       PrintContents(&batch, nullptr));
 
   ASSERT_EQ(
       "PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),"
-      "DEL(D),",
+      "DEL(D),PUT(E):e1,SINGLE-DEL(E),DEL(E),",
       PrintContents(&batch, &cf1));
 
-  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_OK(batch.RollbackToSavePoint());  // rollback to 4
   ASSERT_EQ(
       "PUT(A):a,PUT(A):aa,DEL(A),PUT(A):aaa,PUT(A):xxx,PUT(B):b,PUT(B):bb,DEL("
       "B)"
       ",PUT(C):cc,",
       PrintContents(&batch, nullptr));
 
-  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),",
-            PrintContents(&batch, &cf1));
+  ASSERT_EQ(
+      "PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),"
+      "PUT(E):e1,SINGLE-DEL(E),",
+      PrintContents(&batch, &cf1));
 
-  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_OK(batch.RollbackToSavePoint());  // rollback to 3
   ASSERT_EQ(
       "PUT(A):a,PUT(A):aa,DEL(A),PUT(A):aaa,PUT(A):xxx,PUT(B):b,PUT(B):bb,DEL("
       "B)"
       ",PUT(C):cc,",
       PrintContents(&batch, nullptr));
 
-  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),",
-            PrintContents(&batch, &cf1));
+  ASSERT_EQ(
+      "PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(B):b2,PUT(C):c1,DEL(C),"
+      "PUT(E):e1,SINGLE-DEL(E),",
+      PrintContents(&batch, &cf1));
 
-  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_OK(batch.RollbackToSavePoint());  // rollback to 2
   ASSERT_EQ("PUT(A):a,PUT(A):aa,DEL(A),PUT(B):b,PUT(B):bb,PUT(C):cc,",
             PrintContents(&batch, nullptr));
 
-  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(C):c1,",
-            PrintContents(&batch, &cf1));
+  ASSERT_EQ(
+      "PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(C):c1,"
+      "PUT(E):e1,SINGLE-DEL(E),",
+      PrintContents(&batch, &cf1));
 
-  batch.SetSavePoint();
+  batch.SetSavePoint();  // 5
   batch.Put("X", "x");
 
   ASSERT_EQ("PUT(A):a,PUT(A):aa,DEL(A),PUT(B):b,PUT(B):bb,PUT(C):cc,PUT(X):x,",
             PrintContents(&batch, nullptr));
 
-  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_OK(batch.RollbackToSavePoint());  // rollback to 5
   ASSERT_EQ("PUT(A):a,PUT(A):aa,DEL(A),PUT(B):b,PUT(B):bb,PUT(C):cc,",
             PrintContents(&batch, nullptr));
 
-  ASSERT_EQ("PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(C):c1,",
-            PrintContents(&batch, &cf1));
+  ASSERT_EQ(
+      "PUT(A):a1,DEL(A),DEL(B),PUT(B):b1,PUT(C):c1,"
+      "PUT(E):e1,SINGLE-DEL(E),",
+      PrintContents(&batch, &cf1));
 
-  ASSERT_OK(batch.RollbackToSavePoint());
+  ASSERT_OK(batch.RollbackToSavePoint());  // rollback to 1
   ASSERT_EQ("PUT(A):a,PUT(A):aa,PUT(B):b,", PrintContents(&batch, nullptr));
 
-  ASSERT_EQ("PUT(A):a1,DEL(B),PUT(C):c1,", PrintContents(&batch, &cf1));
+  ASSERT_EQ("PUT(A):a1,DEL(B),PUT(C):c1,PUT(E):e1,",
+            PrintContents(&batch, &cf1));
 
-  s = batch.RollbackToSavePoint();
+  s = batch.RollbackToSavePoint();  // no savepoint found
   ASSERT_TRUE(s.IsNotFound());
   ASSERT_EQ("PUT(A):a,PUT(A):aa,PUT(B):b,", PrintContents(&batch, nullptr));
 
-  ASSERT_EQ("PUT(A):a1,DEL(B),PUT(C):c1,", PrintContents(&batch, &cf1));
+  ASSERT_EQ("PUT(A):a1,DEL(B),PUT(C):c1,PUT(E):e1,",
+            PrintContents(&batch, &cf1));
 
-  batch.SetSavePoint();
+  batch.SetSavePoint();  // 6
 
   batch.Clear();
   ASSERT_EQ("", PrintContents(&batch, nullptr));
   ASSERT_EQ("", PrintContents(&batch, &cf1));
 
-  s = batch.RollbackToSavePoint();
+  s = batch.RollbackToSavePoint();  // rollback to 6
   ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(WriteBatchWithIndexTest, SingleDeleteTest) {
+  WriteBatchWithIndex batch;
+  Status s;
+  std::string value;
+  DBOptions db_options;
+
+  batch.SingleDelete("A");
+
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  value = PrintContents(&batch, nullptr);
+  ASSERT_EQ("SINGLE-DEL(A),", value);
+
+  batch.Clear();
+  batch.Put("A", "a");
+  batch.Put("A", "a2");
+  batch.Put("B", "b");
+  batch.SingleDelete("A");
+
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b", value);
+
+  value = PrintContents(&batch, nullptr);
+  ASSERT_EQ("PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(B):b,", value);
+
+  batch.Put("C", "c");
+  batch.Put("A", "a3");
+  batch.Delete("B");
+  batch.SingleDelete("B");
+  batch.SingleDelete("C");
+
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a3", value);
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  value = PrintContents(&batch, nullptr);
+  ASSERT_EQ(
+      "PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(A):a3,PUT(B):b,DEL(B),SINGLE-DEL(B)"
+      ",PUT(C):c,SINGLE-DEL(C),",
+      value);
+
+  batch.Put("B", "b4");
+  batch.Put("C", "c4");
+  batch.Put("D", "d4");
+  batch.SingleDelete("D");
+  batch.SingleDelete("D");
+  batch.Delete("A");
+
+  s = batch.GetFromBatch(db_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+  s = batch.GetFromBatch(db_options, "B", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("b4", value);
+  s = batch.GetFromBatch(db_options, "C", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("c4", value);
+  s = batch.GetFromBatch(db_options, "D", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  value = PrintContents(&batch, nullptr);
+  ASSERT_EQ(
+      "PUT(A):a,PUT(A):a2,SINGLE-DEL(A),PUT(A):a3,DEL(A),PUT(B):b,DEL(B),"
+      "SINGLE-DEL(B),PUT(B):b4,PUT(C):c,SINGLE-DEL(C),PUT(C):c4,PUT(D):d4,"
+      "SINGLE-DEL(D),SINGLE-DEL(D),",
+      value);
+}
+
+TEST_F(WriteBatchWithIndexTest, SingleDeleteDeltaIterTest) {
+  Status s;
+  std::string value;
+  DBOptions db_options;
+  WriteBatchWithIndex batch(BytewiseComparator(), 20, true /* overwrite_key */);
+  batch.Put("A", "a");
+  batch.Put("A", "a2");
+  batch.Put("B", "b");
+  batch.SingleDelete("A");
+  batch.Delete("B");
+
+  KVMap map;
+  value = PrintContents(&batch, &map, nullptr);
+  ASSERT_EQ("", value);
+
+  map["A"] = "aa";
+  map["C"] = "cc";
+  map["D"] = "dd";
+
+  batch.SingleDelete("B");
+  batch.SingleDelete("C");
+  batch.SingleDelete("Z");
+
+  value = PrintContents(&batch, &map, nullptr);
+  ASSERT_EQ("D:dd,", value);
+
+  batch.Put("A", "a3");
+  batch.Put("B", "b3");
+  batch.SingleDelete("A");
+  batch.SingleDelete("A");
+  batch.SingleDelete("D");
+  batch.SingleDelete("D");
+  batch.Delete("D");
+
+  map["E"] = "ee";
+
+  value = PrintContents(&batch, &map, nullptr);
+  ASSERT_EQ("B:b3,E:ee,", value);
 }
 
 }  // namespace
