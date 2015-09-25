@@ -148,6 +148,7 @@ CLANG_ANALYZE_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -166,6 +167,7 @@ CODE_COV_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -184,6 +186,7 @@ UNITY_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -330,6 +333,7 @@ TSAN_CRASH_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -392,6 +396,7 @@ FORMAT_COMPATIBLE_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -404,8 +409,7 @@ run_no_compression()
   rm -rf /dev/shm/rocksdb
   mkdir /dev/shm/rocksdb
   make clean
-  cat build_tools/fbcode_config.sh | grep -iv dzlib | grep -iv dlz4 | grep -iv
-  dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
+  cat build_tools/fbcode_config.sh | grep -iv dzlib | grep -iv dlz4 | grep -iv dsnappy | grep -iv dbzip2 > .tmp.fbcode_config.sh
   mv .tmp.fbcode_config.sh build_tools/fbcode_config.sh
   cat Makefile | grep -v tools/ldb_test.py > .tmp.Makefile
   mv .tmp.Makefile Makefile
@@ -424,6 +428,7 @@ NO_COMPRESSION_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
@@ -479,6 +484,7 @@ REGRESSION_COMMANDS="[
                 'user':'root'
             },
         ],
+        $REPORT_EMAIL
     }
 ]"
 
