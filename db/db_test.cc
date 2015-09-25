@@ -3691,6 +3691,7 @@ TEST_F(DBTest, UnremovableSingleDelete) {
 
     ASSERT_EQ("first", Get(1, "foo", snapshot));
     ASSERT_EQ("NOT_FOUND", Get(1, "foo"));
+    db_->ReleaseSnapshot(snapshot);
     // Skip HashCuckooRep as it does not support single delete.  FIFO and
     // universal compaction do not apply to the test case.  Skip MergePut
     // because single delete does not get removed when it encounters a merge.
