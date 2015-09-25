@@ -90,8 +90,7 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
     block_head = AllocateFromHugePage(size);
   }
 #endif
-  if (size == 0) {
-    assert(block_head == nullptr);
+  if (!block_head) {
     size = kBlockSize;
     block_head = AllocateNewBlock(size);
   }
