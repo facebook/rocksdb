@@ -117,6 +117,17 @@ class TransactionBaseImpl : public Transaction {
                 const SliceParts& key) override;
   Status Delete(const SliceParts& key) override { return Delete(nullptr, key); }
 
+  Status SingleDelete(ColumnFamilyHandle* column_family,
+                      const Slice& key) override;
+  Status SingleDelete(const Slice& key) override {
+    return SingleDelete(nullptr, key);
+  }
+  Status SingleDelete(ColumnFamilyHandle* column_family,
+                      const SliceParts& key) override;
+  Status SingleDelete(const SliceParts& key) override {
+    return SingleDelete(nullptr, key);
+  }
+
   Status PutUntracked(ColumnFamilyHandle* column_family, const Slice& key,
                       const Slice& value) override;
   Status PutUntracked(const Slice& key, const Slice& value) override {

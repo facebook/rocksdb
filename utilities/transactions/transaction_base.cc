@@ -235,6 +235,30 @@ Status TransactionBaseImpl::Delete(ColumnFamilyHandle* column_family,
   return s;
 }
 
+Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
+                                         const Slice& key) {
+  Status s = TryLock(column_family, key);
+
+  if (s.ok()) {
+    write_batch_->SingleDelete(column_family, key);
+    num_deletes_++;
+  }
+
+  return s;
+}
+
+Status TransactionBaseImpl::SingleDelete(ColumnFamilyHandle* column_family,
+                                         const SliceParts& key) {
+  Status s = TryLock(column_family, key);
+
+  if (s.ok()) {
+    write_batch_->SingleDelete(column_family, key);
+    num_deletes_++;
+  }
+
+  return s;
+}
+
 Status TransactionBaseImpl::PutUntracked(ColumnFamilyHandle* column_family,
                                          const Slice& key, const Slice& value) {
   bool untracked = true;

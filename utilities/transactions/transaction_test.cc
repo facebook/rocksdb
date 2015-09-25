@@ -592,7 +592,7 @@ TEST_F(TransactionTest, ColumnFamiliesTest) {
   ASSERT_EQ(values[1], "barbar");
   ASSERT_EQ(values[2], "foo");
 
-  s = txn->Delete(handles[2], "ZZZ");
+  s = txn->SingleDelete(handles[2], "ZZZ");
   ASSERT_OK(s);
   s = txn->Put(handles[2], "ZZZ", "YYY");
   ASSERT_OK(s);
@@ -1427,7 +1427,7 @@ TEST_F(TransactionTest, SavepointTest) {
   s = txn->Put("G", "g");
   ASSERT_OK(s);
 
-  s = txn->Delete("F");
+  s = txn->SingleDelete("F");
   ASSERT_OK(s);
 
   s = txn->Delete("B");
@@ -1438,6 +1438,10 @@ TEST_F(TransactionTest, SavepointTest) {
   ASSERT_EQ("aa", value);
 
   s = txn->Get(read_options, "F", &value);
+  // According to db.h, doing a SingleDelete on a key that has been
+  // overwritten will have undefinied behavior.  So it is unclear what the
+  // result of fetching "F" should be. The current implementation will
+  // return NotFound in this case.
   ASSERT_TRUE(s.IsNotFound());
 
   s = txn->Get(read_options, "B", &value);
@@ -1720,6 +1724,104 @@ TEST_F(TransactionTest, TimeoutTest) {
 
   delete txn1;
   delete txn2;
+}
+
+TEST_F(TransactionTest, SingleDeleteTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options);
+  ASSERT_TRUE(txn);
+
+  s = txn->SingleDelete("A");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+  delete txn;
+
+  txn = db->BeginTransaction(write_options);
+
+  s = txn->SingleDelete("A");
+  ASSERT_OK(s);
+
+  s = txn->Put("A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+  delete txn;
+
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  txn = db->BeginTransaction(write_options);
+
+  s = txn->SingleDelete("A");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+  delete txn;
+
+  s = db->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  txn = db->BeginTransaction(write_options);
+  Transaction* txn2 = db->BeginTransaction(write_options);
+  txn2->SetSnapshot();
+
+  s = txn->Put("A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Put("A", "a2");
+  ASSERT_OK(s);
+
+  s = txn->SingleDelete("A");
+  ASSERT_OK(s);
+
+  s = txn->SingleDelete("B");
+  ASSERT_OK(s);
+
+  // According to db.h, doing a SingleDelete on a key that has been
+  // overwritten will have undefinied behavior.  So it is unclear what the
+  // result of fetching "A" should be. The current implementation will
+  // return NotFound in this case.
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = txn2->Put("B", "b");
+  ASSERT_TRUE(s.IsTimedOut());
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+  delete txn;
+
+  // According to db.h, doing a SingleDelete on a key that has been
+  // overwritten will have undefinied behavior.  So it is unclear what the
+  // result of fetching "A" should be. The current implementation will
+  // return NotFound in this case.
+  s = db->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  s = db->Get(read_options, "B", &value);
+  ASSERT_TRUE(s.IsNotFound());
 }
 
 }  // namespace rocksdb

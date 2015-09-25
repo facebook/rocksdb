@@ -185,7 +185,7 @@ class Transaction {
   virtual Iterator* GetIterator(const ReadOptions& read_options,
                                 ColumnFamilyHandle* column_family) = 0;
 
-  // Put, Merge, and Delete behave similarly to their corresponding
+  // Put, Merge, Delete, and SingleDelete behave similarly to the corresponding
   // functions in WriteBatch, but will also do conflict checking on the
   // keys being written.
   //
@@ -217,6 +217,13 @@ class Transaction {
   virtual Status Delete(ColumnFamilyHandle* column_family,
                         const SliceParts& key) = 0;
   virtual Status Delete(const SliceParts& key) = 0;
+
+  virtual Status SingleDelete(ColumnFamilyHandle* column_family,
+                              const Slice& key) = 0;
+  virtual Status SingleDelete(const Slice& key) = 0;
+  virtual Status SingleDelete(ColumnFamilyHandle* column_family,
+                              const SliceParts& key) = 0;
+  virtual Status SingleDelete(const SliceParts& key) = 0;
 
   // PutUntracked() will write a Put to the batch of operations to be committed
   // in this transaction.  This write will only happen if this transaction
