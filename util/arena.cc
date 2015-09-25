@@ -82,7 +82,7 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
   }
 
   // We waste the remaining space in the current block.
-  size_t size;
+  size_t size = 0;
   char* block_head = nullptr;
 #ifdef MAP_HUGETLB
   if (hugetlb_size_) {
@@ -90,7 +90,8 @@ char* Arena::AllocateFallback(size_t bytes, bool aligned) {
     block_head = AllocateFromHugePage(size);
   }
 #endif
-  if (!block_head) {
+  if (size == 0) {
+    assert(block_head == nullptr);
     size = kBlockSize;
     block_head = AllocateNewBlock(size);
   }
