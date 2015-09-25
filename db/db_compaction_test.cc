@@ -66,51 +66,6 @@ class OnFileDeletionListener : public EventListener {
   std::string expected_file_name_;
 };
 
-class SleepingBackgroundTask {
- public:
-  SleepingBackgroundTask()
-      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
-  void DoSleep() {
-    MutexLock l(&mutex_);
-    while (should_sleep_) {
-      bg_cv_.Wait();
-    }
-    done_with_sleep_ = true;
-    bg_cv_.SignalAll();
-  }
-  void WakeUp() {
-    MutexLock l(&mutex_);
-    should_sleep_ = false;
-    bg_cv_.SignalAll();
-  }
-  void WaitUntilDone() {
-    MutexLock l(&mutex_);
-    while (!done_with_sleep_) {
-      bg_cv_.Wait();
-    }
-  }
-  bool WokenUp() {
-    MutexLock l(&mutex_);
-    return should_sleep_ == false;
-  }
-
-  void Reset() {
-    MutexLock l(&mutex_);
-    should_sleep_ = true;
-    done_with_sleep_ = false;
-  }
-
-  static void DoSleepTask(void* arg) {
-    reinterpret_cast<SleepingBackgroundTask*>(arg)->DoSleep();
-  }
-
- private:
-  port::Mutex mutex_;
-  port::CondVar bg_cv_;  // Signalled when background work finishes
-  bool should_sleep_;
-  bool done_with_sleep_;
-};
-
 static const int kCDTValueSize = 1000;
 static const int kCDTKeysPerBuffer = 4;
 static const int kCDTNumLevels = 8;
@@ -1493,8 +1448,8 @@ TEST_P(DBCompactionTestWithParam, PartialCompactionFailure) {
   env_->SetBackgroundThreads(1, Env::HIGH);
   env_->SetBackgroundThreads(1, Env::LOW);
   // stop the compaction thread until we simulate the file creation failure.
-  SleepingBackgroundTask sleeping_task_low;
-  env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
+  test::SleepingBackgroundTask sleeping_task_low;
+  env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task_low,
                  Env::Priority::LOW);
 
   options.env = env_;
@@ -1586,8 +1541,8 @@ TEST_P(DBCompactionTestWithParam, DeleteMovedFileAfterCompaction) {
     ASSERT_EQ("0,1", FilesPerLevel(0));
 
     // block compactions
-    SleepingBackgroundTask sleeping_task;
-    env_->Schedule(&SleepingBackgroundTask::DoSleepTask, &sleeping_task,
+    test::SleepingBackgroundTask sleeping_task;
+    env_->Schedule(&test::SleepingBackgroundTask::DoSleepTask, &sleeping_task,
                    Env::Priority::LOW);
 
     options.max_bytes_for_level_base = 1024 * 1024;  // 1 MB

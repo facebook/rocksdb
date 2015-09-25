@@ -284,12 +284,22 @@ extern std::string KeyStr(const std::string& user_key,
 class SleepingBackgroundTask {
  public:
   SleepingBackgroundTask()
-      : bg_cv_(&mutex_), should_sleep_(true), done_with_sleep_(false) {}
+      : bg_cv_(&mutex_),
+        should_sleep_(true),
+        done_with_sleep_(false),
+        sleeping_(false) {}
+
+  bool IsSleeping() {
+    MutexLock l(&mutex_);
+    return sleeping_;
+  }
   void DoSleep() {
     MutexLock l(&mutex_);
+    sleeping_ = true;
     while (should_sleep_) {
       bg_cv_.Wait();
     }
+    sleeping_ = false;
     done_with_sleep_ = true;
     bg_cv_.SignalAll();
   }
@@ -324,6 +334,7 @@ class SleepingBackgroundTask {
   port::CondVar bg_cv_;  // Signalled when background work finishes
   bool should_sleep_;
   bool done_with_sleep_;
+  bool sleeping_;
 };
 
 }  // namespace test
