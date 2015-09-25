@@ -103,9 +103,8 @@ Status BuildTable(
       // TODO(noetzli): Update stats after flush, too.
       if (io_priority == Env::IO_HIGH &&
           IOSTATS(bytes_written) >= kReportFlushIOStatsEvery) {
-        ThreadStatusUtil::IncreaseThreadOperationProperty(
+        ThreadStatusUtil::SetThreadOperationProperty(
             ThreadStatus::FLUSH_BYTES_WRITTEN, IOSTATS(bytes_written));
-        IOSTATS_RESET(bytes_written);
       }
     }
 

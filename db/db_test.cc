@@ -7949,6 +7949,9 @@ TEST_F(DBTest, MergeTestTime) {
 
   ASSERT_LT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 6000000);
   ASSERT_GT(TestGetTickerCount(options, MERGE_OPERATION_TOTAL_TIME), 3200000);
+#if ROCKSDB_USING_THREAD_STATUS
+  ASSERT_GT(TestGetTickerCount(options, FLUSH_WRITE_BYTES), 0);
+#endif  // ROCKSDB_USING_THREAD_STATUS
 }
 
 TEST_P(DBTestWithParam, MergeCompactionTimeTest) {
