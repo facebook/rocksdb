@@ -244,6 +244,7 @@ TEST_F(DBTest, ReadOnlyDB) {
   ASSERT_OK(ReadOnlyReopen(options));
   ASSERT_EQ("v3", Get("foo"));
   ASSERT_EQ("v2", Get("bar"));
+  ASSERT_TRUE(db_->SyncWAL().IsNotSupported());
 }
 
 TEST_F(DBTest, CompactedDB) {
