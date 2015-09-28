@@ -1637,10 +1637,10 @@ class StressTest {
   void VerifyDb(ThreadState* thread) const {
     ReadOptions options(FLAGS_verify_checksum, true);
     auto shared = thread->shared;
-    static const long max_key = shared->GetMaxKey();
-    static const long keys_per_thread = max_key / shared->GetNumThreads();
-    long start = keys_per_thread * thread->tid;
-    long end = start + keys_per_thread;
+    const int64_t max_key = shared->GetMaxKey();
+    const int64_t keys_per_thread = max_key / shared->GetNumThreads();
+    int64_t start = keys_per_thread * thread->tid;
+    int64_t end = start + keys_per_thread;
     if (thread->tid == shared->GetNumThreads() - 1) {
       end = max_key;
     }
