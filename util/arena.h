@@ -12,6 +12,9 @@
 // size, it uses malloc to directly get the requested size.
 
 #pragma once
+#ifndef OS_WIN
+#include <sys/mman.h>
+#endif
 #include <cstddef>
 #include <cerrno>
 #include <vector>
