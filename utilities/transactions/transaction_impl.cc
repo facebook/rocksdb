@@ -220,16 +220,10 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
   bool previously_locked;
   Status s;
 
-  // Even though we do not care about doing conflict checking for this write,
-  // we still need to take a lock to make sure we do not cause a conflict with
-  // some other write.  However, we do not need to check if there have been
-  // any writes since this transaction's snapshot.
-  // TODO(agiardullo): could optimize by supporting shared txn locks in the
-  // future
-  bool check_snapshot = !untracked;
-  SequenceNumber tracked_seqno = kMaxSequenceNumber;
+  // lock this key if this transactions hasn't already locked it
+  SequenceNumber current_seqno = kMaxSequenceNumber;
+  SequenceNumber new_seqno = kMaxSequenceNumber;
 
-  // Lookup whether this key has already been locked by this transaction
   const auto& tracked_keys = GetTrackedKeys();
   const auto tracked_keys_cf = tracked_keys.find(cfh_id);
   if (tracked_keys_cf == tracked_keys.end()) {
@@ -240,7 +234,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
       previously_locked = false;
     } else {
       previously_locked = true;
-      tracked_seqno = iter->second;
+      current_seqno = iter->second;
     }
   }
 
@@ -249,39 +243,37 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
     s = txn_db_impl_->TryLock(this, cfh_id, key_str);
   }
 
-  if (s.ok()) {
+  SetSnapshotIfNeeded();
+
+  // Even though we do not care about doing conflict checking for this write,
+  // we still need to take a lock to make sure we do not cause a conflict with
+  // some other write.  However, we do not need to check if there have been
+  // any writes since this transaction's snapshot.
+  // TODO(agiardullo): could optimize by supporting shared txn locks in the
+  // future
+  if (untracked || snapshot_ == nullptr) {
+    // Need to remember the earliest sequence number that we know that this
+    // key has not been modified after.  This is useful if this same
+    // transaction
+    // later tries to lock this key again.
+    if (current_seqno == kMaxSequenceNumber) {
+      // Since we haven't checked a snapshot, we only know this key has not
+      // been modified since after we locked it.
+      new_seqno = db_->GetLatestSequenceNumber();
+    } else {
+      new_seqno = current_seqno;
+    }
+  } else {
     // If a snapshot is set, we need to make sure the key hasn't been modified
     // since the snapshot.  This must be done after we locked the key.
-    if (!check_snapshot || snapshot_ == nullptr) {
-      // Need to remember the earliest sequence number that we know that this
-      // key has not been modified after.  This is useful if this same
-      // transaction
-      // later tries to lock this key again.
-      if (tracked_seqno == kMaxSequenceNumber) {
-        // Since we haven't checked a snapshot, we only know this key has not
-        // been modified since after we locked it.
-        tracked_seqno = db_->GetLatestSequenceNumber();
-      }
-    } else {
-      // If the key has been previous validated at a sequence number earlier
-      // than the curent snapshot's sequence number, we already know it has not
-      // been modified.
-      SequenceNumber seq = snapshot_->snapshot()->GetSequenceNumber();
-      bool already_validated = tracked_seqno <= seq;
+    if (s.ok()) {
+      s = ValidateSnapshot(column_family, key, current_seqno, &new_seqno);
 
-      if (!already_validated) {
-        s = CheckKeySequence(column_family, key);
-
-        if (s.ok()) {
-          // Record that there have been no writes to this key after this
-          // sequence.
-          tracked_seqno = seq;
-        } else {
-          // Failed to validate key
-          if (!previously_locked) {
-            // Unlock key we just locked
-            txn_db_impl_->UnLock(this, cfh_id, key.ToString());
-          }
+      if (!s.ok()) {
+        // Failed to validate key
+        if (!previously_locked) {
+          // Unlock key we just locked
+          txn_db_impl_->UnLock(this, cfh_id, key.ToString());
         }
       }
     }
@@ -289,7 +281,7 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
   if (s.ok()) {
     // Let base class know we've conflict checked this key.
-    TrackKey(cfh_id, key_str, tracked_seqno);
+    TrackKey(cfh_id, key_str, new_seqno);
   }
 
   return s;
@@ -297,22 +289,30 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
 
 // Return OK() if this key has not been modified more recently than the
 // transaction snapshot_.
-Status TransactionImpl::CheckKeySequence(ColumnFamilyHandle* column_family,
-                                         const Slice& key) {
-  Status result;
-  if (snapshot_ != nullptr) {
-    assert(dynamic_cast<DBImpl*>(db_) != nullptr);
-    auto db_impl = reinterpret_cast<DBImpl*>(db_);
+Status TransactionImpl::ValidateSnapshot(ColumnFamilyHandle* column_family,
+                                         const Slice& key,
+                                         SequenceNumber prev_seqno,
+                                         SequenceNumber* new_seqno) {
+  assert(snapshot_);
 
-    ColumnFamilyHandle* cfh = column_family ? column_family :
-      db_impl->DefaultColumnFamily();
-
-    result = TransactionUtil::CheckKeyForConflicts(
-        db_impl, cfh, key.ToString(),
-        snapshot_->snapshot()->GetSequenceNumber());
+  SequenceNumber seq = snapshot_->snapshot()->GetSequenceNumber();
+  if (prev_seqno <= seq) {
+    // If the key has been previous validated at a sequence number earlier
+    // than the curent snapshot's sequence number, we already know it has not
+    // been modified.
+    return Status::OK();
   }
 
-  return result;
+  *new_seqno = seq;
+
+  assert(dynamic_cast<DBImpl*>(db_) != nullptr);
+  auto db_impl = reinterpret_cast<DBImpl*>(db_);
+
+  ColumnFamilyHandle* cfh =
+      column_family ? column_family : db_impl->DefaultColumnFamily();
+
+  return TransactionUtil::CheckKeyForConflicts(
+      db_impl, cfh, key.ToString(), snapshot_->snapshot()->GetSequenceNumber());
 }
 
 }  // namespace rocksdb

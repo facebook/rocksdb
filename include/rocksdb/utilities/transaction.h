@@ -61,10 +61,30 @@ class Transaction {
   // methods.  See Transaction::Get() for more details.
   virtual void SetSnapshot() = 0;
 
+  // Similar to SetSnapshot(), but will not change the current snapshot
+  // until Put/Merge/Delete/GetForUpdate/MultigetForUpdate is called.
+  // By calling this function, the transaction will essentially call
+  // SetSnapshot() for you right before performing the next write/GetForUpdate.
+  //
+  // Calling SetSnapshotOnNextOperation() will not affect what snapshot is
+  // returned by GetSnapshot() until the next write/GetForUpdate is executed.
+  //
+  // This is an optimization to reduce the likelyhood of conflicts that
+  // could occur in between the time SetSnapshot() is called and the first
+  // write/GetForUpdate operation.  Eg, this prevents the following
+  // race-condition:
+  //
+  //   txn1->SetSnapshot();
+  //                             txn2->Put("A", ...);
+  //                             txn2->Commit();
+  //   txn1->GetForUpdate(opts, "A", ...);  // FAIL!
+  virtual void SetSnapshotOnNextOperation() = 0;
+
   // Returns the Snapshot created by the last call to SetSnapshot().
   //
   // REQUIRED: The returned Snapshot is only valid up until the next time
-  // SetSnapshot() is called or the Transaction is deleted.
+  // SetSnapshot()/SetSnapshotOnNextSavePoint() is called or the Transaction
+  // is deleted.
   virtual const Snapshot* GetSnapshot() const = 0;
 
   // Write all batched keys to the db atomically.

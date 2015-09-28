@@ -73,6 +73,8 @@ Status OptimisticTransactionImpl::TryLock(ColumnFamilyHandle* column_family,
   }
   uint32_t cfh_id = GetColumnFamilyID(column_family);
 
+  SetSnapshotIfNeeded();
+
   SequenceNumber seq;
   if (snapshot_) {
     seq = snapshot_->snapshot()->GetSequenceNumber();

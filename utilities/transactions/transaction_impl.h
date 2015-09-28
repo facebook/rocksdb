@@ -88,7 +88,8 @@ class TransactionImpl : public TransactionBaseImpl {
 
   void Clear() override;
 
-  Status CheckKeySequence(ColumnFamilyHandle* column_family, const Slice& key);
+  Status ValidateSnapshot(ColumnFamilyHandle* column_family, const Slice& key,
+                          SequenceNumber prev_seqno, SequenceNumber* new_seqno);
 
   Status LockBatch(WriteBatch* batch, TransactionKeyMap* keys_to_unlock);
 
