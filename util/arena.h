@@ -99,7 +99,9 @@ class Arena : public Allocator {
   // How many bytes left in currently active block?
   size_t alloc_bytes_remaining_ = 0;
 
+#ifdef MAP_HUGETLB
   size_t hugetlb_size_ = 0;
+#endif  // MAP_HUGETLB
   char* AllocateFromHugePage(size_t bytes);
   char* AllocateFallback(size_t bytes, bool aligned);
   char* AllocateNewBlock(size_t block_bytes);
