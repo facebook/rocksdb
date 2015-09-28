@@ -99,14 +99,15 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
       "DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
-
   int num_files = 100;  // 100 files
   uint64_t file_size = 1024;  // every file is 1 kb
   std::vector<uint64_t> delete_kbs_per_sec = {512, 200, 100, 50, 25};
 
   for (size_t t = 0; t < delete_kbs_per_sec.size(); t++) {
     penalties.clear();
+    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
     DestroyAndCreateDir(dummy_files_dir_);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
     delete_scheduler_.reset(
@@ -130,6 +131,9 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     delete_scheduler_->WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
+    auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+    ASSERT_EQ(bg_errors.size(), 0);
+
     uint64_t total_files_size = 0;
     uint64_t expected_penlty = 0;
     ASSERT_EQ(penalties.size(), num_files);
@@ -141,10 +145,8 @@ TEST_F(DeleteSchedulerTest, BasicRateLimiting) {
     ASSERT_GT(time_spent_deleting, expected_penlty * 0.9);
 
     ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
-    auto bg_errors = delete_scheduler_->GetBackgroundErrors();
-    ASSERT_EQ(bg_errors.size(), 0);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // Same as the BasicRateLimiting test but delete files in multiple threads.
@@ -165,7 +167,6 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
       "DeleteSchedulerImpl::BackgroundEmptyTrash:Wait",
       [&](void* arg) { penalties.push_back(*(static_cast<int*>(arg))); });
 
-  rocksdb::SyncPoint::GetInstance()->EnableProcessing();
   int thread_cnt = 10;
   int num_files = 10;  // 10 files per thread
   uint64_t file_size = 1024;  // every file is 1 kb
@@ -173,6 +174,9 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
   std::vector<uint64_t> delete_kbs_per_sec = {512, 200, 100, 50, 25};
   for (size_t t = 0; t < delete_kbs_per_sec.size(); t++) {
     penalties.clear();
+    rocksdb::SyncPoint::GetInstance()->ClearTrace();
+    rocksdb::SyncPoint::GetInstance()->EnableProcessing();
+
     DestroyAndCreateDir(dummy_files_dir_);
     rate_bytes_per_sec_ = delete_kbs_per_sec[t] * 1024;
     delete_scheduler_.reset(
@@ -210,6 +214,9 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
     delete_scheduler_->WaitForEmptyTrash();
     uint64_t time_spent_deleting = env_->NowMicros() - delete_start_time;
 
+    auto bg_errors = delete_scheduler_->GetBackgroundErrors();
+    ASSERT_EQ(bg_errors.size(), 0);
+
     uint64_t total_files_size = 0;
     uint64_t expected_penlty = 0;
     ASSERT_EQ(penalties.size(), num_files * thread_cnt);
@@ -222,10 +229,8 @@ TEST_F(DeleteSchedulerTest, RateLimitingMultiThreaded) {
 
     ASSERT_EQ(CountFilesInDir(dummy_files_dir_), 0);
     ASSERT_EQ(CountFilesInDir(trash_dir_), 0);
-    auto bg_errors = delete_scheduler_->GetBackgroundErrors();
-    ASSERT_EQ(bg_errors.size(), 0);
+    rocksdb::SyncPoint::GetInstance()->DisableProcessing();
   }
-  rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
 // Disable rate limiting by setting rate_bytes_per_sec_ to 0 and make sure
