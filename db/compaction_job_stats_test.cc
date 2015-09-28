@@ -1014,8 +1014,8 @@ TEST_P(CompactionJobStatsTest, UniversalCompactionTest) {
         &rnd, start_key, start_key + key_base - 1,
         kKeySize, kValueSize, key_interval,
         compression_ratio, 1);
+    reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
   }
-  reinterpret_cast<DBImpl*>(db_)->TEST_WaitForCompact();
   ASSERT_EQ(stats_checker->NumberOfUnverifiedStats(), 0U);
 }
 
