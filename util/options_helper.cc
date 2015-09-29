@@ -22,6 +22,67 @@
 namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
+bool isSpecialChar(const char c) {
+  if (c == '\\' || c == '#' || c == ':' || c == '\r' || c == '\n') {
+    return true;
+  }
+  return false;
+}
+
+char UnescapeChar(const char c) {
+  static const std::unordered_map<char, char> convert_map = {{'r', '\r'},
+                                                             {'n', '\n'}};
+
+  auto iter = convert_map.find(c);
+  if (iter == convert_map.end()) {
+    return c;
+  }
+  return iter->second;
+}
+
+char EscapeChar(const char c) {
+  static const std::unordered_map<char, char> convert_map = {{'\n', 'n'},
+                                                             {'\r', 'r'}};
+
+  auto iter = convert_map.find(c);
+  if (iter == convert_map.end()) {
+    return c;
+  }
+  return iter->second;
+}
+
+std::string EscapeOptionString(const std::string& raw_string) {
+  std::string output;
+  for (auto c : raw_string) {
+    if (isSpecialChar(c)) {
+      output += '\\';
+      output += EscapeChar(c);
+    } else {
+      output += c;
+    }
+  }
+
+  return output;
+}
+
+std::string UnescapeOptionString(const std::string& escaped_string) {
+  bool escaped = false;
+  std::string output;
+
+  for (auto c : escaped_string) {
+    if (escaped) {
+      output += UnescapeChar(c);
+      escaped = false;
+    } else {
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      output += c;
+    }
+  }
+  return output;
+}
 
 namespace {
 CompressionType ParseCompressionType(const std::string& type) {
@@ -232,7 +293,8 @@ bool SerializeSingleOptionHelper(const char* opt_address,
       *value = ToString(*(reinterpret_cast<const double*>(opt_address)));
       break;
     case OptionType::kString:
-      *value = *(reinterpret_cast<const std::string*>(opt_address));
+      *value = EscapeOptionString(
+          *(reinterpret_cast<const std::string*>(opt_address)));
       break;
     case OptionType::kCompactionStyle:
       *value = CompactionStyleToString(
@@ -461,8 +523,12 @@ Status StringToMap(const std::string& opts_str,
   return Status::OK();
 }
 
-bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
-                             ColumnFamilyOptions* new_options) {
+bool ParseColumnFamilyOption(const std::string& name,
+                             const std::string& org_value,
+                             ColumnFamilyOptions* new_options,
+                             bool input_string_escaped = false) {
+  const std::string& value =
+      input_string_escaped ? UnescapeOptionString(org_value) : org_value;
   try {
     if (name == "max_bytes_for_level_multiplier_additional") {
       new_options->max_bytes_for_level_multiplier_additional.clear();
@@ -573,8 +639,10 @@ bool ParseColumnFamilyOption(const std::string& name, const std::string& value,
   return true;
 }
 
-bool SerializeSingleDBOption(const DBOptions& db_options,
-                             const std::string& name, std::string* opt_string) {
+bool SerializeSingleDBOption(std::string* opt_string,
+                             const DBOptions& db_options,
+                             const std::string& name,
+                             const std::string& delimiter) {
   auto iter = db_options_type_info.find(name);
   if (iter == db_options_type_info.end()) {
     return false;
@@ -585,20 +653,21 @@ bool SerializeSingleDBOption(const DBOptions& db_options,
   std::string value;
   bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
   if (result) {
-    *opt_string = name + " = " + value + ";  ";
+    *opt_string = name + "=" + value + delimiter;
   }
   return result;
 }
 
-Status GetStringFromDBOptions(const DBOptions& db_options,
-                              std::string* opt_string) {
+Status GetStringFromDBOptions(std::string* opt_string,
+                              const DBOptions& db_options,
+                              const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
   for (auto iter = db_options_type_info.begin();
        iter != db_options_type_info.end(); ++iter) {
     std::string single_output;
-    bool result =
-        SerializeSingleDBOption(db_options, iter->first, &single_output);
+    bool result = SerializeSingleDBOption(&single_output, db_options,
+                                          iter->first, delimiter);
     assert(result);
     if (result) {
       opt_string->append(single_output);
@@ -607,9 +676,10 @@ Status GetStringFromDBOptions(const DBOptions& db_options,
   return Status::OK();
 }
 
-bool SerializeSingleColumnFamilyOption(const ColumnFamilyOptions& cf_options,
+bool SerializeSingleColumnFamilyOption(std::string* opt_string,
+                                       const ColumnFamilyOptions& cf_options,
                                        const std::string& name,
-                                       std::string* opt_string) {
+                                       const std::string& delimiter) {
   auto iter = cf_options_type_info.find(name);
   if (iter == cf_options_type_info.end()) {
     return false;
@@ -620,32 +690,36 @@ bool SerializeSingleColumnFamilyOption(const ColumnFamilyOptions& cf_options,
   std::string value;
   bool result = SerializeSingleOptionHelper(opt_address, opt_info.type, &value);
   if (result) {
-    *opt_string = name + " = " + value + ";  ";
+    *opt_string = name + "=" + value + delimiter;
   }
   return result;
 }
 
-Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& cf_options,
-                                        std::string* opt_string) {
+Status GetStringFromColumnFamilyOptions(std::string* opt_string,
+                                        const ColumnFamilyOptions& cf_options,
+                                        const std::string& delimiter) {
   assert(opt_string);
   opt_string->clear();
   for (auto iter = cf_options_type_info.begin();
        iter != cf_options_type_info.end(); ++iter) {
     std::string single_output;
-    bool result = SerializeSingleColumnFamilyOption(cf_options, iter->first,
-                                                    &single_output);
+    bool result = SerializeSingleColumnFamilyOption(&single_output, cf_options,
+                                                    iter->first, delimiter);
     if (result) {
       opt_string->append(single_output);
     } else {
-      printf("failed to serialize %s\n", iter->first.c_str());
+      return Status::InvalidArgument("failed to serialize %s\n",
+                                     iter->first.c_str());
     }
     assert(result);
   }
   return Status::OK();
 }
 
-bool ParseDBOption(const std::string& name, const std::string& value,
-                   DBOptions* new_options) {
+bool ParseDBOption(const std::string& name, const std::string& org_value,
+                   DBOptions* new_options, bool input_string_escaped = false) {
+  const std::string& value =
+      input_string_escaped ? UnescapeOptionString(org_value) : org_value;
   try {
     if (name == "rate_limiter_bytes_per_sec") {
       new_options->rate_limiter.reset(
@@ -791,11 +865,12 @@ Status GetPlainTableOptionsFromMap(
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options) {
+    ColumnFamilyOptions* new_options, bool input_strings_escaped) {
   assert(new_options);
   *new_options = base_options;
   for (const auto& o : opts_map) {
-    if (!ParseColumnFamilyOption(o.first, o.second, new_options)) {
+    if (!ParseColumnFamilyOption(o.first, o.second, new_options,
+                                 input_strings_escaped)) {
       return Status::InvalidArgument("Can't parse option " + o.first);
     }
   }
@@ -817,11 +892,11 @@ Status GetColumnFamilyOptionsFromString(
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options) {
+    DBOptions* new_options, bool input_strings_escaped) {
   assert(new_options);
   *new_options = base_options;
   for (const auto& o : opts_map) {
-    if (!ParseDBOption(o.first, o.second, new_options)) {
+    if (!ParseDBOption(o.first, o.second, new_options, input_strings_escaped)) {
       return Status::InvalidArgument("Can't parse option " + o.first);
     }
   }
@@ -860,5 +935,5 @@ Status GetOptionsFromString(const Options& base_options,
   return Status::OK();
 }
 
-#endif  // ROCKSDB_LITE
+#endif  // !ROCKSDB_LITE
 }  // namespace rocksdb

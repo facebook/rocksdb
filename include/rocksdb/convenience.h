@@ -14,16 +14,28 @@ namespace rocksdb {
 
 #ifndef ROCKSDB_LITE
 // Take a map of option name and option value, apply them into the
-// base_options, and return the new options as a result
+// base_options, and return the new options as a result.
+//
+// If input_strings_escaped is set to true, then each escaped characters
+// prefixed by '\' in the the values of the opts_map will be further
+// converted back to the raw string before assigning to the associated
+// options.
 Status GetColumnFamilyOptionsFromMap(
     const ColumnFamilyOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    ColumnFamilyOptions* new_options);
+    ColumnFamilyOptions* new_options, bool input_strings_escaped = false);
 
+// Take a map of option name and option value, apply them into the
+// base_options, and return the new options as a result.
+//
+// If input_strings_escaped is set to true, then each escaped characters
+// prefixed by '\' in the the values of the opts_map will be further
+// converted back to the raw string before assigning to the associated
+// options.
 Status GetDBOptionsFromMap(
     const DBOptions& base_options,
     const std::unordered_map<std::string, std::string>& opts_map,
-    DBOptions* new_options);
+    DBOptions* new_options, bool input_strings_escaped = false);
 
 Status GetBlockBasedTableOptionsFromMap(
     const BlockBasedTableOptions& table_options,
@@ -48,11 +60,13 @@ Status GetDBOptionsFromString(
     const std::string& opts_str,
     DBOptions* new_options);
 
-Status GetStringFromDBOptions(const DBOptions& db_options,
-                              std::string* opts_str);
+Status GetStringFromDBOptions(std::string* opts_str,
+                              const DBOptions& db_options,
+                              const std::string& delimiter = ";  ");
 
-Status GetStringFromColumnFamilyOptions(const ColumnFamilyOptions& db_options,
-                                        std::string* opts_str);
+Status GetStringFromColumnFamilyOptions(std::string* opts_str,
+                                        const ColumnFamilyOptions& db_options,
+                                        const std::string& delimiter = ";  ");
 
 Status GetBlockBasedTableOptionsFromString(
     const BlockBasedTableOptions& table_options,

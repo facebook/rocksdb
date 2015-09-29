@@ -11,6 +11,7 @@
 #define __STDC_FORMAT_MACROS
 #endif
 
+#include <cctype>
 #include <unordered_map>
 #include <inttypes.h>
 
@@ -20,8 +21,11 @@
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/leveldb_options.h"
 #include "table/block_based_table_factory.h"
+#include "util/options_helper.h"
+#include "util/options_parser.h"
 #include "util/random.h"
 #include "util/testharness.h"
+#include "util/testutil.h"
 
 #ifndef GFLAGS
 bool FLAGS_enable_print = false;
@@ -32,8 +36,6 @@ DEFINE_bool(enable_print, false, "Print options generated to console.");
 #endif  // GFLAGS
 
 namespace rocksdb {
-
-class OptionsTest : public testing::Test {};
 
 class StderrLogger : public Logger {
  public:
@@ -68,6 +70,165 @@ Options PrintAndGetOptions(size_t total_write_buffer_limit,
   }
   return options;
 }
+
+class StringEnv : public EnvWrapper {
+ public:
+  class SeqStringSource : public SequentialFile {
+   public:
+    explicit SeqStringSource(const std::string& data)
+        : data_(data), offset_(0) {}
+    ~SeqStringSource() {}
+    Status Read(size_t n, Slice* result, char* scratch) override {
+      std::string output;
+      if (offset_ < data_.size()) {
+        n = std::min(data_.size() - offset_, n);
+        memcpy(scratch, data_.data() + offset_, n);
+        offset_ += n;
+        *result = Slice(scratch, n);
+      } else {
+        return Status::InvalidArgument(
+            "Attemp to read when it already reached eof.");
+      }
+      return Status::OK();
+    }
+    Status Skip(uint64_t n) {
+      if (offset_ >= data_.size()) {
+        return Status::InvalidArgument(
+            "Attemp to read when it already reached eof.");
+      }
+      // TODO(yhchiang): Currently doesn't handle the overflow case.
+      offset_ += n;
+      return Status::OK();
+    }
+
+   private:
+    std::string data_;
+    size_t offset_;
+  };
+
+  class StringSink : public WritableFile {
+   public:
+    explicit StringSink(std::string* contents)
+        : WritableFile(), contents_(contents) {}
+    virtual Status Truncate(uint64_t size) override {
+      contents_->resize(size);
+      return Status::OK();
+    }
+    virtual Status Close() override { return Status::OK(); }
+    virtual Status Flush() override { return Status::OK(); }
+    virtual Status Sync() override { return Status::OK(); }
+    virtual Status Append(const Slice& slice) override {
+      contents_->append(slice.data(), slice.size());
+      return Status::OK();
+    }
+
+   private:
+    std::string* contents_;
+  };
+
+  explicit StringEnv(Env* t) : EnvWrapper(t) {}
+  virtual ~StringEnv() {}
+
+  const std::string& GetContent(const std::string& f) { return files_[f]; }
+
+  const Status WriteToNewFile(const std::string& file_name,
+                              const std::string& content) {
+    unique_ptr<WritableFile> r;
+    auto s = NewWritableFile(file_name, &r, EnvOptions());
+    if (!s.ok()) {
+      return s;
+    }
+    r->Append(content);
+    r->Flush();
+    r->Close();
+    assert(files_[file_name] == content);
+    return Status::OK();
+  }
+
+  // The following text is boilerplate that forwards all methods to target()
+  Status NewSequentialFile(const std::string& f, unique_ptr<SequentialFile>* r,
+                           const EnvOptions& options) override {
+    auto iter = files_.find(f);
+    if (iter == files_.end()) {
+      return Status::NotFound("The specified file does not exist", f);
+    }
+    r->reset(new SeqStringSource(iter->second));
+    return Status::OK();
+  }
+  Status NewRandomAccessFile(const std::string& f,
+                             unique_ptr<RandomAccessFile>* r,
+                             const EnvOptions& options) override {
+    return Status::NotSupported();
+  }
+  Status NewWritableFile(const std::string& f, unique_ptr<WritableFile>* r,
+                         const EnvOptions& options) override {
+    auto iter = files_.find(f);
+    if (iter != files_.end()) {
+      return Status::IOError("The specified file already exists", f);
+    }
+    r->reset(new StringSink(&files_[f]));
+    return Status::OK();
+  }
+  virtual Status NewDirectory(const std::string& name,
+                              unique_ptr<Directory>* result) override {
+    return Status::NotSupported();
+  }
+  Status FileExists(const std::string& f) override {
+    if (files_.find(f) == files_.end()) {
+      return Status::NotFound();
+    }
+    return Status::OK();
+  }
+  Status GetChildren(const std::string& dir,
+                     std::vector<std::string>* r) override {
+    return Status::NotSupported();
+  }
+  Status DeleteFile(const std::string& f) override {
+    files_.erase(f);
+    return Status::OK();
+  }
+  Status CreateDir(const std::string& d) override {
+    return Status::NotSupported();
+  }
+  Status CreateDirIfMissing(const std::string& d) override {
+    return Status::NotSupported();
+  }
+  Status DeleteDir(const std::string& d) override {
+    return Status::NotSupported();
+  }
+  Status GetFileSize(const std::string& f, uint64_t* s) override {
+    auto iter = files_.find(f);
+    if (iter == files_.end()) {
+      return Status::NotFound("The specified file does not exist:", f);
+    }
+    *s = iter->second.size();
+    return Status::OK();
+  }
+
+  Status GetFileModificationTime(const std::string& fname,
+                                 uint64_t* file_mtime) override {
+    return Status::NotSupported();
+  }
+
+  Status RenameFile(const std::string& s, const std::string& t) override {
+    return Status::NotSupported();
+  }
+
+  Status LinkFile(const std::string& s, const std::string& t) override {
+    return Status::NotSupported();
+  }
+
+  Status LockFile(const std::string& f, FileLock** l) override {
+    return Status::NotSupported();
+  }
+
+  Status UnlockFile(FileLock* l) override { return Status::NotSupported(); }
+
+ protected:
+  std::unordered_map<std::string, std::string> files_;
+};
+
+class OptionsTest : public testing::Test {};
 
 TEST_F(OptionsTest, LooseCondition) {
   Options options;
@@ -512,66 +673,60 @@ TEST_F(OptionsTest, GetOptionsFromStringTest) {
 }
 
 namespace {
-void VerifyDBOptions(const DBOptions& base_opt, const DBOptions& new_opt) {
+void RandomInitDBOptions(DBOptions* db_opt, Random* rnd) {
   // boolean options
-  ASSERT_EQ(base_opt.advise_random_on_open, new_opt.advise_random_on_open);
-  ASSERT_EQ(base_opt.allow_mmap_reads, new_opt.allow_mmap_reads);
-  ASSERT_EQ(base_opt.allow_mmap_writes, new_opt.allow_mmap_writes);
-  ASSERT_EQ(base_opt.allow_os_buffer, new_opt.allow_os_buffer);
-  ASSERT_EQ(base_opt.create_if_missing, new_opt.create_if_missing);
-  ASSERT_EQ(base_opt.create_missing_column_families,
-            new_opt.create_missing_column_families);
-  ASSERT_EQ(base_opt.disableDataSync, new_opt.disableDataSync);
-  ASSERT_EQ(base_opt.enable_thread_tracking, new_opt.enable_thread_tracking);
-  ASSERT_EQ(base_opt.error_if_exists, new_opt.error_if_exists);
-  ASSERT_EQ(base_opt.is_fd_close_on_exec, new_opt.is_fd_close_on_exec);
-  ASSERT_EQ(base_opt.paranoid_checks, new_opt.paranoid_checks);
-  ASSERT_EQ(base_opt.skip_log_error_on_recovery,
-            new_opt.skip_log_error_on_recovery);
-  ASSERT_EQ(base_opt.skip_stats_update_on_db_open,
-            new_opt.skip_stats_update_on_db_open);
-  ASSERT_EQ(base_opt.use_adaptive_mutex, new_opt.use_adaptive_mutex);
-  ASSERT_EQ(base_opt.use_fsync, new_opt.use_fsync);
+  db_opt->advise_random_on_open = rnd->Uniform(2);
+  db_opt->allow_mmap_reads = rnd->Uniform(2);
+  db_opt->allow_mmap_writes = rnd->Uniform(2);
+  db_opt->allow_os_buffer = rnd->Uniform(2);
+  db_opt->create_if_missing = rnd->Uniform(2);
+  db_opt->create_missing_column_families = rnd->Uniform(2);
+  db_opt->disableDataSync = rnd->Uniform(2);
+  db_opt->enable_thread_tracking = rnd->Uniform(2);
+  db_opt->error_if_exists = rnd->Uniform(2);
+  db_opt->is_fd_close_on_exec = rnd->Uniform(2);
+  db_opt->paranoid_checks = rnd->Uniform(2);
+  db_opt->skip_log_error_on_recovery = rnd->Uniform(2);
+  db_opt->skip_stats_update_on_db_open = rnd->Uniform(2);
+  db_opt->use_adaptive_mutex = rnd->Uniform(2);
+  db_opt->use_fsync = rnd->Uniform(2);
 
   // int options
-  ASSERT_EQ(base_opt.max_background_compactions,
-            new_opt.max_background_compactions);
-  ASSERT_EQ(base_opt.max_background_flushes, new_opt.max_background_flushes);
-  ASSERT_EQ(base_opt.max_file_opening_threads,
-            new_opt.max_file_opening_threads);
-  ASSERT_EQ(base_opt.max_open_files, new_opt.max_open_files);
-  ASSERT_EQ(base_opt.table_cache_numshardbits,
-            new_opt.table_cache_numshardbits);
+  db_opt->max_background_compactions = rnd->Uniform(100);
+  db_opt->max_background_flushes = rnd->Uniform(100);
+  db_opt->max_file_opening_threads = rnd->Uniform(100);
+  db_opt->max_open_files = rnd->Uniform(100);
+  db_opt->table_cache_numshardbits = rnd->Uniform(100);
 
   // size_t options
-  ASSERT_EQ(base_opt.db_write_buffer_size, new_opt.db_write_buffer_size);
-  ASSERT_EQ(base_opt.keep_log_file_num, new_opt.keep_log_file_num);
-  ASSERT_EQ(base_opt.log_file_time_to_roll, new_opt.log_file_time_to_roll);
-  ASSERT_EQ(base_opt.manifest_preallocation_size,
-            new_opt.manifest_preallocation_size);
-  ASSERT_EQ(base_opt.max_log_file_size, new_opt.max_log_file_size);
+  db_opt->db_write_buffer_size = rnd->Uniform(10000);
+  db_opt->keep_log_file_num = rnd->Uniform(10000);
+  db_opt->log_file_time_to_roll = rnd->Uniform(10000);
+  db_opt->manifest_preallocation_size = rnd->Uniform(10000);
+  db_opt->max_log_file_size = rnd->Uniform(10000);
 
   // std::string options
-  ASSERT_EQ(base_opt.db_log_dir, new_opt.db_log_dir);
-  ASSERT_EQ(base_opt.wal_dir, new_opt.wal_dir);
+  db_opt->db_log_dir = "path/to/db_log_dir";
+  db_opt->wal_dir = "path/to/wal_dir";
 
   // uint32_t options
-  ASSERT_EQ(base_opt.max_subcompactions, new_opt.max_subcompactions);
+  db_opt->max_subcompactions = rnd->Uniform(100000);
 
   // uint64_t options
-  ASSERT_EQ(base_opt.WAL_size_limit_MB, new_opt.WAL_size_limit_MB);
-  ASSERT_EQ(base_opt.WAL_ttl_seconds, new_opt.WAL_ttl_seconds);
-  ASSERT_EQ(base_opt.bytes_per_sync, new_opt.bytes_per_sync);
-  ASSERT_EQ(base_opt.delayed_write_rate, new_opt.delayed_write_rate);
-  ASSERT_EQ(base_opt.delete_obsolete_files_period_micros,
-            new_opt.delete_obsolete_files_period_micros);
-  ASSERT_EQ(base_opt.max_manifest_file_size, new_opt.max_manifest_file_size);
-  ASSERT_EQ(base_opt.max_total_wal_size, new_opt.max_total_wal_size);
-  ASSERT_EQ(base_opt.wal_bytes_per_sync, new_opt.wal_bytes_per_sync);
+  static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
+  db_opt->WAL_size_limit_MB = uint_max + rnd->Uniform(100000);
+  db_opt->WAL_ttl_seconds = uint_max + rnd->Uniform(100000);
+  db_opt->bytes_per_sync = uint_max + rnd->Uniform(100000);
+  db_opt->delayed_write_rate = uint_max + rnd->Uniform(100000);
+  db_opt->delete_obsolete_files_period_micros = uint_max + rnd->Uniform(100000);
+  db_opt->max_manifest_file_size = uint_max + rnd->Uniform(100000);
+  db_opt->max_total_wal_size = uint_max + rnd->Uniform(100000);
+  db_opt->wal_bytes_per_sync = uint_max + rnd->Uniform(100000);
 
   // unsigned int options
-  ASSERT_EQ(base_opt.stats_dump_period_sec, new_opt.stats_dump_period_sec);
+  db_opt->stats_dump_period_sec = rnd->Uniform(100000);
 }
+
 }  // namespace
 
 TEST_F(OptionsTest, DBOptionsSerialization) {
@@ -579,154 +734,77 @@ TEST_F(OptionsTest, DBOptionsSerialization) {
   Random rnd(301);
 
   // Phase 1: Make big change in base_options
-  // boolean options
-  base_options.advise_random_on_open = rnd.Uniform(2);
-  base_options.allow_mmap_reads = rnd.Uniform(2);
-  base_options.allow_mmap_writes = rnd.Uniform(2);
-  base_options.allow_os_buffer = rnd.Uniform(2);
-  base_options.create_if_missing = rnd.Uniform(2);
-  base_options.create_missing_column_families = rnd.Uniform(2);
-  base_options.disableDataSync = rnd.Uniform(2);
-  base_options.enable_thread_tracking = rnd.Uniform(2);
-  base_options.error_if_exists = rnd.Uniform(2);
-  base_options.is_fd_close_on_exec = rnd.Uniform(2);
-  base_options.paranoid_checks = rnd.Uniform(2);
-  base_options.skip_log_error_on_recovery = rnd.Uniform(2);
-  base_options.skip_stats_update_on_db_open = rnd.Uniform(2);
-  base_options.use_adaptive_mutex = rnd.Uniform(2);
-  base_options.use_fsync = rnd.Uniform(2);
-
-  // int options
-  base_options.max_background_compactions = rnd.Uniform(100);
-  base_options.max_background_flushes = rnd.Uniform(100);
-  base_options.max_file_opening_threads = rnd.Uniform(100);
-  base_options.max_open_files = rnd.Uniform(100);
-  base_options.table_cache_numshardbits = rnd.Uniform(100);
-
-  // size_t options
-  base_options.db_write_buffer_size = rnd.Uniform(10000);
-  base_options.keep_log_file_num = rnd.Uniform(10000);
-  base_options.log_file_time_to_roll = rnd.Uniform(10000);
-  base_options.manifest_preallocation_size = rnd.Uniform(10000);
-  base_options.max_log_file_size = rnd.Uniform(10000);
-
-  // std::string options
-  base_options.db_log_dir = "path/to/db_log_dir";
-  base_options.wal_dir = "path/to/wal_dir";
-
-  // uint32_t options
-  base_options.max_subcompactions = rnd.Uniform(100000);
-
-  // uint64_t options
-  static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
-  base_options.WAL_size_limit_MB = uint_max + rnd.Uniform(100000);
-  base_options.WAL_ttl_seconds = uint_max + rnd.Uniform(100000);
-  base_options.bytes_per_sync = uint_max + rnd.Uniform(100000);
-  base_options.delayed_write_rate = uint_max + rnd.Uniform(100000);
-  base_options.delete_obsolete_files_period_micros =
-      uint_max + rnd.Uniform(100000);
-  base_options.max_manifest_file_size = uint_max + rnd.Uniform(100000);
-  base_options.max_total_wal_size = uint_max + rnd.Uniform(100000);
-  base_options.wal_bytes_per_sync = uint_max + rnd.Uniform(100000);
-
-  // unsigned int options
-  base_options.stats_dump_period_sec = rnd.Uniform(100000);
+  RandomInitDBOptions(&base_options, &rnd);
 
   // Phase 2: obtain a string from base_option
-  std::string base_opt_string;
-  ASSERT_OK(GetStringFromDBOptions(base_options, &base_opt_string));
+  std::string base_options_file_content;
+  ASSERT_OK(GetStringFromDBOptions(&base_options_file_content, base_options));
 
   // Phase 3: Set new_options from the derived string and expect
   //          new_options == base_options
-  ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_opt_string, &new_options));
-  VerifyDBOptions(base_options, new_options);
+  ASSERT_OK(GetDBOptionsFromString(DBOptions(), base_options_file_content,
+                                   &new_options));
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(base_options, new_options));
 }
 
 namespace {
-void VerifyDouble(double a, double b) { ASSERT_LT(fabs(a - b), 0.00001); }
 
-void VerifyColumnFamilyOptions(const ColumnFamilyOptions& base_opt,
-                               const ColumnFamilyOptions& new_opt) {
-  // custom type options
-  ASSERT_EQ(base_opt.compaction_style, new_opt.compaction_style);
+void RandomInitCFOptions(ColumnFamilyOptions* cf_opt, Random* rnd) {
+  cf_opt->compaction_style = (CompactionStyle)(rnd->Uniform(4));
 
   // boolean options
-  ASSERT_EQ(base_opt.compaction_measure_io_stats,
-            new_opt.compaction_measure_io_stats);
-  ASSERT_EQ(base_opt.disable_auto_compactions,
-            new_opt.disable_auto_compactions);
-  ASSERT_EQ(base_opt.filter_deletes, new_opt.filter_deletes);
-  ASSERT_EQ(base_opt.inplace_update_support, new_opt.inplace_update_support);
-  ASSERT_EQ(base_opt.level_compaction_dynamic_level_bytes,
-            new_opt.level_compaction_dynamic_level_bytes);
-  ASSERT_EQ(base_opt.optimize_filters_for_hits,
-            new_opt.optimize_filters_for_hits);
-  ASSERT_EQ(base_opt.paranoid_file_checks, new_opt.paranoid_file_checks);
-  ASSERT_EQ(base_opt.purge_redundant_kvs_while_flush,
-            new_opt.purge_redundant_kvs_while_flush);
-  ASSERT_EQ(base_opt.verify_checksums_in_compaction,
-            new_opt.verify_checksums_in_compaction);
+  cf_opt->compaction_measure_io_stats = rnd->Uniform(2);
+  cf_opt->disable_auto_compactions = rnd->Uniform(2);
+  cf_opt->filter_deletes = rnd->Uniform(2);
+  cf_opt->inplace_update_support = rnd->Uniform(2);
+  cf_opt->level_compaction_dynamic_level_bytes = rnd->Uniform(2);
+  cf_opt->optimize_filters_for_hits = rnd->Uniform(2);
+  cf_opt->paranoid_file_checks = rnd->Uniform(2);
+  cf_opt->purge_redundant_kvs_while_flush = rnd->Uniform(2);
+  cf_opt->verify_checksums_in_compaction = rnd->Uniform(2);
 
   // double options
-  ASSERT_EQ(base_opt.hard_pending_compaction_bytes_limit,
-            new_opt.hard_pending_compaction_bytes_limit);
-  VerifyDouble(base_opt.soft_rate_limit, new_opt.soft_rate_limit);
+  cf_opt->hard_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
+  cf_opt->soft_rate_limit = static_cast<double>(rnd->Uniform(10000)) / 13;
 
   // int options
-  ASSERT_EQ(base_opt.expanded_compaction_factor,
-            new_opt.expanded_compaction_factor);
-  ASSERT_EQ(base_opt.level0_file_num_compaction_trigger,
-            new_opt.level0_file_num_compaction_trigger);
-  ASSERT_EQ(base_opt.level0_slowdown_writes_trigger,
-            new_opt.level0_slowdown_writes_trigger);
-  ASSERT_EQ(base_opt.level0_stop_writes_trigger,
-            new_opt.level0_stop_writes_trigger);
-  ASSERT_EQ(base_opt.max_bytes_for_level_multiplier,
-            new_opt.max_bytes_for_level_multiplier);
-  ASSERT_EQ(base_opt.max_grandparent_overlap_factor,
-            new_opt.max_grandparent_overlap_factor);
-  ASSERT_EQ(base_opt.max_mem_compaction_level,
-            new_opt.max_mem_compaction_level);
-  ASSERT_EQ(base_opt.max_write_buffer_number, new_opt.max_write_buffer_number);
-  ASSERT_EQ(base_opt.max_write_buffer_number_to_maintain,
-            new_opt.max_write_buffer_number_to_maintain);
-  ASSERT_EQ(base_opt.min_write_buffer_number_to_merge,
-            new_opt.min_write_buffer_number_to_merge);
-  ASSERT_EQ(base_opt.num_levels, new_opt.num_levels);
-  ASSERT_EQ(base_opt.source_compaction_factor,
-            new_opt.source_compaction_factor);
-  ASSERT_EQ(base_opt.target_file_size_multiplier,
-            new_opt.target_file_size_multiplier);
+  cf_opt->expanded_compaction_factor = rnd->Uniform(100);
+  cf_opt->level0_file_num_compaction_trigger = rnd->Uniform(100);
+  cf_opt->level0_slowdown_writes_trigger = rnd->Uniform(100);
+  cf_opt->level0_stop_writes_trigger = rnd->Uniform(100);
+  cf_opt->max_bytes_for_level_multiplier = rnd->Uniform(100);
+  cf_opt->max_grandparent_overlap_factor = rnd->Uniform(100);
+  cf_opt->max_mem_compaction_level = rnd->Uniform(100);
+  cf_opt->max_write_buffer_number = rnd->Uniform(100);
+  cf_opt->max_write_buffer_number_to_maintain = rnd->Uniform(100);
+  cf_opt->min_write_buffer_number_to_merge = rnd->Uniform(100);
+  cf_opt->num_levels = rnd->Uniform(100);
+  cf_opt->source_compaction_factor = rnd->Uniform(100);
+  cf_opt->target_file_size_multiplier = rnd->Uniform(100);
 
   // size_t options
-  ASSERT_EQ(base_opt.arena_block_size, new_opt.arena_block_size);
-  ASSERT_EQ(base_opt.inplace_update_num_locks,
-            new_opt.inplace_update_num_locks);
-  ASSERT_EQ(base_opt.max_successive_merges, new_opt.max_successive_merges);
-  ASSERT_EQ(base_opt.memtable_prefix_bloom_huge_page_tlb_size,
-            new_opt.memtable_prefix_bloom_huge_page_tlb_size);
-  ASSERT_EQ(base_opt.write_buffer_size, new_opt.write_buffer_size);
+  cf_opt->arena_block_size = rnd->Uniform(10000);
+  cf_opt->inplace_update_num_locks = rnd->Uniform(10000);
+  cf_opt->max_successive_merges = rnd->Uniform(10000);
+  cf_opt->memtable_prefix_bloom_huge_page_tlb_size = rnd->Uniform(10000);
+  cf_opt->write_buffer_size = rnd->Uniform(10000);
 
   // uint32_t options
-  ASSERT_EQ(base_opt.bloom_locality, new_opt.bloom_locality);
-  ASSERT_EQ(base_opt.memtable_prefix_bloom_bits,
-            new_opt.memtable_prefix_bloom_bits);
-  ASSERT_EQ(base_opt.memtable_prefix_bloom_probes,
-            new_opt.memtable_prefix_bloom_probes);
-  ASSERT_EQ(base_opt.min_partial_merge_operands,
-            new_opt.min_partial_merge_operands);
-  ASSERT_EQ(base_opt.max_bytes_for_level_base,
-            new_opt.max_bytes_for_level_base);
+  cf_opt->bloom_locality = rnd->Uniform(10000);
+  cf_opt->memtable_prefix_bloom_bits = rnd->Uniform(10000);
+  cf_opt->memtable_prefix_bloom_probes = rnd->Uniform(10000);
+  cf_opt->min_partial_merge_operands = rnd->Uniform(10000);
+  cf_opt->max_bytes_for_level_base = rnd->Uniform(10000);
 
   // uint64_t options
-  ASSERT_EQ(base_opt.max_sequential_skip_in_iterations,
-            new_opt.max_sequential_skip_in_iterations);
-  ASSERT_EQ(base_opt.target_file_size_base, new_opt.target_file_size_base);
+  static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
+  cf_opt->max_sequential_skip_in_iterations = uint_max + rnd->Uniform(10000);
+  cf_opt->target_file_size_base = uint_max + rnd->Uniform(10000);
 
   // unsigned int options
-  ASSERT_EQ(base_opt.rate_limit_delay_max_milliseconds,
-            new_opt.rate_limit_delay_max_milliseconds);
+  cf_opt->rate_limit_delay_max_milliseconds = rnd->Uniform(10000);
 }
+
 }  // namespace
 
 TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
@@ -734,69 +812,18 @@ TEST_F(OptionsTest, ColumnFamilyOptionsSerialization) {
   Random rnd(302);
   // Phase 1: randomly assign base_opt
   // custom type options
-  base_opt.compaction_style = (CompactionStyle)(rnd.Uniform(4));
-
-  // boolean options
-  base_opt.compaction_measure_io_stats = rnd.Uniform(2);
-  base_opt.disable_auto_compactions = rnd.Uniform(2);
-  base_opt.filter_deletes = rnd.Uniform(2);
-  base_opt.inplace_update_support = rnd.Uniform(2);
-  base_opt.level_compaction_dynamic_level_bytes = rnd.Uniform(2);
-  base_opt.optimize_filters_for_hits = rnd.Uniform(2);
-  base_opt.paranoid_file_checks = rnd.Uniform(2);
-  base_opt.purge_redundant_kvs_while_flush = rnd.Uniform(2);
-  base_opt.verify_checksums_in_compaction = rnd.Uniform(2);
-
-  // double options
-  base_opt.soft_rate_limit = static_cast<double>(rnd.Uniform(10000)) / 13;
-
-  // int options
-  base_opt.expanded_compaction_factor = rnd.Uniform(100);
-  base_opt.level0_file_num_compaction_trigger = rnd.Uniform(100);
-  base_opt.level0_slowdown_writes_trigger = rnd.Uniform(100);
-  base_opt.level0_stop_writes_trigger = rnd.Uniform(100);
-  base_opt.max_bytes_for_level_multiplier = rnd.Uniform(100);
-  base_opt.max_grandparent_overlap_factor = rnd.Uniform(100);
-  base_opt.max_mem_compaction_level = rnd.Uniform(100);
-  base_opt.max_write_buffer_number = rnd.Uniform(100);
-  base_opt.max_write_buffer_number_to_maintain = rnd.Uniform(100);
-  base_opt.min_write_buffer_number_to_merge = rnd.Uniform(100);
-  base_opt.num_levels = rnd.Uniform(100);
-  base_opt.source_compaction_factor = rnd.Uniform(100);
-  base_opt.target_file_size_multiplier = rnd.Uniform(100);
-
-  // size_t options
-  base_opt.arena_block_size = rnd.Uniform(10000);
-  base_opt.inplace_update_num_locks = rnd.Uniform(10000);
-  base_opt.max_successive_merges = rnd.Uniform(10000);
-  base_opt.memtable_prefix_bloom_huge_page_tlb_size = rnd.Uniform(10000);
-  base_opt.write_buffer_size = rnd.Uniform(10000);
-
-  // uint32_t options
-  base_opt.bloom_locality = rnd.Uniform(10000);
-  base_opt.memtable_prefix_bloom_bits = rnd.Uniform(10000);
-  base_opt.memtable_prefix_bloom_probes = rnd.Uniform(10000);
-  base_opt.min_partial_merge_operands = rnd.Uniform(10000);
-  base_opt.max_bytes_for_level_base = rnd.Uniform(10000);
-
-  // uint64_t options
-  static const uint64_t uint_max = static_cast<uint64_t>(UINT_MAX);
-  base_opt.max_sequential_skip_in_iterations = uint_max + rnd.Uniform(10000);
-  base_opt.target_file_size_base = uint_max + rnd.Uniform(10000);
-  base_opt.hard_pending_compaction_bytes_limit = uint_max + rnd.Uniform(10000);
-
-  // unsigned int options
-  base_opt.rate_limit_delay_max_milliseconds = rnd.Uniform(10000);
+  RandomInitCFOptions(&base_opt, &rnd);
 
   // Phase 2: obtain a string from base_opt
-  std::string base_opt_string;
-  ASSERT_OK(GetStringFromColumnFamilyOptions(base_opt, &base_opt_string));
+  std::string base_options_file_content;
+  ASSERT_OK(
+      GetStringFromColumnFamilyOptions(&base_options_file_content, base_opt));
 
   // Phase 3: Set new_opt from the derived string and expect
   //          new_opt == base_opt
-  ASSERT_OK(GetColumnFamilyOptionsFromString(ColumnFamilyOptions(),
-                                             base_opt_string, &new_opt));
-  VerifyColumnFamilyOptions(base_opt, new_opt);
+  ASSERT_OK(GetColumnFamilyOptionsFromString(
+      ColumnFamilyOptions(), base_options_file_content, &new_opt));
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(base_opt, new_opt));
 }
 
 #endif  // !ROCKSDB_LITE
@@ -999,6 +1026,365 @@ TEST_F(OptionsTest, ConvertOptionsTest) {
             leveldb_opt.block_restart_interval);
   ASSERT_EQ(table_opt.filter_policy.get(), leveldb_opt.filter_policy);
 }
+
+#ifndef ROCKSDB_LITE
+class OptionsParserTest : public testing::Test {
+ public:
+  OptionsParserTest() { env_.reset(new StringEnv(Env::Default())); }
+
+ protected:
+  std::unique_ptr<StringEnv> env_;
+};
+
+TEST_F(OptionsParserTest, Comment) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[ DBOptions ]\n"
+      "  # note that we don't support space around \"=\"\n"
+      "  max_open_files=12345;\n"
+      "  max_background_flushes=301  # comment after a statement is fine\n"
+      "  # max_background_flushes=1000  # this line would be ignored\n"
+      "  # max_background_compactions=2000 # so does this one\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "[CFOptions   \"default\"]  # column family must be specified\n"
+      "                     # in the correct order\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(kTestFileName, env_.get()));
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), db_opt));
+  ASSERT_EQ(parser.NumColumnFamilies(), 1U);
+  ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(
+      *parser.GetCFOptions("default"), cf_opt));
+}
+
+TEST_F(OptionsParserTest, ExtraSpace) {
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[      Version   ]\n"
+      "  rocksdb_version     = 3.14.0      \n"
+      "  options_file_version=1   # some comment\n"
+      "[DBOptions  ]  # some comment\n"
+      "max_open_files=12345   \n"
+      "    max_background_flushes   =    301   \n"
+      " max_total_wal_size     =   1024  # keep_log_file_num=1000\n"
+      "        [CFOptions      \"default\"     ]\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, MissingDBOptions) {
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[CFOptions \"default\"]\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, DoubleDBOptions) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[DBOptions]\n"
+      "  max_open_files=12345\n"
+      "  max_background_flushes=301\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "[DBOptions]\n"
+      "[CFOptions \"default\"]\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, NoDefaultCFOptions) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[DBOptions]\n"
+      "  max_open_files=12345\n"
+      "  max_background_flushes=301\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "[CFOptions \"something_else\"]\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, DefaultCFOptionsMustBeTheFirst) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[DBOptions]\n"
+      "  max_open_files=12345\n"
+      "  max_background_flushes=301\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "[CFOptions \"something_else\"]\n"
+      "  # if a section is blank, we will use the default\n"
+      "[CFOptions \"default\"]\n"
+      "  # if a section is blank, we will use the default\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, DuplicateCFOptions) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string options_file_content =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.14.0\n"
+      "  options_file_version=1\n"
+      "[DBOptions]\n"
+      "  max_open_files=12345\n"
+      "  max_background_flushes=301\n"
+      "  max_total_wal_size=1024  # keep_log_file_num=1000\n"
+      "[CFOptions \"default\"]\n"
+      "[CFOptions \"something_else\"]\n"
+      "[CFOptions \"something_else\"]\n";
+
+  const std::string kTestFileName = "test-rocksdb-options.ini";
+  env_->WriteToNewFile(kTestFileName, options_file_content);
+  RocksDBOptionsParser parser;
+  ASSERT_NOK(parser.Parse(kTestFileName, env_.get()));
+}
+
+TEST_F(OptionsParserTest, ParseVersion) {
+  DBOptions db_opt;
+  db_opt.max_open_files = 12345;
+  db_opt.max_background_flushes = 301;
+  db_opt.max_total_wal_size = 1024;
+  ColumnFamilyOptions cf_opt;
+
+  std::string file_template =
+      "# This is a testing option string.\n"
+      "# Currently we only support \"#\" styled comment.\n"
+      "\n"
+      "[Version]\n"
+      "  rocksdb_version=3.13.1\n"
+      "  options_file_version=%s\n"
+      "[DBOptions]\n"
+      "[CFOptions \"default\"]\n";
+  const int kLength = 1000;
+  char buffer[kLength];
+  RocksDBOptionsParser parser;
+
+  const std::vector<std::string> invalid_versions = {
+      "a.b.c", "3.2.2b", "3.-12", "3. 1",  // only digits and dots are allowed
+      "1.2.3.4",
+      "1.2.3"  // can only contains at most one dot.
+      "0",     // options_file_version must be at least one
+      "3..2",
+      ".", ".1.2",             // must have at least one digit before each dot
+      "1.2.", "1.", "2.34."};  // must have at least one digit after each dot
+  for (auto iv : invalid_versions) {
+    snprintf(buffer, kLength - 1, file_template.c_str(), iv.c_str());
+
+    parser.Reset();
+    env_->WriteToNewFile(iv, buffer);
+    ASSERT_NOK(parser.Parse(iv, env_.get()));
+  }
+
+  const std::vector<std::string> valid_versions = {
+      "1.232", "100", "3.12", "1", "12.3  ", "  1.25  "};
+  for (auto vv : valid_versions) {
+    snprintf(buffer, kLength - 1, file_template.c_str(), vv.c_str());
+    parser.Reset();
+    env_->WriteToNewFile(vv, buffer);
+    ASSERT_OK(parser.Parse(vv, env_.get()));
+  }
+}
+
+TEST_F(OptionsParserTest, DumpAndParse) {
+  DBOptions base_db_opt;
+  std::vector<ColumnFamilyOptions> base_cf_opts;
+  std::vector<std::string> cf_names = {
+      // special characters are also included.
+      "default", "p\\i\\k\\a\\chu\\\\\\", "###rocksdb#1-testcf#2###"};
+  const int num_cf = static_cast<int>(cf_names.size());
+  Random rnd(302);
+  RandomInitDBOptions(&base_db_opt, &rnd);
+  base_db_opt.db_log_dir += "/#odd #but #could #happen #path #/\\\\#OMG";
+  for (int c = 0; c < num_cf; ++c) {
+    ColumnFamilyOptions cf_opt;
+    Random cf_rnd(0xFB + c);
+    RandomInitCFOptions(&cf_opt, &cf_rnd);
+    base_cf_opts.emplace_back(cf_opt);
+  }
+
+  const std::string kOptionsFileName = "test-persisted-options.ini";
+  ASSERT_OK(PersistRocksDBOptions(base_db_opt, cf_names, base_cf_opts,
+                                  kOptionsFileName, env_.get()));
+
+  RocksDBOptionsParser parser;
+  ASSERT_OK(parser.Parse(kOptionsFileName, env_.get()));
+
+  ASSERT_OK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));
+
+  ASSERT_OK(
+      RocksDBOptionsParser::VerifyDBOptions(*parser.db_opt(), base_db_opt));
+  for (int c = 0; c < num_cf; ++c) {
+    const auto* cf_opt = parser.GetCFOptions(cf_names[c]);
+    ASSERT_NE(cf_opt, nullptr);
+    ASSERT_OK(RocksDBOptionsParser::VerifyCFOptions(*cf_opt, base_cf_opts[c]));
+  }
+  ASSERT_EQ(parser.GetCFOptions("does not exist"), nullptr);
+
+  base_db_opt.max_open_files++;
+  ASSERT_NOK(RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
+      base_db_opt, cf_names, base_cf_opts, kOptionsFileName, env_.get()));
+}
+
+namespace {
+bool IsEscapedString(const std::string& str) {
+  for (size_t i = 0; i < str.size(); ++i) {
+    if (str[i] == '\\') {
+      // since we already handle those two consecutive '\'s in
+      // the next if-then branch, any '\' appear at the end
+      // of an escaped string in such case is not valid.
+      if (i == str.size() - 1) {
+        return false;
+      }
+      if (str[i + 1] == '\\') {
+        // if there're two consecutive '\'s, skip the second one.
+        i++;
+        continue;
+      }
+      switch (str[i + 1]) {
+        case ':':
+        case '\\':
+        case '#':
+          continue;
+        default:
+          // if true, '\' together with str[i + 1] is not a valid escape.
+          if (UnescapeChar(str[i + 1]) == str[i + 1]) {
+            return false;
+          }
+      }
+    } else if (isSpecialChar(str[i]) && (i == 0 || str[i - 1] != '\\')) {
+      return false;
+    }
+  }
+  return true;
+}
+}  // namespace
+
+TEST_F(OptionsParserTest, EscapeOptionString) {
+  ASSERT_EQ(UnescapeOptionString(
+                "This is a test string with \\# \\: and \\\\ escape chars."),
+            "This is a test string with # : and \\ escape chars.");
+
+  ASSERT_EQ(
+      EscapeOptionString("This is a test string with # : and \\ escape chars."),
+      "This is a test string with \\# \\: and \\\\ escape chars.");
+
+  std::string readible_chars =
+      "A String like this \"1234567890-=_)(*&^%$#@!ertyuiop[]{POIU"
+      "YTREWQasdfghjkl;':LKJHGFDSAzxcvbnm,.?>"
+      "<MNBVCXZ\\\" should be okay to \\#\\\\\\:\\#\\#\\#\\ "
+      "be serialized and deserialized";
+
+  std::string escaped_string = EscapeOptionString(readible_chars);
+  ASSERT_TRUE(IsEscapedString(escaped_string));
+  // This two transformations should be canceled and should output
+  // the original input.
+  ASSERT_EQ(UnescapeOptionString(escaped_string), readible_chars);
+
+  std::string all_chars;
+  for (unsigned char c = 0;; ++c) {
+    all_chars += c;
+    if (c == 255) {
+      break;
+    }
+  }
+  escaped_string = EscapeOptionString(all_chars);
+  ASSERT_TRUE(IsEscapedString(escaped_string));
+  ASSERT_EQ(UnescapeOptionString(escaped_string), all_chars);
+
+  ASSERT_EQ(RocksDBOptionsParser::TrimAndRemoveComment(
+                "     A simple statement with a comment.  # like this :)"),
+            "A simple statement with a comment.");
+
+  ASSERT_EQ(RocksDBOptionsParser::TrimAndRemoveComment(
+                "Escape \\# and # comment together   ."),
+            "Escape \\# and");
+}
+
+#endif  // !ROCKSDB_LITE
 
 }  // namespace rocksdb
 
