@@ -91,7 +91,7 @@ class StringEnv : public EnvWrapper {
       }
       return Status::OK();
     }
-    Status Skip(uint64_t n) {
+    Status Skip(uint64_t n) override {
       if (offset_ >= data_.size()) {
         return Status::InvalidArgument(
             "Attemp to read when it already reached eof.");
