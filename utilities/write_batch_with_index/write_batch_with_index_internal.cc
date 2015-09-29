@@ -132,7 +132,7 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
     const DBOptions& options, WriteBatchWithIndex* batch,
     ColumnFamilyHandle* column_family, const Slice& key,
     MergeContext* merge_context, WriteBatchEntryComparator* cmp,
-    std::string* value, Status* s) {
+    std::string* value, bool overwrite_key, Status* s) {
   uint32_t cf_id = GetColumnFamilyID(column_family);
   *s = Status::OK();
   WriteBatchWithIndexInternal::Result result =
@@ -203,6 +203,13 @@ WriteBatchWithIndexInternal::Result WriteBatchWithIndexInternal::GetFromBatch(
         result == WriteBatchWithIndexInternal::Result::kDeleted ||
         result == WriteBatchWithIndexInternal::Result::kError) {
       // We can stop iterating once we find a PUT or DELETE
+      break;
+    }
+    if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
+        overwrite_key == true) {
+      // Since we've overwritten keys, we do not know what other operations are
+      // in this batch for this key, so we cannot do a Merge to compute the
+      // result.  Instead, we will simply return MergeInProgress.
       break;
     }
 

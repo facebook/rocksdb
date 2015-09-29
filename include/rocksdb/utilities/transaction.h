@@ -99,7 +99,9 @@ class Transaction {
   virtual Status RollbackToSavePoint() = 0;
 
   // This function is similar to DB::Get() except it will also read pending
-  // changes in this transaction.
+  // changes in this transaction.  Currently, this function will return
+  // Status::MergeInProgress if the most recent write to the queried key in
+  // this batch is a Merge.
   //
   // If read_options.snapshot is not set, the current version of the key will
   // be read.  Calling SetSnapshot() does not affect the version of the data
@@ -131,6 +133,9 @@ class Transaction {
   // snapshot is set in this transaction).  The transaction behavior is the
   // same regardless of whether the key exists or not.
   //
+  // Note: Currently, this function will return Status::MergeInProgress
+  // if the most recent write to the queried key in this batch is a Merge.
+  //
   // The values returned by this function are similar to Transaction::Get().
   // If value==nullptr, then this function will not read any data, but will
   // still ensure that this key cannot be written to by outside of this
@@ -146,6 +151,7 @@ class Transaction {
   // Status::TimedOut() if a lock could not be acquired,
   // Status::TryAgain() if the memtable history size is not large enough
   //  (See max_write_buffer_number_to_maintain)
+  // Status::MergeInProgress() if merge operations cannot be resolved.
   // or other errors if this key could not be read.
   virtual Status GetForUpdate(const ReadOptions& options,
                               ColumnFamilyHandle* column_family,

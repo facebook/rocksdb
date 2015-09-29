@@ -619,9 +619,9 @@ Status WriteBatchWithIndex::GetFromBatch(ColumnFamilyHandle* column_family,
   MergeContext merge_context;
 
   WriteBatchWithIndexInternal::Result result =
-      WriteBatchWithIndexInternal::GetFromBatch(options, this, column_family,
-                                                key, &merge_context,
-                                                &rep->comparator, value, &s);
+      WriteBatchWithIndexInternal::GetFromBatch(
+          options, this, column_family, key, &merge_context, &rep->comparator,
+          value, rep->overwrite_key, &s);
 
   switch (result) {
     case WriteBatchWithIndexInternal::Result::kFound:
@@ -662,8 +662,8 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
   std::string batch_value;
   WriteBatchWithIndexInternal::Result result =
       WriteBatchWithIndexInternal::GetFromBatch(
-          options, this, column_family, key, &merge_context,
-          &rep->comparator, &batch_value, &s);
+          options, this, column_family, key, &merge_context, &rep->comparator,
+          &batch_value, rep->overwrite_key, &s);
 
   if (result == WriteBatchWithIndexInternal::Result::kFound) {
     value->assign(batch_value.data(), batch_value.size());
@@ -675,6 +675,14 @@ Status WriteBatchWithIndex::GetFromBatchAndDB(DB* db,
   if (result == WriteBatchWithIndexInternal::Result::kError) {
     return s;
   }
+  if (result == WriteBatchWithIndexInternal::Result::kMergeInProgress &&
+      rep->overwrite_key == true) {
+    // Since we've overwritten keys, we do not know what other operations are
+    // in this batch for this key, so we cannot do a Merge to compute the
+    // result.  Instead, we will simply return MergeInProgress.
+    return Status::MergeInProgress();
+  }
+
   assert(result == WriteBatchWithIndexInternal::Result::kMergeInProgress ||
          result == WriteBatchWithIndexInternal::Result::kNotFound);
 

@@ -91,7 +91,7 @@ class WriteBatchWithIndexInternal {
       const DBOptions& options, WriteBatchWithIndex* batch,
       ColumnFamilyHandle* column_family, const Slice& key,
       MergeContext* merge_context, WriteBatchEntryComparator* cmp,
-      std::string* value, Status* s);
+      std::string* value, bool overwrite_key, Status* s);
 };
 
 }  // namespace rocksdb

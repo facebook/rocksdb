@@ -120,7 +120,14 @@ class WriteBatchWithIndex : public WriteBatchBase {
   WBWIIterator* NewIterator();
 
   // Will create a new Iterator that will use WBWIIterator as a delta and
-  // base_iterator as base
+  // base_iterator as base.
+  //
+  // This function is only supported if the WriteBatchWithIndex was
+  // constructed with overwrite_key=true.
+  //
+  // The returned iterator should be deleted by the caller.
+  // The base_iterator is now 'owned' by the returned iterator. Deleting the
+  // returned iterator will also delete the base_iterator.
   Iterator* NewIteratorWithBase(ColumnFamilyHandle* column_family,
                                 Iterator* base_iterator);
   // default column family
@@ -135,7 +142,7 @@ class WriteBatchWithIndex : public WriteBatchBase {
 
   // Similar to previous function but does not require a column_family.
   // Note:  An InvalidArgument status will be returned if there are any Merge
-  // operators for this key.
+  // operators for this key.  Use previous method instead.
   Status GetFromBatch(const DBOptions& options, const Slice& key,
                       std::string* value) {
     return GetFromBatch(nullptr, options, key, value);
