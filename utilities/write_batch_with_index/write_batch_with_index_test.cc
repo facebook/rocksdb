@@ -971,7 +971,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
 
   DestroyDB(dbname, options);
   Status s = DB::Open(options, dbname, &db);
-  assert(s.ok());
+  ASSERT_OK(s);
 
   ColumnFamilyHandle* column_family = db->DefaultColumnFamily();
   WriteBatchWithIndex batch;
@@ -1009,6 +1009,66 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge) {
   DestroyDB(dbname, options);
 }
 
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchMerge2) {
+  DB* db;
+  Options options;
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+  options.create_if_missing = true;
+
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  ASSERT_OK(s);
+
+  ColumnFamilyHandle* column_family = db->DefaultColumnFamily();
+
+  // Test batch with overwrite_key=true
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+  std::string value;
+
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Put(column_family, "X", "x");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("x", value);
+
+  batch.Put(column_family, "X", "x2");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("x2", value);
+
+  batch.Merge(column_family, "X", "aaa");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  batch.Merge(column_family, "X", "bbb");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  batch.Put(column_family, "X", "x3");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("x3", value);
+
+  batch.Merge(column_family, "X", "ccc");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  batch.Delete(column_family, "X");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Merge(column_family, "X", "ddd");
+  s = batch.GetFromBatch(column_family, options, "X", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  delete db;
+  DestroyDB(dbname, options);
+}
+
 TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
   DB* db;
   Options options;
@@ -1017,7 +1077,7 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDB) {
 
   DestroyDB(dbname, options);
   Status s = DB::Open(options, dbname, &db);
-  assert(s.ok());
+  ASSERT_OK(s);
 
   WriteBatchWithIndex batch;
   ReadOptions read_options;
@@ -1181,6 +1241,54 @@ TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge) {
   ASSERT_EQ("e0", value);
 
   db->ReleaseSnapshot(snapshot);
+  delete db;
+  DestroyDB(dbname, options);
+}
+
+TEST_F(WriteBatchWithIndexTest, TestGetFromBatchAndDBMerge2) {
+  DB* db;
+  Options options;
+
+  options.create_if_missing = true;
+  std::string dbname = test::TmpDir() + "/write_batch_with_index_test";
+
+  options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
+
+  DestroyDB(dbname, options);
+  Status s = DB::Open(options, dbname, &db);
+  assert(s.ok());
+
+  // Test batch with overwrite_key=true
+  WriteBatchWithIndex batch(BytewiseComparator(), 0, true);
+
+  ReadOptions read_options;
+  WriteOptions write_options;
+  std::string value;
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
+  batch.Merge("A", "xxx");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  batch.Merge("A", "yyy");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  batch.Delete("A");
+
+  s = batch.GetFromBatchAndDB(db, read_options, "A", &value);
+  ASSERT_TRUE(s.IsNotFound());
+
   delete db;
   DestroyDB(dbname, options);
 }

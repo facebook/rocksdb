@@ -12,6 +12,8 @@
 #include "rocksdb/utilities/transaction_db.h"
 #include "util/logging.h"
 #include "util/testharness.h"
+#include "utilities/merge_operators.h"
+#include "utilities/merge_operators/string_append/stringappend.h"
 
 using std::string;
 
@@ -28,6 +30,7 @@ class TransactionTest : public testing::Test {
   TransactionTest() {
     options.create_if_missing = true;
     options.max_write_buffer_number = 2;
+    options.merge_operator = MergeOperators::CreateFromStringId("stringappend");
     dbname = test::TmpDir() + "/transaction_testdb";
 
     DestroyDB(dbname, options);
@@ -1822,6 +1825,62 @@ TEST_F(TransactionTest, SingleDeleteTest) {
 
   s = db->Get(read_options, "B", &value);
   ASSERT_TRUE(s.IsNotFound());
+}
+
+TEST_F(TransactionTest, MergeTest) {
+  WriteOptions write_options;
+  ReadOptions read_options;
+  string value;
+  Status s;
+
+  Transaction* txn = db->BeginTransaction(write_options, TransactionOptions());
+  ASSERT_TRUE(txn);
+
+  s = db->Put(write_options, "A", "a0");
+  ASSERT_OK(s);
+
+  s = txn->Merge("A", "1");
+  ASSERT_OK(s);
+
+  s = txn->Merge("A", "2");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  s = txn->Put("A", "a");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a", value);
+
+  s = txn->Merge("A", "3");
+  ASSERT_OK(s);
+
+  s = txn->Get(read_options, "A", &value);
+  ASSERT_TRUE(s.IsMergeInProgress());
+
+  TransactionOptions txn_options;
+  txn_options.lock_timeout = 1;  // 1 ms
+  Transaction* txn2 = db->BeginTransaction(write_options, txn_options);
+  ASSERT_TRUE(txn2);
+
+  // verify that txn has "A" locked
+  s = txn2->Merge("A", "4");
+  ASSERT_TRUE(s.IsTimedOut());
+
+  s = txn2->Commit();
+  ASSERT_OK(s);
+  delete txn2;
+
+  s = txn->Commit();
+  ASSERT_OK(s);
+  delete txn;
+
+  s = db->Get(read_options, "A", &value);
+  ASSERT_OK(s);
+  ASSERT_EQ("a,3", value);
 }
 
 }  // namespace rocksdb
