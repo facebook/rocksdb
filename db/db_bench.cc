@@ -364,6 +364,10 @@ DEFINE_int32(open_files, rocksdb::Options().max_open_files,
              "Maximum number of files to keep open at the same time"
              " (use default if == 0)");
 
+DEFINE_int32(file_opening_threads, rocksdb::Options().max_file_opening_threads,
+             "If open_files is set to -1, this option set the number of "
+             "threads that will be used to open files during DB::Open()");
+
 DEFINE_int32(new_table_reader_for_compaction_inputs, true,
              "If true, uses a separate file handle for compaction inputs");
 
@@ -2267,6 +2271,7 @@ class Benchmark {
     options.memtable_prefix_bloom_bits = FLAGS_memtable_bloom_bits;
     options.bloom_locality = FLAGS_bloom_locality;
     options.max_open_files = FLAGS_open_files;
+    options.max_file_opening_threads = FLAGS_file_opening_threads;
     options.new_table_reader_for_compaction_inputs =
         FLAGS_new_table_reader_for_compaction_inputs;
     options.compaction_readahead_size = FLAGS_compaction_readahead_size;
