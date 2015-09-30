@@ -18,6 +18,8 @@
 #include "util/options_helper.h"
 #include "util/string_util.h"
 
+#include "port/port.h"
+
 namespace rocksdb {
 
 static const std::string option_file_header =

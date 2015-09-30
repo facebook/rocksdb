@@ -14,9 +14,9 @@
 # 3. Run cmake to generate project files for Windows, add more options to enable required third-party libraries.
 #    See thirdparty.inc for more information.
 #        cmake -G "Visual Studio 12 Win64" .. <more options>
-# 4. Then build the project in debug mode (you may want to add /m:<N> flag to run msbuild in <N> parallel threads)
+# 4. Then build the project in debug mode (you may want to add /m[:<N>] flag to run msbuild in <N> parallel threads)
 #        msbuild ALL_BUILD.vcxproj
-# 5. And release mode (/m:<N> is also supported)
+# 5. And release mode (/m[:<N>] is also supported)
 #        msbuild ALL_BUILD.vcxproj /p:Configuration=Release
 #
 
@@ -58,7 +58,7 @@ else()
 endif()
 
 if((${OPTIMIZE_DEBUG} EQUAL 1))
-   message("Debug optimization is enabled")
+   message(STATUS "Debug optimization is enabled")
    set(CMAKE_CXX_FLAGS_DEBUG "/Oxt /MDd")
 else()
    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /Od /RTC1 /Gm /MDd")
@@ -153,6 +153,7 @@ set(SOURCES
         table/get_context.cc
         table/iterator.cc
         table/merger.cc
+        table/sst_file_writer.cc
         table/meta_blocks.cc
         table/mock_table.cc
         table/plain_table_builder.cc
@@ -271,8 +272,9 @@ set(APPS
         util/cache_bench.cc
 )
 
+set(C_TESTS db/c_test.c)
+
 set(TESTS
-        db/c_test.c
         db/column_family_test.cc
         db/compact_files_test.cc
         db/compaction_job_test.cc
@@ -367,8 +369,17 @@ set(EXES ${APPS} ${TESTS})
 
 foreach(sourcefile ${EXES})
     string(REPLACE ".cc" "" exename ${sourcefile})
-    string(REPLACE ".c" "" exename ${exename})
     string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
     add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
     target_link_libraries(${exename}${ARTIFACT_SUFFIX} ${LIBS})
 endforeach(sourcefile ${EXES})
+
+# C executables must link to a shared object
+set(C_EXES ${C_TESTS})
+
+foreach(sourcefile ${C_EXES})
+    string(REPLACE ".c" "" exename ${sourcefile})
+    string(REGEX REPLACE "^((.+)/)+" "" exename ${exename})
+    add_executable(${exename}${ARTIFACT_SUFFIX} ${sourcefile})
+    target_link_libraries(${exename}${ARTIFACT_SUFFIX} rocksdb${ARTIFACT_SUFFIX})
+endforeach(sourcefile ${C_TESTS})
