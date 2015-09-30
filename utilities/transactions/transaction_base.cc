@@ -77,7 +77,7 @@ Status TransactionBaseImpl::RollbackToSavePoint() {
     assert(s.ok());
 
     // Rollback any keys that were tracked since the last savepoint
-    auto key_map = GetTrackedKeysSinceSavePoint();
+    const TransactionKeyMap* key_map = GetTrackedKeysSinceSavePoint();
     assert(key_map);
     for (auto& key_map_iter : *key_map) {
       uint32_t column_family_id = key_map_iter.first;

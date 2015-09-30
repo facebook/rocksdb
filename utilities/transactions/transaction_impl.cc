@@ -126,7 +126,7 @@ void TransactionImpl::Rollback() { Clear(); }
 
 Status TransactionImpl::RollbackToSavePoint() {
   // Unlock any keys locked since last transaction
-  auto keys = GetTrackedKeysSinceSavePoint();
+  const TransactionKeyMap* keys = GetTrackedKeysSinceSavePoint();
   if (keys) {
     txn_db_impl_->UnLock(this, keys);
   }
@@ -227,18 +227,26 @@ Status TransactionImpl::TryLock(ColumnFamilyHandle* column_family,
   // TODO(agiardullo): could optimize by supporting shared txn locks in the
   // future
   bool check_snapshot = !untracked;
+  SequenceNumber tracked_seqno = kMaxSequenceNumber;
+
+  // Lookup whether this key has already been locked by this transaction
+  const auto& tracked_keys = GetTrackedKeys();
+  const auto tracked_keys_cf = tracked_keys.find(cfh_id);
+  if (tracked_keys_cf == tracked_keys.end()) {
+    previously_locked = false;
+  } else {
+    auto iter = tracked_keys_cf->second.find(key_str);
+    if (iter == tracked_keys_cf->second.end()) {
+      previously_locked = false;
+    } else {
+      previously_locked = true;
+      tracked_seqno = iter->second;
+    }
+  }
 
   // lock this key if this transactions hasn't already locked it
-  SequenceNumber tracked_seqno = kMaxSequenceNumber;
-  auto tracked_keys = GetTrackedKeys();
-  auto iter = tracked_keys[cfh_id].find(key_str);
-  if (iter == tracked_keys[cfh_id].end()) {
-    previously_locked = false;
-
+  if (!previously_locked) {
     s = txn_db_impl_->TryLock(this, cfh_id, key_str);
-  } else {
-    previously_locked = true;
-    tracked_seqno = iter->second;
   }
 
   if (s.ok()) {
