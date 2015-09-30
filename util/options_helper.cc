@@ -665,6 +665,11 @@ Status GetStringFromDBOptions(std::string* opt_string,
   opt_string->clear();
   for (auto iter = db_options_type_info.begin();
        iter != db_options_type_info.end(); ++iter) {
+    if (iter->second.verification == OptionVerificationType::kDeprecated) {
+      // If the option is no longer used in rocksdb and marked as deprecated,
+      // we skip it in the serialization.
+      continue;
+    }
     std::string single_output;
     bool result = SerializeSingleDBOption(&single_output, db_options,
                                           iter->first, delimiter);
@@ -703,6 +708,8 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
   for (auto iter = cf_options_type_info.begin();
        iter != cf_options_type_info.end(); ++iter) {
     if (iter->second.verification == OptionVerificationType::kDeprecated) {
+      // If the option is no longer used in rocksdb and marked as deprecated,
+      // we skip it in the serialization.
       continue;
     }
     std::string single_output;
