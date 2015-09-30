@@ -38,7 +38,7 @@ coverage/COVERAGE_REPORT
 .gdbhistory
 package/
 .phutil_module_cache
-unity
+unity.a
 tags
 rocksdb_dump
 rocksdb_undump
@@ -52,6 +52,8 @@ java/include/org_rocksdb_*.h
 .idea/
 *.iml
 
+rocksdb.cc
+rocksdb.h
 unity.cc
 java/crossbuild/.vagrant
 .vagrant/
