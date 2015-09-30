@@ -532,6 +532,11 @@ Status RocksDBOptionsParser::VerifyRocksDBOptionsFromFile(
 Status RocksDBOptionsParser::VerifyDBOptions(const DBOptions& base_opt,
                                              const DBOptions& new_opt) {
   for (auto pair : db_options_type_info) {
+    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+      // We skip checking deprecated variables as they might
+      // contain random values since they might not be initialized
+      continue;
+    }
     if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                          reinterpret_cast<const char*>(&new_opt),
                          pair.second)) {
@@ -547,6 +552,11 @@ Status RocksDBOptionsParser::VerifyDBOptions(const DBOptions& base_opt,
 Status RocksDBOptionsParser::VerifyCFOptions(
     const ColumnFamilyOptions& base_opt, const ColumnFamilyOptions& new_opt) {
   for (auto& pair : cf_options_type_info) {
+    if (pair.second.verification == OptionVerificationType::kDeprecated) {
+      // We skip checking deprecated variables as they might
+      // contain random values since they might not be initialized
+      continue;
+    }
     if (!AreEqualOptions(reinterpret_cast<const char*>(&base_opt),
                          reinterpret_cast<const char*>(&new_opt),
                          pair.second)) {

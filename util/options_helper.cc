@@ -702,6 +702,9 @@ Status GetStringFromColumnFamilyOptions(std::string* opt_string,
   opt_string->clear();
   for (auto iter = cf_options_type_info.begin();
        iter != cf_options_type_info.end(); ++iter) {
+    if (iter->second.verification == OptionVerificationType::kDeprecated) {
+      continue;
+    }
     std::string single_output;
     bool result = SerializeSingleColumnFamilyOption(&single_output, cf_options,
                                                     iter->first, delimiter);
