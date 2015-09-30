@@ -2,27 +2,65 @@
 # This script is executed by Sandcastle
 # to determine next steps to run
 
-EMAIL_ID=$2
+# Usage:
+# EMAIL=<email> ONCALL=<email> TRIGGER=<trigger> SUBSCRIBER=<email> rocks_ci.py <test-name>
+#
+# Input         Value
+# -------------------------------------------------------------------------
+# EMAIL         Email address to report on trigger conditions
+# ONCAL         Email address to raise a task on failure
+# TRIGGER       Trigger conditions for email. Valid values are fail, warn, all
+# SUBSCRIBER    Email addresss to add as subscriber for task
+#
+
+#
+# Report configuration
+#
+REPORT_EMAIL=
+if [ ! -z $EMAIL ]; then
+  if [ -z $TRIGGER ]; then
+    TRIGGER="fail"
+  fi
+
+  REPORT_EMAIL="
+  {
+      'type':'email',
+      'triggers': [ '$TRIGGER' ],
+      'emails':['$EMAIL']
+  },"
+fi
+
+CREATE_TASK=
+if [ ! -z $ONCALL ]; then
+  CREATE_TASK="
+  {
+      'type':'task',
+      'triggers':[ 'fail' ],
+      'assignee':'$ONCALL',
+      'priority':0,
+      'subscribers':[ '$SUBSCRIBER' ],
+      'tags':[ 'rocksdb', 'ci' ],
+  },"
+fi
+
+REPORT=
+if [[ ! -z $REPORT_EMAIL || ! -z $CREATE_TASK ]]; then
+  REPORT="'report': [
+    $REPORT_EMAIL
+    $CREATE_TASK
+  ]"
+fi
 
 #
 # Helper variables
 #
-REPORT_EMAIL="'report': [
-    {
-        'type':'email',
-        'triggers':['fail'],
-        'emails':['$EMAIL_ID']
-    }
-]"
-
 CLEANUP_ENV="
 {
-  'name':'Cleanup environment',
-  'shell':'rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && make clean',
-  'user':'root'
+    'name':'Cleanup environment',
+    'shell':'rm -rf /dev/shm/rocksdb && mkdir /dev/shm/rocksdb && make clean',
+    'user':'root'
 }"
 
-ONCALL="'oncall':'$EMAIL_ID'"
 DEBUG="OPT=-g"
 SHM="TEST_TMPDIR=/dev/shm/rocksdb"
 GCC_481="ROCKSDB_FBCODE_BUILD_WITH_481=1"
@@ -38,10 +76,10 @@ DISABLE_JEMALLOC="DISABLE_JEMALLOC=1"
 DISABLE_COMMANDS="[
     {
         'name':'Disable test',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             {
-              'name':'Raise disabled notification',
+              'name':'Job disabled. Please contact test owner',
               'shell':'exit 1',
               'user':'root'
             },
@@ -57,7 +95,7 @@ DISABLE_COMMANDS="[
 PARALLEL_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Parallel Unit Test',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -72,7 +110,7 @@ PARALLEL_UNIT_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -82,7 +120,7 @@ PARALLEL_UNIT_TEST_COMMANDS="[
 UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -91,7 +129,7 @@ UNIT_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -101,7 +139,7 @@ UNIT_TEST_COMMANDS="[
 UNIT_TEST_COMMANDS_481="[
     {
         'name':'Rocksdb Unit Test on GCC 4.8.1',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -110,7 +148,7 @@ UNIT_TEST_COMMANDS_481="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -120,7 +158,7 @@ UNIT_TEST_COMMANDS_481="[
 CLANG_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -129,7 +167,7 @@ CLANG_UNIT_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -139,7 +177,7 @@ CLANG_UNIT_TEST_COMMANDS="[
 CLANG_ANALYZE_COMMANDS="[
     {
         'name':'Rocksdb analyze',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -148,7 +186,7 @@ CLANG_ANALYZE_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -158,7 +196,7 @@ CLANG_ANALYZE_COMMANDS="[
 CODE_COV_COMMANDS="[
     {
         'name':'Rocksdb Unit Test Code Coverage',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -167,7 +205,7 @@ CODE_COV_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -177,7 +215,7 @@ CODE_COV_COMMANDS="[
 UNITY_COMMANDS="[
     {
         'name':'Rocksdb Unity',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -186,7 +224,7 @@ UNITY_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -196,6 +234,7 @@ UNITY_COMMANDS="[
 LITE_BUILD_COMMANDS="[
     {
         'name':'Rocksdb Lite build',
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -204,7 +243,7 @@ LITE_BUILD_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -214,7 +253,7 @@ LITE_BUILD_COMMANDS="[
 STRESS_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb Stress/Crash Test',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -230,7 +269,7 @@ STRESS_CRASH_TEST_COMMANDS="[
                 'user':'root'
             }
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -242,7 +281,7 @@ STRESS_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 ASAN_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under ASAN',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -251,7 +290,7 @@ ASAN_TEST_COMMANDS="[
                 'user':'root'
             }
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -261,7 +300,7 @@ ASAN_TEST_COMMANDS="[
 ASAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb crash test under ASAN',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -272,7 +311,7 @@ ASAN_CRASH_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -284,7 +323,7 @@ ASAN_CRASH_TEST_COMMANDS=$DISABLE_COMMANDS
 VALGRIND_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under valgrind',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -293,7 +332,7 @@ VALGRIND_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -303,7 +342,7 @@ VALGRIND_TEST_COMMANDS="[
 TSAN_UNIT_TEST_COMMANDS="[
     {
         'name':'Rocksdb Unit Test under TSAN',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -312,7 +351,7 @@ TSAN_UNIT_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -322,7 +361,7 @@ TSAN_UNIT_TEST_COMMANDS="[
 TSAN_CRASH_TEST_COMMANDS="[
     {
         'name':'Rocksdb Crash Test under TSAN',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'timeout': 86400,
         'steps': [
             $CLEANUP_ENV,
@@ -333,7 +372,7 @@ TSAN_CRASH_TEST_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -387,7 +426,7 @@ run_format_compatible()
 FORMAT_COMPATIBLE_COMMANDS="[
     {
         'name':'Rocksdb Format Compatible tests',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -396,7 +435,7 @@ FORMAT_COMPATIBLE_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -419,7 +458,7 @@ run_no_compression()
 NO_COMPRESSION_COMMANDS="[
     {
         'name':'Rocksdb No Compression tests',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -428,7 +467,7 @@ NO_COMPRESSION_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
@@ -475,7 +514,7 @@ run_regression()
 REGRESSION_COMMANDS="[
     {
         'name':'Rocksdb regression commands',
-        $ONCALL,
+        'oncall':'$ONCALL',
         'steps': [
             $CLEANUP_ENV,
             {
@@ -484,7 +523,7 @@ REGRESSION_COMMANDS="[
                 'user':'root'
             },
         ],
-        $REPORT_EMAIL
+        $REPORT
     }
 ]"
 
