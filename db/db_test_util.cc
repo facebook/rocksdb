@@ -343,6 +343,10 @@ Options DBTestBase::CurrentOptions(
       options.row_cache = NewLRUCache(1024 * 1024);
       break;
     }
+    case kRecycleLogFiles: {
+      options.recycle_log_file_num = 2;
+      break;
+    }
     case kLevelSubcompactions: {
       options.max_subcompactions = 4;
       break;
