@@ -169,6 +169,13 @@ class StackableDB : public DB {
         output_level, output_path_id);
   }
 
+  virtual Status PauseBackgroundWork() override {
+    return db_->PauseBackgroundWork();
+  }
+  virtual Status ContinueBackgroundWork() override {
+    return db_->ContinueBackgroundWork();
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return db_->NumberLevels(column_family);

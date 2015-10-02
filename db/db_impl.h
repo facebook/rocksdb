@@ -139,6 +139,9 @@ class DBImpl : public DB {
                               const int output_level,
                               const int output_path_id = -1) override;
 
+  virtual Status PauseBackgroundWork() override;
+  virtual Status ContinueBackgroundWork() override;
+
   using DB::SetOptions;
   Status SetOptions(
       ColumnFamilyHandle* column_family,
@@ -746,8 +749,8 @@ class DBImpl : public DB {
   // Unified interface for logging events
   EventLogger event_logger_;
 
-  // A value of true temporarily disables scheduling of background work
-  bool bg_work_gate_closed_;
+  // A value of >0 temporarily disables scheduling of background work
+  int bg_work_paused_;
 
   // Guard against multiple concurrent refitting
   bool refitting_level_;

@@ -524,6 +524,13 @@ class DB {
     return CompactFiles(compact_options, DefaultColumnFamily(),
                         input_file_names, output_level, output_path_id);
   }
+
+  // This function will wait until all currently running background processes
+  // finish. After it returns, no background process will be run until
+  // UnblockBackgroundWork is called
+  virtual Status PauseBackgroundWork() = 0;
+  virtual Status ContinueBackgroundWork() = 0;
+
   // Number of levels used for this DB.
   virtual int NumberLevels(ColumnFamilyHandle* column_family) = 0;
   virtual int NumberLevels() { return NumberLevels(DefaultColumnFamily()); }

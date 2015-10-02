@@ -5664,6 +5664,14 @@ class ModelDB: public DB {
     return Status::NotSupported("Not supported operation.");
   }
 
+  Status PauseBackgroundWork() override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
+  Status ContinueBackgroundWork() override {
+    return Status::NotSupported("Not supported operation.");
+  }
+
   using DB::NumberLevels;
   virtual int NumberLevels(ColumnFamilyHandle* column_family) override {
     return 1;
@@ -9633,6 +9641,33 @@ TEST_F(DBTest, AddExternalSstFileMultiThreaded) {
 
 INSTANTIATE_TEST_CASE_P(DBTestWithParam, DBTestWithParam,
                         ::testing::Values(1, 4));
+
+TEST_F(DBTest, PauseBackgroundWorkTest) {
+  Options options;
+  options.write_buffer_size = 100000;  // Small write buffer
+  options = CurrentOptions(options);
+  Reopen(options);
+
+  std::vector<std::thread> threads;
+  std::atomic<bool> done;
+  db_->PauseBackgroundWork();
+  threads.emplace_back([&]() {
+    Random rnd(301);
+    for (int i = 0; i < 10000; ++i) {
+      Put(RandomString(&rnd, 10), RandomString(&rnd, 10));
+    }
+    done.store(true);
+  });
+  env_->SleepForMicroseconds(200000);
+  // make sure the thread is not done
+  ASSERT_EQ(false, done.load());
+  db_->ContinueBackgroundWork();
+  for (auto& t : threads) {
+    t.join();
+  }
+  // now it's done
+  ASSERT_EQ(true, done.load());
+}
 
 }  // namespace rocksdb
 

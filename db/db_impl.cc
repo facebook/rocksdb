@@ -260,7 +260,7 @@ DBImpl::DBImpl(const DBOptions& options, const std::string& dbname)
       wal_manager_(db_options_, env_options_),
 #endif  // ROCKSDB_LITE
       event_logger_(db_options_.info_log.get()),
-      bg_work_gate_closed_(false),
+      bg_work_paused_(0),
       refitting_level_(false),
       opened_successfully_(false) {
   env_->GetAbsolutePath(dbname, &db_absolute_path_);
@@ -1548,7 +1548,13 @@ Status DBImpl::CompactRange(const CompactRangeOptions& options,
   }
 
   if (options.change_level) {
-    s = ReFitLevel(cfd, final_output_level, options.target_level);
+    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
+        "[RefitLevel] waiting for background threads to stop");
+    s = PauseBackgroundWork();
+    if (s.ok()) {
+      s = ReFitLevel(cfd, final_output_level, options.target_level);
+    }
+    ContinueBackgroundWork();
   }
   LogFlush(db_options_.info_log);
 
@@ -1747,6 +1753,25 @@ Status DBImpl::CompactFilesImpl(
 }
 #endif  // ROCKSDB_LITE
 
+Status DBImpl::PauseBackgroundWork() {
+  InstrumentedMutexLock guard_lock(&mutex_);
+  bg_work_paused_++;
+  while (bg_compaction_scheduled_ > 0 || bg_flush_scheduled_ > 0) {
+    bg_cv_.Wait();
+  }
+  return Status::OK();
+}
+
+Status DBImpl::ContinueBackgroundWork() {
+  InstrumentedMutexLock guard_lock(&mutex_);
+  assert(bg_work_paused_ > 0);
+  bg_work_paused_--;
+  if (bg_work_paused_ == 0) {
+    MaybeScheduleFlushOrCompaction();
+  }
+  return Status::OK();
+}
+
 void DBImpl::NotifyOnCompactionCompleted(
     ColumnFamilyData* cfd, Compaction *c, const Status &st,
     const CompactionJobStats& compaction_job_stats,
@@ -1857,14 +1882,18 @@ int DBImpl::FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
   return minimum_level;
 }
 
+// REQUIREMENT: block all background work by calling PauseBackgroundWork()
+// before calling this function
 Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   assert(level < cfd->NumberLevels());
   if (target_level >= cfd->NumberLevels()) {
     return Status::InvalidArgument("Target level exceeds number of levels");
   }
 
-  SuperVersion* superversion_to_free = nullptr;
-  SuperVersion* new_superversion = new SuperVersion();
+  std::unique_ptr<SuperVersion> superversion_to_free;
+  std::unique_ptr<SuperVersion> new_superversion(new SuperVersion());
+
+  Status status;
 
   InstrumentedMutexLock guard_lock(&mutex_);
 
@@ -1872,40 +1901,26 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   if (refitting_level_) {
     Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
         "[ReFitLevel] another thread is refitting");
-    delete new_superversion;
     return Status::NotSupported("another thread is refitting");
   }
   refitting_level_ = true;
 
-  // wait for all background threads to stop
-  bg_work_gate_closed_ = true;
-  while (bg_compaction_scheduled_ > 0 || bg_flush_scheduled_) {
-    Log(InfoLogLevel::INFO_LEVEL, db_options_.info_log,
-        "[RefitLevel] waiting for background threads to stop: %d %d",
-        bg_compaction_scheduled_, bg_flush_scheduled_);
-    bg_cv_.Wait();
-  }
-
-  const MutableCFOptions mutable_cf_options =
-    *cfd->GetLatestMutableCFOptions();
+  const MutableCFOptions mutable_cf_options = *cfd->GetLatestMutableCFOptions();
   // move to a smaller level
   int to_level = target_level;
   if (target_level < 0) {
     to_level = FindMinimumEmptyLevelFitting(cfd, mutable_cf_options, level);
   }
 
-  Status status;
   auto* vstorage = cfd->current()->storage_info();
   if (to_level > level) {
     if (level == 0) {
-      delete new_superversion;
       return Status::NotSupported(
           "Cannot change from level 0 to other levels.");
     }
     // Check levels are empty for a trivial move
     for (int l = level + 1; l <= to_level; l++) {
       if (vstorage->NumLevelFiles(l) > 0) {
-        delete new_superversion;
         return Status::NotSupported(
             "Levels between source and target are not empty for a move.");
       }
@@ -1913,8 +1928,8 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
   }
   if (to_level != level) {
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-        "[%s] Before refitting:\n%s",
-        cfd->GetName().c_str(), cfd->current()->DebugString().data());
+        "[%s] Before refitting:\n%s", cfd->GetName().c_str(),
+        cfd->current()->DebugString().data());
 
     VersionEdit edit;
     edit.SetColumnFamily(cfd->GetID());
@@ -1926,14 +1941,13 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
                    f->marked_for_compaction);
     }
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-        "[%s] Apply version edit:\n%s",
-        cfd->GetName().c_str(), edit.DebugString().data());
+        "[%s] Apply version edit:\n%s", cfd->GetName().c_str(),
+        edit.DebugString().data());
 
     status = versions_->LogAndApply(cfd, mutable_cf_options, &edit, &mutex_,
                                     directories_.GetDbDir());
-    superversion_to_free = InstallSuperVersionAndScheduleWork(
-        cfd, new_superversion, mutable_cf_options);
-    new_superversion = nullptr;
+    superversion_to_free.reset(InstallSuperVersionAndScheduleWork(
+        cfd, new_superversion.release(), mutable_cf_options));
 
     Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
         "[%s] LogAndApply: %s\n", cfd->GetName().c_str(),
@@ -1941,16 +1955,13 @@ Status DBImpl::ReFitLevel(ColumnFamilyData* cfd, int level, int target_level) {
 
     if (status.ok()) {
       Log(InfoLogLevel::DEBUG_LEVEL, db_options_.info_log,
-          "[%s] After refitting:\n%s",
-          cfd->GetName().c_str(), cfd->current()->DebugString().data());
+          "[%s] After refitting:\n%s", cfd->GetName().c_str(),
+          cfd->current()->DebugString().data());
     }
   }
 
   refitting_level_ = false;
-  bg_work_gate_closed_ = false;
 
-  delete superversion_to_free;
-  delete new_superversion;
   return status;
 }
 
@@ -2203,8 +2214,8 @@ void DBImpl::MaybeScheduleFlushOrCompaction() {
     // Compaction may introduce data race to DB open
     return;
   }
-  if (bg_work_gate_closed_) {
-    // gate closed for background work
+  if (bg_work_paused_ > 0) {
+    // we paused the background work
     return;
   } else if (shutting_down_.load(std::memory_order_acquire)) {
     // DB is being deleted; no more background compactions
