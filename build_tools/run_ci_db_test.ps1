@@ -1,3 +1,70 @@
+# This script enables you running RocksDB tests by running
+# All the tests in paralell and utilizing all the cores
+# For db_test the script first lists and parses the tests
+# and then fires them up in parallel using async PS Job functionality
+# Run the script from the enlistment
+Param(
+  [switch]$EnableJE = $false,  # Use je executable
+  [string]$WorkFolder = "",  # Direct tests to use that folder
+  [int]$Limit = -1, # -1 means run all otherwise limit for testing purposes
+  [string]$Exclude = "", # Expect a comma separated list, no spaces
+  [string]$Run = "db_test"  # Run db_test|tests
+)
+
+# Folders and commands must be fullpath to run assuming
+# the current folder is at the root of the git enlistment
+Get-Date
+
+# If running under Appveyor assume that root
+[string]$Appveyor = $Env:APPVEYOR_BUILD_FOLDER
+if($Appveyor -ne "") {
+    $RootFolder = $Appveyor
+} else {
+    $RootFolder = $PSScriptRoot -replace '\\build_tools', ''
+}
+
+$LogFolder = -Join($RootFolder, "\db_logs\")
+$BinariesFolder = -Join($RootFolder, "\build\Debug\")
+
+if($WorkFolder -eq "") {
+
+    # If TEST_TMPDIR is set use it    
+    [string]$var = $Env:TEST_TMPDIR
+    if($var -eq "") {
+        $WorkFolder = -Join($RootFolder, "\db_tests\")
+        $Env:TEST_TMPDIR = $WorkFolder
+    } else {
+        $WorkFolder = $var
+    }
+} else {
+# Override from a command line
+  $Env:TEST_TMPDIR = $WorkFolder
+}
+
+# Use JEMALLOC executables
+if($EnableJE) {
+    $db_test = -Join ($BinariesFolder, "db_test_je.exe")
+} else {
+    $db_test = -Join ($BinariesFolder, "db_test.exe")
+}
+
+Write-Output "Root: $RootFolder, WorkFolder: $WorkFolder"
+Write-Output "Binaries: $BinariesFolder exe: $db_test"
+
+#Exclusions that we do not want to run
+$ExcludeTests = New-Object System.Collections.Generic.HashSet[string]
+
+
+if($Exclude -ne "") {
+    Write-Host "Exclude: $Exclude"
+    $l = $Exclude -split ','
+    ForEach($t in $l) { $ExcludeTests.Add($t) | Out-Null }
+}
+
+# Create test directories in the current folder
+md -Path $WorkFolder -ErrorAction Ignore | Out-Null
+md -Path $LogFolder -ErrorAction Ignore | Out-Null
+
 # Extract the names of its tests by running db_test with --gtest_list_tests.
 # This filter removes the "#"-introduced comments, and expands to
 # fully-qualified names by changing input like this:
@@ -15,44 +82,17 @@
 #   DBTest.WriteEmptyBatch
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/0
 #   MultiThreaded/MultiThreadedDBTest.MultiThreaded/1
+# Output into the parameter in a form TestName -> Log File Name
+function Normalize-DbTests($HashTable) {
 
-# Folders and commands must be fullpath to run assuming
-# the current folder is at the root of the git enlistment
-Get-Date
-# Limit the number of tests to start for debugging purposes
-$limit = -1
+    $Tests = @()
+# Run db_test to get a list of tests and store it into $a array
+    &$db_test --gtest_list_tests | tee -Variable Tests | Out-Null
 
-$RootFolder = $pwd -replace '\\build_tools', ''
-$LogFolder = -Join($RootFolder, "\db_logs\")
-$TmpFolder = -Join($RootFolder, "\db_tests\")
-$Env:TEST_TMPDIR = $TmpFolder
-$global:db_test = -Join ($RootFolder, "\build\Debug\db_test.exe")
-
-#Exclusions that we do not want to run
-$ExcludeTests = @{
-<#
-"DBTest.HugeNumberOfLevels" = ""
-"DBTest.SparseMerge"  = ""
-"DBTest.RateLimitingTest"  = ""
-"DBTest.kAbsoluteConsistency"  = ""
-"DBTest.GroupCommitTest" = ""
-"DBTest.FileCreationRandomFailure"  = ""
-"DBTest.kTolerateCorruptedTailRecords"  = ""
-"DBTest.kSkipAnyCorruptedRecords"  = ""
-"DBTest.kPointInTimeRecovery"  = ""
-"DBTest.Randomized"  = ""
-#>
-}
-
-# Create test directories in the current folder
-md -Path $TmpFolder -ErrorAction Ignore
-md -Path $LogFolder -ErrorAction Ignore
-
-function Normalize-Tests([System.Array]$Tests, $HashTable) {
     # Current group
     $Group=""
 
-    ForEach( $l in $tests) {
+    ForEach( $l in $Tests) {
       # Trailing dot is a test group
       if( $l -match "\.$") {
         $Group = $l
@@ -67,7 +107,7 @@ function Normalize-Tests([System.Array]$Tests, $HashTable) {
             continue
         }
 
-        $test_log = $test -replace '[./]','_'
+        $test_log = $test -replace '[\./]','_'
         $test_log += ".log"
 
         # Add to a hashtable
@@ -76,20 +116,42 @@ function Normalize-Tests([System.Array]$Tests, $HashTable) {
     }
 }
 
-# Run db_test to get a list of tests and store it into $a array
-&$db_test --gtest_list_tests | tee -Variable TestList | Out-Null
+# The function scans build\Debug folder to discover
+# Test executables. It then populates a table with
+# Test executable name -> Log file
+function Discover-TestBinaries($HashTable) {
 
-# Parse the tests and store along with the log name into a hash
+    $Exclusions = @("db_test*", "db_sanity_test*")
+    $p = -join ($BinariesFolder, "*_test*.exe")
+
+    dir -Path $p -Exclude $Exclusions | ForEach-Object {
+       $t = ($_.Name) -replace '.exe$', ''
+       $test_log = -join ($t, ".log")
+       $HashTable.Add($t, $test_log)
+    }
+}
+
 $TestToLog = [ordered]@{}
 
-Normalize-Tests -Tests $TestList -HashTable $TestToLog
+if($Run -ceq "db_test") {
+    Normalize-DbTests -HashTable $TestToLog
+} elseif($Run -ceq "tests") {
+    Discover-TestBinaries -HashTable $TestToLog
+}
+
 
 Write-Host "Attempting to start: " ($TestToLog.Count) " tests"
 
-# Start jobs async each running a separate test
-$AsyncScript = {
+# Invoke a test with a filter and redirect all output
+$InvokeTestCase = {
     param($exe, $test, $log);
     &$exe --gtest_filter=$test > $log 2>&1
+}
+
+# Invoke all tests and redirect output
+$InvokeTestAsync = {
+    param($exe, $log)
+    &$exe > $log 2>&1
 }
 
 $jobs = @()
@@ -101,17 +163,23 @@ ForEach($k in $TestToLog.keys) {
 
     Write-Host "Starting $k"
     $log_path = -join ($LogFolder, ($TestToLog.$k))
-    $job = Start-Job -Name $k -ScriptBlock $AsyncScript -ArgumentList @($db_test,$k,$log_path)
+
+    if($Run -ceq "db_test") {
+        $job = Start-Job -Name $k -ScriptBlock $InvokeTestCase -ArgumentList @($db_test,$k,$log_path)
+    } else {
+        [string]$Exe =  -Join ($BinariesFolder, $k)
+        $job = Start-Job -Name $k -ScriptBlock $InvokeTestAsync -ArgumentList @($exe,$log_path)
+    }
+
     $JobToLog.Add($job, $log_path)
 
     # Limiting trial runs
-    if(($limit -gt 0) -and (++$count -ge $limit)) {
+    if(($Limit -gt 0) -and (++$count -ge $Limit)) {
          break
     }
 }
 
-
-$success = 1;
+[bool]$success = $true;
 
 # Wait for all to finish and get the results
 while($JobToLog.Count -gt 0) {
@@ -134,27 +202,31 @@ while($JobToLog.Count -gt 0) {
     $log_content = @(Get-Content $log)
 
     if($completed.State -ne "Completed") {
-        $success = 0
+        $success = $false
         Write-Warning $message
         $log_content | Write-Warning
     } else {
         # Scan the log. If we find PASSED and no occurence of FAILED
         # then it is a success
-        $pass_found = 0
+        [bool]$pass_found = $false
         ForEach($l in $log_content) {
 
-            if($l -match "^\[\s+FAILED") {
-                $pass_found = 0
+            if(($l -match "^\[\s+FAILED") -or
+               ($l -match "Assertion failed:")) {
+                $pass_found = $false
                 break
             }
 
-            if($l -match "^\[\s+PASSED") {
-                $pass_found = 1
+            if(($l -match "^\[\s+PASSED") -or
+               ($l -match " : PASSED$") -or
+                ($l -match "^PASSED") -or
+                ($l -match "Passed all tests!") ) {
+                $pass_found = $true
             }
         }
 
         if(!$pass_found) {
-            $success = 0;
+            $success = $false;
             Write-Warning $message
             $log_content | Write-Warning
         } else {
